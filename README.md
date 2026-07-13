@@ -30,16 +30,22 @@ BigQuery (synthetic dataset, rj-iplanrio-dev)
    │  scripts/sync.py: extract
    ▼
 GCS Parquet
-   │  duckdb.read_parquet('gs://...')
+   │  scripts/sync.py: read_parquet('gs://...') via pg_duckdb, superuser-only
    ▼
-pg_duckdb (Postgres 16 + DuckDB columnar tables)
-   │  schema = contract
+Postgres heap tables (api.citizens, api.service_records)  ──  schema = contract
+   │
    ▼
 PostgREST  ──HTTP headers (X-User-Units, ...)──▶  RLS policies filter rows
    │
    ▼
 Clients (curl / any HTTP client)
 ```
+
+pg_duckdb's DuckDB execution engine is used only inside `scripts/sync.py`'s batch load step —
+it cannot serve requests directly, since DuckDB execution bypasses the Postgres executor
+entirely and RLS can't apply to it. See `docs/phase-3-sync-findings.md` for the full finding.
+`api.citizens`/`api.service_records` are plain Postgres heap tables that RLS and PostgREST
+serve with zero DuckDB involvement.
 
 In production, `X-User-Units` and friends would be injected by the Kubernetes cluster's
 ext_authz sidecar after validating a JWT. This PoC's demo scripts set those headers by hand to
@@ -90,8 +96,8 @@ This PoC is being built in phases; see `.sisyphus/plans/poc-pedro-architecture.m
 
 - [x] Phase 0 — repo bootstrap
 - [x] Phase 1 — local infra + pg_duckdb/PostgREST introspection validation spike ([findings](docs/phase-1-validation.md))
-- [ ] Phase 2 — synthetic dataset in BigQuery
-- [ ] Phase 3 — sync script (BigQuery → GCS Parquet → pg_duckdb)
+- [x] Phase 2 — synthetic dataset in BigQuery (`scripts/seed_bigquery.py`)
+- [x] Phase 3 — sync script (BigQuery → GCS Parquet → pg_duckdb) ([findings](docs/phase-3-sync-findings.md))
 - [ ] Phase 4 — PostgREST exposure (filtering/pagination/OpenAPI)
 - [ ] Phase 5 — RLS wiring end-to-end test
 - [ ] Phase 6 — demo & validation script

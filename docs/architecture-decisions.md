@@ -20,13 +20,20 @@ out of scope here.
 
 ## Why pg_duckdb instead of plain PostgreSQL
 
-`pg_duckdb` embeds DuckDB's columnar engine inside Postgres. dbt marts are analytical by
-nature (GROUP BY, aggregations, filters over millions of rows) — DuckDB's columnar storage is
-materially cheaper for that access pattern than PostgreSQL's row-oriented heap tables, without
-requiring a separate system like ClickHouse. See `aplications-architecture/proposta-pedro`
-for the full reasoning; see `docs/phase-1-validation.md` for what's confirmed to actually work
-in this repo vs. what's still open (RLS specifically on `USING duckdb` tables, not yet
-re-validated past plain heap tables).
+`pg_duckdb` embeds DuckDB's columnar engine inside Postgres, and this PoC uses it specifically
+in `scripts/sync.py` to read Parquet mart output from GCS efficiently — DuckDB's columnar scan
+is materially cheaper for that than round-tripping through a separate ETL tool. See
+`aplications-architecture/proposta-pedro` for the full reasoning behind reading dbt marts
+straight from Parquet.
+
+**Important correction from the original plan**: pg_duckdb does *not* serve requests directly
+from `USING duckdb` columnar tables in this architecture. Phase 3 confirmed (see
+`docs/phase-3-sync-findings.md`) that DuckDB execution bypasses the Postgres executor entirely,
+which means Row-Level Security — the mechanism this repo relies on for row-level access control
+(see below) — cannot apply to a DuckDB-execution query path at all. Persistent `USING duckdb`
+tables also aren't available self-hosted without MotherDuck (a paid service). So pg_duckdb's
+role here is confined to the offline sync step; `api.citizens` / `api.service_records` are
+plain Postgres heap tables, and that is the permanent design, not a temporary fallback.
 
 ## Why Row-Level Security instead of delegating access control to the cluster
 

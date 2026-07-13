@@ -1,8 +1,11 @@
--- api.citizens/api.service_records are plain Postgres heap tables here, not
--- pg_duckdb `USING duckdb` columnar tables -- RLS+PostgREST introspection was
--- validated against heap tables in Phase 1; columnar serving tables arrive in
--- Phase 3 and carry their own re-validation (docs/phase-1-validation.md,
--- "What's still open").
+-- api.citizens/api.service_records are plain Postgres heap tables, NOT
+-- pg_duckdb `USING duckdb` columnar tables -- this is required, not a
+-- shortcut. Confirmed in Phase 3 (docs/phase-1-validation.md, "RLS vs
+-- DuckDB execution"): DuckDB execution completely bypasses the Postgres
+-- executor, including Row-Level Security. RLS can only ever apply to plain
+-- heap tables. pg_duckdb/DuckDB execution (read_parquet, etc.) is used
+-- exclusively in scripts/sync.py's offline batch step, never in the
+-- request-serving path these tables are part of.
 CREATE TABLE api.citizens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,

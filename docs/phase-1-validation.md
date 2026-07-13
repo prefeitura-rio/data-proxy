@@ -62,16 +62,13 @@ trust tutorials without checking the version they were written against.
 
 ## What's still open (deferred, not blocking)
 
-- **RLS directly on a `duckdb`-access-method table** (as opposed to a plain heap table) was not
-  separately re-verified in this spike. Given that (a) pg_duckdb tables do register normally in
-  `pg_class`/`pg_policies` per pg_duckdb's own docs, and (b) PostgREST's introspection here
-  worked via standard `pg_catalog` queries (nothing pg_duckdb-specific), there's no concrete
-  reason to expect a difference — but Phase 3 (sync into real pg_duckdb-backed serving tables)
-  should re-confirm RLS behaves identically once tables are actually created via
-  `CREATE TABLE ... USING duckdb` rather than as plain heap tables. If it does NOT behave
-  identically, the fallback documented in `.sisyphus/plans/poc-pedro-architecture.md` applies:
-  keep access-controlled tables as plain heap tables, reserve pg_duckdb specifically for
-  large read-heavy tables that don't need row-level filtering.
+- ~~RLS directly on a `duckdb`-access-method table~~ **RESOLVED in Phase 3, see
+  `docs/phase-3-sync-findings.md`.** Short version: RLS and DuckDB execution do not compose —
+  DuckDB execution bypasses the Postgres executor (and its RLS layer) entirely, and persistent
+  `USING duckdb` tables aren't even available self-hosted without MotherDuck. The fallback this
+  doc anticipated is the one that ended up being correct: `api.citizens`/`api.service_records`
+  stay plain heap tables; pg_duckdb/DuckDB execution is confined to `scripts/sync.py`'s offline
+  batch step only.
 - Performance under 50+ authorized units per caller was not load-tested in this phase (index
   exists — `citizens_unit_id_idx`, `service_records_unit_id_idx` — but no benchmark run yet).
 
