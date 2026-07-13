@@ -83,9 +83,17 @@ Postgres: `localhost:5544` (user/pass/db default to `poc`/`poc`/`poc`, see `.env
 - **`docs/architecture-decisions.md`** — the "why" behind every non-obvious choice in this
   repo (PostgREST vs. hand-written API, pg_duckdb vs. plain Postgres, RLS vs. cluster-only
   auth, docker-compose-only scope, synthetic data). Start here if you're adapting this pattern.
-- **`docs/phase-1-validation.md`** — what was actually tested (pg_duckdb + PostgREST +
-  RLS composability), the one real gotcha found (PostgREST v12's header GUC convention), and
-  what's still open.
+- **`docs/phase-1-validation.md`** — pg_duckdb + PostgREST + RLS composability on a plain
+  heap table, and the one PostgREST-version gotcha found (header GUC convention).
+- **`docs/phase-3-sync-findings.md`** — the load-bearing finding of this repo: RLS and DuckDB
+  execution don't compose, why pg_duckdb is confined to the sync step, and the sync-script
+  gotchas (composite row types, psycopg parameterization, FK-aware TRUNCATE).
+- **`docs/phase-4-postgrest-validation.md`** / **`docs/phase-5-rls-e2e-validation.md`** —
+  the same PostgREST/RLS behaviors re-confirmed at real data volume (500/1219 rows from the
+  actual BigQuery sync), plus write-rejection and cross-unit-leak checks `just demo` runs.
+- **`docs/app-pic-handoff.md`** — what from this PoC is directly relevant to app-pic's
+  in-flight Hono/Prisma/PostgreSQL migration (`app-pic/MIGRATION.md`), specifically around
+  RLS-vs-app-layer governance and BQ→Postgres sync gotchas.
 - **`db/init/*.sql`** — every file is commented inline explaining *why*, not just *what*.
   Read them in order (`01_extensions` → `02_roles` → `03_pre_request` → `04_schema`).
 
@@ -98,7 +106,7 @@ This PoC is being built in phases; see `.sisyphus/plans/poc-pedro-architecture.m
 - [x] Phase 1 — local infra + pg_duckdb/PostgREST introspection validation spike ([findings](docs/phase-1-validation.md))
 - [x] Phase 2 — synthetic dataset in BigQuery (`scripts/seed_bigquery.py`)
 - [x] Phase 3 — sync script (BigQuery → GCS Parquet → pg_duckdb) ([findings](docs/phase-3-sync-findings.md))
-- [ ] Phase 4 — PostgREST exposure (filtering/pagination/OpenAPI)
-- [ ] Phase 5 — RLS wiring end-to-end test
-- [ ] Phase 6 — demo & validation script
-- [ ] Phase 7 — handoff notes for app-pic
+- [x] Phase 4 — PostgREST exposure (filtering/pagination/OpenAPI) ([findings](docs/phase-4-postgrest-validation.md))
+- [x] Phase 5 — RLS wiring end-to-end test ([findings](docs/phase-5-rls-e2e-validation.md))
+- [x] Phase 6 — demo & validation script (`just demo`, `scripts/demo.sh`)
+- [x] Phase 7 — handoff notes for app-pic ([notes](docs/app-pic-handoff.md))
