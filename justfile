@@ -5,21 +5,21 @@ default:
 # Start the local stack (pg_duckdb + PostgREST)
 up:
     @echo "🐳 Starting pg_duckdb + PostgREST..."
-    docker compose up -d
+    docker-compose up -d
     @echo "PostgREST:  http://localhost:3111"
     @echo "Postgres:   localhost:5544"
 
 # Stop the local stack
 down:
-    docker compose down
+    docker-compose down
 
 # Stop the local stack and wipe all data (fresh start)
 reset:
-    docker compose down -v
+    docker-compose down -v
 
 # Tail logs from both services
 logs:
-    docker compose logs -f
+    docker-compose logs -f
 
 # Run the BigQuery -> GCS -> pg_duckdb sync script
 sync:

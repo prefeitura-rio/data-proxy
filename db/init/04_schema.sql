@@ -1,3 +1,8 @@
+-- api.citizens/api.service_records are plain Postgres heap tables here, not
+-- pg_duckdb `USING duckdb` columnar tables -- RLS+PostgREST introspection was
+-- validated against heap tables in Phase 1; columnar serving tables arrive in
+-- Phase 3 and carry their own re-validation (docs/phase-1-validation.md,
+-- "What's still open").
 CREATE TABLE api.citizens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -5,6 +10,9 @@ CREATE TABLE api.citizens (
   status text NOT NULL
 );
 
+-- Every RLS policy below filters by unit_id via `= ANY(array)`. This index is
+-- what keeps that an index scan instead of a sequential scan even when a
+-- caller is authorized for 50+ units at once.
 CREATE INDEX citizens_unit_id_idx ON api.citizens (unit_id);
 
 CREATE TABLE api.service_records (
@@ -21,6 +29,11 @@ CREATE INDEX service_records_citizen_id_idx ON api.service_records (citizen_id);
 ALTER TABLE api.citizens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api.service_records ENABLE ROW LEVEL SECURITY;
 
+-- app.user_units is populated per-request by api.pre_request() (see
+-- 03_pre_request.sql) from the X-User-Units header. Empty/missing header ->
+-- empty string -> string_to_array gives {} -> ANY({}) is always false ->
+-- fails closed (zero rows), which is the correct default when identity
+-- can't be established. Verified in Phase 1 (docs/phase-1-validation.md).
 CREATE POLICY unit_scoped ON api.citizens
   USING (unit_id = ANY(string_to_array(current_setting('app.user_units', true), ',')));
 

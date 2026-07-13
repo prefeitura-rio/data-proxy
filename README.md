@@ -72,13 +72,24 @@ just demo         # curl examples: filtering, pagination, RLS enforcement
 PostgREST: http://localhost:3111 (OpenAPI spec at `GET /`)
 Postgres: `localhost:5544` (user/pass/db default to `poc`/`poc`/`poc`, see `.env.example`)
 
+## Documentation
+
+- **`docs/architecture-decisions.md`** — the "why" behind every non-obvious choice in this
+  repo (PostgREST vs. hand-written API, pg_duckdb vs. plain Postgres, RLS vs. cluster-only
+  auth, docker-compose-only scope, synthetic data). Start here if you're adapting this pattern.
+- **`docs/phase-1-validation.md`** — what was actually tested (pg_duckdb + PostgREST +
+  RLS composability), the one real gotcha found (PostgREST v12's header GUC convention), and
+  what's still open.
+- **`db/init/*.sql`** — every file is commented inline explaining *why*, not just *what*.
+  Read them in order (`01_extensions` → `02_roles` → `03_pre_request` → `04_schema`).
+
 ## Status
 
 This PoC is being built in phases; see `.sisyphus/plans/poc-pedro-architecture.md` in the
 `prefeitura-rio` workspace root for the full plan, decisions, and open risks.
 
 - [x] Phase 0 — repo bootstrap
-- [ ] Phase 1 — local infra + pg_duckdb/PostgREST introspection validation spike
+- [x] Phase 1 — local infra + pg_duckdb/PostgREST introspection validation spike ([findings](docs/phase-1-validation.md))
 - [ ] Phase 2 — synthetic dataset in BigQuery
 - [ ] Phase 3 — sync script (BigQuery → GCS Parquet → pg_duckdb)
 - [ ] Phase 4 — PostgREST exposure (filtering/pagination/OpenAPI)
