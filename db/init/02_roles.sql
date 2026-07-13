@@ -1,0 +1,7 @@
+CREATE ROLE web_anon NOLOGIN NOBYPASSRLS;
+
+CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'authenticator';
+GRANT web_anon TO authenticator;
+
+CREATE SCHEMA IF NOT EXISTS api;
+GRANT USAGE ON SCHEMA api TO web_anon;
