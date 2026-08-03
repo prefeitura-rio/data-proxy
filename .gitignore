@@ -9,4 +9,5 @@ build/
 .ruff_cache/
 credentials.json
 *.parquet
-.direnv/
+.devenv/
+.pre-commit-config.yaml

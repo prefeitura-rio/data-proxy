@@ -30,6 +30,7 @@ import psycopg
 from dotenv import load_dotenv
 from google.cloud import bigquery, storage
 from loguru import logger
+from psycopg import sql
 
 load_dotenv()
 
@@ -143,13 +144,20 @@ def load_into_pg_duckdb(
         # DuckDB's planner has to infer a type for. Safe here because
         # gcs_uri is built entirely by export_table_to_gcs() above from our
         # own BUCKET/bq_table constants, never from external/user input.
-        assert gcs_uri.startswith(f"gs://{BUCKET}/") and "'" not in gcs_uri
+        assert gcs_uri.startswith(f"gs://{BUCKET}/")
+        assert "'" not in gcs_uri
         cur.execute(
-            f"CREATE TEMP TABLE {tmp_name} AS "
-            f"SELECT {select_exprs} FROM read_parquet('{gcs_uri}') AS r"
+            sql.SQL(
+                f"CREATE TEMP TABLE {tmp_name} AS "
+                f"SELECT {select_exprs} FROM read_parquet('{gcs_uri}') AS r"
+            )
         )
-        cur.execute(f"INSERT INTO api.{pg_table} ({col_names}) SELECT {col_names} FROM {tmp_name}")
-        cur.execute(f"DROP TABLE {tmp_name}")
+        cur.execute(
+            sql.SQL(
+                f"INSERT INTO api.{pg_table} ({col_names}) SELECT {col_names} FROM {tmp_name}"
+            )
+        )
+        cur.execute(sql.SQL(f"DROP TABLE {tmp_name}"))
     conn.commit()
     logger.info(f"Loaded {gcs_uri} -> api.{pg_table}")
 
@@ -165,7 +173,7 @@ def truncate_all(conn: psycopg.Connection, pg_tables: list[str]):
     # existence, not the referencing table's current row count.
     table_list = ", ".join(f"api.{t}" for t in pg_tables)
     with conn.cursor() as cur:
-        cur.execute(f"TRUNCATE {table_list}")
+        cur.execute(sql.SQL(f"TRUNCATE {table_list}"))
     conn.commit()
 
 

@@ -22,7 +22,7 @@ running this script.
 import os
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from dotenv import load_dotenv
 from google.cloud import bigquery
@@ -42,26 +42,24 @@ RECORDS_PER_CITIZEN_RANGE = (1, 4)
 
 
 def build_citizens() -> list[dict]:
-    rows = []
-    for _ in range(N_CITIZENS):
-        rows.append(
-            {
-                "id": str(uuid.uuid4()),
-                "name": f"Cidadao {uuid.uuid4().hex[:8]}",
-                "unit_id": random.choice(UNITS),
-                "status": random.choice(STATUSES),
-            }
-        )
-    return rows
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "name": f"Cidadao {uuid.uuid4().hex[:8]}",
+            "unit_id": random.choice(UNITS),
+            "status": random.choice(STATUSES),
+        }
+        for _ in range(N_CITIZENS)
+    ]
 
 
 def build_service_records(citizens: list[dict]) -> list[dict]:
-    rows = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
+    rows: list[dict] = []
     for citizen in citizens:
         n_records = random.randint(*RECORDS_PER_CITIZEN_RANGE)
-        for _ in range(n_records):
-            rows.append(
+        rows.extend(
+            [
                 {
                     "id": str(uuid.uuid4()),
                     "citizen_id": citizen["id"],
@@ -71,7 +69,9 @@ def build_service_records(citizens: list[dict]) -> list[dict]:
                         now - timedelta(days=random.randint(0, 365))
                     ).isoformat(),
                 }
-            )
+                for _ in range(n_records)
+            ]
+        )
     return rows
 
 
