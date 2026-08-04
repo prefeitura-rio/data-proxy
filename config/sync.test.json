@@ -1,0 +1,17 @@
+{
+  "tables": [
+    {
+      "bq_table": "dev.app_pequenos_cariocas.endpoint_participante_listagem",
+      "strategy": "dump"
+    },
+    {
+      "bq_table": "dev.projeto_pequenos_cariocas.protocolo_estado_diario",
+      "strategy": "window",
+      "partition": {
+        "column": "protocolo_data_referencia_particicao",
+        "type": "DAY",
+        "n": 7
+      }
+    }
+  ]
+}

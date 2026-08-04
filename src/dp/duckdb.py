@@ -4,6 +4,9 @@ from typing import Protocol
 
 import duckdb
 
+from .settings import settings
+from .templates import load_template
+
 
 class DBConnection(Protocol):
     """Structural interface for the DuckDB methods used by the sync pipeline."""
@@ -14,12 +17,20 @@ class DBConnection(Protocol):
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None: ...
 
 
-def connect(extensions: list[str] | None = None) -> duckdb.DuckDBPyConnection:
-    """Create an in-memory DuckDB connection, loading requested extensions."""
+def connect() -> duckdb.DuckDBPyConnection:
+    """Create an in-memory DuckDB connection with all extensions and secrets loaded."""
     conn = duckdb.connect()
 
-    for ext in extensions or []:
-        conn.execute(f"INSTALL {ext}")
-        conn.execute(f"LOAD {ext}")
+    conn.execute(
+        load_template(
+            "setup",
+            {
+                "key_id": settings.GCS_KEY_ID,
+                "secret_key": settings.GCS_SECRET_KEY,
+                "endpoint": settings.GCS_ENDPOINT,
+                "use_ssl": settings.GCS_USE_SSL,
+            },
+        )
+    )
 
     return conn

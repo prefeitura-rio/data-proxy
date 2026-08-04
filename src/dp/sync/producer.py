@@ -45,7 +45,7 @@ def expand_config(
     - ``window`` tables query BigQuery for the last *n* partition values and
       produce one message per value.
     """
-    with connect(extensions=["bigquery"]) as db:
+    with connect() as db:
         for table in config.tables:
             match table:
                 case DumpTable():

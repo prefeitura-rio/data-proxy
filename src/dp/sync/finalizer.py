@@ -93,7 +93,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
     logger.info("Finalizing sync_id=%s", msg.sync_id)
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
-    with connect(extensions=["postgres"]) as db:
+    with connect() as db:
         db.execute(f"ATTACH '{settings.PG_DSN}' AS pg (TYPE postgres)")
 
         for table in config.tables:

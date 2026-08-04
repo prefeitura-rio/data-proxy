@@ -3,12 +3,9 @@
 from pathlib import Path
 from typing import ClassVar
 
-from pydantic import Field
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
-
-test_env = Path(".env.test")
 
 
 class Settings(BaseSettings):
@@ -16,14 +13,18 @@ class Settings(BaseSettings):
 
     model_config: ClassVar[SettingsConfigDict] = {
         "extra": "ignore",
-        "env_file": test_env if test_env.exists() else ".env",
+        "env_file": ".env",
     }
 
-    GCS_BUCKET: str = Field(default=...)
-    PG_DSN: str = Field(default=...)
+    GCS_BUCKET: str = "test-bucket"
+    PG_DSN: str = "postgresql://test:test@localhost:5432/test"
     PG_SCHEMA: str = "pic"
     REDIS_URL: RedisDsn = RedisDsn("redis://localhost:6379/0")
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
+    GCS_KEY_ID: str = "fake"
+    GCS_SECRET_KEY: str = "fake"  # noqa: S105
+    GCS_ENDPOINT: str = "localhost:4443"
+    GCS_USE_SSL: str = "false"
 
     def make_redis(self) -> Redis[bytes]:
         """Return a Redis client from the configured URL."""

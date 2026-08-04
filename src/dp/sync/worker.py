@@ -39,7 +39,7 @@ async def process_shard(msg: SyncTask) -> None:
     """Consume one task: BigQuery → GCS Parquet via DuckDB COPY."""
     template, mapping = build_mapping(msg)
 
-    with connect(extensions=["bigquery"]) as db:
+    with connect() as db:
         db.execute(load_template(template, mapping))
 
     async with settings.make_redis() as redis:
