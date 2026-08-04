@@ -1,9 +1,9 @@
 services:
   db:
-    image: pgduckdb/pgduckdb:16-v1.1.1
+    image: pgduckdb/pgduckdb:17-v1.1.1
     restart: unless-stopped
     ports:
-      - "5544:5432"
+      - 5544:5432
     environment:
       POSTGRES_USER: ${DB_USER:-poc}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-poc}
@@ -12,12 +12,14 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-poc} -d ${DB_NAME:-poc}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${DB_USER:-poc} -d ${DB_NAME:-poc}
       interval: 5s
       timeout: 5s
       retries: 10
-    networks: [backend]
-
+    networks:
+      - backend
   postgrest:
     image: postgrest/postgrest:v12.2.8
     restart: unless-stopped
@@ -25,17 +27,23 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "3111:3000"
+      - 3111:3000
     environment:
       PGRST_DB_URI: postgres://${DB_USER:-poc}:${DB_PASSWORD:-poc}@db:5432/${DB_NAME:-poc}
       PGRST_DB_SCHEMA: api
       PGRST_DB_ANON_ROLE: web_anon
       PGRST_DB_PRE_REQUEST: api.pre_request
       PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3111
-    networks: [backend]
-
+    networks:
+      - backend
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - 6379:6379
+    networks:
+      - backend
 networks:
   backend:
-
 volumes:
   pgdata:

@@ -7,6 +7,15 @@
     UV_PYTHON = config.languages.python.package.outPath;
   };
 
+  packages = with pkgs; [
+    curl
+    jq
+    k6
+    (google-cloud-sdk.withExtraComponents (
+      with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
+    ))
+  ];
+
   languages.python = {
     enable = true;
     package = pkgs.python314;
@@ -20,10 +29,7 @@
     };
   };
 
-  packages = with pkgs; [
-    curl
-    jq
-  ];
+  treefmt.config.programs.sqlfluff.enable = true;
 
   git-hooks.hooks = {
     ruff.enable = true;
@@ -37,13 +43,6 @@
       types = [ "python" ];
       pass_filenames = false;
     };
-    no-commit-to-branch = {
-      enable = true;
-      settings.branch = [
-        "master"
-        "main"
-      ];
-    };
   };
 
   scripts = {
@@ -54,6 +53,7 @@
   };
 
   tasks = {
+    "app:test".exec = "pytest --cov=dp --cov-report=term-missing --ignore-glob='*constants*' --ignore-glob='*duckdb*' --ignore-glob='*settings*' --ignore-glob='*templates*' --ignore-glob='*models*'";
     "app:lint".exec = "ruff check && ruff format --check";
     "app:fmt".exec = "ruff check --fix && ruff format";
   };
