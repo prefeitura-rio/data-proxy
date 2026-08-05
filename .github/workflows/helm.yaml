@@ -3,8 +3,13 @@ name: Helm chart
 on:
   push:
     branches: [main]
-    paths: [helm/**]
-    paths-ignore: [helm/charts/**]
+    paths:
+      - helm/Chart.yaml
+      - helm/Chart.lock
+      - helm/values.yaml
+      - helm/ci/**
+      - helm/db/**
+      - helm/templates/**
   workflow_dispatch:
 
 concurrency:
