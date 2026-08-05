@@ -1,0 +1,59 @@
+image:
+  repository: gcr.io/proj/data-proxy
+  tag: "1.0.0"
+
+duckdb:
+  password: pgpass
+  authenticatorPassword: authrole
+
+gcs:
+  bucket: prod-bucket
+  keyId: hmac-key-id
+  secretKey: hmac-secret
+
+postgrest:
+  schemas: "app_pequenos_cariocas,projeto_pequenos_cariocas"
+  proxyUri: https://api.example.com
+  jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
+
+valkey:
+  auth:
+    password: testpass
+
+producer:
+  schedule: "0 2 * * *"
+
+auth:
+  anonRole: dp_anon
+  authenticatorRole: dp_auth
+  jwtClaim: unidades
+  sessionVar: app.user_units
+  rlsSchema: rls
+
+ha:
+  enabled: true
+  patroni:
+    image: gcr.io/proj/pgduckdb-patroni:17-v1.1.1
+    replicas: 3
+    maxWalSenders: 10
+    walKeepSize: 1GB
+    replicationUsername: replicator
+    replicationPassword: replpass
+  pgbouncer:
+    image: pgbouncer/pgbouncer:1.23.1
+    rw:
+      replicas: 1
+      maxClientConn: 100
+      defaultPoolSize: 10
+    ro:
+      replicas: 1
+      maxClientConn: 200
+      defaultPoolSize: 20
+
+syncConfig:
+  tables:
+    - bq_table: rj-proj.dev.endpoint_participante_listagem
+      strategy: dump
+      pg_schema: app_pequenos_cariocas
+      rls:
+        column: id_unidade

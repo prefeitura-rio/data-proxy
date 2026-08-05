@@ -7,6 +7,15 @@
     UV_PYTHON = config.languages.python.package.outPath;
   };
 
+  packages = with pkgs; [
+    curl
+    jq
+    k6
+    (google-cloud-sdk.withExtraComponents (
+      with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
+    ))
+  ];
+
   languages.python = {
     enable = true;
     package = pkgs.python314;
@@ -20,41 +29,30 @@
     };
   };
 
-  packages = with pkgs; [
-    curl
-    jq
-  ];
+  treefmt.config.programs.sqlfluff.enable = true;
 
   git-hooks.hooks = {
     ruff.enable = true;
     ruff-format.enable = true;
     ripsecrets.enable = true;
-    ty = {
+    basedpyright = {
       enable = true;
-      name = "ty";
-      entry = "uv run ty check";
+      name = "basedpyright";
+      entry = "uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
       pass_filenames = false;
     };
-    no-commit-to-branch = {
-      enable = true;
-      settings.branch = [
-        "master"
-        "main"
-      ];
-    };
   };
 
   scripts = {
-    up.exec = "docker-compose up -d";
-    down.exec = "docker-compose down";
-    reset.exec = "docker-compose down -v";
-    logs.exec = "docker-compose logs -f";
+    seed.exec = ''uv run python scripts/seed.py "$@"'';
+    get-token.exec = "bash scripts/token.sh";
   };
 
   tasks = {
-    "app:lint".exec = "ruff check && ruff format --check";
+    "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "app:lint".exec = "ruff check && basedpyright src/ tests/";
     "app:fmt".exec = "ruff check --fix && ruff format";
   };
 }

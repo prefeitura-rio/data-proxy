@@ -1,0 +1,109 @@
+name: Helm chart
+
+on:
+  push:
+    branches: [main]
+    paths: [helm/**]
+  workflow_dispatch:
+
+concurrency:
+  group: helm-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_PREFIX: ghcr.io/${{ github.repository_owner }}/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v5
+
+      - name: Read current version
+        id: version
+        run: |
+          CURRENT=$(yq eval '.version' helm/Chart.yaml)
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          NEXT="$MAJOR.$((MINOR + 1)).0"
+          echo "current=$CURRENT"   >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT"         >> "$GITHUB_OUTPUT"
+          echo "tag=helm-v$CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ${{ env.REGISTRY }} \
+                -u ${{ github.actor }} \
+                --password-stdin
+
+      - name: Lint
+        run: |
+          helm lint helm/ -f helm/ci/test-values.yaml
+          helm lint helm/ -f helm/ci/test-values-ha.yaml
+
+      - name: Package
+        run: helm package helm/ --destination ./packaged/
+
+      - name: Push to GHCR
+        run: helm push ./packaged/*.tgz oci://${{ env.REGISTRY_PREFIX }}
+
+      - name: Bump minor version in Chart.yaml
+        run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+
+      - name: Commit version bump and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm/Chart.yaml
+          git commit -m "chore: bump helm chart to ${{ steps.version.outputs.next }} [skip ci]"
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin HEAD:main
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname \
+            | grep -E "^helm-v" | sed -n '2p' || true)
+          gh release create "$TAG" \
+            --title "Helm chart $TAG" \
+            ${PREV_TAG:+--notes-start-tag "$PREV_TAG"} \
+            --generate-notes \
+            --notes "## data-proxy $TAG
+
+          ### Install
+
+          \`\`\`bash
+          helm install my-release \
+            oci://${{ env.REGISTRY_PREFIX }}/data-proxy \
+            --version $CURRENT
+          \`\`\`
+
+          ### Pull
+
+          \`\`\`bash
+          helm pull \
+            oci://${{ env.REGISTRY_PREFIX }}/data-proxy \
+            --version $CURRENT
+          \`\`\`"
+
+      - name: Upload .tgz to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release upload "$TAG" ./packaged/*.tgz

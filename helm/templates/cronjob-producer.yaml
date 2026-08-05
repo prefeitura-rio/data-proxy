@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-producer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: producer
+spec:
+  schedule: {{ .Values.producer.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.producer.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.producer.ttlSecondsAfterFinished }}
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: producer
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+          containers:
+            - name: producer
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "-m", "dp.sync.producer"]
+              env:
+                {{- include "data-proxy.appEnv" . | nindent 16 }}
+              volumeMounts:
+                {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
+          volumes:
+            {{- include "data-proxy.syncConfigVolume" . | nindent 12 }}

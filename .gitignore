@@ -11,3 +11,4 @@ credentials.json
 *.parquet
 .devenv/
 .pre-commit-config.yaml
+todo.txt

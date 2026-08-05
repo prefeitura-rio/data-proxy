@@ -1,0 +1,49 @@
+{{- if .Values.ha.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.pgbouncerRwName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer-rw
+spec:
+  replicas: {{ .Values.ha.pgbouncer.rw.replicas }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgbouncer-rw
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pgbouncer-rw
+    spec:
+      containers:
+        - name: pgbouncer
+          image: {{ .Values.ha.pgbouncer.image }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer/pgbouncer.ini
+              subPath: pgbouncer.ini
+              readOnly: true
+            - name: auth
+              mountPath: /etc/pgbouncer/userlist.txt
+              subPath: userlist.txt
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "data-proxy.pgbouncerRwName" . }}
+        - name: auth
+          secret:
+            secretName: {{ include "data-proxy.fullname" . }}-pgbouncer-auth
+{{- end }}
