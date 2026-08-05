@@ -1,112 +1,201 @@
-# poc-pg-duckdb-postgrest
+# data-proxy
 
-Proof of concept implementing **Option A** of
-[`aplications-architecture/proposta-pedro`](https://github.com/prefeitura-rio/aplications-architecture/blob/master/proposta-pedro/README.md):
-a read-only serving layer for BigQuery/dbt marts, backed by
-[pg_duckdb](https://github.com/duckdb/pg_duckdb) (PostgreSQL + embedded DuckDB columnar engine)
-and exposed via [PostgREST](https://postgrest.org) — no hand-written API code, the Postgres
-schema *is* the REST contract.
+[![CI](https://github.com/iplanrio/data-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/iplanrio/data-proxy/actions/workflows/ci.yaml)
+[![Helm chart](https://github.com/iplanrio/data-proxy/actions/workflows/helm.yaml/badge.svg)](https://github.com/iplanrio/data-proxy/actions/workflows/helm.yaml)
 
-This PoC also closes a gap the workspace's own
-[`comparacao-propostas-arquitetura.md`](https://github.com/prefeitura-rio/aplications-architecture)
-review flagged in proposta-pedro: "delegating row-level security to the cluster is
-insufficient — the cluster can verify identity but has no way to inject a SQL filter clause."
-Here, row-level access control is enforced with Postgres Row-Level Security (RLS) policies,
-fed by HTTP headers that the cluster injects after validating identity upstream.
+data-proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) and exposes them through a PostgREST REST API with row-level security based on JWT claims.
 
-**What this is not:** a replacement for [app-pic](https://github.com/prefeitura-rio/app-pic)'s
-current in-flight migration (Hono/Prisma/PostgreSQL, see `app-pic/MIGRATION.md`). This PoC
-exists to give the app-pic team (and any future BigQuery-serving app) a concrete, working
-reference to evaluate against that path — not a recommendation of which to pick.
+## How It Works
 
-**Scope:** runs entirely via `docker-compose`. No Kubernetes, no Cloud SQL, no Prefect. The
-only real external dependency is BigQuery + GCS in the existing sandbox project
-`rj-iplanrio-dev`, hit by a plain, manually-triggered sync script.
+The pipeline has three services:
+
+- **Producer** — reads the sync configuration, queries BigQuery for partition values, and sends one task per table to a Redis stream.
+- **Worker** — consumes tasks from the stream and writes each table as a Parquet file to Google Cloud Storage.
+- **Finalizer** — reads the Parquet files from GCS with DuckDB, writes the data to PostgreSQL, and signals PostgREST to reload its schema cache.
+
+PostgREST serves the data through a REST API. The `pre_request` function reads the JWT claim and sets a PostgreSQL session variable. Row-level security policies use this variable to filter rows by organisational unit.
 
 ## Architecture
 
+### Standalone
+
+Use standalone mode for development and single-region deployments.
+
+```mermaid
+flowchart TD
+    BQ[(BigQuery)]
+    R[(Redis\nStreams)]
+    GCS[(GCS\nParquet)]
+    DB[(pgduckdb)]
+
+    subgraph pipeline[Sync pipeline]
+        P[Producer] --> R --> W[Worker]
+        W --> GCS --> FIN[Finalizer]
+    end
+
+    BQ -->|discover partitions| P
+    FIN -->|COPY INTO| DB
+    DB --> PGRST[PostgREST]
+    PGRST -->|REST + JWT| Client([API Client])
 ```
-BigQuery (synthetic dataset, rj-iplanrio-dev)
-   │  scripts/sync.py: extract
-   ▼
-GCS Parquet
-   │  scripts/sync.py: read_parquet('gs://...') via pg_duckdb, superuser-only
-   ▼
-Postgres heap tables (api.citizens, api.service_records)  ──  schema = contract
-   │
-   ▼
-PostgREST  ──HTTP headers (X-User-Units, ...)──▶  RLS policies filter rows
-   │
-   ▼
-Clients (curl / any HTTP client)
+
+### High Availability
+
+Use HA mode for production. Patroni manages a three-node PostgreSQL cluster. PgBouncer separates write traffic (to the leader) from read traffic (to the replicas). The Kubernetes API serves as the distributed configuration store (DCS).
+
+```mermaid
+flowchart TD
+    BQ[(BigQuery)]
+    R[(Redis\nStreams)]
+    GCS[(GCS\nParquet)]
+    K8S[(K8s API\nDCS)]
+
+    subgraph pipeline[Sync pipeline]
+        P[Producer] --> R --> W[Worker]
+        W --> GCS --> FIN[Finalizer]
+    end
+
+    subgraph patroni[Patroni cluster]
+        direction LR
+        PGL[(Leader)] -->|WAL| PGR1[(Replica 1)]
+        PGL -->|WAL| PGR2[(Replica 2)]
+    end
+
+    BQ -->|discover partitions| P
+    FIN -->|write| PBrw[PgBouncer\nrw]
+    PBrw --> PGL
+    PGL & PGR1 & PGR2 <-->|leader election| K8S
+    PGRST[PostgREST] -->|read| PBro[PgBouncer\nro]
+    PBro --> PGR1 & PGR2
+    PGRST -->|REST + JWT| Client([API Client])
 ```
 
-pg_duckdb's DuckDB execution engine is used only inside `scripts/sync.py`'s batch load step —
-it cannot serve requests directly, since DuckDB execution bypasses the Postgres executor
-entirely and RLS can't apply to it. See `docs/phase-3-sync-findings.md` for the full finding.
-`api.citizens`/`api.service_records` are plain Postgres heap tables that RLS and PostgREST
-serve with zero DuckDB involvement.
+## Sync Configuration
 
-In production, `X-User-Units` and friends would be injected by the Kubernetes cluster's
-ext_authz sidecar after validating a JWT. This PoC's demo scripts set those headers by hand to
-simulate that trust boundary.
+The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 
-## Row-level access control
+```json
+{
+  "tables": [
+    {
+      "bq_table": "project.dataset.table",
+      "strategy": "dump",
+      "pg_schema": "my_schema",
+      "rls": { "column": "unit_id" }
+    },
+    {
+      "bq_table": "project.dataset.events",
+      "strategy": "window",
+      "pg_schema": "my_schema",
+      "partition": {
+        "column": "data_particao",
+        "type": "DAY",
+        "n": 7
+      },
+      "rls": { "column": "unit_id" }
+    }
+  ]
+}
+```
 
-- PostgREST does **not** verify a JWT here — the cluster already did, and just forwards plain
-  headers. PostgREST is configured to trust them (`PGRST_DB_PRE_REQUEST`).
-- `api.pre_request()` runs once per request (same transaction as the query) and copies the
-  `X-User-Units` header into a Postgres session variable via `set_config(..., true)` — no SQL
-  string concatenation, no injection surface.
-- RLS policies do `unit_id = ANY(string_to_array(current_setting('app.user_units', true), ','))`
-  — an indexable `= ANY(array)` predicate (see `citizens_unit_id_idx` /
-  `service_records_unit_id_idx`), so it stays fast even with 50+ authorized units per caller.
-- A single `web_anon` role (`NOBYPASSRLS`, `SELECT`-only) serves every request — no per-request
-  Postgres role switching, since there's no JWT claim to derive a role from.
+| Field | Required | Description |
+|---|---|---|
+| `bq_table` | yes | Full BigQuery table reference (`project.dataset.table`). |
+| `strategy` | yes | `dump` replaces the full table. `window` replaces the last *n* partitions. |
+| `pg_schema` | no | Target PostgreSQL schema. The default is the BigQuery dataset name. |
+| `rls.column` | no | Column used for row-level security. Omit this field to disable RLS on the table. |
+| `partition.column` | window only | BigQuery partition column name. |
+| `partition.type` | window only | Partition granularity. Valid values: `DAY`, `MONTH`. |
+| `partition.n` | window only | Number of most-recent partitions to sync. |
 
-See `db/init/02_roles.sql`, `db/init/03_pre_request.sql`, `db/init/04_schema.sql`.
+## Environment Variables
 
-## Running locally
+All pipeline services (producer, worker, finalizer) read these variables.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PG_DSN` | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, this points directly to the leader to preserve DuckDB libpq session state. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for the task queue. |
+| `GCS_BUCKET` | `test-bucket` | Name of the GCS bucket that stores Parquet files. |
+| `GCS_ENDPOINT` | `localhost:9000` | GCS endpoint host and port. Leave empty to use real GCS. Set to `host:port` for MinIO. |
+| `GCS_USE_SSL` | `false` | Set to `true` when you connect to real GCS. |
+| `GCS_KEY_ID` | — | HMAC key ID for GCS access. |
+| `GCS_SECRET_KEY` | — | HMAC secret key for GCS access. |
+| `SYNC_CONFIG_PATH` | `config/sync.json` | Path to the sync configuration file. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to a GCP service account JSON file for BigQuery access. This variable is not required on GKE with Workload Identity. |
+
+## Helm Chart
+
+The chart publishes to `oci://ghcr.io/iplanrio/charts`.
 
 ```bash
-just up          # starts pg_duckdb + PostgREST
-just seed-bq      # one-time: creates the synthetic BQ dataset + tables
-just sync         # BigQuery -> GCS Parquet -> pg_duckdb
-just demo         # curl examples: filtering, pagination, RLS enforcement
+helm install data-proxy \
+  oci://ghcr.io/iplanrio/charts/data-proxy \
+  --version 1.0.0 \
+  --values my-values.yaml
 ```
 
-PostgREST: http://localhost:3111 (OpenAPI spec at `GET /`)
-Postgres: `localhost:5544` (user/pass/db default to `poc`/`poc`/`poc`, see `.env.example`)
+See [`helm/values.yaml`](helm/values.yaml) for the full list of configuration options and their descriptions.
 
-## Documentation
+### Enable HA
 
-- **`docs/architecture-decisions.md`** — the "why" behind every non-obvious choice in this
-  repo (PostgREST vs. hand-written API, pg_duckdb vs. plain Postgres, RLS vs. cluster-only
-  auth, docker-compose-only scope, synthetic data). Start here if you're adapting this pattern.
-- **`docs/phase-1-validation.md`** — pg_duckdb + PostgREST + RLS composability on a plain
-  heap table, and the one PostgREST-version gotcha found (header GUC convention).
-- **`docs/phase-3-sync-findings.md`** — the load-bearing finding of this repo: RLS and DuckDB
-  execution don't compose, why pg_duckdb is confined to the sync step, and the sync-script
-  gotchas (composite row types, psycopg parameterization, FK-aware TRUNCATE).
-- **`docs/phase-4-postgrest-validation.md`** / **`docs/phase-5-rls-e2e-validation.md`** —
-  the same PostgREST/RLS behaviors re-confirmed at real data volume (500/1219 rows from the
-  actual BigQuery sync), plus write-rejection and cross-unit-leak checks `just demo` runs.
-- **`docs/app-pic-handoff.md`** — what from this PoC is directly relevant to app-pic's
-  in-flight Hono/Prisma/PostgreSQL migration (`app-pic/MIGRATION.md`), specifically around
-  RLS-vs-app-layer governance and BQ→Postgres sync gotchas.
-- **`db/init/*.sql`** — every file is commented inline explaining *why*, not just *what*.
-  Read them in order (`01_extensions` → `02_roles` → `03_pre_request` → `04_schema`).
+Add the following to your values file and set `ha.patroni.image` to an image built from `Dockerfile.patroni`.
 
-## Status
+```yaml
+ha:
+  enabled: true
+  patroni:
+    image: ghcr.io/iplanrio/data-proxy-patroni:latest
+    replicationPassword: "<strong-password>"
+```
 
-This PoC is being built in phases; see `.sisyphus/plans/poc-pedro-architecture.md` in the
-`prefeitura-rio` workspace root for the full plan, decisions, and open risks.
+### Versioning
 
-- [x] Phase 0 — repo bootstrap
-- [x] Phase 1 — local infra + pg_duckdb/PostgREST introspection validation spike ([findings](docs/phase-1-validation.md))
-- [x] Phase 2 — synthetic dataset in BigQuery (`scripts/seed_bigquery.py`)
-- [x] Phase 3 — sync script (BigQuery → GCS Parquet → pg_duckdb) ([findings](docs/phase-3-sync-findings.md))
-- [x] Phase 4 — PostgREST exposure (filtering/pagination/OpenAPI) ([findings](docs/phase-4-postgrest-validation.md))
-- [x] Phase 5 — RLS wiring end-to-end test ([findings](docs/phase-5-rls-e2e-validation.md))
-- [x] Phase 6 — demo & validation script (`just demo`, `scripts/demo.sh`)
-- [x] Phase 7 — handoff notes for app-pic ([notes](docs/app-pic-handoff.md))
+The chart uses two-part versioning (`MAJOR.MINOR.0`). The pipeline increments the minor version on each release. A major version change indicates a breaking change and requires a manual update to `helm/Chart.yaml`.
+
+## Local Development
+
+The `docker-compose.yaml` file emulates the full pipeline locally. It replaces GCS with MinIO and uses a mock OIDC server for JWT tokens.
+
+### Prerequisites
+
+- Docker with Compose v2
+- `gcloud` CLI authenticated for BigQuery access:
+  ```bash
+  gcloud auth application-default login
+  ```
+
+### Start the Stack
+
+```bash
+docker compose up --build
+```
+
+| Service | Port | Description |
+|---|---|---|
+| pgduckdb | 5544 | PostgreSQL with the pg\_duckdb extension. |
+| PostgREST | 3111 | REST API. |
+| Redis | 6379 | Sync task queue. |
+| MinIO | 9000 / 9001 | S3-compatible object storage (replaces GCS). |
+| OIDC mock | 8081 | Issues JWT tokens for local testing. |
+
+### Get a Token
+
+```bash
+curl -s -X POST http://localhost:8081/default/token \
+  -d "grant_type=client_credentials" \
+  -d "client_id=dev-client" | jq -r .access_token
+```
+
+### Query the API
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:3111/<table>
+```
+
+Replace `<table>` with the name of a synced table.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full text.

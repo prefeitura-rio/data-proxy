@@ -1,0 +1,162 @@
+## Container image for the producer, worker, and finalizer services.
+image:
+  ## Registry path for the data-proxy image, without the tag. This field is required.
+  repository: ""
+  ## Image tag to deploy. This field is required.
+  tag: ""
+  ## Image pull policy. Use Always when the tag is mutable (for example, latest).
+  pullPolicy: IfNotPresent
+
+## Kubernetes ServiceAccount for the pipeline pods.
+## Attach a Workload Identity annotation here to allow BigQuery access without
+## a service account key file.
+serviceAccount:
+  ## Set to true to create a ServiceAccount. Set to false to use an existing one.
+  create: true
+  ## Name of the ServiceAccount. The chart uses this name for all pipeline pods.
+  name: data-proxy
+  ## Annotations to add to the ServiceAccount. Use this field for Workload Identity.
+  ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
+  annotations: {}
+
+## Configuration for the pgduckdb StatefulSet (PostgreSQL with the pg_duckdb extension).
+duckdb:
+  ## pgduckdb container image. Do not change this unless you build a custom image.
+  image: pgduckdb/pgduckdb:17-v1.1.1
+  ## Number of StatefulSet replicas in standalone mode.
+  ## This field is ignored when ha.enabled is true; ha.patroni.replicas is used instead.
+  replicas: 1
+  storage:
+    ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
+    size: 10Gi
+    ## StorageClass for the PersistentVolumeClaim. Leave empty to use the cluster default.
+    storageClass: ""
+  db:
+    ## Name of the PostgreSQL database that the pipeline writes to.
+    name: dataproxy
+    ## PostgreSQL superuser name used by the pipeline services to connect.
+    user: dataproxy
+  ## Name of an existing Secret to use instead of creating one.
+  ## The Secret must contain POSTGRES_PASSWORD and PGRST_AUTHENTICATOR_PASSWORD.
+  existingSecret: ""
+  ## Password for the PostgreSQL superuser. Required when existingSecret is empty.
+  password: ""
+  ## Password for the PostgREST authenticator role. Required when existingSecret is empty.
+  authenticatorPassword: ""
+
+## Configuration for the PostgREST REST API service.
+postgrest:
+  ## PostgREST container image.
+  image: postgrest/postgrest:v12.2.8
+  ## Comma-separated list of PostgreSQL schemas that PostgREST exposes as REST endpoints.
+  ## Example: app_pequenos_cariocas,projeto_pequenos_cariocas
+  schemas: ""
+  ## External URL that PostgREST uses in the OpenAPI specification.
+  ## Set this to the public URL of the API gateway in front of PostgREST.
+  proxyUri: ""
+  ## Name of an existing Secret to use instead of creating one.
+  ## The Secret must contain PGRST_JWT_SECRET as a JWKS JSON string.
+  existingJwtSecret: ""
+  ## JWKS JSON string used to verify JWT tokens. Required when existingJwtSecret is empty.
+  jwtSecret: ""
+
+## Google Cloud Storage credentials for DuckDB S3-compatible access.
+## The pipeline uses HMAC keys (not a service account) for GCS access.
+## Use Workload Identity (via the ServiceAccount annotation) for BigQuery access.
+gcs:
+  ## Name of the GCS bucket that stores Parquet files.
+  bucket: ""
+  ## GCS endpoint host and port. Leave empty to use real GCS (storage.googleapis.com).
+  ## Set to host:port for a local S3-compatible server such as MinIO.
+  endpoint: ""
+  ## Set to true when you connect to real GCS. Set to false for local MinIO.
+  useSsl: "true"
+  ## Name of an existing Secret to use instead of creating one.
+  ## The Secret must contain GCS_KEY_ID and GCS_SECRET_KEY.
+  existingSecret: ""
+  ## HMAC key ID for GCS access. Required when existingSecret is empty.
+  keyId: ""
+  ## HMAC secret key for GCS access. Required when existingSecret is empty.
+  secretKey: ""
+
+## Redis connection URL for the sync task queue.
+redis:
+  ## Full Redis URL including scheme, host, port, and database index.
+  ## Example: redis://redis:6379/0
+  url: ""
+
+## Sync configuration rendered as sync.json and mounted into each pipeline container.
+## This structure mirrors config/sync.json. See README.md for the full field reference.
+syncConfig:
+  ## List of BigQuery tables to synchronise.
+  ## Each entry is either a dump table (full replace) or a window table (last n partitions).
+  tables: []
+
+## Role names, JWT claim, and schema configuration for row-level security.
+## These values are rendered into the db-init ConfigMap and the PostgREST Deployment.
+auth:
+  ## PostgreSQL role used for unauthenticated and JWT-authenticated requests.
+  ## PostgREST uses this role as PGRST_DB_ANON_ROLE.
+  anonRole: web_anon
+  ## PostgreSQL login role that PostgREST and PgBouncer use to connect.
+  ## PostgREST uses this role in PGRST_DB_URI.
+  authenticatorRole: authenticator
+  ## JWT claim that contains the list of authorised organisational units.
+  ## The pre_request function reads this claim and sets the session variable.
+  jwtClaim: unidades
+  ## PostgreSQL session variable set by the pre_request function from the JWT claim.
+  ## RLS policies must read this variable to filter rows by organisational unit.
+  sessionVar: app.user_units
+  ## PostgreSQL schema that contains the pre_request function and RLS helpers.
+  rlsSchema: rls
+
+## High-availability configuration: Patroni (3-node cluster) and PgBouncer (rw and ro pools).
+## Set ha.enabled to true to activate HA mode.
+## When ha.enabled is false, the chart deploys a single-node pgduckdb StatefulSet.
+ha:
+  ## Set to true to enable Patroni and PgBouncer. Set to false for standalone mode.
+  enabled: false
+  patroni:
+    ## Container image that includes both pg_duckdb and Patroni.
+    ## Build this image from Dockerfile.patroni and push it before you enable HA.
+    image: ghcr.io/iplanrio/data-proxy-patroni:latest
+    ## Number of Patroni pod replicas. The minimum for a stable cluster is 3.
+    replicas: 3
+    ## Maximum number of WAL sender processes on the leader.
+    ## Increase this value if you add more replicas.
+    maxWalSenders: 10
+    ## Amount of WAL data the leader retains for streaming replication.
+    ## Increase this value if replicas have slow or intermittent connectivity.
+    walKeepSize: 1GB
+    ## Name of the PostgreSQL role used for streaming replication.
+    replicationUsername: replicator
+    ## Password for the replication role. Required when ha.enabled is true.
+    replicationPassword: ""
+  pgbouncer:
+    ## PgBouncer container image.
+    image: pgbouncer/pgbouncer:1.23.1
+    ## Write pool — routes connections to the Patroni leader.
+    ## The finalizer service uses this pool to write data.
+    rw:
+      ## Number of PgBouncer write-pool replicas.
+      replicas: 1
+      ## Maximum number of client connections to the write pool.
+      maxClientConn: 100
+      ## Number of server connections the write pool maintains per database.
+      defaultPoolSize: 10
+    ## Read pool — routes connections to Patroni replicas.
+    ## PostgREST uses this pool to serve read requests.
+    ro:
+      ## Number of PgBouncer read-pool replicas.
+      replicas: 1
+      ## Maximum number of client connections to the read pool.
+      maxClientConn: 200
+      ## Number of server connections the read pool maintains per database.
+      defaultPoolSize: 20
+
+## Resource requests and limits applied to all containers.
+## Leave empty to use no limits. See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+resources: {}
+
+## Number of replicas for PostgREST, producer, worker, and finalizer Deployments.
+replicaCount: 1
