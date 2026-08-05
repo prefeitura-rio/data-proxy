@@ -37,7 +37,7 @@ jobs:
           NEXT="$MAJOR.$((MINOR + 1)).0"
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "next=$NEXT"         >> "$GITHUB_OUTPUT"
-          echo "tag=helm-v$NEXT"   >> "$GITHUB_OUTPUT"
+          echo "tag=helm-v$CURRENT"   >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         run: |
