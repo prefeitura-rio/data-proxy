@@ -35,9 +35,9 @@ jobs:
           MAJOR=$(echo "$CURRENT" | cut -d. -f1)
           MINOR=$(echo "$CURRENT" | cut -d. -f2)
           NEXT="$MAJOR.$((MINOR + 1)).0"
-          echo "current=$CURRENT"   >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "next=$NEXT"         >> "$GITHUB_OUTPUT"
-          echo "tag=helm-v$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "tag=helm-v$NEXT"   >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         run: |
@@ -69,6 +69,7 @@ jobs:
           git add helm/Chart.yaml
           git commit -m "chore: bump helm chart to ${{ steps.version.outputs.next }} [skip ci]"
           git tag ${{ steps.version.outputs.tag }}
+          git pull --rebase origin main
           git push origin HEAD:main
           git push origin ${{ steps.version.outputs.tag }}
 
