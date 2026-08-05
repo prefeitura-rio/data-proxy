@@ -9,7 +9,6 @@
       "strategy": "window",
       "partition": {
         "column": "protocolo_data_referencia_particicao",
-        "type": "DAY",
         "n": 7
       }
     }

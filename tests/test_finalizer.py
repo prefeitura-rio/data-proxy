@@ -126,7 +126,7 @@ class TestFinalizeSync:
         """Window table is created and loaded."""
         cfg = tmp_path / "sync.json"
         cfg.write_text(
-            '{"tables": [{"bq_table": "p.d.t", "strategy": "window", "partition": {"column": "dt", "type": "DAY", "n": 7}}]}'
+            '{"tables": [{"bq_table": "p.d.t", "strategy": "window", "partition": {"column": "dt", "n": 7}}]}'
         )
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
         async with TestRedisBroker(broker) as br:

@@ -11,14 +11,8 @@ class Strategy(StrEnum):
     WINDOW = "window"
 
 
-class PartitionType(StrEnum):
-    DAY = "DAY"
-    MONTH = "MONTH"
-
-
 class PartitionConfig(BaseModel):
     column: str
-    type: PartitionType
     n: int
 
 

@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
+import polars as pl
 import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker
@@ -19,19 +20,28 @@ producer = FastStream(broker)
 
 
 def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
-    """Query BigQuery for the last *n* distinct partition values."""
+    """Query BigQuery for all distinct partition values; return the last *n* sorted descending."""
     sql = load_template(
         "duckdb/discover_partitions",
         {
             "bq_table": table.bq_table,
             "partition_column": table.partition.column,
-            "n": str(table.partition.n),
         },
     )
 
-    partitions = [str(row[0]) for row in db.execute(sql).fetchall()]
-    partitions.sort(reverse=True)
-    return partitions
+    rows = db.execute(sql).fetchall()
+
+    if not rows:
+        return []
+
+    return (
+        pl.DataFrame(rows, orient="row")
+        .to_series(0)
+        .top_k(table.partition.n)
+        .sort(descending=True)
+        .cast(pl.String)
+        .to_list()
+    )
 
 
 def expand_config(

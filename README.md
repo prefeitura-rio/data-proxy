@@ -89,7 +89,6 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
       "pg_schema": "my_schema",
       "partition": {
         "column": "data_particao",
-        "type": "DAY",
         "n": 7
       },
       "rls": { "column": "unit_id" }
@@ -105,7 +104,6 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 | `pg_schema` | no | Target PostgreSQL schema. The default is the BigQuery dataset name. |
 | `rls.column` | no | Column used for row-level security. Omit this field to disable RLS on the table. |
 | `partition.column` | window only | BigQuery partition column name. |
-| `partition.type` | window only | Partition granularity. Valid values: `DAY`, `MONTH`. |
 | `partition.n` | window only | Number of most-recent partitions to sync. |
 
 ## Environment Variables

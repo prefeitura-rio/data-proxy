@@ -118,6 +118,7 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
     volumes:
       - ~/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json:ro
+      - ./config:/app/config:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -135,6 +136,7 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
     volumes:
       - ~/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json:ro
+      - ./config:/app/config:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -149,6 +151,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       GCS_ENDPOINT: minio:9000
       SYNC_CONFIG_PATH: config/sync.test.json
+    volumes:
+      - ./config:/app/config:ro
     depends_on:
       duckdb:
         condition: service_healthy

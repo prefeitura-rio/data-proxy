@@ -11,7 +11,6 @@ from dp.settings import settings
 from dp.sync.models import (
     DumpTable,
     PartitionConfig,
-    PartitionType,
     SyncConfig,
     WindowTable,
 )
@@ -20,26 +19,38 @@ from dp.sync.producer import discover_partitions, expand_config, producer
 
 class TestDiscoverPartitions:
     def test_returns_partition_values(self) -> None:
-        """Partition values are extracted from DuckDB query results."""
-        db = FakeDuckDBConnection(rows=[("2025-01-15",), ("2025-01-14",)])
+        """Partition values are extracted and returned in descending order."""
+        db = FakeDuckDBConnection(rows=[("2025-01-14",), ("2025-01-15",)])
         table = WindowTable(
             bq_table="p.d.t",
-            partition=PartitionConfig(column="dt", type=PartitionType.DAY, n=2),
+            partition=PartitionConfig(column="dt", n=2),
         )
-        with patch(
-            "dp.sync.producer.load_template", return_value="SELECT DISTINCT ..."
-        ):
-            result = discover_partitions(db, table)
+        result = discover_partitions(db, table)
 
         assert result == ["2025-01-15", "2025-01-14"]
         assert len(db.executed) == 1
+        assert "ORDER BY" not in db.executed[0]
+        assert "LIMIT" not in db.executed[0]
+
+    def test_slices_to_n_most_recent_partitions(self) -> None:
+        """Only the n most-recent partition values are returned."""
+        db = FakeDuckDBConnection(
+            rows=[("2025-01-13",), ("2025-01-15",), ("2025-01-14",)]
+        )
+        table = WindowTable(
+            bq_table="p.d.t",
+            partition=PartitionConfig(column="dt", n=2),
+        )
+        result = discover_partitions(db, table)
+
+        assert result == ["2025-01-15", "2025-01-14"]
 
     def test_returns_empty_when_no_partitions(self) -> None:
         """Empty list is returned when no partition rows exist in BigQuery."""
         db = FakeDuckDBConnection()
         table = WindowTable(
             bq_table="p.d.t",
-            partition=PartitionConfig(column="dt", type=PartitionType.DAY, n=7),
+            partition=PartitionConfig(column="dt", n=7),
         )
         with patch(
             "dp.sync.producer.load_template", return_value="SELECT DISTINCT ..."
@@ -66,7 +77,7 @@ class TestExpandConfig:
             tables=[
                 WindowTable(
                     bq_table="p.d.t",
-                    partition=PartitionConfig(column="dt", type=PartitionType.DAY, n=2),
+                    partition=PartitionConfig(column="dt", n=2),
                 )
             ]
         )
