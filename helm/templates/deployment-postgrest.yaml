@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgrest
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgrest
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgrest
+    spec:
+      containers:
+        - name: postgrest
+          image: {{ .Values.postgrest.image }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PGRST_DB_URI
+              value: {{ include "data-proxy.postgresDsn" . | quote }}
+            - name: PGRST_DB_SCHEMAS
+              value: {{ .Values.postgrest.schemas | quote }}
+            - name: PGRST_DB_ANON_ROLE
+              value: {{ .Values.auth.anonRole | quote }}
+            - name: PGRST_DB_PRE_REQUEST
+              value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
+            - name: PGRST_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.jwtSecretName" . }}
+                  key: PGRST_JWT_SECRET
+            - name: PGRST_OPENAPI_SERVER_PROXY_URI
+              value: {{ .Values.postgrest.proxyUri | quote }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

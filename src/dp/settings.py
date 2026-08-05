@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     GCS_BUCKET: str = "test-bucket"
     PG_DSN: str = "postgresql://test:test@localhost:5432/test"
-    PG_SCHEMA: str = "pic"
     REDIS_URL: RedisDsn = RedisDsn("redis://localhost:6379/0")
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
     GCS_KEY_ID: str = "minioadmin"

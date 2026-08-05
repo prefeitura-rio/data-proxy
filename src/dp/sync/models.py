@@ -31,11 +31,17 @@ class RlsConfig(BaseModel):
 class Table(BaseModel):
     bq_table: str
     rls: RlsConfig | None = None
+    pg_schema: str | None = None
 
     @property
     def table_name(self) -> str:
-        """Extract the bare table name from the fully-qualified BQ table reference."""
         return self.bq_table.split(".")[-1]
+
+    @property
+    def resolved_schema(self) -> str:
+        if self.pg_schema:
+            return self.pg_schema
+        return self.bq_table.split(".")[-2]
 
     def to_task(
         self,

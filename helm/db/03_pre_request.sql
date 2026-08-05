@@ -1,3 +1,4 @@
+-- This function reads the JWT claims and sets the session variable for row-level security.
 CREATE OR REPLACE FUNCTION rls.pre_request() RETURNS void AS $$
 BEGIN
     PERFORM set_config(

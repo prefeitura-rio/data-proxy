@@ -1,0 +1,12 @@
+{{- if .Values.ha.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-patroni
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+data:
+  patroni.yaml: |
+    {{ include "data-proxy.patroniConfig" . | nindent 4 }}
+{{- end }}

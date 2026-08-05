@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-test}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./helm/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -28,7 +28,7 @@ services:
       - 3111:3000
     environment:
       PGRST_DB_URI: postgres://authenticator:${PGRST_AUTHENTICATOR_PASSWORD:-authenticator}@duckdb:5432/${DB_NAME:-test}
-      PGRST_DB_SCHEMA: ${PG_SCHEMA:-pic}
+      PGRST_DB_SCHEMAS: app_pequenos_cariocas,projeto_pequenos_cariocas
       PGRST_DB_ANON_ROLE: web_anon
       PGRST_DB_PRE_REQUEST: rls.pre_request
       PGRST_JWT_SECRET: '{"kty":"RSA","e":"AQAB","use":"sig","kid":"default","alg":"RS256","n":"onZcB1ryWS1keTIcbgsLKJ1UBwL1Wbzse5P2HjkrNwbG3Jy2lefUEcTVJxN8bpLeW460Luz3ScZd3d9p8IoHjmhZ2cyO49E41aBRIlBRzWNpebK5xeC95rSKenYHpOPlLzPgybg2qxallzQUOcKCheiF0fsErlapaA9YmKwzP3DwvzYW4JqSrHhDGWPwUCcsR4dpetwKXP_9tRFso06ryr4um3qiq7giyZEyZVG3fHMplD-5e-2-RrzBiGFW_zvs-XVRGPIf9Y5YNjeQJRuS4vF82V8mNZxEZddtUY5plSz-vgX3GSvANLDH-LZJ76Zmx3a8dEZbI7VxgsBQAqcUlQ"}'
@@ -93,7 +93,8 @@ services:
               "claims": {
                 "sub": "user-1",
                 "aud": ["dev-client"],
-                "unidades": ["cras_1", "cras_2"]
+                "unidades": ["cras_1", "cras_2"],
+                "schemas": ["app_pequenos_cariocas", "projeto_pequenos_cariocas"]
               }
             }]
           }]

@@ -3,6 +3,7 @@
     {
       "bq_table": "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
       "strategy": "dump",
+      "pg_schema": "app_pequenos_cariocas",
       "rls": {"column": "id_unidade"}
     },
     {
@@ -13,6 +14,7 @@
         "type": "DAY",
         "n": 7
       },
+      "pg_schema": "projeto_pequenos_cariocas",
       "rls": {"column": "id_unidade"}
     }
   ]

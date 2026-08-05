@@ -1,10 +1,13 @@
 """Tests for dp.sync.finalizer."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import cast
+from unittest.mock import patch
 
+import psycopg
 import pytest
 from faststream.redis.testing import TestRedisBroker
+from helpers import FakeDuckDBConnection, FakePgConn
 
 from dp.constants import SYNC_FINALIZE_STREAM
 from dp.settings import settings
@@ -23,10 +26,10 @@ from dp.sync.models import (
 class TestBootstrapTable:
     def test_creates_table_and_grants_without_rls(self) -> None:
         """Grant is applied; RLS steps skipped when rls is None."""
-        pg_conn = MagicMock()
+        pg_conn = FakePgConn()
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
             bootstrap_table(
-                pg_conn,
+                cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
                 {
                     "schema": "pic",
                     "table_name": "mytable",
@@ -36,14 +39,14 @@ class TestBootstrapTable:
             )
 
         # 1 execute call (grant_select)
-        assert pg_conn.execute.call_count == 1
+        assert pg_conn.execute_calls == 1
 
     def test_enables_rls_when_configured(self) -> None:
         """Grant + RLS are applied when rls config is present."""
-        pg_conn = MagicMock()
+        pg_conn = FakePgConn()
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
             bootstrap_table(
-                pg_conn,
+                cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
                 {
                     "schema": "pic",
                     "table_name": "mytable",
@@ -53,42 +56,41 @@ class TestBootstrapTable:
             )
 
         # 1 execute call (grant_select + enable_rls joined)
-        assert pg_conn.execute.call_count == 1
+        assert pg_conn.execute_calls == 1
 
 
 class TestLoadTable:
     def test_dump_loads_once(self) -> None:
         """Dump strategy calls delete + insert once."""
-        db = MagicMock()
-        db.execute.return_value.fetchall.return_value = [("gs://b/t/data.parquet",)]
+        db = FakeDuckDBConnection(rows=[("gs://b/t/data.parquet",)])
 
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "t", Strategy.DUMP, None)
+            load_table(db, "pic", "t", Strategy.DUMP, None)
 
-        assert db.execute.call_count == 3  # glob + delete + insert
+        assert len(db.executed) == 3  # glob + delete + insert
 
     def test_window_loads_per_partition(self) -> None:
         """Window strategy calls delete + insert per partition."""
-        db = MagicMock()
-        db.execute.return_value.fetchall.return_value = [
-            ("gs://b/t/2025-01-15/data.parquet",),
-            ("gs://b/t/2025-01-14/data.parquet",),
-        ]
+        db = FakeDuckDBConnection(
+            rows=[
+                ("gs://b/t/2025-01-15/data.parquet",),
+                ("gs://b/t/2025-01-14/data.parquet",),
+            ]
+        )
 
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "t", Strategy.WINDOW, "dt")
+            load_table(db, "pic", "t", Strategy.WINDOW, "dt")
 
-        assert db.execute.call_count == 5  # glob + 2*(delete+insert)
+        assert len(db.executed) == 5  # glob + 2*(delete+insert)
 
     def test_skips_when_no_paths(self) -> None:
         """No Parquet found → skip, no load calls."""
-        db = MagicMock()
-        db.execute.return_value.fetchall.return_value = []
+        db = FakeDuckDBConnection(rows=[])
 
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "t", Strategy.DUMP, None)
+            load_table(db, "pic", "t", Strategy.DUMP, None)
 
-        assert db.execute.call_count == 1  # only glob
+        assert len(db.executed) == 1  # only glob
 
 
 class TestFinalizeSync:
@@ -111,7 +113,9 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
         mock_ddb.assert_called_once()
-        mock_pg.assert_called_once()
+        assert (
+            mock_pg.call_count == 2
+        )  # once for init_schema, once for notify+bootstrap
         mock_bootstrap.assert_called_once()
         mock_load.assert_called_once()
 
@@ -136,6 +140,8 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
         mock_ddb.assert_called_once()
-        mock_pg.assert_called_once()
+        assert (
+            mock_pg.call_count == 2
+        )  # once for init_schema, once for notify+bootstrap
         mock_bootstrap.assert_called_once()
         mock_load.assert_called_once()

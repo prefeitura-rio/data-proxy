@@ -3,7 +3,6 @@
 from typing import TypedDict
 from uuid import uuid4
 
-import duckdb
 import psycopg
 import uvloop
 from faststream import FastStream
@@ -11,7 +10,7 @@ from faststream.redis import RedisBroker, StreamSub
 from loguru import logger
 
 from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM
-from ..duckdb import connect
+from ..duckdb import DBConnection, connect
 from ..settings import settings
 from ..templates import load_template
 from .models import (
@@ -60,13 +59,13 @@ def bootstrap_table(
 
 
 def load_table(
-    duckdb_conn: duckdb.DuckDBPyConnection,
+    duckdb_conn: DBConnection,
+    schema: str,
     table_name: str,
     strategy: Strategy,
     partition_column: str | None,
 ) -> None:
     """Load one table into Postgres using its configured strategy."""
-    schema = settings.PG_SCHEMA
     paths = [
         str(row[0])
         for row in duckdb_conn.execute(
@@ -133,6 +132,13 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
     logger.info("Finalizing sync_id={}", msg.sync_id)
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
+    unique_schemas = {table.resolved_schema for table in config.tables}
+    with psycopg.connect(settings.PG_DSN) as pg_conn:
+        for schema in unique_schemas:
+            pg_conn.execute(
+                load_template("pg/init_schema", {"schema": schema}).encode()
+            )
+
     with connect() as duckdb_conn:
         duckdb_conn.execute(
             load_template("duckdb/attach_postgres", {"pg_dsn": settings.PG_DSN})
@@ -148,14 +154,20 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                         load_template(
                             "duckdb/create_table",
                             {
-                                "schema": settings.PG_SCHEMA,
+                                "schema": table.resolved_schema,
                                 "table": table_name,
                                 "gcs_path": gcs_path,
                             },
                         )
                     )
 
-                    load_table(duckdb_conn, table_name, Strategy.DUMP, None)
+                    load_table(
+                        duckdb_conn,
+                        table.resolved_schema,
+                        table_name,
+                        Strategy.DUMP,
+                        None,
+                    )
                 case WindowTable(rls=rls, partition=partition):
                     table_name = table.table_name
                     gcs_paths = [
@@ -176,7 +188,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                             load_template(
                                 "duckdb/create_table",
                                 {
-                                    "schema": settings.PG_SCHEMA,
+                                    "schema": table.resolved_schema,
                                     "table": table_name,
                                     "gcs_path": gcs_paths[0],
                                 },
@@ -185,6 +197,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
 
                     load_table(
                         duckdb_conn,
+                        table.resolved_schema,
                         table_name,
                         Strategy.WINDOW,
                         partition.column,
@@ -198,7 +211,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                     bootstrap_table(
                         pg_conn,
                         {
-                            "schema": settings.PG_SCHEMA,
+                            "schema": table.resolved_schema,
                             "table_name": table.table_name,
                             "gcs_path": "",
                             "rls": rls,
@@ -208,7 +221,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                     bootstrap_table(
                         pg_conn,
                         {
-                            "schema": settings.PG_SCHEMA,
+                            "schema": table.resolved_schema,
                             "table_name": table.table_name,
                             "gcs_path": "",
                             "rls": rls,

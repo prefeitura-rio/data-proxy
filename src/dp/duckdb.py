@@ -17,7 +17,7 @@ class DBConnection(Protocol):
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None: ...
 
 
-def connect() -> duckdb.DuckDBPyConnection:
+def connect() -> DBConnection:
     """Create an in-memory DuckDB connection with all extensions and secrets loaded."""
     conn = duckdb.connect()
 

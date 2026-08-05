@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-db-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+data:
+  01_extensions.sql: |
+    {{ .Files.Get "db/01_extensions.sql" | nindent 4 }}
+  02_roles.sh: |
+    {{ include "data-proxy.rolesScript" . | nindent 4 }}
+  03_pre_request.sql: |
+    {{ include "data-proxy.preRequestSql" . | nindent 4 }}

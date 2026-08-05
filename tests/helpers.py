@@ -29,6 +29,19 @@ class FakeDuckDBConnection:
 
 
 @final
+class FakePgConn:
+    """Minimal psycopg connection double with execute call tracking."""
+
+    execute_calls: int
+
+    def __init__(self) -> None:
+        self.execute_calls = 0
+
+    def execute(self, query: object, params: object = None) -> None:
+        self.execute_calls += 1
+
+
+@final
 class FakeRedis:
     """Async Redis double with configurable decr return value."""
 

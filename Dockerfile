@@ -15,7 +15,6 @@ conn.execute('INSTALL postgres'); \
 "
 
 COPY src/ src/
-COPY config/ config/
 
 ENV PATH=/app/.venv/bin:$PATH
 ENV PYTHONPATH=/app/src
