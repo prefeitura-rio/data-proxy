@@ -1,6 +1,6 @@
 [project]
 name = "data-proxy"
-version = "0.1.0"
+version = "1.0.0"
 description = "pg_duckdb + PostgREST + RLS as a read-serving layer for BigQuery/dbt marts"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -74,6 +74,8 @@ ignore = [
 ]
 
 [tool.basedpyright]
+venvPath = ".devenv/state"
+venv = "venv"
 extraPaths = ["src", "tests"]
 reportUnusedCallResult = "none"
 reportUnusedParameter = "none"

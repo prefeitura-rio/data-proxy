@@ -1,8 +1,5 @@
 # data-proxy
 
-[![CI](https://github.com/iplanrio/data-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/iplanrio/data-proxy/actions/workflows/ci.yaml)
-[![Helm chart](https://github.com/iplanrio/data-proxy/actions/workflows/helm.yaml/badge.svg)](https://github.com/iplanrio/data-proxy/actions/workflows/helm.yaml)
-
 data-proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) and exposes them through a PostgREST REST API with row-level security based on JWT claims.
 
 ## How It Works
@@ -97,30 +94,30 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 }
 ```
 
-| Field | Required | Description |
-|---|---|---|
-| `bq_table` | yes | Full BigQuery table reference (`project.dataset.table`). |
-| `strategy` | yes | `dump` replaces the full table. `window` replaces the last *n* partitions. |
-| `pg_schema` | no | Target PostgreSQL schema. The default is the BigQuery dataset name. |
-| `rls.column` | no | Column used for row-level security. Omit this field to disable RLS on the table. |
-| `partition.column` | window only | BigQuery partition column name. |
-| `partition.n` | window only | Number of most-recent partitions to sync. |
+| Field              | Required    | Description                                                                      |
+| ------------------ | ----------- | -------------------------------------------------------------------------------- |
+| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                         |
+| `strategy`         | yes         | `dump` replaces the full table. `window` replaces the last _n_ partitions.       |
+| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.              |
+| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table. |
+| `partition.column` | window only | BigQuery partition column name.                                                  |
+| `partition.n`      | window only | Number of most-recent partitions to sync.                                        |
 
 ## Environment Variables
 
 All pipeline components (producer, worker, finalizer) read these variables.
 
-| Variable | Default | Description |
-|---|---|---|
-| `PG_DSN` | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, this points directly to the leader to preserve DuckDB libpq session state. |
-| `REDIS_URL` | `redis://localhost:6379/0` | Valkey (Redis-compatible) connection URL for the task queue. |
-| `GCS_BUCKET` | `test-bucket` | Name of the GCS bucket that stores Parquet files. |
-| `GCS_ENDPOINT` | `localhost:9000` | GCS endpoint host and port. Leave empty to use real GCS. Set to `host:port` for MinIO. |
-| `GCS_USE_SSL` | `false` | Set to `true` when you connect to real GCS. |
-| `GCS_KEY_ID` | — | HMAC key ID for GCS access. |
-| `GCS_SECRET_KEY` | — | HMAC secret key for GCS access. |
-| `SYNC_CONFIG_PATH` | `config/sync.json` | Path to the sync configuration file. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to a GCP service account JSON file for BigQuery access. This variable is not required on GKE with Workload Identity. |
+| Variable                         | Default                                      | Description                                                                                                               |
+| -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `PG_DSN`                         | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, this points directly to the leader to preserve DuckDB libpq session state.      |
+| `REDIS_URL`                      | `redis://localhost:6379/0`                   | Valkey (Redis-compatible) connection URL for the task queue.                                                              |
+| `GCS_BUCKET`                     | `test-bucket`                                | Name of the GCS bucket that stores Parquet files.                                                                         |
+| `GCS_ENDPOINT`                   | `localhost:9000`                             | GCS endpoint host and port. Leave empty to use real GCS. Set to `host:port` for MinIO.                                    |
+| `GCS_USE_SSL`                    | `false`                                      | Set to `true` when you connect to real GCS.                                                                               |
+| `GCS_KEY_ID`                     | —                                            | HMAC key ID for GCS access.                                                                                               |
+| `GCS_SECRET_KEY`                 | —                                            | HMAC secret key for GCS access.                                                                                           |
+| `SYNC_CONFIG_PATH`               | `config/sync.json`                           | Path to the sync configuration file.                                                                                      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | —                                            | Path to a GCP service account JSON file for BigQuery access. This variable is not required on GKE with Workload Identity. |
 
 ## Helm Chart
 
@@ -177,13 +174,13 @@ The `docker-compose.yaml` file emulates the full pipeline locally. It replaces G
 docker compose up --build
 ```
 
-| Service | Port | Description |
-|---|---|---|
-| pgduckdb | 5544 | PostgreSQL with the pg\_duckdb extension. |
-| PostgREST | 3111 | REST API. |
-| Redis | 6379 | Sync task queue. |
-| MinIO | 9000 / 9001 | S3-compatible object storage (replaces GCS). |
-| OIDC mock | 8081 | Issues JWT tokens for local testing. |
+| Service   | Port        | Description                                  |
+| --------- | ----------- | -------------------------------------------- |
+| pgduckdb  | 5544        | PostgreSQL with the pg\_duckdb extension.    |
+| PostgREST | 3111        | REST API.                                    |
+| Redis     | 6379        | Sync task queue.                             |
+| MinIO     | 9000 / 9001 | S3-compatible object storage (replaces GCS). |
+| OIDC mock | 8081        | Issues JWT tokens for local testing.         |
 
 ### Get a Token
 
