@@ -1,0 +1,12 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ include "data-proxy.valkeySecretName" . }}
+      key: {{ include "data-proxy.valkeySecretKey" . }}

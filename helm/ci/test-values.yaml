@@ -16,8 +16,12 @@ postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
 
-redis:
-  url: redis://redis:6379/0
+valkey:
+  auth:
+    password: testpass
+
+producer:
+  schedule: "0 2 * * *"
 
 auth:
   anonRole: web_anon

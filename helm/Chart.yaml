@@ -4,3 +4,9 @@ description: Data proxy — BigQuery → GCS → pg_duckdb sync pipeline with Po
 type: application
 version: 1.0.0
 appVersion: "latest"
+dependencies:
+  - name: valkey
+    version: "0.17.0"
+    repository: "oci://registry-1.docker.io/cloudpirates"
+    condition: valkey.enabled
+    alias: valkey

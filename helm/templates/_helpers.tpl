@@ -58,6 +58,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.valkeySecretName" -}}
+{{- if .Values.valkey.auth.existingSecret }}
+{{- .Values.valkey.auth.existingSecret }}
+{{- else }}
+{{- .Release.Name }}-valkey
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.valkeySecretKey" -}}
+{{- if .Values.valkey.auth.existingSecret }}
+{{- .Values.valkey.auth.existingSecretKey }}
+{{- else }}
+{{- "password" }}
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.masterServiceName" -}}
 {{- include "data-proxy.fullname" . }}-duckdb-master
 {{- end }}
@@ -102,8 +118,13 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.fullname" .
       key: POSTGRES_PASSWORD
 - name: PG_DSN
   value: {{ include "data-proxy.appPgDsn" . | quote }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.valkeySecretName" . }}
+      key: {{ include "data-proxy.valkeySecretKey" . }}
 - name: REDIS_URL
-  value: {{ .Values.redis.url | quote }}
+  value: "redis://:$(REDIS_PASSWORD)@{{ .Release.Name }}-valkey:6379/0"
 - name: GCS_BUCKET
   value: {{ .Values.gcs.bucket | quote }}
 - name: GCS_ENDPOINT

@@ -79,11 +79,56 @@ gcs:
   ## HMAC secret key for GCS access. Required when existingSecret is empty.
   secretKey: ""
 
-## Redis connection URL for the sync task queue.
-redis:
-  ## Full Redis URL including scheme, host, port, and database index.
-  ## Example: redis://redis:6379/0
-  url: ""
+## Valkey (Redis-compatible) in-cluster message broker for the sync task queue.
+## Valkey is deployed as a subchart. The pipeline reads from and writes to Valkey streams.
+valkey:
+  ## Set to true to deploy Valkey inside the cluster. Required for KEDA stream triggers.
+  enabled: true
+  ## Deployment architecture. Use standalone for a single-node instance.
+  architecture: standalone
+  auth:
+    ## Set to true to require password authentication for all Valkey connections.
+    enabled: true
+    ## Name of an existing Secret to use instead of creating one.
+    ## The Secret must contain REDIS_PASSWORD and REDIS_URL.
+    ## Leave empty to let the chart create the Secret from the password field.
+    existingSecret: ""
+    ## Key in the existing Secret that holds the Valkey password.
+    existingSecretKey: password
+    ## Password for Valkey authentication. Required when existingSecret is empty.
+    password: ""
+
+## Producer CronJob — runs once per schedule, publishes sync tasks to Valkey, then exits.
+producer:
+  ## Cron expression that controls when the producer runs.
+  ## Default: daily at 02:00 UTC.
+  schedule: "0 2 * * *"
+  ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
+  activeDeadlineSeconds: 3600
+  ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
+  ttlSecondsAfterFinished: 300
+
+## Worker ScaledJob — KEDA creates one Job pod per pending message on dp:sync:tasks.
+## Pods scale to zero when the stream is empty.
+worker:
+  keda:
+    ## Number of pending stream messages that triggers one additional worker Job.
+    lagCount: "1"
+    ## Maximum number of concurrent worker Job pods.
+    maxReplicaCount: 10
+    ## Maximum wall-clock time a single worker Job may run before termination.
+    activeDeadlineSeconds: 3600
+    ## Interval in seconds between KEDA metric checks.
+    pollingInterval: 30
+
+## Finalizer ScaledJob — KEDA creates one Job pod per pending message on dp:sync:finalize.
+## Only one finalizer runs at a time (maxReplicaCount: 1) because it writes all data.
+finalizer:
+  keda:
+    ## Maximum wall-clock time a single finalizer Job may run before termination.
+    activeDeadlineSeconds: 7200
+    ## Interval in seconds between KEDA metric checks.
+    pollingInterval: 30
 
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## This structure mirrors config/sync.json. See README.md for the full field reference.
@@ -157,6 +202,3 @@ ha:
 ## Resource requests and limits applied to all containers.
 ## Leave empty to use no limits. See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 resources: {}
-
-## Number of replicas for PostgREST, producer, worker, and finalizer Deployments.
-replicaCount: 1
