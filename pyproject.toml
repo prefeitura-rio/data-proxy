@@ -74,8 +74,6 @@ ignore = [
 ]
 
 [tool.basedpyright]
-venvPath = ".devenv/state"
-venv = "venv"
 extraPaths = ["src", "tests"]
 reportUnusedCallResult = "none"
 reportUnusedParameter = "none"
