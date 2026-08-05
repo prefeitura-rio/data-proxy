@@ -7,11 +7,11 @@ data-proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) an
 
 ## How It Works
 
-The pipeline has three services:
+The pipeline has three components:
 
-- **Producer** — reads the sync configuration, queries BigQuery for partition values, and sends one task per table to a Redis stream.
-- **Worker** — consumes tasks from the stream and writes each table as a Parquet file to Google Cloud Storage.
-- **Finalizer** — reads the Parquet files from GCS with DuckDB, writes the data to PostgreSQL, and signals PostgREST to reload its schema cache.
+- **Producer** — runs as a Kubernetes CronJob. On each scheduled run it reads the sync configuration, queries BigQuery for partition values, and publishes one task per table to a Valkey stream. The pod exits when all tasks are published.
+- **Worker** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:tasks` stream. Each pod consumes one task, writes the table as a Parquet file to Google Cloud Storage, and exits. Pods scale to zero between sync runs.
+- **Finalizer** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:finalize` stream. Each pod reads the Parquet files from GCS with DuckDB, writes the data to PostgreSQL, and signals PostgREST to reload its schema cache. At most one finalizer pod runs at a time.
 
 PostgREST serves the data through a REST API. The `pre_request` function reads the JWT claim and sets a PostgreSQL session variable. Row-level security policies use this variable to filter rows by organisational unit.
 
@@ -24,13 +24,13 @@ Use standalone mode for development and single-region deployments.
 ```mermaid
 flowchart TD
     BQ[(BigQuery)]
-    R[(Redis\nStreams)]
+    R[(Valkey\nStreams)]
     GCS[(GCS\nParquet)]
     DB[(pgduckdb)]
 
     subgraph pipeline[Sync pipeline]
-        P[Producer] --> R --> W[Worker]
-        W --> GCS --> FIN[Finalizer]
+        P[Producer\nCronJob] --> R --> W[Worker\nScaledJob]
+        W --> GCS --> FIN[Finalizer\nScaledJob]
     end
 
     BQ -->|discover partitions| P
@@ -46,13 +46,13 @@ Use HA mode for production. Patroni manages a three-node PostgreSQL cluster. PgB
 ```mermaid
 flowchart TD
     BQ[(BigQuery)]
-    R[(Redis\nStreams)]
+    R[(Valkey\nStreams)]
     GCS[(GCS\nParquet)]
     K8S[(K8s API\nDCS)]
 
     subgraph pipeline[Sync pipeline]
-        P[Producer] --> R --> W[Worker]
-        W --> GCS --> FIN[Finalizer]
+        P[Producer\nCronJob] --> R --> W[Worker\nScaledJob]
+        W --> GCS --> FIN[Finalizer\nScaledJob]
     end
 
     subgraph patroni[Patroni cluster]
@@ -108,12 +108,12 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 
 ## Environment Variables
 
-All pipeline services (producer, worker, finalizer) read these variables.
+All pipeline components (producer, worker, finalizer) read these variables.
 
 | Variable | Default | Description |
 |---|---|---|
 | `PG_DSN` | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, this points directly to the leader to preserve DuckDB libpq session state. |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for the task queue. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Valkey (Redis-compatible) connection URL for the task queue. |
 | `GCS_BUCKET` | `test-bucket` | Name of the GCS bucket that stores Parquet files. |
 | `GCS_ENDPOINT` | `localhost:9000` | GCS endpoint host and port. Leave empty to use real GCS. Set to `host:port` for MinIO. |
 | `GCS_USE_SSL` | `false` | Set to `true` when you connect to real GCS. |
@@ -123,6 +123,14 @@ All pipeline services (producer, worker, finalizer) read these variables.
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to a GCP service account JSON file for BigQuery access. This variable is not required on GKE with Workload Identity. |
 
 ## Helm Chart
+
+### Prerequisites
+
+The following components must be installed in the cluster before you deploy the chart:
+
+- [KEDA](https://keda.sh/docs/latest/deploy/) — required for the `ScaledJob` and `TriggerAuthentication` resources that drive the worker and finalizer.
+
+### Install
 
 The chart publishes to `oci://ghcr.io/iplanrio/charts`.
 
