@@ -39,6 +39,14 @@ jobs:
           echo "next=$NEXT"         >> "$GITHUB_OUTPUT"
           echo "tag=helm-v$CURRENT"   >> "$GITHUB_OUTPUT"
 
+      - name: Skip if no helm changes since last release
+        run: |
+          LAST_TAG=$(git tag --sort=-v:refname | grep -E "^helm-v" | head -1 || echo "")
+          [ -z "$LAST_TAG" ] && exit 0
+          git diff --name-only "$LAST_TAG" HEAD -- helm/ | grep -q . && exit 0
+          echo "No helm changes since $LAST_TAG — nothing to release."
+          exit 0
+
       - name: Login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \
