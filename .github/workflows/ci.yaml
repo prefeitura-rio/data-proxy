@@ -3,7 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    paths: &ci_paths
+      - src/**
+      - tests/**
+      - pyproject.toml
+      - uv.lock
+      - Dockerfile
+      - docker-compose.yaml
+      - config/**
+      - scripts/**
+      - devenv.nix
+      - devenv.yaml
+      - devenv.lock
+      - .sqlfluff
+      - .sqlfluffignore
+      - .env.test
   pull_request:
+    paths: *ci_paths
   workflow_dispatch:
 
 permissions:
