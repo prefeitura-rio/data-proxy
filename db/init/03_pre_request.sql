@@ -1,17 +1,20 @@
--- PostgREST v12 does not expose individual headers as `request.header.<name>`
--- GUCs (that convention is from older PostgREST versions) -- only the full
--- header set as a single JSON blob under `request.headers`. Confirmed via
--- direct testing against postgrest/postgrest:v12.2.8 (see Phase 1 validation
--- notes in .sisyphus/plans/poc-pedro-architecture.md).
-CREATE OR REPLACE FUNCTION api.pre_request() RETURNS void AS $$
+CREATE OR REPLACE FUNCTION rls.pre_request() RETURNS void AS $$
 BEGIN
-  PERFORM set_config(
-    'app.user_units',
-    coalesce(
-      (current_setting('request.headers', true)::json ->> 'x-user-units'),
-      ''
-    ),
-    true
-  );
+    PERFORM set_config(
+        'app.user_units',
+        coalesce(
+            (
+                SELECT string_agg(value, ',')
+                FROM json_array_elements_text(
+                    coalesce(
+                        current_setting('request.jwt.claims', true)::json -> 'unidades',
+                        '[]'::json
+                    )
+                )
+            ),
+            ''
+        ),
+        true
+    );
 END;
 $$ LANGUAGE plpgsql;

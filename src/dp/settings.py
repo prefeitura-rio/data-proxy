@@ -21,14 +21,14 @@ class Settings(BaseSettings):
     PG_SCHEMA: str = "pic"
     REDIS_URL: RedisDsn = RedisDsn("redis://localhost:6379/0")
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
-    GCS_KEY_ID: str = "fake"
-    GCS_SECRET_KEY: str = "fake"  # noqa: S105
-    GCS_ENDPOINT: str = "localhost:4443"
+    GCS_KEY_ID: str = "minioadmin"
+    GCS_SECRET_KEY: str = "minioadmin"  # noqa: S105
+    GCS_ENDPOINT: str = "localhost:9000"
     GCS_USE_SSL: str = "false"
 
-    def make_redis(self) -> Redis[bytes]:
+    def make_redis(self) -> Redis:
         """Return a Redis client from the configured URL."""
-        return Redis.from_url(str(self.REDIS_URL))
+        return Redis.from_url(str(self.REDIS_URL))  # pyright: ignore[reportUnknownMemberType]
 
 
 settings = Settings()

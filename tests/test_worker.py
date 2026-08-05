@@ -26,12 +26,12 @@ class TestBuildMapping:
         [
             (
                 MSG_DUMP,
-                "write_dump",
+                "duckdb/write_dump",
                 {"bq_table": "p.d.t", "gcs_path": "gs://b/t/data.parquet"},
             ),
             (
                 MSG_WINDOW,
-                "write_window",
+                "duckdb/write_window",
                 {"partition_column": "dt", "partition_value": "2025-01-15"},
             ),
         ],
@@ -63,28 +63,28 @@ class TestProcessShard:
                     "dp.settings.Settings.make_redis",
                     return_value=FakeRedisCM(FakeRedis()),
                 ),
-                patch("dp.sync.worker.worker.exit"),
             ):
                 await br.publish(msg, stream=SYNC_TASKS_STREAM)
         assert db.executed == ["SELECT 1"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("xlen_value", "expected_calls"),
-        [(0, 1), (5, 0)],
-        ids=["stream-empty", "stream-non-empty"],
+        ("decr_value", "expected_calls"),
+        [(0, 1), (1, 0)],
+        ids=["remaining-zero", "remaining-nonzero"],
     )
-    async def test_finalize_publish(self, xlen_value: int, expected_calls: int) -> None:
-        """Finalize message is published only when the task stream is fully drained."""
+    async def test_finalize_published_when_counter_zero(
+        self, decr_value: int, expected_calls: int
+    ) -> None:
+        """FinalizeMessage is published only when the job counter reaches zero."""
         with (
             patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
             patch("dp.sync.worker.load_template", return_value="SELECT 1"),
             patch(
                 "dp.settings.Settings.make_redis",
-                return_value=FakeRedisCM(FakeRedis(xlen_value=xlen_value)),
+                return_value=FakeRedisCM(FakeRedis(decr_value=decr_value)),
             ),
             patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as mock_pub,
-            patch("dp.sync.worker.worker.exit"),
         ):
             await process_shard(MSG_DUMP)
         assert mock_pub.call_count == expected_calls

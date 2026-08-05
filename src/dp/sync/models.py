@@ -22,8 +22,15 @@ class PartitionConfig(BaseModel):
     n: int
 
 
+class RlsConfig(BaseModel):
+    """Row-level security configuration for a synced table."""
+
+    column: str
+
+
 class Table(BaseModel):
     bq_table: str
+    rls: RlsConfig | None = None
 
     @property
     def table_name(self) -> str:
@@ -41,7 +48,7 @@ class Table(BaseModel):
         return SyncTask(
             sync_id=sync_id,
             bq_table=self.bq_table,
-            gcs_path=f"gs://{gcs_bucket}/{self.table_name}{suffix}/data.parquet",
+            gcs_path=f"s3://{gcs_bucket}/{self.table_name}{suffix}/data.parquet",
             partition_column=partition_column,
             partition_value=partition_value,
         )

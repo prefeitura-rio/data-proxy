@@ -30,18 +30,18 @@ class FakeDuckDBConnection:
 
 @final
 class FakeRedis:
-    """Async Redis double with configurable xlen."""
+    """Async Redis double with configurable decr return value."""
 
-    _xlen_value: int
+    _decr_value: int
 
-    def __init__(self, xlen_value: int = 5) -> None:
-        self._xlen_value = xlen_value
+    def __init__(self, decr_value: int = 1) -> None:
+        self._decr_value = decr_value
 
-    async def xlen(self, key: str) -> int:
-        return self._xlen_value
+    async def decr(self, key: str) -> int:
+        return self._decr_value
 
-    async def delete(self, *keys: str) -> int:
-        return len(keys)
+    async def set(self, key: str, value: object, ex: int | None = None) -> None:
+        pass
 
 
 @final

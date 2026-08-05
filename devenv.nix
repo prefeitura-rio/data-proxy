@@ -35,10 +35,10 @@
     ruff.enable = true;
     ruff-format.enable = true;
     ripsecrets.enable = true;
-    ty = {
+    basedpyright = {
       enable = true;
-      name = "ty";
-      entry = "uv run ty check";
+      name = "basedpyright";
+      entry = "uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
       pass_filenames = false;
@@ -46,15 +46,13 @@
   };
 
   scripts = {
-    up.exec = "docker-compose up -d";
-    down.exec = "docker-compose down";
-    reset.exec = "docker-compose down -v";
-    logs.exec = "docker-compose logs -f";
+    seed.exec = ''uv run python scripts/seed.py "$@"'';
+    get-token.exec = "bash scripts/token.sh";
   };
 
   tasks = {
-    "app:test".exec = "pytest --cov=dp --cov-report=term-missing --ignore-glob='*constants*' --ignore-glob='*duckdb*' --ignore-glob='*settings*' --ignore-glob='*templates*' --ignore-glob='*models*'";
-    "app:lint".exec = "ruff check && ruff format --check";
+    "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "app:lint".exec = "ruff check && basedpyright src/ tests/";
     "app:fmt".exec = "ruff check --fix && ruff format";
   };
 }

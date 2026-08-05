@@ -1,19 +1,27 @@
-"""Sync finalizer: loads GCS Parquet files into Postgres via DuckDB postgres_scanner."""
+"""Sync finalizer: bootstraps tables, then loads GCS Parquet into Postgres."""
 
-import logging
+from typing import TypedDict
 from uuid import uuid4
 
+import duckdb
+import psycopg
+import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker, StreamSub
+from loguru import logger
 
 from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM
-from ..duckdb import DBConnection, connect
+from ..duckdb import connect
 from ..settings import settings
 from ..templates import load_template
-from ..validators import str_list
-from .models import DumpTable, FinalizeMessage, Strategy, SyncConfig, WindowTable
-
-logger = logging.getLogger(__name__)
+from .models import (
+    DumpTable,
+    FinalizeMessage,
+    RlsConfig,
+    Strategy,
+    SyncConfig,
+    WindowTable,
+)
 
 broker = RedisBroker(str(settings.REDIS_URL))
 finalizer = FastStream(broker)
@@ -21,92 +29,194 @@ finalizer = FastStream(broker)
 CONSUMER = str(uuid4())
 
 
-def partition_value_from_path(path: str) -> str:
-    """Extract the partition value from a GCS Parquet path.
+class BootstrapInput(TypedDict):
+    schema: str
+    table_name: str
+    gcs_path: str
+    rls: RlsConfig | None
 
-    gs://bucket/table/2025-01-15/data.parquet  →  2025-01-15
-    """
-    return path.rstrip("/").split("/")[-2]
 
+def bootstrap_table(
+    pg_conn: psycopg.Connection,
+    params: BootstrapInput,
+) -> None:
+    """Create the table from Parquet DDL, grant access, and optionally enable RLS."""
+    schema = params["schema"]
+    table_name = params["table_name"]
+    rls = params["rls"]
 
-def gcs_paths_for_table(table_name: str) -> list[str]:
-    """List all Parquet objects under gs://{GCS_BUCKET}/{table_name}/ via DuckDB glob()."""
-    with connect() as db:
-        sql = load_template(
-            "list_parquets",
-            {"gcs_bucket": settings.GCS_BUCKET, "table_name": table_name},
+    sql = [load_template("pg/grant_select", {"schema": schema, "table": table_name})]
+
+    if rls is not None:
+        sql.append(
+            load_template(
+                "pg/enable_rls",
+                {"schema": schema, "table": table_name, "column": rls.column},
+            )
         )
+        logger.info("RLS enabled on {}.{} (column={})", schema, table_name, rls.column)
 
-        return str_list.validate_python([row[0] for row in db.execute(sql).fetchall()])
+    pg_conn.execute(";".join(sql).encode())
 
 
 def load_table(
-    db: DBConnection,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table_name: str,
     strategy: Strategy,
     partition_column: str | None,
 ) -> None:
     """Load one table into Postgres using its configured strategy."""
     schema = settings.PG_SCHEMA
-    paths = gcs_paths_for_table(table_name)
+    paths = [
+        str(row[0])
+        for row in duckdb_conn.execute(
+            load_template(
+                "duckdb/list_parquets",
+                {"gcs_bucket": settings.GCS_BUCKET, "table_name": table_name},
+            )
+        ).fetchall()
+    ]
 
     if not paths:
-        logger.warning("No Parquet for %s — skipping", table_name)
+        logger.warning("No Parquet for {} — skipping", table_name)
         return
 
     if strategy == Strategy.DUMP:
-        sql = load_template(
-            "load_dump",
-            {
-                "schema": schema,
-                "table_name": table_name,
-                "gcs_path": paths[0],
-            },
+        duckdb_conn.execute(
+            load_template(
+                "duckdb/delete_table",
+                {"schema": schema, "table_name": table_name},
+            )
         )
-
-        db.execute(sql)
-        logger.info("Loaded dump table: %s.%s", schema, table_name)
+        duckdb_conn.execute(
+            load_template(
+                "duckdb/load_dump",
+                {"schema": schema, "table_name": table_name, "gcs_path": paths[0]},
+            )
+        )
+        logger.info("Loaded dump table: {}.{}", schema, table_name)
         return
 
     for path in paths:
-        pv = partition_value_from_path(path)
-        sql = load_template(
-            "load_window",
-            {
-                "schema": schema,
-                "table_name": table_name,
-                "gcs_path": path,
-                "partition_column": partition_column or "",
-                "partition_value": pv,
-            },
+        pv = path.rstrip("/").split("/")[-2]
+        duckdb_conn.execute(
+            load_template(
+                "duckdb/delete_partition",
+                {
+                    "schema": schema,
+                    "table_name": table_name,
+                    "partition_column": partition_column or "",
+                    "partition_value": pv,
+                },
+            )
         )
-
-        db.execute(sql)
-        logger.info("Loaded partition %s for %s.%s", pv, schema, table_name)
+        duckdb_conn.execute(
+            load_template(
+                "duckdb/load_window",
+                {
+                    "schema": schema,
+                    "table_name": table_name,
+                    "gcs_path": path,
+                    "partition_column": partition_column or "",
+                    "partition_value": pv,
+                },
+            )
+        )
+        logger.info("Loaded partition {} for {}.{}", pv, schema, table_name)
 
 
 @broker.subscriber(
     stream=StreamSub(SYNC_FINALIZE_STREAM, group=FINALIZERS_GROUP, consumer=CONSUMER)
 )
 async def finalize_sync(msg: FinalizeMessage) -> None:
-    """Load all GCS Parquet files into Postgres via DuckDB postgres_scanner."""
-    logger.info("Finalizing sync_id=%s", msg.sync_id)
+    """Bootstrap tables and load GCS Parquet into Postgres via pg_duckdb."""
+    logger.info("Finalizing sync_id={}", msg.sync_id)
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
-    with connect() as db:
-        db.execute(f"ATTACH '{settings.PG_DSN}' AS pg (TYPE postgres)")
+    with connect() as duckdb_conn:
+        duckdb_conn.execute(
+            load_template("duckdb/attach_postgres", {"pg_dsn": settings.PG_DSN})
+        )
 
         for table in config.tables:
             match table:
-                case DumpTable():
-                    load_table(db, table.table_name, Strategy.DUMP, None)
-                case WindowTable():
-                    load_table(
-                        db,
-                        table.table_name,
-                        Strategy.WINDOW,
-                        table.partition.column,
+                case DumpTable(rls=rls):
+                    table_name = table.table_name
+                    gcs_path = f"s3://{settings.GCS_BUCKET}/{table_name}/data.parquet"
+
+                    duckdb_conn.execute(
+                        load_template(
+                            "duckdb/create_table",
+                            {
+                                "schema": settings.PG_SCHEMA,
+                                "table": table_name,
+                                "gcs_path": gcs_path,
+                            },
+                        )
                     )
 
-    logger.info("Finalize complete for sync_id=%s", msg.sync_id)
-    finalizer.exit()
+                    load_table(duckdb_conn, table_name, Strategy.DUMP, None)
+                case WindowTable(rls=rls, partition=partition):
+                    table_name = table.table_name
+                    gcs_paths = [
+                        str(row[0])
+                        for row in duckdb_conn.execute(
+                            load_template(
+                                "duckdb/list_parquets",
+                                {
+                                    "gcs_bucket": settings.GCS_BUCKET,
+                                    "table_name": table_name,
+                                },
+                            )
+                        ).fetchall()
+                    ]
+
+                    if gcs_paths:
+                        duckdb_conn.execute(
+                            load_template(
+                                "duckdb/create_table",
+                                {
+                                    "schema": settings.PG_SCHEMA,
+                                    "table": table_name,
+                                    "gcs_path": gcs_paths[0],
+                                },
+                            )
+                        )
+
+                    load_table(
+                        duckdb_conn,
+                        table_name,
+                        Strategy.WINDOW,
+                        partition.column,
+                    )
+
+    with psycopg.connect(settings.PG_DSN) as pg_conn:
+        pg_conn.execute(b"NOTIFY pgrst")
+        for table in config.tables:
+            match table:
+                case DumpTable(rls=rls):
+                    bootstrap_table(
+                        pg_conn,
+                        {
+                            "schema": settings.PG_SCHEMA,
+                            "table_name": table.table_name,
+                            "gcs_path": "",
+                            "rls": rls,
+                        },
+                    )
+                case WindowTable(rls=rls):
+                    bootstrap_table(
+                        pg_conn,
+                        {
+                            "schema": settings.PG_SCHEMA,
+                            "table_name": table.table_name,
+                            "gcs_path": "",
+                            "rls": rls,
+                        },
+                    )
+
+    logger.info("Finalize complete for sync_id={}", msg.sync_id)
+
+
+if __name__ == "__main__":
+    uvloop.run(finalizer.run())

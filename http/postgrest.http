@@ -1,0 +1,32 @@
+@host = http://localhost:3111
+@oidc = http://localhost:8081
+
+### GET_TOKEN — fetch a JWT from the mock OIDC server
+# @name token
+POST {{oidc}}/default/token HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=dev-client&client_secret=dev-secret
+
+### ANONYMOUS — no JWT, RLS hides all rows
+GET {{host}}/endpoint_participante_listagem HTTP/1.1
+
+### AUTHENTICATED — JWT with unidades: cras_1, cras_2
+GET {{host}}/endpoint_participante_listagem HTTP/1.1
+Authorization: Bearer {{token.response.body.access_token}}
+
+### PROTOCOLS — window table, authenticated
+GET {{host}}/protocolo_estado_diario HTTP/1.1
+Authorization: Bearer {{token.response.body.access_token}}
+
+### FILTER_BY_UNIDADE — PostgREST column filter
+GET {{host}}/protocolo_estado_diario?id_unidade=eq.cras_1 HTTP/1.1
+Authorization: Bearer {{token.response.body.access_token}}
+
+### SELECT_COLUMNS — pick specific columns
+GET {{host}}/endpoint_participante_listagem?select=nome,cpf HTTP/1.1
+Authorization: Bearer {{token.response.body.access_token}}
+
+### ORDER — sort by column
+GET {{host}}/protocolo_estado_diario?order=protocolo_data_referencia_particicao.desc HTTP/1.1
+Authorization: Bearer {{token.response.body.access_token}}

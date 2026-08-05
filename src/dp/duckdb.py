@@ -23,7 +23,7 @@ def connect() -> duckdb.DuckDBPyConnection:
 
     conn.execute(
         load_template(
-            "setup",
+            "duckdb/setup",
             {
                 "key_id": settings.GCS_KEY_ID,
                 "secret_key": settings.GCS_SECRET_KEY,

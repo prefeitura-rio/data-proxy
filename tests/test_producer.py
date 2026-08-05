@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from faststream import TestApp
-from helpers import FakeDuckDBConnection
+from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 
 from dp.settings import settings
 from dp.sync.models import (
@@ -57,7 +57,7 @@ class TestExpandConfig:
             tasks = list(expand_config(config, "my-bucket", "sync-1"))
 
         assert len(tasks) == 1
-        assert tasks[0].gcs_path == "gs://my-bucket/t/data.parquet"
+        assert tasks[0].gcs_path == "s3://my-bucket/t/data.parquet"
         assert tasks[0].partition_column is None
 
     def test_window_yields_tasks_for_each_partition(self) -> None:
@@ -98,6 +98,10 @@ class TestPublishTasks:
             patch(
                 "dp.sync.producer.broker.publish", new_callable=AsyncMock
             ) as mock_pub,
+            patch(
+                "dp.settings.Settings.make_redis",
+                return_value=FakeRedisCM(FakeRedis()),
+            ),
             patch("dp.sync.producer.producer.exit"),
         ):
             async with TestApp(producer):
