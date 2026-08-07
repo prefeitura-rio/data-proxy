@@ -1,0 +1,63 @@
+suite: Standalone mode (ha.enabled false)
+templates:
+  - statefulset-duckdb.yaml
+  - statefulset-duckdb-ha.yaml
+  - service-duckdb-master.yaml
+  - service-duckdb-replica.yaml
+  - deployment-pgbouncer-rw.yaml
+  - deployment-pgbouncer-ro.yaml
+  - rbac.yaml
+tests:
+  - it: renders standalone StatefulSet
+    set:
+      duckdb.password: pgpass
+      duckdb.authenticatorPassword: authpass
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: statefulset-duckdb.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: pgduckdb/pgduckdb:17-v1.1.1
+        template: statefulset-duckdb.yaml
+
+  - it: standalone StatefulSet uses configured replicas
+    set:
+      duckdb.password: pgpass
+      duckdb.authenticatorPassword: authpass
+      duckdb.replicas: 2
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+        template: statefulset-duckdb.yaml
+
+  - it: does not render HA StatefulSet
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: statefulset-duckdb-ha.yaml
+
+  - it: does not render master or replica services
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: service-duckdb-master.yaml
+      - hasDocuments:
+          count: 0
+        template: service-duckdb-replica.yaml
+
+  - it: does not render pgbouncer deployments
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: deployment-pgbouncer-rw.yaml
+      - hasDocuments:
+          count: 0
+        template: deployment-pgbouncer-ro.yaml
+
+  - it: does not render RBAC resources
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: rbac.yaml

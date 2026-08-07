@@ -16,15 +16,21 @@
     ))
   ];
 
-  languages.python = {
-    enable = true;
-    package = pkgs.python314;
-    lsp.package = pkgs.basedpyright;
-    uv = {
+  languages = {
+    helm = {
       enable = true;
-      sync = {
+      plugins = [ "helm-unittest" ];
+    };
+    python = {
+      enable = true;
+      package = pkgs.python314;
+      lsp.package = pkgs.basedpyright;
+      uv = {
         enable = true;
-        allGroups = true;
+        sync = {
+          enable = true;
+          allGroups = true;
+        };
       };
     };
   };
@@ -54,5 +60,7 @@
     "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
     "app:lint".exec = "ruff check && basedpyright src/ tests/";
     "app:fmt".exec = "ruff check --fix && ruff format";
+    "charts:lint".exec = "helm lint charts/*";
+    "charts:test".exec = "helm unittest charts/*";
   };
 }

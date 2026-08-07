@@ -1,0 +1,84 @@
+suite: HA mode (ha.enabled true)
+templates:
+  - statefulset-duckdb.yaml
+  - statefulset-duckdb-ha.yaml
+  - service-duckdb-master.yaml
+  - service-duckdb-replica.yaml
+  - deployment-pgbouncer-rw.yaml
+  - deployment-pgbouncer-ro.yaml
+  - secret-pgbouncer.yaml
+  - rbac.yaml
+  - configmap-patroni.yaml
+values:
+  - ../ci/test-values-ha.yaml
+tests:
+  - it: does not render standalone StatefulSet
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: statefulset-duckdb.yaml
+
+  - it: renders HA StatefulSet with patroni image and configured replicas
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: statefulset-duckdb-ha.yaml
+      - equal:
+          path: spec.replicas
+          value: 3
+        template: statefulset-duckdb-ha.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: gcr.io/proj/pgduckdb-patroni:17-v1.1.1
+        template: statefulset-duckdb-ha.yaml
+
+  - it: renders master and replica services
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: service-duckdb-master.yaml
+      - hasDocuments:
+          count: 1
+        template: service-duckdb-replica.yaml
+
+  - it: master service selects role master
+    asserts:
+      - equal:
+          path: spec.selector.role
+          value: master
+        template: service-duckdb-master.yaml
+
+  - it: renders pgbouncer-rw and pgbouncer-ro deployments
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-pgbouncer-rw.yaml
+      - hasDocuments:
+          count: 1
+        template: deployment-pgbouncer-ro.yaml
+
+  - it: renders pgbouncer auth secret
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: secret-pgbouncer.yaml
+
+  - it: renders RBAC Role and RoleBinding
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: rbac.yaml
+      - isKind:
+          of: Role
+        documentIndex: 0
+        template: rbac.yaml
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+        template: rbac.yaml
+
+  - it: renders patroni ConfigMap
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: configmap-patroni.yaml

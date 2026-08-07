@@ -1,0 +1,35 @@
+suite: Always-on services
+templates:
+  - service-postgrest.yaml
+  - service-duckdb.yaml
+tests:
+  - it: postgrest service is always rendered as ClusterIP on port 3000
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: service-postgrest.yaml
+      - equal:
+          path: spec.type
+          value: ClusterIP
+        template: service-postgrest.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 3000
+        template: service-postgrest.yaml
+
+  - it: postgrest service selects the postgrest component
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: postgrest
+        template: service-postgrest.yaml
+
+  - it: duckdb headless service is always rendered
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: service-duckdb.yaml
+      - equal:
+          path: spec.clusterIP
+          value: None
+        template: service-duckdb.yaml

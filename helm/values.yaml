@@ -202,3 +202,13 @@ ha:
 ## Resource requests and limits applied to all containers.
 ## Leave empty to use no limits. See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 resources: {}
+
+## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
+## No VirtualService is created when enabled is false.
+ingress:
+  ## Set to true to create an Istio VirtualService for PostgREST.
+  enabled: false
+  ## Gateway reference in namespace/name format.
+  gateway: "istio-system/istio-gateway"
+  ## External hostname the VirtualService matches. Required when enabled is true.
+  host: ""

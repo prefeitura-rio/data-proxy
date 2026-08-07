@@ -62,11 +62,19 @@ jobs:
                 -u ${{ github.actor }} \
                 --password-stdin
 
+      - name: Install helm-unittest plugin
+        if: steps.guard.outputs.skip != 'true'
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+
       - name: Lint
         if: steps.guard.outputs.skip != 'true'
         run: |
           helm lint helm/ -f helm/ci/test-values.yaml
           helm lint helm/ -f helm/ci/test-values-ha.yaml
+
+      - name: Unit tests
+        if: steps.guard.outputs.skip != 'true'
+        run: helm unittest helm/
 
       - name: Package
         if: steps.guard.outputs.skip != 'true'

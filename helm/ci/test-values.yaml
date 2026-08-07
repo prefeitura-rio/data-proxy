@@ -37,3 +37,11 @@ syncConfig:
       pg_schema: app_pequenos_cariocas
       rls:
         column: id_unidade
+      indexes:
+        - name: idx_pl_id_unidade
+          columns: [id_unidade]
+
+ingress:
+  enabled: true
+  gateway: "istio-system/istio-gateway"
+  host: "data-proxy.example.com"

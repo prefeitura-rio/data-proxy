@@ -1,0 +1,46 @@
+suite: Istio VirtualService
+templates:
+  - virtualservice.yaml
+tests:
+  - it: does not render when ingress is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders when ingress is enabled
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.gateway: istio-system/istio-gateway
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: VirtualService
+      - isAPIVersion:
+          of: networking.istio.io/v1beta1
+
+  - it: routes to the correct host and gateway
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.gateway: istio-system/istio-gateway
+    asserts:
+      - equal:
+          path: spec.hosts[0]
+          value: api.example.com
+      - equal:
+          path: spec.gateways[0]
+          value: istio-system/istio-gateway
+
+  - it: destination points to postgrest service on port 3000
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+    asserts:
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-postgrest
+      - equal:
+          path: spec.http[0].route[0].destination.port.number
+          value: 3000

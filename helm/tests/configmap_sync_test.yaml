@@ -1,0 +1,23 @@
+suite: Sync ConfigMap
+templates:
+  - configmap-sync.yaml
+tests:
+  - it: always renders the sync ConfigMap
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: data-proxy-sync
+
+  - it: sync.json contains configured table entries
+    set:
+      syncConfig.tables:
+        - bq_table: proj.dataset.my_table
+          strategy: dump
+    asserts:
+      - matchRegex:
+          path: data["sync.json"]
+          pattern: proj\.dataset\.my_table
