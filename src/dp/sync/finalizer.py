@@ -228,6 +228,34 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                         },
                     )
 
+    tables_with_indexes = [t for t in config.tables if t.indexes]
+
+    if not tables_with_indexes:
+        logger.info("Finalize complete for sync_id={}", msg.sync_id)
+        return
+
+    with psycopg.connect(settings.PG_DSN, autocommit=True) as pg_conn:
+        for table in tables_with_indexes:
+            for index in table.indexes:
+                pg_conn.execute(
+                    load_template(
+                        "pg/create_index",
+                        {
+                            "name": index.name,
+                            "schema": table.resolved_schema,
+                            "table": table.table_name,
+                            "columns": ", ".join(index.columns),
+                        },
+                    ).encode()
+                )
+
+                logger.info(
+                    "Index {} ensured on {}.{}",
+                    index.name,
+                    table.resolved_schema,
+                    table.table_name,
+                )
+
     logger.info("Finalize complete for sync_id={}", msg.sync_id)
 
 

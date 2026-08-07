@@ -102,6 +102,10 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
+exclude_lines = [
+  "if __name__ == .__main__.",
+  "pragma: no cover",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

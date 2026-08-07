@@ -22,10 +22,18 @@ class RlsConfig(BaseModel):
     column: str
 
 
+class IndexConfig(BaseModel):
+    """Index definition for a synced table."""
+
+    name: str
+    columns: list[str]
+
+
 class Table(BaseModel):
     bq_table: str
     rls: RlsConfig | None = None
     pg_schema: str | None = None
+    indexes: list[IndexConfig] = []
 
     @property
     def table_name(self) -> str:
