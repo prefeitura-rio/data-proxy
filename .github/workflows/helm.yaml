@@ -64,7 +64,7 @@ jobs:
 
       - name: Install helm-unittest plugin
         if: steps.guard.outputs.skip != 'true'
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --verify=false
 
       - name: Lint
         if: steps.guard.outputs.skip != 'true'
