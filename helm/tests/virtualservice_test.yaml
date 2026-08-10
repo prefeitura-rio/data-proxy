@@ -44,3 +44,41 @@ tests:
       - equal:
           path: spec.http[0].route[0].destination.port.number
           value: 3000
+
+  - it: renders timeout when set
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.timeout: "60s"
+    asserts:
+      - equal:
+          path: spec.http[0].timeout
+          value: 60s
+
+  - it: renders retries when attempts is greater than zero
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.retries.attempts: 2
+      ingress.retries.perTryTimeout: "30s"
+      ingress.retries.retryOn: "503"
+    asserts:
+      - equal:
+          path: spec.http[0].retries.attempts
+          value: 2
+      - equal:
+          path: spec.http[0].retries.perTryTimeout
+          value: 30s
+      - equal:
+          path: spec.http[0].retries.retryOn
+          value: "503"
+
+  - it: does not render timeout or retries by default
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+    asserts:
+      - notExists:
+          path: spec.http[0].timeout
+      - notExists:
+          path: spec.http[0].retries

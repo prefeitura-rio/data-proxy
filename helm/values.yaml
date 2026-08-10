@@ -212,3 +212,24 @@ ingress:
   gateway: "istio-system/istio-gateway"
   ## External hostname the VirtualService matches. Required when enabled is true.
   host: ""
+  ## Request timeout for the PostgREST route. Leave empty for no timeout.
+  ## Example: "60s"
+  timeout: ""
+  ## Retry policy for the PostgREST route. Set attempts to 0 to disable.
+  retries:
+    ## Number of retry attempts. Set to 0 to disable.
+    attempts: 0
+    ## Timeout per retry attempt. Leave empty to inherit the route timeout.
+    perTryTimeout: ""
+    ## Comma-separated Istio retry conditions.
+    ## Example: "503,reset,connect-failure"
+    retryOn: ""
+  ## Istio JWT authentication and authorization for the PostgREST workload.
+  auth:
+    ## Set to true to deploy RequestAuthentication and AuthorizationPolicy.
+    ## Requires ingress.enabled to be true.
+    enabled: false
+    ## JWT issuer identifier (the iss claim value). Required when auth.enabled is true.
+    issuer: ""
+    ## JWKS JSON string for inline JWT validation. Required when auth.enabled is true.
+    jwks: ""

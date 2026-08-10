@@ -17,4 +17,17 @@ spec:
             host: {{ include "data-proxy.fullname" . }}-postgrest
             port:
               number: 3000
+      {{- with .Values.ingress.timeout }}
+      timeout: {{ . }}
+      {{- end }}
+      {{- if gt (int .Values.ingress.retries.attempts) 0 }}
+      retries:
+        attempts: {{ .Values.ingress.retries.attempts }}
+        {{- with .Values.ingress.retries.perTryTimeout }}
+        perTryTimeout: {{ . }}
+        {{- end }}
+        {{- with .Values.ingress.retries.retryOn }}
+        retryOn: {{ . | quote }}
+        {{- end }}
+      {{- end }}
 {{- end }}

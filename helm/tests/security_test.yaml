@@ -1,0 +1,68 @@
+suite: Istio Security
+templates:
+  - requestauthentication.yaml
+  - authorizationpolicy.yaml
+tests:
+  - it: does not render when ingress is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render when auth is disabled
+    set:
+      ingress.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders both resources when ingress and auth are enabled
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwks: '{"keys":[]}'
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: requestauthentication.yaml
+      - hasDocuments:
+          count: 1
+        template: authorizationpolicy.yaml
+
+  - it: RequestAuthentication uses configured issuer and jwks and forwards the token
+    template: requestauthentication.yaml
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwks: '{"keys":[]}'
+    asserts:
+      - isKind:
+          of: RequestAuthentication
+      - equal:
+          path: spec.jwtRules[0].issuer
+          value: "https://auth.example.com"
+      - equal:
+          path: spec.jwtRules[0].jwks
+          value: '{"keys":[]}'
+      - equal:
+          path: spec.jwtRules[0].forwardOriginalToken
+          value: true
+
+  - it: AuthorizationPolicy allows any valid JWT principal
+    template: authorizationpolicy.yaml
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwks: '{"keys":[]}'
+    asserts:
+      - isKind:
+          of: AuthorizationPolicy
+      - equal:
+          path: spec.action
+          value: ALLOW
+      - equal:
+          path: spec.rules[0].from[0].source.requestPrincipals[0]
+          value: "*"

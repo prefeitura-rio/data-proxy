@@ -1,0 +1,20 @@
+{{- if and .Values.ingress.enabled .Values.ingress.auth.enabled }}
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgrest
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - "*"
+{{- end }}
