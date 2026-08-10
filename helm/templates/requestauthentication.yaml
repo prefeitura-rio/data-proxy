@@ -13,6 +13,6 @@ spec:
       app.kubernetes.io/component: postgrest
   jwtRules:
     - issuer: {{ .Values.ingress.auth.issuer | quote }}
-      jwks: {{ .Values.ingress.auth.jwks | quote }}
+      jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
       forwardOriginalToken: true
 {{- end }}

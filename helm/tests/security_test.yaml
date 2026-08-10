@@ -21,7 +21,7 @@ tests:
       ingress.host: api.example.com
       ingress.auth.enabled: true
       ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwks: '{"keys":[]}'
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
     asserts:
       - hasDocuments:
           count: 1
@@ -36,7 +36,7 @@ tests:
       ingress.enabled: true
       ingress.auth.enabled: true
       ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwks: '{"keys":[]}'
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
     asserts:
       - isKind:
           of: RequestAuthentication
@@ -44,8 +44,8 @@ tests:
           path: spec.jwtRules[0].issuer
           value: "https://auth.example.com"
       - equal:
-          path: spec.jwtRules[0].jwks
-          value: '{"keys":[]}'
+          path: spec.jwtRules[0].jwksUri
+          value: "https://auth.example.com/protocol/openid-connect/certs"
       - equal:
           path: spec.jwtRules[0].forwardOriginalToken
           value: true
@@ -56,7 +56,7 @@ tests:
       ingress.enabled: true
       ingress.auth.enabled: true
       ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwks: '{"keys":[]}'
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
     asserts:
       - isKind:
           of: AuthorizationPolicy

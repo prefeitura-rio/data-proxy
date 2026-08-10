@@ -38,11 +38,8 @@ spec:
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_DB_PRE_REQUEST
               value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
-            - name: PGRST_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.jwtSecretName" . }}
-                  key: PGRST_JWT_SECRET
+            - name: PGRST_JWT_JWKS_URI
+              value: {{ .Values.postgrest.jwksUri | quote }}
             - name: PGRST_OPENAPI_SERVER_PROXY_URI
               value: {{ .Values.postgrest.proxyUri | quote }}
           readinessProbe:

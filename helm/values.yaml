@@ -54,11 +54,8 @@ postgrest:
   ## External URL that PostgREST uses in the OpenAPI specification.
   ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
-  ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain PGRST_JWT_SECRET as a JWKS JSON string.
-  existingJwtSecret: ""
-  ## JWKS JSON string used to verify JWT tokens. Required when existingJwtSecret is empty.
-  jwtSecret: ""
+  ## JWKS URI for JWT validation. PostgREST fetches and caches the public keys at startup.
+  jwksUri: ""
 
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
@@ -231,5 +228,5 @@ ingress:
     enabled: false
     ## JWT issuer identifier (the iss claim value). Required when auth.enabled is true.
     issuer: ""
-    ## JWKS JSON string for inline JWT validation. Required when auth.enabled is true.
-    jwks: ""
+    ## JWKS URI for JWT validation. Required when auth.enabled is true.
+    jwksUri: ""

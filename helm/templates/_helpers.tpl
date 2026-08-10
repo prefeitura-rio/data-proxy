@@ -50,14 +50,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.jwtSecretName" -}}
-{{- if .Values.postgrest.existingJwtSecret }}
-{{- .Values.postgrest.existingJwtSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-jwt
-{{- end }}
-{{- end }}
-
 {{- define "data-proxy.valkeySecretName" -}}
 {{- if .Values.valkey.auth.existingSecret }}
 {{- .Values.valkey.auth.existingSecret }}
