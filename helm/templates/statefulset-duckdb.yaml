@@ -20,6 +20,8 @@ spec:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: duckdb
     spec:
+      securityContext:
+        fsGroup: 999
       containers:
         - name: duckdb
           image: {{ .Values.duckdb.image }}
