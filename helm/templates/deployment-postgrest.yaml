@@ -53,6 +53,8 @@ spec:
               value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
             - name: PGRST_JWT_SECRET
               value: "@/etc/postgrest/jwks.json"
+            - name: PGRST_DB_MAX_ROWS
+              value: {{ .Values.postgrest.maxRows | quote }}
             - name: PGRST_OPENAPI_SERVER_PROXY_URI
               value: {{ .Values.postgrest.proxyUri | quote }}
           volumeMounts:

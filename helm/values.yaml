@@ -56,6 +56,9 @@ postgrest:
   proxyUri: ""
   ## JWKS URI for JWT validation. PostgREST fetches and caches the public keys at startup.
   jwksUri: ""
+  ## Maximum number of rows PostgREST will return per request.
+  ## Requests without an explicit limit are capped at this value.
+  maxRows: 1000
 
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
