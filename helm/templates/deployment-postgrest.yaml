@@ -14,11 +14,10 @@ spec:
       app.kubernetes.io/component: postgrest
   template:
     metadata:
-      annotations:
-        sidecar.istio.io/inject: "true"
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgrest
+        sidecar.istio.io/inject: "true"
     spec:
       initContainers:
         - name: fetch-jwks
