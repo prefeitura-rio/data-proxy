@@ -1,8 +1,8 @@
 name: CI
-
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths: &ci_paths
       - src/**
       - tests/**
@@ -12,20 +12,15 @@ on:
       - docker-compose.yaml
       - config/**
       - scripts/**
-      - devenv.nix
-      - devenv.yaml
-      - devenv.lock
       - .sqlfluff
       - .sqlfluffignore
       - .env.test
   pull_request:
     paths: *ci_paths
   workflow_dispatch:
-
 permissions:
   contents: read
   packages: write
-
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -43,7 +38,6 @@ jobs:
       - run: uv run basedpyright src/ tests/
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
-
   test:
     runs-on: ubuntu-latest
     steps:
@@ -57,10 +51,11 @@ jobs:
       - run: uv run pytest tests/ -q
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
-
   build:
     if: github.ref == 'refs/heads/main'
-    needs: [lint, test]
+    needs:
+      - lint
+      - test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
