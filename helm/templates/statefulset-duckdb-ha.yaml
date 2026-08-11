@@ -20,8 +20,6 @@ spec:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: duckdb
     spec:
-      securityContext:
-        fsGroup: 999
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
         - name: duckdb
@@ -33,6 +31,8 @@ spec:
             - name: patroni
               containerPort: 8008
           env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: PATRONI_SCOPE
               value: {{ include "data-proxy.fullname" . }}-patroni
             - name: PATRONI_NAME
@@ -78,7 +78,6 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
-              subPath: pgdata
             - name: patroni-config
               mountPath: /etc/patroni
               readOnly: true
