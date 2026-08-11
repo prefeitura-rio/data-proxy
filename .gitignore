@@ -12,3 +12,4 @@ credentials.json
 .devenv/
 .pre-commit-config.yaml
 todo.txt
+.coverage
