@@ -87,4 +87,8 @@ class FinalizeMessage(BaseModel):
     sync_id: str
 
 
+class ShutdownMessage(BaseModel):
+    sync_id: str
+
+
 TableConfig = Annotated[DumpTable | WindowTable, Field(discriminator="strategy")]

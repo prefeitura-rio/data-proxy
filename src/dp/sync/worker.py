@@ -10,13 +10,14 @@ from loguru import logger
 from ..constants import (
     SYNC_FINALIZE_STREAM,
     SYNC_JOB_KEY,
+    SYNC_SHUTDOWN_CHANNEL,
     SYNC_TASKS_STREAM,
     WORKERS_GROUP,
 )
 from ..duckdb import connect
 from ..settings import settings
 from ..templates import load_template
-from .models import FinalizeMessage, SyncTask
+from .models import FinalizeMessage, ShutdownMessage, SyncTask
 
 broker = RedisBroker(str(settings.REDIS_URL))
 worker = FastStream(broker)
@@ -39,9 +40,8 @@ def build_mapping(msg: SyncTask) -> tuple[str, dict[str, str]]:
     return "duckdb/write_dump", mapping
 
 
-@broker.subscriber(stream=StreamSub(SYNC_FINALIZE_STREAM))
-async def handle_shutdown(msg: FinalizeMessage) -> None:
-    """Exit when FinalizeMessage arrives — all sync tasks are done."""
+@broker.subscriber(SYNC_SHUTDOWN_CHANNEL)
+async def handle_shutdown(msg: ShutdownMessage) -> None:
     logger.info("Shutdown signal for sync_id={} — exiting", msg.sync_id)
     worker.exit()
 
@@ -51,6 +51,7 @@ async def handle_shutdown(msg: FinalizeMessage) -> None:
 )
 async def process_shard(msg: SyncTask) -> None:
     """Consume one task: BigQuery → GCS Parquet via DuckDB COPY."""
+    logger.info("Processing {} (sync_id={})", msg.bq_table, msg.sync_id)
     template, mapping = build_mapping(msg)
 
     with connect() as db:
@@ -58,6 +59,8 @@ async def process_shard(msg: SyncTask) -> None:
 
     async with settings.make_redis() as redis:
         remaining = await redis.decr(SYNC_JOB_KEY.format(sync_id=msg.sync_id))
+
+    logger.debug("Remaining tasks: {} (sync_id={})", remaining, msg.sync_id)
 
     if remaining == 0:
         logger.info("All shards done — publishing FinalizeMessage for {}", msg.sync_id)

@@ -32,9 +32,10 @@ def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
     rows = db.execute(sql).fetchall()
 
     if not rows:
+        logger.warning("No partitions found for {}", table.bq_table)
         return []
 
-    return (
+    result = (
         pl.DataFrame(rows, orient="row")
         .to_series(0)
         .top_k(table.partition.n)
@@ -42,6 +43,8 @@ def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
         .cast(pl.String)
         .to_list()
     )
+    logger.debug("Discovered {} partitions for {}", len(result), table.bq_table)
+    return result
 
 
 def expand_config(
@@ -75,6 +78,7 @@ async def publish_tasks() -> None:
     """Read the sync config, expand it into tasks, and publish them all."""
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
     sync_id = datetime.now(UTC).isoformat()
+    logger.info("Starting sync sync_id={}", sync_id)
 
     tasks = list(expand_config(config, settings.GCS_BUCKET, sync_id))
     key = SYNC_JOB_KEY.format(sync_id=sync_id)

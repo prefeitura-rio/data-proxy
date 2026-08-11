@@ -2,18 +2,21 @@
 
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import psycopg
 import pytest
 from faststream.redis.testing import TestRedisBroker
-from helpers import FakeDuckDBConnection, FakePgConn
+from helpers import FakeDuckDBConnection, FakePgConn, FakeRedisCM, FakeRedisGroup
+from redis.exceptions import ResponseError
 
-from dp.constants import SYNC_FINALIZE_STREAM
+from dp.constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM
 from dp.settings import settings
 from dp.sync.finalizer import (
     bootstrap_table,
     broker,
+    ensure_consumer_group,
+    finalize_sync,
     finalizer,
     load_table,
 )
@@ -22,6 +25,31 @@ from dp.sync.models import (
     RlsConfig,
     Strategy,
 )
+
+
+class TestEnsureConsumerGroup:
+    @pytest.mark.asyncio
+    async def test_creates_group_at_id_zero(self) -> None:
+        fake = FakeRedisGroup()
+
+        with patch("dp.settings.Settings.make_redis", return_value=FakeRedisCM(fake)):
+            await ensure_consumer_group()
+
+        assert fake.calls == [
+            {
+                "name": SYNC_FINALIZE_STREAM,
+                "groupname": FINALIZERS_GROUP,
+                "id": "0",
+                "mkstream": True,
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_handles_existing_group(self) -> None:
+        fake = FakeRedisGroup(side_effect=ResponseError("BUSYGROUP ..."))
+
+        with patch("dp.settings.Settings.make_redis", return_value=FakeRedisCM(fake)):
+            await ensure_consumer_group()
 
 
 class TestBootstrapTable:
@@ -39,7 +67,6 @@ class TestBootstrapTable:
                 },
             )
 
-        # 1 execute call (grant_select)
         assert pg_conn.execute_calls == 1
 
     def test_enables_rls_when_configured(self) -> None:
@@ -113,6 +140,7 @@ class TestFinalizeSync:
                 await br.publish(
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
+
         mock_ddb.assert_called_once()
         assert (
             mock_pg.call_count == 2
@@ -140,6 +168,7 @@ class TestFinalizeSync:
                 await br.publish(
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
+
         mock_ddb.assert_called_once()
         assert (
             mock_pg.call_count == 2
@@ -167,6 +196,7 @@ class TestFinalizeSync:
                 await br.publish(
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
+
         assert mock_pg.call_count == 3  # init_schema + notify/bootstrap + indexes
         assert mock_pg.call_args_list[2].kwargs.get("autocommit") is True
 
@@ -191,6 +221,7 @@ class TestFinalizeSync:
                 await br.publish(
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
+
         # attach_postgres + list_parquets + create_table = 3 execute calls
         assert len(fake_ddb.executed) == 3
 
@@ -212,25 +243,27 @@ class TestFinalizeSync:
                 await br.publish(
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
-        assert mock_pg.call_count == 2  # no index connection opened
+
+        assert mock_pg.call_count == 2
 
     @pytest.mark.asyncio
     async def test_exits_after_finalization(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """finalizer.exit() is called after finalization completes."""
         cfg = tmp_path / "sync.json"
         cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
-        async with TestRedisBroker(broker) as br:
-            with (
-                patch("dp.sync.finalizer.connect"),
-                patch("dp.sync.finalizer.psycopg.connect"),
-                patch("dp.sync.finalizer.bootstrap_table"),
-                patch("dp.sync.finalizer.load_table"),
-                patch.object(finalizer, "exit") as mock_exit,
-            ):
-                await br.publish(
-                    FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
-                )
+        with (
+            patch("dp.sync.finalizer.connect"),
+            patch("dp.sync.finalizer.psycopg.connect"),
+            patch("dp.sync.finalizer.bootstrap_table"),
+            patch("dp.sync.finalizer.load_table"),
+            patch(
+                "dp.sync.finalizer.broker.publish", new_callable=AsyncMock
+            ) as mock_pub,
+            patch.object(finalizer, "exit") as mock_exit,
+        ):
+            await finalize_sync(FinalizeMessage(sync_id="s1"))
+
+        mock_pub.assert_awaited_once()
         mock_exit.assert_called_once()

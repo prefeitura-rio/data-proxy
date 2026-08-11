@@ -8,8 +8,9 @@ import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker, StreamSub
 from loguru import logger
+from redis.exceptions import ResponseError
 
-from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM
+from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM, SYNC_SHUTDOWN_CHANNEL
 from ..duckdb import DBConnection, connect
 from ..settings import settings
 from ..templates import load_template
@@ -17,6 +18,7 @@ from .models import (
     DumpTable,
     FinalizeMessage,
     RlsConfig,
+    ShutdownMessage,
     Strategy,
     SyncConfig,
     WindowTable,
@@ -56,6 +58,7 @@ def bootstrap_table(
         logger.info("RLS enabled on {}.{} (column={})", schema, table_name, rls.column)
 
     pg_conn.execute(";".join(sql).encode())
+    logger.info("Bootstrapped {}.{}", schema, table_name)
 
 
 def load_table(
@@ -124,12 +127,29 @@ def load_table(
         logger.info("Loaded partition {} for {}.{}", pv, schema, table_name)
 
 
+@finalizer.on_startup
+async def ensure_consumer_group() -> None:
+    async with settings.make_redis() as redis:
+        try:
+            await redis.xgroup_create(
+                SYNC_FINALIZE_STREAM,
+                FINALIZERS_GROUP,
+                id="0",
+                mkstream=True,
+            )
+            logger.debug("Consumer group {} created with id=0", FINALIZERS_GROUP)
+        except ResponseError:
+            logger.debug("Consumer group {} already exists — skipping", FINALIZERS_GROUP)
+
+
 @broker.subscriber(
     stream=StreamSub(SYNC_FINALIZE_STREAM, group=FINALIZERS_GROUP, consumer=CONSUMER)
 )
 async def finalize_sync(msg: FinalizeMessage) -> None:
     """Bootstrap tables and load GCS Parquet into Postgres via pg_duckdb."""
     logger.info("Finalizing sync_id={}", msg.sync_id)
+    await broker.publish(ShutdownMessage(sync_id=msg.sync_id), SYNC_SHUTDOWN_CHANNEL)
+    logger.info("Shutdown signal published for sync_id={}", msg.sync_id)
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
     unique_schemas = {table.resolved_schema for table in config.tables}
@@ -138,6 +158,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
             pg_conn.execute(
                 load_template("pg/init_schema", {"schema": schema}).encode()
             )
+            logger.debug("Schema {} initialized", schema)
 
     with connect() as duckdb_conn:
         duckdb_conn.execute(
@@ -205,6 +226,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
 
     with psycopg.connect(settings.PG_DSN) as pg_conn:
         pg_conn.execute(b"NOTIFY pgrst")
+        logger.info("NOTIFY pgrst sent")
         for table in config.tables:
             match table:
                 case DumpTable(rls=rls):

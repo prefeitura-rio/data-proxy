@@ -117,4 +117,5 @@ class TestPublishTasks:
         ):
             async with TestApp(producer):
                 pass
+
         mock_pub.assert_called_once()

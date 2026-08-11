@@ -58,16 +58,41 @@ class FakeRedis:
 
 
 @final
-class FakeRedisCM:
-    """Async context manager wrapping a FakeRedis."""
+class FakeRedisCM[T]:
+    """Async context manager wrapping any Redis double."""
 
-    _redis: FakeRedis
+    _redis: T
 
-    def __init__(self, redis: FakeRedis) -> None:
+    def __init__(self, redis: T) -> None:
         self._redis = redis
 
-    async def __aenter__(self) -> FakeRedis:
+    async def __aenter__(self) -> T:
         return self._redis
 
     async def __aexit__(self, *args: object) -> None:
         pass
+
+
+@final
+class FakeRedisGroup:
+    """Redis double for xgroup_create with call tracking and optional side_effect."""
+
+    calls: list[dict[str, object]]
+    side_effect: Exception | None
+
+    def __init__(self, side_effect: Exception | None = None) -> None:
+        self.calls = []
+        self.side_effect = side_effect
+
+    async def xgroup_create(
+        self,
+        name: str,
+        groupname: str,
+        id: str = "$",  # noqa: A002
+        mkstream: bool = False,
+    ) -> None:
+        self.calls.append(
+            {"name": name, "groupname": groupname, "id": id, "mkstream": mkstream}
+        )
+        if self.side_effect is not None:
+            raise self.side_effect
