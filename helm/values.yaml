@@ -145,7 +145,7 @@ auth:
   authenticatorRole: authenticator
   ## JWT claim that contains the list of authorised organisational units.
   ## The pre_request function reads this claim and sets the session variable.
-  jwtClaim: unidades
+  jwtClaim: dp_row_access
   ## PostgreSQL session variable set by the pre_request function from the JWT claim.
   ## RLS policies must read this variable to filter rows by organisational unit.
   sessionVar: app.user_units

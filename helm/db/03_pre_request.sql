@@ -8,7 +8,7 @@ BEGIN
                 SELECT string_agg(value, ',')
                 FROM json_array_elements_text(
                     coalesce(
-                        current_setting('request.jwt.claims', true)::json -> 'unidades',
+                        current_setting('request.jwt.claims', true)::json -> 'dp_row_access',
                         '[]'::json
                     )
                 )
