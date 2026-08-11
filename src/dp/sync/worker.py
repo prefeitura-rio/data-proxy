@@ -1,5 +1,6 @@
 """Sync worker: consumes a SyncTask, BQ → GCS Parquet via DuckDB."""
 
+import asyncio
 from uuid import uuid4
 
 import uvloop
@@ -47,7 +48,12 @@ async def handle_shutdown(msg: ShutdownMessage) -> None:
 
 
 @broker.subscriber(
-    stream=StreamSub(SYNC_TASKS_STREAM, group=WORKERS_GROUP, consumer=CONSUMER)
+    stream=StreamSub(
+        SYNC_TASKS_STREAM,
+        group=WORKERS_GROUP,
+        consumer=CONSUMER,
+        max_records=settings.WORKER_MAX_RECORDS,
+    )
 )
 async def process_shard(msg: SyncTask) -> None:
     """Consume one task: BigQuery → GCS Parquet via DuckDB COPY."""
@@ -59,8 +65,13 @@ async def process_shard(msg: SyncTask) -> None:
 
     async with settings.make_redis() as redis:
         remaining = await redis.decr(SYNC_JOB_KEY.format(sync_id=msg.sync_id))
+        groups = await redis.xinfo_groups(SYNC_TASKS_STREAM)
 
-    logger.debug("Remaining tasks: {} (sync_id={})", remaining, msg.sync_id)
+    lag = next((g["lag"] for g in groups if g["name"] == WORKERS_GROUP.encode()), 0)
+
+    logger.debug(
+        "Remaining tasks: {} lag: {} (sync_id={})", remaining, lag, msg.sync_id
+    )
 
     if remaining == 0:
         logger.info("All shards done — publishing FinalizeMessage for {}", msg.sync_id)
@@ -69,6 +80,13 @@ async def process_shard(msg: SyncTask) -> None:
             FinalizeMessage(sync_id=msg.sync_id),
             stream=SYNC_FINALIZE_STREAM,
         )
+
+    if lag == 0:
+        logger.info(
+            "Queue empty — sleeping {}s before exit", settings.WORKER_INACTIVITY_TIMEOUT
+        )
+        await asyncio.sleep(settings.WORKER_INACTIVITY_TIMEOUT)
+        worker.exit()
 
 
 if __name__ == "__main__":
