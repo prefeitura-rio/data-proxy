@@ -9,7 +9,7 @@ from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
 from dp.settings import settings
 from dp.sync.models import ShutdownMessage, SyncTask
-from dp.sync.worker import broker, build_mapping, process_shard, worker
+from dp.sync.worker import broker, build_columns, build_mapping, process_shard, worker
 
 MSG_DUMP = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="gs://b/t/data.parquet")
 MSG_WINDOW = SyncTask(
@@ -21,6 +21,29 @@ MSG_WINDOW = SyncTask(
 )
 
 
+class TestBuildColumns:
+    def test_returns_star_when_no_json_columns(self) -> None:
+        """A bare '*' is returned when the json_columns list is empty."""
+        result = build_columns([])
+
+        assert result == "*"
+
+    def test_single_json_column(self) -> None:
+        """A single STRUCT column produces a REPLACE clause with one to_json() call."""
+        result = build_columns(["id_cras_list"])
+
+        assert result == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
+
+    def test_multiple_json_columns(self) -> None:
+        """Multiple STRUCT columns are each wrapped in to_json() within one REPLACE clause."""
+        result = build_columns(["id_cras_list", "dados"])
+
+        assert result == (
+            '* REPLACE (to_json("id_cras_list") AS "id_cras_list", '
+            'to_json("dados") AS "dados")'
+        )
+
+
 class TestBuildMapping:
     @pytest.mark.parametrize(
         ("msg", "expected_template", "expected_subset"),
@@ -28,12 +51,20 @@ class TestBuildMapping:
             (
                 MSG_DUMP,
                 "duckdb/write_dump",
-                {"bq_table": "p.d.t", "gcs_path": "gs://b/t/data.parquet"},
+                {
+                    "bq_table": "p.d.t",
+                    "gcs_path": "gs://b/t/data.parquet",
+                    "columns":  "*",
+                },
             ),
             (
                 MSG_WINDOW,
                 "duckdb/write_window",
-                {"partition_column": "dt", "partition_value": "2025-01-15"},
+                {
+                    "partition_column": "dt",
+                    "partition_value":  "2025-01-15",
+                    "columns":          "*",
+                },
             ),
         ],
         ids=["dump", "window"],
@@ -48,6 +79,18 @@ class TestBuildMapping:
         template, mapping = build_mapping(msg)
         assert template == expected_template
         assert expected_subset.items() <= mapping.items()
+
+    def test_mapping_with_json_columns(self) -> None:
+        """STRUCT columns produce a REPLACE expression in the columns key."""
+        msg = SyncTask(
+            sync_id="s1",
+            bq_table="p.d.t",
+            gcs_path="gs://b/t/data.parquet",
+            json_columns=["id_cras_list"],
+        )
+        _, mapping = build_mapping(msg)
+
+        assert mapping["columns"] == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
 
 
 class TestProcessShard:

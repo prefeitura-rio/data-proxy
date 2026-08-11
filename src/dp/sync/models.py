@@ -51,6 +51,7 @@ class Table(BaseModel):
         gcs_bucket: str,
         partition_value: str | None = None,
         partition_column: str | None = None,
+        json_columns: list[str] | None = None,
     ) -> SyncTask:
         suffix = f"/{partition_value}" if partition_value else ""
         return SyncTask(
@@ -59,6 +60,7 @@ class Table(BaseModel):
             gcs_path=f"s3://{gcs_bucket}/{self.table_name}{suffix}/data.parquet",
             partition_column=partition_column,
             partition_value=partition_value,
+            json_columns=json_columns or [],
         )
 
 
@@ -81,6 +83,7 @@ class SyncTask(BaseModel):
     gcs_path: str
     partition_column: str | None = None
     partition_value: str | None = None
+    json_columns: list[str] = []
 
 
 class FinalizeMessage(BaseModel):

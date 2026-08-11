@@ -14,7 +14,37 @@ from dp.sync.models import (
     SyncConfig,
     WindowTable,
 )
-from dp.sync.producer import discover_partitions, expand_config, producer
+from dp.sync.producer import (
+    discover_json_columns,
+    discover_partitions,
+    expand_config,
+    producer,
+)
+
+
+class TestDiscoverJsonColumns:
+    def test_returns_struct_columns(self) -> None:
+        """Columns whose DuckDB type contains STRUCT are returned by name."""
+        describe_rows = [
+            ("cpf", "VARCHAR", None, None, None, None),
+            ("id_cras_list", "STRUCT(id VARCHAR, nome VARCHAR)[]", None, None, None, None),
+            ("dados", "STRUCT(cpf VARCHAR, nome VARCHAR)[]", None, None, None, None),
+        ]
+        db = FakeDuckDBConnection(describe_rows=describe_rows)
+        result = discover_json_columns(db, "project.dataset.table")
+
+        assert result == ["id_cras_list", "dados"]
+
+    def test_returns_empty_for_flat_table(self) -> None:
+        """An empty list is returned when no STRUCT columns exist."""
+        describe_rows = [
+            ("cpf", "VARCHAR", None, None, None, None),
+            ("id_cras", "VARCHAR", None, None, None, None),
+        ]
+        db = FakeDuckDBConnection(describe_rows=describe_rows)
+        result = discover_json_columns(db, "project.dataset.table")
+
+        assert result == []
 
 
 class TestDiscoverPartitions:
@@ -70,6 +100,22 @@ class TestExpandConfig:
         assert len(tasks) == 1
         assert tasks[0].gcs_path == "s3://my-bucket/t/data.parquet"
         assert tasks[0].partition_column is None
+        assert tasks[0].json_columns == []
+
+    def test_dump_yields_task_with_json_columns(self) -> None:
+        """STRUCT columns discovered via DESCRIBE are included in the task."""
+        describe_rows = [
+            ("cpf", "VARCHAR", None, None, None, None),
+            ("id_cras_list", "STRUCT(id VARCHAR, nome VARCHAR)[]", None, None, None, None),
+        ]
+        config = SyncConfig(tables=[DumpTable(bq_table="p.d.t")])
+        with patch(
+            "dp.sync.producer.connect",
+            return_value=FakeDuckDBConnection(describe_rows=describe_rows),
+        ):
+            tasks = list(expand_config(config, "my-bucket", "sync-1"))
+
+        assert tasks[0].json_columns == ["id_cras_list"]
 
     def test_window_yields_tasks_for_each_partition(self) -> None:
         """A window table produces one SyncTask per discovered partition value."""
@@ -93,6 +139,8 @@ class TestExpandConfig:
         assert len(tasks) == 2
         assert tasks[0].partition_value == "2025-01-15"
         assert tasks[1].partition_value == "2025-01-14"
+        assert tasks[0].json_columns == []
+        assert tasks[1].json_columns == []
 
 
 class TestPublishTasks:

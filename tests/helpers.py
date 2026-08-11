@@ -1,5 +1,6 @@
 """Typed test doubles for the data-proxy test suite."""
 
+from collections.abc import Sequence
 from typing import final
 
 
@@ -7,18 +8,26 @@ from typing import final
 class FakeDuckDBConnection:
     """In-memory DuckDB connection double with call tracking."""
 
-    _rows: list[tuple[object, ...]]
+    _rows: Sequence[tuple[object, ...]]
+    _describe_rows: Sequence[tuple[object, ...]]
     executed: list[str]
 
-    def __init__(self, rows: list[tuple[object, ...]] | None = None) -> None:
+    def __init__(
+        self,
+        rows: Sequence[tuple[object, ...]] | None = None,
+        describe_rows: Sequence[tuple[object, ...]] | None = None,
+    ) -> None:
         self._rows = rows or []
+        self._describe_rows = describe_rows or []
         self.executed = []
 
     def execute(self, query: str, parameters: object = None) -> FakeDuckDBConnection:
         self.executed.append(query)
         return self
 
-    def fetchall(self) -> list[tuple[object, ...]]:
+    def fetchall(self) -> Sequence[tuple[object, ...]]:
+        if self.executed and self.executed[-1].strip().upper().startswith("DESCRIBE"):
+            return self._describe_rows
         return self._rows
 
     def __enter__(self) -> FakeDuckDBConnection:

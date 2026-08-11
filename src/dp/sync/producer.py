@@ -19,6 +19,12 @@ broker = RedisBroker(str(settings.REDIS_URL))
 producer = FastStream(broker)
 
 
+def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
+    """Return column names whose DuckDB type contains STRUCT."""
+    rows = db.execute(f"DESCRIBE SELECT * FROM bigquery_scan('{bq_table}')").fetchall()
+    return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]
+
+
 def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
     """Query BigQuery for all distinct partition values; return the last *n* sorted descending."""
     sql = load_template(
@@ -60,9 +66,10 @@ def expand_config(
     """
     with connect() as db:
         for table in config.tables:
+            json_columns = discover_json_columns(db, table.bq_table)
             match table:
                 case DumpTable():
-                    yield table.to_task(sync_id, gcs_bucket)
+                    yield table.to_task(sync_id, gcs_bucket, json_columns=json_columns)
                 case WindowTable():
                     for partition in discover_partitions(db, table):
                         yield table.to_task(
@@ -70,6 +77,7 @@ def expand_config(
                             gcs_bucket,
                             partition,
                             table.partition.column,
+                            json_columns=json_columns,
                         )
 
 

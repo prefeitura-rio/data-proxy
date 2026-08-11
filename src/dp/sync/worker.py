@@ -26,16 +26,25 @@ worker = FastStream(broker)
 CONSUMER = str(uuid4())
 
 
+def build_columns(json_columns: list[str]) -> str:
+    """Return a SELECT expression replacing STRUCT columns with to_json()."""
+    if not json_columns:
+        return "*"
+    replacements = ", ".join(f'to_json("{col}") AS "{col}"' for col in json_columns)
+    return f"* REPLACE ({replacements})"
+
+
 def build_mapping(msg: SyncTask) -> tuple[str, dict[str, str]]:
     """Return (template_name, mapping) for the given SyncTask."""
     mapping = {
         "bq_table": msg.bq_table,
-        "gcs_path": msg.gcs_path,
+        "gcs_path":  msg.gcs_path,
+        "columns":   build_columns(msg.json_columns),
     }
 
     if msg.partition_column and msg.partition_value:
         mapping["partition_column"] = msg.partition_column
-        mapping["partition_value"] = msg.partition_value
+        mapping["partition_value"]  = msg.partition_value
         return "duckdb/write_window", mapping
 
     return "duckdb/write_dump", mapping
