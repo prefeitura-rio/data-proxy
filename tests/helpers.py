@@ -66,6 +66,15 @@ class FakeRedis:
     async def set(self, key: str, value: object, ex: int | None = None) -> None:
         pass
 
+    async def xgroup_create(
+        self,
+        name: str,
+        groupname: str,
+        id: str = "$",  # noqa: A002
+        mkstream: bool = False,
+    ) -> None:
+        pass
+
     async def xinfo_groups(self, name: str) -> list[dict[str, object]]:
         return [{"name": b"workers", "lag": self._lag}]
 

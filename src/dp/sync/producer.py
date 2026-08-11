@@ -1,5 +1,6 @@
 """Sync producer: reads config, publishes SyncTasks to Redis, sets counter."""
 
+import contextlib
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
@@ -8,8 +9,9 @@ import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker
 from loguru import logger
+from redis.exceptions import ResponseError
 
-from ..constants import SYNC_JOB_KEY, SYNC_TASKS_STREAM
+from ..constants import SYNC_JOB_KEY, SYNC_TASKS_STREAM, WORKERS_GROUP
 from ..duckdb import DBConnection, connect
 from ..settings import settings
 from ..templates import load_template
@@ -93,6 +95,8 @@ async def publish_tasks() -> None:
 
     async with settings.make_redis() as redis:
         await redis.set(key, len(tasks), ex=3600)
+        with contextlib.suppress(ResponseError):
+            await redis.xgroup_create(SYNC_TASKS_STREAM, WORKERS_GROUP, id="0", mkstream=True)
 
     for msg in tasks:
         await broker.publish(msg, stream=SYNC_TASKS_STREAM)
