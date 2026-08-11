@@ -7,7 +7,6 @@ from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 
 from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
-from dp.settings import settings
 from dp.sync.models import ShutdownMessage, SyncTask
 from dp.sync.worker import broker, build_columns, build_mapping, process_shard, worker
 
@@ -139,6 +138,7 @@ class TestProcessShard:
 class TestInactivityExit:
     @pytest.mark.asyncio
     async def test_exits_when_queue_empty(self) -> None:
+        """Worker exits immediately when lag reaches zero."""
         with (
             patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
             patch("dp.sync.worker.load_template", return_value="SELECT 1"),
@@ -147,16 +147,15 @@ class TestInactivityExit:
                 return_value=FakeRedisCM(FakeRedis(decr_value=1, lag=0)),
             ),
             patch("dp.sync.worker.broker.publish", new_callable=AsyncMock),
-            patch("dp.sync.worker.asyncio.sleep") as mock_sleep,
             patch.object(worker, "exit") as mock_exit,
         ):
             await process_shard(MSG_DUMP)
 
-        mock_sleep.assert_awaited_once_with(settings.WORKER_INACTIVITY_TIMEOUT)
         mock_exit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_no_exit_when_queue_has_lag(self) -> None:
+        """Worker keeps running when undelivered messages remain."""
         with (
             patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
             patch("dp.sync.worker.load_template", return_value="SELECT 1"),
@@ -165,12 +164,10 @@ class TestInactivityExit:
                 return_value=FakeRedisCM(FakeRedis(decr_value=1, lag=5)),
             ),
             patch("dp.sync.worker.broker.publish", new_callable=AsyncMock),
-            patch("dp.sync.worker.asyncio.sleep") as mock_sleep,
             patch.object(worker, "exit") as mock_exit,
         ):
             await process_shard(MSG_DUMP)
 
-        mock_sleep.assert_not_called()
         mock_exit.assert_not_called()
 
 

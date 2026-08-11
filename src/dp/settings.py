@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     GCS_ENDPOINT: str = "localhost:9000"
     GCS_USE_SSL: str = "false"
     WORKER_MAX_RECORDS: int = 1
-    WORKER_INACTIVITY_TIMEOUT: int = 30
 
     def make_redis(self) -> Redis:
         """Return a Redis client from the configured URL."""

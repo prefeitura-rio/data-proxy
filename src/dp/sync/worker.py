@@ -1,6 +1,5 @@
 """Sync worker: consumes a SyncTask, BQ → GCS Parquet via DuckDB."""
 
-import asyncio
 from uuid import uuid4
 
 import uvloop
@@ -91,10 +90,7 @@ async def process_shard(msg: SyncTask) -> None:
         )
 
     if lag == 0:
-        logger.info(
-            "Queue empty — sleeping {}s before exit", settings.WORKER_INACTIVITY_TIMEOUT
-        )
-        await asyncio.sleep(settings.WORKER_INACTIVITY_TIMEOUT)
+        logger.info("Queue empty — exiting")
         worker.exit()
 
 
