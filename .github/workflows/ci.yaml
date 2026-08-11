@@ -75,6 +75,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha,prefix=,format=short
+            type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
           push: ${{ github.event_name != 'pull_request' }}
