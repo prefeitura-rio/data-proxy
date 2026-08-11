@@ -232,6 +232,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
 
     if not tables_with_indexes:
         logger.info("Finalize complete for sync_id={}", msg.sync_id)
+        finalizer.exit()
         return
 
     with psycopg.connect(settings.PG_DSN, autocommit=True) as pg_conn:
@@ -257,6 +258,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                 )
 
     logger.info("Finalize complete for sync_id={}", msg.sync_id)
+    finalizer.exit()
 
 
 if __name__ == "__main__":

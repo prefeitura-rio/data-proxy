@@ -14,6 +14,7 @@ from dp.settings import settings
 from dp.sync.finalizer import (
     bootstrap_table,
     broker,
+    finalizer,
     load_table,
 )
 from dp.sync.models import (
@@ -212,3 +213,24 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
         assert mock_pg.call_count == 2  # no index connection opened
+
+    @pytest.mark.asyncio
+    async def test_exits_after_finalization(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """finalizer.exit() is called after finalization completes."""
+        cfg = tmp_path / "sync.json"
+        cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
+        monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        async with TestRedisBroker(broker) as br:
+            with (
+                patch("dp.sync.finalizer.connect"),
+                patch("dp.sync.finalizer.psycopg.connect"),
+                patch("dp.sync.finalizer.bootstrap_table"),
+                patch("dp.sync.finalizer.load_table"),
+                patch.object(finalizer, "exit") as mock_exit,
+            ):
+                await br.publish(
+                    FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
+                )
+        mock_exit.assert_called_once()

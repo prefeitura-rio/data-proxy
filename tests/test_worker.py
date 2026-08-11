@@ -6,9 +6,9 @@ import pytest
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 
-from dp.constants import SYNC_TASKS_STREAM
-from dp.sync.models import SyncTask
-from dp.sync.worker import broker, build_mapping, process_shard
+from dp.constants import SYNC_FINALIZE_STREAM, SYNC_TASKS_STREAM
+from dp.sync.models import FinalizeMessage, SyncTask
+from dp.sync.worker import broker, build_mapping, process_shard, worker
 
 MSG_DUMP = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="gs://b/t/data.parquet")
 MSG_WINDOW = SyncTask(
@@ -88,3 +88,15 @@ class TestProcessShard:
         ):
             await process_shard(MSG_DUMP)
         assert mock_pub.call_count == expected_calls
+
+
+class TestHandleShutdown:
+    @pytest.mark.asyncio
+    async def test_exits_on_finalize_message(self) -> None:
+        """handle_shutdown calls worker.exit() when FinalizeMessage arrives."""
+        async with TestRedisBroker(broker) as br:
+            with patch.object(worker, "exit") as mock_exit:
+                await br.publish(
+                    FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
+                )
+        mock_exit.assert_called_once()

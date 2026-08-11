@@ -39,6 +39,13 @@ def build_mapping(msg: SyncTask) -> tuple[str, dict[str, str]]:
     return "duckdb/write_dump", mapping
 
 
+@broker.subscriber(stream=StreamSub(SYNC_FINALIZE_STREAM))
+async def handle_shutdown(msg: FinalizeMessage) -> None:
+    """Exit when FinalizeMessage arrives — all sync tasks are done."""
+    logger.info("Shutdown signal for sync_id={} — exiting", msg.sync_id)
+    worker.exit()
+
+
 @broker.subscriber(
     stream=StreamSub(SYNC_TASKS_STREAM, group=WORKERS_GROUP, consumer=CONSUMER)
 )
