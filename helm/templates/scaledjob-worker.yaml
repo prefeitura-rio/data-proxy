@@ -41,7 +41,7 @@ spec:
       authenticationRef:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
       metadata:
-        address: {{ .Release.Name }}-valkey:6379
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
         stream: dp:sync:tasks
         consumerGroup: workers
         lagCount: {{ .Values.worker.keda.lagCount | quote }}
