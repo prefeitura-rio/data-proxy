@@ -47,7 +47,7 @@ duckdb:
 ## Configuration for the PostgREST REST API service.
 postgrest:
   ## PostgREST container image.
-  image: postgrest/postgrest:v12.2.8
+  image: postgrest/postgrest:v16.1
   ## Comma-separated list of PostgreSQL schemas that PostgREST exposes as REST endpoints.
   ## Example: app_pequenos_cariocas,projeto_pequenos_cariocas
   schemas: ""

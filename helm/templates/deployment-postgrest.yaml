@@ -18,6 +18,19 @@ spec:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgrest
     spec:
+      initContainers:
+        - name: fetch-jwks
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - curl -sf {{ .Values.postgrest.jwksUri | quote }} -o /etc/postgrest/jwks.json
+          volumeMounts:
+            - name: jwks
+              mountPath: /etc/postgrest
+      volumes:
+        - name: jwks
+          emptyDir: {}
       containers:
         - name: postgrest
           image: {{ .Values.postgrest.image }}
@@ -38,10 +51,14 @@ spec:
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_DB_PRE_REQUEST
               value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
-            - name: PGRST_JWT_JWKS_URI
-              value: {{ .Values.postgrest.jwksUri | quote }}
+            - name: PGRST_JWT_SECRET
+              value: "@/etc/postgrest/jwks.json"
             - name: PGRST_OPENAPI_SERVER_PROXY_URI
               value: {{ .Values.postgrest.proxyUri | quote }}
+          volumeMounts:
+            - name: jwks
+              mountPath: /etc/postgrest
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /
