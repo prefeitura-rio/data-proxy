@@ -66,6 +66,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           readinessProbe:
             httpGet:
               path: /readiness
@@ -76,6 +78,7 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
             - name: patroni-config
               mountPath: /etc/patroni
               readOnly: true

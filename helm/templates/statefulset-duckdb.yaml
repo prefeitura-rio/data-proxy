@@ -41,6 +41,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           readinessProbe:
             exec:
               command:
@@ -54,6 +56,7 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
             - name: db-init
               mountPath: /docker-entrypoint-initdb.d
       volumes:
