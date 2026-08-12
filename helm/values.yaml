@@ -111,6 +111,8 @@ producer:
   ## Cron expression that controls when the producer runs.
   ## Default: daily at 02:00 UTC.
   schedule: "0 2 * * *"
+  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+  startingDeadlineSeconds: 600
   ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
   activeDeadlineSeconds: 3600
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.

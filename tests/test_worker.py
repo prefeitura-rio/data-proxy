@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 
@@ -53,7 +54,7 @@ class TestBuildMapping:
                 {
                     "bq_table": "p.d.t",
                     "gcs_path": "gs://b/t/data.parquet",
-                    "columns":  "*",
+                    "columns": "*",
                 },
             ),
             (
@@ -61,8 +62,8 @@ class TestBuildMapping:
                 "duckdb/write_window",
                 {
                     "partition_column": "dt",
-                    "partition_value":  "2025-01-15",
-                    "columns":          "*",
+                    "partition_value": "2025-01-15",
+                    "columns": "*",
                 },
             ),
         ],
@@ -89,7 +90,10 @@ class TestBuildMapping:
         )
         _, mapping = build_mapping(msg)
 
-        assert mapping["columns"] == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
+        assert (
+            mapping["columns"]
+            == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
+        )
 
 
 class TestProcessShard:
@@ -110,6 +114,17 @@ class TestProcessShard:
                 await br.publish(msg, stream=SYNC_TASKS_STREAM)
 
         assert db.executed == ["SELECT 1"]
+
+    @pytest.mark.asyncio
+    async def test_failure_stops_application(self) -> None:
+        async with TestRedisBroker(broker) as br:
+            with (
+                patch("dp.sync.worker.connect", side_effect=RuntimeError("failed")),
+                pytest.raises(StopApplication) as result,
+            ):
+                await br.publish(MSG_DUMP, stream=SYNC_TASKS_STREAM)
+
+        assert result.value.code == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

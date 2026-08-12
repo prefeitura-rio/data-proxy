@@ -14,6 +14,14 @@ tests:
           path: spec.schedule
           value: "0 3 * * *"
         template: cronjob-producer.yaml
+      - equal:
+          path: spec.startingDeadlineSeconds
+          value: 600
+        template: cronjob-producer.yaml
+      - equal:
+          path: spec.jobTemplate.spec.backoffLimit
+          value: 0
+        template: cronjob-producer.yaml
 
   - it: producer uses the app image and correct command
     set:
@@ -29,11 +37,15 @@ tests:
           value: [python, -m, dp.sync.producer]
         template: cronjob-producer.yaml
 
-  - it: finalizer is capped at maxReplicaCount 1
+  - it: finalizer is capped at maxReplicaCount 1 without Job retries
     asserts:
       - equal:
           path: spec.maxReplicaCount
           value: 1
+        template: scaledjob-finalizer.yaml
+      - equal:
+          path: spec.jobTargetRef.backoffLimit
+          value: 0
         template: scaledjob-finalizer.yaml
 
   - it: finalizer triggers on the finalize stream
@@ -43,13 +55,17 @@ tests:
           value: dp:sync:finalize
         template: scaledjob-finalizer.yaml
 
-  - it: worker uses configured maxReplicaCount
+  - it: worker uses configured maxReplicaCount without Job retries
     set:
       worker.keda.maxReplicaCount: 8
     asserts:
       - equal:
           path: spec.maxReplicaCount
           value: 8
+        template: scaledjob-worker.yaml
+      - equal:
+          path: spec.jobTargetRef.backoffLimit
+          value: 0
         template: scaledjob-worker.yaml
 
   - it: worker triggers on the tasks stream with configured lagCount

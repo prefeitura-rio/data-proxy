@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: producer
 spec:
   schedule: {{ .Values.producer.schedule | quote }}
+  startingDeadlineSeconds: {{ .Values.producer.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1

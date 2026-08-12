@@ -11,7 +11,7 @@ spec:
     parallelism: 1
     completions: 1
     activeDeadlineSeconds: {{ .Values.finalizer.keda.activeDeadlineSeconds }}
-    backoffLimit: 3
+    backoffLimit: 0
     template:
       metadata:
         labels:

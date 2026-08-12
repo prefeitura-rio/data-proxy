@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import uvloop
 from faststream import FastStream
+from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 from loguru import logger
 
@@ -17,9 +18,13 @@ from ..constants import (
 from ..duckdb import connect
 from ..settings import settings
 from ..templates import load_template
+from .errors import stop_on_error
 from .models import FinalizeMessage, ShutdownMessage, SyncTask
 
-broker = RedisBroker(str(settings.REDIS_URL))
+broker = RedisBroker(
+    str(settings.REDIS_URL),
+    middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
+)
 worker = FastStream(broker)
 
 CONSUMER = str(uuid4())
@@ -37,13 +42,13 @@ def build_mapping(msg: SyncTask) -> tuple[str, dict[str, str]]:
     """Return (template_name, mapping) for the given SyncTask."""
     mapping = {
         "bq_table": msg.bq_table,
-        "gcs_path":  msg.gcs_path,
-        "columns":   build_columns(msg.json_columns),
+        "gcs_path": msg.gcs_path,
+        "columns": build_columns(msg.json_columns),
     }
 
     if msg.partition_column and msg.partition_value:
         mapping["partition_column"] = msg.partition_column
-        mapping["partition_value"]  = msg.partition_value
+        mapping["partition_value"] = msg.partition_value
         return "duckdb/write_window", mapping
 
     return "duckdb/write_dump", mapping

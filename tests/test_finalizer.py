@@ -6,6 +6,7 @@ from unittest.mock import ANY, AsyncMock, patch
 
 import psycopg
 import pytest
+from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakePgConn, FakeRedisCM, FakeRedisGroup
 from redis.exceptions import ResponseError
@@ -203,6 +204,28 @@ class TestPublishTable:
 
 
 class TestFinalizeSync:
+    @pytest.mark.asyncio
+    async def test_failure_stops_application(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = tmp_path / "sync.json"
+        cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
+        monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+
+        async with TestRedisBroker(broker) as br:
+            with (
+                patch(
+                    "dp.sync.finalizer.psycopg.connect",
+                    side_effect=RuntimeError("failed"),
+                ),
+                pytest.raises(StopApplication) as result,
+            ):
+                await br.publish(
+                    FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
+                )
+
+        assert result.value.code == 1
+
     @pytest.mark.asyncio
     async def test_processes_dump_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
