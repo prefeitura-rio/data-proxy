@@ -233,3 +233,5 @@ ingress:
     issuer: ""
     ## JWKS URI for JWT validation. Required when auth.enabled is true.
     jwksUri: ""
+    ## Accepted JWT authorized-party (azp) claims. Leave empty to accept any valid JWT principal.
+    authorizedParties: []

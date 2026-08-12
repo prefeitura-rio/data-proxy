@@ -66,3 +66,25 @@ tests:
       - equal:
           path: spec.rules[0].from[0].source.requestPrincipals[0]
           value: "*"
+      - notExists:
+          path: spec.rules[0].when
+
+  - it: AuthorizationPolicy restricts configured authorized parties
+    template: authorizationpolicy.yaml
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      ingress.auth.authorizedParties:
+        - app-pic
+        - another-client
+    asserts:
+      - equal:
+          path: spec.rules[0].when[0].key
+          value: request.auth.claims[azp]
+      - equal:
+          path: spec.rules[0].when[0].values
+          value:
+            - app-pic
+            - another-client

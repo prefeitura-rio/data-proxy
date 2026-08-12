@@ -17,4 +17,10 @@ spec:
         - source:
             requestPrincipals:
               - "*"
+      {{- with .Values.ingress.auth.authorizedParties }}
+      when:
+        - key: request.auth.claims[azp]
+          values:
+            {{- toYaml . | nindent 12 }}
+      {{- end }}
 {{- end }}
