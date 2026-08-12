@@ -4,12 +4,15 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/workflows/helm.yaml
       - helm/Chart.yaml
       - helm/Chart.lock
       - helm/values.yaml
       - helm/ci/**
       - helm/db/**
+      - helm/files/**
       - helm/templates/**
+      - helm/tests/**
   workflow_dispatch:
 
 concurrency:
@@ -64,7 +67,10 @@ jobs:
 
       - name: Install helm-unittest plugin
         if: steps.guard.outputs.skip != 'true'
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest --verify=false
+        run: >-
+          helm plugin install
+          https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.2/unittest-1.1.2.tgz
+          --verify=false
 
       - name: Lint
         if: steps.guard.outputs.skip != 'true'

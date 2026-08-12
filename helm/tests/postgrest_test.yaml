@@ -44,7 +44,7 @@ tests:
           pattern: 'jq -e'
       - matchRegex:
           path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'mv "\$\{temporary_file\}" "\$\{jwks_file\}"'
+          pattern: 'mv "\$temporary_file" "\$jwks_file"'
       - equal:
           path: spec.template.spec.initContainers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
