@@ -25,7 +25,9 @@ producer:
 
 auth:
   anonRole: web_anon
+  userRole: web_user
   authenticatorRole: authenticator
+  jwtRoleClaim: $.role
   jwtClaim: dp_row_access
   sessionVar: app.user_units
   rlsSchema: rls

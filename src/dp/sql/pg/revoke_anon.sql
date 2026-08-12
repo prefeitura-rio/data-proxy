@@ -1,0 +1,2 @@
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA ${schema} FROM ${anon_role};
+REVOKE USAGE ON SCHEMA ${schema} FROM ${anon_role}

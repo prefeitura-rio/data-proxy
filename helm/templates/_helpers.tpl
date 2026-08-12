@@ -135,6 +135,12 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.fullname" .
       key: GCS_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
+- name: AUTH_ANON_ROLE
+  value: {{ .Values.auth.anonRole | quote }}
+- name: AUTH_USER_ROLE
+  value: {{ .Values.auth.userRole | quote }}
+- name: AUTH_AUTHENTICATOR_ROLE
+  value: {{ .Values.auth.authenticatorRole | quote }}
 {{- end }}
 
 {{- define "data-proxy.syncConfigVolume" -}}

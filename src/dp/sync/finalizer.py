@@ -44,7 +44,16 @@ def bootstrap_table(
     table_name = params["table_name"]
     rls = params["rls"]
 
-    sql = [load_template("pg/grant_select", {"schema": schema, "table": table_name})]
+    sql = [
+        load_template(
+            "pg/grant_select",
+            {
+                "schema": schema,
+                "table": table_name,
+                "user_role": settings.AUTH_USER_ROLE,
+            },
+        )
+    ]
 
     if rls is not None:
         sql.append(
@@ -181,9 +190,21 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
         psycopg.connect(settings.PG_DSN) as pg_conn,
         connect() as duckdb_conn,
     ):
+        pg_conn.execute(
+            load_template(
+                "pg/init_roles",
+                {
+                    "user_role": settings.AUTH_USER_ROLE,
+                    "authenticator_role": settings.AUTH_AUTHENTICATOR_ROLE,
+                },
+            ).encode()
+        )
         for schema in unique_schemas:
             pg_conn.execute(
-                load_template("pg/init_schema", {"schema": schema}).encode()
+                load_template(
+                    "pg/init_schema",
+                    {"schema": schema, "user_role": settings.AUTH_USER_ROLE},
+                ).encode()
             )
             logger.debug("Schema {} initialized", schema)
 
@@ -224,6 +245,15 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
         for table in prepared_tables:
             with pg_conn.transaction():
                 publish_table(pg_conn, table)
+
+        for schema in unique_schemas:
+            pg_conn.execute(
+                load_template(
+                    "pg/revoke_anon",
+                    {"schema": schema, "anon_role": settings.AUTH_ANON_ROLE},
+                ).encode()
+            )
+            logger.info("Anonymous access revoked from schema {}", schema)
 
         pg_conn.execute(b"NOTIFY pgrst, 'reload schema'")
         logger.info("PostgREST schema reload requested")

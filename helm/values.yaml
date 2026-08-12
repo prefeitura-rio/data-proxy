@@ -148,12 +148,16 @@ syncConfig:
 ## Role names, JWT claim, and schema configuration for row-level security.
 ## These values are rendered into the db-init ConfigMap and the PostgREST Deployment.
 auth:
-  ## PostgreSQL role used for unauthenticated and JWT-authenticated requests.
+  ## PostgreSQL role used for unauthenticated requests. This role has no application table access.
   ## PostgREST uses this role as PGRST_DB_ANON_ROLE.
   anonRole: web_anon
+  ## PostgreSQL role used for authenticated requests. This role receives application table access.
+  userRole: web_user
   ## PostgreSQL login role that PostgREST and PgBouncer use to connect.
   ## PostgREST uses this role in PGRST_DB_URI.
   authenticatorRole: authenticator
+  ## PostgREST JSPath expression that selects the database role from JWT claims.
+  jwtRoleClaim: $.role
   ## JWT claim that contains the list of authorised organisational units.
   ## The pre_request function reads this claim and sets the session variable.
   jwtClaim: dp_row_access

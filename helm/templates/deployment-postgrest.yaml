@@ -59,6 +59,8 @@ spec:
               value: {{ .Values.postgrest.schemas | quote }}
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
+            - name: PGRST_JWT_ROLE_CLAIM_KEY
+              value: {{ .Values.auth.jwtRoleClaim | quote }}
             - name: PGRST_DB_PRE_REQUEST
               value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
             - name: PGRST_JWT_SECRET

@@ -61,7 +61,13 @@ class TestBootstrapTable:
     def test_creates_table_and_grants_without_rls(self) -> None:
         """Grant is applied; RLS steps skipped when rls is None."""
         pg_conn = FakePgConn()
-        with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
+        mappings: list[dict[str, str]] = []
+
+        def capture_template(name: str, mapping: dict[str, str]) -> str:
+            mappings.append(mapping)
+            return "SELECT 1"
+
+        with patch("dp.sync.finalizer.load_template", side_effect=capture_template):
             bootstrap_table(
                 cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
                 {
@@ -72,6 +78,9 @@ class TestBootstrapTable:
             )
 
         assert pg_conn.execute_calls == 1
+        assert mappings == [
+            {"schema": "pic", "table": "mytable", "user_role": "web_user"}
+        ]
 
     def test_enables_rls_when_configured(self) -> None:
         """Grant + RLS are applied when rls config is present."""

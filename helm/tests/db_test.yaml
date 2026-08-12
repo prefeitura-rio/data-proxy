@@ -1,0 +1,41 @@
+suite: Database authorization
+templates:
+  - configmap-db-init.yaml
+  - deployment-postgrest.yaml
+tests:
+  - it: creates separate anonymous and authenticated roles
+    set:
+      auth.anonRole: test_anon
+      auth.userRole: test_user
+      auth.authenticatorRole: test_authenticator
+    asserts:
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE ROLE test_anon NOLOGIN NOBYPASSRLS
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE ROLE test_user NOLOGIN NOBYPASSRLS
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: GRANT test_user TO test_authenticator
+        template: configmap-db-init.yaml
+
+  - it: configures PostgREST anonymous and JWT roles
+    set:
+      auth.anonRole: test_anon
+      auth.jwtRoleClaim: $.role
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[3]
+          value:
+            name: PGRST_DB_ANON_ROLE
+            value: test_anon
+        template: deployment-postgrest.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[4]
+          value:
+            name: PGRST_JWT_ROLE_CLAIM_KEY
+            value: $.role
+        template: deployment-postgrest.yaml
