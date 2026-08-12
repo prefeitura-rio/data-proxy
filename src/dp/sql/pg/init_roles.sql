@@ -5,4 +5,5 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;
 END
 $$$$;
-GRANT ${user_role} TO ${authenticator_role}
+GRANT ${user_role} TO ${authenticator_role};
+GRANT USAGE ON SCHEMA ${rls_schema} TO ${user_role}

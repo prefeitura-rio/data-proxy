@@ -196,6 +196,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                 {
                     "user_role": settings.AUTH_USER_ROLE,
                     "authenticator_role": settings.AUTH_AUTHENTICATOR_ROLE,
+                    "rls_schema": "rls",
                 },
             ).encode()
         )
