@@ -41,13 +41,17 @@ class FakeDuckDBConnection:
 class FakePgConn:
     """Minimal psycopg connection double with execute call tracking."""
 
-    execute_calls: int
+    executed: list[object]
 
     def __init__(self) -> None:
-        self.execute_calls = 0
+        self.executed = []
+
+    @property
+    def execute_calls(self) -> int:
+        return len(self.executed)
 
     def execute(self, query: object, params: object = None) -> None:
-        self.execute_calls += 1
+        self.executed.append(query)
 
 
 @final

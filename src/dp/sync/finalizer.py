@@ -33,7 +33,6 @@ CONSUMER = str(uuid4())
 class BootstrapInput(TypedDict):
     schema: str
     table_name: str
-    gcs_path: str
     rls: RlsConfig | None
 
 
@@ -67,6 +66,7 @@ def load_table(
     table_name: str,
     strategy: Strategy,
     partition_column: str | None,
+    target_table_name: str | None = None,
 ) -> None:
     """Load one table into Postgres using its configured strategy."""
     paths = [
@@ -83,20 +83,16 @@ def load_table(
         logger.warning("No Parquet for {} — skipping", table_name)
         return
 
+    target = target_table_name or table_name
+
     if strategy == Strategy.DUMP:
         duckdb_conn.execute(
             load_template(
-                "duckdb/delete_table",
-                {"schema": schema, "table_name": table_name},
-            )
-        )
-        duckdb_conn.execute(
-            load_template(
                 "duckdb/load_dump",
-                {"schema": schema, "table_name": table_name, "gcs_path": paths[0]},
+                {"schema": schema, "table_name": target, "gcs_path": paths[0]},
             )
         )
-        logger.info("Loaded dump table: {}.{}", schema, table_name)
+        logger.info("Loaded dump table: {}.{}", schema, target)
         return
 
     for path in paths:
@@ -106,7 +102,7 @@ def load_table(
                 "duckdb/delete_partition",
                 {
                     "schema": schema,
-                    "table_name": table_name,
+                    "table_name": target,
                     "partition_column": partition_column or "",
                     "partition_value": pv,
                 },
@@ -117,14 +113,70 @@ def load_table(
                 "duckdb/load_window",
                 {
                     "schema": schema,
-                    "table_name": table_name,
+                    "table_name": target,
                     "gcs_path": path,
                     "partition_column": partition_column or "",
                     "partition_value": pv,
                 },
             )
         )
-        logger.info("Loaded partition {} for {}.{}", pv, schema, table_name)
+        logger.info("Loaded partition {} for {}.{}", pv, schema, target)
+
+
+def create_indexes(
+    pg_conn: psycopg.Connection,
+    table: DumpTable | WindowTable,
+    table_name: str,
+) -> None:
+    """Create configured indexes on a table."""
+    for index in table.indexes:
+        pg_conn.execute(
+            load_template(
+                "pg/create_index",
+                {
+                    "name": index.name,
+                    "schema": table.resolved_schema,
+                    "table": table_name,
+                    "columns": ", ".join(index.columns),
+                },
+            ).encode()
+        )
+        logger.info(
+            "Index {} ensured on {}.{}",
+            index.name,
+            table.resolved_schema,
+            table_name,
+        )
+
+
+def publish_dump(pg_conn: psycopg.Connection, table: DumpTable) -> None:
+    """Atomically replace a dump table and create its indexes."""
+    table_name = table.table_name
+    shadow_name = f"{table_name}__next"
+
+    bootstrap_table(
+        pg_conn,
+        {
+            "schema": table.resolved_schema,
+            "table_name": shadow_name,
+            "rls": table.rls,
+        },
+    )
+
+    pg_conn.execute(
+        load_template(
+            "pg/swap_table",
+            {
+                "schema": table.resolved_schema,
+                "table": table_name,
+                "next_table": shadow_name,
+                "old_table": f"{table_name}__old",
+            },
+        ).encode()
+    )
+
+    create_indexes(pg_conn, table, table_name)
+    logger.info("Published dump table: {}.{}", table.resolved_schema, table_name)
 
 
 @finalizer.on_startup
@@ -139,7 +191,9 @@ async def ensure_consumer_group() -> None:
             )
             logger.debug("Consumer group {} created with id=0", FINALIZERS_GROUP)
         except ResponseError:
-            logger.debug("Consumer group {} already exists — skipping", FINALIZERS_GROUP)
+            logger.debug(
+                "Consumer group {} already exists — skipping", FINALIZERS_GROUP
+            )
 
 
 @broker.subscriber(
@@ -167,8 +221,9 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
 
         for table in config.tables:
             match table:
-                case DumpTable(rls=rls):
+                case DumpTable():
                     table_name = table.table_name
+                    shadow_name = f"{table_name}__next"
                     gcs_path = f"s3://{settings.GCS_BUCKET}/{table_name}/data.parquet"
 
                     duckdb_conn.execute(
@@ -176,7 +231,7 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                             "duckdb/create_table",
                             {
                                 "schema": table.resolved_schema,
-                                "table": table_name,
+                                "table": shadow_name,
                                 "gcs_path": gcs_path,
                             },
                         )
@@ -188,8 +243,9 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                         table_name,
                         Strategy.DUMP,
                         None,
+                        target_table_name=shadow_name,
                     )
-                case WindowTable(rls=rls, partition=partition):
+                case WindowTable(partition=partition):
                     table_name = table.table_name
                     gcs_paths = [
                         str(row[0])
@@ -224,60 +280,26 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
                         partition.column,
                     )
 
+    for table in config.tables:
+        with psycopg.connect(settings.PG_DSN) as pg_conn:
+            if isinstance(table, DumpTable):
+                publish_dump(pg_conn, table)
+                continue
+
+            bootstrap_table(
+                pg_conn,
+                {
+                    "schema": table.resolved_schema,
+                    "table_name": table.table_name,
+                    "rls": table.rls,
+                },
+            )
+
+            create_indexes(pg_conn, table, table.table_name)
+
     with psycopg.connect(settings.PG_DSN) as pg_conn:
-        pg_conn.execute(b"NOTIFY pgrst")
-        logger.info("NOTIFY pgrst sent")
-        for table in config.tables:
-            match table:
-                case DumpTable(rls=rls):
-                    bootstrap_table(
-                        pg_conn,
-                        {
-                            "schema": table.resolved_schema,
-                            "table_name": table.table_name,
-                            "gcs_path": "",
-                            "rls": rls,
-                        },
-                    )
-                case WindowTable(rls=rls):
-                    bootstrap_table(
-                        pg_conn,
-                        {
-                            "schema": table.resolved_schema,
-                            "table_name": table.table_name,
-                            "gcs_path": "",
-                            "rls": rls,
-                        },
-                    )
-
-    tables_with_indexes = [t for t in config.tables if t.indexes]
-
-    if not tables_with_indexes:
-        logger.info("Finalize complete for sync_id={}", msg.sync_id)
-        finalizer.exit()
-        return
-
-    with psycopg.connect(settings.PG_DSN, autocommit=True) as pg_conn:
-        for table in tables_with_indexes:
-            for index in table.indexes:
-                pg_conn.execute(
-                    load_template(
-                        "pg/create_index",
-                        {
-                            "name": index.name,
-                            "schema": table.resolved_schema,
-                            "table": table.table_name,
-                            "columns": ", ".join(index.columns),
-                        },
-                    ).encode()
-                )
-
-                logger.info(
-                    "Index {} ensured on {}.{}",
-                    index.name,
-                    table.resolved_schema,
-                    table.table_name,
-                )
+        pg_conn.execute(b"NOTIFY pgrst, 'reload schema'")
+        logger.info("PostgREST schema reload requested")
 
     logger.info("Finalize complete for sync_id={}", msg.sync_id)
     finalizer.exit()

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import psycopg
 import pytest
@@ -19,9 +19,12 @@ from dp.sync.finalizer import (
     finalize_sync,
     finalizer,
     load_table,
+    publish_dump,
 )
 from dp.sync.models import (
+    DumpTable,
     FinalizeMessage,
+    IndexConfig,
     RlsConfig,
     Strategy,
 )
@@ -62,7 +65,6 @@ class TestBootstrapTable:
                 {
                     "schema": "pic",
                     "table_name": "mytable",
-                    "gcs_path": "gs://b/t/data.parquet",
                     "rls": None,
                 },
             )
@@ -78,7 +80,6 @@ class TestBootstrapTable:
                 {
                     "schema": "pic",
                     "table_name": "mytable",
-                    "gcs_path": "gs://b/t/data.parquet",
                     "rls": RlsConfig(column="id_unidade"),
                 },
             )
@@ -89,13 +90,26 @@ class TestBootstrapTable:
 
 class TestLoadTable:
     def test_dump_loads_once(self) -> None:
-        """Dump strategy calls delete + insert once."""
+        """Dump strategy inserts into the shadow table without deleting."""
         db = FakeDuckDBConnection(rows=[("gs://b/t/data.parquet",)])
+        mappings: list[dict[str, str]] = []
 
-        with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "pic", "t", Strategy.DUMP, None)
+        def capture_template(name: str, mapping: dict[str, str]) -> str:
+            mappings.append(mapping)
+            return "SELECT 1"
 
-        assert len(db.executed) == 3  # glob + delete + insert
+        with patch("dp.sync.finalizer.load_template", side_effect=capture_template):
+            load_table(
+                db,
+                "pic",
+                "t",
+                Strategy.DUMP,
+                None,
+                target_table_name="t__next",
+            )
+
+        assert len(db.executed) == 2  # glob + insert
+        assert mappings[-1]["table_name"] == "t__next"
 
     def test_window_loads_per_partition(self) -> None:
         """Window strategy calls delete + insert per partition."""
@@ -121,6 +135,35 @@ class TestLoadTable:
         assert len(db.executed) == 1  # only glob
 
 
+class TestPublishDump:
+    def test_prepares_swaps_and_indexes_in_order(self) -> None:
+        pg_conn = FakePgConn()
+        table = DumpTable(
+            bq_table="p.pic.t",
+            indexes=[IndexConfig(name="idx_t_col", columns=["col"])],
+        )
+
+        def template_name(name: str, mapping: dict[str, str]) -> str:
+            return name
+
+        with patch("dp.sync.finalizer.load_template", side_effect=template_name):
+            publish_dump(
+                cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
+                table,
+            )
+
+        assert pg_conn.executed == [
+            b"pg/grant_select",
+            b"pg/swap_table",
+            b"pg/create_index",
+        ]
+
+    def test_swap_supports_missing_current_table(self) -> None:
+        sql = Path("src/dp/sql/pg/swap_table.sql").read_text()
+
+        assert "ALTER TABLE IF EXISTS ${schema}.${table}" in sql
+
+
 class TestFinalizeSync:
     @pytest.mark.asyncio
     async def test_processes_dump_table(
@@ -142,11 +185,16 @@ class TestFinalizeSync:
                 )
 
         mock_ddb.assert_called_once()
-        assert (
-            mock_pg.call_count == 2
-        )  # once for init_schema, once for notify+bootstrap
+        assert mock_pg.call_count == 3  # init schema + publication + notification
         mock_bootstrap.assert_called_once()
-        mock_load.assert_called_once()
+        mock_load.assert_called_once_with(
+            ANY,
+            "d",
+            "t",
+            Strategy.DUMP,
+            None,
+            target_table_name="t__next",
+        )
 
     @pytest.mark.asyncio
     async def test_processes_window_table(
@@ -170,9 +218,7 @@ class TestFinalizeSync:
                 )
 
         mock_ddb.assert_called_once()
-        assert (
-            mock_pg.call_count == 2
-        )  # once for init_schema, once for notify+bootstrap
+        assert mock_pg.call_count == 3  # init schema + bootstrap + notification
         mock_bootstrap.assert_called_once()
         mock_load.assert_called_once()
 
@@ -180,7 +226,7 @@ class TestFinalizeSync:
     async def test_creates_indexes_when_configured(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Third psycopg connection (autocommit=True) is opened when indexes are declared."""
+        """Indexes are created in the publication transaction."""
         cfg = tmp_path / "sync.json"
         cfg.write_text(
             '{"tables": [{"bq_table": "p.d.t", "strategy": "dump", "indexes": [{"name": "idx_t_col", "columns": ["col"]}]}]}'
@@ -197,8 +243,8 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
 
-        assert mock_pg.call_count == 3  # init_schema + notify/bootstrap + indexes
-        assert mock_pg.call_args_list[2].kwargs.get("autocommit") is True
+        assert mock_pg.call_count == 3
+        assert all("autocommit" not in call.kwargs for call in mock_pg.call_args_list)
 
     @pytest.mark.asyncio
     async def test_window_table_calls_create_table_when_paths_exist(
@@ -226,10 +272,10 @@ class TestFinalizeSync:
         assert len(fake_ddb.executed) == 3
 
     @pytest.mark.asyncio
-    async def test_skips_index_connection_when_no_indexes(
+    async def test_uses_publication_transaction_without_indexes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """No third psycopg connection when no table declares indexes."""
+        """Tables without indexes use the same publication transaction."""
         cfg = tmp_path / "sync.json"
         cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
@@ -244,7 +290,7 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
 
-        assert mock_pg.call_count == 2
+        assert mock_pg.call_count == 3
 
     @pytest.mark.asyncio
     async def test_exits_after_finalization(

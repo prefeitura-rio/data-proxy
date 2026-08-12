@@ -1,2 +1,2 @@
-CREATE INDEX CONCURRENTLY IF NOT EXISTS ${name}
+CREATE INDEX IF NOT EXISTS ${name}
     ON ${schema}.${table} (${columns})
