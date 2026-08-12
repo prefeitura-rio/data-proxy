@@ -21,11 +21,20 @@ spec:
     spec:
       initContainers:
         - name: fetch-jwks
-          image: curlimages/curl:latest
+          image: {{ .Values.postgrest.jwksFetch.image }}
           command:
-            - sh
+            - /bin/sh
             - -c
-            - curl -sf {{ .Values.postgrest.jwksUri | quote }} -o /etc/postgrest/jwks.json
+          args:
+            - |
+{{ .Files.Get "files/scripts/fetch-jwks.sh" | nindent 14 }}
+          env:
+            - name: JWKS_URI
+              value: {{ .Values.postgrest.jwksUri | quote }}
+            - name: CURL_VERSION
+              value: {{ .Values.postgrest.jwksFetch.curlVersion | quote }}
+            - name: JQ_VERSION
+              value: {{ .Values.postgrest.jwksFetch.jqVersion | quote }}
           volumeMounts:
             - name: jwks
               mountPath: /etc/postgrest

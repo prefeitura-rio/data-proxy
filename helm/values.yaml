@@ -59,6 +59,14 @@ postgrest:
   ## Maximum number of rows PostgREST will return per request.
   ## Requests without an explicit limit are capped at this value.
   maxRows: 1000
+  ## Init container that fetches and validates the JWKS before PostgREST starts.
+  jwksFetch:
+    ## Alpine image used by the JWKS init container.
+    image: alpine:3.24.1
+    ## Exact Alpine curl package version installed at startup.
+    curlVersion: 8.21.0-r0
+    ## Exact Alpine jq package version installed at startup.
+    jqVersion: 1.8.1-r0
 
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
