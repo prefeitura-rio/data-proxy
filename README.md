@@ -2,6 +2,21 @@
 
 data-proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) and exposes them through a PostgREST REST API with row-level security based on JWT claims.
 
+BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually consistent read cache.
+
+## Service Objectives
+
+| Indicator | Objective |
+| --- | ---: |
+| Availability | 99.9% monthly |
+| Error rate | Less than 1% |
+| API latency | p95 below 500 ms |
+| Dataset freshness | Less than 26 hours |
+| Full rebuild | Less than 4 hours |
+| Failed-sync restart | Less than 30 minutes |
+
+Availability applies to valid authenticated requests. Dataset freshness is measured from the last successful finalizer completion.
+
 ## How It Works
 
 The pipeline has three components:
