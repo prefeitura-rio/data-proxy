@@ -19,7 +19,6 @@ from .models import (
     FinalizeMessage,
     RlsConfig,
     ShutdownMessage,
-    Strategy,
     SyncConfig,
     WindowTable,
 )
@@ -60,16 +59,9 @@ def bootstrap_table(
     logger.info("Bootstrapped {}.{}", schema, table_name)
 
 
-def load_table(
-    duckdb_conn: DBConnection,
-    schema: str,
-    table_name: str,
-    strategy: Strategy,
-    partition_column: str | None,
-    target_table_name: str | None = None,
-) -> None:
-    """Load one table into Postgres using its configured strategy."""
-    paths = [
+def list_parquets(duckdb_conn: DBConnection, table_name: str) -> list[str]:
+    """Return all Parquet paths available for a configured table."""
+    return [
         str(row[0])
         for row in duckdb_conn.execute(
             load_template(
@@ -79,48 +71,22 @@ def load_table(
         ).fetchall()
     ]
 
-    if not paths:
-        logger.warning("No Parquet for {} — skipping", table_name)
-        return
 
-    target = target_table_name or table_name
-
-    if strategy == Strategy.DUMP:
-        duckdb_conn.execute(
-            load_template(
-                "duckdb/load_dump",
-                {"schema": schema, "table_name": target, "gcs_path": paths[0]},
-            )
-        )
-        logger.info("Loaded dump table: {}.{}", schema, target)
-        return
-
+def load_table(
+    duckdb_conn: DBConnection,
+    schema: str,
+    table_name: str,
+    paths: list[str],
+) -> None:
+    """Load all table Parquet files into a new shadow table."""
     for path in paths:
-        pv = path.rstrip("/").split("/")[-2]
         duckdb_conn.execute(
             load_template(
-                "duckdb/delete_partition",
-                {
-                    "schema": schema,
-                    "table_name": target,
-                    "partition_column": partition_column or "",
-                    "partition_value": pv,
-                },
+                "duckdb/load_table",
+                {"schema": schema, "table_name": table_name, "gcs_path": path},
             )
         )
-        duckdb_conn.execute(
-            load_template(
-                "duckdb/load_window",
-                {
-                    "schema": schema,
-                    "table_name": target,
-                    "gcs_path": path,
-                    "partition_column": partition_column or "",
-                    "partition_value": pv,
-                },
-            )
-        )
-        logger.info("Loaded partition {} for {}.{}", pv, schema, target)
+        logger.info("Loaded {} into {}.{}", path, schema, table_name)
 
 
 def create_indexes(
@@ -149,8 +115,11 @@ def create_indexes(
         )
 
 
-def publish_dump(pg_conn: psycopg.Connection, table: DumpTable) -> None:
-    """Atomically replace a dump table and create its indexes."""
+def publish_table(
+    pg_conn: psycopg.Connection,
+    table: DumpTable | WindowTable,
+) -> None:
+    """Atomically replace a prepared table and create its indexes."""
     table_name = table.table_name
     shadow_name = f"{table_name}__next"
 
@@ -176,7 +145,7 @@ def publish_dump(pg_conn: psycopg.Connection, table: DumpTable) -> None:
     )
 
     create_indexes(pg_conn, table, table_name)
-    logger.info("Published dump table: {}.{}", table.resolved_schema, table_name)
+    logger.info("Published table: {}.{}", table.resolved_schema, table_name)
 
 
 @finalizer.on_startup
@@ -207,97 +176,55 @@ async def finalize_sync(msg: FinalizeMessage) -> None:
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
     unique_schemas = {table.resolved_schema for table in config.tables}
-    with psycopg.connect(settings.PG_DSN) as pg_conn:
+
+    with (
+        psycopg.connect(settings.PG_DSN) as pg_conn,
+        connect() as duckdb_conn,
+    ):
         for schema in unique_schemas:
             pg_conn.execute(
                 load_template("pg/init_schema", {"schema": schema}).encode()
             )
             logger.debug("Schema {} initialized", schema)
 
-    with connect() as duckdb_conn:
+        pg_conn.commit()
+
+        prepared_tables: list[DumpTable | WindowTable] = []
         duckdb_conn.execute(
             load_template("duckdb/attach_postgres", {"pg_dsn": settings.PG_DSN})
         )
 
         for table in config.tables:
-            match table:
-                case DumpTable():
-                    table_name = table.table_name
-                    shadow_name = f"{table_name}__next"
-                    gcs_path = f"s3://{settings.GCS_BUCKET}/{table_name}/data.parquet"
+            table_name = table.table_name
+            paths = list_parquets(duckdb_conn, table_name)
 
-                    duckdb_conn.execute(
-                        load_template(
-                            "duckdb/create_table",
-                            {
-                                "schema": table.resolved_schema,
-                                "table": shadow_name,
-                                "gcs_path": gcs_path,
-                            },
-                        )
-                    )
-
-                    load_table(
-                        duckdb_conn,
-                        table.resolved_schema,
-                        table_name,
-                        Strategy.DUMP,
-                        None,
-                        target_table_name=shadow_name,
-                    )
-                case WindowTable(partition=partition):
-                    table_name = table.table_name
-                    gcs_paths = [
-                        str(row[0])
-                        for row in duckdb_conn.execute(
-                            load_template(
-                                "duckdb/list_parquets",
-                                {
-                                    "gcs_bucket": settings.GCS_BUCKET,
-                                    "table_name": table_name,
-                                },
-                            )
-                        ).fetchall()
-                    ]
-
-                    if gcs_paths:
-                        duckdb_conn.execute(
-                            load_template(
-                                "duckdb/create_table",
-                                {
-                                    "schema": table.resolved_schema,
-                                    "table": table_name,
-                                    "gcs_path": gcs_paths[0],
-                                },
-                            )
-                        )
-
-                    load_table(
-                        duckdb_conn,
-                        table.resolved_schema,
-                        table_name,
-                        Strategy.WINDOW,
-                        partition.column,
-                    )
-
-    for table in config.tables:
-        with psycopg.connect(settings.PG_DSN) as pg_conn:
-            if isinstance(table, DumpTable):
-                publish_dump(pg_conn, table)
+            if not paths:
+                logger.warning("No Parquet for {} — keeping current table", table_name)
                 continue
 
-            bootstrap_table(
-                pg_conn,
-                {
-                    "schema": table.resolved_schema,
-                    "table_name": table.table_name,
-                    "rls": table.rls,
-                },
+            shadow_name = f"{table_name}__next"
+            duckdb_conn.execute(
+                load_template(
+                    "duckdb/create_table",
+                    {
+                        "schema": table.resolved_schema,
+                        "table": shadow_name,
+                        "gcs_path": paths[0],
+                    },
+                )
             )
+            load_table(
+                duckdb_conn,
+                table.resolved_schema,
+                shadow_name,
+                paths,
+            )
+            prepared_tables.append(table)
 
-            create_indexes(pg_conn, table, table.table_name)
+        for table in prepared_tables:
+            with pg_conn.transaction():
+                publish_table(pg_conn, table)
 
-    with psycopg.connect(settings.PG_DSN) as pg_conn:
         pg_conn.execute(b"NOTIFY pgrst, 'reload schema'")
         logger.info("PostgREST schema reload requested")
 

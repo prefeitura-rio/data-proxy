@@ -18,15 +18,17 @@ from dp.sync.finalizer import (
     ensure_consumer_group,
     finalize_sync,
     finalizer,
+    list_parquets,
     load_table,
-    publish_dump,
+    publish_table,
 )
 from dp.sync.models import (
     DumpTable,
     FinalizeMessage,
     IndexConfig,
+    PartitionConfig,
     RlsConfig,
-    Strategy,
+    WindowTable,
 )
 
 
@@ -88,31 +90,8 @@ class TestBootstrapTable:
         assert pg_conn.execute_calls == 1
 
 
-class TestLoadTable:
-    def test_dump_loads_once(self) -> None:
-        """Dump strategy inserts into the shadow table without deleting."""
-        db = FakeDuckDBConnection(rows=[("gs://b/t/data.parquet",)])
-        mappings: list[dict[str, str]] = []
-
-        def capture_template(name: str, mapping: dict[str, str]) -> str:
-            mappings.append(mapping)
-            return "SELECT 1"
-
-        with patch("dp.sync.finalizer.load_template", side_effect=capture_template):
-            load_table(
-                db,
-                "pic",
-                "t",
-                Strategy.DUMP,
-                None,
-                target_table_name="t__next",
-            )
-
-        assert len(db.executed) == 2  # glob + insert
-        assert mappings[-1]["table_name"] == "t__next"
-
-    def test_window_loads_per_partition(self) -> None:
-        """Window strategy calls delete + insert per partition."""
+class TestListParquets:
+    def test_returns_all_table_paths(self) -> None:
         db = FakeDuckDBConnection(
             rows=[
                 ("gs://b/t/2025-01-15/data.parquet",),
@@ -121,21 +100,40 @@ class TestLoadTable:
         )
 
         with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "pic", "t", Strategy.WINDOW, "dt")
+            paths = list_parquets(db, "t")
 
-        assert len(db.executed) == 5  # glob + 2*(delete+insert)
-
-    def test_skips_when_no_paths(self) -> None:
-        """No Parquet found → skip, no load calls."""
-        db = FakeDuckDBConnection(rows=[])
-
-        with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
-            load_table(db, "pic", "t", Strategy.DUMP, None)
-
-        assert len(db.executed) == 1  # only glob
+        assert paths == [
+            "gs://b/t/2025-01-15/data.parquet",
+            "gs://b/t/2025-01-14/data.parquet",
+        ]
+        assert len(db.executed) == 1
 
 
-class TestPublishDump:
+class TestLoadTable:
+    def test_loads_every_path_into_shadow_table(self) -> None:
+        db = FakeDuckDBConnection()
+        mappings: list[dict[str, str]] = []
+        paths = [
+            "gs://b/t/2025-01-15/data.parquet",
+            "gs://b/t/2025-01-14/data.parquet",
+        ]
+
+        def capture_template(name: str, mapping: dict[str, str]) -> str:
+            mappings.append(mapping)
+            return "SELECT 1"
+
+        with patch("dp.sync.finalizer.load_template", side_effect=capture_template):
+            load_table(db, "pic", "t__next", paths)
+
+        assert len(db.executed) == 2
+        assert [mapping["table_name"] for mapping in mappings] == [
+            "t__next",
+            "t__next",
+        ]
+        assert [mapping["gcs_path"] for mapping in mappings] == paths
+
+
+class TestPublishTable:
     def test_prepares_swaps_and_indexes_in_order(self) -> None:
         pg_conn = FakePgConn()
         table = DumpTable(
@@ -147,7 +145,7 @@ class TestPublishDump:
             return name
 
         with patch("dp.sync.finalizer.load_template", side_effect=template_name):
-            publish_dump(
+            publish_table(
                 cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
                 table,
             )
@@ -157,6 +155,21 @@ class TestPublishDump:
             b"pg/swap_table",
             b"pg/create_index",
         ]
+
+    def test_window_uses_the_same_publication_flow(self) -> None:
+        pg_conn = FakePgConn()
+        table = WindowTable(
+            bq_table="p.pic.t",
+            partition=PartitionConfig(column="dt", n=7),
+        )
+
+        with patch("dp.sync.finalizer.load_template", return_value="SELECT 1"):
+            publish_table(
+                cast("psycopg.Connection[tuple[object, ...]]", cast(object, pg_conn)),
+                table,
+            )
+
+        assert pg_conn.execute_calls == 2  # bootstrap + swap
 
     def test_swap_supports_missing_current_table(self) -> None:
         sql = Path("src/dp/sql/pg/swap_table.sql").read_text()
@@ -169,13 +182,15 @@ class TestFinalizeSync:
     async def test_processes_dump_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Dump table is created and loaded."""
+        """Dump table is prepared and published through its shadow table."""
         cfg = tmp_path / "sync.json"
         cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        path = "gs://b/t/data.parquet"
+        fake_ddb = FakeDuckDBConnection(rows=[(path,)])
         async with TestRedisBroker(broker) as br:
             with (
-                patch("dp.sync.finalizer.connect") as mock_ddb,
+                patch("dp.sync.finalizer.connect", return_value=fake_ddb) as mock_ddb,
                 patch("dp.sync.finalizer.psycopg.connect") as mock_pg,
                 patch("dp.sync.finalizer.bootstrap_table") as mock_bootstrap,
                 patch("dp.sync.finalizer.load_table") as mock_load,
@@ -185,30 +200,28 @@ class TestFinalizeSync:
                 )
 
         mock_ddb.assert_called_once()
-        assert mock_pg.call_count == 3  # init schema + publication + notification
+        mock_pg.assert_called_once_with(settings.PG_DSN)
         mock_bootstrap.assert_called_once()
-        mock_load.assert_called_once_with(
-            ANY,
-            "d",
-            "t",
-            Strategy.DUMP,
-            None,
-            target_table_name="t__next",
-        )
+        mock_load.assert_called_once_with(ANY, "d", "t__next", [path])
 
     @pytest.mark.asyncio
     async def test_processes_window_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Window table is created and loaded."""
+        """Window table loads every partition into one shadow table."""
         cfg = tmp_path / "sync.json"
         cfg.write_text(
             '{"tables": [{"bq_table": "p.d.t", "strategy": "window", "partition": {"column": "dt", "n": 7}}]}'
         )
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        paths = [
+            "gs://b/t/2025-01-15/data.parquet",
+            "gs://b/t/2025-01-14/data.parquet",
+        ]
+        fake_ddb = FakeDuckDBConnection(rows=[(path,) for path in paths])
         async with TestRedisBroker(broker) as br:
             with (
-                patch("dp.sync.finalizer.connect") as mock_ddb,
+                patch("dp.sync.finalizer.connect", return_value=fake_ddb) as mock_ddb,
                 patch("dp.sync.finalizer.psycopg.connect") as mock_pg,
                 patch("dp.sync.finalizer.bootstrap_table") as mock_bootstrap,
                 patch("dp.sync.finalizer.load_table") as mock_load,
@@ -218,9 +231,9 @@ class TestFinalizeSync:
                 )
 
         mock_ddb.assert_called_once()
-        assert mock_pg.call_count == 3  # init schema + bootstrap + notification
+        mock_pg.assert_called_once_with(settings.PG_DSN)
         mock_bootstrap.assert_called_once()
-        mock_load.assert_called_once()
+        mock_load.assert_called_once_with(ANY, "d", "t__next", paths)
 
     @pytest.mark.asyncio
     async def test_creates_indexes_when_configured(
@@ -232,9 +245,10 @@ class TestFinalizeSync:
             '{"tables": [{"bq_table": "p.d.t", "strategy": "dump", "indexes": [{"name": "idx_t_col", "columns": ["col"]}]}]}'
         )
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        fake_ddb = FakeDuckDBConnection(rows=[("gs://b/t/data.parquet",)])
         async with TestRedisBroker(broker) as br:
             with (
-                patch("dp.sync.finalizer.connect"),
+                patch("dp.sync.finalizer.connect", return_value=fake_ddb),
                 patch("dp.sync.finalizer.psycopg.connect") as mock_pg,
                 patch("dp.sync.finalizer.bootstrap_table"),
                 patch("dp.sync.finalizer.load_table"),
@@ -243,7 +257,7 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
 
-        assert mock_pg.call_count == 3
+        mock_pg.assert_called_once_with(settings.PG_DSN)
         assert all("autocommit" not in call.kwargs for call in mock_pg.call_args_list)
 
     @pytest.mark.asyncio
@@ -272,6 +286,32 @@ class TestFinalizeSync:
         assert len(fake_ddb.executed) == 3
 
     @pytest.mark.asyncio
+    async def test_keeps_current_table_when_no_parquet_exists(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = tmp_path / "sync.json"
+        cfg.write_text(
+            '{"tables": [{"bq_table": "p.d.t", "strategy": "window", "partition": {"column": "dt", "n": 7}}]}'
+        )
+        monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        fake_ddb = FakeDuckDBConnection(rows=[])
+        async with TestRedisBroker(broker) as br:
+            with (
+                patch("dp.sync.finalizer.connect", return_value=fake_ddb),
+                patch("dp.sync.finalizer.psycopg.connect") as mock_pg,
+                patch("dp.sync.finalizer.publish_table") as mock_publish,
+                patch("dp.sync.finalizer.load_table") as mock_load,
+            ):
+                await br.publish(
+                    FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
+                )
+
+        mock_pg.assert_called_once_with(settings.PG_DSN)
+        mock_publish.assert_not_called()
+        mock_load.assert_not_called()
+        assert len(fake_ddb.executed) == 2  # attach + list
+
+    @pytest.mark.asyncio
     async def test_uses_publication_transaction_without_indexes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -279,9 +319,10 @@ class TestFinalizeSync:
         cfg = tmp_path / "sync.json"
         cfg.write_text('{"tables": [{"bq_table": "p.d.t", "strategy": "dump"}]}')
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", cfg)
+        fake_ddb = FakeDuckDBConnection(rows=[("gs://b/t/data.parquet",)])
         async with TestRedisBroker(broker) as br:
             with (
-                patch("dp.sync.finalizer.connect"),
+                patch("dp.sync.finalizer.connect", return_value=fake_ddb),
                 patch("dp.sync.finalizer.psycopg.connect") as mock_pg,
                 patch("dp.sync.finalizer.bootstrap_table"),
                 patch("dp.sync.finalizer.load_table"),
@@ -290,7 +331,7 @@ class TestFinalizeSync:
                     FinalizeMessage(sync_id="s1"), stream=SYNC_FINALIZE_STREAM
                 )
 
-        assert mock_pg.call_count == 3
+        mock_pg.assert_called_once_with(settings.PG_DSN)
 
     @pytest.mark.asyncio
     async def test_exits_after_finalization(
