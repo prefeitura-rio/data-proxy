@@ -30,6 +30,18 @@ from dp.sync.models import (
     RlsConfig,
     WindowTable,
 )
+from dp.templates import load_template as render_template
+
+
+class TestSqlTemplates:
+    def test_init_roles_preserves_postgres_dollar_quotes(self) -> None:
+        sql = render_template(
+            "pg/init_roles",
+            {"user_role": "web_user", "authenticator_role": "authenticator"},
+        )
+
+        assert "DO $$" in sql
+        assert "END\n$$;" in sql
 
 
 class TestEnsureConsumerGroup:
