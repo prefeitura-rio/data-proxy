@@ -5,7 +5,7 @@ from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from google.cloud import bigquery
+from google.cloud.bigquery import Client
 from helpers import FakeDuckDBConnection, FakeRedis
 from redis.asyncio import Redis
 
@@ -111,8 +111,8 @@ async def test_detects_only_changed_tables_and_reuses_client() -> None:
 
     with (
         patch(
-            "dp.planning.bigquery.Client",
-            return_value=cast(bigquery.Client, cast(object, client)),
+            "dp.planning.Client",
+            return_value=cast(Client, cast(object, client)),
         ),
         patch("dp.planning.table_modified", side_effect=["100", "200"]),
     ):

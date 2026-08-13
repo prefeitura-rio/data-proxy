@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from google.cloud import bigquery
+from google.cloud.bigquery import Client
 
 from dp.bigquery import table_modified
 
@@ -36,9 +36,9 @@ class FakeClient:
         return self.table
 
 
-def bigquery_client(fake: FakeClient) -> bigquery.Client:
+def bigquery_client(fake: FakeClient) -> Client:
     """Cast the metadata test double to the BigQuery client type."""
-    return cast(bigquery.Client, cast(object, fake))
+    return cast(Client, cast(object, fake))
 
 
 def test_table_modified_returns_epoch_milliseconds() -> None:
