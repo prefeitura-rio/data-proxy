@@ -1,196 +1,94 @@
-"""Tests for dp.sync.worker."""
+"""Tests for the FastStream worker orchestrator."""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
-from helpers import FakeDuckDBConnection, FakeRedis, FakeRedisCM
 
 from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
-from dp.sync.models import ShutdownMessage, SyncTask
-from dp.sync.worker import broker, build_columns, build_mapping, process_shard, worker
+from dp.models import ShutdownMessage, SyncTask
+from dp.sync.worker import broker, process_shard, worker
 
-MSG_DUMP = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="gs://b/t/data.parquet")
-MSG_WINDOW = SyncTask(
+TASK = SyncTask(
     sync_id="s1",
     bq_table="p.d.t",
-    gcs_path="gs://b/t/2025-01-15/data.parquet",
-    partition_column="dt",
-    partition_value="2025-01-15",
+    gcs_path="s3://bucket/t/data.parquet",
 )
 
 
-class TestBuildColumns:
-    def test_returns_star_when_no_json_columns(self) -> None:
-        """A bare '*' is returned when the json_columns list is empty."""
-        result = build_columns([])
+@pytest.mark.asyncio
+async def test_extracts_and_completes_task() -> None:
+    """A subscriber delegates extraction and state completion."""
+    with (
+        patch("dp.sync.worker.extract_task") as extract,
+        patch(
+            "dp.sync.worker.complete_task",
+            new_callable=AsyncMock,
+            return_value=(1, 3),
+        ) as complete,
+    ):
+        await process_shard(TASK)
 
-        assert result == "*"
-
-    def test_single_json_column(self) -> None:
-        """A single STRUCT column produces a REPLACE clause with one to_json() call."""
-        result = build_columns(["id_cras_list"])
-
-        assert result == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
-
-    def test_multiple_json_columns(self) -> None:
-        """Multiple STRUCT columns are each wrapped in to_json() within one REPLACE clause."""
-        result = build_columns(["id_cras_list", "dados"])
-
-        assert result == (
-            '* REPLACE (to_json("id_cras_list") AS "id_cras_list", '
-            'to_json("dados") AS "dados")'
-        )
+    extract.assert_called_once_with(TASK)
+    complete.assert_awaited_once()
 
 
-class TestBuildMapping:
-    @pytest.mark.parametrize(
-        ("msg", "expected_template", "expected_subset"),
-        [
-            (
-                MSG_DUMP,
-                "duckdb/write_dump",
-                {
-                    "bq_table": "p.d.t",
-                    "gcs_path": "gs://b/t/data.parquet",
-                    "columns": "*",
-                },
-            ),
-            (
-                MSG_WINDOW,
-                "duckdb/write_window",
-                {
-                    "partition_column": "dt",
-                    "partition_value": "2025-01-15",
-                    "columns": "*",
-                },
-            ),
-        ],
-        ids=["dump", "window"],
-    )
-    def test_build_mapping(
-        self,
-        msg: SyncTask,
-        expected_template: str,
-        expected_subset: dict[str, str],
-    ) -> None:
-        """Template name and mapping keys match the task type."""
-        template, mapping = build_mapping(msg)
-        assert template == expected_template
-        assert expected_subset.items() <= mapping.items()
+@pytest.mark.asyncio
+async def test_publishes_finalizer_when_counter_reaches_zero() -> None:
+    """The last task publishes one finalizer message."""
+    with (
+        patch("dp.sync.worker.extract_task"),
+        patch(
+            "dp.sync.worker.complete_task",
+            new_callable=AsyncMock,
+            return_value=(0, 1),
+        ),
+        patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
+    ):
+        await process_shard(TASK)
 
-    def test_mapping_with_json_columns(self) -> None:
-        """STRUCT columns produce a REPLACE expression in the columns key."""
-        msg = SyncTask(
-            sync_id="s1",
-            bq_table="p.d.t",
-            gcs_path="gs://b/t/data.parquet",
-            json_columns=["id_cras_list"],
-        )
-        _, mapping = build_mapping(msg)
-
-        assert (
-            mapping["columns"]
-            == '* REPLACE (to_json("id_cras_list") AS "id_cras_list")'
-        )
+    publish.assert_awaited_once()
 
 
-class TestProcessShard:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("msg", [MSG_DUMP, MSG_WINDOW], ids=["dump", "window"])
-    async def test_executes_sql(self, msg: SyncTask) -> None:
-        """Subscriber routes the task to process_shard and executes the rendered SQL."""
-        db = FakeDuckDBConnection()
-        async with TestRedisBroker(broker) as br:
-            with (
-                patch("dp.sync.worker.connect", return_value=db),
-                patch("dp.sync.worker.load_template", return_value="SELECT 1"),
-                patch(
-                    "dp.settings.Settings.make_redis",
-                    return_value=FakeRedisCM(FakeRedis()),
-                ),
-            ):
-                await br.publish(msg, stream=SYNC_TASKS_STREAM)
+@pytest.mark.asyncio
+async def test_exits_when_stream_lag_is_zero() -> None:
+    """A worker exits when no undelivered stream messages remain."""
+    with (
+        patch("dp.sync.worker.extract_task"),
+        patch(
+            "dp.sync.worker.complete_task",
+            new_callable=AsyncMock,
+            return_value=(1, 0),
+        ),
+        patch.object(worker, "exit") as exit_app,
+    ):
+        await process_shard(TASK)
 
-        assert db.executed == ["SELECT 1"]
+    exit_app.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_failure_stops_application(self) -> None:
-        async with TestRedisBroker(broker) as br:
-            with (
-                patch("dp.sync.worker.connect", side_effect=RuntimeError("failed")),
-                pytest.raises(StopApplication) as result,
-            ):
-                await br.publish(MSG_DUMP, stream=SYNC_TASKS_STREAM)
 
-        assert result.value.code == 1
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("decr_value", "expected_calls"),
-        [(0, 1), (1, 0)],
-        ids=["remaining-zero", "remaining-nonzero"],
-    )
-    async def test_finalize_published_when_counter_zero(
-        self, decr_value: int, expected_calls: int
-    ) -> None:
-        """FinalizeMessage is published only when the job counter reaches zero."""
+@pytest.mark.asyncio
+async def test_failure_stops_application() -> None:
+    """Extraction errors terminate the finite Job with a failure status."""
+    async with TestRedisBroker(broker) as test_broker:
         with (
-            patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
-            patch("dp.sync.worker.load_template", return_value="SELECT 1"),
-            patch(
-                "dp.settings.Settings.make_redis",
-                return_value=FakeRedisCM(FakeRedis(decr_value=decr_value)),
-            ),
-            patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as mock_pub,
+            patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
+            pytest.raises(StopApplication) as result,
         ):
-            await process_shard(MSG_DUMP)
+            await test_broker.publish(TASK, stream=SYNC_TASKS_STREAM)
 
-        assert mock_pub.call_count == expected_calls
-
-
-class TestInactivityExit:
-    @pytest.mark.asyncio
-    async def test_exits_when_queue_empty(self) -> None:
-        """Worker exits immediately when lag reaches zero."""
-        with (
-            patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
-            patch("dp.sync.worker.load_template", return_value="SELECT 1"),
-            patch(
-                "dp.settings.Settings.make_redis",
-                return_value=FakeRedisCM(FakeRedis(decr_value=1, lag=0)),
-            ),
-            patch("dp.sync.worker.broker.publish", new_callable=AsyncMock),
-            patch.object(worker, "exit") as mock_exit,
-        ):
-            await process_shard(MSG_DUMP)
-
-        mock_exit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_no_exit_when_queue_has_lag(self) -> None:
-        """Worker keeps running when undelivered messages remain."""
-        with (
-            patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
-            patch("dp.sync.worker.load_template", return_value="SELECT 1"),
-            patch(
-                "dp.settings.Settings.make_redis",
-                return_value=FakeRedisCM(FakeRedis(decr_value=1, lag=5)),
-            ),
-            patch("dp.sync.worker.broker.publish", new_callable=AsyncMock),
-            patch.object(worker, "exit") as mock_exit,
-        ):
-            await process_shard(MSG_DUMP)
-
-        mock_exit.assert_not_called()
+    assert result.value.code == 1
 
 
-class TestHandleShutdown:
-    @pytest.mark.asyncio
-    async def test_exits_on_finalize_message(self) -> None:
-        async with TestRedisBroker(broker) as br:
-            with patch.object(worker, "exit") as mock_exit:
-                await br.publish(ShutdownMessage(sync_id="s1"), SYNC_SHUTDOWN_CHANNEL)
+@pytest.mark.asyncio
+async def test_shutdown_message_exits_worker() -> None:
+    """The finalizer shutdown broadcast exits each worker."""
+    async with TestRedisBroker(broker) as test_broker:
+        with patch.object(worker, "exit") as exit_app:
+            await test_broker.publish(
+                ShutdownMessage(sync_id="s1"),
+                SYNC_SHUTDOWN_CHANNEL,
+            )
 
-        mock_exit.assert_called_once()
+    exit_app.assert_called_once()

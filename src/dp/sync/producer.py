@@ -1,105 +1,49 @@
-"""Sync producer: reads config, publishes SyncTasks to Redis, sets counter."""
+"""FastStream producer application for scheduled synchronization runs."""
 
-import contextlib
-from collections.abc import Iterator
 from datetime import UTC, datetime
 
-import polars as pl
 import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker
 from loguru import logger
-from redis.exceptions import ResponseError
 
-from ..constants import SYNC_JOB_KEY, SYNC_TASKS_STREAM, WORKERS_GROUP
-from ..duckdb import DBConnection, connect
+from ..constants import SYNC_TASKS_STREAM
+from ..duckdb import connect
+from ..models import SyncConfig
+from ..planning import plan_sync
 from ..settings import settings
-from ..templates import load_template
-from .models import DumpTable, SyncConfig, SyncTask, WindowTable
+from ..state import save_sync_plan
 
 broker = RedisBroker(str(settings.REDIS_URL))
 producer = FastStream(broker)
 
 
-def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
-    """Return column names whose DuckDB type contains STRUCT."""
-    rows = db.execute(f"DESCRIBE SELECT * FROM bigquery_scan('{bq_table}')").fetchall()
-    return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]
-
-
-def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
-    """Query BigQuery for all distinct partition values; return the last *n* sorted descending."""
-    sql = load_template(
-        "duckdb/discover_partitions",
-        {
-            "bq_table": table.bq_table,
-            "partition_column": table.partition.column,
-        },
-    )
-
-    rows = db.execute(sql).fetchall()
-
-    if not rows:
-        logger.warning("No partitions found for {}", table.bq_table)
-        return []
-
-    result = (
-        pl.DataFrame(rows, orient="row")
-        .to_series(0)
-        .top_k(table.partition.n)
-        .sort(descending=True)
-        .cast(pl.String)
-        .to_list()
-    )
-    logger.debug("Discovered {} partitions for {}", len(result), table.bq_table)
-    return result
-
-
-def expand_config(
-    config: SyncConfig,
-    gcs_bucket: str,
-    sync_id: str,
-) -> Iterator[SyncTask]:
-    """Expand a SyncConfig into individual SyncTasks.
-
-    - ``dump`` tables produce exactly one task.
-    - ``window`` tables query BigQuery for the last *n* partition values and
-      produce one task per value.
-    """
-    with connect() as db:
-        for table in config.tables:
-            json_columns = discover_json_columns(db, table.bq_table)
-            match table:
-                case DumpTable():
-                    yield table.to_task(sync_id, gcs_bucket, json_columns=json_columns)
-                case WindowTable():
-                    for partition in discover_partitions(db, table):
-                        yield table.to_task(
-                            sync_id,
-                            gcs_bucket,
-                            partition,
-                            table.partition.column,
-                            json_columns=json_columns,
-                        )
-
-
 @producer.after_startup
 async def publish_tasks() -> None:
-    """Read the sync config, expand it into tasks, and publish them all."""
+    """Plan and publish one finite synchronization run."""
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
     sync_id = datetime.now(UTC).isoformat()
     logger.info("Starting sync sync_id={}", sync_id)
 
-    tasks = list(expand_config(config, settings.GCS_BUCKET, sync_id))
-    key = SYNC_JOB_KEY.format(sync_id=sync_id)
-
     async with settings.make_redis() as redis:
-        await redis.set(key, len(tasks), ex=3600)
-        with contextlib.suppress(ResponseError):
-            await redis.xgroup_create(SYNC_TASKS_STREAM, WORKERS_GROUP, id="0", mkstream=True)
+        with connect() as db:
+            plan, tasks = await plan_sync(
+                config,
+                redis,
+                sync_id,
+                settings.GCS_BUCKET,
+                db,
+            )
 
-    for msg in tasks:
-        await broker.publish(msg, stream=SYNC_TASKS_STREAM)
+            if plan is None:
+                logger.info("No table changes to publish for sync_id={}", sync_id)
+                producer.exit()
+                return
+
+            await save_sync_plan(redis, plan, len(tasks))
+
+    for task in tasks:
+        await broker.publish(task, stream=SYNC_TASKS_STREAM)
 
     logger.info("Published {:d} tasks for sync_id={}", len(tasks), sync_id)
     producer.exit()

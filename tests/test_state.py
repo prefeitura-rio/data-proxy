@@ -1,0 +1,98 @@
+"""Tests for Valkey synchronization state operations."""
+
+from typing import cast
+
+import pytest
+from helpers import FakeRedis, FakeRedisGroup
+from redis.asyncio import Redis
+from redis.exceptions import ResponseError
+
+from dp.constants import SYNC_PLAN_KEY, SYNC_STATE_KEY
+from dp.models import SyncPlan
+from dp.state import (
+    commit_sync_state,
+    complete_task,
+    create_consumer_group,
+    decode_redis_value,
+    read_sync_plan,
+    read_table_signature,
+    save_sync_plan,
+)
+
+
+def redis_client(fake: object) -> Redis:
+    """Cast a Valkey test double to the production Redis type."""
+    return cast(Redis, fake)
+
+
+def test_decodes_bytes_and_preserves_strings() -> None:
+    """Valkey values are normalized to strings."""
+    assert decode_redis_value(b"value") == "value"
+    assert decode_redis_value("value") == "value"
+    assert decode_redis_value(None) is None
+
+
+@pytest.mark.asyncio
+async def test_reads_table_signature() -> None:
+    """Committed signatures are read from their table state key."""
+    fake = FakeRedis()
+    fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] = "100"
+
+    result = await read_table_signature(redis_client(fake), "p.d.t")
+
+    assert result == "100"
+
+
+@pytest.mark.asyncio
+async def test_saves_and_reads_required_plan() -> None:
+    """Plans are persisted with their counter and can be read back."""
+    fake = FakeRedis()
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.d.t": "100"},
+        paths={"p.d.t": ["s3://b/t/data.parquet"]},
+    )
+
+    await save_sync_plan(redis_client(fake), plan, 1)
+    result = await read_sync_plan(redis_client(fake), "s1")
+
+    assert result == plan
+    assert SYNC_PLAN_KEY.format(sync_id="s1") in fake.store
+
+
+@pytest.mark.asyncio
+async def test_missing_plan_fails() -> None:
+    """A finalizer cannot infer work without its plan."""
+    with pytest.raises(RuntimeError, match="Sync plan not found"):
+        await read_sync_plan(redis_client(FakeRedis()), "missing")
+
+
+@pytest.mark.asyncio
+async def test_commits_sync_state() -> None:
+    """Successful plans commit every table signature."""
+    fake = FakeRedis()
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.d.t": "100"},
+        paths={"p.d.t": ["s3://b/t/data.parquet"]},
+    )
+
+    await commit_sync_state(redis_client(fake), plan)
+
+    assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
+
+
+@pytest.mark.asyncio
+async def test_completes_task_and_returns_lag() -> None:
+    """Task completion returns the counter and worker stream lag."""
+    fake = FakeRedis(decr_value=0, lag=4)
+
+    assert await complete_task(redis_client(fake), "s1") == (0, 4)
+
+
+@pytest.mark.asyncio
+async def test_existing_consumer_group_is_ignored() -> None:
+    """Consumer group creation is idempotent."""
+    fake = FakeRedisGroup(side_effect=ResponseError("BUSYGROUP"))
+
+    await create_consumer_group(redis_client(fake), "stream", "group")

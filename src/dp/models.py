@@ -1,9 +1,9 @@
 """Data models for the sync pipeline."""
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Strategy(StrEnum):
@@ -37,10 +37,12 @@ class Table(BaseModel):
 
     @property
     def table_name(self) -> str:
+        """Return the unqualified source table name."""
         return self.bq_table.split(".")[-1]
 
     @property
     def resolved_schema(self) -> str:
+        """Return the configured PostgreSQL schema or source dataset."""
         if self.pg_schema:
             return self.pg_schema
         return self.bq_table.split(".")[-2]
@@ -53,6 +55,7 @@ class Table(BaseModel):
         partition_column: str | None = None,
         json_columns: list[str] | None = None,
     ) -> SyncTask:
+        """Create one extraction task for the table or a window value."""
         suffix = f"/{partition_value}" if partition_value else ""
         return SyncTask(
             sync_id=sync_id,
@@ -84,6 +87,24 @@ class SyncTask(BaseModel):
     partition_column: str | None = None
     partition_value: str | None = None
     json_columns: list[str] = []
+
+
+class SyncPlan(BaseModel):
+    """Changed table signatures and exact Parquet paths for one run."""
+
+    sync_id: str
+    signatures: dict[str, str]
+    paths: dict[str, list[str]]
+
+    @model_validator(mode="after")
+    def validate_paths(self) -> Self:
+        """Require one non-empty path list for every changed table."""
+        if set(self.signatures) != set(self.paths) or any(
+            not paths for paths in self.paths.values()
+        ):
+            message = "Sync plan signatures and non-empty paths must match"
+            raise ValueError(message)
+        return self
 
 
 class FinalizeMessage(BaseModel):

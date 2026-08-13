@@ -6,13 +6,13 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 
 ## Service Objectives
 
-| Indicator | Objective |
-| --- | ---: |
-| Availability | 99.9% monthly |
-| Error rate | Less than 1% |
-| API latency | p95 below 500 ms |
-| Dataset freshness | Less than 26 hours |
-| Full rebuild | Less than 4 hours |
+| Indicator           |            Objective |
+| ------------------- | -------------------: |
+| Availability        |        99.9% monthly |
+| Error rate          |         Less than 1% |
+| API latency         |     p95 below 500 ms |
+| Dataset freshness   |   Less than 26 hours |
+| Full rebuild        |    Less than 4 hours |
 | Failed-sync restart | Less than 30 minutes |
 
 Availability applies to valid authenticated requests. Dataset freshness is measured from the last successful finalizer completion.
@@ -21,9 +21,13 @@ Availability applies to valid authenticated requests. Dataset freshness is measu
 
 The pipeline has three components:
 
-- **Producer** — runs as a Kubernetes CronJob. On each scheduled run it reads the sync configuration, queries BigQuery for partition values, and publishes one task per table to a Valkey stream. The pod exits when all tasks are published.
-- **Worker** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:tasks` stream. Each pod consumes one task, writes the table as a Parquet file to Google Cloud Storage, and exits. Pods scale to zero between sync runs.
-- **Finalizer** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:finalize` stream. Each pod reads the Parquet files from GCS with DuckDB, writes the data to PostgreSQL, and signals PostgREST to reload its schema cache. At most one finalizer pod runs at a time.
+- **Producer** — runs as a Kubernetes CronJob. On each run it reads the sync configuration, compares every table's BigQuery modification signature against the last successful sync, and publishes tasks only for changed tables. It also writes the sync plan to Valkey. The pod exits when the plan is published.
+- **Worker** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:tasks` stream. Each pod writes one task as a Parquet file to Google Cloud Storage and exits. Pods scale to zero between sync runs.
+- **Finalizer** — runs as a KEDA ScaledJob. KEDA creates one Job pod per pending message on the `dp:sync:finalize` stream. The pod loads only the exact Parquet paths recorded in the sync plan, atomically publishes the changed tables to PostgreSQL, commits the new signatures, and signals PostgREST to reload its schema cache. At most one finalizer pod runs at a time.
+
+When a BigQuery table has not changed since its last successful sync, the producer skips it. The producer compares a modification signature that combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
+
+Signatures are committed only after the finalizer publishes successfully. Losing Valkey state causes a full resync, which is safe because BigQuery remains authoritative.
 
 PostgREST serves the data through a REST API. The `pre_request` function reads the JWT claim and sets a PostgreSQL session variable. Row-level security policies use this variable to filter rows by organisational unit.
 
@@ -144,12 +148,12 @@ The following components must be installed in the cluster before you deploy the 
 
 ### Install
 
-The chart publishes to `oci://ghcr.io/iplanrio/charts`.
+The chart publishes to `oci://ghcr.io/prefeitura-rio/charts`.
 
 ```bash
 helm install data-proxy \
-  oci://ghcr.io/iplanrio/charts/data-proxy \
-  --version 1.0.0 \
+  oci://ghcr.io/prefeitura-rio/charts/data-proxy \
+  --version <chart-version> \
   --values my-values.yaml
 ```
 
@@ -163,13 +167,13 @@ Add the following to your values file and set `ha.patroni.image` to an image bui
 ha:
   enabled: true
   patroni:
-    image: ghcr.io/iplanrio/data-proxy-patroni:latest
+    image: ghcr.io/prefeitura-rio/data-proxy-patroni:latest
     replicationPassword: "<strong-password>"
 ```
 
 ### Versioning
 
-The chart uses two-part versioning (`MAJOR.MINOR.0`). The pipeline increments the minor version on each release. A major version change indicates a breaking change and requires a manual update to `helm/Chart.yaml`.
+The Helm pipeline increments the minor version on each release. Do not change `helm/Chart.yaml` manually. A major version change indicates a breaking change.
 
 ## Local Development
 

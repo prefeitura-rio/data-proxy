@@ -3,7 +3,7 @@
 import pytest
 from faststream.exceptions import StopApplication
 
-from dp.sync.errors import stop_on_error
+from dp.errors import stop_on_error
 
 
 @pytest.mark.asyncio

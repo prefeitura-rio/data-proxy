@@ -1,5 +1,6 @@
 """Typed test doubles for the data-proxy test suite."""
 
+import contextlib
 from collections.abc import Sequence
 from typing import final
 
@@ -53,22 +54,46 @@ class FakePgConn:
     def execute(self, query: object, params: object = None) -> None:
         self.executed.append(query)
 
+    def commit(self) -> None:
+        """Record an implicit successful commit."""
+
+    def transaction(self) -> contextlib.AbstractContextManager[None]:
+        """Return a no-op transaction context manager."""
+        return contextlib.nullcontext()
+
+    def __enter__(self) -> FakePgConn:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
 
 @final
 class FakeRedis:
-    """Async Redis double with configurable decr return value."""
+    """Async Redis double with counters and dictionary-backed values."""
 
     _decr_value: int
+    store: dict[str, str]
+    set_calls: list[tuple[str, object, int | None]]
 
     def __init__(self, decr_value: int = 1, lag: int = 1) -> None:
         self._decr_value = decr_value
         self._lag = lag
+        self.store = {}
+        self.set_calls = []
+
+    async def get(self, key: str) -> str | None:
+        """Return one stored string value."""
+        return self.store.get(key)
 
     async def decr(self, key: str) -> int:
         return self._decr_value
 
-    async def set(self, key: str, value: object, ex: int | None = None) -> None:
-        pass
+    async def set(self, key: str, value: object, ex: int | None = None) -> bool:
+        """Store one value and record the call."""
+        self.store[key] = str(value)
+        self.set_calls.append((key, value, ex))
+        return True
 
     async def xgroup_create(
         self,
