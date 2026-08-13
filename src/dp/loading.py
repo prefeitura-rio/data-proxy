@@ -90,15 +90,6 @@ def publish_table(
     table_name = table.table_name
     shadow_name = f"{table_name}__next"
 
-    bootstrap_table(
-        conn,
-        {
-            "schema": table.resolved_schema,
-            "table_name": shadow_name,
-            "rls": table.rls,
-        },
-    )
-
     conn.execute(
         load_template(
             "pg/swap_table",
@@ -155,16 +146,19 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
 
 
 def prepare_tables(
+    pg_conn: Connection,
     duckdb_conn: DBConnection,
     config: SyncConfig,
     plan: SyncPlan,
     changed: set[str],
 ) -> list[DumpTable | WindowTable]:
-    """Attach PostgreSQL and load planned Parquet into shadow tables."""
+    """Prepare empty shadow tables, secure them, then load planned Parquet."""
     duckdb_conn.execute(
         load_template("duckdb/attach_postgres", {"pg_dsn": settings.PG_DSN})
     )
+
     prepared: list[DumpTable | WindowTable] = []
+
     for table in config.tables:
         if table.bq_table not in changed:
             continue
@@ -185,6 +179,17 @@ def prepare_tables(
                 },
             )
         )
+
+        with pg_conn.transaction():
+            bootstrap_table(
+                pg_conn,
+                {
+                    "schema": table.resolved_schema,
+                    "table_name": shadow_name,
+                    "rls": table.rls,
+                },
+            )
+
         load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
         prepared.append(table)
     return prepared
@@ -225,7 +230,7 @@ def apply_sync_plan(
     initialize_schemas(pg_conn, config)
     logger.info("Initialized database schemas")
 
-    prepared = prepare_tables(duckdb_conn, config, plan, changed)
+    prepared = prepare_tables(pg_conn, duckdb_conn, config, plan, changed)
     logger.info("Prepared {} tables", len(prepared))
 
     publish_prepared_tables(pg_conn, prepared)

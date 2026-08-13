@@ -88,7 +88,6 @@ def test_publish_table_swaps_before_index_creation() -> None:
         publish_table(postgres_connection(connection), table)
 
     assert connection.executed == [
-        b"pg/grant_select",
         b"pg/swap_table",
         b"pg/create_index",
     ]
@@ -121,16 +120,53 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
         signatures={"p.app.changed": "100"},
         paths={"p.app.changed": [path]},
     )
+    pg_conn = postgres_connection(FakePgConn())
     duckdb = FakeDuckDBConnection()
 
     with (
         patch("dp.loading.load_template", return_value="SELECT 1"),
+        patch("dp.loading.bootstrap_table") as bootstrap,
         patch("dp.loading.load_table") as load,
     ):
-        prepared = prepare_tables(duckdb, config, plan, {"p.app.changed"})
+        prepared = prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
 
+    bootstrap.assert_called_once_with(
+        pg_conn,
+        {"schema": "app", "table_name": "changed__next", "rls": None},
+    )
     load.assert_called_once_with(ANY, "app", "changed__next", [path])
     assert [table.bq_table for table in prepared] == ["p.app.changed"]
+
+
+def test_prepare_tables_secures_shadow_before_load() -> None:
+    """Grants and RLS run on the empty shadow before any data loads."""
+    config = SyncConfig(
+        tables=[DumpTable(bq_table="p.app.changed", rls=RlsConfig(column="unit_id"))]
+    )
+    path = "s3://bucket/changed/data.parquet"
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.app.changed": "100"},
+        paths={"p.app.changed": [path]},
+    )
+    pg_conn = postgres_connection(FakePgConn())
+    duckdb = FakeDuckDBConnection()
+    calls: list[str] = []
+
+    def record_bootstrap(*args: object) -> None:
+        calls.append("bootstrap")
+
+    def record_load(*args: object) -> None:
+        calls.append("load")
+
+    with (
+        patch("dp.loading.load_template", return_value="SELECT 1"),
+        patch("dp.loading.bootstrap_table", side_effect=record_bootstrap),
+        patch("dp.loading.load_table", side_effect=record_load),
+    ):
+        prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
+
+    assert calls == ["bootstrap", "load"]
 
 
 def test_publish_prepared_tables_swaps_each_table() -> None:
