@@ -83,9 +83,9 @@ def test_expands_dump_and_window_tables() -> None:
         tasks = expand_config(config, "bucket", "sync-1", FakeDuckDBConnection())
 
     assert [task.gcs_path for task in tasks] == [
-        "s3://bucket/dump/data.parquet",
-        "s3://bucket/window/2025-01-15/data.parquet",
-        "s3://bucket/window/2025-01-14/data.parquet",
+        "s3://bucket/d/dump/data.parquet",
+        "s3://bucket/d/window/2025-01-15/data.parquet",
+        "s3://bucket/d/window/2025-01-14/data.parquet",
     ]
 
 
@@ -143,7 +143,7 @@ async def test_builds_plan_with_exact_parquet_paths() -> None:
 
     assert plan is not None
     assert plan.signatures == {"p.d.t": "signature"}
-    assert plan.paths == {"p.d.t": ["s3://bucket/t/data.parquet"]}
+    assert plan.paths == {"p.d.t": ["s3://bucket/d/t/data.parquet"]}
     assert len(tasks) == 1
 
 

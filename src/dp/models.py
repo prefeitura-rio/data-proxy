@@ -60,7 +60,7 @@ class Table(BaseModel):
         return SyncTask(
             sync_id=sync_id,
             bq_table=self.bq_table,
-            gcs_path=f"s3://{gcs_bucket}/{self.table_name}{suffix}/data.parquet",
+            gcs_path=f"s3://{gcs_bucket}/{self.resolved_schema}/{self.table_name}{suffix}/data.parquet",
             partition_column=partition_column,
             partition_value=partition_value,
             json_columns=json_columns or [],

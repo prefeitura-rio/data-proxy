@@ -3,7 +3,7 @@
 from hashlib import sha256
 
 import polars as pl
-from google.cloud import bigquery
+from google.cloud.bigquery import Client
 from loguru import logger
 from redis.asyncio import Redis
 
@@ -90,7 +90,7 @@ def table_signature(table: TableConfig, modified: str) -> str:
 
 async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
     """Return signatures for tables changed since their successful sync."""
-    clients: dict[str, bigquery.Client] = {}
+    clients: dict[str, Client] = {}
     changed: dict[str, str] = {}
 
     try:
@@ -99,7 +99,7 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
             client = clients.get(project)
 
             if client is None:
-                client = bigquery.Client(project=project)
+                client = Client(project=project)
                 clients[project] = client
 
             modified = table_modified(client, table.bq_table)
