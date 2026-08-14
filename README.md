@@ -55,7 +55,7 @@ curl --fail --silent --show-error \
 
 ## Creating Users
 
-data-proxy has no built-in user store. Authentication and authorization are delegated to your identity provider (for example Keycloak or Authentik). To authorize a user or service account:
+Data Proxy has no built-in user store. Authentication and authorization are delegated to your identity provider (for example Keycloak or Authentik). To authorize a user or service account:
 
 1. Create an OAuth2/OIDC client in your identity provider. Use a confidential client with the client-credentials grant for services, or a regular user account for humans.
 2. Add a claim mapper that sets the database role. The claim path is configured by `auth.jwtRoleClaim` (default `$.role`) in the Helm values. Set its value to `web_user` for table access, or `web_anon` for none.
