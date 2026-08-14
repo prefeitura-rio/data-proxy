@@ -1,6 +1,6 @@
-# data-proxy
+# Data Proxy
 
-data-proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) and exposes them through a PostgREST REST API with row-level security based on JWT claims.
+Data Proxy synchronises BigQuery tables to a PostgreSQL database (pg\_duckdb) and exposes them through a PostgREST REST API with row-level security based on JWT claims.
 
 BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually consistent read cache.
 
@@ -52,6 +52,16 @@ curl --fail --silent --show-error \
   --header "Accept-Profile: ${SCHEMA}" \
   "${BASE_URL}/${TABLE}?select=col1,col2&limit=10"
 ```
+
+## Creating Users
+
+data-proxy has no built-in user store. Authentication and authorization are delegated to your identity provider (for example Keycloak or Authentik). To authorize a user or service account:
+
+1. Create an OAuth2/OIDC client in your identity provider. Use a confidential client with the client-credentials grant for services, or a regular user account for humans.
+2. Add a claim mapper that sets the database role. The claim path is configured by `auth.jwtRoleClaim` (default `$.role`) in the Helm values. Set its value to `web_user` for table access, or `web_anon` for none.
+3. Add a second claim mapper for row-level security. The claim name is configured by `auth.jwtClaim` (default `dp_row_access`). Its value is an array of organisational-unit identifiers. These must match the values stored in each table's `rls.column`, configured per table in `sync.json`.
+4. Point `ingress.auth.issuer` and `ingress.auth.jwksUri` (Helm values) at your identity provider's issuer URL and JWKS endpoint, so Istio trusts tokens it issues.
+5. Request a token and decode it (for example with `jwt.io` or `jq` against the base64-decoded payload) to confirm both claims are present, then query a table as shown above.
 
 ## Architecture
 
