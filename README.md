@@ -229,23 +229,6 @@ docker compose up --build
 | MinIO     | 9000 / 9001 | S3-compatible object storage (replaces GCS). |
 | OIDC mock | 8081        | Issues JWT tokens for local testing.         |
 
-### Get a Token
-
-```bash
-curl -s -X POST http://localhost:8081/default/token \
-  -d "grant_type=client_credentials" \
-  -d "client_id=dev-client" | jq -r .access_token
-```
-
-### Query the API
-
-```bash
-curl -H "Authorization: Bearer <token>" \
-  http://localhost:3111/<table>
-```
-
-Replace `<table>` with the name of a synced table.
-
 ## License
 
 This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full text.
