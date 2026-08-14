@@ -31,6 +31,28 @@ Signatures are committed only after the finalizer publishes successfully. Losing
 
 PostgREST serves the data through a REST API. The `pre_request` function reads the JWT claim and sets a PostgreSQL session variable. Row-level security policies use this variable to filter rows by organisational unit.
 
+## Query a Table
+
+Fetch a token from your identity provider, then query with the schema selected via the `Accept-Profile` header.
+
+```bash
+TOKEN="$(
+  curl --fail --silent --show-error \
+    --request POST \
+    --header "Content-Type: application/x-www-form-urlencoded" \
+    --data-urlencode "grant_type=client_credentials" \
+    --data-urlencode "client_id=${CLIENT_ID}" \
+    --data-urlencode "client_secret=${CLIENT_SECRET}" \
+    "${TOKEN_URL}" |
+    jq --exit-status --raw-output '.access_token'
+)"
+
+curl --fail --silent --show-error \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: ${SCHEMA}" \
+  "${BASE_URL}/${TABLE}?select=col1,col2&limit=10"
+```
+
 ## Architecture
 
 ### Standalone
@@ -107,20 +129,22 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
         "column": "data_particao",
         "n": 7
       },
+      "indexes": [{ "name": "idx_events_unit", "columns": ["unit_id"] }],
       "rls": { "column": "unit_id" }
     }
   ]
 }
 ```
 
-| Field              | Required    | Description                                                                      |
-| ------------------ | ----------- | -------------------------------------------------------------------------------- |
-| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                         |
-| `strategy`         | yes         | `dump` replaces the full table. `window` replaces the last _n_ partitions.       |
-| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.              |
-| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table. |
-| `partition.column` | window only | BigQuery partition column name.                                                  |
-| `partition.n`      | window only | Number of most-recent partitions to sync.                                        |
+| Field              | Required    | Description                                                                        |
+| ------------------ | ----------- | ---------------------------------------------------------------------------------- |
+| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                           |
+| `strategy`         | yes         | `dump` replaces the full table. `window` replaces the last _n_ partitions.         |
+| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.                |
+| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table.   |
+| `indexes`          | no          | Array of `{ name, columns }` objects. Creates one index per entry after each sync. |
+| `partition.column` | window only | BigQuery partition column name.                                                    |
+| `partition.n`      | window only | Number of most-recent partitions to sync.                                          |
 
 ## Environment Variables
 
@@ -137,6 +161,10 @@ All pipeline components (producer, worker, finalizer) read these variables.
 | `GCS_SECRET_KEY`                 | —                                            | HMAC secret key for GCS access.                                                                                           |
 | `SYNC_CONFIG_PATH`               | `config/sync.json`                           | Path to the sync configuration file.                                                                                      |
 | `GOOGLE_APPLICATION_CREDENTIALS` | —                                            | Path to a GCP service account JSON file for BigQuery access. This variable is not required on GKE with Workload Identity. |
+| `WORKER_MAX_RECORDS`             | `1`                                          | Maximum number of stream messages a worker pod processes per run.                                                         |
+| `AUTH_ANON_ROLE`                 | `web_anon`                                   | PostgreSQL role PostgREST uses for unauthenticated requests.                                                              |
+| `AUTH_USER_ROLE`                 | `web_user`                                   | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
+| `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |
 
 ## Helm Chart
 
