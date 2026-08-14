@@ -95,9 +95,10 @@ omit = [
   "*/__init__.py",
   "src/dp/constants.py",
   "src/dp/duckdb.py",
+  "src/dp/errors.py",
+  "src/dp/models.py",
   "src/dp/settings.py",
   "src/dp/templates.py",
-  "src/dp/sync/models.py",
 ]
 
 [tool.coverage.report]

@@ -1,19 +1,19 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
-from typing import cast
 from unittest.mock import ANY, patch
 
-import psycopg
 import pytest
-from helpers import FakeDuckDBConnection, FakePgConn
+from helpers import FakeDuckDBConnection, FakePgConn, postgres_connection
 
 from dp.loading import (
     apply_sync_plan,
     bootstrap_table,
+    initialize_schemas,
     load_table,
     prepare_tables,
     publish_prepared_tables,
     publish_table,
+    reload_postgrest,
     validate_sync_plan,
 )
 from dp.models import (
@@ -27,9 +27,9 @@ from dp.models import (
 from dp.templates import TemplateSpec
 
 
-def postgres_connection(fake: FakePgConn) -> psycopg.Connection:
-    """Cast the PostgreSQL test double to the production connection type."""
-    return cast("psycopg.Connection[tuple[object, ...]]", cast(object, fake))
+def template_name(spec: TemplateSpec) -> str:
+    """Return the template path for operation-order assertions."""
+    return spec["path"]
 
 
 def test_bootstrap_grants_access_without_rls() -> None:
@@ -81,10 +81,6 @@ def test_publish_table_swaps_before_index_creation() -> None:
         indexes=[IndexConfig(name="idx_table", columns=["id"])],
     )
 
-    def template_name(spec: TemplateSpec) -> str:
-        """Return the template path for operation-order assertions."""
-        return spec["path"]
-
     with patch("dp.loading.load_template", side_effect=template_name):
         publish_table(postgres_connection(connection), table)
 
@@ -92,6 +88,45 @@ def test_publish_table_swaps_before_index_creation() -> None:
         b"pg/swap_table",
         b"pg/create_index",
     ]
+
+
+def test_initialize_schemas_creates_roles_then_schemas() -> None:
+    """Roles are created once, then every configured schema, then committed."""
+    connection = FakePgConn()
+    config = SyncConfig(
+        tables=[DumpTable(bq_table="p.app.one"), DumpTable(bq_table="p.other.two")]
+    )
+
+    with patch("dp.loading.load_template", side_effect=template_name):
+        initialize_schemas(postgres_connection(connection), config)
+
+    assert connection.executed[0] == b"pg/init_roles"
+    assert connection.executed[1:] == [b"pg/init_schema", b"pg/init_schema"]
+
+
+def test_reload_postgrest_revokes_then_notifies() -> None:
+    """Anonymous access is revoked per schema before the reload notification."""
+    connection = FakePgConn()
+    config = SyncConfig(tables=[DumpTable(bq_table="p.app.one")])
+
+    with patch("dp.loading.load_template", return_value="SELECT 1"):
+        reload_postgrest(postgres_connection(connection), config)
+
+    assert connection.executed == [
+        b"SELECT 1",
+        b"NOTIFY pgrst, 'reload schema'",
+    ]
+
+
+def test_prepare_tables_rejects_missing_paths() -> None:
+    """A changed table absent from the plan's paths fails fast."""
+    config = SyncConfig(tables=[DumpTable(bq_table="p.app.changed")])
+    plan = SyncPlan(sync_id="s1", signatures={}, paths={})
+    pg_conn = postgres_connection(FakePgConn())
+    duckdb = FakeDuckDBConnection()
+
+    with pytest.raises(RuntimeError, match="Parquet paths missing"):
+        prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
 
 
 def test_validate_sync_plan_rejects_unknown_table() -> None:

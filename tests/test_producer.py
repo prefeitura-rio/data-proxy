@@ -7,20 +7,14 @@ import pytest
 from faststream import TestApp
 
 from dp.models import SyncPlan, SyncTask
-from dp.settings import settings
 from dp.sync.producer import producer
 
 
 @pytest.mark.asyncio
 async def test_exits_when_planning_finds_no_tasks(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    sync_config_path: Path,
 ) -> None:
     """An unchanged run exits without state or message publication."""
-    config = tmp_path / "sync.json"
-    config.write_text('{"tables": []}')
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config)
-
     with (
         patch(
             "dp.sync.producer.plan_sync",
@@ -47,13 +41,9 @@ async def test_exits_when_planning_finds_no_tasks(
 
 @pytest.mark.asyncio
 async def test_saves_plan_before_publishing_tasks(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    sync_config_path: Path,
 ) -> None:
     """A changed run stores its plan and publishes every planned task."""
-    config = tmp_path / "sync.json"
-    config.write_text('{"tables": []}')
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config)
     plan = SyncPlan(
         sync_id="s1",
         signatures={"p.d.t": "100"},

@@ -1,13 +1,16 @@
 """Tests for Valkey synchronization state operations."""
 
-from typing import cast
-
 import pytest
-from helpers import FakeRedis, FakeRedisGroup
-from redis.asyncio import Redis
+from helpers import FakeRedis, FakeRedisGroup, redis_client
 from redis.exceptions import ResponseError
 
-from dp.constants import SYNC_PLAN_KEY, SYNC_STATE_KEY
+from dp.constants import (
+    SYNC_JOB_KEY,
+    SYNC_JOB_TTL_SECONDS,
+    SYNC_PLAN_KEY,
+    SYNC_PLAN_TTL_SECONDS,
+    SYNC_STATE_KEY,
+)
 from dp.models import SyncPlan
 from dp.state import (
     commit_sync_state,
@@ -18,11 +21,6 @@ from dp.state import (
     read_table_signature,
     save_sync_plan,
 )
-
-
-def redis_client(fake: object) -> Redis:
-    """Cast a Valkey test double to the production Redis type."""
-    return cast(Redis, fake)
 
 
 def test_decodes_bytes_and_preserves_strings() -> None:
@@ -58,6 +56,10 @@ async def test_saves_and_reads_required_plan() -> None:
 
     assert result == plan
     assert SYNC_PLAN_KEY.format(sync_id="s1") in fake.store
+
+    ttl_by_key = {key: ex for key, _, ex in fake.set_calls}
+    assert ttl_by_key[SYNC_PLAN_KEY.format(sync_id="s1")] == SYNC_PLAN_TTL_SECONDS
+    assert ttl_by_key[SYNC_JOB_KEY.format(sync_id="s1")] == SYNC_JOB_TTL_SECONDS
 
 
 @pytest.mark.asyncio

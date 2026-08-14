@@ -17,55 +17,35 @@ TASK = SyncTask(
 )
 
 
+@pytest.mark.parametrize(
+    ("remaining", "lag", "expect_publish", "expect_exit"),
+    [
+        (1, 3, False, False),
+        (0, 1, True, False),
+        (1, 0, False, True),
+    ],
+)
 @pytest.mark.asyncio
-async def test_extracts_and_completes_task() -> None:
-    """A subscriber delegates extraction and state completion."""
+async def test_process_shard_branches_on_counter_and_lag(
+    remaining: int, lag: int, expect_publish: bool, expect_exit: bool
+) -> None:
+    """Task completion delegates extraction and branches on counter and lag."""
     with (
         patch("dp.sync.worker.extract_task") as extract,
         patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
-            return_value=(1, 3),
+            return_value=(remaining, lag),
         ) as complete,
+        patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
+        patch.object(worker, "exit") as exit_app,
     ):
         await process_shard(TASK)
 
     extract.assert_called_once_with(TASK)
     complete.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_publishes_finalizer_when_counter_reaches_zero() -> None:
-    """The last task publishes one finalizer message."""
-    with (
-        patch("dp.sync.worker.extract_task"),
-        patch(
-            "dp.sync.worker.complete_task",
-            new_callable=AsyncMock,
-            return_value=(0, 1),
-        ),
-        patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
-    ):
-        await process_shard(TASK)
-
-    publish.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_exits_when_stream_lag_is_zero() -> None:
-    """A worker exits when no undelivered stream messages remain."""
-    with (
-        patch("dp.sync.worker.extract_task"),
-        patch(
-            "dp.sync.worker.complete_task",
-            new_callable=AsyncMock,
-            return_value=(1, 0),
-        ),
-        patch.object(worker, "exit") as exit_app,
-    ):
-        await process_shard(TASK)
-
-    exit_app.assert_called_once()
+    assert publish.await_count == (1 if expect_publish else 0)
+    assert exit_app.call_count == (1 if expect_exit else 0)
 
 
 @pytest.mark.asyncio

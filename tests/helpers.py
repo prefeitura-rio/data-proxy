@@ -2,7 +2,27 @@
 
 import contextlib
 from collections.abc import Sequence
-from typing import final
+from datetime import datetime
+from typing import cast, final
+
+from google.cloud.bigquery import Client
+from psycopg import Connection
+from redis.asyncio import Redis
+
+
+def postgres_connection(fake: object) -> Connection:
+    """Cast a PostgreSQL test double to the production connection type."""
+    return cast("Connection[tuple[object, ...]]", fake)
+
+
+def redis_client(fake: object) -> Redis:
+    """Cast a Valkey test double to the production Redis type."""
+    return cast(Redis, fake)
+
+
+def bigquery_client(fake: object) -> Client:
+    """Cast a BigQuery metadata test double to the production client type."""
+    return cast(Client, fake)
 
 
 @final
@@ -122,6 +142,34 @@ class FakeRedisCM[T]:
 
     async def __aexit__(self, *args: object) -> None:
         pass
+
+
+@final
+class FakeBigQueryClient:
+    """Metadata client double exposing get_table and close-call tracking."""
+
+    _modified: datetime | None
+    calls: list[str]
+    close_calls: int
+
+    def __init__(self, modified: datetime | None = None) -> None:
+        self._modified = modified
+        self.calls = []
+        self.close_calls = 0
+
+    def get_table(self, bq_table: str) -> FakeBigQueryClient:
+        """Record the table reference and return metadata for it."""
+        self.calls.append(bq_table)
+        return self
+
+    @property
+    def modified(self) -> datetime | None:
+        """Return the configured modification timestamp."""
+        return self._modified
+
+    def close(self) -> None:
+        """Record one close operation."""
+        self.close_calls += 1
 
 
 @final

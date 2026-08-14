@@ -3,6 +3,7 @@
 from typing import cast
 from unittest.mock import patch
 
+import pytest
 from helpers import FakeDuckDBConnection
 from psycopg import sql
 
@@ -15,42 +16,65 @@ def render(value: object) -> str:
     return cast("sql.Composable", value).as_string(None)
 
 
-def test_build_columns_returns_star_for_flat_table() -> None:
-    """Flat tables retain all columns without replacement expressions."""
-    assert build_columns([]).as_string(None) == "*"
+@pytest.mark.parametrize(
+    ("json_columns", "expected"),
+    [
+        ([], "*"),
+        (
+            ["units", "data"],
+            '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")',
+        ),
+    ],
+)
+def test_build_columns(json_columns: list[str], expected: str) -> None:
+    """STRUCT columns are replaced with JSON expressions; flat tables keep `*`."""
+    assert build_columns(json_columns).as_string(None) == expected
 
 
-def test_build_columns_converts_structs_to_json() -> None:
-    """STRUCT columns are replaced with JSON expressions."""
-    assert build_columns(["units", "data"]).as_string(None) == (
-        '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")'
+@pytest.mark.parametrize(
+    (
+        "partition_column",
+        "partition_value",
+        "expected_path",
+        "rendered_field",
+        "expected_rendered",
+    ),
+    [
+        (None, None, "duckdb/write_dump", "gcs_path", "'s3://b/t/data.parquet'"),
+        (
+            "dt",
+            "2025-01-15",
+            "duckdb/write_window",
+            "partition_value",
+            "'2025-01-15'",
+        ),
+    ],
+)
+def test_build_mapping_selects_template(
+    partition_column: str | None,
+    partition_value: str | None,
+    expected_path: str,
+    rendered_field: str,
+    expected_rendered: str,
+) -> None:
+    """A task's partition fields select the dump or window template."""
+    gcs_path = (
+        f"s3://b/t/{partition_value}/data.parquet"
+        if partition_value
+        else "s3://b/t/data.parquet"
     )
-
-
-def test_build_mapping_selects_dump_template() -> None:
-    """A task without a partition uses the dump extraction template."""
-    task = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="s3://b/t/data.parquet")
-
-    spec = build_mapping(task)
-
-    assert spec["path"] == "duckdb/write_dump"
-    assert render(spec["mapping"]["gcs_path"]) == "'s3://b/t/data.parquet'"
-
-
-def test_build_mapping_selects_window_template() -> None:
-    """A partition value uses the window extraction template."""
     task = SyncTask(
         sync_id="s1",
         bq_table="p.d.t",
-        gcs_path="s3://b/t/2025-01-15/data.parquet",
-        partition_column="dt",
-        partition_value="2025-01-15",
+        gcs_path=gcs_path,
+        partition_column=partition_column,
+        partition_value=partition_value,
     )
 
     spec = build_mapping(task)
 
-    assert spec["path"] == "duckdb/write_window"
-    assert render(spec["mapping"]["partition_value"]) == "'2025-01-15'"
+    assert spec["path"] == expected_path
+    assert render(spec["mapping"][rendered_field]) == expected_rendered
 
 
 def test_extract_task_executes_rendered_sql() -> None:

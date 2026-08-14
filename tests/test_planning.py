@@ -1,13 +1,16 @@
 """Tests for synchronization planning operations."""
 
 from hashlib import sha256
-from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from google.cloud.bigquery import Client
-from helpers import FakeDuckDBConnection, FakeRedis
-from redis.asyncio import Redis
+from helpers import (
+    FakeBigQueryClient,
+    FakeDuckDBConnection,
+    FakeRedis,
+    bigquery_client,
+    redis_client,
+)
 
 from dp.constants import SYNC_STATE_KEY
 from dp.models import DumpTable, PartitionConfig, SyncConfig, WindowTable
@@ -19,25 +22,6 @@ from dp.planning import (
     plan_sync,
     table_signature,
 )
-
-
-class FakeBigQueryClient:
-    """Minimal metadata client used to verify reuse and closure."""
-
-    close_calls: int
-
-    def __init__(self) -> None:
-        """Initialize close-call tracking."""
-        self.close_calls = 0
-
-    def close(self) -> None:
-        """Record one close operation."""
-        self.close_calls += 1
-
-
-def redis_client(fake: FakeRedis) -> Redis:
-    """Cast the Valkey test double to the production Redis type."""
-    return cast(Redis, cast(object, fake))
 
 
 def test_discovers_struct_columns() -> None:
@@ -52,17 +36,25 @@ def test_discovers_struct_columns() -> None:
     assert discover_json_columns(db, "p.d.t") == ["units"]
 
 
-def test_discovers_last_window_values() -> None:
-    """Only the configured latest window values are returned."""
-    db = FakeDuckDBConnection(rows=[("2025-01-13",), ("2025-01-15",), ("2025-01-14",)])
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        (
+            [("2025-01-13",), ("2025-01-15",), ("2025-01-14",)],
+            ["2025-01-15", "2025-01-14"],
+        ),
+        ([], []),
+    ],
+)
+def test_discover_partitions(rows: list[tuple[str]], expected: list[str]) -> None:
+    """Only the configured latest window values are returned; none found yields none."""
+    db = FakeDuckDBConnection(rows=rows)
     table = WindowTable(
         bq_table="p.d.t",
         partition=PartitionConfig(column="dt", n=2),
     )
 
-    result = discover_partitions(db, table)
-
-    assert result == ["2025-01-15", "2025-01-14"]
+    assert discover_partitions(db, table) == expected
 
 
 def test_expands_dump_and_window_tables() -> None:
@@ -112,7 +104,7 @@ async def test_detects_only_changed_tables_and_reuses_client() -> None:
     with (
         patch(
             "dp.planning.Client",
-            return_value=cast(Client, cast(object, client)),
+            return_value=bigquery_client(client),
         ),
         patch("dp.planning.table_modified", side_effect=["100", "200"]),
     ):
@@ -145,6 +137,38 @@ async def test_builds_plan_with_exact_parquet_paths() -> None:
     assert plan.signatures == {"p.d.t": "signature"}
     assert plan.paths == {"p.d.t": ["s3://bucket/d/t/data.parquet"]}
     assert len(tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_returns_no_plan_when_changed_table_yields_no_tasks() -> None:
+    """A changed window table with no discovered partitions produces no plan."""
+    config = SyncConfig(
+        tables=[
+            WindowTable(
+                bq_table="p.d.t",
+                partition=PartitionConfig(column="dt", n=2),
+            )
+        ]
+    )
+
+    with (
+        patch(
+            "dp.planning.detect_changes",
+            new_callable=AsyncMock,
+            return_value={"p.d.t": "signature"},
+        ),
+        patch("dp.planning.discover_partitions", return_value=[]),
+    ):
+        plan, tasks = await plan_sync(
+            config,
+            redis_client(FakeRedis()),
+            "sync-1",
+            "bucket",
+            FakeDuckDBConnection(),
+        )
+
+    assert plan is None
+    assert tasks == []
 
 
 @pytest.mark.asyncio

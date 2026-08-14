@@ -1,5 +1,6 @@
 """Tests for the FastStream finalizer orchestrator."""
 
+from contextlib import AbstractContextManager
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -9,18 +10,22 @@ from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
 
 from dp.models import FinalizeMessage, SyncPlan
-from dp.settings import settings
 from dp.sync.finalizer import broker, ensure_consumer_group, finalize_sync, finalizer
+
+
+def patch_make_redis() -> AbstractContextManager[object]:
+    """Patch Settings.make_redis to return a fresh fake Redis context."""
+    return patch(
+        "dp.settings.Settings.make_redis",
+        return_value=FakeRedisCM(FakeRedis()),
+    )
 
 
 @pytest.mark.asyncio
 async def test_startup_ensures_consumer_group() -> None:
     """Finalizer startup delegates consumer-group creation to state operations."""
     with (
-        patch(
-            "dp.settings.Settings.make_redis",
-            return_value=FakeRedisCM(FakeRedis()),
-        ),
+        patch_make_redis(),
         patch(
             "dp.sync.finalizer.create_consumer_group",
             new_callable=AsyncMock,
@@ -33,20 +38,13 @@ async def test_startup_ensures_consumer_group() -> None:
 
 @pytest.mark.asyncio
 async def test_applies_plan_commits_state_and_exits(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    sync_config_path: Path,
 ) -> None:
     """Successful orchestration applies one plan before committing state."""
-    config = tmp_path / "sync.json"
-    config.write_text('{"tables": []}')
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config)
     plan = SyncPlan(sync_id="s1", signatures={}, paths={})
 
     with (
-        patch(
-            "dp.settings.Settings.make_redis",
-            return_value=FakeRedisCM(FakeRedis()),
-        ),
+        patch_make_redis(),
         patch(
             "dp.sync.finalizer.read_sync_plan",
             new_callable=AsyncMock,
@@ -79,21 +77,14 @@ async def test_applies_plan_commits_state_and_exits(
 
 @pytest.mark.asyncio
 async def test_loading_failure_stops_application(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    sync_config_path: Path,
 ) -> None:
     """Domain failures terminate the finite Job with a non-zero status."""
-    config = tmp_path / "sync.json"
-    config.write_text('{"tables": []}')
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config)
     plan = SyncPlan(sync_id="s1", signatures={}, paths={})
 
     async with TestRedisBroker(broker) as test_broker:
         with (
-            patch(
-                "dp.settings.Settings.make_redis",
-                return_value=FakeRedisCM(FakeRedis()),
-            ),
+            patch_make_redis(),
             patch(
                 "dp.sync.finalizer.read_sync_plan",
                 new_callable=AsyncMock,
