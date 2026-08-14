@@ -7,6 +7,7 @@ from redis.exceptions import ResponseError
 
 from .constants import (
     SYNC_JOB_KEY,
+    SYNC_JOB_TTL_SECONDS,
     SYNC_PLAN_KEY,
     SYNC_PLAN_TTL_SECONDS,
     SYNC_STATE_KEY,
@@ -47,7 +48,11 @@ async def save_sync_plan(redis: Redis, plan: SyncPlan, task_count: int) -> None:
         ex=SYNC_PLAN_TTL_SECONDS,
     )
 
-    await redis.set(SYNC_JOB_KEY.format(sync_id=plan.sync_id), task_count, ex=3600)
+    await redis.set(
+        SYNC_JOB_KEY.format(sync_id=plan.sync_id),
+        task_count,
+        ex=SYNC_JOB_TTL_SECONDS,
+    )
     await create_consumer_group(redis, SYNC_TASKS_STREAM, WORKERS_GROUP)
 
 

@@ -47,13 +47,12 @@ async def finalize_sync(message: FinalizeMessage) -> None:
     async with settings.make_redis() as redis:
         plan = await read_sync_plan(redis, message.sync_id)
 
-    with (
-        psycopg.connect(settings.PG_DSN) as pg_conn,
-        connect() as duckdb_conn,
-    ):
-        apply_sync_plan(pg_conn, duckdb_conn, config, plan)
+        with (
+            psycopg.connect(settings.PG_DSN) as pg_conn,
+            connect() as duckdb_conn,
+        ):
+            apply_sync_plan(pg_conn, duckdb_conn, config, plan)
 
-    async with settings.make_redis() as redis:
         await commit_sync_state(redis, plan)
 
     finalizer.exit()
