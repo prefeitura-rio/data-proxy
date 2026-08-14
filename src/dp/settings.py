@@ -23,15 +23,24 @@ class Settings(BaseSettings):
     GCS_KEY_ID: str = "minioadmin"
     GCS_SECRET_KEY: str = "minioadmin"  # noqa: S105
     GCS_ENDPOINT: str = "localhost:9000"
-    GCS_USE_SSL: str = "false"
+    GCS_USE_SSL: bool = False
     WORKER_MAX_RECORDS: int = 1
     AUTH_ANON_ROLE: str = "web_anon"
     AUTH_USER_ROLE: str = "web_user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
 
     def make_redis(self) -> Redis:
-        """Return a Redis client from the configured URL."""
-        return Redis.from_url(str(self.REDIS_URL))  # pyright: ignore[reportUnknownMemberType]
+        """Return a Redis client built from the configured URL's parsed fields."""
+        db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
+
+        return Redis(
+            host=self.REDIS_URL.host or "localhost",
+            port=self.REDIS_URL.port or 6379,
+            db=db,
+            username=self.REDIS_URL.username,
+            password=self.REDIS_URL.password,
+            ssl=self.REDIS_URL.scheme == "rediss",
+        )
 
 
 settings = Settings()
