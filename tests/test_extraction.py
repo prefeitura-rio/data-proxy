@@ -1,21 +1,28 @@
 """Tests for BigQuery-to-Parquet extraction operations."""
 
+from typing import cast
 from unittest.mock import patch
 
 from helpers import FakeDuckDBConnection
+from psycopg import sql
 
 from dp.extraction import build_columns, build_mapping, extract_task
 from dp.models import SyncTask
 
 
+def render(value: object) -> str:
+    """Render a mapping value that is expected to be a psycopg Composable."""
+    return cast("sql.Composable", value).as_string(None)
+
+
 def test_build_columns_returns_star_for_flat_table() -> None:
     """Flat tables retain all columns without replacement expressions."""
-    assert build_columns([]) == "*"
+    assert build_columns([]).as_string(None) == "*"
 
 
 def test_build_columns_converts_structs_to_json() -> None:
     """STRUCT columns are replaced with JSON expressions."""
-    assert build_columns(["units", "data"]) == (
+    assert build_columns(["units", "data"]).as_string(None) == (
         '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")'
     )
 
@@ -24,10 +31,10 @@ def test_build_mapping_selects_dump_template() -> None:
     """A task without a partition uses the dump extraction template."""
     task = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="s3://b/t/data.parquet")
 
-    template, mapping = build_mapping(task)
+    spec = build_mapping(task)
 
-    assert template == "duckdb/write_dump"
-    assert mapping["gcs_path"] == "s3://b/t/data.parquet"
+    assert spec["path"] == "duckdb/write_dump"
+    assert render(spec["mapping"]["gcs_path"]) == "'s3://b/t/data.parquet'"
 
 
 def test_build_mapping_selects_window_template() -> None:
@@ -40,10 +47,10 @@ def test_build_mapping_selects_window_template() -> None:
         partition_value="2025-01-15",
     )
 
-    template, mapping = build_mapping(task)
+    spec = build_mapping(task)
 
-    assert template == "duckdb/write_window"
-    assert mapping["partition_value"] == "2025-01-15"
+    assert spec["path"] == "duckdb/write_window"
+    assert render(spec["mapping"]["partition_value"]) == "'2025-01-15'"
 
 
 def test_extract_task_executes_rendered_sql() -> None:

@@ -3,6 +3,7 @@
 from typing import Protocol
 
 import duckdb
+from psycopg import sql
 
 from .settings import settings
 from .templates import load_template
@@ -34,13 +35,15 @@ def connect() -> DBConnection:
 
     conn.execute(
         load_template(
-            "duckdb/setup",
             {
-                "key_id": settings.GCS_KEY_ID,
-                "secret_key": settings.GCS_SECRET_KEY,
-                "endpoint": settings.GCS_ENDPOINT,
-                "use_ssl": settings.GCS_USE_SSL,
-            },
+                "path": "duckdb/setup",
+                "mapping": {
+                    "key_id": sql.Literal(settings.GCS_KEY_ID),
+                    "secret_key": sql.Literal(settings.GCS_SECRET_KEY),
+                    "endpoint": sql.Literal(settings.GCS_ENDPOINT),
+                    "use_ssl": "true" if settings.GCS_USE_SSL else "false",
+                },
+            }
         )
     )
 

@@ -24,6 +24,7 @@ from dp.models import (
     SyncPlan,
     WindowTable,
 )
+from dp.templates import TemplateSpec
 
 
 def postgres_connection(fake: FakePgConn) -> psycopg.Connection:
@@ -80,9 +81,9 @@ def test_publish_table_swaps_before_index_creation() -> None:
         indexes=[IndexConfig(name="idx_table", columns=["id"])],
     )
 
-    def template_name(name: str, mapping: dict[str, str]) -> str:
-        """Return the template name for operation-order assertions."""
-        return name
+    def template_name(spec: TemplateSpec) -> str:
+        """Return the template path for operation-order assertions."""
+        return spec["path"]
 
     with patch("dp.loading.load_template", side_effect=template_name):
         publish_table(postgres_connection(connection), table)

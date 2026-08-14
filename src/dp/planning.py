@@ -5,6 +5,7 @@ from hashlib import sha256
 import polars as pl
 from google.cloud.bigquery import Client
 from loguru import logger
+from psycopg import sql
 from redis.asyncio import Redis
 
 from .bigquery import table_modified
@@ -23,7 +24,14 @@ from .templates import load_template
 
 def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
-    rows = db.execute(f"DESCRIBE SELECT * FROM bigquery_scan('{bq_table}')").fetchall()
+    rows = db.execute(
+        load_template(
+            {
+                "path": "duckdb/describe_table",
+                "mapping": {"bq_table": sql.Literal(bq_table)},
+            }
+        )
+    ).fetchall()
     return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]
 
 
@@ -31,11 +39,13 @@ def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
     """Return the last configured window values in descending order."""
     rows = db.execute(
         load_template(
-            "duckdb/discover_partitions",
             {
-                "bq_table": table.bq_table,
-                "partition_column": table.partition.column,
-            },
+                "path": "duckdb/discover_partitions",
+                "mapping": {
+                    "bq_table": sql.Literal(table.bq_table),
+                    "partition_column": sql.Identifier(table.partition.column),
+                },
+            }
         )
     ).fetchall()
 

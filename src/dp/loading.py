@@ -3,7 +3,7 @@
 from typing import TypedDict
 
 from loguru import logger
-from psycopg import Connection
+from psycopg import Connection, sql
 
 from .duckdb import DBConnection
 from .models import DumpTable, RlsConfig, SyncConfig, SyncPlan, WindowTable
@@ -24,26 +24,34 @@ def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
     schema = params["schema"]
     table_name = params["table_name"]
     rls = params["rls"]
-    sql = [
+    statements = [
         load_template(
-            "pg/grant_select",
             {
-                "schema": schema,
-                "table": table_name,
-                "user_role": settings.AUTH_USER_ROLE,
-            },
+                "path": "pg/grant_select",
+                "mapping": {
+                    "schema": sql.Identifier(schema),
+                    "table": sql.Identifier(table_name),
+                    "user_role": sql.Identifier(settings.AUTH_USER_ROLE),
+                },
+            }
         )
     ]
 
     if rls:
-        sql.append(
+        statements.append(
             load_template(
-                "pg/enable_rls",
-                {"schema": schema, "table": table_name, "column": rls.column},
+                {
+                    "path": "pg/enable_rls",
+                    "mapping": {
+                        "schema": sql.Identifier(schema),
+                        "table": sql.Identifier(table_name),
+                        "column": sql.Identifier(rls.column),
+                    },
+                }
             )
         )
 
-    pg_conn.execute(";".join(sql).encode())
+    pg_conn.execute(";".join(statements).encode())
 
 
 def load_table(
@@ -56,8 +64,14 @@ def load_table(
     for path in paths:
         conn.execute(
             load_template(
-                "duckdb/load_table",
-                {"schema": schema, "table_name": table_name, "gcs_path": path},
+                {
+                    "path": "duckdb/load_table",
+                    "mapping": {
+                        "schema": sql.Identifier(schema),
+                        "table_name": sql.Identifier(table_name),
+                        "gcs_path": sql.Literal(path),
+                    },
+                }
             )
         )
 
@@ -71,13 +85,17 @@ def create_indexes(
     for index in table.indexes:
         conn.execute(
             load_template(
-                "pg/create_index",
                 {
-                    "name": index.name,
-                    "schema": table.resolved_schema,
-                    "table": table_name,
-                    "columns": ", ".join(index.columns),
-                },
+                    "path": "pg/create_index",
+                    "mapping": {
+                        "name": sql.Identifier(index.name),
+                        "schema": sql.Identifier(table.resolved_schema),
+                        "table": sql.Identifier(table_name),
+                        "columns": sql.SQL(", ").join(
+                            sql.Identifier(column) for column in index.columns
+                        ),
+                    },
+                }
             ).encode()
         )
 
@@ -92,13 +110,15 @@ def publish_table(
 
     conn.execute(
         load_template(
-            "pg/swap_table",
             {
-                "schema": table.resolved_schema,
-                "table": table_name,
-                "next_table": shadow_name,
-                "old_table": f"{table_name}__old",
-            },
+                "path": "pg/swap_table",
+                "mapping": {
+                    "schema": sql.Identifier(table.resolved_schema),
+                    "table": sql.Identifier(table_name),
+                    "next_table": sql.Identifier(shadow_name),
+                    "old_table": sql.Identifier(f"{table_name}__old"),
+                },
+            }
         ).encode()
     )
 
@@ -127,19 +147,28 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
     """Create roles and application schemas before publication."""
     pg_conn.execute(
         load_template(
-            "pg/init_roles",
             {
-                "user_role": settings.AUTH_USER_ROLE,
-                "authenticator_role": settings.AUTH_AUTHENTICATOR_ROLE,
-                "rls_schema": "rls",
-            },
+                "path": "pg/init_roles",
+                "mapping": {
+                    "user_role": sql.Identifier(settings.AUTH_USER_ROLE),
+                    "authenticator_role": sql.Identifier(
+                        settings.AUTH_AUTHENTICATOR_ROLE
+                    ),
+                    "rls_schema": sql.Identifier("rls"),
+                },
+            }
         ).encode()
     )
     for schema in configured_schemas(config):
         pg_conn.execute(
             load_template(
-                "pg/init_schema",
-                {"schema": schema, "user_role": settings.AUTH_USER_ROLE},
+                {
+                    "path": "pg/init_schema",
+                    "mapping": {
+                        "schema": sql.Identifier(schema),
+                        "user_role": sql.Identifier(settings.AUTH_USER_ROLE),
+                    },
+                }
             ).encode()
         )
     pg_conn.commit()
@@ -154,7 +183,12 @@ def prepare_tables(
 ) -> list[DumpTable | WindowTable]:
     """Prepare empty shadow tables, secure them, then load planned Parquet."""
     duckdb_conn.execute(
-        load_template("duckdb/attach_postgres", {"pg_dsn": settings.PG_DSN})
+        load_template(
+            {
+                "path": "duckdb/attach_postgres",
+                "mapping": {"pg_dsn": sql.Literal(settings.PG_DSN)},
+            }
+        )
     )
 
     prepared: list[DumpTable | WindowTable] = []
@@ -171,12 +205,14 @@ def prepare_tables(
         shadow_name = f"{table.table_name}__next"
         duckdb_conn.execute(
             load_template(
-                "duckdb/create_table",
                 {
-                    "schema": table.resolved_schema,
-                    "table": shadow_name,
-                    "gcs_path": paths[0],
-                },
+                    "path": "duckdb/create_table",
+                    "mapping": {
+                        "schema": sql.Identifier(table.resolved_schema),
+                        "table": sql.Identifier(shadow_name),
+                        "gcs_path": sql.Literal(paths[0]),
+                    },
+                }
             )
         )
 
@@ -210,8 +246,13 @@ def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:
     for schema in configured_schemas(config):
         pg_conn.execute(
             load_template(
-                "pg/revoke_anon",
-                {"schema": schema, "anon_role": settings.AUTH_ANON_ROLE},
+                {
+                    "path": "pg/revoke_anon",
+                    "mapping": {
+                        "schema": sql.Identifier(schema),
+                        "anon_role": sql.Identifier(settings.AUTH_ANON_ROLE),
+                    },
+                }
             ).encode()
         )
     pg_conn.execute(b"NOTIFY pgrst, 'reload schema'")
