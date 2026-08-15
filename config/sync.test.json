@@ -2,7 +2,7 @@
   "tables": [
     {
       "bq_table": "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
-      "strategy": "dump",
+      "strategy": "all",
       "pg_schema": "app_pequenos_cariocas",
       "rls": {"column": "id_unidade"}
     },

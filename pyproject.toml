@@ -20,6 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "basedpyright>=1.39.9",
+  "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
   "pytest>=8.0.0",
   "pytest-asyncio>=0.24.0",

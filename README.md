@@ -127,9 +127,14 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
   "tables": [
     {
       "bq_table": "project.dataset.table",
-      "strategy": "dump",
+      "strategy": "all",
       "pg_schema": "my_schema",
       "rls": { "column": "unit_id" }
+    },
+    {
+      "bq_table": "project.dataset.people",
+      "strategy": "all_with_partitions",
+      "pg_schema": "my_schema"
     },
     {
       "bq_table": "project.dataset.events",
@@ -146,15 +151,27 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 }
 ```
 
-| Field              | Required    | Description                                                                        |
-| ------------------ | ----------- | ---------------------------------------------------------------------------------- |
-| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                           |
-| `strategy`         | yes         | `dump` replaces the full table. `window` replaces the last _n_ partitions.         |
-| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.                |
-| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table.   |
-| `indexes`          | no          | Array of `{ name, columns }` objects. Creates one index per entry after each sync. |
-| `partition.column` | window only | BigQuery partition column name.                                                    |
-| `partition.n`      | window only | Number of most-recent partitions to sync.                                          |
+| Field              | Required    | Description                                                                                                                                                |
+| ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                                                                                                   |
+| `strategy`         | yes         | `all` replaces the full table. `all_with_partitions` distributes a physical range-partitioned table across workers. `window` replaces the last _n_ values. |
+| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.                                                                                        |
+| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table.                                                                           |
+| `indexes`          | no          | Array of `{ name, columns }` objects. Creates one index per entry after each sync.                                                                         |
+| `partition.column` | window only | BigQuery partition column name.                                                                                                                            |
+| `partition.n`      | window only | Number of most-recent partitions to sync.                                                                                                                  |
+
+### Strategy Selection
+
+| Strategy              | Use when                                                                    |
+| --------------------- | --------------------------------------------------------------------------- |
+| `all`                 | The complete table fits comfortably in one extraction task.                 |
+| `all_with_partitions` | A large integer-range-partitioned table must be distributed across workers. |
+| `window`              | Date or time-series data needs only the latest `n` logical values.          |
+
+`all_with_partitions` reads the partition column, bounds, interval, and existing partition IDs from BigQuery. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file. Removed partitions are deleted during finalization, and publication remains atomic.
+
+A CPF or CNPJ table can contain thousands of physical partitions. Limit KEDA concurrency so a synchronization run does not start every worker simultaneously.
 
 ## Environment Variables
 

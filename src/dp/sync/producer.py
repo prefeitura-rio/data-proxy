@@ -7,9 +7,9 @@ from faststream import FastStream
 from faststream.redis import RedisBroker
 from loguru import logger
 
-from ..constants import SYNC_TASKS_STREAM
+from ..constants import SYNC_FINALIZE_STREAM, SYNC_TASKS_STREAM
 from ..duckdb import connect
-from ..models import SyncConfig
+from ..models import FinalizeMessage, SyncConfig
 from ..planning import plan_sync
 from ..settings import settings
 from ..state import save_sync_plan
@@ -42,8 +42,14 @@ async def publish_tasks() -> None:
 
             await save_sync_plan(redis, plan, len(tasks))
 
-    for task in tasks:
-        await broker.publish(task, stream=SYNC_TASKS_STREAM)
+    if tasks:
+        for task in tasks:
+            await broker.publish(task, stream=SYNC_TASKS_STREAM)
+    else:
+        await broker.publish(
+            FinalizeMessage(sync_id=plan.sync_id),
+            stream=SYNC_FINALIZE_STREAM,
+        )
 
     logger.info("Published {:d} tasks for sync_id={}", len(tasks), sync_id)
     producer.exit()

@@ -13,12 +13,21 @@ from helpers import (
 )
 
 from dp.constants import SYNC_STATE_KEY
-from dp.models import DumpTable, PartitionConfig, SyncConfig, WindowTable
+from dp.models import (
+    AllTable,
+    AllWithPartitionsTable,
+    PartitionConfig,
+    PartitionManifest,
+    PhysicalPartition,
+    SyncConfig,
+    WindowTable,
+)
 from dp.planning import (
     detect_changes,
     discover_json_columns,
     discover_partitions,
     expand_config,
+    plan_partitioned_tables,
     plan_sync,
     table_signature,
 )
@@ -61,7 +70,8 @@ def test_expands_dump_and_window_tables() -> None:
     """Dump and window tables retain their existing extraction behavior."""
     config = SyncConfig(
         tables=[
-            DumpTable(bq_table="p.d.dump"),
+            AllTable(bq_table="p.d.dump"),
+            AllWithPartitionsTable(bq_table="p.d.partitioned"),
             WindowTable(
                 bq_table="p.d.window",
                 partition=PartitionConfig(column="dt", n=2),
@@ -83,7 +93,7 @@ def test_expands_dump_and_window_tables() -> None:
 
 def test_signature_includes_sync_configuration() -> None:
     """Configuration changes invalidate a stored source timestamp."""
-    table = DumpTable(bq_table="p.d.t", pg_schema="other")
+    table = AllTable(bq_table="p.d.t", pg_schema="other")
     expected_hash = sha256(table.model_dump_json().encode()).hexdigest()
 
     assert table_signature(table, "100") == f"100:{expected_hash}"
@@ -93,7 +103,11 @@ def test_signature_includes_sync_configuration() -> None:
 async def test_detects_only_changed_tables_and_reuses_client() -> None:
     """One metadata client per project serves all configured tables."""
     config = SyncConfig(
-        tables=[DumpTable(bq_table="p.d.t1"), DumpTable(bq_table="p.d.t2")]
+        tables=[
+            AllTable(bq_table="p.d.t1"),
+            AllTable(bq_table="p.d.t2"),
+            AllWithPartitionsTable(bq_table="p.d.partitioned"),
+        ]
     )
     fake_redis = FakeRedis()
     fake_redis.store[SYNC_STATE_KEY.format(bq_table="p.d.t1")] = table_signature(
@@ -114,10 +128,119 @@ async def test_detects_only_changed_tables_and_reuses_client() -> None:
     assert client.close_calls == 1
 
 
+def physical_partition(partition_id: str, signature: str) -> PhysicalPartition:
+    """Return one normalized ten-value range partition."""
+    lower = int(partition_id)
+    return PhysicalPartition(
+        partition_id=partition_id,
+        column="cpf",
+        lower=lower,
+        upper=lower + 10,
+        signature=signature,
+    )
+
+
+@pytest.mark.asyncio
+async def test_plans_new_changed_and_removed_physical_partitions() -> None:
+    """Only new and changed ranges create tasks; removed ranges stay in the plan."""
+    table = AllWithPartitionsTable(bq_table="p.d.people")
+    current = {
+        "0": physical_partition("0", "same"),
+        "10": physical_partition("10", "changed"),
+        "30": physical_partition("30", "new"),
+    }
+    stored = PartitionManifest(
+        table_signature="table",
+        partitions={
+            "0": physical_partition("0", "same"),
+            "10": physical_partition("10", "old"),
+            "20": physical_partition("20", "removed"),
+        },
+    )
+
+    with (
+        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.planning.physical_partitions", return_value=("table", current)),
+        patch(
+            "dp.planning.read_partition_manifest",
+            new_callable=AsyncMock,
+            return_value=stored,
+        ),
+    ):
+        plans, tasks = await plan_partitioned_tables(
+            SyncConfig(tables=[table]),
+            redis_client(FakeRedis()),
+            "sync-1",
+            "bucket",
+            FakeDuckDBConnection(),
+        )
+
+    plan = plans[table.bq_table]
+    assert set(plan.changed_paths) == {"10", "30"}
+    assert set(plan.removed_partitions) == {"20"}
+    assert [task.selection.type for task in tasks] == ["range", "range"]
+    assert tasks[0].gcs_path.endswith("/partitions/10/data.parquet")
+
+
+@pytest.mark.asyncio
+async def test_unchanged_physical_partitions_create_no_work() -> None:
+    """A matching committed manifest creates no partition plan or tasks."""
+    table = AllWithPartitionsTable(bq_table="p.d.people")
+    current = {"0": physical_partition("0", "same")}
+    stored = PartitionManifest(table_signature="table", partitions=current)
+
+    with (
+        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.planning.physical_partitions", return_value=("table", current)),
+        patch(
+            "dp.planning.read_partition_manifest",
+            new_callable=AsyncMock,
+            return_value=stored,
+        ),
+    ):
+        plans, tasks = await plan_partitioned_tables(
+            SyncConfig(tables=[table]),
+            redis_client(FakeRedis()),
+            "sync-1",
+            "bucket",
+            FakeDuckDBConnection(),
+        )
+
+    assert plans == {}
+    assert tasks == []
+
+
+@pytest.mark.asyncio
+async def test_partitioned_table_first_sync_forces_every_partition() -> None:
+    """A missing manifest marks every current physical partition for extraction."""
+    table = AllWithPartitionsTable(bq_table="p.d.people")
+    current = {"0": physical_partition("0", "signature")}
+
+    with (
+        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.planning.physical_partitions", return_value=("table", current)),
+        patch(
+            "dp.planning.read_partition_manifest",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        plans, tasks = await plan_partitioned_tables(
+            SyncConfig(tables=[table]),
+            redis_client(FakeRedis()),
+            "sync-1",
+            "bucket",
+            FakeDuckDBConnection(),
+        )
+
+    assert plans[table.bq_table].full_rebuild is True
+    assert len(tasks) == 1
+
+
 @pytest.mark.asyncio
 async def test_builds_plan_with_exact_parquet_paths() -> None:
     """The plan contains only tables that produced extraction tasks."""
-    config = SyncConfig(tables=[DumpTable(bq_table="p.d.t")])
+    config = SyncConfig(tables=[AllTable(bq_table="p.d.t")])
     fake_redis = FakeRedis()
 
     with patch(
@@ -174,7 +297,7 @@ async def test_returns_no_plan_when_changed_table_yields_no_tasks() -> None:
 @pytest.mark.asyncio
 async def test_returns_no_plan_when_nothing_changed() -> None:
     """An unchanged run creates no finalizer plan or tasks."""
-    config = SyncConfig(tables=[DumpTable(bq_table="p.d.t")])
+    config = SyncConfig(tables=[AllTable(bq_table="p.d.t")])
 
     with patch(
         "dp.planning.detect_changes",

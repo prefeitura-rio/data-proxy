@@ -7,16 +7,23 @@ from redis.exceptions import ResponseError
 from dp.constants import (
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
+    SYNC_PARTITIONS_KEY,
     SYNC_PLAN_KEY,
     SYNC_PLAN_TTL_SECONDS,
     SYNC_STATE_KEY,
 )
-from dp.models import SyncPlan
+from dp.models import (
+    PartitionedTablePlan,
+    PartitionManifest,
+    PhysicalPartition,
+    SyncPlan,
+)
 from dp.state import (
     commit_sync_state,
     complete_task,
     create_consumer_group,
     decode_redis_value,
+    read_partition_manifest,
     read_sync_plan,
     read_table_signature,
     save_sync_plan,
@@ -63,6 +70,15 @@ async def test_saves_and_reads_required_plan() -> None:
 
 
 @pytest.mark.asyncio
+async def test_zero_task_plan_has_no_worker_counter() -> None:
+    """Deletion-only plans do not create an unusable zero-valued counter."""
+    fake = FakeRedis()
+    await save_sync_plan(redis_client(fake), SyncPlan(sync_id="s1"), 0)
+
+    assert SYNC_JOB_KEY.format(sync_id="s1") not in fake.store
+
+
+@pytest.mark.asyncio
 async def test_missing_plan_fails() -> None:
     """A finalizer cannot infer work without its plan."""
     with pytest.raises(RuntimeError, match="Sync plan not found"):
@@ -82,6 +98,36 @@ async def test_commits_sync_state() -> None:
     await commit_sync_state(redis_client(fake), plan)
 
     assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
+
+
+@pytest.mark.asyncio
+async def test_reads_and_commits_partition_manifest() -> None:
+    """Successful publication replaces the complete physical partition manifest."""
+    partition = PhysicalPartition(
+        partition_id="0", column="cpf", lower=0, upper=10, signature="part"
+    )
+    fake = FakeRedis()
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.d.t": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=True,
+                current_partitions={"0": partition},
+                changed_paths={"0": "s3://b/t/0/data.parquet"},
+                removed_partitions={},
+            )
+        },
+    )
+
+    assert await read_partition_manifest(redis_client(fake), "p.d.t") is None
+    await commit_sync_state(redis_client(fake), plan)
+
+    result = await read_partition_manifest(redis_client(fake), "p.d.t")
+    assert result == PartitionManifest(
+        table_signature="table", partitions={"0": partition}
+    )
+    assert SYNC_PARTITIONS_KEY.format(bq_table="p.d.t") in fake.store
 
 
 @pytest.mark.asyncio

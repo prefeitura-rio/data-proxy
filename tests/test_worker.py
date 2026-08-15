@@ -7,13 +7,14 @@ from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 
 from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
-from dp.models import ShutdownMessage, SyncTask
+from dp.models import AllSelection, ShutdownMessage, SyncTask
 from dp.sync.worker import broker, process_shard, worker
 
 TASK = SyncTask(
     sync_id="s1",
     bq_table="p.d.t",
     gcs_path="s3://bucket/t/data.parquet",
+    selection=AllSelection(),
 )
 
 
