@@ -124,13 +124,43 @@ def normalize_partition(
     interval: int,
     table_signature: str,
 ) -> PhysicalPartition:
-    """Normalize one BigQuery metadata row into bounded partition state."""
+    """Normalize one BigQuery metadata row into bounded partition state.
+
+    BigQuery's ``__NULL__`` bucket groups every row whose partitioning
+    column is null or falls outside the declared [start, end) range. It is
+    real data, not corrupt metadata, so it normalizes into a remainder
+    partition instead of raising. ``__UNPARTITIONED__`` indicates a
+    different BigQuery partitioning type and is still rejected.
+    """
     partition_id_value = cast(object, row["partition_id"])
     partition_id = str(partition_id_value)
 
-    if partition_id in {"__NULL__", "__UNPARTITIONED__"}:
+    if partition_id == "__UNPARTITIONED__":
         msg = f"Unsupported BigQuery partition {partition_id}: {bq_table}"
         raise ValueError(msg)
+
+    modified_value = cast(object, row["last_modified_time"])
+
+    match modified_value:
+        case datetime() as modified:
+            pass
+        case _:
+            msg = f"Missing partition modification time {partition_id}: {bq_table}"
+            raise TypeError(msg)
+
+    signature = sha256(
+        f"{partition_id}:{modified.isoformat()}:{table_signature}".encode()
+    ).hexdigest()
+
+    if partition_id == "__NULL__":
+        return PhysicalPartition(
+            partition_id=partition_id,
+            column=field,
+            lower=start,
+            upper=end,
+            signature=signature,
+            is_remainder=True,
+        )
 
     try:
         lower = int(partition_id)
@@ -147,19 +177,6 @@ def normalize_partition(
     if before_range or after_range or misaligned or empty_range:
         msg = f"Invalid range partition ID {partition_id}: {bq_table}"
         raise ValueError(msg)
-
-    modified_value = cast(object, row["last_modified_time"])
-
-    match modified_value:
-        case datetime() as modified:
-            pass
-        case _:
-            msg = f"Missing partition modification time {partition_id}: {bq_table}"
-            raise TypeError(msg)
-
-    signature = sha256(
-        f"{partition_id}:{modified.isoformat()}:{table_signature}".encode()
-    ).hexdigest()
 
     return PhysicalPartition(
         partition_id=partition_id,

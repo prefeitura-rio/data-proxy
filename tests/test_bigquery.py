@@ -66,9 +66,26 @@ def test_physical_partitions_normalizes_existing_range_buckets() -> None:
         "column": "cpf",
         "lower": 0,
         "upper": 10,
+        "is_remainder": False,
     }
     assert partitions["20"].upper == 25
     assert "INFORMATION_SCHEMA.PARTITIONS" in fake.query_calls[0]
+
+
+def test_physical_partitions_normalizes_null_bucket_into_remainder() -> None:
+    """BigQuery's __NULL__ bucket becomes a remainder partition, not an error."""
+    fake = FakeBigQueryClient(
+        range_partitioning=range_config(end=25),
+        rows=[{"partition_id": "__NULL__", "last_modified_time": MODIFIED}],
+    )
+
+    _, partitions = physical_partitions(bigquery_client(fake), "p.d.t", "{}")
+
+    remainder = partitions["__NULL__"]
+    assert remainder.is_remainder is True
+    assert remainder.column == "cpf"
+    assert remainder.lower == 0
+    assert remainder.upper == 25
 
 
 @pytest.mark.parametrize(
@@ -90,7 +107,12 @@ def test_physical_partitions_normalizes_existing_range_buckets() -> None:
         (
             FakeBigQueryClient(
                 range_partitioning=range_config(),
-                rows=[{"partition_id": "__NULL__", "last_modified_time": MODIFIED}],
+                rows=[
+                    {
+                        "partition_id": "__UNPARTITIONED__",
+                        "last_modified_time": MODIFIED,
+                    }
+                ],
             ),
             "Unsupported BigQuery partition",
         ),

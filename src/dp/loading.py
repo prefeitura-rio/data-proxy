@@ -5,7 +5,7 @@ from typing import TypedDict
 
 from loguru import logger
 from psycopg import Connection
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .duckdb import DBConnection
 from .models import (
@@ -231,6 +231,26 @@ def affected_partitions(
     return [*changed_partitions, *removed_partitions]
 
 
+def partition_predicate(partition: PhysicalPartition) -> Composable:
+    """Return the SQL predicate matching one partition's own rows.
+
+    Ordinary partitions match rows inside their [lower, upper) bounds. The
+    remainder partition instead matches every row BigQuery's ``__NULL__``
+    bucket collects: null or outside the declared range.
+    """
+    column = Identifier(partition.column)
+    lower = Literal(partition.lower)
+    upper = Literal(partition.upper)
+
+    if partition.is_remainder:
+        return SQL(
+            "({column} IS NULL OR {column} < {lower} OR {column} >= {upper})"
+        ).format(column=column, lower=lower, upper=upper)
+    return SQL("({column} >= {lower} AND {column} < {upper})").format(
+        column=column, lower=lower, upper=upper
+    )
+
+
 def create_incremental_shadow(
     pg_conn: Connection,
     table: TableConfig,
@@ -239,14 +259,7 @@ def create_incremental_shadow(
     """Create a shadow table and retain rows outside affected ranges."""
     schema = table.resolved_schema
     shadow = f"{table.table_name}__next"
-    predicates = [
-        SQL("({column} >= {lower} AND {column} < {upper})").format(
-            column=Identifier(partition.column),
-            lower=Literal(partition.lower),
-            upper=Literal(partition.upper),
-        )
-        for partition in affected
-    ]
+    predicates = [partition_predicate(partition) for partition in affected]
 
     pg_conn.execute(
         load_template(

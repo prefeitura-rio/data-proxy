@@ -12,6 +12,7 @@ from dp.loading import (
     create_incremental_shadow,
     initialize_schemas,
     load_table,
+    partition_predicate,
     prepare_tables,
     publish_prepared_tables,
     publish_table,
@@ -81,6 +82,24 @@ def test_create_incremental_shadow_excludes_affected_ranges() -> None:
     assert isinstance(predicate, Composable)
     assert '"cpf" >= 10' in predicate.as_string(None)
     assert '"cpf" < 30' in predicate.as_string(None)
+
+
+def test_partition_predicate_matches_remainder_rows_outside_the_range() -> None:
+    """A remainder partition's predicate matches null and out-of-range rows."""
+    remainder = PhysicalPartition(
+        partition_id="__NULL__",
+        column="cpf",
+        lower=0,
+        upper=100,
+        signature="signature",
+        is_remainder=True,
+    )
+
+    rendered = partition_predicate(remainder).as_string(None)
+
+    assert '"cpf" IS NULL' in rendered
+    assert '"cpf" < 0' in rendered
+    assert '"cpf" >= 100' in rendered
 
 
 def test_bootstrap_grants_access_without_rls() -> None:

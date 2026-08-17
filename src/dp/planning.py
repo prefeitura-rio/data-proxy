@@ -169,8 +169,17 @@ def build_partition_tasks(
     gcs_bucket: str,
     json_columns: list[str],
 ) -> tuple[dict[str, str], list[SyncTask]]:
-    """Create one task and path per changed physical partition."""
-    ordered = sorted(changed, key=int)
+    """Create one task and path per changed physical partition.
+
+    Numeric partition ids sort first in ascending order; the remainder
+    partition (BigQuery's non-numeric ``__NULL__`` id) always sorts last.
+    """
+    ordered = sorted(
+        changed,
+        key=lambda partition_id: (
+            (1, "") if not partition_id.isdigit() else (0, int(partition_id))
+        ),
+    )
     tasks = [
         table.to_task(
             sync_id,

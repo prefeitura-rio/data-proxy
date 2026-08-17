@@ -11,6 +11,7 @@ from dp.extraction import build_columns, build_mapping, extract_task
 from dp.models import (
     AllSelection,
     RangeSelection,
+    RemainderSelection,
     SyncTask,
     TaskSelection,
     ValueSelection,
@@ -52,6 +53,12 @@ def test_build_columns(json_columns: list[str], expected: str) -> None:
             "duckdb/write_partition",
             "partition_upper",
             "20",
+        ),
+        (
+            RemainderSelection(column="cpf", start=0, end=100),
+            "duckdb/write_remainder",
+            "partition_upper",
+            "100",
         ),
     ],
 )

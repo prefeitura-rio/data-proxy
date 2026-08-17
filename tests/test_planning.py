@@ -23,6 +23,7 @@ from dp.models import (
     WindowTable,
 )
 from dp.planning import (
+    build_partition_tasks,
     detect_changes,
     discover_json_columns,
     discover_partitions,
@@ -180,6 +181,36 @@ async def test_plans_new_changed_and_removed_physical_partitions() -> None:
     assert set(plan.removed_partitions) == {"20"}
     assert [task.selection.type for task in tasks] == ["range", "range"]
     assert tasks[0].gcs_path.endswith("/partitions/10/data.parquet")
+
+
+def test_build_partition_tasks_orders_remainder_after_numeric_partitions() -> None:
+    """A non-numeric remainder id sorts after every numeric partition id."""
+    table = AllWithPartitionsTable(bq_table="p.d.people")
+    remainder = PhysicalPartition(
+        partition_id="__NULL__",
+        column="cpf",
+        lower=0,
+        upper=100,
+        signature="remainder-sig",
+        is_remainder=True,
+    )
+    current = {
+        "20": physical_partition("20", "sig-20"),
+        "0": physical_partition("0", "sig-0"),
+        "__NULL__": remainder,
+    }
+
+    paths, tasks = build_partition_tasks(
+        table,
+        current,
+        {"0", "20", "__NULL__"},
+        "sync-1",
+        "bucket",
+        [],
+    )
+
+    assert list(paths) == ["0", "20", "__NULL__"]
+    assert [task.selection.type for task in tasks] == ["range", "range", "remainder"]
 
 
 @pytest.mark.asyncio

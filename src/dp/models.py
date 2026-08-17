@@ -54,23 +54,51 @@ class RangeSelection(BaseModel):
     upper: int
 
 
+class RemainderSelection(BaseModel):
+    """Select rows outside every known physical partition range.
+
+    BigQuery groups rows whose range-partitioning column is null or falls
+    outside the declared [start, end) range into a single ``__NULL__``
+    pseudo-partition. Those rows are real data and must still be
+    extracted, so this selection is the complement of every bounded range.
+    """
+
+    type: Literal["remainder"] = "remainder"
+    column: str
+    start: int
+    end: int
+
+
 TaskSelection = Annotated[
-    AllSelection | ValueSelection | RangeSelection,
+    AllSelection | ValueSelection | RangeSelection | RemainderSelection,
     Field(discriminator="type"),
 ]
 
 
 class PhysicalPartition(BaseModel):
-    """Normalized state for one physical BigQuery integer partition."""
+    """Normalized state for one physical BigQuery integer partition.
+
+    ``is_remainder`` marks the single partition per table that stands in
+    for BigQuery's ``__NULL__`` bucket. For that partition, ``lower`` and
+    ``upper`` hold the declared range's [start, end) bounds rather than a
+    subrange, and its selection is the complement of that range.
+    """
 
     partition_id: str
     column: str
     lower: int
     upper: int
     signature: str
+    is_remainder: bool = False
 
-    def to_selection(self) -> RangeSelection:
+    def to_selection(self) -> RangeSelection | RemainderSelection:
         """Return the extraction selection for this partition."""
+        if self.is_remainder:
+            return RemainderSelection(
+                column=self.column,
+                start=self.lower,
+                end=self.upper,
+            )
         return RangeSelection(
             partition_id=self.partition_id,
             column=self.column,
