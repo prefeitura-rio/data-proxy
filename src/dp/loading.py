@@ -38,18 +38,31 @@ def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
     ]
 
     if rls:
-        statements.append(
-            load_template(
-                {
-                    "path": "pg/enable_rls",
-                    "mapping": {
-                        "schema": sql.Identifier(schema),
-                        "table": sql.Identifier(table_name),
-                        "column": sql.Identifier(rls.column),
-                    },
-                }
+        if rls.policy:
+            statements.append(
+                load_template(
+                    {
+                        "path": f"pg/policy_{rls.policy}",
+                        "mapping": {
+                            "schema": sql.Identifier(schema),
+                            "table": sql.Identifier(table_name),
+                        },
+                    }
+                )
             )
-        )
+        elif rls.column:
+            statements.append(
+                load_template(
+                    {
+                        "path": "pg/enable_rls",
+                        "mapping": {
+                            "schema": sql.Identifier(schema),
+                            "table": sql.Identifier(table_name),
+                            "column": sql.Identifier(rls.column),
+                        },
+                    }
+                )
+            )
 
     pg_conn.execute(";".join(statements).encode())
 

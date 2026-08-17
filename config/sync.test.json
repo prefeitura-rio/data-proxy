@@ -1,20 +1,72 @@
 {
   "tables": [
     {
-      "bq_table": "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
+      "bq_table": "rj-pic-dev.app_pequenos_cariocas.endpoint_participante_listagem",
       "strategy": "dump",
       "pg_schema": "app_pequenos_cariocas",
-      "rls": {"column": "id_unidade"}
+      "rls": {
+        "policy": "participant_access"
+      },
+      "indexes": [
+        {
+          "name": "idx_listagem_id_cras",
+          "columns": [
+            "id_cras"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_escola",
+          "columns": [
+            "id_escola"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_cre",
+          "columns": [
+            "id_cre"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_ap",
+          "columns": [
+            "id_ap"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_cas",
+          "columns": [
+            "id_cas"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_clinica_familia",
+          "columns": [
+            "id_clinica_familia"
+          ]
+        },
+        {
+          "name": "idx_listagem_id_equipe_familia",
+          "columns": [
+            "id_equipe_familia"
+          ]
+        }
+      ]
     },
     {
-      "bq_table": "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
-      "strategy": "window",
-      "partition": {
-        "column": "protocolo_data_referencia_particicao",
-        "n": 7
+      "bq_table": "rj-pic-dev.app_pequenos_cariocas.endpoint_data_access",
+      "strategy": "dump",
+      "pg_schema": "app_pequenos_cariocas",
+      "rls": {
+        "policy": "data_access_self"
       },
-      "pg_schema": "projeto_pequenos_cariocas",
-      "rls": {"column": "id_unidade"}
+      "indexes": [
+        {
+          "name": "idx_data_access_cpf",
+          "columns": [
+            "cpf"
+          ]
+        }
+      ]
     }
   ]
 }

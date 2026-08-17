@@ -19,7 +19,15 @@ class PartitionConfig(BaseModel):
 class RlsConfig(BaseModel):
     """Row-level security configuration for a synced table."""
 
-    column: str
+    column: str | None = None
+    policy: str | None = None
+
+    @model_validator(mode="after")
+    def validate_single_mode(self) -> Self:
+        """Require exactly one of column-based or policy-based RLS."""
+        if (self.column is None) == (self.policy is None):
+            raise ValueError("rls requires exactly one of 'column' or 'policy'")
+        return self
 
 
 class IndexConfig(BaseModel):

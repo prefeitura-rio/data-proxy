@@ -62,6 +62,23 @@ def test_bootstrap_enables_rls() -> None:
     assert connection.execute_calls == 1
 
 
+def test_bootstrap_applies_named_policy() -> None:
+    """A policy-based RLS table renders grants and its named policy SQL."""
+    connection = FakePgConn()
+
+    with patch("dp.loading.load_template", side_effect=template_name):
+        bootstrap_table(
+            postgres_connection(connection),
+            {
+                "schema": "app",
+                "table_name": "table",
+                "rls": RlsConfig(policy="participant_access"),
+            },
+        )
+
+    assert connection.executed == [b"pg/grant_select;pg/policy_participant_access"]
+
+
 def test_load_table_uses_exact_paths() -> None:
     """Only explicitly planned Parquet paths are loaded."""
     duckdb = FakeDuckDBConnection()

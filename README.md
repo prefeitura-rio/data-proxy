@@ -152,6 +152,7 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 | `strategy`         | yes         | `dump` replaces the full table. `window` replaces the last _n_ partitions.         |
 | `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.                |
 | `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table.   |
+| `rls.policy`       | no          | Named RLS policy template applied at publish time. Mutually exclusive with `rls.column`. Available policies: `participant_access` (permissions looked up from `endpoint_data_access` by the JWT `preferred_username`) and `data_access_self` (the access table itself, own row only). |
 | `indexes`          | no          | Array of `{ name, columns }` objects. Creates one index per entry after each sync. |
 | `partition.column` | window only | BigQuery partition column name.                                                    |
 | `partition.n`      | window only | Number of most-recent partitions to sync.                                          |
