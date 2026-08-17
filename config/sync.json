@@ -2,7 +2,7 @@
   "tables": [
     {
       "bq_table": "rj-crm-registry.app_pequenos_cariocas.endpoint_participante_listagem",
-      "strategy": "dump"
+      "strategy": "all"
     },
     {
       "bq_table": "rj-crm-registry.projeto_pequenos_cariocas.protocolo_estado_diario",

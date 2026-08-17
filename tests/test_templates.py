@@ -1,6 +1,6 @@
 """Tests for SQL template substitution and identifier/literal safety."""
 
-from psycopg import sql
+from psycopg.sql import SQL, Identifier, Literal
 
 from dp.templates import load_template
 
@@ -20,9 +20,9 @@ def test_identifier_quotes_and_escapes() -> None:
         {
             "path": "pg/grant_select",
             "mapping": {
-                "schema": sql.Identifier("public"),
-                "table": sql.Identifier('has"quote'),
-                "user_role": sql.Identifier("web_user"),
+                "schema": Identifier("public"),
+                "table": Identifier('has"quote'),
+                "user_role": Identifier("web_user"),
             },
         }
     )
@@ -38,9 +38,9 @@ def test_identifier_neutralizes_injection_payload() -> None:
         {
             "path": "pg/grant_select",
             "mapping": {
-                "schema": sql.Identifier("s"),
-                "table": sql.Identifier(payload),
-                "user_role": sql.Identifier("web_user"),
+                "schema": Identifier("s"),
+                "table": Identifier(payload),
+                "user_role": Identifier("web_user"),
             },
         }
     )
@@ -54,8 +54,8 @@ def test_literal_quotes_and_escapes() -> None:
         {
             "path": "duckdb/discover_partitions",
             "mapping": {
-                "partition_column": sql.Identifier("dt"),
-                "bq_table": sql.Literal("o'brien.dataset.table"),
+                "partition_column": Identifier("dt"),
+                "bq_table": Literal("o'brien.dataset.table"),
             },
         }
     )
@@ -73,8 +73,8 @@ def test_literal_neutralizes_injection_payload() -> None:
         {
             "path": "duckdb/discover_partitions",
             "mapping": {
-                "partition_column": sql.Identifier("dt"),
-                "bq_table": sql.Literal(payload),
+                "partition_column": Identifier("dt"),
+                "bq_table": Literal(payload),
             },
         }
     )
@@ -91,12 +91,10 @@ def test_identifier_list_joins_and_quotes_each_element() -> None:
         {
             "path": "pg/create_index",
             "mapping": {
-                "name": sql.Identifier("idx_table"),
-                "schema": sql.Identifier("s"),
-                "table": sql.Identifier("t"),
-                "columns": sql.SQL(", ").join(
-                    sql.Identifier(column) for column in ["a", "b"]
-                ),
+                "name": Identifier("idx_table"),
+                "schema": Identifier("s"),
+                "table": Identifier("t"),
+                "columns": SQL(", ").join(Identifier(column) for column in ["a", "b"]),
             },
         }
     )

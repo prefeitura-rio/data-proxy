@@ -5,15 +5,21 @@ from unittest.mock import patch
 
 import pytest
 from helpers import FakeDuckDBConnection
-from psycopg import sql
+from psycopg.sql import Composable
 
 from dp.extraction import build_columns, build_mapping, extract_task
-from dp.models import SyncTask
+from dp.models import (
+    AllSelection,
+    RangeSelection,
+    SyncTask,
+    TaskSelection,
+    ValueSelection,
+)
 
 
 def render(value: object) -> str:
     """Render a mapping value that is expected to be a psycopg Composable."""
-    return cast("sql.Composable", value).as_string(None)
+    return cast("Composable", value).as_string(None)
 
 
 @pytest.mark.parametrize(
@@ -32,43 +38,35 @@ def test_build_columns(json_columns: list[str], expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    (
-        "partition_column",
-        "partition_value",
-        "expected_path",
-        "rendered_field",
-        "expected_rendered",
-    ),
+    ("selection", "expected_path", "rendered_field", "expected_rendered"),
     [
-        (None, None, "duckdb/write_dump", "gcs_path", "'s3://b/t/data.parquet'"),
+        (AllSelection(), "duckdb/write_all", "gcs_path", "'s3://b/t/data.parquet'"),
         (
-            "dt",
-            "2025-01-15",
+            ValueSelection(column="dt", value="2025-01-15"),
             "duckdb/write_window",
             "partition_value",
             "'2025-01-15'",
         ),
+        (
+            RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
+            "duckdb/write_partition",
+            "partition_upper",
+            "20",
+        ),
     ],
 )
 def test_build_mapping_selects_template(
-    partition_column: str | None,
-    partition_value: str | None,
+    selection: TaskSelection,
     expected_path: str,
     rendered_field: str,
     expected_rendered: str,
 ) -> None:
-    """A task's partition fields select the dump or window template."""
-    gcs_path = (
-        f"s3://b/t/{partition_value}/data.parquet"
-        if partition_value
-        else "s3://b/t/data.parquet"
-    )
+    """A task's discriminated selection chooses its extraction template."""
     task = SyncTask(
         sync_id="s1",
         bq_table="p.d.t",
-        gcs_path=gcs_path,
-        partition_column=partition_column,
-        partition_value=partition_value,
+        gcs_path="s3://b/t/data.parquet",
+        selection=selection,
     )
 
     spec = build_mapping(task)
@@ -80,7 +78,12 @@ def test_build_mapping_selects_template(
 def test_extract_task_executes_rendered_sql() -> None:
     """Extraction opens DuckDB and executes exactly one rendered statement."""
     db = FakeDuckDBConnection()
-    task = SyncTask(sync_id="s1", bq_table="p.d.t", gcs_path="s3://b/t/data.parquet")
+    task = SyncTask(
+        sync_id="s1",
+        bq_table="p.d.t",
+        gcs_path="s3://b/t/data.parquet",
+        selection=AllSelection(),
+    )
 
     with (
         patch("dp.extraction.connect", return_value=db),

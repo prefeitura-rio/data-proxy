@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from faststream import TestApp
 
-from dp.models import SyncPlan, SyncTask
+from dp.models import AllSelection, FinalizeMessage, SyncPlan, SyncTask
 from dp.sync.producer import producer
 
 
@@ -53,6 +53,7 @@ async def test_saves_plan_before_publishing_tasks(
         sync_id="s1",
         bq_table="p.d.t",
         gcs_path="s3://bucket/t/data.parquet",
+        selection=AllSelection(),
     )
 
     with (
@@ -77,3 +78,35 @@ async def test_saves_plan_before_publishing_tasks(
     save.assert_awaited_once()
     publish.assert_awaited_once_with(task, stream="dp:sync:tasks")
     exit_app.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_deletion_only_plan_publishes_finalizer_directly(
+    sync_config_path: Path,
+) -> None:
+    """A plan without extraction tasks bypasses the worker counter."""
+    plan = SyncPlan(sync_id="s1")
+
+    with (
+        patch(
+            "dp.sync.producer.plan_sync",
+            new_callable=AsyncMock,
+            return_value=(plan, []),
+        ),
+        patch(
+            "dp.sync.producer.save_sync_plan",
+            new_callable=AsyncMock,
+        ) as save,
+        patch(
+            "dp.sync.producer.broker.publish",
+            new_callable=AsyncMock,
+        ) as publish,
+        patch.object(producer, "exit"),
+    ):
+        async with TestApp(producer):
+            pass
+
+    save.assert_awaited_once()
+    publish.assert_awaited_once_with(
+        FinalizeMessage(sync_id=plan.sync_id), stream="dp:sync:finalize"
+    )

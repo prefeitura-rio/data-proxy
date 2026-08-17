@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import cast, final
 
-from google.cloud.bigquery import Client
+from google.cloud.bigquery import Client, RangePartitioning, SchemaField
 from psycopg import Connection
 from redis.asyncio import Redis
 
@@ -64,15 +64,21 @@ class FakePgConn:
 
     executed: list[object]
 
-    def __init__(self) -> None:
+    def __init__(self, fetchone: tuple[object, ...] | None = None) -> None:
         self.executed = []
+        self._fetchone = fetchone
 
     @property
     def execute_calls(self) -> int:
         return len(self.executed)
 
-    def execute(self, query: object, params: object = None) -> None:
+    def execute(self, query: object, params: object = None) -> FakePgConn:
         self.executed.append(query)
+        return self
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        """Return the configured cursor row."""
+        return self._fetchone
 
     def commit(self) -> None:
         """Record an implicit successful commit."""
@@ -146,21 +152,42 @@ class FakeRedisCM[T]:
 
 @final
 class FakeBigQueryClient:
-    """Metadata client double exposing get_table and close-call tracking."""
+    """Metadata client double exposing table and partition metadata."""
 
     _modified: datetime | None
     calls: list[str]
     close_calls: int
 
-    def __init__(self, modified: datetime | None = None) -> None:
+    def __init__(
+        self,
+        modified: datetime | None = None,
+        *,
+        range_partitioning: RangePartitioning | None = None,
+        rows: list[dict[str, object]] | None = None,
+        table_type: str = "TABLE",
+    ) -> None:
         self._modified = modified
+        self.range_partitioning = range_partitioning
+        self.rows = rows or []
+        self.table_type = table_type
+        self.schema = [SchemaField("value", "INTEGER")]
         self.calls = []
+        self.query_calls: list[str] = []
         self.close_calls = 0
 
     def get_table(self, bq_table: str) -> FakeBigQueryClient:
         """Record the table reference and return metadata for it."""
         self.calls.append(bq_table)
         return self
+
+    def query(self, query: str, job_config: object = None) -> FakeBigQueryClient:
+        """Record one metadata query and return its rows through result()."""
+        self.query_calls.append(query)
+        return self
+
+    def result(self) -> list[dict[str, object]]:
+        """Return configured metadata rows."""
+        return self.rows
 
     @property
     def modified(self) -> datetime | None:
