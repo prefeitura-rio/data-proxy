@@ -124,6 +124,11 @@ worker:
   keda:
     ## Number of unread stream messages that triggers one additional worker Job.
     lagCount: "1"
+    ## Number of delivered-but-unacknowledged messages that keeps a worker Job
+    ## alive. lagCount alone reaches 0 as soon as the last message is
+    ## delivered, before it is actually processed, so this second trigger
+    ## prevents KEDA from terminating a Job still finishing its last task.
+    pendingEntriesCount: "1"
     ## Maximum number of concurrent worker Job pods.
     maxReplicaCount: 10
     ## Maximum wall-clock time a single worker Job may run before termination.
@@ -135,6 +140,9 @@ worker:
 ## Only one finalizer runs at a time (maxReplicaCount: 1) because it writes all data.
 finalizer:
   keda:
+    ## Number of delivered-but-unacknowledged messages that keeps the
+    ## finalizer Job alive, for the same reason as worker.keda.pendingEntriesCount.
+    pendingEntriesCount: "1"
     ## Maximum wall-clock time a single finalizer Job may run before termination.
     activeDeadlineSeconds: 7200
     ## Interval in seconds between KEDA metric checks.

@@ -45,3 +45,11 @@ spec:
         stream: dp:sync:tasks
         consumerGroup: workers
         lagCount: {{ .Values.worker.keda.lagCount | quote }}
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:sync:tasks
+        consumerGroup: workers
+        pendingEntriesCount: {{ .Values.worker.keda.pendingEntriesCount | quote }}
