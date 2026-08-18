@@ -18,6 +18,7 @@ from ..constants import (
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..extraction import extract_task
+from ..logging import configure_logging
 from ..models import FinalizeMessage, ShutdownMessage, SyncTask
 from ..settings import settings
 from ..state import complete_task
@@ -80,4 +81,5 @@ async def process_shard(task: SyncTask) -> None:
 
 
 if __name__ == "__main__":
+    configure_logging()
     uvloop.run(worker.run())

@@ -9,6 +9,7 @@ from loguru import logger
 
 from ..constants import STREAM_TTL_SECONDS, SYNC_FINALIZE_STREAM, SYNC_TASKS_STREAM
 from ..duckdb import connect
+from ..logging import configure_logging
 from ..models import FinalizeMessage, SyncConfig
 from ..planning import build_sync_plan
 from ..settings import settings
@@ -67,4 +68,5 @@ async def publish_tasks() -> None:
 
 
 if __name__ == "__main__":
+    configure_logging()
     uvloop.run(producer.run())

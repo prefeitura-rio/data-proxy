@@ -17,6 +17,7 @@ from ..constants import (
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
+from ..logging import configure_logging
 from ..models import FinalizeMessage, ShutdownMessage, SyncConfig, SyncPlan
 from ..settings import settings
 from ..state import commit_sync_state, create_consumer_group, read_sync_plan
@@ -73,4 +74,5 @@ async def finalize_sync(message: FinalizeMessage) -> None:
 
 
 if __name__ == "__main__":
+    configure_logging()
     uvloop.run(finalizer.run())
