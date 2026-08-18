@@ -36,6 +36,8 @@ jobs:
           fetch-depth: 0
 
       - uses: azure/setup-helm@v5
+        with:
+          version: v3.21.4
 
       - name: Read current version
         id: version
