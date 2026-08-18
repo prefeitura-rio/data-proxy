@@ -5,6 +5,7 @@ from helpers import FakeRedis, FakeRedisGroup, redis_client
 from redis.exceptions import ResponseError
 
 from dp.constants import (
+    SYNC_ACTIVE_KEY,
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
@@ -24,10 +25,12 @@ from dp.state import (
     complete_task,
     create_consumer_group,
     decode_redis_value,
+    has_active_run,
     read_partition_manifest,
     read_sync_plan,
     read_table_signature,
     save_sync_plan,
+    trim_stale_entries,
 )
 
 
@@ -64,6 +67,7 @@ async def test_saves_and_reads_required_plan() -> None:
 
     assert result == plan
     assert SYNC_PLAN_KEY.format(sync_id="s1") in fake.store
+    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
 
     ttl_by_key = {key: ex for key, _, ex in fake.set_calls}
     assert ttl_by_key[SYNC_PLAN_KEY.format(sync_id="s1")] == SYNC_PLAN_TTL_SECONDS
@@ -77,6 +81,7 @@ async def test_zero_task_plan_has_no_worker_counter() -> None:
     await save_sync_plan(redis_client(fake), SyncPlan(sync_id="s1"), 0)
 
     assert SYNC_JOB_KEY.format(sync_id="s1") not in fake.store
+    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
 
 
 @pytest.mark.asyncio
@@ -96,9 +101,11 @@ async def test_commits_sync_state() -> None:
         paths={"p.d.t": ["s3://b/t/data.parquet"]},
     )
 
+    await save_sync_plan(redis_client(fake), plan, 1)
     await commit_sync_state(redis_client(fake), plan)
 
     assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
+    assert SYNC_ACTIVE_KEY not in fake.store
 
 
 @pytest.mark.asyncio
@@ -147,3 +154,33 @@ async def test_existing_consumer_group_is_ignored() -> None:
     fake = FakeRedisGroup(side_effect=ResponseError("BUSYGROUP"))
 
     await create_consumer_group(redis_client(fake), "stream", "group")
+
+
+@pytest.mark.asyncio
+async def test_no_active_run_when_flag_is_unset() -> None:
+    """An empty Valkey store has no active run."""
+    fake = FakeRedis()
+
+    assert await has_active_run(redis_client(fake)) is False
+
+
+@pytest.mark.asyncio
+async def test_active_run_detected_from_flag() -> None:
+    """A saved plan's active flag marks its run as still active."""
+    fake = FakeRedis()
+    fake.store[SYNC_ACTIVE_KEY] = "s1"
+
+    assert await has_active_run(redis_client(fake)) is True
+
+
+@pytest.mark.asyncio
+async def test_trims_stale_stream_entries() -> None:
+    """Trimming a stream requests a MINID cutoff derived from the TTL."""
+    fake = FakeRedis()
+
+    await trim_stale_entries(redis_client(fake), "dp:sync:tasks", 3_600)
+
+    [(stream, minid)] = fake.xtrim_calls
+    assert stream == "dp:sync:tasks"
+    assert minid is not None
+    assert minid.endswith("-0")

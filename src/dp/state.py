@@ -1,11 +1,13 @@
 """Valkey state operations for synchronization orchestration."""
 
 import contextlib
+from datetime import UTC, datetime, timedelta
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
 from .constants import (
+    SYNC_ACTIVE_KEY,
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
@@ -60,6 +62,7 @@ async def save_sync_plan(redis: Redis, plan: SyncPlan, task_count: int) -> None:
         plan.model_dump_json(),
         ex=SYNC_PLAN_TTL_SECONDS,
     )
+    await redis.set(SYNC_ACTIVE_KEY, plan.sync_id, ex=SYNC_PLAN_TTL_SECONDS)
 
     if task_count:
         await redis.set(
@@ -81,6 +84,8 @@ async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
 
 async def commit_sync_state(redis: Redis, plan: SyncPlan) -> None:
     """Commit all table signatures after successful publication."""
+    await redis.delete(SYNC_ACTIVE_KEY)
+
     for bq_table, signature in plan.signatures.items():
         await redis.set(state_key(bq_table), signature)
 
@@ -98,3 +103,15 @@ async def commit_sync_state(redis: Redis, plan: SyncPlan) -> None:
 async def complete_task(redis: Redis, sync_id: str) -> int:
     """Decrement a task counter and return the remaining task count."""
     return await redis.decr(SYNC_JOB_KEY.format(sync_id=sync_id))
+
+
+async def has_active_run(redis: Redis) -> bool:
+    """Return True when a previous synchronization run has not completed."""
+    return await redis.get(SYNC_ACTIVE_KEY) is not None
+
+
+async def trim_stale_entries(redis: Redis, stream: str, ttl_seconds: int) -> None:
+    """Drop stream entries older than a TTL, consumed or not."""
+    cutoff = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
+    minid = f"{int(cutoff.timestamp() * 1000)}-0"
+    await redis.xtrim(stream, minid=minid, approximate=False)

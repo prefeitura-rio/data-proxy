@@ -17,6 +17,15 @@ async def test_exits_when_planning_finds_no_tasks(
     """An unchanged run exits without state or message publication."""
     with (
         patch(
+            "dp.sync.producer.trim_stale_entries",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "dp.sync.producer.has_active_run",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
             "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
             return_value=(None, []),
@@ -40,6 +49,44 @@ async def test_exits_when_planning_finds_no_tasks(
 
 
 @pytest.mark.asyncio
+async def test_refuses_to_start_when_a_previous_run_is_active(
+    sync_config_path: Path,
+) -> None:
+    """An incomplete previous run blocks a new one instead of overlapping it."""
+    with (
+        patch(
+            "dp.sync.producer.trim_stale_entries",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "dp.sync.producer.has_active_run",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "dp.sync.producer.build_sync_plan",
+            new_callable=AsyncMock,
+        ) as build_plan,
+        patch(
+            "dp.sync.producer.save_sync_plan",
+            new_callable=AsyncMock,
+        ) as save,
+        patch(
+            "dp.sync.producer.broker.publish",
+            new_callable=AsyncMock,
+        ) as publish,
+        patch.object(producer, "exit") as exit_app,
+    ):
+        async with TestApp(producer):
+            pass
+
+    build_plan.assert_not_awaited()
+    save.assert_not_awaited()
+    publish.assert_not_awaited()
+    exit_app.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_saves_plan_before_publishing_tasks(
     sync_config_path: Path,
 ) -> None:
@@ -57,6 +104,15 @@ async def test_saves_plan_before_publishing_tasks(
     )
 
     with (
+        patch(
+            "dp.sync.producer.trim_stale_entries",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "dp.sync.producer.has_active_run",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
         patch(
             "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
@@ -88,6 +144,15 @@ async def test_deletion_only_plan_publishes_finalizer_directly(
     plan = SyncPlan(sync_id="s1")
 
     with (
+        patch(
+            "dp.sync.producer.trim_stale_entries",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "dp.sync.producer.has_active_run",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
         patch(
             "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,

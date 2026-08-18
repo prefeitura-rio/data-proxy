@@ -101,11 +101,13 @@ class FakeRedis:
     _decr_value: int
     store: dict[str, str]
     set_calls: list[tuple[str, object, int | None]]
+    xtrim_calls: list[tuple[str, str | None]]
 
     def __init__(self, decr_value: int = 1) -> None:
         self._decr_value = decr_value
         self.store = {}
         self.set_calls = []
+        self.xtrim_calls = []
 
     async def get(self, key: str) -> str | None:
         """Return one stored string value."""
@@ -119,6 +121,25 @@ class FakeRedis:
         self.store[key] = str(value)
         self.set_calls.append((key, value, ex))
         return True
+
+    async def delete(self, *keys: str) -> int:
+        """Remove one or more stored keys."""
+        removed = 0
+        for key in keys:
+            removed += self.store.pop(key, None) is not None
+        return removed
+
+    async def xtrim(
+        self,
+        name: str,
+        maxlen: int | None = None,
+        approximate: bool = True,
+        minid: str | None = None,
+        limit: int | None = None,
+    ) -> int:
+        """Record one trim call."""
+        self.xtrim_calls.append((name, minid))
+        return 0
 
     async def xgroup_create(
         self,
