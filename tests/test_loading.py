@@ -30,7 +30,7 @@ from dp.models import (
     RlsConfig,
     SyncConfig,
     SyncPlan,
-    ValueSelection,
+    TimeRangeSelection,
 )
 from dp.templates import TemplateSpec
 
@@ -106,17 +106,20 @@ def test_partition_predicate_matches_bounded_range_rows() -> None:
     assert '"cpf" < 20' in rendered
 
 
-def test_partition_predicate_matches_value_rows() -> None:
-    """A time partition's predicate matches rows equal to its value."""
+def test_partition_predicate_matches_time_range_rows() -> None:
+    """A time partition's predicate matches its [lower, upper) date bounds."""
     value = PhysicalPartition(
         partition_id="20250101",
         signature="signature",
-        selection=ValueSelection(column="dt", value="20250101"),
+        selection=TimeRangeSelection(
+            column="dt", lower="2025-01-01", upper="2025-01-02"
+        ),
     )
 
     rendered = partition_predicate(value).as_string(None)
 
-    assert "\"dt\" = '20250101'" in rendered
+    assert "\"dt\" >= '2025-01-01'" in rendered
+    assert "\"dt\" < '2025-01-02'" in rendered
 
 
 def test_bootstrap_grants_access_without_rls() -> None:

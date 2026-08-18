@@ -2,10 +2,10 @@
 
 import json
 import re
-from collections.abc import Iterable
-from datetime import datetime
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from hashlib import sha256
-from typing import NamedTuple, cast
+from typing import Literal, NamedTuple, cast
 
 from google.cloud.bigquery import (
     Client,
@@ -16,13 +16,14 @@ from google.cloud.bigquery import (
     TimePartitioning,
 )
 from google.cloud.bigquery.table import Row
+from whenever import PlainDateTime
 
 from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
 from .models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
-    ValueSelection,
+    TimeRangeSelection,
 )
 from .templates import load_template
 
@@ -33,6 +34,36 @@ class TableReference(NamedTuple):
     project: str
     dataset: str
     table: str
+
+
+class RangeConfig(NamedTuple):
+    """Validated integer-range partition configuration for one table."""
+
+    field: str
+    start: int
+    end: int
+    interval: int
+
+
+TimeGranularity = Literal["HOUR", "DAY", "MONTH", "YEAR"]
+
+
+class TimePartitionSpec(NamedTuple):
+    """How to parse and step through one BigQuery time-partition granularity."""
+
+    strptime_format: str
+    step: Callable[[PlainDateTime], PlainDateTime]
+    output_pattern: str
+
+
+class TimeConfig(NamedTuple):
+    """Validated time-partition configuration for one table."""
+
+    field: str
+    granularity: TimeGranularity
+
+
+PartitionKindConfig = RangeConfig | TimeConfig
 
 
 def table_modified(client: Client, table: str) -> str:
@@ -59,24 +90,6 @@ def parse_table_reference(bq_table: str) -> TableReference:
         dataset=match.group("dataset"),
         table=match.group("table"),
     )
-
-
-class RangeConfig(NamedTuple):
-    """Validated integer-range partition configuration for one table."""
-
-    field: str
-    start: int
-    end: int
-    interval: int
-
-
-class TimeConfig(NamedTuple):
-    """Validated time-partition configuration for one table."""
-
-    field: str
-
-
-PartitionKindConfig = RangeConfig | TimeConfig
 
 
 def range_config(partitioning: RangePartitioning, bq_table: str) -> RangeConfig:
@@ -111,7 +124,13 @@ def time_config(partitioning: TimePartitioning, bq_table: str) -> TimeConfig:
         msg = f"Ingestion-time partitioning without an explicit field is unsupported: {bq_table}"
         raise ValueError(msg)
 
-    return TimeConfig(field=field)
+    granularity = partitioning.type_ or "DAY"
+
+    if granularity not in TIME_PARTITION_SPECS:
+        msg = f"Unsupported time partition granularity {granularity}: {bq_table}"
+        raise ValueError(msg)
+
+    return TimeConfig(field=field, granularity=granularity)
 
 
 def partition_kind_config(metadata: Table, bq_table: str) -> PartitionKindConfig:
@@ -176,6 +195,54 @@ def partition_rows(
     return cast("Iterable[Row]", result)
 
 
+def add_hour(dt: PlainDateTime) -> PlainDateTime:
+    """Step one HOUR-granularity time partition forward."""
+    return dt.add(hours=1, naive_arithmetic_ok=True)
+
+
+def add_day(dt: PlainDateTime) -> PlainDateTime:
+    """Step one DAY-granularity time partition forward."""
+    return dt.add(days=1, naive_arithmetic_ok=True)
+
+
+def add_month(dt: PlainDateTime) -> PlainDateTime:
+    """Step one MONTH-granularity time partition forward."""
+    return dt.add(months=1, naive_arithmetic_ok=True)
+
+
+def add_year(dt: PlainDateTime) -> PlainDateTime:
+    """Step one YEAR-granularity time partition forward."""
+    return dt.add(years=1, naive_arithmetic_ok=True)
+
+
+TIME_PARTITION_SPECS: dict[TimeGranularity, TimePartitionSpec] = {
+    "HOUR": TimePartitionSpec("%Y%m%d%H", add_hour, "YYYY-MM-DD hh:mm:ss"),
+    "DAY": TimePartitionSpec("%Y%m%d", add_day, "YYYY-MM-DD"),
+    "MONTH": TimePartitionSpec("%Y%m", add_month, "YYYY-MM-DD"),
+    "YEAR": TimePartitionSpec("%Y", add_year, "YYYY-MM-DD"),
+}
+
+
+def time_partition_bounds(
+    partition_id: str, granularity: TimeGranularity, bq_table: str
+) -> tuple[str, str]:
+    """Return the [start, end) date/timestamp bounds one compact partition id covers."""
+    spec = TIME_PARTITION_SPECS[granularity]
+
+    try:
+        parsed = datetime.strptime(partition_id, spec.strptime_format).replace(
+            tzinfo=UTC
+        )
+    except ValueError as error:
+        msg = f"Invalid time partition ID {partition_id}: {bq_table}"
+        raise ValueError(msg) from error
+
+    start = PlainDateTime(parsed.year, parsed.month, parsed.day, parsed.hour)
+    end = spec.step(start)
+
+    return start.format(spec.output_pattern), end.format(spec.output_pattern)
+
+
 def normalize_partition(
     row: Row,
     bq_table: str,
@@ -209,14 +276,16 @@ def normalize_partition(
     ).hexdigest()
 
     match kind_config:
-        case TimeConfig(field=field):
+        case TimeConfig(field=field, granularity=granularity):
             if partition_id == "__NULL__":
                 return None
+
+            lower, upper = time_partition_bounds(partition_id, granularity, bq_table)
 
             return PhysicalPartition(
                 partition_id=partition_id,
                 signature=signature,
-                selection=ValueSelection(column=field, value=partition_id),
+                selection=TimeRangeSelection(column=field, lower=lower, upper=upper),
             )
         case RangeConfig(field=field, start=start, end=end, interval=interval):
             if partition_id == "__NULL__":

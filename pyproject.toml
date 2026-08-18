@@ -16,6 +16,7 @@ dependencies = [
   "redis>=5.0",
   "uvloop>=0.22.1",
   "asyncer>=0.0.18",
+  "whenever>=0.10.5",
 ]
 
 [dependency-groups]

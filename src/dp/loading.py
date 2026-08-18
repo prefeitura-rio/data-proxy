@@ -17,7 +17,7 @@ from .models import (
     SyncConfig,
     SyncPlan,
     TableConfig,
-    ValueSelection,
+    TimeRangeSelection,
 )
 from .settings import settings
 from .templates import load_template, selection_fields
@@ -216,9 +216,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
     mapping = selection_fields(partition.selection)
 
     match partition.selection:
-        case ValueSelection():
-            path = "pg/partition_value_predicate"
-        case RangeSelection():
+        case RangeSelection() | TimeRangeSelection():
             path = "pg/partition_range_predicate"
         case RemainderSelection():
             path = "pg/partition_remainder_predicate"

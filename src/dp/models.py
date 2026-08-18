@@ -32,12 +32,13 @@ class AllSelection(BaseModel):
     type: Literal["all"] = "all"
 
 
-class ValueSelection(BaseModel):
-    """Select rows equal to one partition value."""
+class TimeRangeSelection(BaseModel):
+    """Select rows within one time partition's [lower, upper) date/timestamp bounds."""
 
-    type: Literal["value"] = "value"
+    type: Literal["time_range"] = "time_range"
     column: str
-    value: str
+    lower: str
+    upper: str
 
 
 class RangeSelection(BaseModel):
@@ -60,7 +61,7 @@ class RemainderSelection(BaseModel):
 
 
 TaskSelection = Annotated[
-    AllSelection | ValueSelection | RangeSelection | RemainderSelection,
+    AllSelection | TimeRangeSelection | RangeSelection | RemainderSelection,
     Field(discriminator="type"),
 ]
 
@@ -70,9 +71,9 @@ class PhysicalPartition(BaseModel):
 
     partition_id: str
     signature: str
-    selection: ValueSelection | RangeSelection | RemainderSelection
+    selection: TimeRangeSelection | RangeSelection | RemainderSelection
 
-    def to_selection(self) -> ValueSelection | RangeSelection | RemainderSelection:
+    def to_selection(self) -> TimeRangeSelection | RangeSelection | RemainderSelection:
         """Return the extraction selection for this partition."""
         return self.selection
 

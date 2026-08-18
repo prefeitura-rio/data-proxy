@@ -22,9 +22,11 @@ def range_config(
     )
 
 
-def time_config(*, field: str | None = "data_particao") -> TimePartitioning:
+def time_config(
+    *, field: str | None = "data_particao", type_: str = "DAY"
+) -> TimePartitioning:
     """Return time metadata for one fake table."""
-    return TimePartitioning(field=field)
+    return TimePartitioning(field=field, type_=type_)
 
 
 def test_table_modified_returns_epoch_milliseconds() -> None:
@@ -108,8 +110,8 @@ def test_physical_partitions_normalizes_null_bucket_into_remainder() -> None:
     assert remainder.end == 25
 
 
-def test_physical_partitions_normalizes_time_partitions_into_values() -> None:
-    """Time-partitioned tables normalize raw partition ids into value selections."""
+def test_physical_partitions_normalizes_time_partitions_into_ranges() -> None:
+    """DAY time partitions normalize raw partition ids into [start, end) ranges."""
     fake = FakeBigQueryClient(
         time_partitioning=time_config(),
         rows=[
@@ -121,9 +123,39 @@ def test_physical_partitions_normalizes_time_partitions_into_values() -> None:
     _, partitions = physical_partitions(bigquery_client(fake), "p.d.t", "{}")
 
     assert partitions["20250101"].selection.model_dump() == {
-        "type": "value",
+        "type": "time_range",
         "column": "data_particao",
-        "value": "20250101",
+        "lower": "2025-01-01",
+        "upper": "2025-01-02",
+    }
+
+
+@pytest.mark.parametrize(
+    ("type_", "partition_id", "lower", "upper"),
+    [
+        ("HOUR", "2025010112", "2025-01-01 12:00:00", "2025-01-01 13:00:00"),
+        ("DAY", "20250101", "2025-01-01", "2025-01-02"),
+        ("MONTH", "202512", "2025-12-01", "2026-01-01"),
+        ("YEAR", "2025", "2025-01-01", "2026-01-01"),
+    ],
+)
+def test_physical_partitions_normalizes_every_time_granularity(
+    type_: str, partition_id: str, lower: str, upper: str
+) -> None:
+    """Every BigQuery time-partition granularity resolves correct [start, end) bounds."""
+    fake = FakeBigQueryClient(
+        time_partitioning=time_config(type_=type_),
+        rows=[{"partition_id": partition_id, "last_modified_time": MODIFIED}],
+    )
+
+    _, partitions = physical_partitions(bigquery_client(fake), "p.d.t", "{}")
+
+    selection = partitions[partition_id].selection
+    assert selection.model_dump() == {
+        "type": "time_range",
+        "column": "data_particao",
+        "lower": lower,
+        "upper": upper,
     }
 
 
@@ -163,6 +195,14 @@ def test_physical_partitions_rejects_n_for_range_partitioned_tables() -> None:
 
     with pytest.raises(ValueError, match="n is only supported for time-partitioned"):
         physical_partitions(bigquery_client(fake), "p.d.t", "{}", n=2)
+
+
+def test_physical_partitions_rejects_unsupported_time_granularity() -> None:
+    """An unrecognized BigQuery time-partition granularity fails explicitly."""
+    fake = FakeBigQueryClient(time_partitioning=time_config(type_="WEEK"))
+
+    with pytest.raises(ValueError, match="Unsupported time partition granularity"):
+        physical_partitions(bigquery_client(fake), "p.d.t", "{}")
 
 
 def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
@@ -233,6 +273,13 @@ def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
                 ],
             ),
             "Unsupported BigQuery partition",
+        ),
+        (
+            FakeBigQueryClient(
+                time_partitioning=time_config(),
+                rows=[{"partition_id": "bad", "last_modified_time": MODIFIED}],
+            ),
+            "Invalid time partition ID",
         ),
     ],
 )

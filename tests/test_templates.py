@@ -2,7 +2,12 @@
 
 from psycopg.sql import SQL, Identifier, Literal
 
-from dp.models import AllSelection, RangeSelection, RemainderSelection, ValueSelection
+from dp.models import (
+    AllSelection,
+    RangeSelection,
+    RemainderSelection,
+    TimeRangeSelection,
+)
 from dp.templates import load_template, selection_fields
 
 
@@ -101,12 +106,15 @@ def test_selection_fields_returns_empty_mapping_for_all() -> None:
     assert selection_fields(AllSelection()) == {}
 
 
-def test_selection_fields_encodes_value_selection() -> None:
-    """A value selection encodes its column and equality value."""
-    fields = selection_fields(ValueSelection(column="cpf", value="123"))
+def test_selection_fields_encodes_time_range_selection() -> None:
+    """A time range selection encodes its column and date/timestamp bounds."""
+    fields = selection_fields(
+        TimeRangeSelection(column="dt", lower="2025-01-01", upper="2025-02-01")
+    )
 
-    assert render(fields["column"]) == '"cpf"'
-    assert render(fields["value"]) == "'123'"
+    assert render(fields["column"]) == '"dt"'
+    assert render(fields["lower"]) == "'2025-01-01'"
+    assert render(fields["upper"]) == "'2025-02-01'"
 
 
 def test_selection_fields_encodes_range_selection() -> None:

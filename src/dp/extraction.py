@@ -8,7 +8,7 @@ from .models import (
     RangeSelection,
     RemainderSelection,
     SyncTask,
-    ValueSelection,
+    TimeRangeSelection,
 )
 from .templates import TemplateSpec, load_template, selection_fields
 
@@ -38,9 +38,7 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
     match task.selection:
         case AllSelection():
             return {"path": "duckdb/write_all", "mapping": mapping}
-        case ValueSelection():
-            return {"path": "duckdb/write_value", "mapping": mapping}
-        case RangeSelection():
+        case RangeSelection() | TimeRangeSelection():
             return {"path": "duckdb/write_partition", "mapping": mapping}
         case RemainderSelection():
             return {"path": "duckdb/write_remainder", "mapping": mapping}

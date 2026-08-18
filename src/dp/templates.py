@@ -12,7 +12,7 @@ from .models import (
     RangeSelection,
     RemainderSelection,
     TaskSelection,
-    ValueSelection,
+    TimeRangeSelection,
 )
 
 SQL_DIR = Path(__file__).parent / "sql"
@@ -56,9 +56,10 @@ def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
     match selection:
         case AllSelection():
             return {}
-        case ValueSelection(column=column, value=value):
-            return {"column": Identifier(column), "value": Literal(value)}
-        case RangeSelection(column=column, lower=lower, upper=upper):
+        case (
+            RangeSelection(column=column, lower=lower, upper=upper)
+            | TimeRangeSelection(column=column, lower=lower, upper=upper)
+        ):
             return {
                 "column": Identifier(column),
                 "lower": Literal(lower),

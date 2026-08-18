@@ -14,7 +14,7 @@ from dp.models import (
     RemainderSelection,
     SyncTask,
     TaskSelection,
-    ValueSelection,
+    TimeRangeSelection,
 )
 
 
@@ -43,10 +43,10 @@ def test_build_columns(json_columns: list[str], expected: str) -> None:
     [
         (AllSelection(), "duckdb/write_all", "gcs_path", "'s3://b/t/data.parquet'"),
         (
-            ValueSelection(column="dt", value="2025-01-15"),
-            "duckdb/write_value",
-            "value",
-            "'2025-01-15'",
+            TimeRangeSelection(column="dt", lower="2025-01-15", upper="2025-01-16"),
+            "duckdb/write_partition",
+            "upper",
+            "'2025-01-16'",
         ),
         (
             RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
