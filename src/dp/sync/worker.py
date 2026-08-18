@@ -10,6 +10,7 @@ from faststream.redis import RedisBroker, StreamSub
 from loguru import logger
 
 from ..constants import (
+    RECLAIM_MIN_IDLE_MS,
     SYNC_FINALIZE_STREAM,
     SYNC_SHUTDOWN_CHANNEL,
     SYNC_TASKS_STREAM,
@@ -51,6 +52,7 @@ def extract_task_wrapper(task: SyncTask) -> None:
         group=WORKERS_GROUP,
         consumer=CONSUMER,
         max_records=settings.WORKER_MAX_RECORDS,
+        min_idle_time=RECLAIM_MIN_IDLE_MS,
     )
 )
 async def process_shard(task: SyncTask) -> None:

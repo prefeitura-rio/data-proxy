@@ -9,7 +9,12 @@ from faststream import FastStream
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 
-from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM, SYNC_SHUTDOWN_CHANNEL
+from ..constants import (
+    FINALIZERS_GROUP,
+    RECLAIM_MIN_IDLE_MS,
+    SYNC_FINALIZE_STREAM,
+    SYNC_SHUTDOWN_CHANNEL,
+)
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
@@ -43,7 +48,12 @@ def apply_sync_plan_wrapper(config: SyncConfig, plan: SyncPlan) -> None:
 
 
 @broker.subscriber(
-    stream=StreamSub(SYNC_FINALIZE_STREAM, group=FINALIZERS_GROUP, consumer=CONSUMER)
+    stream=StreamSub(
+        SYNC_FINALIZE_STREAM,
+        group=FINALIZERS_GROUP,
+        consumer=CONSUMER,
+        min_idle_time=RECLAIM_MIN_IDLE_MS,
+    )
 )
 async def finalize_sync(message: FinalizeMessage) -> None:
     """Apply one required synchronization plan and commit its state."""

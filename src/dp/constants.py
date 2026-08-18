@@ -1,6 +1,7 @@
 """Redis stream names, key patterns, and consumer group names."""
 
 FINALIZERS_GROUP = "finalizers"
+RECLAIM_MIN_IDLE_MS = 300_000
 SYNC_FINALIZE_STREAM = "dp:sync:finalize"
 SYNC_JOB_KEY = "dp:sync:job:{sync_id}"
 SYNC_JOB_TTL_SECONDS = 3_600
