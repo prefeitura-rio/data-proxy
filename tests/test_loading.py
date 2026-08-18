@@ -263,15 +263,7 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
 
 
 def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
-    """A failed load skips only its own table, not the whole synchronization.
-
-    ``prepare_tables`` only appends a table to the prepared list once its
-    Parquet load succeeds. A table that fails to load is logged and
-    skipped -- it is simply not published this run -- while every other
-    already-prepared table still publishes normally. Its shadow table is
-    left in place and is safely recreated (``CREATE OR REPLACE`` /
-    ``DROP TABLE IF EXISTS``) on the next successful run.
-    """
+    """A failed load skips only its own table, not the whole synchronization."""
     config = SyncConfig(
         tables=[
             FullTable(name="p.app.first"),

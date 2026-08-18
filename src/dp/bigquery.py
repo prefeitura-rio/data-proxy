@@ -184,13 +184,9 @@ def normalize_partition(
 ) -> PhysicalPartition | None:
     """Normalize one BigQuery metadata row into partition state.
 
-    Time partitions normalize into a ``ValueSelection`` keyed on the raw
-    partition id; BigQuery's ``__NULL__`` bucket carries no meaningful
-    value for a time column, so it is skipped. Range partitions normalize
-    into a ``RangeSelection``, with BigQuery's ``__NULL__`` bucket
-    (null or out-of-range rows) normalizing into a ``RemainderSelection``
-    instead of being dropped. ``__UNPARTITIONED__`` indicates a different
-    BigQuery partitioning type and is always rejected.
+    Time partitions skip BigQuery's ``__NULL__`` bucket; range partitions
+    normalize it into a ``RemainderSelection`` instead of dropping it.
+    ``__UNPARTITIONED__`` is always rejected.
     """
     partition_id_value = cast(object, row["partition_id"])
     partition_id = str(partition_id_value)

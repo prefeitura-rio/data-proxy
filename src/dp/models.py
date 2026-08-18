@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Strategy(StrEnum):
+    """Table synchronization strategy: whole-table or physically partitioned."""
+
     FULL = "full"
     PARTITIONED = "partitioned"
 
@@ -49,13 +51,7 @@ class RangeSelection(BaseModel):
 
 
 class RemainderSelection(BaseModel):
-    """Select rows outside every known physical partition range.
-
-    BigQuery groups rows whose range-partitioning column is null or falls
-    outside the declared [start, end) range into a single ``__NULL__``
-    pseudo-partition. Those rows are real data and must still be
-    extracted, so this selection is the complement of every bounded range.
-    """
+    """Select rows in BigQuery's ``__NULL__`` bucket: null or out-of-range values."""
 
     type: Literal["remainder"] = "remainder"
     column: str
@@ -70,13 +66,7 @@ TaskSelection = Annotated[
 
 
 class PhysicalPartition(BaseModel):
-    """Normalized state for one physical BigQuery partition.
-
-    Time-partitioned tables normalize to a ``ValueSelection`` (equality on
-    the raw partition id); range-partitioned tables normalize to a
-    ``RangeSelection`` or, for BigQuery's ``__NULL__`` bucket, a
-    ``RemainderSelection``.
-    """
+    """Normalized state and extraction selection for one physical BigQuery partition."""
 
     partition_id: str
     signature: str
@@ -88,6 +78,8 @@ class PhysicalPartition(BaseModel):
 
 
 class Table(BaseModel):
+    """Common configuration shared by every synced table strategy."""
+
     name: str
     rls: RlsConfig | None = None
     pg_schema: str | None = None
@@ -129,20 +121,28 @@ class Table(BaseModel):
 
 
 class FullTable(Table):
+    """A table synced by replacing it wholesale on every run."""
+
     strategy: Literal[Strategy.FULL] = Strategy.FULL
 
 
 class PartitionedTable(Table):
+    """A table synced by diffing and reloading only its changed physical partitions."""
+
     strategy: Literal[Strategy.PARTITIONED] = Strategy.PARTITIONED
     n: int | None = None
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
 
 class SyncConfig(BaseModel):
+    """The full set of tables a synchronization run manages."""
+
     tables: list[TableConfig]
 
 
 class SyncTask(BaseModel):
+    """One extraction unit: a source table (or partition) and its GCS destination."""
+
     sync_id: str
     table: str
     bucket_path: str
@@ -157,10 +157,8 @@ class PartitionedTablePlan(BaseModel):
     full_rebuild: bool
     """Whether every current partition must be reloaded.
 
-    Set when the table-level signature changes (schema, RLS, indexes, or
-    BigQuery schema drift) or on first sync. A signature change is treated
-    as an all-partitions rebuild rather than diffed field-by-field, trading
-    a rare full reload for not needing separate schema-change detection.
+    Set on first sync or when the table-level signature changes (schema,
+    RLS, indexes, or BigQuery schema drift), instead of diffing field-by-field.
     """
     current_partitions: dict[str, PhysicalPartition]
     changed_paths: dict[str, str]
@@ -210,10 +208,14 @@ class SyncPlan(BaseModel):
 
 
 class FinalizeMessage(BaseModel):
+    """Signal that every task for a sync run has completed."""
+
     sync_id: str
 
 
 class ShutdownMessage(BaseModel):
+    """Broadcast telling every worker to exit once finalization starts."""
+
     sync_id: str
 
 

@@ -212,13 +212,7 @@ def affected_partitions(
 
 
 def partition_predicate(partition: PhysicalPartition) -> SQL:
-    """Return the template selecting one partition's own rows.
-
-    Value partitions match rows equal to their partition value. Range
-    partitions match rows inside their [lower, upper) bounds. The
-    remainder partition instead matches every row BigQuery's ``__NULL__``
-    bucket collects: null or outside the declared range.
-    """
+    """Return the SQL predicate matching one partition's own rows."""
     mapping = selection_fields(partition.selection)
 
     match partition.selection:
@@ -295,13 +289,8 @@ def prepare_tables(
 ) -> list[TableConfig]:
     """Prepare empty shadow tables, secure them, then load planned Parquet.
 
-    A table is only appended to the returned list once its Parquet load
-    succeeds. A failure preparing or loading one table is logged
-    explicitly and that table is skipped -- it is simply not published
-    this run -- instead of aborting every other table's publication. Its
-    shadow table is left in place and is safely recreated
-    (``CREATE OR REPLACE`` / ``DROP TABLE IF EXISTS``) on the next
-    successful run.
+    A table is appended to the returned list only once its load succeeds;
+    a failure is logged and that table is skipped, not published this run.
     """
     duckdb_conn.execute(
         load_template(

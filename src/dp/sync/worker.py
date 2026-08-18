@@ -56,11 +56,8 @@ def extract_task_wrapper(task: SyncTask) -> None:
 async def process_shard(task: SyncTask) -> None:
     """Extract one task and update its synchronization run.
 
-    An extraction failure for one table or partition must not stop the
-    whole worker: it is logged explicitly here so the failure is visible,
-    the task's Parquet file is simply never written, and the run proceeds
-    to the next task. The finalizer skips publishing any table missing a
-    planned Parquet path instead of aborting the whole synchronization.
+    An extraction failure is logged and skipped rather than stopping the
+    worker; the task's Parquet file is simply never written.
     """
     try:
         await asyncify(extract_task_wrapper)(task)
