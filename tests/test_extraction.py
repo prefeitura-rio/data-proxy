@@ -45,19 +45,19 @@ def test_build_columns(json_columns: list[str], expected: str) -> None:
         (
             ValueSelection(column="dt", value="2025-01-15"),
             "duckdb/write_value",
-            "partition_value",
+            "value",
             "'2025-01-15'",
         ),
         (
             RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
             "duckdb/write_partition",
-            "partition_upper",
+            "upper",
             "20",
         ),
         (
             RemainderSelection(column="cpf", start=0, end=100),
             "duckdb/write_remainder",
-            "partition_upper",
+            "upper",
             "100",
         ),
     ],

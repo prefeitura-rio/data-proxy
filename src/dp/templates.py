@@ -5,7 +5,15 @@ from pathlib import Path
 from string import Template
 from typing import TypedDict
 
-from psycopg.sql import Composable
+from psycopg.sql import Composable, Identifier, Literal
+
+from .models import (
+    AllSelection,
+    RangeSelection,
+    RemainderSelection,
+    TaskSelection,
+    ValueSelection,
+)
 
 SQL_DIR = Path(__file__).parent / "sql"
 
@@ -41,3 +49,24 @@ def load_template(spec: TemplateSpec) -> str:
                 rendered[key] = value
 
     return Template(read_template(spec["path"])).substitute(rendered)
+
+
+def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
+    """Return the column and bound literals encoded by one task selection."""
+    match selection:
+        case AllSelection():
+            return {}
+        case ValueSelection(column=column, value=value):
+            return {"column": Identifier(column), "value": Literal(value)}
+        case RangeSelection(column=column, lower=lower, upper=upper):
+            return {
+                "column": Identifier(column),
+                "lower": Literal(lower),
+                "upper": Literal(upper),
+            }
+        case RemainderSelection(column=column, start=start, end=end):
+            return {
+                "column": Identifier(column),
+                "lower": Literal(start),
+                "upper": Literal(end),
+            }

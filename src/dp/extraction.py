@@ -10,7 +10,7 @@ from .models import (
     SyncTask,
     ValueSelection,
 )
-from .templates import TemplateSpec, load_template
+from .templates import TemplateSpec, load_template, selection_fields
 
 
 def build_columns(json_columns: list[str]) -> Composable:
@@ -33,22 +33,16 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
         "columns": build_columns(task.json_columns),
     }
 
+    mapping |= selection_fields(task.selection)
+
     match task.selection:
         case AllSelection():
             return {"path": "duckdb/write_all", "mapping": mapping}
-        case ValueSelection(column=column, value=value):
-            mapping["partition_column"] = Identifier(column)
-            mapping["partition_value"] = Literal(value)
+        case ValueSelection():
             return {"path": "duckdb/write_value", "mapping": mapping}
-        case RangeSelection(column=column, lower=lower, upper=upper):
-            mapping["partition_column"] = Identifier(column)
-            mapping["partition_lower"] = Literal(lower)
-            mapping["partition_upper"] = Literal(upper)
+        case RangeSelection():
             return {"path": "duckdb/write_partition", "mapping": mapping}
-        case RemainderSelection(column=column, start=start, end=end):
-            mapping["partition_column"] = Identifier(column)
-            mapping["partition_lower"] = Literal(start)
-            mapping["partition_upper"] = Literal(end)
+        case RemainderSelection():
             return {"path": "duckdb/write_remainder", "mapping": mapping}
 
 

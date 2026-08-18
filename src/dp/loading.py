@@ -5,7 +5,7 @@ from typing import LiteralString, TypedDict, cast
 
 from loguru import logger
 from psycopg import Connection
-from psycopg.sql import SQL, Composable, Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from .duckdb import DBConnection
 from .models import (
@@ -20,7 +20,7 @@ from .models import (
     ValueSelection,
 )
 from .settings import settings
-from .templates import load_template
+from .templates import load_template, selection_fields
 
 
 class BootstrapInput(TypedDict):
@@ -219,26 +219,15 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
     remainder partition instead matches every row BigQuery's ``__NULL__``
     bucket collects: null or outside the declared range.
     """
-    mapping: dict[str, str | Composable]
+    mapping = selection_fields(partition.selection)
 
     match partition.selection:
-        case ValueSelection(column=column, value=value):
+        case ValueSelection():
             path = "pg/partition_value_predicate"
-            mapping = {"column": Identifier(column), "value": Literal(value)}
-        case RangeSelection(column=column, lower=lower, upper=upper):
+        case RangeSelection():
             path = "pg/partition_range_predicate"
-            mapping = {
-                "column": Identifier(column),
-                "lower": Literal(lower),
-                "upper": Literal(upper),
-            }
-        case RemainderSelection(column=column, start=start, end=end):
+        case RemainderSelection():
             path = "pg/partition_remainder_predicate"
-            mapping = {
-                "column": Identifier(column),
-                "lower": Literal(start),
-                "upper": Literal(end),
-            }
 
     rendered = load_template({"path": path, "mapping": mapping})
 

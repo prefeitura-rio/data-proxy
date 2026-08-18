@@ -2,7 +2,14 @@
 
 from psycopg.sql import SQL, Identifier, Literal
 
-from dp.templates import load_template
+from dp.models import AllSelection, RangeSelection, RemainderSelection, ValueSelection
+from dp.templates import load_template, selection_fields
+
+
+def render(value: object) -> str:
+    """Render one mapping value as psycopg would when substituting it."""
+    assert isinstance(value, (SQL, Identifier, Literal))
+    return value.as_string(None)
 
 
 def test_plain_strings_pass_through_unescaped() -> None:
@@ -87,6 +94,39 @@ def test_literal_neutralizes_injection_payload() -> None:
         "read_csv(''/etc/passwd')) TO 's3://b/t/data.parquet' (\n"
         "    FORMAT PARQUET\n)\n"
     )
+
+
+def test_selection_fields_returns_empty_mapping_for_all() -> None:
+    """Selecting every row encodes no column or bound fields."""
+    assert selection_fields(AllSelection()) == {}
+
+
+def test_selection_fields_encodes_value_selection() -> None:
+    """A value selection encodes its column and equality value."""
+    fields = selection_fields(ValueSelection(column="cpf", value="123"))
+
+    assert render(fields["column"]) == '"cpf"'
+    assert render(fields["value"]) == "'123'"
+
+
+def test_selection_fields_encodes_range_selection() -> None:
+    """A range selection encodes its column and inclusive/exclusive bounds."""
+    fields = selection_fields(
+        RangeSelection(partition_id="0", column="cpf", lower=0, upper=10)
+    )
+
+    assert render(fields["column"]) == '"cpf"'
+    assert render(fields["lower"]) == "0"
+    assert render(fields["upper"]) == "10"
+
+
+def test_selection_fields_encodes_remainder_selection() -> None:
+    """A remainder selection encodes its column and start/end as lower/upper."""
+    fields = selection_fields(RemainderSelection(column="cpf", start=0, end=100))
+
+    assert render(fields["column"]) == '"cpf"'
+    assert render(fields["lower"]) == "0"
+    assert render(fields["upper"]) == "100"
 
 
 def test_identifier_list_joins_and_quotes_each_element() -> None:
