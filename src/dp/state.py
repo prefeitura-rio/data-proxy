@@ -95,13 +95,6 @@ async def commit_sync_state(redis: Redis, plan: SyncPlan) -> None:
         )
 
 
-async def complete_task(redis: Redis, sync_id: str) -> tuple[int, int]:
-    """Decrement a task counter and return remaining tasks and stream lag."""
-    remaining = await redis.decr(SYNC_JOB_KEY.format(sync_id=sync_id))
-    groups = await redis.xinfo_groups(SYNC_TASKS_STREAM)
-    lag = next(
-        (group["lag"] for group in groups if group["name"] == WORKERS_GROUP.encode()),
-        0,
-    )
-
-    return remaining, lag
+async def complete_task(redis: Redis, sync_id: str) -> int:
+    """Decrement a task counter and return the remaining task count."""
+    return await redis.decr(SYNC_JOB_KEY.format(sync_id=sync_id))

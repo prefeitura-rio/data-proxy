@@ -11,7 +11,6 @@ from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import (
     FINALIZERS_GROUP,
-    RECLAIM_MIN_IDLE_MS,
     SYNC_FINALIZE_STREAM,
     SYNC_SHUTDOWN_CHANNEL,
 )
@@ -52,7 +51,6 @@ def apply_sync_plan_wrapper(config: SyncConfig, plan: SyncPlan) -> None:
         SYNC_FINALIZE_STREAM,
         group=FINALIZERS_GROUP,
         consumer=CONSUMER,
-        min_idle_time=RECLAIM_MIN_IDLE_MS,
     )
 )
 async def finalize_sync(message: FinalizeMessage) -> None:

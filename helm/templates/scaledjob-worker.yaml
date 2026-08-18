@@ -45,4 +45,3 @@ spec:
         stream: dp:sync:tasks
         consumerGroup: workers
         lagCount: {{ .Values.worker.keda.lagCount | quote }}
-        pendingEntriesCount: {{ .Values.worker.keda.pendingEntriesCount | quote }}

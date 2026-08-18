@@ -124,9 +124,6 @@ worker:
   keda:
     ## Number of unread stream messages that triggers one additional worker Job.
     lagCount: "1"
-    ## Number of unacknowledged (pending) stream messages that triggers one additional
-    ## worker Job, even when lagCount is 0 — recovers messages abandoned by dead consumers.
-    pendingEntriesCount: "1"
     ## Maximum number of concurrent worker Job pods.
     maxReplicaCount: 10
     ## Maximum wall-clock time a single worker Job may run before termination.

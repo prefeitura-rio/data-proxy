@@ -20,18 +20,17 @@ TASK = SyncTask(
 
 
 @pytest.mark.parametrize(
-    ("remaining", "lag", "expect_publish", "expect_exit"),
+    ("remaining", "expect_publish"),
     [
-        (1, 3, False, False),
-        (0, 1, True, False),
-        (1, 0, False, True),
+        (1, False),
+        (0, True),
     ],
 )
 @pytest.mark.asyncio
-async def test_process_shard_branches_on_counter_and_lag(
-    remaining: int, lag: int, expect_publish: bool, expect_exit: bool
+async def test_process_shard_branches_on_counter(
+    remaining: int, expect_publish: bool
 ) -> None:
-    """Task completion delegates extraction and branches on counter and lag."""
+    """Task completion delegates extraction and publishes once the counter hits zero."""
     db = FakeDuckDBConnection()
     with (
         patch("dp.sync.worker.connect", return_value=db),
@@ -39,17 +38,15 @@ async def test_process_shard_branches_on_counter_and_lag(
         patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
-            return_value=(remaining, lag),
+            return_value=remaining,
         ) as complete,
         patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
-        patch.object(worker, "exit") as exit_app,
     ):
         await process_shard(TASK)
 
     extract.assert_called_once_with(TASK, db)
     complete.assert_awaited_once()
     assert publish.await_count == (1 if expect_publish else 0)
-    assert exit_app.call_count == (1 if expect_exit else 0)
 
 
 @pytest.mark.asyncio

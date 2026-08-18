@@ -134,11 +134,11 @@ async def test_reads_and_commits_partition_manifest() -> None:
 
 
 @pytest.mark.asyncio
-async def test_completes_task_and_returns_lag() -> None:
-    """Task completion returns the counter and worker stream lag."""
-    fake = FakeRedis(decr_value=0, lag=4)
+async def test_completes_task_returns_remaining_count() -> None:
+    """Task completion returns the remaining task counter."""
+    fake = FakeRedis(decr_value=0)
 
-    assert await complete_task(redis_client(fake), "s1") == (0, 4)
+    assert await complete_task(redis_client(fake), "s1") == 0
 
 
 @pytest.mark.asyncio

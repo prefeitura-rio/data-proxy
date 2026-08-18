@@ -10,7 +10,6 @@ from faststream.redis import RedisBroker, StreamSub
 from loguru import logger
 
 from ..constants import (
-    RECLAIM_MIN_IDLE_MS,
     SYNC_FINALIZE_STREAM,
     SYNC_SHUTDOWN_CHANNEL,
     SYNC_TASKS_STREAM,
@@ -52,7 +51,6 @@ def extract_task_wrapper(task: SyncTask) -> None:
         group=WORKERS_GROUP,
         consumer=CONSUMER,
         max_records=settings.WORKER_MAX_RECORDS,
-        min_idle_time=RECLAIM_MIN_IDLE_MS,
     )
 )
 async def process_shard(task: SyncTask) -> None:
@@ -60,16 +58,13 @@ async def process_shard(task: SyncTask) -> None:
     await asyncify(extract_task_wrapper)(task)
 
     async with settings.make_redis() as redis:
-        remaining, lag = await complete_task(redis, task.sync_id)
+        remaining = await complete_task(redis, task.sync_id)
 
     if remaining == 0:
         await broker.publish(
             FinalizeMessage(sync_id=task.sync_id),
             stream=SYNC_FINALIZE_STREAM,
         )
-
-    if lag == 0:
-        worker.exit()
 
 
 if __name__ == "__main__":

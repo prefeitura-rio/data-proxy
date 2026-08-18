@@ -102,9 +102,8 @@ class FakeRedis:
     store: dict[str, str]
     set_calls: list[tuple[str, object, int | None]]
 
-    def __init__(self, decr_value: int = 1, lag: int = 1) -> None:
+    def __init__(self, decr_value: int = 1) -> None:
         self._decr_value = decr_value
-        self._lag = lag
         self.store = {}
         self.set_calls = []
 
@@ -129,9 +128,6 @@ class FakeRedis:
         mkstream: bool = False,
     ) -> None:
         pass
-
-    async def xinfo_groups(self, name: str) -> list[dict[str, object]]:
-        return [{"name": b"workers", "lag": self._lag}]
 
 
 @final

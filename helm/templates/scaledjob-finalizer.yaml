@@ -45,4 +45,3 @@ spec:
         stream: dp:sync:finalize
         consumerGroup: finalizers
         lagCount: "1"
-        pendingEntriesCount: "1"
