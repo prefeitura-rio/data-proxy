@@ -2,7 +2,7 @@ apiVersion: v2
 name: data-proxy
 description: Data proxy — BigQuery → GCS → pg_duckdb sync pipeline with PostgREST and row-level security.
 type: application
-version: 1.24.0
+version: 1.25.0
 appVersion: "latest"
 dependencies:
   - name: valkey
