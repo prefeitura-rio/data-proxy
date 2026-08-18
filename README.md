@@ -126,24 +126,21 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 {
   "tables": [
     {
-      "bq_table": "project.dataset.table",
-      "strategy": "all",
+      "name": "project.dataset.table",
+      "strategy": "full",
       "pg_schema": "my_schema",
       "rls": { "column": "unit_id" }
     },
     {
-      "bq_table": "project.dataset.people",
-      "strategy": "all_with_partitions",
+      "name": "project.dataset.people",
+      "strategy": "partitioned",
       "pg_schema": "my_schema"
     },
     {
-      "bq_table": "project.dataset.events",
-      "strategy": "window",
+      "name": "project.dataset.events",
+      "strategy": "partitioned",
+      "n": 7,
       "pg_schema": "my_schema",
-      "partition": {
-        "column": "data_particao",
-        "n": 7
-      },
       "indexes": [{ "name": "idx_events_unit", "columns": ["unit_id"] }],
       "rls": { "column": "unit_id" }
     }
@@ -151,25 +148,25 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 }
 ```
 
-| Field              | Required    | Description                                                                                                                                                |
-| ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bq_table`         | yes         | Full BigQuery table reference (`project.dataset.table`).                                                                                                   |
-| `strategy`         | yes         | `all` replaces the full table. `all_with_partitions` distributes a physical range-partitioned table across workers. `window` replaces the last _n_ values. |
-| `pg_schema`        | no          | Target PostgreSQL schema. The default is the BigQuery dataset name.                                                                                        |
-| `rls.column`       | no          | Column used for row-level security. Omit this field to disable RLS on the table.                                                                           |
-| `indexes`          | no          | Array of `{ name, columns }` objects. Creates one index per entry after each sync.                                                                         |
-| `partition.column` | window only | BigQuery partition column name.                                                                                                                            |
-| `partition.n`      | window only | Number of most-recent partitions to sync.                                                                                                                  |
+| Field         | Required | Description                                                                     |
+| ------------- | -------- | -------------------------------------------------------------------------------- |
+| `name`        | yes      | Full BigQuery table reference (`project.dataset.table`).                        |
+| `strategy`    | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time. |
+| `n`           | no       | Keep only the last `n` partitions. Time-partitioned tables only.                 |
+| `pg_schema`   | no       | Target PostgreSQL schema. The default is the BigQuery dataset name.             |
+| `rls.column`  | no       | Column used for row-level security. Omit this field to disable RLS on the table. |
+| `indexes`     | no       | Array of `{ name, columns }` objects. Creates one index per entry after each sync. |
 
 ### Strategy Selection
 
-| Strategy              | Use when                                                                    |
-| --------------------- | --------------------------------------------------------------------------- |
-| `all`                 | The complete table fits comfortably in one extraction task.                 |
-| `all_with_partitions` | A large integer-range-partitioned table must be distributed across workers. |
-| `window`              | Date or time-series data needs only the latest `n` logical values.          |
+| Strategy      | Use when                                                                       |
+| ------------- | ------------------------------------------------------------------------------- |
+| `full`        | The complete table fits comfortably in one extraction task.                     |
+| `partitioned` | The source table is time- or range-partitioned in BigQuery and should sync one physical partition at a time, optionally keeping only the last `n`. |
 
-`all_with_partitions` reads the partition column, bounds, interval, and existing partition IDs from BigQuery. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file. Removed partitions are deleted during finalization, and publication remains atomic.
+`partitioned` reads the partition column, type (time or range), bounds/interval, and existing partition IDs directly from BigQuery metadata. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file; only partitions whose BigQuery metadata changed are re-extracted. Removed partitions are deleted during finalization, and publication remains atomic.
+
+For time-partitioned tables, `n` keeps only the highest `n` raw partition ids (BigQuery's `partition_id`, e.g. `20250115` for a daily partition) and drops older partitions incrementally as new ones appear. The partition id is used exactly as BigQuery reports it -- there is no granularity conversion (daily/monthly/yearly). If a table needs a different granularity, model that in BigQuery or in a derived dataset, not in this configuration. `n` is rejected for range-partitioned tables, since a range partition has no natural recency ordering. BigQuery's `__NULL__` bucket is skipped for time-partitioned tables (a null time value carries no partition identity) and is synced as a remainder partition for range-partitioned tables (it holds real out-of-range or null data). `__UNPARTITIONED__` always raises, since it indicates an unsupported partitioning type.
 
 A CPF or CNPJ table can contain thousands of physical partitions. Limit KEDA concurrency so a synchronization run does not start every worker simultaneously.
 

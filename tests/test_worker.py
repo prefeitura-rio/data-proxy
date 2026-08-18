@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
+from helpers import FakeDuckDBConnection
 
 from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
 from dp.models import AllSelection, ShutdownMessage, SyncTask
@@ -12,8 +13,8 @@ from dp.sync.worker import broker, process_shard, worker
 
 TASK = SyncTask(
     sync_id="s1",
-    bq_table="p.d.t",
-    gcs_path="s3://bucket/t/data.parquet",
+    table="p.d.t",
+    bucket_path="s3://bucket/t/data.parquet",
     selection=AllSelection(),
 )
 
@@ -31,7 +32,9 @@ async def test_process_shard_branches_on_counter_and_lag(
     remaining: int, lag: int, expect_publish: bool, expect_exit: bool
 ) -> None:
     """Task completion delegates extraction and branches on counter and lag."""
+    db = FakeDuckDBConnection()
     with (
+        patch("dp.sync.worker.connect", return_value=db),
         patch("dp.sync.worker.extract_task") as extract,
         patch(
             "dp.sync.worker.complete_task",
@@ -43,7 +46,7 @@ async def test_process_shard_branches_on_counter_and_lag(
     ):
         await process_shard(TASK)
 
-    extract.assert_called_once_with(TASK)
+    extract.assert_called_once_with(TASK, db)
     complete.assert_awaited_once()
     assert publish.await_count == (1 if expect_publish else 0)
     assert exit_app.call_count == (1 if expect_exit else 0)
@@ -54,6 +57,7 @@ async def test_failure_stops_application() -> None:
     """Extraction errors terminate the finite Job with a failure status."""
     async with TestRedisBroker(broker) as test_broker:
         with (
+            patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
             patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
             pytest.raises(StopApplication) as result,
         ):

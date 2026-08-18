@@ -20,9 +20,11 @@ from .models import PartitionManifest, SyncPlan
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
     """Decode a Valkey byte value while preserving strings and None."""
-    if value is None:
-        return None
-    return value.decode() if isinstance(value, bytes) else value
+    match value:
+        case bytes() as raw:
+            return raw.decode()
+        case _:
+            return value
 
 
 def state_key(bq_table: str) -> str:
@@ -101,4 +103,5 @@ async def complete_task(redis: Redis, sync_id: str) -> tuple[int, int]:
         (group["lag"] for group in groups if group["name"] == WORKERS_GROUP.encode()),
         0,
     )
+
     return remaining, lag

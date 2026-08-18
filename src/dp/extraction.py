@@ -2,7 +2,7 @@
 
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from .duckdb import connect
+from .duckdb import DBConnection
 from .models import (
     AllSelection,
     RangeSelection,
@@ -28,8 +28,8 @@ def build_columns(json_columns: list[str]) -> Composable:
 def build_mapping(task: SyncTask) -> TemplateSpec:
     """Return the DuckDB template and values for one extraction task."""
     mapping: dict[str, str | Composable] = {
-        "bq_table": Literal(task.bq_table),
-        "gcs_path": Literal(task.gcs_path),
+        "bq_table": Literal(task.table),
+        "gcs_path": Literal(task.bucket_path),
         "columns": build_columns(task.json_columns),
     }
 
@@ -39,7 +39,7 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
         case ValueSelection(column=column, value=value):
             mapping["partition_column"] = Identifier(column)
             mapping["partition_value"] = Literal(value)
-            return {"path": "duckdb/write_window", "mapping": mapping}
+            return {"path": "duckdb/write_value", "mapping": mapping}
         case RangeSelection(column=column, lower=lower, upper=upper):
             mapping["partition_column"] = Identifier(column)
             mapping["partition_lower"] = Literal(lower)
@@ -52,9 +52,7 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
             return {"path": "duckdb/write_remainder", "mapping": mapping}
 
 
-def extract_task(task: SyncTask) -> None:
+def extract_task(task: SyncTask, db: DBConnection) -> None:
     """Write one BigQuery task to GCS Parquet through DuckDB."""
     spec = build_mapping(task)
-
-    with connect() as db:
-        db.execute(load_template(spec))
+    db.execute(load_template(spec))

@@ -1,7 +1,7 @@
 """Parquet-to-PostgreSQL loading and atomic publication operations."""
 
 from collections.abc import Sequence
-from typing import TypedDict
+from typing import LiteralString, TypedDict, cast
 
 from loguru import logger
 from psycopg import Connection
@@ -11,10 +11,13 @@ from .duckdb import DBConnection
 from .models import (
     PartitionedTablePlan,
     PhysicalPartition,
+    RangeSelection,
+    RemainderSelection,
     RlsConfig,
     SyncConfig,
     SyncPlan,
     TableConfig,
+    ValueSelection,
 )
 from .settings import settings
 from .templates import load_template
@@ -142,7 +145,7 @@ def configured_schemas(config: SyncConfig) -> set[str]:
 def validate_sync_plan(config: SyncConfig, plan: SyncPlan) -> set[str]:
     """Validate planned tables and return their configured names."""
     changed = set(plan.signatures) | set(plan.partitioned_tables)
-    configured = {table.bq_table for table in config.tables}
+    configured = {table.name for table in config.tables}
     unknown = changed - configured
 
     if unknown:
@@ -166,6 +169,7 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
             }
         ).encode()
     )
+
     for schema in configured_schemas(config):
         pg_conn.execute(
             load_template(
@@ -178,21 +182,8 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
                 }
             ).encode()
         )
+
     pg_conn.commit()
-
-
-def table_exists(pg_conn: Connection, schema: str, table: str) -> bool:
-    """Return whether one PostgreSQL serving table exists."""
-    cursor = pg_conn.execute(
-        load_template(
-            {
-                "path": "pg/table_exists",
-                "mapping": {"qualified_table": Literal(f"{schema}.{table}")},
-            }
-        ).encode()
-    )
-    row = cursor.fetchone()
-    return bool(row and row[0])
 
 
 def planned_paths(
@@ -208,17 +199,6 @@ def planned_paths(
             return plan.paths.get(bq_table, [])
 
 
-def requires_full_rebuild(
-    partitioned: PartitionedTablePlan | None,
-    live_exists: bool,
-) -> bool:
-    """Return whether one table needs complete shadow reconstruction."""
-    ordinary_table = partitioned is None
-    missing_live_table = partitioned is not None and not live_exists
-    partition_rebuild = partitioned is not None and partitioned.full_rebuild
-    return ordinary_table or missing_live_table or partition_rebuild
-
-
 def affected_partitions(
     partitioned: PartitionedTablePlan,
 ) -> list[PhysicalPartition]:
@@ -231,24 +211,38 @@ def affected_partitions(
     return [*changed_partitions, *removed_partitions]
 
 
-def partition_predicate(partition: PhysicalPartition) -> Composable:
-    """Return the SQL predicate matching one partition's own rows.
+def partition_predicate(partition: PhysicalPartition) -> SQL:
+    """Return the template selecting one partition's own rows.
 
-    Ordinary partitions match rows inside their [lower, upper) bounds. The
+    Value partitions match rows equal to their partition value. Range
+    partitions match rows inside their [lower, upper) bounds. The
     remainder partition instead matches every row BigQuery's ``__NULL__``
     bucket collects: null or outside the declared range.
     """
-    column = Identifier(partition.column)
-    lower = Literal(partition.lower)
-    upper = Literal(partition.upper)
+    mapping: dict[str, str | Composable]
 
-    if partition.is_remainder:
-        return SQL(
-            "({column} IS NULL OR {column} < {lower} OR {column} >= {upper})"
-        ).format(column=column, lower=lower, upper=upper)
-    return SQL("({column} >= {lower} AND {column} < {upper})").format(
-        column=column, lower=lower, upper=upper
-    )
+    match partition.selection:
+        case ValueSelection(column=column, value=value):
+            path = "pg/partition_value_predicate"
+            mapping = {"column": Identifier(column), "value": Literal(value)}
+        case RangeSelection(column=column, lower=lower, upper=upper):
+            path = "pg/partition_range_predicate"
+            mapping = {
+                "column": Identifier(column),
+                "lower": Literal(lower),
+                "upper": Literal(upper),
+            }
+        case RemainderSelection(column=column, start=start, end=end):
+            path = "pg/partition_remainder_predicate"
+            mapping = {
+                "column": Identifier(column),
+                "lower": Literal(start),
+                "upper": Literal(end),
+            }
+
+    rendered = load_template({"path": path, "mapping": mapping})
+
+    return SQL(cast(LiteralString, rendered))
 
 
 def create_incremental_shadow(
@@ -276,6 +270,31 @@ def create_incremental_shadow(
     )
 
     pg_conn.commit()
+
+
+def create_shadow_from_parquet(
+    duckdb_conn: DBConnection,
+    table: TableConfig,
+    shadow_name: str,
+    paths: list[str],
+) -> None:
+    """Create an empty shadow table from the first planned Parquet schema."""
+    if not paths:
+        message = f"Parquet paths missing from sync plan: {table.name}"
+        raise RuntimeError(message)
+
+    duckdb_conn.execute(
+        load_template(
+            {
+                "path": "duckdb/create_table_from_parquet",
+                "mapping": {
+                    "schema": Identifier(table.resolved_schema),
+                    "table": Identifier(shadow_name),
+                    "gcs_path": Literal(paths[0]),
+                },
+            }
+        )
+    )
 
 
 def prepare_tables(
@@ -307,45 +326,29 @@ def prepare_tables(
     prepared: list[TableConfig] = []
 
     for table in config.tables:
-        if table.bq_table not in changed:
+        if table.name not in changed:
             continue
 
-        partitioned = plan.partitioned_tables.get(table.bq_table)
-        paths = planned_paths(plan, table.bq_table, partitioned)
+        partitioned = plan.partitioned_tables.get(table.name)
+        paths = planned_paths(plan, table.name, partitioned)
         shadow_name = f"{table.table_name}__next"
 
-        live_exists = False
-        if partitioned is not None:
-            live_exists = table_exists(
-                pg_conn,
-                table.resolved_schema,
-                table.table_name,
-            )
-
-        full_rebuild = requires_full_rebuild(partitioned, live_exists)
-
-        if full_rebuild:
-            if not paths:
-                message = f"Parquet paths missing from sync plan: {table.bq_table}"
-                raise RuntimeError(message)
-            duckdb_conn.execute(
-                load_template(
-                    {
-                        "path": "duckdb/create_table_from_parquet",
-                        "mapping": {
-                            "schema": Identifier(table.resolved_schema),
-                            "table": Identifier(shadow_name),
-                            "gcs_path": Literal(paths[0]),
-                        },
-                    }
+        match partitioned:
+            case PartitionedTablePlan() as plan_for_table if (
+                not plan_for_table.full_rebuild
+            ):
+                create_incremental_shadow(
+                    pg_conn,
+                    table,
+                    affected_partitions(plan_for_table),
                 )
-            )
-        elif partitioned is not None:
-            create_incremental_shadow(
-                pg_conn,
-                table,
-                affected_partitions(partitioned),
-            )
+            case _:
+                create_shadow_from_parquet(
+                    duckdb_conn,
+                    table,
+                    shadow_name,
+                    paths,
+                )
 
         with pg_conn.transaction():
             bootstrap_table(

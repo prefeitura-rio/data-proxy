@@ -52,16 +52,18 @@ def test_literal_quotes_and_escapes() -> None:
     """Literal values render as single-quoted, self-escaping SQL strings."""
     rendered = load_template(
         {
-            "path": "duckdb/discover_partitions",
+            "path": "duckdb/write_all",
             "mapping": {
-                "partition_column": Identifier("dt"),
+                "columns": SQL("*"),
+                "gcs_path": Literal("s3://b/t/data.parquet"),
                 "bq_table": Literal("o'brien.dataset.table"),
             },
         }
     )
 
     assert rendered == (
-        "SELECT DISTINCT \"dt\"\nFROM bigquery_scan('o''brien.dataset.table')\n"
+        "COPY (SELECT * FROM bigquery_scan('o''brien.dataset.table')) TO "
+        "'s3://b/t/data.parquet' (\n    FORMAT PARQUET\n)\n"
     )
 
 
@@ -71,17 +73,19 @@ def test_literal_neutralizes_injection_payload() -> None:
 
     rendered = load_template(
         {
-            "path": "duckdb/discover_partitions",
+            "path": "duckdb/write_all",
             "mapping": {
-                "partition_column": Identifier("dt"),
+                "columns": SQL("*"),
+                "gcs_path": Literal("s3://b/t/data.parquet"),
                 "bq_table": Literal(payload),
             },
         }
     )
 
     assert rendered == (
-        'SELECT DISTINCT "dt"\n'
-        "FROM bigquery_scan('x'') UNION SELECT * FROM read_csv(''/etc/passwd')\n"
+        "COPY (SELECT * FROM bigquery_scan('x'') UNION SELECT * FROM "
+        "read_csv(''/etc/passwd')) TO 's3://b/t/data.parquet' (\n"
+        "    FORMAT PARQUET\n)\n"
     )
 
 

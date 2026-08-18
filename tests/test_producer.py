@@ -17,7 +17,7 @@ async def test_exits_when_planning_finds_no_tasks(
     """An unchanged run exits without state or message publication."""
     with (
         patch(
-            "dp.sync.producer.plan_sync",
+            "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
             return_value=(None, []),
         ),
@@ -51,14 +51,14 @@ async def test_saves_plan_before_publishing_tasks(
     )
     task = SyncTask(
         sync_id="s1",
-        bq_table="p.d.t",
-        gcs_path="s3://bucket/t/data.parquet",
+        table="p.d.t",
+        bucket_path="s3://bucket/t/data.parquet",
         selection=AllSelection(),
     )
 
     with (
         patch(
-            "dp.sync.producer.plan_sync",
+            "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
             return_value=(plan, [task]),
         ),
@@ -89,7 +89,7 @@ async def test_deletion_only_plan_publishes_finalizer_directly(
 
     with (
         patch(
-            "dp.sync.producer.plan_sync",
+            "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
             return_value=(plan, []),
         ),

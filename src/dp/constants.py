@@ -1,10 +1,5 @@
 """Redis stream names, key patterns, and consumer group names."""
 
-BIGQUERY_TABLE_REFERENCE_PATTERN = (
-    r"^(?P<project>[A-Za-z0-9_-]+)"
-    r"\.(?P<dataset>[A-Za-z0-9_]+)"
-    r"\.(?P<table>[A-Za-z0-9_$-]+)$"
-)
 FINALIZERS_GROUP = "finalizers"
 SYNC_FINALIZE_STREAM = "dp:sync:finalize"
 SYNC_JOB_KEY = "dp:sync:job:{sync_id}"
@@ -16,3 +11,9 @@ SYNC_SHUTDOWN_CHANNEL = "dp:sync:shutdown"
 SYNC_STATE_KEY = "dp:sync:state:{bq_table}"
 SYNC_TASKS_STREAM = "dp:sync:tasks"
 WORKERS_GROUP = "workers"
+
+BIGQUERY_TABLE_REFERENCE_PATTERN = (
+    r"^(?P<project>[A-Za-z0-9_-]+)"
+    r"\.(?P<dataset>[A-Za-z0-9_]+)"
+    r"\.(?P<table>[A-Za-z0-9_$-]+)$"
+)

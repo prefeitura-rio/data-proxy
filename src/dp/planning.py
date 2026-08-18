@@ -2,27 +2,24 @@
 
 from hashlib import sha256
 
-import polars as pl
 from google.cloud.bigquery import Client
 from loguru import logger
-from psycopg.sql import Identifier, Literal
+from psycopg.sql import Literal
 from redis.asyncio import Redis
 
 from .bigquery import physical_partitions, table_modified
 from .duckdb import DBConnection
 from .models import (
     AllSelection,
-    AllTable,
-    AllWithPartitionsTable,
+    PartitionedTable,
     PartitionedTablePlan,
     PartitionManifest,
     PhysicalPartition,
+    Strategy,
     SyncConfig,
     SyncPlan,
     SyncTask,
     TableConfig,
-    ValueSelection,
-    WindowTable,
 )
 from .state import read_partition_manifest, read_table_signature
 from .templates import load_template
@@ -41,70 +38,30 @@ def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
     return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]
 
 
-def discover_partitions(db: DBConnection, table: WindowTable) -> list[str]:
-    """Return the last configured window values in descending order."""
-    rows = db.execute(
-        load_template(
-            {
-                "path": "duckdb/discover_partitions",
-                "mapping": {
-                    "bq_table": Literal(table.bq_table),
-                    "partition_column": Identifier(table.partition.column),
-                },
-            }
-        )
-    ).fetchall()
-
-    if not rows:
-        return []
-
-    return (
-        pl.DataFrame(rows, orient="row")
-        .to_series(0)
-        .top_k(table.partition.n)
-        .sort(descending=True)
-        .cast(pl.String)
-        .to_list()
-    )
-
-
 def expand_config(
     config: SyncConfig,
     gcs_bucket: str,
     sync_id: str,
     db: DBConnection,
 ) -> list[SyncTask]:
-    """Expand ordinary all and window tables into extraction tasks."""
+    """Expand full tables into whole-table extraction tasks."""
     tasks: list[SyncTask] = []
-    for table in config.tables:
-        json_columns = discover_json_columns(db, table.bq_table)
 
-        match table:
-            case AllTable():
-                tasks.append(
-                    table.to_task(
-                        sync_id,
-                        gcs_bucket,
-                        AllSelection(),
-                        json_columns=json_columns,
-                    )
-                )
-            case WindowTable():
-                tasks.extend(
-                    table.to_task(
-                        sync_id,
-                        gcs_bucket,
-                        ValueSelection(
-                            column=table.partition.column,
-                            value=partition,
-                        ),
-                        partition,
-                        json_columns,
-                    )
-                    for partition in discover_partitions(db, table)
-                )
-            case _:
-                pass
+    for table in config.tables:
+        if table.strategy != Strategy.FULL:
+            continue
+
+        json_columns = discover_json_columns(db, table.name)
+
+        tasks.append(
+            table.to_task(
+                sync_id,
+                gcs_bucket,
+                AllSelection(),
+                json_columns=json_columns,
+            )
+        )
+
     return tasks
 
 
@@ -115,27 +72,26 @@ def table_signature(table: TableConfig, modified: str) -> str:
 
 
 async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
-    """Return ordinary table signatures changed since their successful sync."""
+    """Return full table signatures changed since their successful sync."""
     clients: dict[str, Client] = {}
     changed: dict[str, str] = {}
 
     try:
         for table in config.tables:
-            if isinstance(table, AllWithPartitionsTable):
+            if table.strategy != Strategy.FULL:
                 continue
 
-            project = table.bq_table.split(".")[0]
+            project = table.name.split(".")[0]
             client = clients.get(project)
-
             if client is None:
                 client = Client(project=project)
                 clients[project] = client
-
-            modified = table_modified(client, table.bq_table)
+            modified = table_modified(client, table.name)
             current = table_signature(table, modified)
-            stored = await read_table_signature(redis, table.bq_table)
+            stored = await read_table_signature(redis, table.name)
+
             if stored != current:
-                changed[table.bq_table] = current
+                changed[table.name] = current
     finally:
         for client in clients.values():
             client.close()
@@ -162,7 +118,7 @@ def partition_changes(
 
 
 def build_partition_tasks(
-    table: AllWithPartitionsTable,
+    table: PartitionedTable,
     current: dict[str, PhysicalPartition],
     changed: set[str],
     sync_id: str,
@@ -192,14 +148,14 @@ def build_partition_tasks(
     ]
 
     paths = {
-        partition_id: task.gcs_path
+        partition_id: task.bucket_path
         for partition_id, task in zip(ordered, tasks, strict=True)
     }
     return paths, tasks
 
 
 async def plan_partitioned_table(
-    table: AllWithPartitionsTable,
+    table: PartitionedTable,
     client: Client,
     redis: Redis,
     sync_id: str,
@@ -208,9 +164,9 @@ async def plan_partitioned_table(
 ) -> tuple[PartitionedTablePlan | None, list[SyncTask]]:
     """Plan one physically partitioned table."""
     table_sig, current = physical_partitions(
-        client, table.bq_table, table.model_dump_json()
+        client, table.name, table.model_dump_json(), table.n
     )
-    stored = await read_partition_manifest(redis, table.bq_table)
+    stored = await read_partition_manifest(redis, table.name)
     rebuild, changed, removed, previous = partition_changes(current, stored, table_sig)
     if not changed and not removed:
         return None, []
@@ -221,7 +177,7 @@ async def plan_partitioned_table(
         changed,
         sync_id,
         gcs_bucket,
-        discover_json_columns(db, table.bq_table),
+        discover_json_columns(db, table.name),
     )
 
     plan = PartitionedTablePlan(
@@ -233,6 +189,7 @@ async def plan_partitioned_table(
             partition_id: previous[partition_id] for partition_id in removed
         },
     )
+
     return plan, tasks
 
 
@@ -250,11 +207,12 @@ async def plan_partitioned_tables(
 
     try:
         for table in config.tables:
-            if not isinstance(table, AllWithPartitionsTable):
+            if table.strategy != Strategy.PARTITIONED:
                 continue
 
-            project = table.bq_table.split(".")[0]
+            project = table.name.split(".")[0]
             client = clients.get(project)
+
             if client is None:
                 client = Client(project=project)
                 clients[project] = client
@@ -262,8 +220,9 @@ async def plan_partitioned_tables(
             plan, table_tasks = await plan_partitioned_table(
                 table, client, redis, sync_id, gcs_bucket, db
             )
+
             if plan is not None:
-                plans[table.bq_table] = plan
+                plans[table.name] = plan
                 tasks.extend(table_tasks)
     finally:
         for client in clients.values():
@@ -272,38 +231,42 @@ async def plan_partitioned_tables(
     return plans, tasks
 
 
-async def plan_sync(
+async def build_sync_plan(
     config: SyncConfig,
     redis: Redis,
     sync_id: str,
-    gcs_bucket: str,
+    bucket: str,
     db: DBConnection,
 ) -> tuple[SyncPlan | None, list[SyncTask]]:
     """Build a finalizer plan and tasks for changed data only."""
     changed = await detect_changes(config, redis)
-    logger.info("Detected {} changed ordinary tables", len(changed))
+    logger.info("Detected {} changed full tables", len(changed))
 
-    changed_config = SyncConfig(
-        tables=[table for table in config.tables if table.bq_table in changed]
+    diff = SyncConfig(
+        tables=[table for table in config.tables if table.name in changed]
     )
-    tasks = expand_config(changed_config, gcs_bucket, sync_id, db)
-    task_tables = {task.bq_table for task in tasks}
+
+    tasks = expand_config(diff, bucket, sync_id, db)
+
+    tables = {task.table for task in tasks}
+
     signatures = {
-        bq_table: signature
-        for bq_table, signature in changed.items()
-        if bq_table in task_tables
+        table: signature for table, signature in changed.items() if table in tables
     }
+
     paths: dict[str, list[str]] = {}
+
     for task in tasks:
-        paths.setdefault(task.bq_table, []).append(task.gcs_path)
+        paths.setdefault(task.table, []).append(task.bucket_path)
 
     partitioned, partition_tasks = await plan_partitioned_tables(
         config,
         redis,
         sync_id,
-        gcs_bucket,
+        bucket,
         db,
     )
+
     tasks.extend(partition_tasks)
 
     if not signatures and not partitioned:
@@ -311,7 +274,7 @@ async def plan_sync(
         return None, []
 
     logger.info(
-        "Built sync plan with {} ordinary and {} partitioned tables",
+        "Built sync plan with {} full and {} partitioned tables",
         len(signatures),
         len(partitioned),
     )

@@ -14,6 +14,7 @@ from ..constants import (
     SYNC_TASKS_STREAM,
     WORKERS_GROUP,
 )
+from ..duckdb import connect
 from ..errors import stop_on_error
 from ..extraction import extract_task
 from ..models import FinalizeMessage, ShutdownMessage, SyncTask
@@ -47,7 +48,8 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
 )
 async def process_shard(task: SyncTask) -> None:
     """Extract one task and update its synchronization run."""
-    extract_task(task)
+    with connect() as db:
+        extract_task(task, db)
 
     async with settings.make_redis() as redis:
         remaining, lag = await complete_task(redis, task.sync_id)

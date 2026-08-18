@@ -44,7 +44,7 @@ def test_build_columns(json_columns: list[str], expected: str) -> None:
         (AllSelection(), "duckdb/write_all", "gcs_path", "'s3://b/t/data.parquet'"),
         (
             ValueSelection(column="dt", value="2025-01-15"),
-            "duckdb/write_window",
+            "duckdb/write_value",
             "partition_value",
             "'2025-01-15'",
         ),
@@ -71,8 +71,8 @@ def test_build_mapping_selects_template(
     """A task's discriminated selection chooses its extraction template."""
     task = SyncTask(
         sync_id="s1",
-        bq_table="p.d.t",
-        gcs_path="s3://b/t/data.parquet",
+        table="p.d.t",
+        bucket_path="s3://b/t/data.parquet",
         selection=selection,
     )
 
@@ -83,19 +83,16 @@ def test_build_mapping_selects_template(
 
 
 def test_extract_task_executes_rendered_sql() -> None:
-    """Extraction opens DuckDB and executes exactly one rendered statement."""
+    """Extraction writes one rendered statement through the provided DuckDB."""
     db = FakeDuckDBConnection()
     task = SyncTask(
         sync_id="s1",
-        bq_table="p.d.t",
-        gcs_path="s3://b/t/data.parquet",
+        table="p.d.t",
+        bucket_path="s3://b/t/data.parquet",
         selection=AllSelection(),
     )
 
-    with (
-        patch("dp.extraction.connect", return_value=db),
-        patch("dp.extraction.load_template", return_value="SELECT 1"),
-    ):
-        extract_task(task)
+    with patch("dp.extraction.load_template", return_value="SELECT 1"):
+        extract_task(task, db)
 
     assert db.executed == ["SELECT 1"]

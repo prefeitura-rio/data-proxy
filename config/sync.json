@@ -1,16 +1,13 @@
 {
   "tables": [
     {
-      "bq_table": "rj-crm-registry.app_pequenos_cariocas.endpoint_participante_listagem",
-      "strategy": "all"
+      "name": "rj-crm-registry.app_pequenos_cariocas.endpoint_participante_listagem",
+      "strategy": "full"
     },
     {
-      "bq_table": "rj-crm-registry.projeto_pequenos_cariocas.protocolo_estado_diario",
-      "strategy": "window",
-      "partition": {
-        "column": "protocolo_data_referencia_particicao",
-        "n": 7
-      }
+      "name": "rj-crm-registry.projeto_pequenos_cariocas.protocolo_estado_diario",
+      "strategy": "partitioned",
+      "n": 7
     }
   ]
 }

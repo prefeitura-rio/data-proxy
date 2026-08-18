@@ -7,14 +7,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Strategy(StrEnum):
-    ALL = "all"
-    ALL_WITH_PARTITIONS = "all_with_partitions"
-    WINDOW = "window"
-
-
-class PartitionConfig(BaseModel):
-    column: str
-    n: int
+    FULL = "full"
+    PARTITIONED = "partitioned"
 
 
 class RlsConfig(BaseModel):
@@ -37,7 +31,7 @@ class AllSelection(BaseModel):
 
 
 class ValueSelection(BaseModel):
-    """Select rows equal to one logical window value."""
+    """Select rows equal to one partition value."""
 
     type: Literal["value"] = "value"
     column: str
@@ -76,39 +70,25 @@ TaskSelection = Annotated[
 
 
 class PhysicalPartition(BaseModel):
-    """Normalized state for one physical BigQuery integer partition.
+    """Normalized state for one physical BigQuery partition.
 
-    ``is_remainder`` marks the single partition per table that stands in
-    for BigQuery's ``__NULL__`` bucket. For that partition, ``lower`` and
-    ``upper`` hold the declared range's [start, end) bounds rather than a
-    subrange, and its selection is the complement of that range.
+    Time-partitioned tables normalize to a ``ValueSelection`` (equality on
+    the raw partition id); range-partitioned tables normalize to a
+    ``RangeSelection`` or, for BigQuery's ``__NULL__`` bucket, a
+    ``RemainderSelection``.
     """
 
     partition_id: str
-    column: str
-    lower: int
-    upper: int
     signature: str
-    is_remainder: bool = False
+    selection: ValueSelection | RangeSelection | RemainderSelection
 
-    def to_selection(self) -> RangeSelection | RemainderSelection:
+    def to_selection(self) -> ValueSelection | RangeSelection | RemainderSelection:
         """Return the extraction selection for this partition."""
-        if self.is_remainder:
-            return RemainderSelection(
-                column=self.column,
-                start=self.lower,
-                end=self.upper,
-            )
-        return RangeSelection(
-            partition_id=self.partition_id,
-            column=self.column,
-            lower=self.lower,
-            upper=self.upper,
-        )
+        return self.selection
 
 
 class Table(BaseModel):
-    bq_table: str
+    name: str
     rls: RlsConfig | None = None
     pg_schema: str | None = None
     indexes: list[IndexConfig] = []
@@ -116,14 +96,15 @@ class Table(BaseModel):
     @property
     def table_name(self) -> str:
         """Return the unqualified source table name."""
-        return self.bq_table.split(".")[-1]
+        return self.name.split(".")[-1]
 
     @property
     def resolved_schema(self) -> str:
         """Return the configured PostgreSQL schema or source dataset."""
         if self.pg_schema:
             return self.pg_schema
-        return self.bq_table.split(".")[-2]
+
+        return self.name.split(".")[-2]
 
     def to_task(
         self,
@@ -137,8 +118,8 @@ class Table(BaseModel):
         suffix = f"/{path_suffix}" if path_suffix else ""
         return SyncTask(
             sync_id=sync_id,
-            bq_table=self.bq_table,
-            gcs_path=(
+            table=self.name,
+            bucket_path=(
                 f"s3://{gcs_bucket}/{self.resolved_schema}/"
                 f"{self.table_name}{suffix}/data.parquet"
             ),
@@ -147,17 +128,14 @@ class Table(BaseModel):
         )
 
 
-class AllTable(Table):
-    strategy: Literal[Strategy.ALL] = Strategy.ALL
+class FullTable(Table):
+    strategy: Literal[Strategy.FULL] = Strategy.FULL
 
 
-class AllWithPartitionsTable(Table):
-    strategy: Literal[Strategy.ALL_WITH_PARTITIONS] = Strategy.ALL_WITH_PARTITIONS
-
-
-class WindowTable(Table):
-    strategy: Literal[Strategy.WINDOW] = Strategy.WINDOW
-    partition: PartitionConfig
+class PartitionedTable(Table):
+    strategy: Literal[Strategy.PARTITIONED] = Strategy.PARTITIONED
+    n: int | None = None
+    """Keep only the last N time partitions. Time-partitioned tables only."""
 
 
 class SyncConfig(BaseModel):
@@ -166,8 +144,8 @@ class SyncConfig(BaseModel):
 
 class SyncTask(BaseModel):
     sync_id: str
-    bq_table: str
-    gcs_path: str
+    table: str
+    bucket_path: str
     selection: TaskSelection
     json_columns: list[str] = []
 
@@ -240,6 +218,6 @@ class ShutdownMessage(BaseModel):
 
 
 TableConfig = Annotated[
-    AllTable | AllWithPartitionsTable | WindowTable,
+    FullTable | PartitionedTable,
     Field(discriminator="strategy"),
 ]

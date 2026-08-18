@@ -5,7 +5,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import cast, final
 
-from google.cloud.bigquery import Client, RangePartitioning, SchemaField
+from google.cloud.bigquery import (
+    Client,
+    RangePartitioning,
+    SchemaField,
+    TimePartitioning,
+)
 from psycopg import Connection
 from redis.asyncio import Redis
 
@@ -64,9 +69,8 @@ class FakePgConn:
 
     executed: list[object]
 
-    def __init__(self, fetchone: tuple[object, ...] | None = None) -> None:
+    def __init__(self) -> None:
         self.executed = []
-        self._fetchone = fetchone
 
     @property
     def execute_calls(self) -> int:
@@ -75,10 +79,6 @@ class FakePgConn:
     def execute(self, query: object, params: object = None) -> FakePgConn:
         self.executed.append(query)
         return self
-
-    def fetchone(self) -> tuple[object, ...] | None:
-        """Return the configured cursor row."""
-        return self._fetchone
 
     def commit(self) -> None:
         """Record an implicit successful commit."""
@@ -163,11 +163,13 @@ class FakeBigQueryClient:
         modified: datetime | None = None,
         *,
         range_partitioning: RangePartitioning | None = None,
+        time_partitioning: TimePartitioning | None = None,
         rows: list[dict[str, object]] | None = None,
         table_type: str = "TABLE",
     ) -> None:
         self._modified = modified
         self.range_partitioning = range_partitioning
+        self.time_partitioning = time_partitioning
         self.rows = rows or []
         self.table_type = table_type
         self.schema = [SchemaField("value", "INTEGER")]

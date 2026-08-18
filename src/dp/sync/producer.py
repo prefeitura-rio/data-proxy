@@ -10,7 +10,7 @@ from loguru import logger
 from ..constants import SYNC_FINALIZE_STREAM, SYNC_TASKS_STREAM
 from ..duckdb import connect
 from ..models import FinalizeMessage, SyncConfig
-from ..planning import plan_sync
+from ..planning import build_sync_plan
 from ..settings import settings
 from ..state import save_sync_plan
 
@@ -27,7 +27,7 @@ async def publish_tasks() -> None:
 
     async with settings.make_redis() as redis:
         with connect() as db:
-            plan, tasks = await plan_sync(
+            plan, tasks = await build_sync_plan(
                 config,
                 redis,
                 sync_id,

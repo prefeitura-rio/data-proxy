@@ -16,6 +16,7 @@ from dp.models import (
     PartitionedTablePlan,
     PartitionManifest,
     PhysicalPartition,
+    RangeSelection,
     SyncPlan,
 )
 from dp.state import (
@@ -104,7 +105,9 @@ async def test_commits_sync_state() -> None:
 async def test_reads_and_commits_partition_manifest() -> None:
     """Successful publication replaces the complete physical partition manifest."""
     partition = PhysicalPartition(
-        partition_id="0", column="cpf", lower=0, upper=10, signature="part"
+        partition_id="0",
+        signature="part",
+        selection=RangeSelection(partition_id="0", column="cpf", lower=0, upper=10),
     )
     fake = FakeRedis()
     plan = SyncPlan(
