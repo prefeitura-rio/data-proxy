@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import psycopg
 import uvloop
+from asyncer import asyncify
 from faststream import FastStream
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
@@ -12,7 +13,7 @@ from ..constants import FINALIZERS_GROUP, SYNC_FINALIZE_STREAM, SYNC_SHUTDOWN_CH
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
-from ..models import FinalizeMessage, ShutdownMessage, SyncConfig
+from ..models import FinalizeMessage, ShutdownMessage, SyncConfig, SyncPlan
 from ..settings import settings
 from ..state import commit_sync_state, create_consumer_group, read_sync_plan
 
@@ -32,6 +33,15 @@ async def ensure_consumer_group() -> None:
         await create_consumer_group(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP)
 
 
+def apply_sync_plan_wrapper(config: SyncConfig, plan: SyncPlan) -> None:
+    """Run the blocking Postgres/DuckDB publication for one plan."""
+    with (
+        psycopg.connect(settings.PG_DSN) as pg_conn,
+        connect() as duckdb_conn,
+    ):
+        apply_sync_plan(pg_conn, duckdb_conn, config, plan)
+
+
 @broker.subscriber(
     stream=StreamSub(SYNC_FINALIZE_STREAM, group=FINALIZERS_GROUP, consumer=CONSUMER)
 )
@@ -47,11 +57,7 @@ async def finalize_sync(message: FinalizeMessage) -> None:
     async with settings.make_redis() as redis:
         plan = await read_sync_plan(redis, message.sync_id)
 
-        with (
-            psycopg.connect(settings.PG_DSN) as pg_conn,
-            connect() as duckdb_conn,
-        ):
-            apply_sync_plan(pg_conn, duckdb_conn, config, plan)
+        await asyncify(apply_sync_plan_wrapper)(config, plan)
 
         await commit_sync_state(redis, plan)
 

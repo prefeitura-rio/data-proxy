@@ -3,6 +3,7 @@
 from uuid import uuid4
 
 import uvloop
+from asyncer import asyncify
 from faststream import FastStream
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
@@ -38,6 +39,12 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
     worker.exit()
 
 
+def extract_task_wrapper(task: SyncTask) -> None:
+    """Run the blocking DuckDB extraction for one task."""
+    with connect() as db:
+        extract_task(task, db)
+
+
 @broker.subscriber(
     stream=StreamSub(
         SYNC_TASKS_STREAM,
@@ -48,8 +55,7 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
 )
 async def process_shard(task: SyncTask) -> None:
     """Extract one task and update its synchronization run."""
-    with connect() as db:
-        extract_task(task, db)
+    await asyncify(extract_task_wrapper)(task)
 
     async with settings.make_redis() as redis:
         remaining, lag = await complete_task(redis, task.sync_id)

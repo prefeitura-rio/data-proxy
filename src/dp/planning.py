@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 
+from asyncer import asyncify
 from google.cloud.bigquery import Client
 from loguru import logger
 from psycopg.sql import Literal
@@ -83,10 +84,12 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
 
             project = table.name.split(".")[0]
             client = clients.get(project)
+
             if client is None:
                 client = Client(project=project)
                 clients[project] = client
-            modified = table_modified(client, table.name)
+
+            modified = await asyncify(table_modified)(client, table.name)
             current = table_signature(table, modified)
             stored = await read_table_signature(redis, table.name)
 
@@ -163,7 +166,7 @@ async def plan_partitioned_table(
     db: DBConnection,
 ) -> tuple[PartitionedTablePlan | None, list[SyncTask]]:
     """Plan one physically partitioned table."""
-    table_sig, current = physical_partitions(
+    table_sig, current = await asyncify(physical_partitions)(
         client, table.name, table.model_dump_json(), table.n
     )
     stored = await read_partition_manifest(redis, table.name)
@@ -171,13 +174,14 @@ async def plan_partitioned_table(
     if not changed and not removed:
         return None, []
 
+    json_columns = await asyncify(discover_json_columns)(db, table.name)
     paths, tasks = build_partition_tasks(
         table,
         current,
         changed,
         sync_id,
         gcs_bucket,
-        discover_json_columns(db, table.name),
+        json_columns,
     )
 
     plan = PartitionedTablePlan(
@@ -214,7 +218,7 @@ async def plan_partitioned_tables(
             client = clients.get(project)
 
             if client is None:
-                client = Client(project=project)
+                client = await asyncify(Client)(project=project)
                 clients[project] = client
 
             plan, table_tasks = await plan_partitioned_table(

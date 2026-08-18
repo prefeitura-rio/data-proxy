@@ -15,6 +15,7 @@ dependencies = [
   "pydantic>=2.13.4",
   "redis>=5.0",
   "uvloop>=0.22.1",
+  "asyncer>=0.0.18",
 ]
 
 [dependency-groups]
