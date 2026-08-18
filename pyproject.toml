@@ -98,6 +98,7 @@ omit = [
   "src/dp/constants.py",
   "src/dp/duckdb.py",
   "src/dp/errors.py",
+  "src/dp/logging.py",
   "src/dp/models.py",
   "src/dp/settings.py",
   "src/dp/templates.py",
