@@ -205,15 +205,16 @@ def test_reload_postgrest_revokes_then_notifies() -> None:
     ]
 
 
-def test_prepare_tables_rejects_missing_paths() -> None:
-    """A changed table absent from the plan's paths fails fast."""
+def test_prepare_tables_skips_table_with_missing_paths() -> None:
+    """A changed table absent from the plan's paths is logged and skipped."""
     config = SyncConfig(tables=[FullTable(name="p.app.changed")])
     plan = SyncPlan(sync_id="s1", signatures={}, paths={})
     pg_conn = postgres_connection(FakePgConn())
     duckdb = FakeDuckDBConnection()
 
-    with pytest.raises(RuntimeError, match="Parquet paths missing"):
-        prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
+    prepared = prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
+
+    assert prepared == []
 
 
 def test_validate_sync_plan_rejects_unknown_table() -> None:
@@ -261,16 +262,15 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
     assert [table.name for table in prepared] == ["p.app.changed"]
 
 
-def test_apply_sync_plan_never_publishes_after_a_load_failure() -> None:
-    """A failed load aborts before publish, leaving prior shadows unpublished.
+def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
+    """A failed load skips only its own table, not the whole synchronization.
 
     ``prepare_tables`` only appends a table to the prepared list once its
-    Parquet load succeeds. If any table fails to load, the whole function
-    raises before returning, so ``publish_prepared_tables`` never runs for
-    that sync -- not even for tables that were already prepared earlier in
-    the same loop. Their shadow tables are simply left in place and are
-    safely recreated (``CREATE OR REPLACE`` / ``DROP TABLE IF EXISTS``) on
-    the next successful run.
+    Parquet load succeeds. A table that fails to load is logged and
+    skipped -- it is simply not published this run -- while every other
+    already-prepared table still publishes normally. Its shadow table is
+    left in place and is safely recreated (``CREATE OR REPLACE`` /
+    ``DROP TABLE IF EXISTS``) on the next successful run.
     """
     config = SyncConfig(
         tables=[
@@ -300,11 +300,10 @@ def test_apply_sync_plan_never_publishes_after_a_load_failure() -> None:
             side_effect=[None, RuntimeError("boom")],
         ),
         patch("dp.loading.publish_prepared_tables") as publish,
-        pytest.raises(RuntimeError, match="boom"),
     ):
         apply_sync_plan(pg_conn, duckdb, config, plan)
 
-    publish.assert_not_called()
+    publish.assert_called_once_with(pg_conn, [config.tables[0]])
 
 
 def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:

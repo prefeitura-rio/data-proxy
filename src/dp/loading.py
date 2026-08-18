@@ -296,10 +296,10 @@ def prepare_tables(
     """Prepare empty shadow tables, secure them, then load planned Parquet.
 
     A table is only appended to the returned list once its Parquet load
-    succeeds. If any table fails to load, this function raises before
-    returning, so ``publish_prepared_tables`` never runs for that sync --
-    not even for tables already prepared earlier in the same loop. Their
-    shadow tables are simply left in place and are safely recreated
+    succeeds. A failure preparing or loading one table is logged
+    explicitly and that table is skipped -- it is simply not published
+    this run -- instead of aborting every other table's publication. Its
+    shadow table is left in place and is safely recreated
     (``CREATE OR REPLACE`` / ``DROP TABLE IF EXISTS``) on the next
     successful run.
     """
@@ -322,34 +322,41 @@ def prepare_tables(
         paths = planned_paths(plan, table.name, partitioned)
         shadow_name = f"{table.table_name}__next"
 
-        match partitioned:
-            case PartitionedTablePlan() as plan_for_table if (
-                not plan_for_table.full_rebuild
-            ):
-                create_incremental_shadow(
+        try:
+            match partitioned:
+                case PartitionedTablePlan() as plan_for_table if (
+                    not plan_for_table.full_rebuild
+                ):
+                    create_incremental_shadow(
+                        pg_conn,
+                        table,
+                        affected_partitions(plan_for_table),
+                    )
+                case _:
+                    create_shadow_from_parquet(
+                        duckdb_conn,
+                        table,
+                        shadow_name,
+                        paths,
+                    )
+
+            with pg_conn.transaction():
+                bootstrap_table(
                     pg_conn,
-                    table,
-                    affected_partitions(plan_for_table),
-                )
-            case _:
-                create_shadow_from_parquet(
-                    duckdb_conn,
-                    table,
-                    shadow_name,
-                    paths,
+                    {
+                        "schema": table.resolved_schema,
+                        "table_name": shadow_name,
+                        "rls": table.rls,
+                    },
                 )
 
-        with pg_conn.transaction():
-            bootstrap_table(
-                pg_conn,
-                {
-                    "schema": table.resolved_schema,
-                    "table_name": shadow_name,
-                    "rls": table.rls,
-                },
+            load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
+        except Exception as error:
+            logger.opt(exception=error).error(
+                "Failed to prepare table={} — skipping publication", table.name
             )
+            continue
 
-        load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
         prepared.append(table)
 
     return prepared

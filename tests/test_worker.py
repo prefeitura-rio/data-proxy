@@ -3,11 +3,10 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection
 
-from dp.constants import SYNC_SHUTDOWN_CHANNEL, SYNC_TASKS_STREAM
+from dp.constants import SYNC_SHUTDOWN_CHANNEL
 from dp.models import AllSelection, ShutdownMessage, SyncTask
 from dp.sync.worker import broker, process_shard, worker
 
@@ -50,17 +49,28 @@ async def test_process_shard_branches_on_counter(
 
 
 @pytest.mark.asyncio
-async def test_failure_stops_application() -> None:
-    """Extraction errors terminate the finite Job with a failure status."""
-    async with TestRedisBroker(broker) as test_broker:
-        with (
-            patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
-            patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
-            pytest.raises(StopApplication) as result,
-        ):
-            await test_broker.publish(TASK, stream=SYNC_TASKS_STREAM)
+async def test_extraction_failure_is_logged_and_skipped() -> None:
+    """An extraction error is logged, then the task still completes normally.
 
-    assert result.value.code == 1
+    A single table or partition failing to extract must not stop the
+    worker: the error is logged explicitly and the run proceeds to
+    account for the task and check whether to finalize, exactly as if
+    extraction had succeeded.
+    """
+    with (
+        patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
+        patch(
+            "dp.sync.worker.complete_task",
+            new_callable=AsyncMock,
+            return_value=1,
+        ) as complete,
+        patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
+    ):
+        await process_shard(TASK)
+
+    complete.assert_awaited_once()
+    publish.assert_not_called()
 
 
 @pytest.mark.asyncio

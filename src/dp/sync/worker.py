@@ -54,8 +54,23 @@ def extract_task_wrapper(task: SyncTask) -> None:
     )
 )
 async def process_shard(task: SyncTask) -> None:
-    """Extract one task and update its synchronization run."""
-    await asyncify(extract_task_wrapper)(task)
+    """Extract one task and update its synchronization run.
+
+    An extraction failure for one table or partition must not stop the
+    whole worker: it is logged explicitly here so the failure is visible,
+    the task's Parquet file is simply never written, and the run proceeds
+    to the next task. The finalizer skips publishing any table missing a
+    planned Parquet path instead of aborting the whole synchronization.
+    """
+    try:
+        await asyncify(extract_task_wrapper)(task)
+    except Exception as error:
+        logger.opt(exception=error).error(
+            "Extraction failed table={} sync_id={} bucket_path={} — skipping task",
+            task.table,
+            task.sync_id,
+            task.bucket_path,
+        )
 
     async with settings.make_redis() as redis:
         remaining = await complete_task(redis, task.sync_id)
