@@ -68,4 +68,12 @@ tests:
           path: spec.template.spec.containers[0].env[2]
           value:
             name: PGRST_DB_SCHEMAS
-            value: "alpha_schema,zeta_schema"
+            value: "alpha_schema,zeta_schema,rls"
+
+  - it: PGRST_DB_SCHEMAS always includes auth.rlsSchema even with no configured schemas
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[2]
+          value:
+            name: PGRST_DB_SCHEMAS
+            value: "rls"

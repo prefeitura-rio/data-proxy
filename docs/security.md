@@ -171,6 +171,7 @@ A backend service writes grants into `rls.access_policy` directly through PostgR
 curl --request POST \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
+  --header "Content-Profile: rls" \
   --header "Prefer: resolution=merge-duplicates" \
   --data '[
     {"schema": "my_schema", "subject": "123", "unit_type": "cras", "unit_id": "1"},
@@ -178,6 +179,8 @@ curl --request POST \
   ]' \
   "${BASE_URL}/access_policy"
 ```
+
+`Content-Profile: rls` is required because PostgREST now exposes multiple schemas (every configured schema plus `rls`) — without it, PostgREST resolves the request against the first schema in `PGRST_DB_SCHEMAS` and returns a "table not found" error.
 
 The request must authenticate as a `policy_writer_<schema>` role. Postgres structurally rejects any row whose `schema` does not match that role's own schema — no claim parsing involved, a `policy_writer_my_schema` token cannot write a grant for any other schema even if it tried. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op, thanks to a unique constraint on `(schema, subject, unit_type, unit_id)`.
 

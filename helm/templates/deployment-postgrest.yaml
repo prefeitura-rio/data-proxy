@@ -56,7 +56,7 @@ spec:
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgresDsn" . | quote }}
             - name: PGRST_DB_SCHEMAS
-              value: {{ keys (.Values.syncConfig.schemas | default dict) | sortAlpha | join "," | quote }}
+              value: {{ append (keys (.Values.syncConfig.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY
