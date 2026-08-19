@@ -1,6 +1,6 @@
 # Local Development
 
-The `docker-compose.yaml` file emulates the full pipeline locally. It replaces GCS with MinIO and uses a mock OIDC server for JWT tokens.
+The `docker-compose.yaml` file runs the full pipeline on your machine. It uses MinIO instead of GCS. It uses a mock OIDC server for JWT tokens.
 
 ## Prerequisites
 

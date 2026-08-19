@@ -4,7 +4,7 @@
 
 The following components must be installed in the cluster before you deploy the chart:
 
-- [KEDA](https://keda.sh/docs/latest/deploy/) — required for the `ScaledJob` and `TriggerAuthentication` resources that drive the worker and finalizer.
+- [KEDA](https://keda.sh/docs/latest/deploy/). This chart needs KEDA for the `ScaledJob` and `TriggerAuthentication` resources that drive the worker and the finalizer.
 
 ## Install
 
@@ -33,4 +33,4 @@ ha:
 
 ## Versioning
 
-The Helm pipeline increments the minor version on each release. Do not change `helm/Chart.yaml` manually. A major version change indicates a breaking change.
+The Helm pipeline increments the minor version on each release. Do not change `helm/Chart.yaml` by hand. A major version change means a breaking change.

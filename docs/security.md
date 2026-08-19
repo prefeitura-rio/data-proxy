@@ -4,12 +4,12 @@
 
 Every request goes through the same four stages:
 
-1. **Authenticate**: a client gets a JWT from your identity provider. The token identifies _who_ is asking, nothing more — it carries no table grants or unit memberships.
-2. **Authorize the connection**: PostgREST maps a claim in the JWT (`auth.jwtRoleClaim`) to a PostgreSQL role: `anon` (no table access), `user` (table access, subject to RLS), or `policy_writer_<schema>` (write access to one schema's grants, no table access). Postgres enforces this with an ordinary `GRANT`/no-`GRANT` check before RLS is even considered — an `anon` token is rejected outright, not filtered to zero rows.
-3. **Filter the rows**: for a `user` token, `pre_request()` mirrors every JWT claim into a session variable. Each protected table's RLS policy reads the claim configured for its schema (`schemas.<schema>.claim`) and checks it against `rls.access_policy` — a row is returned only if a matching grant exists.
-4. **Grant or revoke**: access itself is data, not configuration. A backend service writes and deletes rows in `rls.access_policy` through PostgREST, authenticated as that schema's `policy_writer_<schema>` role. Nothing in Data Proxy computes who should see what — it only enforces what that table says.
+1. **Authenticate**: a client gets a JWT from your identity provider. The token identifies _who_ is asking, nothing more. The token carries no table grants. The token carries no unit memberships.
+2. **Authorize the connection**: PostgREST reads a claim in the JWT (`auth.jwtRoleClaim`). PostgREST maps this claim to a PostgreSQL role. `anon` has no table access. `user` has table access, subject to RLS. `policy_writer_<schema>` has write access to one schema's grants, and no table access. Postgres enforces this mapping with an ordinary `GRANT`/no-`GRANT` check. This check runs before Postgres even considers RLS. Postgres rejects an `anon` token outright. Postgres does not filter an `anon` token's request down to zero rows.
+3. **Filter the rows**: for a `user` token, `pre_request()` mirrors every JWT claim into a session variable. Each protected table's RLS policy reads the claim configured for its schema (`schemas.<schema>.claim`). This policy checks that claim against `rls.access_policy`. The policy returns a row only when a matching grant exists.
+4. **Grant or revoke**: access itself is data, not configuration. A backend service writes and deletes rows in `rls.access_policy` through PostgREST. This service authenticates as that schema's `policy_writer_<schema>` role. Nothing in Data Proxy computes who should see what. Data Proxy only enforces what this table says.
 
-Data Proxy never computes access decisions. It has no concept of a customer, a permission, or a business rule — just one generic table it checks before returning any row.
+Data Proxy never computes access decisions. Data Proxy has no concept of a customer, a permission, or a business rule. Data Proxy checks one generic table before it returns any row.
 
 ## Row-Level Security (RLS)
 
@@ -19,7 +19,7 @@ Every protected table checks its rows against one generic table, shared by every
 rls.access_policy(schema, subject, is_super_admin, unit_type, unit_id)
 ```
 
-The Helm chart creates this table once, at cluster bootstrap. Each configured schema also gets its own `policy_writer_<schema>` role, created automatically the first time any of its tables syncs — along with the schema itself, if it does not already exist (see [Schema Creation](sync.md#schema-creation)).
+The Helm chart creates this table once, at cluster bootstrap. Each configured schema also gets its own `policy_writer_<schema>` role. Data Proxy creates this role automatically, the first time any of the schema's tables syncs. Data Proxy also creates the schema itself at that time, if it does not already exist. See [Schema Creation](sync.md#schema-creation).
 
 A table opts into RLS by declaring, in its sync configuration, which of its own columns identify a unit of access:
 
@@ -48,19 +48,19 @@ USING (
 )
 ```
 
-A row is visible if the requesting subject has `is_super_admin = true`, or has a matching grant for _any_ of the table's declared units — a user with access to three CRAS units has three rows in `access_policy`, not three columns on their JWT.
+A row is visible when the requesting subject has `is_super_admin = true`. A row is also visible when the subject has a matching grant for any of the table's declared units. A user with access to three CRAS units has three rows in `access_policy`. This user does not have three columns on their JWT.
 
 ## Flow
 
-Take a user of a webapp built on top of Data Proxy, working at one unit (for example, one school).
+Take a user of a webapp built on top of Data Proxy. This user works at one unit, for example one school.
 
-1. **The user logs in**: the webapp's identity provider checks their credentials and issues a JWT. The token proves identity (a subject, matching whatever claim the schema is configured to read — for example `preferred_username`) and carries a role claim. It says nothing about which units the user can see; identity and access are unrelated at this point.
-2. **The webapp sends that token to Data Proxy**: every request to the REST API includes the JWT in the `Authorization` header.
-3. **PostgREST picks a PostgreSQL role from the token**: it reads the role claim (`auth.jwtRoleClaim`) and connects to Postgres as that role. If it resolves to `anon`, the request is rejected by a plain permission check before any table or row is considered. If it resolves to `user`, the connection proceeds and RLS becomes relevant.
-4. **`pre_request()` mirrors the token's claims into session variables**: every claim in the JWT becomes a PostgreSQL session variable for the duration of the request, including the identity claim configured for that schema.
-5. **Independently of all this, an access grant already exists**: at some earlier point — onboarding, a role change, anything — a backend service authenticated as `policy_writer_<schema>` wrote one row into `rls.access_policy`: this subject, this unit type, this unit id. That write has nothing to do with logging in; it can happen long before or long after any given login.
-6. **The user's query runs against a table with RLS enabled**: for every row, Postgres evaluates the table's policy — does a row exist in `rls.access_policy` for this subject, matching this row's unit? Rows belonging to the granted school are returned; rows belonging to any other school are excluded, as if they were never in the table.
-7. **Access changes without touching the login system**: if the grant from step 5 is deleted and a different one is written, the very next request reflects that change immediately — no new token, no resync, no cache to expire.
+1. **The user logs in.** The webapp's identity provider checks the user's credentials. The identity provider issues a JWT. The token proves identity: a subject, matching whatever claim the schema reads (for example `preferred_username`). The token also carries a role claim. The token says nothing about which units the user can see. At this point, identity and access are unrelated.
+2. **The webapp sends that token to Data Proxy.** Every request to the REST API includes the JWT in the `Authorization` header.
+3. **PostgREST picks a PostgreSQL role from the token.** PostgREST reads the role claim (`auth.jwtRoleClaim`). PostgREST connects to Postgres as that role. When the role resolves to `anon`, Postgres rejects the request with a plain permission check. Postgres runs this check before it considers any table or row. When the role resolves to `user`, the connection proceeds and RLS becomes relevant.
+4. **`pre_request()` mirrors the token's claims into session variables.** Every claim in the JWT becomes a PostgreSQL session variable for the duration of the request. This includes the identity claim configured for that schema.
+5. **An access grant already exists, independently of this login.** At some earlier point, for example onboarding or a role change, a backend service wrote one row into `rls.access_policy`. This service authenticated as `policy_writer_<schema>`. The row states one subject, one unit type, and one unit id. This write has nothing to do with logging in. This write can happen long before or long after any given login.
+6. **The user's query runs against a table with RLS enabled.** For every row, Postgres evaluates the table's policy. Postgres checks: does a row exist in `rls.access_policy` for this subject, matching this row's unit? Postgres returns rows that belong to the granted school. Postgres excludes rows that belong to any other school, as if those rows were never in the table.
+7. **Access changes without touching the login system.** Take the grant from step 5. Someone deletes this grant and writes a different one. The very next request reflects that change immediately. No new token is needed. No resync is needed. No cache needs to expire.
 
 ```mermaid
 sequenceDiagram
@@ -97,11 +97,11 @@ sequenceDiagram
 
 ## Creating and Granting Access
 
-This is the practical counterpart to the flow above: how to configure the clients Data Proxy cares about, and grant an existing end user access to a unit.
+This section is the practical counterpart to the flow above. It covers two tasks: how to configure the clients Data Proxy cares about, and how to grant an existing end user access to a unit.
 
 ### Create a client scope for API access
 
-Before a token reaches PostgREST, Istio checks its `aud` (audience) claim against `ingress.auth.audience` — any client without that audience never reaches Postgres at all, regardless of its role claim. Rather than maintaining an explicit allow-list of client IDs, grant this audience through one shared client scope, so adding a new client is a scope attachment, not a Helm or Terraform edit:
+Before a token reaches PostgREST, Istio checks the token's `aud` (audience) claim against `ingress.auth.audience`. A client without that audience never reaches Postgres, regardless of its role claim. Do not maintain an explicit allow-list of client IDs. Instead, grant this audience through one shared client scope. This way, adding a new client only needs a scope attachment. It needs no Helm or Terraform edit.
 
 1. Create a client scope named `data-proxy` (or similar).
 2. Add an **Audience** mapper: **Included Custom Audience** = the value configured in `ingress.auth.audience` (for example `data-proxy`), added to the access token.
@@ -118,23 +118,23 @@ Every schema gets its own writer client, one client per schema, named:
 data-proxy.policy_writer.<schema>
 ```
 
-using the schema name exactly as it appears in `syncConfig.schemas` (no case or character conversion).
+Use the schema name exactly as it appears in `syncConfig.schemas`. Do not change its case. Do not change its characters.
 
 To create it:
 
-1. Create a client named `data-proxy.policy_writer.<schema>`, confidential, service-account-enabled.
-2. On that client's **Mappers** tab, add two client-level mappers, both added to the access token:
+1. Create a client named `data-proxy.policy_writer.<schema>`. Mark this client confidential. Enable its service account.
+2. On that client's **Mappers** tab, add two client-level mappers. Add both mappers to the access token:
    - `Audience`: **Included Custom Audience** = the same value configured in `ingress.auth.audience` (for example `data-proxy`).
    - `Hardcoded claim`: **Token Claim Name** = `role`, **Claim value** = `policy_writer_<schema>`.
 
-Do not attach the shared `data-proxy` client scope to this client — it carries `role: user`, which would collide with this client's own `role` mapper. Both mappers here are client-level, not shared, because every value they carry (including the audience) is redundant to duplicate per client, but sharing them would require a second scope just for the audience — not worth it for a value this cheap to repeat on the one client per schema that needs it.
+Do not attach the shared `data-proxy` client scope to this client. That scope carries `role: user`. That value would collide with this client's own `role` mapper. Both mappers here stay client-level, not shared. Every value they carry, including the audience, is cheap to repeat on the one client per schema that needs it. A second shared scope, just for the audience, is not worth the added complexity.
 
 ### Verify a user's token
 
-Once that user can log in through `app-pic` (or whichever end-user client is configured, per the section above), verify the resulting token before granting access:
+A user can log in through `app-pic`, or through whichever end-user client the section above configures. Once the user can log in, verify the resulting token before you grant access:
 
-1. Note the value of the claim configured in `schemas.<schema>.claim` (see [Sync Configuration](sync.md)) for this user — for example, if that claim is `preferred_username`, note their username. This value is the `subject` you will use in `access_policy`.
-2. Decode a token from that user (for example with `jwt.io` or `jq` against the base64-decoded payload) and confirm it includes both claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like:
+1. Note the value of the claim configured in `schemas.<schema>.claim` for this user (see [Sync Configuration](sync.md)). For example, when that claim is `preferred_username`, note the user's username. This value is the `subject` you use in `access_policy`.
+2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes both claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like this:
 
    ```json
    {
@@ -147,11 +147,11 @@ Once that user can log in through `app-pic` (or whichever end-user client is con
    }
    ```
 
-   `role` must resolve through `auth.jwtRoleClaim` to `user`, and `preferred_username` must match the `subject` used when granting access below.
+   `role` must resolve through `auth.jwtRoleClaim` to `user`. `preferred_username` must match the `subject` you use when you grant access below.
 
 ### Grant access
 
-`POLICY_WRITER_TOKEN` is a token from the [service account created above](#create-policy-writer-service-account), whose role claim resolves to `policy_writer_my_schema`, not `user`:
+`POLICY_WRITER_TOKEN` is a token from the [service account created above](#create-policy-writer-service-account). This token's role claim resolves to `policy_writer_my_schema`, not `user`:
 
 ```json
 {
@@ -163,7 +163,7 @@ Once that user can log in through `app-pic` (or whichever end-user client is con
 }
 ```
 
-It carries no identity claim to check against `access_policy.subject` — `policy_writer_<schema>` only writes rows, it never reads them back through RLS, so there is nothing for `schemas.<schema>.claim` to match here.
+This token carries no identity claim to check against `access_policy.subject`. `policy_writer_<schema>` only writes rows. This role never reads rows back through RLS. There is nothing here for `schemas.<schema>.claim` to match.
 
 A backend service writes grants into `rls.access_policy` directly through PostgREST:
 
@@ -180,8 +180,8 @@ curl --request POST \
   "${BASE_URL}/access_policy"
 ```
 
-`Content-Profile: rls` is required because PostgREST now exposes multiple schemas (every configured schema plus `rls`) — without it, PostgREST resolves the request against the first schema in `PGRST_DB_SCHEMAS` and returns a "table not found" error.
+`Content-Profile: rls` is required. PostgREST now exposes multiple schemas: every configured schema, plus `rls`. Without this header, PostgREST resolves the request against the first schema in `PGRST_DB_SCHEMAS`. PostgREST then returns a "table not found" error.
 
-The request must authenticate as a `policy_writer_<schema>` role. Postgres structurally rejects any row whose `schema` does not match that role's own schema — no claim parsing involved, a `policy_writer_my_schema` token cannot write a grant for any other schema even if it tried. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op, thanks to a unique constraint on `(schema, subject, unit_type, unit_id)`.
+The request must authenticate as a `policy_writer_<schema>` role. Postgres rejects any row whose `schema` does not match that role's own schema. Postgres enforces this structurally, with no claim parsing involved. A `policy_writer_my_schema` token cannot write a grant for any other schema. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op. A unique constraint on `(schema, subject, unit_type, unit_id)` enforces this.
 
-A row becomes visible to a user the instant the matching grant exists — no resync, no token refresh. Revoking is just a `DELETE` against the same endpoint.
+A row becomes visible to a user the instant the matching grant exists. This needs no resync and no token refresh. To revoke access, send a `DELETE` against the same endpoint.

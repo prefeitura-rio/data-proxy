@@ -1,10 +1,10 @@
 # Using the API
 
-Data Proxy exposes every synced table through [PostgREST](https://docs.postgrest.org/), a REST API generated directly from the PostgreSQL schema. This page covers the query mechanics; see [Security](security.md) for how to get a token and how row-level security decides which rows come back.
+Data Proxy exposes every synced table through [PostgREST](https://docs.postgrest.org/). PostgREST is a REST API generated directly from the PostgreSQL schema. This page covers the query mechanics. See [Security](security.md) to learn how to get a token. See [Security](security.md) to learn how row-level security selects which rows come back.
 
 ## Selecting a Schema
 
-Each PostgreSQL schema PostgREST exposes corresponds to one key in the sync configuration's top-level `schemas` map (see [Sync](sync.md)) -- the Helm chart derives the exposed schema list automatically, there is nothing to configure separately. Select which schema a request targets with the `Accept-Profile` header:
+Each PostgreSQL schema that PostgREST exposes matches one key in the sync configuration's top-level `schemas` map (see [Sync](sync.md)). The Helm chart derives the exposed schema list on its own. You do not configure this list separately. Select the target schema for a request with the `Accept-Profile` header:
 
 ```bash
 curl --header "Authorization: Bearer ${TOKEN}" \
@@ -38,7 +38,7 @@ Every column supports a PostgREST operator as a query parameter: `column=operato
 | `in`       | one of a list            | `id_cras=in.(1,2,3)`        |
 | `is`       | `null`/`true`/`false`    | `deleted_at=is.null`        |
 
-Combine filters with `&`; PostgREST ANDs them together:
+Combine filters with `&`. PostgREST joins them with AND:
 
 ```bash
 curl --header "Authorization: Bearer ${TOKEN}" \
@@ -46,7 +46,7 @@ curl --header "Authorization: Bearer ${TOKEN}" \
   "${BASE_URL}/participants?id_cras=eq.1&status=neq.inactive"
 ```
 
-A filter on a column you are not authorized to see any rows for simply returns an empty array — row-level security filters transparently, before your query parameters are even applied. See [Security](security.md#row-level-security-rls).
+A filter on a column may return an empty array. This happens when you have no access to any row in that table. Row-level security filters the rows before it applies your query parameters. See [Security](security.md#row-level-security-rls).
 
 ## Ordering and Pagination
 
@@ -56,7 +56,7 @@ curl --header "Authorization: Bearer ${TOKEN}" \
   "${BASE_URL}/participants?order=updated_at.desc&limit=20&offset=40"
 ```
 
-`limit`/`offset` page through results. `postgrest.maxRows` (Helm values) caps the number of rows returned per request regardless of `limit` — requests without an explicit `limit` are capped at that value too.
+`limit` and `offset` page through results. `postgrest.maxRows` (Helm values) caps the number of rows returned per request. This cap applies even when `limit` requests more rows. This cap also applies when a request sets no `limit` at all.
 
 ## Counting Rows
 
@@ -91,7 +91,7 @@ curl --fail --silent --show-error \
   "${BASE_URL}/${TABLE}?select=col1,col2&limit=10"
 ```
 
-A real request against a `school_district.students` table, for a user granted access to one school (`unit_type: school, unit_id: 10`) out of two in the data, returns only that school's rows:
+Take a real request against a `school_district.students` table. The data holds rows for two schools. The requesting user has access to only one school (`unit_type: school, unit_id: 10`). The response holds only that school's rows:
 
 ```json
 [
@@ -100,6 +100,6 @@ A real request against a `school_district.students` table, for a user granted ac
 ]
 ```
 
-A third student at a different school exists in the table but never appears in the response — RLS filtered it out before `select`/`limit` were even applied. Without a token, the same request returns `401 Unauthorized`: the `anon` role has no `GRANT` on the table at all, so there is nothing to filter.
+A third student exists in the table, at a different school. This student never appears in the response. RLS filters out this row before it applies `select` or `limit`. The same request without a token returns `401 Unauthorized`. The `anon` role has no `GRANT` on the table. There is nothing left to filter.
 
 For the full query syntax, including logical operators, embedding, and bulk writes, see the [PostgREST documentation](https://docs.postgrest.org/en/stable/references/api.html).

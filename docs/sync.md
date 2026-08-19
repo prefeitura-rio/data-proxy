@@ -38,40 +38,40 @@ The sync configuration is a JSON file. Set `SYNC_CONFIG_PATH` to its location.
 }
 ```
 
-The top-level `schemas` map is the single source of truth for which PostgreSQL schemas exist. Each key is a schema name; its value declares the schema's identity claim (if any of its tables use `rls`) and the list of tables that land in it. A table's schema is never a field of its own -- it is exactly the key it is nested under.
+The top-level `schemas` map is the single source of truth for which PostgreSQL schemas exist. Each key is a schema name. Each value declares the schema's identity claim, needed only if any of its tables use `rls`. Each value also declares the list of tables that land in that schema. A table has no separate schema field. A table's schema is the key it sits under.
 
-| Field    | Required | Description                                                                                                                                                        |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `claim`  | RLS only | JWT claim identifying the requester for every table in this schema, compared against `access_policy.subject`. Required if any table in this schema declares `rls`. |
-| `tables` | no       | Array of table entries landing in this schema. Defaults to an empty list.                                                                                          |
+| Field    | Required | Description                                                                                                                                                                                  |
+| -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claim`  | RLS only | JWT claim that identifies the requester for every table in this schema. Data Proxy compares this claim against `access_policy.subject`. Required if any table in this schema declares `rls`. |
+| `tables` | no       | Array of table entries that land in this schema. Defaults to an empty list.                                                                                                                  |
 
 Each entry in `tables` accepts:
 
-| Field      | Required | Description                                                                                                                                                                                         |
-| ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                            |
-| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                              |
-| `n`        | no       | Keep only the last `n` partitions. Time-partitioned tables only.                                                                                                                                    |
-| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible if any pair matches a grant in `rls.access_policy` for the requester. Omit `rls` to disable RLS on the table. See [Security](security.md). |
-| `indexes`  | no       | Array of `{ name, columns }` objects. Creates one index per entry after each sync.                                                                                                                  |
+| Field      | Required | Description                                                                                                                                                                                             |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                                |
+| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                                  |
+| `n`        | no       | Keep only the last `n` partitions. Applies to time-partitioned tables only.                                                                                                                             |
+| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when any pair matches a grant in `rls.access_policy` for the requester. Omit `rls` to turn off RLS on this table. See [Security](security.md). |
+| `indexes`  | no       | Array of `{ name, columns }` objects. Data Proxy creates one index per entry after each sync.                                                                                                           |
 
 ## Schema Creation
 
-You never run `CREATE SCHEMA` yourself. Every finalizer run creates every schema declared in the top-level `schemas` map, if it does not already exist, before publishing any table:
+You never run `CREATE SCHEMA` yourself. Every finalizer run checks every schema declared in the top-level `schemas` map. For each schema that does not yet exist, the finalizer creates it before it publishes any table. The finalizer creates:
 
 - The schema itself (`CREATE SCHEMA IF NOT EXISTS`).
-- `GRANT USAGE` on it to the `user` role, so PostgREST can reach tables inside it.
-- Its `policy_writer_<schema>` role (see [Security](security.md#row-level-security-rls)), whether or not any table in that schema declares `rls`.
+- A `GRANT USAGE` on the schema, for the `user` role. This grant lets PostgREST reach tables inside the schema.
+- The schema's `policy_writer_<schema>` role (see [Security](security.md#row-level-security-rls)). The finalizer creates this role even when no table in the schema declares `rls`.
 
-This means adding a new entry to the top-level `schemas` map is enough on its own — the next sync run creates and grants it, with no separate migration step.
+Adding a new entry to the top-level `schemas` map needs no separate migration step. The next sync run creates the schema and grants it.
 
 ## Strategy Selection
 
-| Strategy      | Use when                                                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `full`        | The complete table fits comfortably in one extraction task.                                                                                       |
-| `partitioned` | The source table is time or range-partitioned in BigQuery and should sync one physical partition at a time, optionally keeping only the last `n`. |
+| Strategy      | Use when                                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `full`        | The complete table fits comfortably in one extraction task.                                                                          |
+| `partitioned` | The source table is time or range-partitioned in BigQuery. Sync one physical partition at a time. Optionally keep only the last `n`. |
 
-`partitioned` reads the partition column, type (time or range), bounds/interval, and existing partition IDs directly from BigQuery metadata. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file; only partitions whose BigQuery metadata changed are re-extracted. Removed partitions are deleted during finalization, and publication remains atomic.
+The `partitioned` strategy reads several facts directly from BigQuery metadata. These facts are the partition column, the partition type (time or range), the bounds or interval, and the existing partition IDs. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file. The producer re-extracts only the partitions whose BigQuery metadata changed. Finalization deletes removed partitions. Publication stays atomic through this whole process.
 
-For time-partitioned tables, `n` keeps only the highest `n` raw partition ids (BigQuery's `partition_id`, e.g. `20250115` for a daily partition) and drops older partitions incrementally as new ones appear. The partition id is used exactly as BigQuery reports it -- there is no granularity conversion (daily/monthly/yearly). If a table needs a different granularity, model that in BigQuery or in a derived dataset, not in this configuration. `n` is rejected for range-partitioned tables, since a range partition has no natural recency ordering. BigQuery's `__NULL__` bucket is skipped for time-partitioned tables (a null time value carries no partition identity) and is synced as a remainder partition for range-partitioned tables (it holds real out-of-range or null data). `__UNPARTITIONED__` always raises, since it indicates an unsupported partitioning type.
+For time-partitioned tables, `n` keeps only the highest `n` raw partition ids. BigQuery calls this id `partition_id` (for example `20250115` for a daily partition). As new partitions appear, older partitions drop off incrementally. Data Proxy uses the partition id exactly as BigQuery reports it. Data Proxy applies no granularity conversion, for example from daily to monthly. If a table needs a different granularity, model that granularity in BigQuery or in a derived dataset. Do not model it in this configuration. `n` is rejected for range-partitioned tables. A range partition has no natural recency order to rank by. BigQuery's `__NULL__` bucket behaves differently by partition type. For time-partitioned tables, Data Proxy skips this bucket. A null time value carries no partition identity. For range-partitioned tables, Data Proxy syncs this bucket as a remainder partition. This partition holds real out-of-range or null data. `__UNPARTITIONED__` always raises an error. This value indicates an unsupported partitioning type.
