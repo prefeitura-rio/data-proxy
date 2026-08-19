@@ -45,6 +45,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
+            {{- if .Values.backup.enabled }}
+            - name: BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.backupSecretName" . }}
+                  key: BACKUP_PASSWORD
+            {{- end }}
           readinessProbe:
             exec:
               command:

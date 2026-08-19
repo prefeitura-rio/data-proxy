@@ -115,6 +115,37 @@ producer:
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
 
+## Backup CronJob — dumps rls.access_policy and only rls.access_policy, encrypts it
+## client-side before it leaves the pod, then uploads it to the GCS bucket above.
+## Every other table is rebuildable by rerunning a sync; access_policy is not.
+backup:
+  ## Set to true to deploy the backup CronJob.
+  enabled: false
+  ## Alpine-based image with pg_dump matching the duckdb image's PostgreSQL major
+  ## version. age and aws-cli are installed at container startup via apk, the same
+  ## pattern postgrest.jwksFetch uses.
+  image: postgres:17-alpine
+  ## Cron expression that controls when the backup runs.
+  ## Default: daily at 03:00 UTC, after the producer.
+  schedule: "0 3 * * *"
+  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+  startingDeadlineSeconds: 600
+  ## Maximum wall-clock time the backup Job may run before Kubernetes terminates it.
+  activeDeadlineSeconds: 1800
+  ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
+  ttlSecondsAfterFinished: 300
+  ## age public key (recipient) used to encrypt the dump. Required when backup.enabled is true.
+  ## Generate a keypair with `age-keygen`; only the public key belongs here. Keep the
+  ## private key outside the cluster — it is the only way to decrypt a backup.
+  ageRecipient: ""
+  ## GCS object key prefix for uploaded backups, under the bucket configured in gcs.bucket.
+  prefix: backups/access_policy
+  ## Name of an existing Secret to use instead of creating one.
+  ## The Secret must contain BACKUP_PASSWORD.
+  existingSecret: ""
+  ## Password for the read-only backup role. Required when existingSecret is empty.
+  password: ""
+
 ## Worker ScaledJob — KEDA creates one Job pod per pending message on dp:sync:tasks.
 ## Pods scale to zero when the stream is empty.
 worker:

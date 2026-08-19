@@ -42,6 +42,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.backupSecretName" -}}
+{{- if .Values.backup.existingSecret }}
+{{- .Values.backup.existingSecret }}
+{{- else }}
+{{- include "data-proxy.fullname" . }}-backup
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.gcsSecretName" -}}
 {{- if .Values.gcs.existingSecret }}
 {{- .Values.gcs.existingSecret }}
@@ -89,6 +97,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ include "data-proxy.pgbouncerRoName" . }}:5432/{{ $db }}
 {{- else -}}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.backupPgDsn" -}}
+{{- $db := .Values.duckdb.db.name -}}
+{{- if .Values.ha.enabled -}}
+postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.pgbouncerRoName" . }}:5432/{{ $db }}
+{{- else -}}
+postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
 {{- end -}}
 {{- end }}
 

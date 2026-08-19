@@ -22,6 +22,36 @@ tests:
           pattern: GRANT "test_user" TO "test_authenticator"
         template: configmap-db-init.yaml
 
+  - it: does not create a backup role by default
+    asserts:
+      - notMatchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE ROLE backup
+        template: configmap-db-init.yaml
+
+  - it: creates a read-only backup role when backup is enabled
+    set:
+      backup.enabled: true
+      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+      auth.rlsSchema: rls
+    asserts:
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE ROLE backup NOINHERIT LOGIN
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: GRANT USAGE ON SCHEMA rls TO backup
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: GRANT SELECT ON rls\.access_policy TO backup
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: CREATE POLICY backup_read ON rls\.access_policy\s+FOR SELECT\s+TO backup
+        template: configmap-db-init.yaml
+
   - it: configures PostgREST anonymous and JWT roles
     set:
       auth.anonRole: test_anon

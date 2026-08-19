@@ -1,0 +1,73 @@
+suite: Backup CronJob
+templates:
+  - cronjob-backup.yaml
+tests:
+  - it: does not render when backup is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails to render when enabled without an ageRecipient
+    set:
+      backup.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "backup.ageRecipient is required when backup.enabled is true"
+
+  - it: renders with the configured schedule and image
+    set:
+      backup.enabled: true
+      backup.schedule: "30 4 * * *"
+      backup.image: postgres:17-alpine
+      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+      backup.prefix: backups/access_policy
+      gcs.bucket: my-bucket
+    asserts:
+      - isKind:
+          of: CronJob
+      - equal:
+          path: spec.schedule
+          value: "30 4 * * *"
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: postgres:17-alpine
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.restartPolicy
+          value: Never
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: AGE_RECIPIENT
+            value: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: GCS_BUCKET
+            value: my-bucket
+
+  - it: scopes the dump to exactly rls.access_policy
+    set:
+      backup.enabled: true
+      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'COPY rls\.access_policy TO STDOUT'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'age --encrypt --recipient "\$AGE_RECIPIENT"'
+
+  - it: uses an existing secret when configured instead of BACKUP_PASSWORD
+    set:
+      backup.enabled: true
+      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+      backup.existingSecret: my-backup-secret
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: BACKUP_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: my-backup-secret
+                key: BACKUP_PASSWORD

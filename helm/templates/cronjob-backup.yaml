@@ -1,0 +1,83 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  startingDeadlineSeconds: {{ .Values.backup.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.backup.ttlSecondsAfterFinished }}
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image | quote }}
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - |
+                  set -eu
+                  apk add --no-cache age aws-cli >/dev/null
+
+                  export AWS_ACCESS_KEY_ID="$GCS_KEY_ID"
+                  export AWS_SECRET_ACCESS_KEY="$GCS_SECRET_KEY"
+                  export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+                  export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+
+                  aws configure set default.s3.addressing_style path
+                  aws configure set default.region auto
+
+                  scheme="https"
+                  [ "$GCS_USE_SSL" = "true" ] || scheme="http"
+                  object_date="$(date -u +%F)"
+
+                  psql "$BACKUP_PG_DSN" --no-psqlrc --quiet --command "COPY {{ .Values.auth.rlsSchema }}.access_policy TO STDOUT WITH (FORMAT csv, HEADER true)" \
+                    | age --encrypt --recipient "$AGE_RECIPIENT" \
+                    | aws s3 cp - "s3://${GCS_BUCKET}/${BACKUP_PREFIX}/${object_date}.csv.age" --endpoint-url "${scheme}://${GCS_ENDPOINT}"
+              env:
+                - name: BACKUP_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.backupSecretName" . }}
+                      key: BACKUP_PASSWORD
+                - name: BACKUP_PG_DSN
+                  value: {{ include "data-proxy.backupPgDsn" . | quote }}
+                - name: AGE_RECIPIENT
+                  value: {{ required "backup.ageRecipient is required when backup.enabled is true" .Values.backup.ageRecipient | quote }}
+                - name: BACKUP_PREFIX
+                  value: {{ .Values.backup.prefix | quote }}
+                - name: GCS_BUCKET
+                  value: {{ .Values.gcs.bucket | quote }}
+                - name: GCS_ENDPOINT
+                  value: {{ .Values.gcs.endpoint | default "storage.googleapis.com" | quote }}
+                - name: GCS_USE_SSL
+                  value: {{ .Values.gcs.useSsl | quote }}
+                - name: GCS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.gcsSecretName" . }}
+                      key: GCS_KEY_ID
+                - name: GCS_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.gcsSecretName" . }}
+                      key: GCS_SECRET_KEY
+{{- end }}

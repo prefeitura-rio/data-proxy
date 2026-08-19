@@ -22,6 +22,15 @@ GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO "{{ .Values.auth.anonRole 
 GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO "{{ .Values.auth.userRole }}";
 GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO "{{ .Values.auth.authenticatorRole }}";
 EOSQL
+{{- if .Values.backup.enabled }}
+
+BACKUP_PASSWORD="${BACKUP_PASSWORD:?BACKUP_PASSWORD is required when backup.enabled is true}"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+CREATE ROLE backup NOINHERIT LOGIN PASSWORD '${BACKUP_PASSWORD}';
+GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO backup;
+EOSQL
+{{- end }}
 {{- end }}
 
 {{- define "data-proxy.preRequestSql" -}}
@@ -68,6 +77,9 @@ CREATE TABLE IF NOT EXISTS {{ .Values.auth.rlsSchema }}.access_policy (
 ALTER TABLE {{ .Values.auth.rlsSchema }}.access_policy ENABLE ROW LEVEL SECURITY;
 
 GRANT SELECT ON {{ .Values.auth.rlsSchema }}.access_policy TO "{{ .Values.auth.userRole }}";
+{{- if .Values.backup.enabled }}
+GRANT SELECT ON {{ .Values.auth.rlsSchema }}.access_policy TO backup;
+{{- end }}
 
 -- The real access decision is enforced by each protected table's own policy
 -- (which matches schema, subject, and unit membership explicitly). This
@@ -78,4 +90,15 @@ CREATE POLICY user_read ON {{ .Values.auth.rlsSchema }}.access_policy
 FOR SELECT
 TO "{{ .Values.auth.userRole }}"
 USING (true);
+{{- if .Values.backup.enabled }}
+
+-- pg_dump still evaluates row security for non-superuser roles, so the
+-- backup role needs an explicit read policy covering every row, not just
+-- the table-level GRANT SELECT above.
+DROP POLICY IF EXISTS backup_read ON {{ .Values.auth.rlsSchema }}.access_policy;
+CREATE POLICY backup_read ON {{ .Values.auth.rlsSchema }}.access_policy
+FOR SELECT
+TO backup
+USING (true);
+{{- end }}
 {{- end }}
