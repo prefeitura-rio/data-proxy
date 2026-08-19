@@ -2,7 +2,8 @@
 
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal, NamedTuple, cast
@@ -64,6 +65,27 @@ class TimeConfig(NamedTuple):
 
 
 PartitionKindConfig = RangeConfig | TimeConfig
+
+
+@contextmanager
+def bigquery_clients() -> Generator[Callable[[str], Client]]:
+    """Yield a per-project BigQuery client getter, closing every client on exit."""
+    clients: dict[str, Client] = {}
+
+    def get_client(project: str) -> Client:
+        client = clients.get(project)
+
+        if client is None:
+            client = Client(project=project)
+            clients[project] = client
+
+        return client
+
+    try:
+        yield get_client
+    finally:
+        for client in clients.values():
+            client.close()
 
 
 def table_modified(client: Client, table: str) -> str:

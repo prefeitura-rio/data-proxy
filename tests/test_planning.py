@@ -96,7 +96,7 @@ async def test_detects_only_changed_tables_and_reuses_client() -> None:
 
     with (
         patch(
-            "dp.planning.Client",
+            "dp.bigquery.Client",
             return_value=bigquery_client(client),
         ),
         patch("dp.planning.table_modified", side_effect=["100", "200"]),
@@ -138,7 +138,7 @@ async def test_plans_new_changed_and_removed_physical_partitions() -> None:
     )
 
     with (
-        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.bigquery.Client", return_value=bigquery_client(FakeBigQueryClient())),
         patch("dp.planning.physical_partitions", return_value=("table", current)),
         patch(
             "dp.planning.read_partition_manifest",
@@ -196,7 +196,7 @@ async def test_unchanged_physical_partitions_create_no_work() -> None:
     stored = PartitionManifest(table_signature="table", partitions=current)
 
     with (
-        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.bigquery.Client", return_value=bigquery_client(FakeBigQueryClient())),
         patch("dp.planning.physical_partitions", return_value=("table", current)),
         patch(
             "dp.planning.read_partition_manifest",
@@ -223,7 +223,7 @@ async def test_partitioned_table_first_sync_forces_every_partition() -> None:
     current = {"0": physical_partition("0", "signature")}
 
     with (
-        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.bigquery.Client", return_value=bigquery_client(FakeBigQueryClient())),
         patch("dp.planning.physical_partitions", return_value=("table", current)),
         patch(
             "dp.planning.read_partition_manifest",
@@ -250,7 +250,7 @@ async def test_plan_partitioned_table_passes_configured_n() -> None:
     current = {"20250101": physical_partition("0", "signature")}
 
     with (
-        patch("dp.planning.Client", return_value=bigquery_client(FakeBigQueryClient())),
+        patch("dp.bigquery.Client", return_value=bigquery_client(FakeBigQueryClient())),
         patch(
             "dp.planning.physical_partitions", return_value=("table", current)
         ) as physical_partitions,

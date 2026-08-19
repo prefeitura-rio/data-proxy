@@ -8,7 +8,7 @@ from loguru import logger
 from psycopg.sql import Literal
 from redis.asyncio import Redis
 
-from .bigquery import physical_partitions, table_modified
+from .bigquery import bigquery_clients, physical_partitions, table_modified
 from .duckdb import DBConnection
 from .models import (
     AllSelection,
@@ -74,20 +74,15 @@ def table_signature(table: TableConfig, modified: str) -> str:
 
 async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
     """Return full table signatures changed since their successful sync."""
-    clients: dict[str, Client] = {}
     changed: dict[str, str] = {}
 
-    try:
+    with bigquery_clients() as get_client:
         for table in config.tables:
             if table.strategy != Strategy.FULL:
                 continue
 
             project = table.name.split(".")[0]
-            client = clients.get(project)
-
-            if client is None:
-                client = Client(project=project)
-                clients[project] = client
+            client = get_client(project)
 
             modified = await asyncify(table_modified)(client, table.name)
             current = table_signature(table, modified)
@@ -95,9 +90,6 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
 
             if stored != current:
                 changed[table.name] = current
-    finally:
-        for client in clients.values():
-            client.close()
 
     return changed
 
@@ -143,7 +135,7 @@ def build_partition_tasks(
         table.to_task(
             sync_id,
             gcs_bucket,
-            current[partition_id].to_selection(),
+            current[partition_id].selection,
             f"partitions/{partition_id}",
             json_columns,
         )
@@ -205,21 +197,16 @@ async def plan_partitioned_tables(
     db: DBConnection,
 ) -> tuple[dict[str, PartitionedTablePlan], list[SyncTask]]:
     """Plan changed physical partitions for all partitioned tables."""
-    clients: dict[str, Client] = {}
     plans: dict[str, PartitionedTablePlan] = {}
     tasks: list[SyncTask] = []
 
-    try:
+    with bigquery_clients() as get_client:
         for table in config.tables:
             if table.strategy != Strategy.PARTITIONED:
                 continue
 
             project = table.name.split(".")[0]
-            client = clients.get(project)
-
-            if client is None:
-                client = await asyncify(Client)(project=project)
-                clients[project] = client
+            client = get_client(project)
 
             plan, table_tasks = await plan_partitioned_table(
                 table, client, redis, sync_id, gcs_bucket, db
@@ -228,9 +215,6 @@ async def plan_partitioned_tables(
             if plan is not None:
                 plans[table.name] = plan
                 tasks.extend(table_tasks)
-    finally:
-        for client in clients.values():
-            client.close()
 
     return plans, tasks
 

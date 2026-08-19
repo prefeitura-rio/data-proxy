@@ -74,10 +74,6 @@ class PhysicalPartition(BaseModel):
     signature: str
     selection: TimeRangeSelection | RangeSelection | RemainderSelection
 
-    def to_selection(self) -> TimeRangeSelection | RangeSelection | RemainderSelection:
-        """Return the extraction selection for this partition."""
-        return self.selection
-
 
 class Table(BaseModel):
     """Common configuration shared by every synced table strategy."""

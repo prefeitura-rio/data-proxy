@@ -131,7 +131,10 @@ def test_bootstrap_grants_access_without_rls() -> None:
     with patch("dp.loading.load_template", return_value="SELECT 1"):
         bootstrap_table(
             postgres_connection(connection),
-            {"schema": "app", "table_name": "table", "rls": None, "claim": None},
+            schema="app",
+            table_name="table",
+            rls=None,
+            claim=None,
         )
 
     assert connection.execute_calls == 1
@@ -144,12 +147,10 @@ def test_bootstrap_installs_access_policy_check() -> None:
     with patch("dp.loading.load_template", side_effect=template_name):
         bootstrap_table(
             postgres_connection(connection),
-            {
-                "schema": "app",
-                "table_name": "table",
-                "rls": [UnitMapping(column="id_cras", unit_type="cras")],
-                "claim": "preferred_username",
-            },
+            schema="app",
+            table_name="table",
+            rls=[UnitMapping(column="id_cras", unit_type="cras")],
+            claim="preferred_username",
         )
 
     assert connection.executed == [b"pg/grant_select;pg/access_policy_check"]
@@ -165,12 +166,10 @@ def test_bootstrap_requires_a_configured_claim_for_protected_tables() -> None:
     ):
         bootstrap_table(
             postgres_connection(connection),
-            {
-                "schema": "app",
-                "table_name": "table",
-                "rls": [UnitMapping(column="id_cras", unit_type="cras")],
-                "claim": None,
-            },
+            schema="app",
+            table_name="table",
+            rls=[UnitMapping(column="id_cras", unit_type="cras")],
+            claim=None,
         )
 
 
@@ -307,12 +306,10 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
 
     bootstrap.assert_called_once_with(
         pg_conn,
-        {
-            "schema": "app",
-            "table_name": "changed__next",
-            "rls": None,
-            "claim": None,
-        },
+        "app",
+        "changed__next",
+        None,
+        None,
     )
     load.assert_called_once_with(ANY, "app", "changed__next", [path])
     assert [table.name for table in prepared] == ["p.app.changed"]

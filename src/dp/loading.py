@@ -1,7 +1,7 @@
 """Parquet-to-PostgreSQL loading and atomic publication operations."""
 
 from collections.abc import Sequence
-from typing import LiteralString, TypedDict, cast
+from typing import LiteralString, cast
 
 from loguru import logger
 from psycopg import Connection
@@ -76,20 +76,14 @@ def ensure_schema_policy_writer(pg_conn: Connection, schema: str) -> None:
     pg_conn.execute(access_policy_writer_statement(schema).encode())
 
 
-class BootstrapInput(TypedDict):
-    """Inputs required to configure one serving table."""
-
-    schema: str
-    table_name: str
-    rls: list[UnitMapping] | None
-    claim: str | None
-
-
-def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
+def bootstrap_table(
+    pg_conn: Connection,
+    schema: str,
+    table_name: str,
+    rls: list[UnitMapping] | None,
+    claim: str | None,
+) -> None:
     """Apply table grants and optional row-level security."""
-    schema = params["schema"]
-    table_name = params["table_name"]
-    rls = params["rls"]
     statements = [
         load_template(
             {
@@ -105,7 +99,6 @@ def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
 
     match rls:
         case list():
-            claim = params["claim"]
             if claim is None:
                 message = f"Schema {schema} has no configured identity claim for RLS"
                 raise RuntimeError(message)
@@ -384,12 +377,10 @@ def prepare_tables(
             with pg_conn.transaction():
                 bootstrap_table(
                     pg_conn,
-                    {
-                        "schema": table.resolved_schema,
-                        "table_name": shadow_name,
-                        "rls": table.rls,
-                        "claim": schema_config.claim if schema_config else None,
-                    },
+                    table.resolved_schema,
+                    shadow_name,
+                    table.rls,
+                    schema_config.claim if schema_config else None,
                 )
 
             load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
