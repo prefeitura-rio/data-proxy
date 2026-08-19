@@ -88,3 +88,26 @@ tests:
           value:
             - app-pic
             - another-client
+
+  - it: AuthorizationPolicy appends a policy-writer entry per configured schema
+    template: authorizationpolicy.yaml
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      ingress.auth.authorizedParties:
+        - app-pic
+      syncConfig:
+        schemas:
+          zeta_schema:
+            claim: preferred_username
+          alpha_schema:
+            claim: preferred_username
+    asserts:
+      - equal:
+          path: spec.rules[0].when[0].values
+          value:
+            - app-pic
+            - data-proxy.policy_writer.alpha_schema
+            - data-proxy.policy_writer.zeta_schema

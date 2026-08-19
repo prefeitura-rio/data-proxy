@@ -248,5 +248,8 @@ ingress:
     issuer: ""
     ## JWKS URI for JWT validation. Required when auth.enabled is true.
     jwksUri: ""
-    ## Accepted JWT authorized-party (azp) claims. Leave empty to accept any valid JWT principal.
+    ## Accepted JWT authorized-party (azp) claims. Leave empty (with no configured schemas) to accept any valid JWT principal.
+    ## The chart automatically appends one entry per schema in syncConfig.schemas, named
+    ## "data-proxy.policy_writer.<schema>" (schema name used verbatim) —
+    ## see docs/security.md for the naming convention your identity provider's client must follow.
     authorizedParties: []
