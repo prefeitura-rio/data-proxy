@@ -57,13 +57,16 @@ async def publish_tasks() -> None:
     if tasks:
         for task in tasks:
             await broker.publish(task, stream=SYNC_TASKS_STREAM)
+
+        logger.info("Published {:d} tasks for sync_id={}", len(tasks), sync_id)
     else:
         await broker.publish(
             FinalizeMessage(sync_id=plan.sync_id),
             stream=SYNC_FINALIZE_STREAM,
         )
 
-    logger.info("Published {:d} tasks for sync_id={}", len(tasks), sync_id)
+        logger.info("No tasks, going to final stage")
+
     producer.exit()
 
 

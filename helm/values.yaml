@@ -48,9 +48,6 @@ duckdb:
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
-  ## Comma-separated list of PostgreSQL schemas that PostgREST exposes as REST endpoints.
-  ## Example: app_pequenos_cariocas,projeto_pequenos_cariocas
-  schemas: ""
   ## External URL that PostgREST uses in the OpenAPI specification.
   ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
@@ -160,21 +157,17 @@ syncConfig:
 auth:
   ## PostgreSQL role used for unauthenticated requests. This role has no application table access.
   ## PostgREST uses this role as PGRST_DB_ANON_ROLE.
-  anonRole: web_anon
+  anonRole: anon
   ## PostgreSQL role used for authenticated requests. This role receives application table access.
-  userRole: web_user
+  userRole: user
   ## PostgreSQL login role that PostgREST and PgBouncer use to connect.
   ## PostgREST uses this role in PGRST_DB_URI.
   authenticatorRole: authenticator
-  ## PostgREST JSPath expression that selects the database role from JWT claims.
+  ## PostgREST JSPath expression that selects the database role from JWT claims. A
+  ## token may also resolve to policy_writer_<schema>, created per configured
+  ## schema, to write rls.access_policy for that schema only.
   jwtRoleClaim: $.role
-  ## JWT claim that contains the list of authorised organisational units.
-  ## The pre_request function reads this claim and sets the session variable.
-  jwtClaim: dp_row_access
-  ## PostgreSQL session variable set by the pre_request function from the JWT claim.
-  ## RLS policies must read this variable to filter rows by organisational unit.
-  sessionVar: app.user_units
-  ## PostgreSQL schema that contains the pre_request function and RLS helpers.
+  ## PostgreSQL schema that contains the pre_request function and rls.access_policy.
   rlsSchema: rls
 
 ## High-availability configuration: Patroni (3-node cluster) and PgBouncer (rw and ro pools).

@@ -20,6 +20,7 @@ from dp.models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
+    SchemaConfig,
     SyncConfig,
 )
 from dp.planning import (
@@ -48,13 +49,17 @@ def test_discovers_struct_columns() -> None:
 def test_expands_only_full_tables() -> None:
     """Only full tables are expanded into whole-table extraction tasks."""
     config = SyncConfig(
-        tables=[
-            FullTable(name="p.d.dump"),
-            PartitionedTable(name="p.d.partitioned"),
-        ]
+        schemas={
+            "d": SchemaConfig(
+                tables=[
+                    FullTable(name="p.d.dump"),
+                    PartitionedTable(name="p.d.partitioned"),
+                ]
+            )
+        }
     )
 
-    tasks = expand_config(config, "bucket", "sync-1", FakeDuckDBConnection())
+    tasks = expand_config(config.tables, "bucket", "sync-1", FakeDuckDBConnection())
 
     assert [task.bucket_path for task in tasks] == [
         "s3://bucket/d/dump/data.parquet",
@@ -63,7 +68,7 @@ def test_expands_only_full_tables() -> None:
 
 def test_signature_includes_sync_configuration() -> None:
     """Configuration changes invalidate a stored source timestamp."""
-    table = FullTable(name="p.d.t", pg_schema="other")
+    table = FullTable(name="p.d.t", resolved_schema="other")
     expected_hash = sha256(table.model_dump_json().encode()).hexdigest()
 
     assert table_signature(table, "100") == f"100:{expected_hash}"
@@ -73,11 +78,15 @@ def test_signature_includes_sync_configuration() -> None:
 async def test_detects_only_changed_tables_and_reuses_client() -> None:
     """One metadata client per project serves all configured full tables."""
     config = SyncConfig(
-        tables=[
-            FullTable(name="p.d.t1"),
-            FullTable(name="p.d.t2"),
-            PartitionedTable(name="p.d.partitioned"),
-        ]
+        schemas={
+            "d": SchemaConfig(
+                tables=[
+                    FullTable(name="p.d.t1"),
+                    FullTable(name="p.d.t2"),
+                    PartitionedTable(name="p.d.partitioned"),
+                ]
+            )
+        }
     )
     fake_redis = FakeRedis()
     fake_redis.store[SYNC_STATE_KEY.format(bq_table="p.d.t1")] = table_signature(
@@ -138,7 +147,7 @@ async def test_plans_new_changed_and_removed_physical_partitions() -> None:
         ),
     ):
         plans, tasks = await plan_partitioned_tables(
-            SyncConfig(tables=[table]),
+            SyncConfig(schemas={"d": SchemaConfig(tables=[table])}),
             redis_client(FakeRedis()),
             "sync-1",
             "bucket",
@@ -196,7 +205,7 @@ async def test_unchanged_physical_partitions_create_no_work() -> None:
         ),
     ):
         plans, tasks = await plan_partitioned_tables(
-            SyncConfig(tables=[table]),
+            SyncConfig(schemas={"d": SchemaConfig(tables=[table])}),
             redis_client(FakeRedis()),
             "sync-1",
             "bucket",
@@ -223,7 +232,7 @@ async def test_partitioned_table_first_sync_forces_every_partition() -> None:
         ),
     ):
         plans, tasks = await plan_partitioned_tables(
-            SyncConfig(tables=[table]),
+            SyncConfig(schemas={"d": SchemaConfig(tables=[table])}),
             redis_client(FakeRedis()),
             "sync-1",
             "bucket",
@@ -252,7 +261,7 @@ async def test_plan_partitioned_table_passes_configured_n() -> None:
         ),
     ):
         await plan_partitioned_tables(
-            SyncConfig(tables=[table]),
+            SyncConfig(schemas={"d": SchemaConfig(tables=[table])}),
             redis_client(FakeRedis()),
             "sync-1",
             "bucket",
@@ -265,7 +274,7 @@ async def test_plan_partitioned_table_passes_configured_n() -> None:
 @pytest.mark.asyncio
 async def test_builds_plan_with_exact_parquet_paths() -> None:
     """The plan contains only tables that produced extraction tasks."""
-    config = SyncConfig(tables=[FullTable(name="p.d.t")])
+    config = SyncConfig(schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])})
     fake_redis = FakeRedis()
 
     with patch(
@@ -290,7 +299,7 @@ async def test_builds_plan_with_exact_parquet_paths() -> None:
 @pytest.mark.asyncio
 async def test_returns_no_plan_when_nothing_changed() -> None:
     """An unchanged run creates no finalizer plan or tasks."""
-    config = SyncConfig(tables=[FullTable(name="p.d.t")])
+    config = SyncConfig(schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])})
 
     with patch(
         "dp.planning.detect_changes",

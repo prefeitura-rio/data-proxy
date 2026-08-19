@@ -77,12 +77,12 @@ def table_modified(client: Client, table: str) -> str:
     return str(int(modified.timestamp() * 1000))
 
 
-def parse_table_reference(bq_table: str) -> TableReference:
+def parse_table_reference(table: str) -> TableReference:
     """Return a validated project, dataset, and table reference."""
-    match = re.fullmatch(BIGQUERY_TABLE_REFERENCE_PATTERN, bq_table)
+    match = re.fullmatch(BIGQUERY_TABLE_REFERENCE_PATTERN, table)
 
     if match is None:
-        msg = f"Invalid BigQuery table reference: {bq_table}"
+        msg = f"Invalid BigQuery table reference: {table}"
         raise ValueError(msg)
 
     return TableReference(
@@ -92,7 +92,7 @@ def parse_table_reference(bq_table: str) -> TableReference:
     )
 
 
-def range_config(partitioning: RangePartitioning, bq_table: str) -> RangeConfig:
+def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
     """Return validated integer-range configuration from range metadata."""
     match (
         partitioning.field,
@@ -103,49 +103,49 @@ def range_config(partitioning: RangePartitioning, bq_table: str) -> RangeConfig:
         case str(field), int(start), int(end), int(interval):
             pass
         case _:
-            msg = f"Incomplete range partition metadata: {bq_table}"
+            msg = f"Incomplete range partition metadata: {table}"
             raise ValueError(msg)
 
     invalid_interval = interval <= 0
     invalid_bounds = start >= end
 
     if invalid_interval or invalid_bounds:
-        msg = f"Invalid range partition metadata: {bq_table}"
+        msg = f"Invalid range partition metadata: {table}"
         raise ValueError(msg)
 
     return RangeConfig(field=field, start=start, end=end, interval=interval)
 
 
-def time_config(partitioning: TimePartitioning, bq_table: str) -> TimeConfig:
+def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
     """Return validated time-partition configuration from time metadata."""
     field = partitioning.field
 
     if field is None:
-        msg = f"Ingestion-time partitioning without an explicit field is unsupported: {bq_table}"
+        msg = f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
         raise ValueError(msg)
 
     granularity = partitioning.type_ or "DAY"
 
     if granularity not in TIME_PARTITION_SPECS:
-        msg = f"Unsupported time partition granularity {granularity}: {bq_table}"
+        msg = f"Unsupported time partition granularity {granularity}: {table}"
         raise ValueError(msg)
 
     return TimeConfig(field=field, granularity=granularity)
 
 
-def partition_kind_config(metadata: Table, bq_table: str) -> PartitionKindConfig:
+def partition_kind_config(metadata: Table, table: str) -> PartitionKindConfig:
     """Detect and return the time or range partition configuration."""
     if metadata.table_type != "TABLE":
-        msg = f"partitioned requires a physically partitioned table: {bq_table}"
+        msg = f"partitioned requires a physically partitioned table: {table}"
         raise ValueError(msg)
 
     if metadata.range_partitioning is not None:
-        return range_config(metadata.range_partitioning, bq_table)
+        return range_config(metadata.range_partitioning, table)
 
     if metadata.time_partitioning is not None:
-        return time_config(metadata.time_partitioning, bq_table)
+        return time_config(metadata.time_partitioning, table)
 
-    msg = f"partitioned requires a time- or range-partitioned table: {bq_table}"
+    msg = f"partitioned requires a time- or range-partitioned table: {table}"
     raise ValueError(msg)
 
 
@@ -224,7 +224,9 @@ TIME_PARTITION_SPECS: dict[TimeGranularity, TimePartitionSpec] = {
 
 
 def time_partition_bounds(
-    partition_id: str, granularity: TimeGranularity, bq_table: str
+    partition_id: str,
+    granularity: TimeGranularity,
+    table: str,
 ) -> tuple[str, str]:
     """Return the [start, end) date/timestamp bounds one compact partition id covers."""
     spec = TIME_PARTITION_SPECS[granularity]
@@ -234,7 +236,7 @@ def time_partition_bounds(
             tzinfo=UTC
         )
     except ValueError as error:
-        msg = f"Invalid time partition ID {partition_id}: {bq_table}"
+        msg = f"Invalid time partition ID {partition_id}: {table}"
         raise ValueError(msg) from error
 
     start = PlainDateTime(parsed.year, parsed.month, parsed.day, parsed.hour)
@@ -245,7 +247,7 @@ def time_partition_bounds(
 
 def normalize_partition(
     row: Row,
-    bq_table: str,
+    table: str,
     kind_config: PartitionKindConfig,
     table_signature: str,
 ) -> PhysicalPartition | None:
@@ -259,7 +261,7 @@ def normalize_partition(
     partition_id = str(partition_id_value)
 
     if partition_id == "__UNPARTITIONED__":
-        msg = f"Unsupported BigQuery partition {partition_id}: {bq_table}"
+        msg = f"Unsupported BigQuery partition {partition_id}: {table}"
         raise ValueError(msg)
 
     modified_value = cast(object, row["last_modified_time"])
@@ -268,7 +270,7 @@ def normalize_partition(
         case datetime() as modified:
             pass
         case _:
-            msg = f"Missing partition modification time {partition_id}: {bq_table}"
+            msg = f"Missing partition modification time {partition_id}: {table}"
             raise TypeError(msg)
 
     signature = sha256(
@@ -280,7 +282,7 @@ def normalize_partition(
             if partition_id == "__NULL__":
                 return None
 
-            lower, upper = time_partition_bounds(partition_id, granularity, bq_table)
+            lower, upper = time_partition_bounds(partition_id, granularity, table)
 
             return PhysicalPartition(
                 partition_id=partition_id,
@@ -298,7 +300,7 @@ def normalize_partition(
             try:
                 lower = int(partition_id)
             except ValueError as error:
-                msg = f"Invalid range partition ID {partition_id}: {bq_table}"
+                msg = f"Invalid range partition ID {partition_id}: {table}"
                 raise ValueError(msg) from error
 
             upper = min(lower + interval, end)
@@ -308,7 +310,7 @@ def normalize_partition(
             empty_range = lower >= upper
 
             if before_range or after_range or misaligned or empty_range:
-                msg = f"Invalid range partition ID {partition_id}: {bq_table}"
+                msg = f"Invalid range partition ID {partition_id}: {table}"
                 raise ValueError(msg)
 
             return PhysicalPartition(
@@ -322,7 +324,7 @@ def normalize_partition(
 
 def physical_partitions(
     client: Client,
-    bq_table: str,
+    table: str,
     config_json: str,
     n: int | None = None,
 ) -> tuple[str, dict[str, PhysicalPartition]]:
@@ -331,13 +333,13 @@ def physical_partitions(
     ``n`` keeps only the last ``n`` time partitions (highest partition ids)
     and is only valid for time-partitioned tables.
     """
-    project, dataset, table_name = parse_table_reference(bq_table)
-    metadata = client.get_table(bq_table)
-    kind_cfg = partition_kind_config(metadata, bq_table)
+    project, dataset, table_name = parse_table_reference(table)
+    metadata = client.get_table(table)
+    kind_cfg = partition_kind_config(metadata, table)
 
     match kind_cfg:
         case RangeConfig() if n is not None:
-            msg = f"n is only supported for time-partitioned tables: {bq_table}"
+            msg = f"n is only supported for time-partitioned tables: {table}"
             raise ValueError(msg)
         case _:
             pass
@@ -347,7 +349,7 @@ def physical_partitions(
     partitions: dict[str, PhysicalPartition] = {}
 
     for row in partition_rows(client, project, dataset, table_name):
-        partition = normalize_partition(row, bq_table, kind_cfg, signature)
+        partition = normalize_partition(row, table, kind_cfg, signature)
 
         if partition is not None:
             partitions[partition.partition_id] = partition

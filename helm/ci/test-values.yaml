@@ -12,7 +12,6 @@ gcs:
   secretKey: hmac-secret
 
 postgrest:
-  schemas: "app_pequenos_cariocas,projeto_pequenos_cariocas"
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
 
@@ -24,24 +23,25 @@ producer:
   schedule: "0 2 * * *"
 
 auth:
-  anonRole: web_anon
-  userRole: web_user
+  anonRole: anon
+  userRole: user
   authenticatorRole: authenticator
   jwtRoleClaim: $.role
-  jwtClaim: dp_row_access
-  sessionVar: app.user_units
   rlsSchema: rls
 
 syncConfig:
-  tables:
-    - bq_table: rj-proj.dev.endpoint_participante_listagem
-      strategy: dump
-      pg_schema: app_pequenos_cariocas
-      rls:
-        column: id_unidade
-      indexes:
-        - name: idx_pl_id_unidade
-          columns: [id_unidade]
+  schemas:
+    app_pequenos_cariocas:
+      claim: preferred_username
+      tables:
+        - name: rj-proj.dev.endpoint_participante_listagem
+          strategy: full
+          rls:
+            - column: id_unidade
+              unit_type: unidade
+          indexes:
+            - name: idx_pl_id_unidade
+              columns: [id_unidade]
 
 ingress:
   enabled: true

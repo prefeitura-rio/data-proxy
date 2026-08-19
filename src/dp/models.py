@@ -13,10 +13,11 @@ class Strategy(StrEnum):
     PARTITIONED = "partitioned"
 
 
-class RlsConfig(BaseModel):
-    """Row-level security configuration for a synced table."""
+class UnitMapping(BaseModel):
+    """One row column that identifies membership in a unit of the given type."""
 
     column: str
+    unit_type: str
 
 
 class IndexConfig(BaseModel):
@@ -82,22 +83,15 @@ class Table(BaseModel):
     """Common configuration shared by every synced table strategy."""
 
     name: str
-    rls: RlsConfig | None = None
-    pg_schema: str | None = None
+    rls: list[UnitMapping] | None = None
     indexes: list[IndexConfig] = []
+    resolved_schema: str = ""
+    """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 
     @property
     def table_name(self) -> str:
         """Return the unqualified source table name."""
         return self.name.split(".")[-1]
-
-    @property
-    def resolved_schema(self) -> str:
-        """Return the configured PostgreSQL schema or source dataset."""
-        if self.pg_schema:
-            return self.pg_schema
-
-        return self.name.split(".")[-2]
 
     def to_task(
         self,
@@ -135,10 +129,54 @@ class PartitionedTable(Table):
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
 
-class SyncConfig(BaseModel):
-    """The full set of tables a synchronization run manages."""
+TableConfig = Annotated[
+    FullTable | PartitionedTable,
+    Field(discriminator="strategy"),
+]
 
-    tables: list[TableConfig]
+
+class SchemaConfig(BaseModel):
+    """A PostgreSQL schema: its tables and, if any use RLS, its access claim."""
+
+    claim: str | None = None
+    tables: list[TableConfig] = []
+
+
+class SyncConfig(BaseModel):
+    """The full set of schemas and their nested tables a synchronization run manages."""
+
+    schemas: dict[str, SchemaConfig] = {}
+
+    @property
+    def tables(self) -> list[TableConfig]:
+        """Return every table across every schema."""
+        return [table for schema in self.schemas.values() for table in schema.tables]
+
+    @model_validator(mode="after")
+    def stamp_resolved_schema(self) -> Self:
+        """Assign each table's schema from the key it is nested under."""
+        for name, schema in self.schemas.items():
+            for table in schema.tables:
+                table.resolved_schema = name
+
+        return self
+
+    @model_validator(mode="after")
+    def require_claim_for_rls(self) -> Self:
+        """Reject rls tables nested under a schema with no claim."""
+        for name, schema in self.schemas.items():
+            if schema.claim is not None:
+                continue
+
+            offenders = [table.name for table in schema.tables if table.rls]
+
+            if offenders:
+                message = (
+                    f"Schema {name!r} has no claim but rls tables: {sorted(offenders)}"
+                )
+                raise ValueError(message)
+
+        return self
 
 
 class SyncTask(BaseModel):
@@ -218,9 +256,3 @@ class ShutdownMessage(BaseModel):
     """Broadcast telling every worker to exit once finalization starts."""
 
     sync_id: str
-
-
-TableConfig = Annotated[
-    FullTable | PartitionedTable,
-    Field(discriminator="strategy"),
-]

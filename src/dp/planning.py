@@ -40,7 +40,7 @@ def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
 
 
 def expand_config(
-    config: SyncConfig,
+    tables: list[TableConfig],
     gcs_bucket: str,
     sync_id: str,
     db: DBConnection,
@@ -48,7 +48,7 @@ def expand_config(
     """Expand full tables into whole-table extraction tasks."""
     tasks: list[SyncTask] = []
 
-    for table in config.tables:
+    for table in tables:
         if table.strategy != Strategy.FULL:
             continue
 
@@ -246,11 +246,9 @@ async def build_sync_plan(
     changed = await detect_changes(config, redis)
     logger.info("Detected {} changed full tables", len(changed))
 
-    diff = SyncConfig(
-        tables=[table for table in config.tables if table.name in changed]
-    )
+    changed_tables = [table for table in config.tables if table.name in changed]
 
-    tasks = expand_config(diff, bucket, sync_id, db)
+    tasks = expand_config(changed_tables, bucket, sync_id, db)
 
     tables = {task.table for task in tasks}
 

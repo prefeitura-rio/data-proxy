@@ -5,7 +5,7 @@ from typing import LiteralString, TypedDict, cast
 
 from loguru import logger
 from psycopg import Connection
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .duckdb import DBConnection
 from .models import (
@@ -13,14 +13,67 @@ from .models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
-    RlsConfig,
     SyncConfig,
     SyncPlan,
     TableConfig,
     TimeRangeSelection,
+    UnitMapping,
 )
 from .settings import settings
 from .templates import load_template, selection_fields
+
+
+def claim_session_var(claim: str) -> Literal:
+    """Return the SQL string literal for the session variable mirroring one JWT claim."""
+    return Literal(f"app.claim_{claim}")
+
+
+def unit_predicate(mappings: list[UnitMapping]) -> Composable:
+    """OR-chain matching any of a table's unit columns against a granted unit."""
+    return SQL(" OR ").join(
+        SQL("(p.unit_type = {} AND p.unit_id = {}::text)").format(
+            Literal(mapping.unit_type), Identifier(mapping.column)
+        )
+        for mapping in mappings
+    )
+
+
+def table_access_policy_statement(
+    schema: str, table_name: str, rls: list[UnitMapping], claim: str
+) -> str:
+    """Render the SQL creating one table's fixed access_policy RLS policy."""
+    return load_template(
+        {
+            "path": "pg/access_policy_check",
+            "mapping": {
+                "schema": Identifier(schema),
+                "table": Identifier(table_name),
+                "schema_literal": Literal(schema),
+                "session_var": claim_session_var(claim),
+                "predicate": unit_predicate(rls),
+            },
+        }
+    )
+
+
+def access_policy_writer_statement(schema: str) -> str:
+    """Render the SQL creating one schema's policy_writer role and scoped policy."""
+    return load_template(
+        {
+            "path": "pg/access_policy_writer",
+            "mapping": {
+                "policy_writer_role": Identifier(f"policy_writer_{schema}"),
+                "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
+                "policy_name": Identifier(f"policy_writer_{schema}_scope"),
+                "schema_literal": Literal(schema),
+            },
+        }
+    )
+
+
+def ensure_schema_policy_writer(pg_conn: Connection, schema: str) -> None:
+    """Create (if missing) one schema's policy_writer role and access_policy policy."""
+    pg_conn.execute(access_policy_writer_statement(schema).encode())
 
 
 class BootstrapInput(TypedDict):
@@ -28,7 +81,8 @@ class BootstrapInput(TypedDict):
 
     schema: str
     table_name: str
-    rls: RlsConfig | None
+    rls: list[UnitMapping] | None
+    claim: str | None
 
 
 def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
@@ -49,19 +103,17 @@ def bootstrap_table(pg_conn: Connection, params: BootstrapInput) -> None:
         )
     ]
 
-    if rls:
-        statements.append(
-            load_template(
-                {
-                    "path": "pg/enable_rls",
-                    "mapping": {
-                        "schema": Identifier(schema),
-                        "table": Identifier(table_name),
-                        "column": Identifier(rls.column),
-                    },
-                }
+    match rls:
+        case list():
+            claim = params["claim"]
+            if claim is None:
+                message = f"Schema {schema} has no configured identity claim for RLS"
+                raise RuntimeError(message)
+            statements.append(
+                table_access_policy_statement(schema, table_name, rls, claim)
             )
-        )
+        case None:
+            pass
 
     pg_conn.execute(";".join(statements).encode())
 
@@ -138,8 +190,8 @@ def publish_table(
 
 
 def configured_schemas(config: SyncConfig) -> set[str]:
-    """Return distinct PostgreSQL schemas used by a config."""
-    return {table.resolved_schema for table in config.tables}
+    """Return every schema declared in a config."""
+    return set(config.schemas)
 
 
 def validate_sync_plan(config: SyncConfig, plan: SyncPlan) -> set[str]:
@@ -182,6 +234,7 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
                 }
             ).encode()
         )
+        ensure_schema_policy_writer(pg_conn, schema)
 
     pg_conn.commit()
 
@@ -327,6 +380,7 @@ def prepare_tables(
                         paths,
                     )
 
+            schema_config = config.schemas.get(table.resolved_schema)
             with pg_conn.transaction():
                 bootstrap_table(
                     pg_conn,
@@ -334,6 +388,7 @@ def prepare_tables(
                         "schema": table.resolved_schema,
                         "table_name": shadow_name,
                         "rls": table.rls,
+                        "claim": schema_config.claim if schema_config else None,
                     },
                 )
 

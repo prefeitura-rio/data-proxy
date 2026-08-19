@@ -132,10 +132,10 @@ class FakeRedis:
     async def xtrim(
         self,
         name: str,
-        maxlen: int | None = None,
+        _maxlen: int | None = None,
         approximate: bool = True,
         minid: str | None = None,
-        limit: int | None = None,
+        _limit: int | None = None,
     ) -> int:
         """Record one trim call."""
         self.xtrim_calls.append((name, minid))
@@ -194,9 +194,9 @@ class FakeBigQueryClient:
         self.query_calls: list[str] = []
         self.close_calls = 0
 
-    def get_table(self, bq_table: str) -> FakeBigQueryClient:
+    def get_table(self, table: str) -> FakeBigQueryClient:
         """Record the table reference and return metadata for it."""
-        self.calls.append(bq_table)
+        self.calls.append(table)
         return self
 
     def query(self, query: str, job_config: object = None) -> FakeBigQueryClient:

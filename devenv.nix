@@ -58,7 +58,12 @@
 
   tasks = {
     "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "app:lint".exec = "ruff check && uv run complexipy src/ tests/ && basedpyright src/ tests/";
+    "app:lint".exec = ''
+      uv run ruff check src/ tests/
+      uv run basedpyright src/ tests/
+      uv run complexipy src/ tests/
+      uv run vulture src/ tests/
+    '';
     "app:fmt".exec = "ruff check --fix && ruff format";
     "charts:lint".exec = "helm lint charts/*";
     "charts:test".exec = "helm unittest charts/*";

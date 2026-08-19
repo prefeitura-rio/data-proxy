@@ -12,3 +12,5 @@ data:
     {{ include "data-proxy.rolesScript" . | nindent 4 }}
   03_pre_request.sql: |
     {{ include "data-proxy.preRequestSql" . | nindent 4 }}
+  04_access_policy.sql: |
+    {{ include "data-proxy.accessPolicySql" . | nindent 4 }}

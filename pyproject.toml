@@ -29,6 +29,7 @@ dev = [
   "pytest-cov>=6.0.0",
   "ruff>=0.9.3",
   "sqlfluff>=3.0",
+  "vulture>=2.16",
 ]
 
 [tool.uv]
@@ -110,6 +111,24 @@ show_missing = true
 exclude_lines = [
   "if __name__ == .__main__.",
   "pragma: no cover",
+]
+
+[tool.vulture]
+ignore_decorators = [
+  "@pytest.fixture",
+  "@model_validator",
+  "@broker.subscriber",
+  "@producer.after_startup",
+]
+ignore_names = [
+  "model_config",
+  "sync_config_path",
+  "exc_type",
+  "exc",
+  "traceback",
+  "parameters",
+  "job_config",
+  "approximate",
 ]
 
 [tool.pytest.ini_options]

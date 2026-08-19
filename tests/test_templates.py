@@ -34,12 +34,12 @@ def test_identifier_quotes_and_escapes() -> None:
             "mapping": {
                 "schema": Identifier("public"),
                 "table": Identifier('has"quote'),
-                "user_role": Identifier("web_user"),
+                "user_role": Identifier("user"),
             },
         }
     )
 
-    assert rendered == 'GRANT SELECT ON "public"."has""quote" TO "web_user"\n'
+    assert rendered == 'GRANT SELECT ON "public"."has""quote" TO "user"\n'
 
 
 def test_identifier_neutralizes_injection_payload() -> None:
@@ -52,12 +52,12 @@ def test_identifier_neutralizes_injection_payload() -> None:
             "mapping": {
                 "schema": Identifier("s"),
                 "table": Identifier(payload),
-                "user_role": Identifier("web_user"),
+                "user_role": Identifier("user"),
             },
         }
     )
 
-    assert rendered == ('GRANT SELECT ON "s"."x""; DROP TABLE s.t; --" TO "web_user"\n')
+    assert rendered == ('GRANT SELECT ON "s"."x""; DROP TABLE s.t; --" TO "user"\n')
 
 
 def test_literal_quotes_and_escapes() -> None:

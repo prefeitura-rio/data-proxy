@@ -51,3 +51,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
+
+  - it: derives PGRST_DB_SCHEMAS from syncConfig.schemas
+    set:
+      syncConfig.schemas:
+        zeta_schema:
+          tables:
+            - name: proj.dataset.z
+              strategy: full
+        alpha_schema:
+          tables:
+            - name: proj.dataset.a
+              strategy: full
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[2]
+          value:
+            name: PGRST_DB_SCHEMAS
+            value: "alpha_schema,zeta_schema"

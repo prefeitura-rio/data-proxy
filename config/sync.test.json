@@ -1,21 +1,49 @@
 {
-  "tables": [
-    {
-      "name": "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
-      "strategy": "full",
-      "pg_schema": "app_pequenos_cariocas",
-      "rls": {
-        "column": "id_unidade"
-      }
+  "schemas": {
+    "app_pequenos_cariocas": {
+      "claim": "preferred_username",
+      "tables": [
+        {
+          "name": "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "id_unidade",
+              "unit_type": "unidade"
+            }
+          ]
+        }
+      ]
     },
-    {
-      "name": "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
-      "strategy": "partitioned",
-      "n": 7,
-      "pg_schema": "projeto_pequenos_cariocas",
-      "rls": {
-        "column": "id_unidade"
-      }
+    "projeto_pequenos_cariocas": {
+      "claim": "preferred_username",
+      "tables": [
+        {
+          "name": "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
+          "strategy": "partitioned",
+          "n": 7,
+          "rls": [
+            {
+              "column": "id_unidade",
+              "unit_type": "unidade"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.endpoint_participantes",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "id_cras",
+              "unit_type": "cras"
+            },
+            {
+              "column": "id_escola",
+              "unit_type": "escola"
+            }
+          ]
+        }
+      ]
     }
-  ]
+  }
 }

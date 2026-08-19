@@ -14,9 +14,9 @@ tests:
 
   - it: sync.json contains configured table entries
     set:
-      syncConfig.tables:
-        - bq_table: proj.dataset.my_table
-          strategy: dump
+      syncConfig.schemas.my_schema.tables:
+        - name: proj.dataset.my_table
+          strategy: full
     asserts:
       - matchRegex:
           path: data["sync.json"]

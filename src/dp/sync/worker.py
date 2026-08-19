@@ -33,17 +33,17 @@ worker = FastStream(broker)
 CONSUMER = str(uuid4())
 
 
+def extract_task_wrapper(task: SyncTask) -> None:
+    """Run the blocking DuckDB extraction for one task."""
+    with connect() as db:
+        extract_task(task, db)
+
+
 @broker.subscriber(SYNC_SHUTDOWN_CHANNEL)
 async def handle_shutdown(message: ShutdownMessage) -> None:
     """Exit a finite worker when finalization starts."""
     logger.info("Shutdown signal for sync_id={} — exiting", message.sync_id)
     worker.exit()
-
-
-def extract_task_wrapper(task: SyncTask) -> None:
-    """Run the blocking DuckDB extraction for one task."""
-    with connect() as db:
-        extract_task(task, db)
 
 
 @broker.subscriber(

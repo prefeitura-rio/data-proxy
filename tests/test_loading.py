@@ -9,6 +9,7 @@ from psycopg.sql import Composable
 from dp.loading import (
     apply_sync_plan,
     bootstrap_table,
+    claim_session_var,
     create_incremental_shadow,
     initialize_schemas,
     load_table,
@@ -27,10 +28,11 @@ from dp.models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
-    RlsConfig,
+    SchemaConfig,
     SyncConfig,
     SyncPlan,
     TimeRangeSelection,
+    UnitMapping,
 )
 from dp.templates import TemplateSpec
 
@@ -129,27 +131,55 @@ def test_bootstrap_grants_access_without_rls() -> None:
     with patch("dp.loading.load_template", return_value="SELECT 1"):
         bootstrap_table(
             postgres_connection(connection),
-            {"schema": "app", "table_name": "table", "rls": None},
+            {"schema": "app", "table_name": "table", "rls": None, "claim": None},
         )
 
     assert connection.execute_calls == 1
 
 
-def test_bootstrap_enables_rls() -> None:
-    """An RLS table renders grants and policy SQL together."""
+def test_bootstrap_installs_access_policy_check() -> None:
+    """A protected table renders grants and its access_policy check together."""
     connection = FakePgConn()
 
-    with patch("dp.loading.load_template", return_value="SELECT 1"):
+    with patch("dp.loading.load_template", side_effect=template_name):
         bootstrap_table(
             postgres_connection(connection),
             {
                 "schema": "app",
                 "table_name": "table",
-                "rls": RlsConfig(column="unit_id"),
+                "rls": [UnitMapping(column="id_cras", unit_type="cras")],
+                "claim": "preferred_username",
             },
         )
 
-    assert connection.execute_calls == 1
+    assert connection.executed == [b"pg/grant_select;pg/access_policy_check"]
+
+
+def test_bootstrap_requires_a_configured_claim_for_protected_tables() -> None:
+    """A protected table without a configured schema claim fails loudly."""
+    connection = FakePgConn()
+
+    with (
+        patch("dp.loading.load_template", return_value="SELECT 1"),
+        pytest.raises(RuntimeError, match="identity claim"),
+    ):
+        bootstrap_table(
+            postgres_connection(connection),
+            {
+                "schema": "app",
+                "table_name": "table",
+                "rls": [UnitMapping(column="id_cras", unit_type="cras")],
+                "claim": None,
+            },
+        )
+
+
+def test_claim_session_var_uses_generic_naming() -> None:
+    """Every claim maps to its generic `app.claim_<name>` session variable."""
+    assert (
+        claim_session_var("preferred_username").as_string(None)
+        == "'app.claim_preferred_username'"
+    )
 
 
 def test_load_table_uses_exact_paths() -> None:
@@ -181,23 +211,33 @@ def test_publish_table_swaps_before_index_creation() -> None:
 
 
 def test_initialize_schemas_creates_roles_then_schemas() -> None:
-    """Roles are created once, then every configured schema, then committed."""
+    """Roles, then each schema and its policy_writer role, are created and committed."""
     connection = FakePgConn()
     config = SyncConfig(
-        tables=[FullTable(name="p.app.one"), FullTable(name="p.other.two")]
+        schemas={
+            "app": SchemaConfig(tables=[FullTable(name="p.app.one")]),
+            "other": SchemaConfig(tables=[FullTable(name="p.other.two")]),
+        }
     )
 
     with patch("dp.loading.load_template", side_effect=template_name):
         initialize_schemas(postgres_connection(connection), config)
 
     assert connection.executed[0] == b"pg/init_roles"
-    assert connection.executed[1:] == [b"pg/init_schema", b"pg/init_schema"]
+    assert connection.executed[1:] == [
+        b"pg/init_schema",
+        b"pg/access_policy_writer",
+        b"pg/init_schema",
+        b"pg/access_policy_writer",
+    ]
 
 
 def test_reload_postgrest_revokes_then_notifies() -> None:
     """Anonymous access is revoked per schema before the reload notification."""
     connection = FakePgConn()
-    config = SyncConfig(tables=[FullTable(name="p.app.one")])
+    config = SyncConfig(
+        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.one")])}
+    )
 
     with patch("dp.loading.load_template", return_value="SELECT 1"):
         reload_postgrest(postgres_connection(connection), config)
@@ -210,7 +250,9 @@ def test_reload_postgrest_revokes_then_notifies() -> None:
 
 def test_prepare_tables_skips_table_with_missing_paths() -> None:
     """A changed table absent from the plan's paths is logged and skipped."""
-    config = SyncConfig(tables=[FullTable(name="p.app.changed")])
+    config = SyncConfig(
+        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
+    )
     plan = SyncPlan(sync_id="s1", signatures={}, paths={})
     pg_conn = postgres_connection(FakePgConn())
     duckdb = FakeDuckDBConnection()
@@ -222,7 +264,9 @@ def test_prepare_tables_skips_table_with_missing_paths() -> None:
 
 def test_validate_sync_plan_rejects_unknown_table() -> None:
     """A plan cannot publish a table absent from the mounted config."""
-    config = SyncConfig(tables=[FullTable(name="p.app.known")])
+    config = SyncConfig(
+        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.known")])}
+    )
     plan = SyncPlan(
         sync_id="s1",
         signatures={"p.app.unknown": "100"},
@@ -236,10 +280,14 @@ def test_validate_sync_plan_rejects_unknown_table() -> None:
 def test_prepare_tables_uses_exact_planned_paths() -> None:
     """Preparation loads only planned tables and their exact paths."""
     config = SyncConfig(
-        tables=[
-            FullTable(name="p.app.changed"),
-            FullTable(name="p.app.unchanged"),
-        ]
+        schemas={
+            "app": SchemaConfig(
+                tables=[
+                    FullTable(name="p.app.changed"),
+                    FullTable(name="p.app.unchanged"),
+                ]
+            )
+        }
     )
     path = "s3://bucket/changed/data.parquet"
     plan = SyncPlan(
@@ -259,7 +307,12 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
 
     bootstrap.assert_called_once_with(
         pg_conn,
-        {"schema": "app", "table_name": "changed__next", "rls": None},
+        {
+            "schema": "app",
+            "table_name": "changed__next",
+            "rls": None,
+            "claim": None,
+        },
     )
     load.assert_called_once_with(ANY, "app", "changed__next", [path])
     assert [table.name for table in prepared] == ["p.app.changed"]
@@ -268,10 +321,14 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
 def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
     """A failed load skips only its own table, not the whole synchronization."""
     config = SyncConfig(
-        tables=[
-            FullTable(name="p.app.first"),
-            FullTable(name="p.app.second"),
-        ]
+        schemas={
+            "app": SchemaConfig(
+                tables=[
+                    FullTable(name="p.app.first"),
+                    FullTable(name="p.app.second"),
+                ]
+            )
+        }
     )
     plan = SyncPlan(
         sync_id="s1",
@@ -329,7 +386,11 @@ def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
         patch("dp.loading.load_table") as load,
     ):
         prepared = prepare_tables(
-            pg_conn, duckdb, SyncConfig(tables=[table]), plan, {table.name}
+            pg_conn,
+            duckdb,
+            SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+            plan,
+            {table.name},
         )
 
     create_shadow.assert_called_once_with(pg_conn, table, [changed, removed])
@@ -369,7 +430,11 @@ def test_prepare_tables_full_rebuilds_partitioned_table_from_parquet() -> None:
         patch("dp.loading.load_table") as load,
     ):
         prepared = prepare_tables(
-            pg_conn, duckdb, SyncConfig(tables=[table]), plan, {table.name}
+            pg_conn,
+            duckdb,
+            SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+            plan,
+            {table.name},
         )
 
     assert "duckdb/create_table_from_parquet" in [
@@ -383,7 +448,17 @@ def test_prepare_tables_full_rebuilds_partitioned_table_from_parquet() -> None:
 def test_prepare_tables_secures_shadow_before_load() -> None:
     """Grants and RLS run on the empty shadow before any data loads."""
     config = SyncConfig(
-        tables=[FullTable(name="p.app.changed", rls=RlsConfig(column="unit_id"))]
+        schemas={
+            "app": SchemaConfig(
+                claim="preferred_username",
+                tables=[
+                    FullTable(
+                        name="p.app.changed",
+                        rls=[UnitMapping(column="id_cras", unit_type="cras")],
+                    )
+                ],
+            )
+        }
     )
     path = "s3://bucket/changed/data.parquet"
     plan = SyncPlan(
@@ -427,7 +502,9 @@ def test_publish_prepared_tables_swaps_each_table() -> None:
 
 def test_apply_sync_plan_delegates_all_steps() -> None:
     """The orchestrator receives connections and runs every step."""
-    config = SyncConfig(tables=[FullTable(name="p.app.changed")])
+    config = SyncConfig(
+        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
+    )
     plan = SyncPlan(
         sync_id="s1",
         signatures={"p.app.changed": "100"},

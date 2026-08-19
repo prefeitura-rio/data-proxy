@@ -11,15 +11,15 @@ tests:
     asserts:
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: CREATE ROLE test_anon NOLOGIN NOBYPASSRLS
+          pattern: CREATE ROLE "test_anon" NOLOGIN NOBYPASSRLS
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: CREATE ROLE test_user NOLOGIN NOBYPASSRLS
+          pattern: CREATE ROLE "test_user" NOLOGIN NOBYPASSRLS
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: GRANT test_user TO test_authenticator
+          pattern: GRANT "test_user" TO "test_authenticator"
         template: configmap-db-init.yaml
 
   - it: configures PostgREST anonymous and JWT roles
