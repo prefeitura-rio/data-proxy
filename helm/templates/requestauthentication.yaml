@@ -14,5 +14,9 @@ spec:
   jwtRules:
     - issuer: {{ .Values.ingress.auth.issuer | quote }}
       jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
+      {{- with .Values.ingress.auth.audience }}
+      audiences:
+        - {{ . | quote }}
+      {{- end }}
       forwardOriginalToken: true
 {{- end }}

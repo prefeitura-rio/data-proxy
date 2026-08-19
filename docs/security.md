@@ -99,37 +99,39 @@ sequenceDiagram
 
 This is the practical counterpart to the flow above: how to actually create a user and give it access to a unit.
 
+### Create a client scope for API access
+
+Before a token reaches PostgREST, Istio checks its `aud` (audience) claim against `ingress.auth.audience` — any client without that audience never reaches Postgres at all, regardless of its role claim. Rather than maintaining an explicit allow-list of client IDs, grant this audience through one shared client scope, so adding a new client is a scope attachment, not a Helm or Terraform edit:
+
+1. Create a client scope named `data-proxy` (or similar).
+2. Add an **Audience** mapper: **Included Custom Audience** = the value configured in `ingress.auth.audience` (for example `data-proxy`), added to the access token.
+3. Add a **Hardcoded claim** mapper: **Token Claim Name** = `auth.jwtRoleClaim`'s configured key (default `role`), **Claim value** = `user`, added to both ID and access tokens.
+4. Attach this scope as a **Default Client Scope** to every end-user client that should be able to reach Data Proxy (for example, `app-pic`).
+
+Any client with this scope attached now gets both the required audience and `role: user` automatically.
+
 ### Create policy-writer service account
 
-Every schema gets its own writer client, one client per schema. Before a token reaches PostgREST, Istio checks its `azp` (authorized party) claim against an allow-list, and the chart builds that list automatically from `syncConfig.schemas` — one entry per schema, named:
+Every schema gets its own writer client, one client per schema, named:
 
 ```
 data-proxy.policy_writer.<schema>
 ```
 
-using the schema name exactly as it appears in `syncConfig.schemas` (no case or character conversion). The schema `app_pequenos_cariocas` requires a client named exactly `data-proxy.policy_writer.app_pequenos_cariocas` — the chart matches against this name literally, so a typo here fails silently with no error pointing at the cause.
+using the schema name exactly as it appears in `syncConfig.schemas` (no case or character conversion).
 
 To create it:
 
 1. Create a client named `data-proxy.policy_writer.<schema>`, confidential, service-account-enabled.
-2. On that client's **Mappers** tab, add: `Hardcoded claim`, **Token Claim Name** = `role`, **Claim value** = `policy_writer_<schema>`, added to both ID and access tokens.
+2. Attach the shared `data-proxy` client scope (above) as a **Default Client Scope**, so the client carries the required audience — its `role` claim will be overridden by the next step.
+3. On that client's **Mappers** tab, add: `Hardcoded claim`, **Token Claim Name** = `role`, **Claim value** = `policy_writer_<schema>`, added to both ID and access tokens.
 
-This is a client-level mapper, not a shared client scope, because the claim value is unique per schema — there is nothing to share.
-
-### Create a client scope for API access
-
-Rather than repeating a `role` claim mapper on every client that should reach Data Proxy, create it once as a shared client scope:
-
-1. Create a client scope named `data-proxy` (or similar).
-2. Add a mapper: `Hardcoded claim`, **Token Claim Name** = `auth.jwtRoleClaim`'s configured key (default `role`), **Claim value** = `user`, added to both ID and access tokens.
-3. Attach this scope as a **Default Client Scope** to every client that should be able to reach Data Proxy as an end-user client (for example, `app-pic`).
-
-Any client with this scope attached now gets `role: user` automatically — granting a new client access to Data Proxy is one scope attachment, not a new mapper.
+The `role` mapper is client-level, not shared, because its value is unique per schema — only the audience is common across all clients.
 
 ### Create a user
 
 1. In your identity provider, create a user (or a service account, for machine-to-machine access) and note the value of the claim configured in `schemas.<schema>.claim` (see [Sync Configuration](sync.md)) — for example, if that claim is `preferred_username`, note the user's username. This value is the `subject` you will use in `access_policy`.
-2. Confirm the user's client has the `data-proxy` client scope attached (above), so PostgREST connects as the `user` role instead of `anon`.
+2. Confirm the user's client has the `data-proxy` client scope attached (above), so the token carries the required audience and PostgREST connects as the `user` role instead of `anon`.
 3. Confirm the token includes both claims by decoding it (for example with `jwt.io` or `jq` against the base64-decoded payload) before moving on. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like:
 
    ```json

@@ -1,9 +1,4 @@
 {{- if and .Values.ingress.enabled .Values.ingress.auth.enabled }}
-{{- $policyWriters := list }}
-{{- range $schema, $_ := (.Values.syncConfig.schemas | default dict) }}
-{{- $policyWriters = append $policyWriters (printf "data-proxy.policy_writer.%s" $schema) }}
-{{- end }}
-{{- $parties := concat (.Values.ingress.auth.authorizedParties | default list) $policyWriters }}
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -22,10 +17,4 @@ spec:
         - source:
             requestPrincipals:
               - "*"
-      {{- with $parties }}
-      when:
-        - key: request.auth.claims[azp]
-          values:
-            {{- toYaml . | nindent 12 }}
-      {{- end }}
 {{- end }}
