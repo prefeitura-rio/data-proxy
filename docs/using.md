@@ -8,6 +8,8 @@ PostgREST generates an OpenAPI spec from the exposed schemas. This spec lists ev
 
 The page needs `ingress.enabled` set to `true`. Anyone can open the page without a token. Without a token, PostgREST reports the `anon` role's own access, which is none by default. The page then lists no tables. See [Security](security.md#row-level-security-rls) for the `anon` role's default grants.
 
+The page loads its spec with an unauthenticated `GET /` call. `swaggerUi.enabled` adds one exception to the Istio authorization rules for this reason: an unauthenticated `GET` to the exact path `/` needs no token. Every other path and method on PostgREST still needs one, unchanged.
+
 The page has its own "Authorize" button, near the top. Paste `Bearer ${TOKEN}` there. Every "Try it out" call on the page then carries this token, and returns real rows through the same RLS check as a plain `curl` request. See [Security](security.md) to get a token.
 
 ## Selecting a Schema

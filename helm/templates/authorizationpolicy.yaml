@@ -17,4 +17,12 @@ spec:
         - source:
             requestPrincipals:
               - "*"
+    {{- if .Values.swaggerUi.enabled }}
+    - to:
+        - operation:
+            methods:
+              - GET
+            paths:
+              - /
+    {{- end }}
 {{- end }}

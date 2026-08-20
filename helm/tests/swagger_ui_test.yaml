@@ -79,6 +79,36 @@ tests:
       - notExists:
           path: spec.http[0].match
 
+  - it: allows an unauthenticated GET / for the openapi spec when swagger-ui is enabled
+    template: authorizationpolicy.yaml
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      swaggerUi.enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[1].to[0].operation.methods[0]
+          value: GET
+      - equal:
+          path: spec.rules[1].to[0].operation.paths[0]
+          value: /
+
+  - it: does not add the unauthenticated exception when swagger-ui is disabled
+    template: authorizationpolicy.yaml
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 1
+
   - it: does not gate the docs page behind JWT auth, even when auth is enabled for postgrest
     set:
       ingress.enabled: true
