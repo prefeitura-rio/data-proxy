@@ -61,6 +61,9 @@ tests:
           path: spec.http[0].route[0].destination.host
           value: data-proxy-swagger-ui
       - equal:
+          path: spec.http[0].rewrite.uri
+          value: /
+      - equal:
           path: spec.http[1].route[0].destination.host
           value: data-proxy-postgrest
 

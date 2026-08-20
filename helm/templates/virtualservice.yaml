@@ -16,6 +16,8 @@ spec:
     - match:
         - uri:
             prefix: /docs
+      rewrite:
+        uri: /
       route:
         - destination:
             host: {{ include "data-proxy.fullname" . }}-swagger-ui
