@@ -7,7 +7,7 @@ Every request goes through the same four stages:
 1. **Authenticate**: a client gets a JWT from your identity provider. The token identifies _who_ is asking, nothing more. The token carries no table grants. The token carries no unit memberships.
 2. **Authorize the connection**: PostgREST reads a claim in the JWT (`auth.jwtRoleClaim`). PostgREST maps this claim to a PostgreSQL role. `anon` has no table access. `user` has table access, subject to RLS. `policy_writer_<schema>` has write access to one schema's grants, and no table access. Postgres enforces this mapping with an ordinary `GRANT`/no-`GRANT` check. This check runs before Postgres even considers RLS. Postgres rejects an `anon` token outright. Postgres does not filter an `anon` token's request down to zero rows.
 3. **Filter the rows**: for a `user` token, `pre_request()` mirrors every JWT claim into a session variable. Each protected table's RLS policy reads the claim configured for its schema (`schemas.<schema>.claim`). This policy checks that claim against `rls.access_policy`. The policy returns a row only when a matching grant exists.
-4. **Grant or revoke**: access itself is data, not configuration. A backend service writes and deletes rows in `rls.access_policy` through PostgREST. This service authenticates as that schema's `policy_writer_<schema>` role. Nothing in Data Proxy computes who should see what. Data Proxy only enforces what this table says.
+4. **Grant or revoke**: access itself is data, not configuration. A backend service writes rows in `rls.access_policy` through PostgREST. This service disables a row by setting `is_enabled` to `false`. This service authenticates as that schema's `policy_writer_<schema>` role. `rls.access_policy` is append-only. This role can insert and update rows. This role cannot delete rows. Nothing in Data Proxy computes who should see what. Data Proxy only enforces what this table says.
 
 Data Proxy never computes access decisions. Data Proxy has no concept of a customer, a permission, or a business rule. Data Proxy checks one generic table before it returns any row.
 
@@ -16,10 +16,14 @@ Data Proxy never computes access decisions. Data Proxy has no concept of a custo
 Every protected table checks its rows against one generic table, shared by every schema:
 
 ```sql
-rls.access_policy(schema, subject, is_super_admin, unit_type, unit_id)
+rls.access_policy(schema, subject, is_admin, is_enabled, unit_type, unit_id, metadata)
 ```
 
 The Helm chart creates this table once, at cluster bootstrap. Each configured schema also gets its own `policy_writer_<schema>` role. Data Proxy creates this role automatically, the first time any of the schema's tables syncs. Data Proxy also creates the schema itself at that time, if it does not already exist. See [Schema Creation](sync.md#schema-creation).
+
+`metadata` is one JSONB column. `metadata` holds `created_at` and `updated_at`. `metadata` can also hold any other key a client wants to attach to a grant. A trigger sets `created_at` on every insert. A trigger sets `updated_at` on every insert or update. A client-supplied value for either key is always replaced. Any other key survives the trigger unchanged.
+
+`is_enabled` defaults to `true`. A client can set `is_enabled` to `false` to turn off one grant. This action does not delete the row. A disabled row grants no access. This rule also applies to `is_admin`. A disabled admin row grants no access.
 
 A table opts into RLS by declaring, in its sync configuration, which of its own columns identify a unit of access:
 
@@ -40,8 +44,9 @@ USING (
         SELECT 1 FROM rls.access_policy AS p
         WHERE p.schema = 'my_schema'
           AND p.subject = current_setting('app.claim_preferred_username', true)
+          AND p.is_enabled
           AND (
-            p.is_super_admin
+            p.is_admin
             OR (p.unit_type = 'cras' AND p.unit_id = id_cras::text)
             OR (p.unit_type = 'escola' AND p.unit_id = id_escola::text)
           )
@@ -49,7 +54,7 @@ USING (
 )
 ```
 
-A row is visible when the requesting subject has `is_super_admin = true`. A row is also visible when the subject has a matching grant for any of the table's declared units. A user with access to three CRAS units has three rows in `access_policy`. This user does not have three columns on their JWT. A row is visible only when the table's schema also appears in the token's `schemas` claim. See [Schema Scoping](#schema-scoping) below.
+A row is visible when the requesting subject has an enabled `access_policy` row with `is_admin = true`. A row is also visible when the subject has a matching enabled grant for any of the table's declared units. A user with access to three CRAS units has three rows in `access_policy`. This user does not have three columns on their JWT. A row is visible only when the table's schema also appears in the token's `schemas` claim. See [Schema Scoping](#schema-scoping) below.
 
 ## Schema Scoping
 
@@ -80,7 +85,7 @@ Take a user of a webapp built on top of Data Proxy. This user works at one unit,
 4. **`pre_request()` mirrors the token's claims into session variables.** Every claim in the JWT becomes a PostgreSQL session variable for the duration of the request. This includes the identity claim configured for that schema, and the `schemas` claim naming every schema this token may reach.
 5. **An access grant already exists, independently of this login.** At some earlier point, for example onboarding or a role change, a backend service wrote one row into `rls.access_policy`. This service authenticated as `policy_writer_<schema>`. The row states one subject, one unit type, and one unit id. This write has nothing to do with logging in. This write can happen long before or long after any given login.
 6. **The user's query runs against a table with RLS enabled.** For every row, Postgres evaluates the table's policy. Postgres checks: does a row exist in `rls.access_policy` for this subject, matching this row's unit? Postgres returns rows that belong to the granted school. Postgres excludes rows that belong to any other school, as if those rows were never in the table.
-7. **Access changes without touching the login system.** Take the grant from step 5. Someone deletes this grant and writes a different one. The very next request reflects that change immediately. No new token is needed. No resync is needed. No cache needs to expire.
+7. **Access changes without touching the login system.** Take the grant from step 5. Someone sets this grant's `is_enabled` to `false`. The very next request reflects that change immediately. No new token is needed. No resync is needed. No cache needs to expire.
 
 ```mermaid
 sequenceDiagram
@@ -214,4 +219,28 @@ curl --request POST \
 
 The request must authenticate as a `policy_writer_<schema>` role. Postgres rejects any row whose `schema` does not match that role's own schema. Postgres enforces this structurally, with no claim parsing involved. A `policy_writer_my_schema` token cannot write a grant for any other schema. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op. A unique constraint on `(schema, subject, unit_type, unit_id)` enforces this.
 
-A row becomes visible to a user the instant the matching grant exists. This needs no resync and no token refresh. To revoke access, send a `DELETE` against the same endpoint.
+A row becomes visible to a user the instant the matching grant exists. `is_enabled` must be `true`. This needs no resync and no token refresh. `rls.access_policy` is append-only. `policy_writer_<schema>` has no `DELETE` grant on this table. To revoke access, send a `PATCH` request. This request sets `is_enabled` to `false`. Do not delete the row:
+
+```bash
+curl --request PATCH \
+  --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --header "Content-Profile: rls" \
+  --data '{"is_enabled": false}' \
+  "${BASE_URL}/access_policy?schema=eq.my_schema&subject=eq.123&unit_type=eq.cras&unit_id=eq.1"
+```
+
+A client sets `is_enabled` to `true` again on the same row. This action restores access. The row stays in the table. The row's `created_at` value stays unchanged.
+
+PostgREST applies a `PATCH` to every row that matches the filter, not only one row. Drop `unit_type` and `unit_id` from the filter to disable every grant for one subject in one request:
+
+```bash
+curl --request PATCH \
+  --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --header "Content-Profile: rls" \
+  --data '{"is_enabled": false}' \
+  "${BASE_URL}/access_policy?schema=eq.my_schema&subject=eq.123"
+```
+
+This call disables every grant for subject `123` in `my_schema`. `policy_writer_<schema>` only reaches one schema. A subject with grants in more than one schema needs one call per schema.

@@ -7,7 +7,7 @@ END
 $$$$;
 GRANT ${policy_writer_role} TO ${authenticator_role};
 GRANT USAGE ON SCHEMA rls TO ${policy_writer_role};
-GRANT SELECT, INSERT, UPDATE, DELETE ON rls.access_policy TO ${policy_writer_role};
+GRANT SELECT, INSERT, UPDATE ON rls.access_policy TO ${policy_writer_role};
 
 DROP POLICY IF EXISTS ${policy_name} ON rls.access_policy;
 CREATE POLICY ${policy_name} ON rls.access_policy

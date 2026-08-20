@@ -68,13 +68,45 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS {{ .Values.auth.rlsSchema }}.access_policy (
     schema text NOT NULL,
     subject text NOT NULL,
-    is_super_admin boolean NOT NULL DEFAULT false,
+    is_admin boolean NOT NULL DEFAULT false,
+    is_enabled boolean NOT NULL DEFAULT true,
     unit_type text,
     unit_id text,
     UNIQUE (schema, subject, unit_type, unit_id)
 );
 
+-- Idempotent: applies the column to a table an earlier chart version
+-- already created, in addition to the CREATE TABLE above.
+ALTER TABLE {{ .Values.auth.rlsSchema }}.access_policy
+    ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 ALTER TABLE {{ .Values.auth.rlsSchema }}.access_policy ENABLE ROW LEVEL SECURITY;
+
+-- created_at and updated_at live inside metadata, not as their own columns.
+-- Postgres sets both on every write; a client-supplied value for either key
+-- is always replaced. Any other key a client writes into metadata passes
+-- through untouched.
+CREATE OR REPLACE FUNCTION {{ .Values.auth.rlsSchema }}.set_access_policy_metadata_timestamps()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        NEW.metadata := coalesce(NEW.metadata, '{}'::jsonb)
+            || jsonb_build_object('created_at', now(), 'updated_at', now());
+    ELSE
+        NEW.metadata := coalesce(NEW.metadata, '{}'::jsonb)
+            || jsonb_build_object(
+                'created_at', coalesce(OLD.metadata->'created_at', to_jsonb(now())),
+                'updated_at', now()
+            );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON {{ .Values.auth.rlsSchema }}.access_policy;
+CREATE TRIGGER access_policy_metadata_timestamps
+BEFORE INSERT OR UPDATE ON {{ .Values.auth.rlsSchema }}.access_policy
+FOR EACH ROW EXECUTE FUNCTION {{ .Values.auth.rlsSchema }}.set_access_policy_metadata_timestamps();
 
 GRANT SELECT ON {{ .Values.auth.rlsSchema }}.access_policy TO "{{ .Values.auth.userRole }}";
 {{- if .Values.backup.enabled }}

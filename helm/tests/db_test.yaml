@@ -52,6 +52,32 @@ tests:
           pattern: CREATE POLICY backup_read ON rls\.access_policy\s+FOR SELECT\s+TO backup
         template: configmap-db-init.yaml
 
+  - it: creates the admin and enabled flags on access_policy
+    asserts:
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: is_admin boolean NOT NULL DEFAULT false
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: is_enabled boolean NOT NULL DEFAULT true
+        template: configmap-db-init.yaml
+      - notMatchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: is_super_admin
+        template: configmap-db-init.yaml
+
+  - it: adds an idempotent metadata column and its timestamp trigger
+    asserts:
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: ALTER TABLE rls\.access_policy\s+ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '\{\}'::jsonb
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["04_access_policy.sql"]
+          pattern: CREATE TRIGGER access_policy_metadata_timestamps\s+BEFORE INSERT OR UPDATE ON rls\.access_policy
+        template: configmap-db-init.yaml
+
   - it: configures PostgREST anonymous and JWT roles
     set:
       auth.anonRole: test_anon

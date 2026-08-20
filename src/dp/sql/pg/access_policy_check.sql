@@ -7,6 +7,7 @@ USING (
         SELECT 1 FROM rls.access_policy AS p
         WHERE p.schema = ${schema_literal}
           AND p.subject = current_setting(${session_var}, true)
-          AND (p.is_super_admin OR (${predicate}))
+          AND p.is_enabled
+          AND (p.is_admin OR (${predicate}))
     )
 )
