@@ -58,7 +58,7 @@ A row is visible when the requesting subject has an enabled `access_policy` row 
 
 ## Schema Scoping
 
-Every table checks the requester's `schemas` claim. This claim is a JWT array. This array names every schema that token may reach. A table with `rls` uses this check. A table with no `rls` also uses this check. `pre_request()` mirrors this claim like any other claim. `pre_request()` joins an array claim into one comma-separated session variable (`app.claim_schemas`).
+Every table checks the requester's `schemas` claim. This claim names every schema that token may reach, as a JWT array or as one comma-separated string. A table with `rls` uses this check. A table with no `rls` also uses this check. `pre_request()` mirrors this claim like any other claim. `pre_request()` joins an array claim into one comma-separated session variable (`app.claim_schemas`). `pre_request()` mirrors a string claim as-is.
 
 A table with no `rls` gets a schema-only policy:
 
@@ -139,8 +139,8 @@ Any client with this scope attached now gets both the required audience and `rol
 
 The shared `data-proxy` scope above is deliberately the same for every end-user client: it only carries the platform audience and `role: user`. The `schemas` claim is different: each end-user client only reaches the schemas its users are meant to see, so it cannot live in that shared scope. Configure it per client instead:
 
-1. On the end-user client itself (for example `app-pic`), add a client-level **Hardcoded claim** mapper (or a **User Attribute** mapper, if different users of the same client reach different schemas): **Token Claim Name** = `schemas`, **Claim value** = a JSON array of schema names (for example `["my_schema"]`), added as a JSON array to the access token.
-2. A client that should reach more than one schema lists every one of them in this same array.
+1. On the end-user client itself (for example `app-pic`), add a client-level **Hardcoded claim** mapper (or a **User Attribute** mapper, if different users of the same client reach different schemas): **Token Claim Name** = `schemas`, **Claim JSON Type** = `String`, **Claim value** = one schema name (for example `my_schema`), added to the access token.
+2. A client that should reach more than one schema lists every schema name in the same field, separated by commas, with no brackets and no quotes (for example `my_schema,other_schema`). `pre_request()` mirrors a plain string claim as-is. The schema check then splits this string on commas. Some identity providers support a real JSON array claim instead. A real JSON array and a comma-separated string produce the exact same result.
 
 A token can miss this claim. A client can also attach to the wrong schemas. Neither case returns a permission error. Every query against that schema's tables returns zero rows instead. See [Schema Scoping](#schema-scoping).
 
@@ -168,7 +168,7 @@ Do not attach the shared `data-proxy` client scope to this client. That scope ca
 A user can log in through `app-pic`, or through whichever end-user client the section above configures. Once the user can log in, verify the resulting token before you grant access:
 
 1. Note the value of the claim configured in `schemas.<schema>.claim` for this user (see [Sync Configuration](sync.md)). For example, when that claim is `preferred_username`, note the user's username. This value is the `subject` you use in `access_policy`.
-2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes all three claims. A decoded payload with `auth.jwtRoleClaim: $.role`, `schemas.my_schema.claim: preferred_username`, and a `schemas` array looks like this:
+2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes all three claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like this:
 
    ```json
    {
@@ -176,11 +176,15 @@ A user can log in through `app-pic`, or through whichever end-user client the se
      "sub": "5f1e2b3a-1234-4c56-9abc-1234567890ab",
      "preferred_username": "123",
      "role": "user",
-     "schemas": ["my_schema"],
+     "schemas": "my_schema",
      "exp": 1893456000,
      "iat": 1893452400
    }
    ```
+
+   `schemas` can also be a real JSON array, for example `["my_schema"]`. See [Add a client's schemas claim](#add-a-clients-schemas-claim).
+
+   A user reaching more than one schema has every schema name in this same claim. As a comma-separated string, this looks like `"schemas": "my_schema,other_schema"`. As a real JSON array, this looks like `"schemas": ["my_schema", "other_schema"]`.
 
    `role` must resolve through `auth.jwtRoleClaim` to `user`. `preferred_username` must match the `subject` you use when you grant access below. `schemas` must list `my_schema`. A query against `my_schema` returns zero rows without this entry, even with a valid grant.
 
