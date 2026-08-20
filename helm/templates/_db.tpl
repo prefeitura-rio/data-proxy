@@ -89,7 +89,7 @@ DROP POLICY IF EXISTS user_read ON {{ .Values.auth.rlsSchema }}.access_policy;
 CREATE POLICY user_read ON {{ .Values.auth.rlsSchema }}.access_policy
 FOR SELECT
 TO "{{ .Values.auth.userRole }}"
-USING (true);
+USING (schema = ANY(string_to_array(current_setting('app.claim_schemas', true), ',')));
 {{- if .Values.backup.enabled }}
 
 -- pg_dump still evaluates row security for non-superuser roles, so the

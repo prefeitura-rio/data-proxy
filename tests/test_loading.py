@@ -18,6 +18,7 @@ from dp.loading import (
     publish_prepared_tables,
     publish_table,
     reload_postgrest,
+    schema_scope_predicate,
     validate_sync_plan,
 )
 from dp.models import (
@@ -125,10 +126,10 @@ def test_partition_predicate_matches_time_range_rows() -> None:
 
 
 def test_bootstrap_grants_access_without_rls() -> None:
-    """A non-RLS table receives its read grant."""
+    """A non-RLS table receives its read grant and a schema-scope policy."""
     connection = FakePgConn()
 
-    with patch("dp.loading.load_template", return_value="SELECT 1"):
+    with patch("dp.loading.load_template", side_effect=template_name):
         bootstrap_table(
             postgres_connection(connection),
             schema="app",
@@ -137,7 +138,7 @@ def test_bootstrap_grants_access_without_rls() -> None:
             claim=None,
         )
 
-    assert connection.execute_calls == 1
+    assert connection.executed == [b"pg/grant_select;pg/schema_scope_check"]
 
 
 def test_bootstrap_installs_access_policy_check() -> None:
@@ -154,6 +155,15 @@ def test_bootstrap_installs_access_policy_check() -> None:
         )
 
     assert connection.executed == [b"pg/grant_select;pg/access_policy_check"]
+
+
+def test_schema_scope_predicate_checks_the_mirrored_schemas_claim() -> None:
+    """The schema-scope predicate matches one schema against the schemas claim."""
+    rendered = schema_scope_predicate("app").as_string(None)
+
+    assert "'app'" in rendered
+    assert "'app.claim_schemas'" in rendered
+    assert "string_to_array" in rendered
 
 
 def test_bootstrap_requires_a_configured_claim_for_protected_tables() -> None:

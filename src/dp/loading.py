@@ -28,6 +28,13 @@ def claim_session_var(claim: str) -> Literal:
     return Literal(f"app.claim_{claim}")
 
 
+def schema_scope_predicate(schema: str) -> Composable:
+    """Return the SQL predicate requiring one schema in the requester's schemas claim."""
+    return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
+        Literal(schema), claim_session_var("schemas")
+    )
+
+
 def unit_predicate(mappings: list[UnitMapping]) -> Composable:
     """OR-chain matching any of a table's unit columns against a granted unit."""
     return SQL(" OR ").join(
@@ -39,7 +46,10 @@ def unit_predicate(mappings: list[UnitMapping]) -> Composable:
 
 
 def table_access_policy_statement(
-    schema: str, table_name: str, rls: list[UnitMapping], claim: str
+    schema: str,
+    table_name: str,
+    rls: list[UnitMapping],
+    claim: str,
 ) -> str:
     """Render the SQL creating one table's fixed access_policy RLS policy."""
     return load_template(
@@ -51,6 +61,21 @@ def table_access_policy_statement(
                 "schema_literal": Literal(schema),
                 "session_var": claim_session_var(claim),
                 "predicate": unit_predicate(rls),
+                "scope": schema_scope_predicate(schema),
+            },
+        }
+    )
+
+
+def schema_scope_statement(schema: str, table_name: str) -> str:
+    """Render the SQL creating one table's schema-membership-only RLS policy."""
+    return load_template(
+        {
+            "path": "pg/schema_scope_check",
+            "mapping": {
+                "schema": Identifier(schema),
+                "table": Identifier(table_name),
+                "scope": schema_scope_predicate(schema),
             },
         }
     )
@@ -102,11 +127,12 @@ def bootstrap_table(
             if claim is None:
                 message = f"Schema {schema} has no configured identity claim for RLS"
                 raise RuntimeError(message)
+
             statements.append(
                 table_access_policy_statement(schema, table_name, rls, claim)
             )
-        case None:
-            pass
+        case _:
+            statements.append(schema_scope_statement(schema, table_name))
 
     pg_conn.execute(";".join(statements).encode())
 

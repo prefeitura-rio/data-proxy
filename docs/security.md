@@ -35,7 +35,8 @@ At sync time, this becomes one fixed policy per table:
 ```sql
 CREATE POLICY access_policy_scoped ON my_schema.participants
 USING (
-    EXISTS (
+    'my_schema' = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))
+    AND EXISTS (
         SELECT 1 FROM rls.access_policy AS p
         WHERE p.schema = 'my_schema'
           AND p.subject = current_setting('app.claim_preferred_username', true)
@@ -48,7 +49,26 @@ USING (
 )
 ```
 
-A row is visible when the requesting subject has `is_super_admin = true`. A row is also visible when the subject has a matching grant for any of the table's declared units. A user with access to three CRAS units has three rows in `access_policy`. This user does not have three columns on their JWT.
+A row is visible when the requesting subject has `is_super_admin = true`. A row is also visible when the subject has a matching grant for any of the table's declared units. A user with access to three CRAS units has three rows in `access_policy`. This user does not have three columns on their JWT. A row is visible only when the table's schema also appears in the token's `schemas` claim. See [Schema Scoping](#schema-scoping) below.
+
+## Schema Scoping
+
+Every table checks the requester's `schemas` claim. This claim is a JWT array. This array names every schema that token may reach. A table with `rls` uses this check. A table with no `rls` also uses this check. `pre_request()` mirrors this claim like any other claim. `pre_request()` joins an array claim into one comma-separated session variable (`app.claim_schemas`).
+
+A table with no `rls` gets a schema-only policy:
+
+```sql
+CREATE POLICY schema_scoped ON my_schema.reference_data
+USING (
+    'my_schema' = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))
+)
+```
+
+A table with `rls` combines both checks, as shown above. A request must name the table's schema in its `schemas` claim. A request must also hold a matching `access_policy` grant. Both conditions must pass.
+
+A token can miss the `schemas` claim. A token can also name a different schema. Either case gets zero rows for that table. Neither case returns a permission error. This matches the existing behavior for an unmatched `access_policy` grant. `rls.access_policy` applies the same schema check to its own `user_read` policy. A `user`-role token can read grant rows only for schemas listed in its own `schemas` claim.
+
+This check adds one more condition on top of `access_policy`. A table with no `rls` has no other row-level check. A `user`-role token needs the table's schema in its `schemas` claim to read any row from that table. A grant does not change this. A non-`rls` table has no grant to check.
 
 ## Flow
 
@@ -57,7 +77,7 @@ Take a user of a webapp built on top of Data Proxy. This user works at one unit,
 1. **The user logs in.** The webapp's identity provider checks the user's credentials. The identity provider issues a JWT. The token proves identity: a subject, matching whatever claim the schema reads (for example `preferred_username`). The token also carries a role claim. The token says nothing about which units the user can see. At this point, identity and access are unrelated.
 2. **The webapp sends that token to Data Proxy.** Every request to the REST API includes the JWT in the `Authorization` header.
 3. **PostgREST picks a PostgreSQL role from the token.** PostgREST reads the role claim (`auth.jwtRoleClaim`). PostgREST connects to Postgres as that role. When the role resolves to `anon`, Postgres rejects the request with a plain permission check. Postgres runs this check before it considers any table or row. When the role resolves to `user`, the connection proceeds and RLS becomes relevant.
-4. **`pre_request()` mirrors the token's claims into session variables.** Every claim in the JWT becomes a PostgreSQL session variable for the duration of the request. This includes the identity claim configured for that schema.
+4. **`pre_request()` mirrors the token's claims into session variables.** Every claim in the JWT becomes a PostgreSQL session variable for the duration of the request. This includes the identity claim configured for that schema, and the `schemas` claim naming every schema this token may reach.
 5. **An access grant already exists, independently of this login.** At some earlier point, for example onboarding or a role change, a backend service wrote one row into `rls.access_policy`. This service authenticated as `policy_writer_<schema>`. The row states one subject, one unit type, and one unit id. This write has nothing to do with logging in. This write can happen long before or long after any given login.
 6. **The user's query runs against a table with RLS enabled.** For every row, Postgres evaluates the table's policy. Postgres checks: does a row exist in `rls.access_policy` for this subject, matching this row's unit? Postgres returns rows that belong to the granted school. Postgres excludes rows that belong to any other school, as if those rows were never in the table.
 7. **Access changes without touching the login system.** Take the grant from step 5. Someone deletes this grant and writes a different one. The very next request reflects that change immediately. No new token is needed. No resync is needed. No cache needs to expire.
@@ -110,6 +130,15 @@ Before a token reaches PostgREST, Istio checks the token's `aud` (audience) clai
 
 Any client with this scope attached now gets both the required audience and `role: user` automatically.
 
+### Add a client's schemas claim
+
+The shared `data-proxy` scope above is deliberately the same for every end-user client: it only carries the platform audience and `role: user`. The `schemas` claim is different: each end-user client only reaches the schemas its users are meant to see, so it cannot live in that shared scope. Configure it per client instead:
+
+1. On the end-user client itself (for example `app-pic`), add a client-level **Hardcoded claim** mapper (or a **User Attribute** mapper, if different users of the same client reach different schemas): **Token Claim Name** = `schemas`, **Claim value** = a JSON array of schema names (for example `["my_schema"]`), added as a JSON array to the access token.
+2. A client that should reach more than one schema lists every one of them in this same array.
+
+A token can miss this claim. A client can also attach to the wrong schemas. Neither case returns a permission error. Every query against that schema's tables returns zero rows instead. See [Schema Scoping](#schema-scoping).
+
 ### Create policy-writer service account
 
 Every schema gets its own writer client, one client per schema, named:
@@ -134,7 +163,7 @@ Do not attach the shared `data-proxy` client scope to this client. That scope ca
 A user can log in through `app-pic`, or through whichever end-user client the section above configures. Once the user can log in, verify the resulting token before you grant access:
 
 1. Note the value of the claim configured in `schemas.<schema>.claim` for this user (see [Sync Configuration](sync.md)). For example, when that claim is `preferred_username`, note the user's username. This value is the `subject` you use in `access_policy`.
-2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes both claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like this:
+2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes all three claims. A decoded payload with `auth.jwtRoleClaim: $.role`, `schemas.my_schema.claim: preferred_username`, and a `schemas` array looks like this:
 
    ```json
    {
@@ -142,12 +171,13 @@ A user can log in through `app-pic`, or through whichever end-user client the se
      "sub": "5f1e2b3a-1234-4c56-9abc-1234567890ab",
      "preferred_username": "123",
      "role": "user",
+     "schemas": ["my_schema"],
      "exp": 1893456000,
      "iat": 1893452400
    }
    ```
 
-   `role` must resolve through `auth.jwtRoleClaim` to `user`. `preferred_username` must match the `subject` you use when you grant access below.
+   `role` must resolve through `auth.jwtRoleClaim` to `user`. `preferred_username` must match the `subject` you use when you grant access below. `schemas` must list `my_schema`. A query against `my_schema` returns zero rows without this entry, even with a valid grant.
 
 ### Grant access
 
