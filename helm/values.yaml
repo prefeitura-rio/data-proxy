@@ -65,6 +65,15 @@ postgrest:
     ## Exact Alpine jq package version installed at startup.
     jqVersion: 1.8.1-r0
 
+## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
+## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
+## is also true, the page needs the same valid JWT and audience as PostgREST itself.
+swaggerUi:
+  ## Set to true to deploy the Swagger UI page.
+  enabled: false
+  ## Swagger UI container image.
+  image: swaggerapi/swagger-ui:v5.18.2
+
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
 ## Use Workload Identity (via the ServiceAccount annotation) for BigQuery access.

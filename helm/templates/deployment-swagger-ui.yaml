@@ -1,0 +1,38 @@
+{{- if .Values.swaggerUi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-swagger-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: swagger-ui
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: swagger-ui
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+        - name: swagger-ui
+          image: {{ .Values.swaggerUi.image }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: API_URL
+              value: {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+{{- end }}

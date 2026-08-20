@@ -12,6 +12,16 @@ spec:
   hosts:
     - {{ .Values.ingress.host | quote }}
   http:
+    {{- if .Values.swaggerUi.enabled }}
+    - match:
+        - uri:
+            prefix: /docs
+      route:
+        - destination:
+            host: {{ include "data-proxy.fullname" . }}-swagger-ui
+            port:
+              number: 8080
+    {{- end }}
     - route:
         - destination:
             host: {{ include "data-proxy.fullname" . }}-postgrest

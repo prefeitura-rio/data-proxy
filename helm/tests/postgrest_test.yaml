@@ -77,3 +77,11 @@ tests:
           value:
             name: PGRST_DB_SCHEMAS
             value: "rls"
+
+  - it: enables the OpenAPI security definitions
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_OPENAPI_SECURITY_ACTIVE
+            value: "true"

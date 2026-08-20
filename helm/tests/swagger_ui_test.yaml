@@ -1,0 +1,101 @@
+suite: Swagger UI
+templates:
+  - deployment-swagger-ui.yaml
+  - service-swagger-ui.yaml
+  - virtualservice.yaml
+  - requestauthentication.yaml
+  - authorizationpolicy.yaml
+tests:
+  - it: does not render the deployment or service by default
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: deployment-swagger-ui.yaml
+      - hasDocuments:
+          count: 0
+        template: service-swagger-ui.yaml
+      - hasDocuments:
+          count: 1
+        template: requestauthentication.yaml
+      - hasDocuments:
+          count: 1
+        template: authorizationpolicy.yaml
+
+  - it: renders the deployment and service when enabled
+    set:
+      swaggerUi.enabled: true
+      postgrest.proxyUri: https://api.example.com
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-swagger-ui.yaml
+      - hasDocuments:
+          count: 1
+        template: service-swagger-ui.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: https://api.example.com/
+        template: deployment-swagger-ui.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+        template: service-swagger-ui.yaml
+
+  - it: routes /docs to swagger-ui ahead of the postgrest catch-all
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      swaggerUi.enabled: true
+    template: virtualservice.yaml
+    asserts:
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /docs
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-swagger-ui
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: data-proxy-postgrest
+
+  - it: does not add a /docs route when swagger-ui is disabled
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+    template: virtualservice.yaml
+    asserts:
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-postgrest
+      - notExists:
+          path: spec.http[0].match
+
+  - it: does not gate the docs page behind JWT auth, even when auth is enabled for postgrest
+    set:
+      ingress.enabled: true
+      ingress.host: api.example.com
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      swaggerUi.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: requestauthentication.yaml
+      - hasDocuments:
+          count: 1
+        template: authorizationpolicy.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: postgrest
+        template: requestauthentication.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: postgrest
+        template: authorizationpolicy.yaml

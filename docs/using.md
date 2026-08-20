@@ -2,6 +2,14 @@
 
 Data Proxy exposes every synced table through [PostgREST](https://docs.postgrest.org/). PostgREST is a REST API generated directly from the PostgreSQL schema. This page covers the query mechanics. See [Security](security.md) to learn how to get a token. See [Security](security.md) to learn how row-level security selects which rows come back.
 
+## Browsing the API
+
+PostgREST generates an OpenAPI spec from the exposed schemas. This spec lists every table, column, and operation available to the requesting role. This spec is plain JSON, at the API's root URL (`${BASE_URL}/`). This JSON renders as a page, not raw text, when `swaggerUi.enabled` is `true` in the Helm chart. This page lives at `${BASE_URL}/docs`.
+
+The page needs `ingress.enabled` set to `true`. Anyone can open the page without a token. Without a token, PostgREST reports the `anon` role's own access, which is none by default. The page then lists no tables. See [Security](security.md#row-level-security-rls) for the `anon` role's default grants.
+
+The page has its own "Authorize" button, near the top. Paste `Bearer ${TOKEN}` there. Every "Try it out" call on the page then carries this token, and returns real rows through the same RLS check as a plain `curl` request. See [Security](security.md) to get a token.
+
 ## Selecting a Schema
 
 Each PostgreSQL schema that PostgREST exposes matches one key in the sync configuration's top-level `schemas` map (see [Sync](sync.md)). The Helm chart derives the exposed schema list on its own. You do not configure this list separately. Select the target schema for a request with the `Accept-Profile` header:

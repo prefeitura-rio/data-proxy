@@ -1,0 +1,19 @@
+{{- if .Values.swaggerUi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-swagger-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger-ui
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "data-proxy.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger-ui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
