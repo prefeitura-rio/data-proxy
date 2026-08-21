@@ -10,7 +10,7 @@ The page needs `ingress.enabled` set to `true`. Anyone can open the page without
 
 The page loads its spec with an unauthenticated `GET /` call. This call happens before the "Authorize" button even exists. `swaggerUi.enabled` also adds one exception to the Istio authorization rules. An unauthenticated `GET` to the exact path `/` needs no token. Every other path and every other method on PostgREST still needs one.
 
-The page has its own "Authorize" button, near the top. Paste `Bearer ${TOKEN}` there. Every "Try it out" call on the page then carries this token. Each call returns real rows through the same RLS check as a plain `curl` request. See [Security](security.md) to get a token.
+The page has its own "Authorize" button, near the top. Paste `${TOKEN}` there, with no `Bearer ` prefix. The page adds this prefix on its own. Every "Try it out" call on the page then carries this token. Each call returns real rows through the same RLS check as a plain `curl` request. See [Security](security.md) to get a token.
 
 ## Selecting a Schema
 

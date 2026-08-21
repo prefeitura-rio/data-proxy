@@ -1,0 +1,34 @@
+{{- if .Values.swaggerUi.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-swagger-ui-initializer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger-ui
+data:
+  swagger-initializer.js: |
+    window.onload = function() {
+      window.ui = SwaggerUIBundle({
+        url: {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }},
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout",
+        requestInterceptor: function(req) {
+          var auth = req.headers.Authorization;
+          if (auth && auth.indexOf('Bearer ') !== 0) {
+            req.headers.Authorization = 'Bearer ' + auth;
+          }
+          return req;
+        }
+      });
+    };
+{{- end }}

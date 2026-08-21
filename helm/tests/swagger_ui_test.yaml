@@ -2,6 +2,7 @@ suite: Swagger UI
 templates:
   - deployment-swagger-ui.yaml
   - service-swagger-ui.yaml
+  - configmap-swagger-ui.yaml
   - virtualservice.yaml
   - requestauthentication.yaml
   - authorizationpolicy.yaml
@@ -21,6 +22,9 @@ tests:
           count: 0
         template: service-swagger-ui.yaml
       - hasDocuments:
+          count: 0
+        template: configmap-swagger-ui.yaml
+      - hasDocuments:
           count: 1
         template: requestauthentication.yaml
       - hasDocuments:
@@ -39,13 +43,24 @@ tests:
           count: 1
         template: service-swagger-ui.yaml
       - equal:
-          path: spec.template.spec.containers[0].env[0].value
-          value: https://api.example.com/
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /usr/share/nginx/html/swagger-initializer.js
         template: deployment-swagger-ui.yaml
       - equal:
           path: spec.ports[0].port
           value: 8080
         template: service-swagger-ui.yaml
+      - hasDocuments:
+          count: 1
+        template: configmap-swagger-ui.yaml
+      - matchRegex:
+          path: data["swagger-initializer.js"]
+          pattern: "url: \"https://api\\.example\\.com/\""
+        template: configmap-swagger-ui.yaml
+      - matchRegex:
+          path: data["swagger-initializer.js"]
+          pattern: "requestInterceptor"
+        template: configmap-swagger-ui.yaml
 
   - it: routes /docs to swagger-ui ahead of the postgrest catch-all
     set:

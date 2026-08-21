@@ -26,13 +26,18 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          env:
-            - name: API_URL
-              value: {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }}
+          volumeMounts:
+            - name: swagger-ui-initializer
+              mountPath: /usr/share/nginx/html/swagger-initializer.js
+              subPath: swagger-initializer.js
           readinessProbe:
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+      volumes:
+        - name: swagger-ui-initializer
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-swagger-ui-initializer
 {{- end }}
