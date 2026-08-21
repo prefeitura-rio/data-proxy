@@ -64,6 +64,8 @@ helm unittest helm/
 ## Documentation
 
 - Simplified Technical English (ASD-STE100): short sentences, one idea per sentence, consistent terminology, active voice.
+- One clause per sentence. Split any sentence joined by "and", "but", "so", "which", or a colon into two sentences.
+- Avoid vague qualifiers and hedges: "too", "plus", "back to", "either way", "instead of", "coarse", "regardless". State the fact plainly instead.
 - Each doc file answers exactly one question. Do not split one topic across two files, and do not create a stub file whose scope overlaps another file's.
 - Use generic, domain-neutral examples (e.g. "school", "student") instead of repo-specific customer names when illustrating a concept.
 - For conceptual/onboarding explanations, prefer a narrative walkthrough (a hypothetical user, a numbered sequence of steps) over a bare command checklist. Save checklists for purely mechanical how-tos.
