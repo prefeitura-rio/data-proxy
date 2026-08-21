@@ -71,6 +71,10 @@ spec:
               value: {{ .Values.postgrest.proxyUri | quote }}
             - name: PGRST_OPENAPI_SECURITY_ACTIVE
               value: "true"
+            {{- if .Values.swaggerUi.enabled }}
+            - name: PGRST_OPENAPI_MODE
+              value: ignore-privileges
+            {{- end }}
           volumeMounts:
             - name: jwks
               mountPath: /etc/postgrest

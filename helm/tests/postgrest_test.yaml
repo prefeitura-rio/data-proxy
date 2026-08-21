@@ -85,3 +85,21 @@ tests:
           content:
             name: PGRST_OPENAPI_SECURITY_ACTIVE
             value: "true"
+
+  - it: does not ignore privileges in the OpenAPI output by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_OPENAPI_MODE
+            value: ignore-privileges
+
+  - it: ignores privileges in the OpenAPI output when swagger-ui is enabled
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_OPENAPI_MODE
+            value: ignore-privileges

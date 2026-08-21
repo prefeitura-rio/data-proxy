@@ -4,11 +4,11 @@ Data Proxy exposes every synced table through [PostgREST](https://docs.postgrest
 
 ## Browsing the API
 
-PostgREST generates an OpenAPI spec from the exposed schemas. This spec lists every table, column, and operation available to the requesting role. This spec is plain JSON, at the API's root URL (`${BASE_URL}/`). This JSON renders as a page, not raw text, when `swaggerUi.enabled` is `true` in the Helm chart. This page lives at `${BASE_URL}/docs`.
+PostgREST generates an OpenAPI spec from the exposed schemas. This spec lists every table, column, and operation. This spec is plain JSON, at the API's root URL (`${BASE_URL}/`). This JSON renders as a page, not raw text, when `swaggerUi.enabled` is `true` in the Helm chart. This page lives at `${BASE_URL}/docs`.
 
-The page needs `ingress.enabled` set to `true`. Anyone can open the page without a token. Without a token, PostgREST reports the `anon` role's own access, which is none by default. The page then lists no tables. See [Security](security.md#row-level-security-rls) for the `anon` role's default grants.
+The page needs `ingress.enabled` set to `true`. Anyone can open the page without a token. `swaggerUi.enabled` also sets `PGRST_OPENAPI_MODE` to `ignore-privileges`, so the page lists every table regardless of the caller's role. No token, and no `access_policy` row, ever exposes one row of real data. Only table and column names appear this way.
 
-The page loads its spec with an unauthenticated `GET /` call. `swaggerUi.enabled` adds one exception to the Istio authorization rules for this reason: an unauthenticated `GET` to the exact path `/` needs no token. Every other path and method on PostgREST still needs one, unchanged.
+The page loads its spec with an unauthenticated `GET /` call, before the "Authorize" button even exists. `swaggerUi.enabled` also adds one exception to the Istio authorization rules for this reason: an unauthenticated `GET` to the exact path `/` needs no token. Every other path and method on PostgREST still needs one, unchanged.
 
 The page has its own "Authorize" button, near the top. Paste `Bearer ${TOKEN}` there. Every "Try it out" call on the page then carries this token, and returns real rows through the same RLS check as a plain `curl` request. See [Security](security.md) to get a token.
 
