@@ -1,9 +1,9 @@
 ## Container image for the producer, worker, and finalizer services.
 image:
-  ## Registry path for the data-proxy image, without the tag. This field is required.
-  repository: ""
-  ## Image tag to deploy. This field is required.
-  tag: ""
+  ## Registry path for the data-proxy image, without the tag.
+  repository: ghcr.io/prefeitura-rio/data-proxy
+  ## Immutable application image version.
+  tag: "1.0.0"
   ## Image pull policy. Use Always when the tag is mutable (for example, latest).
   pullPolicy: IfNotPresent
 
@@ -21,8 +21,8 @@ serviceAccount:
 
 ## Configuration for the pgduckdb StatefulSet (PostgreSQL with the pg_duckdb extension).
 duckdb:
-  ## pgduckdb container image. Do not change this unless you build a custom image.
-  image: pgduckdb/pgduckdb:17-v1.1.1
+  ## pgduckdb container image with PostGIS support.
+  image: ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0
   ## Number of StatefulSet replicas in standalone mode.
   ## This field is ignored when ha.enabled is true; ha.patroni.replicas is used instead.
   replicas: 1
@@ -219,7 +219,7 @@ ha:
   patroni:
     ## Container image that includes both pg_duckdb and Patroni.
     ## Build this image from Dockerfile.patroni and push it before you enable HA.
-    image: ghcr.io/iplanrio/data-proxy-patroni:latest
+    image: ghcr.io/prefeitura-rio/data-proxy-patroni:1.0.0
     ## Number of Patroni pod replicas. The minimum for a stable cluster is 3.
     replicas: 3
     ## Maximum number of WAL sender processes on the leader.

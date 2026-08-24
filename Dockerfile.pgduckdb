@@ -1,0 +1,9 @@
+FROM pgduckdb/pgduckdb:17-v1.1.1
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-17-postgis-3 && \
+  apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER postgres

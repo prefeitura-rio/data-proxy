@@ -55,6 +55,10 @@ Each entry in `tables` accepts:
 | `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when any pair matches a grant in `rls.access_policy` for the requester. Omit `rls` to turn off RLS on this table. See [Security](security.md). |
 | `indexes`  | no       | Array of `{ name, columns }` objects. Data Proxy creates one index per entry after each sync.                                                                                                           |
 
+## Geometry Columns
+
+Data Proxy keeps a Parquet `GEOMETRY` column as a PostgreSQL `geometry` column. The database image must contain PostGIS. Database initialization enables the `postgis` extension before publication.
+
 ## Schema Creation
 
 You never run `CREATE SCHEMA` yourself. Every finalizer run checks every schema declared in the top-level `schemas` map. For each schema that does not yet exist, the finalizer creates it before it publishes any table. The finalizer creates:

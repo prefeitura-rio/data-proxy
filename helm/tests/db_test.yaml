@@ -3,6 +3,13 @@ templates:
   - configmap-db-init.yaml
   - deployment-postgrest.yaml
 tests:
+  - it: enables PostGIS before pg_duckdb
+    asserts:
+      - matchRegex:
+          path: data["01_extensions.sql"]
+          pattern: CREATE EXTENSION IF NOT EXISTS postgis;\s+CREATE EXTENSION IF NOT EXISTS pg_duckdb
+        template: configmap-db-init.yaml
+
   - it: creates separate anonymous and authenticated roles
     set:
       auth.anonRole: test_anon

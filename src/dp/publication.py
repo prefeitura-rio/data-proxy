@@ -1,12 +1,12 @@
 """Plan reduction, shadow loading, and atomic table publication operations."""
 
 from collections.abc import Sequence
-from datetime import datetime
 from typing import LiteralString, cast
 
 from loguru import logger
 from psycopg import Connection
 from psycopg.sql import SQL, Identifier, Literal
+from whenever import Instant
 
 from .authorization import bootstrap_table
 from .duckdb import DBConnection
@@ -279,7 +279,7 @@ def publish_prepared_tables(
     prepared: Sequence[TableConfig],
     plan: SyncPlan,
     failed_partitions: dict[str, set[str]],
-    attempted_at: datetime,
+    attempted_at: Instant,
 ) -> set[str]:
     """Publish prepared tables and return those that succeeded."""
     published: set[str] = set()
