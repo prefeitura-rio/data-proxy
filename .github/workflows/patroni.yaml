@@ -1,15 +1,14 @@
 name: Patroni image
-
 on:
   push:
-    branches: [main]
-    paths: [Dockerfile.patroni]
+    branches:
+      - main
+    paths:
+      - Dockerfile.patroni
   workflow_dispatch:
-
 permissions:
   contents: read
   packages: write
-
 jobs:
   build:
     runs-on: ubuntu-latest

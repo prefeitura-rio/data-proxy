@@ -1,15 +1,14 @@
 name: pg_duckdb image
-
 on:
   push:
-    branches: [main]
-    paths: [Dockerfile.pgduckdb]
+    branches:
+      - main
+    paths:
+      - Dockerfile.pgduckdb
   workflow_dispatch:
-
 permissions:
   contents: read
   packages: write
-
 jobs:
   build:
     runs-on: ubuntu-latest

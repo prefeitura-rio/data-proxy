@@ -1,16 +1,13 @@
 name: Release image
-
 on:
   push:
     tags:
       - app-v*
       - pgduckdb-v*
       - patroni-v*
-
 permissions:
   contents: read
   packages: write
-
 jobs:
   app:
     if: startsWith(github.ref_name, 'app-v')
@@ -33,7 +30,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
   pgduckdb:
     if: startsWith(github.ref_name, 'pgduckdb-v')
     runs-on: ubuntu-latest
@@ -55,7 +51,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
   patroni:
     if: startsWith(github.ref_name, 'patroni-v')
     runs-on: ubuntu-latest
