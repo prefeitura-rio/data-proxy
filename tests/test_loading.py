@@ -1,11 +1,11 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
-from datetime import UTC, datetime
 from unittest.mock import ANY, call, patch
 
 import pytest
 from helpers import FakeDuckDBConnection, FakePgConn, postgres_connection
 from psycopg.sql import Composable
+from whenever import Instant
 
 from dp.authorization import (
     bootstrap_table,
@@ -618,7 +618,7 @@ def test_upsert_freshness_uses_shared_status_enum_template() -> None:
     """A freshness write uses the shared enum SQL template and values."""
     connection = FakePgConn()
     table = PartitionedTable(name="p.app.people", resolved_schema="app")
-    attempted_at = datetime.now(UTC)
+    attempted_at = Instant.now()
 
     with patch("dp.freshness.load_template", return_value="UPSERT") as render:
         upsert_freshness(
@@ -649,7 +649,7 @@ def test_full_rebuild_freshness_replaces_all_partition_rows() -> None:
         },
     )
     connection = postgres_connection(FakePgConn())
-    attempted_at = datetime.now(UTC)
+    attempted_at = Instant.now()
 
     with (
         patch("dp.freshness.load_template", return_value="DELETE"),
@@ -676,7 +676,7 @@ def test_incremental_freshness_records_success_failure_and_removal() -> None:
         },
     )
     connection = postgres_connection(FakePgConn())
-    attempted_at = datetime.now(UTC)
+    attempted_at = Instant.now()
 
     with (
         patch("dp.freshness.upsert_freshness") as upsert,
@@ -710,7 +710,7 @@ def test_publish_prepared_tables_swaps_each_table() -> None:
             tables,
             plan,
             {},
-            datetime.now(UTC),
+            Instant.now(),
         )
 
     assert publish.call_count == 2
@@ -735,7 +735,7 @@ def test_publish_prepared_tables_excludes_failed_publication() -> None:
             tables,
             plan,
             {"p.app.one": {"10"}},
-            datetime.now(UTC),
+            Instant.now(),
         )
 
     assert result == {"p.app.two"}

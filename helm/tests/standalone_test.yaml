@@ -18,7 +18,7 @@ tests:
         template: statefulset-duckdb.yaml
       - equal:
           path: spec.template.spec.containers[0].image
-          value: pgduckdb/pgduckdb:17-v1.1.1
+          value: ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0
         template: statefulset-duckdb.yaml
 
   - it: standalone StatefulSet uses configured replicas

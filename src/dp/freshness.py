@@ -1,9 +1,8 @@
 """Freshness metadata operations for published data."""
 
-from datetime import datetime
-
 from psycopg import Connection
 from psycopg.sql import Identifier
+from whenever import Instant
 
 from .models import SyncPlan, TableConfig
 from .templates import load_template
@@ -13,12 +12,13 @@ def upsert_freshness(
     pg_conn: Connection,
     table: TableConfig,
     partition: str | None,
-    attempted_at: datetime,
+    attempted_at: Instant,
     *,
     success: bool,
 ) -> None:
     """Record one successful publication or failed attempt."""
-    updated_at = attempted_at if success else None
+    attempted_datetime = attempted_at.to_stdlib()
+    updated_at = attempted_datetime if success else None
     pg_conn.execute(
         load_template(
             {
@@ -31,7 +31,7 @@ def upsert_freshness(
             table.strategy.value,
             partition,
             updated_at,
-            attempted_at,
+            attempted_datetime,
             "success" if success else "failure",
         ),
     )
@@ -68,7 +68,7 @@ def update_published_freshness(
     table: TableConfig,
     plan: SyncPlan,
     failed_partitions: set[str],
-    attempted_at: datetime,
+    attempted_at: Instant,
 ) -> None:
     """Update freshness to match one published table."""
     partitioned = plan.partitioned_tables.get(table.name)
@@ -97,7 +97,7 @@ def record_table_failure(
     pg_conn: Connection,
     table: TableConfig,
     plan: SyncPlan,
-    attempted_at: datetime,
+    attempted_at: Instant,
 ) -> None:
     """Record that one table did not publish in this attempt."""
     partitioned = plan.partitioned_tables.get(table.name)
