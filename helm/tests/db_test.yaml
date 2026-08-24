@@ -22,6 +22,39 @@ tests:
           pattern: GRANT "test_user" TO "test_authenticator"
         template: configmap-db-init.yaml
 
+  - it: creates the shared status enum and per-schema freshness table
+    set:
+      syncConfig.schemas.app.tables: []
+    asserts:
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE TYPE rls\.sync_status AS ENUM \('success', 'failure'\)
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE TABLE IF NOT EXISTS "app"\.freshness
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: '"table" text NOT NULL,\s+strategy text NOT NULL,\s+partition text,\s+updated_at timestamptz,\s+attempted_at timestamptz NOT NULL,\s+status rls\.sync_status NOT NULL'
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: 'UNIQUE NULLS NOT DISTINCT \("table", strategy, partition\)'
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: GRANT SELECT ON "app"\.freshness TO "user"
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: ALTER TABLE "app"\.freshness ENABLE ROW LEVEL SECURITY
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE POLICY schema_scope ON "app"\.freshness
+        template: configmap-db-init.yaml
+
   - it: does not create a backup role by default
     asserts:
       - notMatchRegex:

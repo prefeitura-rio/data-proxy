@@ -65,7 +65,7 @@
       uv run vulture src/ tests/
     '';
     "app:fmt".exec = "ruff check --fix && ruff format";
-    "charts:lint".exec = "helm lint charts/*";
-    "charts:test".exec = "helm unittest charts/*";
+    "charts:lint".exec = "helm lint helm/";
+    "charts:test".exec = "helm unittest helm/";
   };
 }

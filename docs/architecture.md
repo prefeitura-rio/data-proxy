@@ -26,7 +26,13 @@ The producer skips a BigQuery table that has not changed since its last successf
 
 A table's strategy sets how many tasks the producer publishes for it. The `full` strategy publishes one task for the whole table. The `partitioned` strategy publishes one task per changed physical partition. See [Sync Configuration](sync.md) for the full reference.
 
-The finalizer commits signatures only after it publishes successfully. A loss of Valkey state causes a full resync. This is safe. BigQuery stays the source of truth at all times.
+The worker records the path of each failed extraction task. The finalizer publishes the successful parts of an incremental partition update. It keeps old data for a failed existing partition. It does not add data for a failed new partition. The committed manifest describes the data that PostgreSQL serves. As a result, the next producer run schedules each failed partition again.
+
+A full table is atomic. A partitioned full rebuild is also atomic. One extraction failure blocks publication of the complete table. A preparation failure also blocks state commit for that table. A publication failure has the same effect.
+
+Each configured schema has a `freshness` table. This table gives the last publication time. It also gives the result of the latest attempt. The finalizer updates freshness in the same transaction as the data-table swap.
+
+A loss of Valkey state causes a full resync. This is safe. BigQuery stays the source of truth at all times.
 
 ## Modes
 

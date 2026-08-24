@@ -8,13 +8,34 @@ from dp.models import (
     RemainderSelection,
     TimeRangeSelection,
 )
-from dp.templates import load_template, selection_fields
+from dp.templates import load_template, read_template, selection_fields
 
 
 def render(value: object) -> str:
     """Render one mapping value as psycopg would when substituting it."""
     assert isinstance(value, (SQL, Identifier, Literal))
     return value.as_string(None)
+
+
+def test_runtime_freshness_schema_contract() -> None:
+    """Runtime schema SQL contains the complete freshness contract."""
+    roles = read_template("pg/init_roles")
+    schema = read_template("pg/init_schema")
+
+    assert "sync_status AS ENUM ('success', 'failure')" in roles
+    for definition in (
+        '"table" text NOT NULL',
+        "strategy text NOT NULL",
+        "partition text",
+        "updated_at timestamptz",
+        "attempted_at timestamptz NOT NULL",
+        "status ${rls_schema}.sync_status NOT NULL",
+        'UNIQUE NULLS NOT DISTINCT ("table", strategy, partition)',
+        "GRANT SELECT ON ${schema}.freshness TO ${user_role}",
+        "ALTER TABLE ${schema}.freshness ENABLE ROW LEVEL SECURITY",
+        "CREATE POLICY schema_scope ON ${schema}.freshness",
+    ):
+        assert definition in schema
 
 
 def test_plain_strings_pass_through_unescaped() -> None:

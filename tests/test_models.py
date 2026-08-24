@@ -56,6 +56,14 @@ def test_sync_config_maps_schemas_to_their_identity_claim() -> None:
     assert config.schemas["app_x"].claim == "preferred_username"
 
 
+def test_sync_config_rejects_reserved_freshness_table_name() -> None:
+    """A source table cannot replace schema freshness metadata."""
+    with pytest.raises(ValueError, match=r"freshness.*reserved"):
+        SyncConfig(
+            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.freshness")])}
+        )
+
+
 def test_sync_config_defaults_schemas_to_empty() -> None:
     """A config without a `schemas` section has no schemas or tables."""
     config = SyncConfig.model_validate({})

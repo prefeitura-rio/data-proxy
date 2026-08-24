@@ -18,9 +18,20 @@ from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
 from ..logging import configure_logging
-from ..models import FinalizeMessage, ShutdownMessage, SyncConfig, SyncPlan
+from ..models import (
+    FinalizeMessage,
+    PublicationResult,
+    ShutdownMessage,
+    SyncConfig,
+    SyncPlan,
+)
 from ..settings import settings
-from ..state import commit_sync_state, create_consumer_group, read_sync_plan
+from ..state import (
+    commit_sync_state,
+    create_consumer_group,
+    read_failed_paths,
+    read_sync_plan,
+)
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -38,13 +49,15 @@ async def ensure_consumer_group() -> None:
         await create_consumer_group(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP)
 
 
-def apply_sync_plan_wrapper(config: SyncConfig, plan: SyncPlan) -> None:
+def apply_sync_plan_wrapper(
+    config: SyncConfig, plan: SyncPlan, failed_paths: set[str]
+) -> PublicationResult:
     """Run the blocking Postgres/DuckDB publication for one plan."""
     with (
         psycopg.connect(settings.PG_DSN) as pg_conn,
         connect() as duckdb_conn,
     ):
-        apply_sync_plan(pg_conn, duckdb_conn, config, plan)
+        return apply_sync_plan(pg_conn, duckdb_conn, config, plan, failed_paths)
 
 
 @broker.subscriber(
@@ -65,10 +78,15 @@ async def finalize_sync(message: FinalizeMessage) -> None:
 
     async with settings.make_redis() as redis:
         plan = await read_sync_plan(redis, message.sync_id)
+        failed_paths = await read_failed_paths(redis, message.sync_id)
 
-        await asyncify(apply_sync_plan_wrapper)(config, plan)
+        result = await asyncify(apply_sync_plan_wrapper)(
+            config,
+            plan,
+            failed_paths,
+        )
 
-        await commit_sync_state(redis, plan)
+        await commit_sync_state(redis, result.plan, result.published_tables)
 
     finalizer.exit()
 

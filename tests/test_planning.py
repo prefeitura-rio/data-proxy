@@ -156,6 +156,7 @@ async def test_plans_new_changed_and_removed_physical_partitions() -> None:
 
     plan = plans[table.name]
     assert set(plan.changed_paths) == {"10", "30"}
+    assert plan.previous_partitions == {"10": stored.partitions["10"]}
     assert set(plan.removed_partitions) == {"20"}
     assert [task.selection.type for task in tasks] == ["range", "range"]
     assert tasks[0].bucket_path.endswith("/partitions/10/data.parquet")

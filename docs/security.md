@@ -75,6 +75,8 @@ A token can miss the `schemas` claim. A token can also name a different schema. 
 
 This check adds one more condition on top of `access_policy`. A table with no `rls` has no other row-level check. A `user`-role token needs the table's schema in its `schemas` claim to read any row from that table. A grant does not change this. A non-`rls` table has no grant to check.
 
+Each schema's `freshness` table uses the same schema-only policy. For example, the token's `schemas` claim must contain `my_schema`. The token can then read `my_schema.freshness`. The policy uses the fixed PostgreSQL schema name. The table does not need a `schema` column.
+
 ## Flow
 
 Take a user of a webapp built on top of Data Proxy. This user works at one unit, for example one school.

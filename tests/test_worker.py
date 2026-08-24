@@ -1,6 +1,6 @@
 """Tests for the FastStream worker orchestrator."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from faststream.redis.testing import TestRedisBroker
@@ -35,6 +35,10 @@ async def test_process_shard_branches_on_counter(
         patch("dp.sync.worker.connect", return_value=db),
         patch("dp.sync.worker.extract_task") as extract,
         patch(
+            "dp.sync.worker.record_task_failure",
+            new_callable=AsyncMock,
+        ) as record_failure,
+        patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
             return_value=remaining,
@@ -44,22 +48,21 @@ async def test_process_shard_branches_on_counter(
         await process_shard(TASK)
 
     extract.assert_called_once_with(TASK, db)
+    record_failure.assert_not_awaited()
     complete.assert_awaited_once()
     assert publish.await_count == (1 if expect_publish else 0)
 
 
 @pytest.mark.asyncio
-async def test_extraction_failure_is_logged_and_skipped() -> None:
-    """An extraction error is logged, then the task still completes normally.
-
-    A single table or partition failing to extract must not stop the
-    worker: the error is logged explicitly and the run proceeds to
-    account for the task and check whether to finalize, exactly as if
-    extraction had succeeded.
-    """
+async def test_extraction_failure_is_recorded_before_task_completion() -> None:
+    """A failed extraction excludes its table from state publication."""
     with (
         patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
         patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
+        patch(
+            "dp.sync.worker.record_task_failure",
+            new_callable=AsyncMock,
+        ) as record_failure,
         patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
@@ -69,6 +72,7 @@ async def test_extraction_failure_is_logged_and_skipped() -> None:
     ):
         await process_shard(TASK)
 
+    record_failure.assert_awaited_once_with(ANY, "s1", "s3://bucket/t/data.parquet")
     complete.assert_awaited_once()
     publish.assert_not_called()
 

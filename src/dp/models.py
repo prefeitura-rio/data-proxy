@@ -158,6 +158,19 @@ class SyncConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def reserve_freshness_table(self) -> Self:
+        """Reject source tables that conflict with freshness metadata."""
+        offenders = [
+            table.name for table in self.tables if table.table_name == "freshness"
+        ]
+
+        if offenders:
+            message = f"Table name 'freshness' is reserved: {sorted(offenders)}"
+            raise ValueError(message)
+
+        return self
+
+    @model_validator(mode="after")
     def require_claim_for_rls(self) -> Self:
         """Reject rls tables nested under a schema with no claim."""
         for name, schema in self.schemas.items():
@@ -197,6 +210,8 @@ class PartitionedTablePlan(BaseModel):
     """
     current_partitions: dict[str, PhysicalPartition]
     changed_paths: dict[str, str]
+    previous_partitions: dict[str, PhysicalPartition] = {}
+    """Prior state for changed partitions that already exist."""
     removed_partitions: dict[str, PhysicalPartition]
 
     @model_validator(mode="after")
@@ -204,6 +219,10 @@ class PartitionedTablePlan(BaseModel):
         """Require changed and removed IDs to match their respective manifests."""
         if not set(self.changed_paths) <= set(self.current_partitions):
             msg = "Changed partition paths must exist in the current manifest"
+            raise ValueError(msg)
+
+        if not set(self.previous_partitions) <= set(self.changed_paths):
+            msg = "Previous partitions must be changed partitions"
             raise ValueError(msg)
 
         if set(self.removed_partitions) & set(self.current_partitions):
@@ -240,6 +259,21 @@ class SyncPlan(BaseModel):
             message = "Tables cannot have ordinary and partitioned plans"
             raise ValueError(message)
         return self
+
+
+class PublicationDecision(BaseModel):
+    """Publishable plan and failures derived from extraction results."""
+
+    plan: SyncPlan
+    blocked_tables: set[str]
+    failed_partitions: dict[str, set[str]]
+
+
+class PublicationResult(BaseModel):
+    """Exact plan and table set published by the finalizer."""
+
+    plan: SyncPlan
+    published_tables: set[str]
 
 
 class FinalizeMessage(BaseModel):

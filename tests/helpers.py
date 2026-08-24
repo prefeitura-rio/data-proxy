@@ -72,11 +72,7 @@ class FakePgConn:
     def __init__(self) -> None:
         self.executed = []
 
-    @property
-    def execute_calls(self) -> int:
-        return len(self.executed)
-
-    def execute(self, query: object, params: object = None) -> FakePgConn:
+    def execute(self, query: object, _params: object = None) -> FakePgConn:
         self.executed.append(query)
         return self
 
@@ -102,12 +98,14 @@ class FakeRedis:
     store: dict[str, str]
     set_calls: list[tuple[str, object, int | None]]
     xtrim_calls: list[tuple[str, str | None]]
+    sets: dict[str, set[str]]
 
     def __init__(self, decr_value: int = 1) -> None:
         self._decr_value = decr_value
         self.store = {}
         self.set_calls = []
         self.xtrim_calls = []
+        self.sets = {}
 
     async def get(self, key: str) -> str | None:
         """Return one stored string value."""
@@ -127,7 +125,23 @@ class FakeRedis:
         removed = 0
         for key in keys:
             removed += self.store.pop(key, None) is not None
+            removed += self.sets.pop(key, None) is not None
         return removed
+
+    async def sadd(self, key: str, *values: object) -> int:
+        """Add values to one set."""
+        members = self.sets.setdefault(key, set())
+        before = len(members)
+        members.update(str(value) for value in values)
+        return len(members) - before
+
+    async def smembers(self, key: str) -> set[str]:
+        """Return members of one set."""
+        return self.sets.get(key, set())
+
+    async def expire(self, key: str, _seconds: int) -> bool:
+        """Accept a TTL for an existing test key."""
+        return key in self.store or key in self.sets
 
     async def xtrim(
         self,

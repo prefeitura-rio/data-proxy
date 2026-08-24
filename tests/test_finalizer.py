@@ -2,14 +2,14 @@
 
 from contextlib import AbstractContextManager
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
 
-from dp.models import FinalizeMessage, SyncPlan
+from dp.models import FinalizeMessage, PublicationResult, SyncPlan
 from dp.sync.finalizer import broker, ensure_consumer_group, finalize_sync, finalizer
 
 
@@ -55,7 +55,10 @@ async def test_applies_plan_commits_state_and_exits(
             "dp.sync.finalizer.connect",
             return_value=FakeDuckDBConnection(),
         ),
-        patch("dp.sync.finalizer.apply_sync_plan") as apply,
+        patch(
+            "dp.sync.finalizer.apply_sync_plan",
+            return_value=PublicationResult(plan=plan, published_tables={"p.d.t"}),
+        ) as apply,
         patch(
             "dp.sync.finalizer.commit_sync_state",
             new_callable=AsyncMock,
@@ -71,7 +74,7 @@ async def test_applies_plan_commits_state_and_exits(
     publish.assert_awaited_once()
     read.assert_awaited_once()
     apply.assert_called_once()
-    commit.assert_awaited_once()
+    commit.assert_awaited_once_with(ANY, plan, {"p.d.t"})
     exit_app.assert_called_once()
 
 

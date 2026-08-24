@@ -181,6 +181,11 @@ async def plan_partitioned_table(
         full_rebuild=rebuild,
         current_partitions=current,
         changed_paths=paths,
+        previous_partitions={
+            partition_id: previous[partition_id]
+            for partition_id in changed
+            if partition_id in previous
+        },
         removed_partitions={
             partition_id: previous[partition_id] for partition_id in removed
         },

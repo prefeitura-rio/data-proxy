@@ -81,6 +81,24 @@ curl --include --header "Authorization: Bearer ${TOKEN}" \
 
 The total appears in the response's `Content-Range` header, not in the JSON body.
 
+## Data Freshness
+
+Each configured schema has a `freshness` endpoint. Use the schema profile of the data table:
+
+```bash
+curl --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  "${BASE_URL}/freshness?table=eq.participants"
+```
+
+A full table has one row. Its `partition` value is null. A partitioned table has one row for each known partition.
+
+- **`updated_at`**: UTC time of the last publication.
+- **`attempted_at`**: UTC time of the latest synchronization attempt.
+- **`status`**: Result of the latest attempt. The value is `success` or `failure`.
+
+After a failed update of an existing partition, `updated_at` does not change. Data Proxy continues to serve the old partition data. `attempted_at` changes. The `status` value is `failure`. A failed new partition has a null `updated_at` value. Data Proxy has not published data for this partition.
+
 ## Full Example
 
 ```bash

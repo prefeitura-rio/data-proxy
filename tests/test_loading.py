@@ -1,26 +1,23 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
-from unittest.mock import ANY, patch
+from datetime import UTC, datetime
+from unittest.mock import ANY, call, patch
 
 import pytest
 from helpers import FakeDuckDBConnection, FakePgConn, postgres_connection
 from psycopg.sql import Composable
 
-from dp.loading import (
-    apply_sync_plan,
+from dp.authorization import (
     bootstrap_table,
     claim_session_var,
-    create_incremental_shadow,
-    initialize_schemas,
-    load_table,
-    partition_predicate,
-    prepare_tables,
-    publish_prepared_tables,
-    publish_table,
-    reload_postgrest,
     schema_scope_predicate,
-    validate_sync_plan,
 )
+from dp.freshness import (
+    delete_freshness,
+    update_published_freshness,
+    upsert_freshness,
+)
+from dp.loading import apply_sync_plan, validate_sync_plan
 from dp.models import (
     FullTable,
     IndexConfig,
@@ -35,6 +32,16 @@ from dp.models import (
     TimeRangeSelection,
     UnitMapping,
 )
+from dp.publication import (
+    create_incremental_shadow,
+    load_table,
+    partition_predicate,
+    prepare_tables,
+    publish_prepared_tables,
+    publish_table,
+    reduce_sync_plan,
+)
+from dp.schema import initialize_schemas, reload_postgrest
 from dp.templates import TemplateSpec
 
 
@@ -64,7 +71,7 @@ def test_create_incremental_shadow_excludes_affected_ranges() -> None:
         rendered.append(spec)
         return "SELECT 1"
 
-    with patch("dp.loading.load_template", side_effect=render):
+    with patch("dp.publication.load_template", side_effect=render):
         create_incremental_shadow(
             postgres_connection(connection),
             PartitionedTable(name="p.app.people"),
@@ -129,7 +136,7 @@ def test_bootstrap_grants_access_without_rls() -> None:
     """A non-RLS table receives its read grant and a schema-scope policy."""
     connection = FakePgConn()
 
-    with patch("dp.loading.load_template", side_effect=template_name):
+    with patch("dp.authorization.load_template", side_effect=template_name):
         bootstrap_table(
             postgres_connection(connection),
             schema="app",
@@ -145,7 +152,7 @@ def test_bootstrap_installs_access_policy_check() -> None:
     """A protected table renders grants and its access_policy check together."""
     connection = FakePgConn()
 
-    with patch("dp.loading.load_template", side_effect=template_name):
+    with patch("dp.authorization.load_template", side_effect=template_name):
         bootstrap_table(
             postgres_connection(connection),
             schema="app",
@@ -171,7 +178,7 @@ def test_bootstrap_requires_a_configured_claim_for_protected_tables() -> None:
     connection = FakePgConn()
 
     with (
-        patch("dp.loading.load_template", return_value="SELECT 1"),
+        patch("dp.authorization.load_template", return_value="SELECT 1"),
         pytest.raises(RuntimeError, match="identity claim"),
     ):
         bootstrap_table(
@@ -196,7 +203,7 @@ def test_load_table_uses_exact_paths() -> None:
     duckdb = FakeDuckDBConnection()
     paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
 
-    with patch("dp.loading.load_template", return_value="SELECT 1"):
+    with patch("dp.publication.load_template", return_value="SELECT 1"):
         load_table(duckdb, "app", "table__next", paths)
 
     assert duckdb.executed == ["SELECT 1", "SELECT 1"]
@@ -210,7 +217,7 @@ def test_publish_table_swaps_before_index_creation() -> None:
         indexes=[IndexConfig(name="idx_table", columns=["id"])],
     )
 
-    with patch("dp.loading.load_template", side_effect=template_name):
+    with patch("dp.publication.load_template", side_effect=template_name):
         publish_table(postgres_connection(connection), table)
 
     assert connection.executed == [
@@ -229,7 +236,10 @@ def test_initialize_schemas_creates_roles_then_schemas() -> None:
         }
     )
 
-    with patch("dp.loading.load_template", side_effect=template_name):
+    with (
+        patch("dp.schema.load_template", side_effect=template_name),
+        patch("dp.authorization.load_template", side_effect=template_name),
+    ):
         initialize_schemas(postgres_connection(connection), config)
 
     assert connection.executed[0] == b"pg/init_roles"
@@ -248,7 +258,7 @@ def test_reload_postgrest_revokes_then_notifies() -> None:
         schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.one")])}
     )
 
-    with patch("dp.loading.load_template", return_value="SELECT 1"):
+    with patch("dp.schema.load_template", return_value="SELECT 1"):
         reload_postgrest(postgres_connection(connection), config)
 
     assert connection.executed == [
@@ -308,9 +318,9 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
     duckdb = FakeDuckDBConnection()
 
     with (
-        patch("dp.loading.load_template", return_value="SELECT 1"),
-        patch("dp.loading.bootstrap_table") as bootstrap,
-        patch("dp.loading.load_table") as load,
+        patch("dp.publication.load_template", return_value="SELECT 1"),
+        patch("dp.publication.bootstrap_table") as bootstrap,
+        patch("dp.publication.load_table") as load,
     ):
         prepared = prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
 
@@ -352,17 +362,116 @@ def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
     duckdb = FakeDuckDBConnection()
 
     with (
-        patch("dp.loading.load_template", return_value="SELECT 1"),
-        patch("dp.loading.bootstrap_table"),
+        patch("dp.publication.load_template", return_value="SELECT 1"),
+        patch("dp.publication.bootstrap_table"),
         patch(
-            "dp.loading.load_table",
+            "dp.publication.load_table",
             side_effect=[None, RuntimeError("boom")],
         ),
         patch("dp.loading.publish_prepared_tables") as publish,
     ):
         apply_sync_plan(pg_conn, duckdb, config, plan)
 
-    publish.assert_called_once_with(pg_conn, [config.tables[0]])
+    publish.assert_called_once_with(pg_conn, [config.tables[0]], plan, {}, ANY)
+
+
+def test_reduce_sync_plan_keeps_plan_without_failures() -> None:
+    """A plan without failed paths stays eligible without failure details."""
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.app.people": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=False,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": "successful"},
+                removed_partitions={},
+            )
+        },
+    )
+
+    decision = reduce_sync_plan(plan, set())
+    reduced = decision.plan
+    blocked = decision.blocked_tables
+    failures = decision.failed_partitions
+
+    assert reduced == plan
+    assert blocked == set()
+    assert failures == {}
+
+
+def test_reduce_incremental_plan_keeps_failed_existing_partition() -> None:
+    """A failed existing partition keeps its old manifest entry and path."""
+    previous = physical_partition("10")
+    current = previous.model_copy(update={"signature": "new"})
+    successful = physical_partition("20")
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.app.people": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=False,
+                current_partitions={"10": current, "20": successful},
+                changed_paths={"10": "failed", "20": "successful"},
+                previous_partitions={"10": previous},
+                removed_partitions={},
+            )
+        },
+    )
+
+    decision = reduce_sync_plan(plan, {"failed"})
+    reduced = decision.plan
+    blocked = decision.blocked_tables
+    failures = decision.failed_partitions
+    table_plan = reduced.partitioned_tables["p.app.people"]
+
+    assert blocked == set()
+    assert failures == {"p.app.people": {"10"}}
+    assert table_plan.changed_paths == {"20": "successful"}
+    assert table_plan.current_partitions == {"10": previous, "20": successful}
+
+
+def test_reduce_incremental_plan_omits_failed_new_partition() -> None:
+    """A failed new partition is absent from the publication manifest."""
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.app.people": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=False,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": "failed"},
+                removed_partitions={},
+            )
+        },
+    )
+
+    decision = reduce_sync_plan(plan, {"failed"})
+    reduced = decision.plan
+    blocked = decision.blocked_tables
+
+    assert blocked == set()
+    assert reduced.partitioned_tables["p.app.people"].current_partitions == {}
+
+
+def test_reduce_sync_plan_blocks_failed_full_rebuild() -> None:
+    """A failed partition blocks a complete partitioned rebuild."""
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.app.people": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=True,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": "failed"},
+                removed_partitions={},
+            )
+        },
+    )
+
+    decision = reduce_sync_plan(plan, {"failed"})
+
+    assert decision.blocked_tables == {"p.app.people"}
 
 
 def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
@@ -387,10 +496,10 @@ def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
     duckdb = FakeDuckDBConnection()
 
     with (
-        patch("dp.loading.load_template", return_value="SELECT 1"),
-        patch("dp.loading.create_incremental_shadow") as create_shadow,
-        patch("dp.loading.bootstrap_table"),
-        patch("dp.loading.load_table") as load,
+        patch("dp.publication.load_template", return_value="SELECT 1"),
+        patch("dp.publication.create_incremental_shadow") as create_shadow,
+        patch("dp.publication.bootstrap_table"),
+        patch("dp.publication.load_table") as load,
     ):
         prepared = prepare_tables(
             pg_conn,
@@ -431,10 +540,10 @@ def test_prepare_tables_full_rebuilds_partitioned_table_from_parquet() -> None:
         return "SELECT 1"
 
     with (
-        patch("dp.loading.load_template", side_effect=render),
-        patch("dp.loading.create_incremental_shadow") as create_shadow,
-        patch("dp.loading.bootstrap_table"),
-        patch("dp.loading.load_table") as load,
+        patch("dp.publication.load_template", side_effect=render),
+        patch("dp.publication.create_incremental_shadow") as create_shadow,
+        patch("dp.publication.bootstrap_table"),
+        patch("dp.publication.load_table") as load,
     ):
         prepared = prepare_tables(
             pg_conn,
@@ -484,13 +593,102 @@ def test_prepare_tables_secures_shadow_before_load() -> None:
         calls.append("load")
 
     with (
-        patch("dp.loading.load_template", return_value="SELECT 1"),
-        patch("dp.loading.bootstrap_table", side_effect=record_bootstrap),
-        patch("dp.loading.load_table", side_effect=record_load),
+        patch("dp.publication.load_template", return_value="SELECT 1"),
+        patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
+        patch("dp.publication.load_table", side_effect=record_load),
     ):
         prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
 
     assert calls == ["bootstrap", "load"]
+
+
+def test_delete_freshness_uses_partition_template() -> None:
+    """A partition removal uses its freshness SQL template."""
+    connection = FakePgConn()
+    table = PartitionedTable(name="p.app.people", resolved_schema="app")
+
+    with patch("dp.freshness.load_template", return_value="DELETE") as render:
+        delete_freshness(postgres_connection(connection), table, "10")
+
+    assert render.call_args.args[0]["path"] == "pg/delete_partition_freshness"
+    assert connection.executed == [b"DELETE"]
+
+
+def test_upsert_freshness_uses_shared_status_enum_template() -> None:
+    """A freshness write uses the shared enum SQL template and values."""
+    connection = FakePgConn()
+    table = PartitionedTable(name="p.app.people", resolved_schema="app")
+    attempted_at = datetime.now(UTC)
+
+    with patch("dp.freshness.load_template", return_value="UPSERT") as render:
+        upsert_freshness(
+            postgres_connection(connection),
+            table,
+            "10",
+            attempted_at,
+            success=False,
+        )
+
+    assert render.call_args.args[0]["path"] == "pg/upsert_freshness"
+    assert connection.executed == [b"UPSERT"]
+
+
+def test_full_rebuild_freshness_replaces_all_partition_rows() -> None:
+    """A full rebuild resets freshness to its complete current manifest."""
+    table = PartitionedTable(name="p.app.people")
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            table.name: PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=True,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": "successful"},
+                removed_partitions={},
+            )
+        },
+    )
+    connection = postgres_connection(FakePgConn())
+    attempted_at = datetime.now(UTC)
+
+    with (
+        patch("dp.freshness.load_template", return_value="DELETE"),
+        patch("dp.freshness.upsert_freshness") as upsert,
+    ):
+        update_published_freshness(connection, table, plan, set(), attempted_at)
+
+    upsert.assert_called_once_with(connection, table, "10", attempted_at, success=True)
+
+
+def test_incremental_freshness_records_success_failure_and_removal() -> None:
+    """Freshness matches each result in a partial partition publication."""
+    table = PartitionedTable(name="p.app.people")
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            table.name: PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=False,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": "successful"},
+                removed_partitions={"30": physical_partition("30")},
+            )
+        },
+    )
+    connection = postgres_connection(FakePgConn())
+    attempted_at = datetime.now(UTC)
+
+    with (
+        patch("dp.freshness.upsert_freshness") as upsert,
+        patch("dp.freshness.delete_freshness") as delete,
+    ):
+        update_published_freshness(connection, table, plan, {"20"}, attempted_at)
+
+    assert upsert.call_args_list == [
+        call(connection, table, "10", attempted_at, success=True),
+        call(connection, table, "20", attempted_at, success=False),
+    ]
+    delete.assert_called_once_with(connection, table, "30")
 
 
 def test_publish_prepared_tables_swaps_each_table() -> None:
@@ -501,10 +699,46 @@ def test_publish_prepared_tables_swaps_each_table() -> None:
         FullTable(name="p.app.two"),
     ]
 
-    with patch("dp.loading.publish_table") as publish:
-        publish_prepared_tables(postgres_connection(connection), tables)
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={table.name: "new" for table in tables},
+        paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
+    )
+    with patch("dp.publication.publish_table") as publish:
+        result = publish_prepared_tables(
+            postgres_connection(connection),
+            tables,
+            plan,
+            {},
+            datetime.now(UTC),
+        )
 
     assert publish.call_count == 2
+    assert result == {"p.app.one", "p.app.two"}
+
+
+def test_publish_prepared_tables_excludes_failed_publication() -> None:
+    """A failed swap is not reported as synchronized."""
+    connection = FakePgConn()
+    tables = [FullTable(name="p.app.one"), FullTable(name="p.app.two")]
+
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={table.name: "new" for table in tables},
+        paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
+    )
+    with patch(
+        "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
+    ):
+        result = publish_prepared_tables(
+            postgres_connection(connection),
+            tables,
+            plan,
+            {"p.app.one": {"10"}},
+            datetime.now(UTC),
+        )
+
+    assert result == {"p.app.two"}
 
 
 def test_apply_sync_plan_delegates_all_steps() -> None:
@@ -523,11 +757,85 @@ def test_apply_sync_plan_delegates_all_steps() -> None:
     with (
         patch("dp.loading.initialize_schemas") as initialize,
         patch("dp.loading.prepare_tables", return_value=[config.tables[0]]),
-        patch("dp.loading.publish_prepared_tables") as publish,
+        patch(
+            "dp.loading.publish_prepared_tables",
+            return_value={"p.app.changed"},
+        ) as publish,
         patch("dp.loading.reload_postgrest") as reload,
     ):
-        apply_sync_plan(pg_conn, duckdb, config, plan)
+        result = apply_sync_plan(pg_conn, duckdb, config, plan)
 
     initialize.assert_called_once()
     publish.assert_called_once()
     reload.assert_called_once()
+    assert result.plan == plan
+    assert result.published_tables == {"p.app.changed"}
+
+
+def test_apply_sync_plan_records_failure_without_incremental_publication() -> None:
+    """A fully failed incremental change records failure without a swap."""
+    table = PartitionedTable(name="p.app.people")
+    path = "s3://bucket/people/10.parquet"
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            table.name: PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=False,
+                current_partitions={"10": physical_partition("10")},
+                changed_paths={"10": path},
+                removed_partitions={},
+            )
+        },
+    )
+    pg_conn = postgres_connection(FakePgConn())
+
+    with (
+        patch("dp.loading.initialize_schemas"),
+        patch("dp.loading.prepare_tables", return_value=[]) as prepare,
+        patch("dp.loading.upsert_freshness") as upsert,
+        patch("dp.loading.publish_prepared_tables", return_value=set()),
+        patch("dp.loading.reload_postgrest"),
+    ):
+        result = apply_sync_plan(
+            pg_conn,
+            FakeDuckDBConnection(),
+            SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+            plan,
+            {path},
+        )
+
+    prepare.assert_called_once_with(pg_conn, ANY, ANY, ANY, set())
+    upsert.assert_called_once_with(pg_conn, table, "10", ANY, success=False)
+    assert result.published_tables == set()
+
+
+def test_apply_sync_plan_excludes_extraction_failures() -> None:
+    """A table with a failed extraction is not prepared from stale Parquet."""
+    config = SyncConfig(
+        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
+    )
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.app.changed": "100"},
+        paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
+    )
+    pg_conn = postgres_connection(FakePgConn())
+
+    with (
+        patch("dp.loading.initialize_schemas"),
+        patch("dp.loading.prepare_tables", return_value=[]) as prepare,
+        patch("dp.loading.publish_prepared_tables", return_value=set()),
+        patch("dp.loading.reload_postgrest"),
+    ):
+        result = apply_sync_plan(
+            pg_conn,
+            FakeDuckDBConnection(),
+            config,
+            plan,
+            {"s3://bucket/changed/data.parquet"},
+        )
+
+    prepare.assert_called_once_with(pg_conn, ANY, config, plan, set())
+    assert result.plan == plan
+    assert result.published_tables == set()

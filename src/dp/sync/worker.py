@@ -21,7 +21,7 @@ from ..extraction import extract_task
 from ..logging import configure_logging
 from ..models import FinalizeMessage, ShutdownMessage, SyncTask
 from ..settings import settings
-from ..state import complete_task
+from ..state import complete_task, record_task_failure
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -55,22 +55,22 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
     )
 )
 async def process_shard(task: SyncTask) -> None:
-    """Extract one task and update its synchronization run.
-
-    An extraction failure is logged and skipped rather than stopping the
-    worker; the task's Parquet file is simply never written.
-    """
+    """Extract one task and record its success or failure."""
+    extraction_error: Exception | None = None
     try:
         await asyncify(extract_task_wrapper)(task)
     except Exception as error:
+        extraction_error = error
         logger.opt(exception=error).error(
-            "Extraction failed table={} sync_id={} bucket_path={} — skipping task",
+            "Extraction failed table={} sync_id={} bucket_path={}",
             task.table,
             task.sync_id,
             task.bucket_path,
         )
 
     async with settings.make_redis() as redis:
+        if extraction_error is not None:
+            await record_task_failure(redis, task.sync_id, task.bucket_path)
         remaining = await complete_task(redis, task.sync_id)
 
     if remaining == 0:

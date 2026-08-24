@@ -3,6 +3,7 @@
 FINALIZERS_GROUP = "finalizers"
 SYNC_ACTIVE_KEY = "dp:sync:active"
 SYNC_FINALIZE_STREAM = "dp:sync:finalize"
+SYNC_FAILURES_KEY = "dp:sync:failures:{sync_id}"
 SYNC_JOB_KEY = "dp:sync:job:{sync_id}"
 SYNC_JOB_TTL_SECONDS = 3_600
 SYNC_PARTITIONS_KEY = "dp:sync:partitions:{bq_table}"

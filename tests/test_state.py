@@ -6,6 +6,7 @@ from redis.exceptions import ResponseError
 
 from dp.constants import (
     SYNC_ACTIVE_KEY,
+    SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
@@ -26,9 +27,11 @@ from dp.state import (
     create_consumer_group,
     decode_redis_value,
     has_active_run,
+    read_failed_paths,
     read_partition_manifest,
     read_sync_plan,
     read_table_signature,
+    record_task_failure,
     save_sync_plan,
     trim_stale_entries,
 )
@@ -102,10 +105,39 @@ async def test_commits_sync_state() -> None:
     )
 
     await save_sync_plan(redis_client(fake), plan, 1)
-    await commit_sync_state(redis_client(fake), plan)
+    await commit_sync_state(redis_client(fake), plan, {"p.d.t"})
 
     assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
     assert SYNC_ACTIVE_KEY not in fake.store
+
+
+@pytest.mark.asyncio
+async def test_does_not_commit_unpublished_partition_manifest() -> None:
+    """An unpublished partitioned table keeps its prior manifest."""
+    partition = PhysicalPartition(
+        partition_id="0",
+        signature="new",
+        selection=RangeSelection(partition_id="0", column="cpf", lower=0, upper=10),
+    )
+    fake = FakeRedis()
+    key = SYNC_PARTITIONS_KEY.format(bq_table="p.d.t")
+    fake.store[key] = "old"
+    plan = SyncPlan(
+        sync_id="s1",
+        partitioned_tables={
+            "p.d.t": PartitionedTablePlan(
+                table_signature="table",
+                full_rebuild=True,
+                current_partitions={"0": partition},
+                changed_paths={"0": "s3://b/t/0.parquet"},
+                removed_partitions={},
+            )
+        },
+    )
+
+    await commit_sync_state(redis_client(fake), plan, set())
+
+    assert fake.store[key] == "old"
 
 
 @pytest.mark.asyncio
@@ -131,13 +163,45 @@ async def test_reads_and_commits_partition_manifest() -> None:
     )
 
     assert await read_partition_manifest(redis_client(fake), "p.d.t") is None
-    await commit_sync_state(redis_client(fake), plan)
+    await commit_sync_state(redis_client(fake), plan, {"p.d.t"})
 
     result = await read_partition_manifest(redis_client(fake), "p.d.t")
     assert result == PartitionManifest(
         table_signature="table", partitions={"0": partition}
     )
     assert SYNC_PARTITIONS_KEY.format(bq_table="p.d.t") in fake.store
+
+
+@pytest.mark.asyncio
+async def test_commits_only_published_tables() -> None:
+    """Failed tables keep their old state and stay eligible for retry."""
+    fake = FakeRedis()
+    failed_key = SYNC_STATE_KEY.format(bq_table="p.d.failed")
+    fake.store[failed_key] = "old"
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.d.ok": "new-ok", "p.d.failed": "new-failed"},
+        paths={
+            "p.d.ok": ["s3://b/ok.parquet"],
+            "p.d.failed": ["s3://b/failed.parquet"],
+        },
+    )
+
+    await commit_sync_state(redis_client(fake), plan, {"p.d.ok"})
+
+    assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.ok")] == "new-ok"
+    assert fake.store[failed_key] == "old"
+
+
+@pytest.mark.asyncio
+async def test_records_and_reads_extraction_failures() -> None:
+    """Extraction failures are available to the finalizer by task path."""
+    fake = FakeRedis()
+
+    await record_task_failure(redis_client(fake), "s1", "s3://b/t.parquet")
+
+    assert await read_failed_paths(redis_client(fake), "s1") == {"s3://b/t.parquet"}
+    assert SYNC_FAILURES_KEY.format(sync_id="s1") in fake.sets
 
 
 @pytest.mark.asyncio

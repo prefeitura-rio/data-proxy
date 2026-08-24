@@ -8,6 +8,7 @@ from redis.exceptions import ResponseError
 
 from .constants import (
     SYNC_ACTIVE_KEY,
+    SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
@@ -82,14 +83,23 @@ async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
     return SyncPlan.model_validate_json(raw)
 
 
-async def commit_sync_state(redis: Redis, plan: SyncPlan) -> None:
-    """Commit all table signatures after successful publication."""
-    await redis.delete(SYNC_ACTIVE_KEY)
+async def commit_sync_state(
+    redis: Redis, plan: SyncPlan, published_tables: set[str]
+) -> None:
+    """Commit state only for tables published successfully."""
+    await redis.delete(
+        SYNC_ACTIVE_KEY,
+        SYNC_FAILURES_KEY.format(sync_id=plan.sync_id),
+        SYNC_JOB_KEY.format(sync_id=plan.sync_id),
+    )
 
     for bq_table, signature in plan.signatures.items():
-        await redis.set(state_key(bq_table), signature)
+        if bq_table in published_tables:
+            await redis.set(state_key(bq_table), signature)
 
     for bq_table, table_plan in plan.partitioned_tables.items():
+        if bq_table not in published_tables:
+            continue
         manifest = PartitionManifest(
             table_signature=table_plan.table_signature,
             partitions=table_plan.current_partitions,
@@ -98,6 +108,19 @@ async def commit_sync_state(redis: Redis, plan: SyncPlan) -> None:
             SYNC_PARTITIONS_KEY.format(bq_table=bq_table),
             manifest.model_dump_json(),
         )
+
+
+async def record_task_failure(redis: Redis, sync_id: str, task_path: str) -> None:
+    """Record the path of one failed extraction task."""
+    key = SYNC_FAILURES_KEY.format(sync_id=sync_id)
+    await redis.sadd(key, task_path)
+    await redis.expire(key, SYNC_PLAN_TTL_SECONDS)
+
+
+async def read_failed_paths(redis: Redis, sync_id: str) -> set[str]:
+    """Return failed extraction paths for one run."""
+    values = await redis.smembers(SYNC_FAILURES_KEY.format(sync_id=sync_id))
+    return {value.decode() if isinstance(value, bytes) else value for value in values}
 
 
 async def complete_task(redis: Redis, sync_id: str) -> int:
