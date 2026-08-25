@@ -27,6 +27,7 @@ from ..models import (
 )
 from ..settings import settings
 from ..state import (
+    cleanup_consumer,
     commit_sync_state,
     create_consumer_group,
     read_failed_paths,
@@ -40,6 +41,12 @@ broker = RedisBroker(
 finalizer = FastStream(broker)
 
 CONSUMER = str(uuid4())
+FINALIZE_SUB = StreamSub(
+    SYNC_FINALIZE_STREAM,
+    group=FINALIZERS_GROUP,
+    consumer=CONSUMER,
+    min_idle_time=settings.FINALIZER_VISIBILITY_TIMEOUT_MS,
+)
 
 
 @finalizer.on_startup
@@ -60,13 +67,7 @@ def apply_sync_plan_wrapper(
         return apply_sync_plan(pg_conn, duckdb_conn, config, plan, failed_paths)
 
 
-@broker.subscriber(
-    stream=StreamSub(
-        SYNC_FINALIZE_STREAM,
-        group=FINALIZERS_GROUP,
-        consumer=CONSUMER,
-    )
-)
+@broker.subscriber(stream=FINALIZE_SUB)
 async def finalize_sync(message: FinalizeMessage) -> None:
     """Apply one required synchronization plan and commit its state."""
     await broker.publish(
@@ -89,6 +90,13 @@ async def finalize_sync(message: FinalizeMessage) -> None:
         await commit_sync_state(redis, result.plan, result.published_tables)
 
     finalizer.exit()
+
+
+@finalizer.on_shutdown
+async def cleanup_finalizer_consumer() -> None:
+    """Remove this finalizer consumer when it has no pending message."""
+    async with settings.make_redis() as redis:
+        await cleanup_consumer(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP, CONSUMER)
 
 
 if __name__ == "__main__":

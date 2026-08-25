@@ -41,8 +41,11 @@ from dp.state import (
     create_run,
     decode_redis_value,
     has_active_run,
+    has_pending_finalize_message,
+    read_active_sync_id,
     read_failed_paths,
     read_partition_manifest,
+    read_remaining_tasks,
     read_sync_plan,
     read_table_signature,
     trim_stale_entries,
@@ -424,6 +427,48 @@ async def test_active_run_detected_from_flag() -> None:
     fake.store[SYNC_ACTIVE_KEY] = "s1"
 
     assert await has_active_run(redis_client(fake)) is True
+
+
+@pytest.mark.asyncio
+async def test_reads_active_sync_id() -> None:
+    """The active run ID is read from the active flag."""
+    fake = FakeRedis()
+    fake.store[SYNC_ACTIVE_KEY] = "s1"
+
+    assert await read_active_sync_id(redis_client(fake)) == "s1"
+    assert await read_active_sync_id(redis_client(FakeRedis())) is None
+
+
+@pytest.mark.asyncio
+async def test_reads_remaining_task_count() -> None:
+    """The remaining task count is read from the run counter."""
+    fake = FakeRedis()
+    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 3)
+
+    assert await read_remaining_tasks(redis_client(fake), "s1") == 3
+
+
+@pytest.mark.asyncio
+async def test_missing_task_counter_fails() -> None:
+    """A missing task counter is reported instead of guessed."""
+    with pytest.raises(RuntimeError, match="Task counter not found"):
+        await read_remaining_tasks(redis_client(FakeRedis()), "s1")
+
+
+@pytest.mark.asyncio
+async def test_pending_finalize_message_returns_false_when_empty() -> None:
+    """An idle finalizer stream has no pending finalizer message."""
+    fake = FakeRedis()
+
+    assert await has_pending_finalize_message(redis_client(fake)) is False
+
+
+@pytest.mark.asyncio
+async def test_pending_finalize_message_detected_in_group() -> None:
+    """A pending finalizer message keeps a run from being re-published."""
+    fake = FakeRedis(pending_groups={("dp:sync:finalize", "finalizers")})
+
+    assert await has_pending_finalize_message(redis_client(fake)) is True
 
 
 @pytest.mark.asyncio

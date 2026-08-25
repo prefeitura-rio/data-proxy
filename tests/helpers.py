@@ -104,6 +104,7 @@ class FakeRedis:
     transaction_commands: list[str]
     conflict_store_updates: dict[str, str]
     pending_consumers: set[str]
+    pending_groups: set[tuple[str, str]]
     cleanup_error: RedisError | None
     deleted_consumers: list[tuple[str, str, str]]
 
@@ -112,6 +113,7 @@ class FakeRedis:
         watch_errors: int = 0,
         conflict_store_updates: dict[str, str] | None = None,
         pending_consumers: set[str] | None = None,
+        pending_groups: set[tuple[str, str]] | None = None,
         cleanup_error: RedisError | None = None,
     ) -> None:
         self.store = {}
@@ -123,6 +125,7 @@ class FakeRedis:
         self.transaction_commands = []
         self.conflict_store_updates = conflict_store_updates or {}
         self.pending_consumers = pending_consumers or set()
+        self.pending_groups = pending_groups or set()
         self.cleanup_error = cleanup_error
         self.deleted_consumers = []
 
@@ -161,10 +164,14 @@ class FakeRedis:
         _count: int,
         consumername: str | None = None,
     ) -> list[object]:
-        """Return a pending marker for configured consumers."""
+        """Return a pending marker for configured consumers or groups."""
         if self.cleanup_error is not None:
             raise self.cleanup_error
-        return [object()] if consumername in self.pending_consumers else []
+        if consumername in self.pending_consumers:
+            return [object()]
+        if (name, groupname) in self.pending_groups:
+            return [object()]
+        return []
 
     async def xgroup_delconsumer(
         self,

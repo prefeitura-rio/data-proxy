@@ -55,6 +55,17 @@ tests:
           value: dp:sync:finalize
         template: scaledjob-finalizer.yaml
 
+  - it: finalizer passes its configured visibility timeout
+    set:
+      finalizer.visibilityTimeoutMs: "1200000"
+    asserts:
+      - contains:
+          path: spec.jobTargetRef.template.spec.containers[0].env
+          content:
+            name: FINALIZER_VISIBILITY_TIMEOUT_MS
+            value: "1200000"
+        template: scaledjob-finalizer.yaml
+
   - it: worker uses configured maxReplicaCount without Job retries
     set:
       worker.keda.maxReplicaCount: 8

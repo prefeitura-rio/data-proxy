@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     GCS_USE_SSL: bool = False
     WORKER_MAX_RECORDS: int = 1
     WORKER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    FINALIZER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"

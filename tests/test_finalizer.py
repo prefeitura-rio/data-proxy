@@ -10,7 +10,14 @@ from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
 
 from dp.models import FinalizeMessage, PublicationResult, SyncPlan
-from dp.sync.finalizer import broker, ensure_consumer_group, finalize_sync, finalizer
+from dp.sync.finalizer import (
+    FINALIZE_SUB,
+    broker,
+    cleanup_finalizer_consumer,
+    ensure_consumer_group,
+    finalize_sync,
+    finalizer,
+)
 
 
 def patch_make_redis() -> AbstractContextManager[object]:
@@ -34,6 +41,28 @@ async def test_startup_ensures_consumer_group() -> None:
         await ensure_consumer_group()
 
     create.assert_awaited_once()
+
+
+def test_finalize_sub_reclaims_only_stale_messages() -> None:
+    """The finalizer uses the configured visibility timeout for auto-claim."""
+    assert FINALIZE_SUB.min_idle_time == 900_000
+
+
+@pytest.mark.asyncio
+async def test_finalizer_shutdown_cleans_its_consumer() -> None:
+    """Finalizer shutdown delegates consumer cleanup to state operations."""
+    with patch(
+        "dp.sync.finalizer.cleanup_consumer",
+        new_callable=AsyncMock,
+    ) as cleanup:
+        await cleanup_finalizer_consumer()
+
+    cleanup.assert_awaited_once_with(
+        ANY,
+        "dp:sync:finalize",
+        "finalizers",
+        ANY,
+    )
 
 
 @pytest.mark.asyncio

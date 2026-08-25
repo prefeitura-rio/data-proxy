@@ -178,6 +178,8 @@ worker:
 ## Finalizer ScaledJob — KEDA creates one Job pod per pending message on dp:sync:finalize.
 ## Only one finalizer runs at a time (maxReplicaCount: 1) because it writes all data.
 finalizer:
+  ## Time in milliseconds before a finalizer can reclaim a pending message.
+  visibilityTimeoutMs: 900000
   keda:
     ## Number of delivered-but-unacknowledged messages that keeps the
     ## finalizer Job alive, for the same reason as worker.keda.pendingEntriesCount.

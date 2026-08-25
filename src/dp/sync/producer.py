@@ -6,6 +6,7 @@ import uvloop
 from faststream import FastStream
 from faststream.redis import RedisBroker
 from loguru import logger
+from redis.asyncio import Redis
 
 from ..constants import (
     STREAM_TTL_SECONDS,
@@ -18,10 +19,37 @@ from ..logging import configure_logging
 from ..models import FinalizeMessage, SyncConfig
 from ..planning import build_sync_plan
 from ..settings import settings
-from ..state import create_consumer_group, create_run, trim_stale_entries
+from ..state import (
+    create_consumer_group,
+    create_run,
+    has_pending_finalize_message,
+    read_active_sync_id,
+    read_remaining_tasks,
+    trim_stale_entries,
+)
 
 broker = RedisBroker(str(settings.REDIS_URL))
 producer = FastStream(broker)
+
+
+async def recover_lost_finalization(redis: Redis) -> bool:
+    """Re-publish a lost finalizer message for a fully extracted run."""
+    sync_id = await read_active_sync_id(redis)
+    if sync_id is None:
+        return False
+
+    if await read_remaining_tasks(redis, sync_id) > 0:
+        return False
+
+    if await has_pending_finalize_message(redis):
+        return False
+
+    await broker.publish(
+        FinalizeMessage(sync_id=sync_id),
+        stream=SYNC_FINALIZE_STREAM,
+    )
+    logger.info("Recovered lost finalizer message sync_id={}", sync_id)
+    return True
 
 
 @producer.after_startup
@@ -36,6 +64,10 @@ async def publish_tasks() -> None:
         await trim_stale_entries(redis, SYNC_FINALIZE_STREAM, STREAM_TTL_SECONDS)
 
         await create_consumer_group(redis, SYNC_TASKS_STREAM, WORKERS_GROUP)
+
+        if await recover_lost_finalization(redis):
+            producer.exit()
+            return
 
         with connect() as db:
             plan, tasks = await build_sync_plan(

@@ -10,8 +10,10 @@ from redis.exceptions import RedisError, ResponseError, WatchError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from .constants import (
+    FINALIZERS_GROUP,
     SYNC_ACTIVE_KEY,
     SYNC_FAILURES_KEY,
+    SYNC_FINALIZE_STREAM,
     SYNC_JOB_KEY,
     SYNC_PARTITIONS_KEY,
     SYNC_PLAN_KEY,
@@ -243,6 +245,34 @@ async def complete_task(
 async def has_active_run(redis: Redis) -> bool:
     """Return True when a previous synchronization run has not completed."""
     return await redis.get(SYNC_ACTIVE_KEY) is not None
+
+
+async def read_active_sync_id(redis: Redis) -> str | None:
+    """Read the active synchronization run ID."""
+    return decode_redis_value(await redis.get(SYNC_ACTIVE_KEY))
+
+
+async def read_remaining_tasks(redis: Redis, sync_id: str) -> int:
+    """Read the required remaining task count for one run."""
+    raw = await redis.get(SYNC_JOB_KEY.format(sync_id=sync_id))
+
+    if raw is None:
+        raise RuntimeError(f"Task counter not found: {sync_id}")
+
+    return int(raw)
+
+
+async def has_pending_finalize_message(redis: Redis) -> bool:
+    """Return True when a finalizer message is pending or in flight."""
+    return bool(
+        await redis.xpending_range(
+            SYNC_FINALIZE_STREAM,
+            FINALIZERS_GROUP,
+            "-",
+            "+",
+            1,
+        )
+    )
 
 
 async def cleanup_consumer(
