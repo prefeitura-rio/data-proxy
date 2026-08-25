@@ -48,6 +48,8 @@ duckdb:
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
+  ## Number of PostgREST Deployment replicas.
+  replicas: 1
   ## External URL that PostgREST uses in the OpenAPI specification.
   ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
@@ -190,11 +192,11 @@ finalizer:
     pollingInterval: 30
 
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
-## This structure mirrors config/sync.json. See README.md for the full field reference.
+## See docs/sync.md for the full field reference.
 syncConfig:
-  ## List of BigQuery tables to synchronise.
-  ## Each entry is either a dump table (full replace) or a window table (last n partitions).
-  tables: []
+  ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
+  ## schema's identity claim and its list of tables. See docs/sync.md.
+  schemas: {}
 
 ## Role names, JWT claim, and schema configuration for row-level security.
 ## These values are rendered into the db-init ConfigMap and the PostgREST Deployment.

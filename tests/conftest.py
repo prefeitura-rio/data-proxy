@@ -11,6 +11,6 @@ from dp.settings import settings
 def sync_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point settings at an empty, temporary sync configuration file."""
     config = tmp_path / "sync.json"
-    config.write_text('{"tables": []}')
+    config.write_text('{"schemas": {}}')
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config)
     return config

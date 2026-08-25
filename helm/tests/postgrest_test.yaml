@@ -52,6 +52,20 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
 
+  - it: renders one replica by default
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: honors a custom postgrest replica count
+    set:
+      postgrest.replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
   - it: derives PGRST_DB_SCHEMAS from syncConfig.schemas
     set:
       syncConfig.schemas:
