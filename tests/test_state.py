@@ -2,7 +2,7 @@
 
 import pytest
 from helpers import FakeRedis, FakeRedisGroup, redis_client
-from redis.exceptions import ResponseError
+from redis.exceptions import ResponseError, WatchError
 
 from dp.constants import (
     SYNC_ACTIVE_KEY,
@@ -13,13 +13,19 @@ from dp.constants import (
     SYNC_PLAN_KEY,
     SYNC_PLAN_TTL_SECONDS,
     SYNC_STATE_KEY,
+    SYNC_TASK_RESULTS_KEY,
+    SYNC_TRANSACTION_RETRIES,
 )
 from dp.models import (
+    AllSelection,
     PartitionedTablePlan,
     PartitionManifest,
     PhysicalPartition,
     RangeSelection,
     SyncPlan,
+    SyncTask,
+    TaskFailure,
+    TaskSuccess,
 )
 from dp.state import (
     commit_sync_state,
@@ -31,7 +37,6 @@ from dp.state import (
     read_partition_manifest,
     read_sync_plan,
     read_table_signature,
-    record_task_failure,
     save_sync_plan,
     trim_stale_entries,
 )
@@ -193,23 +198,149 @@ async def test_commits_only_published_tables() -> None:
     assert fake.store[failed_key] == "old"
 
 
+def sync_task(path: str = "s3://b/t.parquet", sync_id: str = "s1") -> SyncTask:
+    """Return one stable task for completion tests."""
+    return SyncTask(
+        sync_id=sync_id,
+        table="p.d.t",
+        bucket_path=path,
+        selection=AllSelection(),
+    )
+
+
 @pytest.mark.asyncio
-async def test_records_and_reads_extraction_failures() -> None:
-    """Extraction failures are available to the finalizer by task path."""
+async def test_completes_each_task_once() -> None:
+    """Duplicate delivery does not decrement the remaining count twice."""
     fake = FakeRedis()
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "2"
+    task = sync_task()
+    outcome = TaskSuccess()
 
-    await record_task_failure(redis_client(fake), "s1", "s3://b/t.parquet")
+    first = await complete_task(redis_client(fake), task, outcome)
+    duplicate = await complete_task(redis_client(fake), task, outcome)
 
-    assert await read_failed_paths(redis_client(fake), "s1") == {"s3://b/t.parquet"}
-    assert SYNC_FAILURES_KEY.format(sync_id="s1") in fake.sets
+    assert first.first_completion is True
+    assert first.remaining == 1
+    assert first.should_finalize is False
+    assert duplicate.first_completion is False
+    assert duplicate.remaining == 1
+    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
 
 
 @pytest.mark.asyncio
-async def test_completes_task_returns_remaining_count() -> None:
-    """Task completion returns the remaining task counter."""
-    fake = FakeRedis(decr_value=0)
+async def test_final_unique_completion_requests_finalization() -> None:
+    """Only the final unique task requests finalization."""
+    fake = FakeRedis()
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
 
-    assert await complete_task(redis_client(fake), "s1") == 0
+    result = await complete_task(
+        redis_client(fake),
+        sync_task(),
+        TaskSuccess(),
+    )
+
+    assert result.should_finalize is True
+
+
+@pytest.mark.asyncio
+async def test_records_failed_path_in_typed_outcome() -> None:
+    """The finalizer can read a failed task path from the result hash."""
+    fake = FakeRedis()
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
+    path = "s3://b/failed.parquet"
+
+    await complete_task(
+        redis_client(fake),
+        sync_task(path),
+        TaskFailure(failed_path=path),
+    )
+
+    assert await read_failed_paths(redis_client(fake), "s1") == {path}
+    assert SYNC_TASK_RESULTS_KEY.format(sync_id="s1") in fake.hashes
+
+
+@pytest.mark.asyncio
+async def test_ignores_successful_task_outcome_when_reading_failures() -> None:
+    """A successful task outcome has no failed path."""
+    fake = FakeRedis()
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
+
+    await complete_task(redis_client(fake), sync_task(), TaskSuccess())
+
+    assert await read_failed_paths(redis_client(fake), "s1") == set()
+
+
+@pytest.mark.asyncio
+async def test_reads_legacy_failed_paths_during_rolling_deployment() -> None:
+    """A new finalizer reads failures recorded by an old worker."""
+    fake = FakeRedis()
+    key = SYNC_FAILURES_KEY.format(sync_id="s1")
+    fake.sets[key] = {"s3://b/legacy-failed.parquet"}
+
+    assert await read_failed_paths(redis_client(fake), "s1") == {
+        "s3://b/legacy-failed.parquet"
+    }
+
+
+@pytest.mark.asyncio
+async def test_completion_retries_watch_conflict_with_fixed_commands() -> None:
+    """A watch conflict retries one fixed transaction command sequence."""
+    remaining_key = SYNC_JOB_KEY.format(sync_id="s1")
+    fake = FakeRedis(
+        watch_errors=1,
+        conflict_store_updates={remaining_key: "1"},
+    )
+    fake.store[remaining_key] = "2"
+
+    result = await complete_task(
+        redis_client(fake),
+        sync_task(),
+        TaskSuccess(),
+    )
+
+    assert result.remaining == 0
+    assert result.should_finalize is True
+    assert fake.store[remaining_key] == "0"
+    assert fake.transaction_commands == ["hset", "set", "expire"]
+
+
+@pytest.mark.asyncio
+async def test_completion_requires_task_counter() -> None:
+    """A completion cannot infer a missing remaining count."""
+    with pytest.raises(RuntimeError, match="counter not found"):
+        await complete_task(
+            redis_client(FakeRedis()),
+            sync_task(),
+            TaskSuccess(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_completion_rejects_exhausted_counter() -> None:
+    """A new task cannot complete after the counter reaches zero."""
+    fake = FakeRedis()
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "0"
+
+    with pytest.raises(RuntimeError, match="Invalid task counter"):
+        await complete_task(
+            redis_client(fake),
+            sync_task(),
+            TaskSuccess(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_completion_stops_after_bounded_watch_conflicts() -> None:
+    """Persistent transaction conflicts fail after the configured limit."""
+    fake = FakeRedis(watch_errors=SYNC_TRANSACTION_RETRIES)
+    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
+
+    with pytest.raises(WatchError):
+        await complete_task(
+            redis_client(fake),
+            sync_task(),
+            TaskSuccess(),
+        )
 
 
 @pytest.mark.asyncio

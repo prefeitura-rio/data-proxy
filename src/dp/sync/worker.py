@@ -19,9 +19,15 @@ from ..duckdb import connect
 from ..errors import stop_on_error
 from ..extraction import extract_task
 from ..logging import configure_logging
-from ..models import FinalizeMessage, ShutdownMessage, SyncTask
+from ..models import (
+    FinalizeMessage,
+    ShutdownMessage,
+    SyncTask,
+    TaskFailure,
+    TaskSuccess,
+)
 from ..settings import settings
-from ..state import complete_task, record_task_failure
+from ..state import complete_task
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -68,12 +74,16 @@ async def process_shard(task: SyncTask) -> None:
             task.bucket_path,
         )
 
-    async with settings.make_redis() as redis:
-        if extraction_error is not None:
-            await record_task_failure(redis, task.sync_id, task.bucket_path)
-        remaining = await complete_task(redis, task.sync_id)
+    outcome = (
+        TaskSuccess()
+        if extraction_error is None
+        else TaskFailure(failed_path=task.bucket_path)
+    )
 
-    if remaining == 0:
+    async with settings.make_redis() as redis:
+        result = await complete_task(redis, task, outcome)
+
+    if result.should_finalize:
         await broker.publish(
             FinalizeMessage(sync_id=task.sync_id),
             stream=SYNC_FINALIZE_STREAM,

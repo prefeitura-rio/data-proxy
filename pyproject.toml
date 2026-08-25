@@ -17,6 +17,7 @@ dependencies = [
   "uvloop>=0.22.1",
   "asyncer>=0.0.18",
   "whenever>=0.10.5",
+  "tenacity>=9.1.4",
 ]
 
 [dependency-groups]

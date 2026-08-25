@@ -1,9 +1,17 @@
 """Data models for the sync pipeline."""
 
 from enum import StrEnum
-from typing import Annotated, Literal, Self
+from hashlib import sha256
+from typing import Annotated, ClassVar, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    computed_field,
+    model_validator,
+)
 
 
 class Strategy(StrEnum):
@@ -197,21 +205,56 @@ class SyncTask(BaseModel):
     selection: TaskSelection
     json_columns: list[str] = []
 
+    @computed_field
+    @property
+    def task_id(self) -> str:
+        """Return the deterministic identity for this run and task path."""
+        return sha256(f"{self.sync_id}:{self.bucket_path}".encode()).hexdigest()
+
+
+class TaskStatus(StrEnum):
+    """Result status for one extraction task."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+class TaskSuccess(BaseModel):
+    """Successful extraction task result."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    status: Literal[TaskStatus.SUCCESS] = TaskStatus.SUCCESS
+
+
+class TaskFailure(BaseModel):
+    """Failed extraction task result."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    status: Literal[TaskStatus.FAILURE] = TaskStatus.FAILURE
+    failed_path: str
+
+
+TaskOutcome = Annotated[TaskSuccess | TaskFailure, Field(discriminator="status")]
+
+
+class CompletionResult(BaseModel):
+    """Result of one idempotent task completion."""
+
+    first_completion: bool
+    remaining: int
+    should_finalize: bool
+
 
 class PartitionedTablePlan(BaseModel):
     """Current and affected physical partitions for one table."""
 
     table_signature: str
     full_rebuild: bool
-    """Whether every current partition must be reloaded.
-
-    Set on first sync or when the table-level signature changes (schema,
-    RLS, indexes, or BigQuery schema drift), instead of diffing field-by-field.
-    """
     current_partitions: dict[str, PhysicalPartition]
     changed_paths: dict[str, str]
     previous_partitions: dict[str, PhysicalPartition] = {}
-    """Prior state for changed partitions that already exist."""
     removed_partitions: dict[str, PhysicalPartition]
 
     @model_validator(mode="after")
@@ -286,3 +329,6 @@ class ShutdownMessage(BaseModel):
     """Broadcast telling every worker to exit once finalization starts."""
 
     sync_id: str
+
+
+task_outcome_adapter: TypeAdapter[TaskOutcome] = TypeAdapter(TaskOutcome)

@@ -3,7 +3,69 @@
 import pytest
 from pydantic import ValidationError
 
-from dp.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
+from dp.models import (
+    AllSelection,
+    FullTable,
+    SchemaConfig,
+    SyncConfig,
+    SyncTask,
+    TaskFailure,
+    TaskStatus,
+    TaskSuccess,
+    UnitMapping,
+    task_outcome_adapter,
+)
+
+
+def test_task_id_is_stable_for_one_run_and_path() -> None:
+    """Equal run and path values produce the same task identity."""
+    first = SyncTask(
+        sync_id="s1",
+        table="p.d.t",
+        bucket_path="s3://b/t.parquet",
+        selection=AllSelection(),
+    )
+    second = SyncTask(
+        sync_id="s1",
+        table="p.d.t",
+        bucket_path="s3://b/t.parquet",
+        selection=AllSelection(),
+    )
+
+    assert first.task_id == second.task_id
+
+
+def test_task_id_changes_with_run_or_path() -> None:
+    """A different run or path produces a different task identity."""
+    task = SyncTask(
+        sync_id="s1",
+        table="p.d.t",
+        bucket_path="s3://b/t.parquet",
+        selection=AllSelection(),
+    )
+    other_run = task.model_copy(update={"sync_id": "s2"})
+    other_path = task.model_copy(update={"bucket_path": "s3://b/other.parquet"})
+
+    assert len({task.task_id, other_run.task_id, other_path.task_id}) == 3
+
+
+def test_task_outcome_statuses_are_discriminated() -> None:
+    """Each task outcome exposes its fixed status value."""
+    assert TaskSuccess().status == TaskStatus.SUCCESS
+    assert TaskFailure(failed_path="s3://b/failed").status == TaskStatus.FAILURE
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"status": "success", "failed_path": "s3://b/failed"},
+        {"status": "failure"},
+    ],
+)
+def test_task_outcome_requires_matching_failed_path(values: dict[str, object]) -> None:
+    """Task status and failed path must describe the same outcome."""
+    with pytest.raises(ValidationError):
+        task_outcome_adapter.validate_python(values)
 
 
 def test_unit_mapping_pairs_column_and_type() -> None:

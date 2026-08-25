@@ -4,10 +4,13 @@ import contextlib
 from datetime import UTC, datetime, timedelta
 
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
+from redis.asyncio.client import Pipeline
+from redis.exceptions import ResponseError, WatchError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from .constants import (
     SYNC_ACTIVE_KEY,
+    SYNC_COMPLETION_TTL_SECONDS,
     SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
     SYNC_JOB_TTL_SECONDS,
@@ -15,10 +18,21 @@ from .constants import (
     SYNC_PLAN_KEY,
     SYNC_PLAN_TTL_SECONDS,
     SYNC_STATE_KEY,
+    SYNC_TASK_RESULTS_KEY,
     SYNC_TASKS_STREAM,
+    SYNC_TRANSACTION_RETRIES,
     WORKERS_GROUP,
 )
-from .models import PartitionManifest, SyncPlan
+from .models import (
+    CompletionResult,
+    PartitionManifest,
+    SyncPlan,
+    SyncTask,
+    TaskFailure,
+    TaskOutcome,
+    TaskSuccess,
+    task_outcome_adapter,
+)
 
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
@@ -91,6 +105,7 @@ async def commit_sync_state(
         SYNC_ACTIVE_KEY,
         SYNC_FAILURES_KEY.format(sync_id=plan.sync_id),
         SYNC_JOB_KEY.format(sync_id=plan.sync_id),
+        SYNC_TASK_RESULTS_KEY.format(sync_id=plan.sync_id),
     )
 
     for bq_table, signature in plan.signatures.items():
@@ -110,22 +125,114 @@ async def commit_sync_state(
         )
 
 
-async def record_task_failure(redis: Redis, sync_id: str, task_path: str) -> None:
-    """Record the path of one failed extraction task."""
-    key = SYNC_FAILURES_KEY.format(sync_id=sync_id)
-    await redis.sadd(key, task_path)
-    await redis.expire(key, SYNC_PLAN_TTL_SECONDS)
+def failed_path(outcome: TaskOutcome) -> str | None:
+    """Return the failed path from one typed task outcome."""
+    match outcome:
+        case TaskFailure(failed_path=path):
+            return path
+        case TaskSuccess():
+            return None
 
 
 async def read_failed_paths(redis: Redis, sync_id: str) -> set[str]:
-    """Return failed extraction paths for one run."""
-    values = await redis.smembers(SYNC_FAILURES_KEY.format(sync_id=sync_id))
-    return {value.decode() if isinstance(value, bytes) else value for value in values}
+    """Return failed paths from typed task outcomes and legacy workers."""
+    results_key = SYNC_TASK_RESULTS_KEY.format(sync_id=sync_id)
+    outcome_paths = [
+        failed_path(task_outcome_adapter.validate_json(value))
+        for value in await redis.hvals(results_key)
+    ]
+
+    legacy_failures = [
+        decode_redis_value(value)
+        for value in await redis.smembers(SYNC_FAILURES_KEY.format(sync_id=sync_id))
+    ]
+
+    return {path for path in [*outcome_paths, *legacy_failures] if path is not None}
 
 
-async def complete_task(redis: Redis, sync_id: str) -> int:
-    """Decrement a task counter and return the remaining task count."""
-    return await redis.decr(SYNC_JOB_KEY.format(sync_id=sync_id))
+async def read_completion_state(
+    pipe: Pipeline,
+    results_key: str,
+    remaining_key: str,
+    task: SyncTask,
+) -> CompletionResult | int:
+    """Return duplicate completion or current pending task state."""
+    remaining_raw = await pipe.get(remaining_key)
+    if remaining_raw is None:
+        raise RuntimeError(f"Task counter not found: {task.sync_id}")
+
+    remaining = int(remaining_raw)
+
+    if await pipe.hexists(results_key, task.task_id):
+        return CompletionResult(
+            first_completion=False,
+            remaining=remaining,
+            should_finalize=False,
+        )
+    if remaining <= 0:
+        raise RuntimeError(f"Invalid task counter: {task.sync_id}")
+
+    return remaining
+
+
+def queue_completion(
+    pipe: Pipeline,
+    results_key: str,
+    remaining_key: str,
+    task: SyncTask,
+    outcome: TaskOutcome,
+    next_remaining: int,
+) -> None:
+    """Queue one task result and remaining-count update."""
+    pipe.multi()
+    pipe.hset(results_key, task.task_id, outcome.model_dump_json())
+    pipe.set(
+        remaining_key,
+        next_remaining,
+        ex=SYNC_COMPLETION_TTL_SECONDS,
+    )
+    pipe.expire(results_key, SYNC_COMPLETION_TTL_SECONDS)
+
+
+@retry(
+    retry=retry_if_exception_type(WatchError),
+    stop=stop_after_attempt(SYNC_TRANSACTION_RETRIES),
+    reraise=True,
+)
+async def complete_task(
+    redis: Redis,
+    task: SyncTask,
+    outcome: TaskOutcome,
+) -> CompletionResult:
+    """Perform one optimistic task-completion transaction."""
+    results_key = SYNC_TASK_RESULTS_KEY.format(sync_id=task.sync_id)
+    remaining_key = SYNC_JOB_KEY.format(sync_id=task.sync_id)
+
+    async with redis.pipeline(transaction=True) as pipe:
+        await pipe.watch(results_key, remaining_key)
+        completion = await read_completion_state(pipe, results_key, remaining_key, task)
+
+        match completion:
+            case CompletionResult():
+                return completion
+            case int() as remaining:
+                next_remaining = remaining - 1
+
+        queue_completion(
+            pipe,
+            results_key,
+            remaining_key,
+            task,
+            outcome,
+            next_remaining,
+        )
+        await pipe.execute()
+
+    return CompletionResult(
+        first_completion=True,
+        remaining=next_remaining,
+        should_finalize=next_remaining == 0,
+    )
 
 
 async def has_active_run(redis: Redis) -> bool:

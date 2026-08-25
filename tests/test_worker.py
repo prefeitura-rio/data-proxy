@@ -7,7 +7,14 @@ from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection
 
 from dp.constants import SYNC_SHUTDOWN_CHANNEL
-from dp.models import AllSelection, ShutdownMessage, SyncTask
+from dp.models import (
+    AllSelection,
+    CompletionResult,
+    ShutdownMessage,
+    SyncTask,
+    TaskFailure,
+    TaskSuccess,
+)
 from dp.sync.worker import broker, process_shard, worker
 
 TASK = SyncTask(
@@ -19,38 +26,34 @@ TASK = SyncTask(
 
 
 @pytest.mark.parametrize(
-    ("remaining", "expect_publish"),
-    [
-        (1, False),
-        (0, True),
-    ],
+    "should_finalize",
+    [False, True],
 )
 @pytest.mark.asyncio
-async def test_process_shard_branches_on_counter(
-    remaining: int, expect_publish: bool
+async def test_process_shard_branches_on_completion_result(
+    should_finalize: bool,
 ) -> None:
-    """Task completion delegates extraction and publishes once the counter hits zero."""
+    """The worker publishes only for the final unique completion."""
     db = FakeDuckDBConnection()
     with (
         patch("dp.sync.worker.connect", return_value=db),
         patch("dp.sync.worker.extract_task") as extract,
         patch(
-            "dp.sync.worker.record_task_failure",
-            new_callable=AsyncMock,
-        ) as record_failure,
-        patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
-            return_value=remaining,
+            return_value=CompletionResult(
+                first_completion=True,
+                remaining=0 if should_finalize else 1,
+                should_finalize=should_finalize,
+            ),
         ) as complete,
         patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
     ):
         await process_shard(TASK)
 
     extract.assert_called_once_with(TASK, db)
-    record_failure.assert_not_awaited()
-    complete.assert_awaited_once()
-    assert publish.await_count == (1 if expect_publish else 0)
+    complete.assert_awaited_once_with(ANY, TASK, TaskSuccess())
+    assert publish.await_count == (1 if should_finalize else 0)
 
 
 @pytest.mark.asyncio
@@ -60,20 +63,23 @@ async def test_extraction_failure_is_recorded_before_task_completion() -> None:
         patch("dp.sync.worker.connect", return_value=FakeDuckDBConnection()),
         patch("dp.sync.worker.extract_task", side_effect=RuntimeError("failed")),
         patch(
-            "dp.sync.worker.record_task_failure",
-            new_callable=AsyncMock,
-        ) as record_failure,
-        patch(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
-            return_value=1,
+            return_value=CompletionResult(
+                first_completion=True,
+                remaining=1,
+                should_finalize=False,
+            ),
         ) as complete,
         patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
     ):
         await process_shard(TASK)
 
-    record_failure.assert_awaited_once_with(ANY, "s1", "s3://bucket/t/data.parquet")
-    complete.assert_awaited_once()
+    complete.assert_awaited_once_with(
+        ANY,
+        TASK,
+        TaskFailure(failed_path="s3://bucket/t/data.parquet"),
+    )
     publish.assert_not_called()
 
 

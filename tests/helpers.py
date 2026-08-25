@@ -13,6 +13,7 @@ from google.cloud.bigquery import (
 )
 from psycopg import Connection
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 
 def postgres_connection(fake: object) -> Connection:
@@ -94,25 +95,32 @@ class FakePgConn:
 class FakeRedis:
     """Async Redis double with counters and dictionary-backed values."""
 
-    _decr_value: int
     store: dict[str, str]
     set_calls: list[tuple[str, object, int | None]]
     xtrim_calls: list[tuple[str, str | None]]
     sets: dict[str, set[str]]
+    hashes: dict[str, dict[str, str]]
+    watch_errors: int
+    transaction_commands: list[str]
+    conflict_store_updates: dict[str, str]
 
-    def __init__(self, decr_value: int = 1) -> None:
-        self._decr_value = decr_value
+    def __init__(
+        self,
+        watch_errors: int = 0,
+        conflict_store_updates: dict[str, str] | None = None,
+    ) -> None:
         self.store = {}
         self.set_calls = []
         self.xtrim_calls = []
         self.sets = {}
+        self.hashes = {}
+        self.watch_errors = watch_errors
+        self.transaction_commands = []
+        self.conflict_store_updates = conflict_store_updates or {}
 
     async def get(self, key: str) -> str | None:
         """Return one stored string value."""
         return self.store.get(key)
-
-    async def decr(self, key: str) -> int:
-        return self._decr_value
 
     async def set(self, key: str, value: object, ex: int | None = None) -> bool:
         """Store one value and record the call."""
@@ -128,16 +136,17 @@ class FakeRedis:
             removed += self.sets.pop(key, None) is not None
         return removed
 
-    async def sadd(self, key: str, *values: object) -> int:
-        """Add values to one set."""
-        members = self.sets.setdefault(key, set())
-        before = len(members)
-        members.update(str(value) for value in values)
-        return len(members) - before
+    async def hvals(self, key: str) -> list[str]:
+        """Return all values from one hash."""
+        return list(self.hashes.get(key, {}).values())
 
     async def smembers(self, key: str) -> set[str]:
-        """Return members of one set."""
+        """Return members of one legacy failure set."""
         return self.sets.get(key, set())
+
+    def pipeline(self, transaction: bool = True) -> FakePipeline:
+        """Return one optimistic transaction double."""
+        return FakePipeline(self)
 
     async def expire(self, key: str, _seconds: int) -> bool:
         """Accept a TTL for an existing test key."""
@@ -163,6 +172,70 @@ class FakeRedis:
         mkstream: bool = False,
     ) -> None:
         pass
+
+
+@final
+class FakePipeline:
+    """Minimal optimistic Valkey transaction double."""
+
+    def __init__(self, redis: FakeRedis) -> None:
+        self.redis = redis
+        self.commands: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    async def __aenter__(self) -> FakePipeline:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+    async def watch(self, *keys: str) -> None:
+        """Accept watched keys for one transaction."""
+
+    async def get(self, key: str) -> str | None:
+        """Read one watched string value."""
+        return self.redis.store.get(key)
+
+    async def hexists(self, key: str, field: str) -> bool:
+        """Return whether one watched hash field exists."""
+        return field in self.redis.hashes.get(key, {})
+
+    def multi(self) -> None:
+        """Start queued transaction commands."""
+
+    def hset(self, key: str, field: str, value: object) -> None:
+        """Queue one hash result write."""
+        self.commands.append(("hset", (key, field, value), {}))
+
+    def set(self, key: str, value: object, **options: object) -> None:
+        """Queue one string write."""
+        self.commands.append(("set", (key, value), options))
+
+    def expire(self, key: str, seconds: int) -> None:
+        """Queue one TTL refresh."""
+        self.commands.append(("expire", (key, seconds), {}))
+
+    async def execute(self) -> list[object]:
+        """Apply queued commands or inject one watch conflict."""
+        if self.redis.watch_errors:
+            self.redis.watch_errors -= 1
+            self.redis.store.update(self.redis.conflict_store_updates)
+            raise WatchError
+
+        results: list[object] = []
+        self.redis.transaction_commands = [command for command, _, _ in self.commands]
+        for command, args, _options in self.commands:
+            if command == "hset":
+                key, field, value = args
+                hash_values = self.redis.hashes.setdefault(str(key), {})
+                hash_values[str(field)] = str(value)
+                results.append(1)
+            elif command == "set":
+                key, value = args
+                self.redis.store[str(key)] = str(value)
+                results.append(True)
+            elif command == "expire":
+                results.append(True)
+        return results
 
 
 @final
