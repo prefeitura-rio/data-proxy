@@ -105,14 +105,12 @@ omit = [
   "src/dp/models.py",
   "src/dp/settings.py",
   "src/dp/templates.py",
+  "src/dp/settings.py",
 ]
 
 [tool.coverage.report]
 show_missing = true
-exclude_lines = [
-  "if __name__ == .__main__.",
-  "pragma: no cover",
-]
+exclude_lines = ["if __name__ == .__main__.", "pragma: no cover"]
 
 [tool.vulture]
 ignore_decorators = [
