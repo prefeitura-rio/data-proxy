@@ -27,7 +27,7 @@ from ..models import (
     TaskSuccess,
 )
 from ..settings import settings
-from ..state import complete_task
+from ..state import cleanup_consumer, complete_task
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -37,6 +37,13 @@ broker = RedisBroker(
 worker = FastStream(broker)
 
 CONSUMER = str(uuid4())
+TASK_SUB = StreamSub(
+    SYNC_TASKS_STREAM,
+    group=WORKERS_GROUP,
+    consumer=CONSUMER,
+    max_records=settings.WORKER_MAX_RECORDS,
+    min_idle_time=settings.WORKER_VISIBILITY_TIMEOUT_MS,
+)
 
 
 def extract_task_wrapper(task: SyncTask) -> None:
@@ -52,14 +59,7 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
     worker.exit()
 
 
-@broker.subscriber(
-    stream=StreamSub(
-        SYNC_TASKS_STREAM,
-        group=WORKERS_GROUP,
-        consumer=CONSUMER,
-        max_records=settings.WORKER_MAX_RECORDS,
-    )
-)
+@broker.subscriber(stream=TASK_SUB)
 async def process_shard(task: SyncTask) -> None:
     """Extract one task and record its success or failure."""
     extraction_error: Exception | None = None
@@ -88,6 +88,13 @@ async def process_shard(task: SyncTask) -> None:
             FinalizeMessage(sync_id=task.sync_id),
             stream=SYNC_FINALIZE_STREAM,
         )
+
+
+@worker.on_shutdown
+async def cleanup_worker_consumer() -> None:
+    """Remove this worker consumer when it has no pending tasks."""
+    async with settings.make_redis() as redis:
+        await cleanup_consumer(redis, SYNC_TASKS_STREAM, WORKERS_GROUP, CONSUMER)
 
 
 if __name__ == "__main__":

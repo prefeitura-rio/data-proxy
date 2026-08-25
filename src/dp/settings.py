@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import ClassVar
 
+from pydantic import Field
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     GCS_ENDPOINT: str = "localhost:9000"
     GCS_USE_SSL: bool = False
     WORKER_MAX_RECORDS: int = 1
+    WORKER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"

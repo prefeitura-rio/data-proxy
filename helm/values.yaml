@@ -158,6 +158,8 @@ backup:
 ## Worker ScaledJob — KEDA creates one Job pod per pending message on dp:sync:tasks.
 ## Pods scale to zero when the stream is empty.
 worker:
+  ## Time in milliseconds before a worker can reclaim a pending task.
+  visibilityTimeoutMs: 900000
   keda:
     ## Number of unread stream messages that triggers one additional worker Job.
     lagCount: "1"

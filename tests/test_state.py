@@ -1,8 +1,16 @@
 """Tests for Valkey synchronization state operations."""
 
+from unittest.mock import patch
+
 import pytest
 from helpers import FakeRedis, FakeRedisGroup, redis_client
-from redis.exceptions import ResponseError, WatchError
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+)
+from redis.exceptions import (
+    ResponseError,
+    WatchError,
+)
 
 from dp.constants import (
     SYNC_ACTIVE_KEY,
@@ -26,6 +34,7 @@ from dp.models import (
     TaskSuccess,
 )
 from dp.state import (
+    cleanup_consumer,
     commit_sync_state,
     complete_task,
     create_consumer_group,
@@ -359,6 +368,37 @@ async def test_completion_stops_after_bounded_watch_conflicts() -> None:
             sync_task(),
             TaskSuccess(),
         )
+
+
+@pytest.mark.asyncio
+async def test_deletes_idle_consumer() -> None:
+    """A consumer with no pending messages is deleted."""
+    fake = FakeRedis()
+
+    await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
+
+    assert fake.deleted_consumers == [("stream", "group", "worker")]
+
+
+@pytest.mark.asyncio
+async def test_keeps_consumer_with_pending_messages() -> None:
+    """A consumer with pending messages remains for later reclaim."""
+    fake = FakeRedis(pending_consumers={"worker"})
+
+    await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
+
+    assert fake.deleted_consumers == []
+
+
+@pytest.mark.asyncio
+async def test_cleanup_logs_and_ignores_valkey_error() -> None:
+    """A Valkey cleanup failure is visible but does not block shutdown."""
+    fake = FakeRedis(cleanup_error=RedisConnectionError())
+
+    with patch("dp.state.logger.warning") as warning:
+        await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
+
+    warning.assert_called_once()
 
 
 @pytest.mark.asyncio

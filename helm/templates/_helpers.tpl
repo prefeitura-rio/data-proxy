@@ -152,6 +152,8 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.fullname" .
       key: GCS_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
+- name: WORKER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.worker.visibilityTimeoutMs | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE

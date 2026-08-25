@@ -68,6 +68,17 @@ tests:
           value: 0
         template: scaledjob-worker.yaml
 
+  - it: worker passes its configured visibility timeout
+    set:
+      worker.visibilityTimeoutMs: "1200000"
+    asserts:
+      - contains:
+          path: spec.jobTargetRef.template.spec.containers[0].env
+          content:
+            name: WORKER_VISIBILITY_TIMEOUT_MS
+            value: "1200000"
+        template: scaledjob-worker.yaml
+
   - it: worker triggers on the tasks stream with configured lagCount
     set:
       worker.keda.lagCount: "2"

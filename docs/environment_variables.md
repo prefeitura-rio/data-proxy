@@ -14,6 +14,7 @@ All pipeline components (producer, worker, finalizer) read these variables.
 | `SYNC_CONFIG_PATH`               | `config/sync.json`                           | Path to the sync configuration file.                                                                                      |
 | `GOOGLE_APPLICATION_CREDENTIALS` | —                                            | Path to a GCP service account JSON file for BigQuery access. Skip this variable on GKE with Workload Identity.            |
 | `WORKER_MAX_RECORDS`             | `1`                                          | Maximum number of stream messages a worker pod processes per run.                                                         |
+| `WORKER_VISIBILITY_TIMEOUT_MS`   | `900000`                                     | Time a task message must stay pending before a new worker can reclaim it. Set a value longer than normal task duration. |
 | `AUTH_ANON_ROLE`                 | `anon`                                       | PostgreSQL role PostgREST uses for unauthenticated requests.                                                              |
 | `AUTH_USER_ROLE`                 | `user`                                       | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
 | `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |

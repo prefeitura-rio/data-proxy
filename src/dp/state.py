@@ -3,9 +3,10 @@
 import contextlib
 from datetime import UTC, datetime, timedelta
 
+from loguru import logger
 from redis.asyncio import Redis
 from redis.asyncio.client import Pipeline
-from redis.exceptions import ResponseError, WatchError
+from redis.exceptions import RedisError, ResponseError, WatchError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from .constants import (
@@ -242,6 +243,37 @@ async def complete_task(
 async def has_active_run(redis: Redis) -> bool:
     """Return True when a previous synchronization run has not completed."""
     return await redis.get(SYNC_ACTIVE_KEY) is not None
+
+
+async def cleanup_consumer(
+    redis: Redis,
+    stream: str,
+    group: str,
+    consumer: str,
+) -> None:
+    """Delete one consumer only when it owns no pending messages."""
+    try:
+        pending = await redis.xpending_range(
+            stream,
+            group,
+            "-",
+            "+",
+            1,
+            consumername=consumer,
+        )
+
+        if pending:
+            return
+
+        await redis.xgroup_delconsumer(stream, group, consumer)
+    except RedisError as error:
+        logger.warning(
+            "Failed to clean worker consumer={} stream={} group={} error={}",
+            consumer,
+            stream,
+            group,
+            error,
+        )
 
 
 async def trim_stale_entries(redis: Redis, stream: str, ttl_seconds: int) -> None:
