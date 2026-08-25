@@ -10,18 +10,14 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from .constants import (
     SYNC_ACTIVE_KEY,
-    SYNC_COMPLETION_TTL_SECONDS,
     SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
-    SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
     SYNC_PLAN_KEY,
-    SYNC_PLAN_TTL_SECONDS,
+    SYNC_RUN_TTL_SECONDS,
     SYNC_STATE_KEY,
     SYNC_TASK_RESULTS_KEY,
-    SYNC_TASKS_STREAM,
     SYNC_TRANSACTION_RETRIES,
-    WORKERS_GROUP,
 )
 from .models import (
     CompletionResult,
@@ -70,22 +66,28 @@ async def create_consumer_group(redis: Redis, stream: str, group: str) -> None:
         await redis.xgroup_create(stream, group, id="0", mkstream=True)
 
 
-async def save_sync_plan(redis: Redis, plan: SyncPlan, task_count: int) -> None:
-    """Persist a required sync plan, task counter, and worker group."""
-    await redis.set(
-        SYNC_PLAN_KEY.format(sync_id=plan.sync_id),
-        plan.model_dump_json(),
-        ex=SYNC_PLAN_TTL_SECONDS,
-    )
-    await redis.set(SYNC_ACTIVE_KEY, plan.sync_id, ex=SYNC_PLAN_TTL_SECONDS)
+@retry(
+    retry=retry_if_exception_type(WatchError),
+    stop=stop_after_attempt(SYNC_TRANSACTION_RETRIES),
+    reraise=True,
+)
+async def create_run(redis: Redis, plan: SyncPlan, task_count: int) -> bool:
+    """Atomically create one run when no other run is active."""
+    plan_key = SYNC_PLAN_KEY.format(sync_id=plan.sync_id)
+    counter_key = SYNC_JOB_KEY.format(sync_id=plan.sync_id)
 
-    if task_count:
-        await redis.set(
-            SYNC_JOB_KEY.format(sync_id=plan.sync_id),
-            task_count,
-            ex=SYNC_JOB_TTL_SECONDS,
-        )
-        await create_consumer_group(redis, SYNC_TASKS_STREAM, WORKERS_GROUP)
+    async with redis.pipeline(transaction=True) as pipe:
+        await pipe.watch(SYNC_ACTIVE_KEY)
+        if await pipe.get(SYNC_ACTIVE_KEY) is not None:
+            return False
+
+        pipe.multi()
+        pipe.set(SYNC_ACTIVE_KEY, plan.sync_id, ex=SYNC_RUN_TTL_SECONDS)
+        pipe.set(plan_key, plan.model_dump_json(), ex=SYNC_RUN_TTL_SECONDS)
+        pipe.set(counter_key, task_count, ex=SYNC_RUN_TTL_SECONDS)
+        await pipe.execute()
+
+    return True
 
 
 async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
@@ -100,29 +102,31 @@ async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
 async def commit_sync_state(
     redis: Redis, plan: SyncPlan, published_tables: set[str]
 ) -> None:
-    """Commit state only for tables published successfully."""
-    await redis.delete(
-        SYNC_ACTIVE_KEY,
-        SYNC_FAILURES_KEY.format(sync_id=plan.sync_id),
-        SYNC_JOB_KEY.format(sync_id=plan.sync_id),
-        SYNC_TASK_RESULTS_KEY.format(sync_id=plan.sync_id),
-    )
+    """Atomically commit successful state and clear temporary run state."""
+    async with redis.pipeline(transaction=True) as pipe:
+        for bq_table, signature in plan.signatures.items():
+            if bq_table in published_tables:
+                pipe.set(state_key(bq_table), signature)
 
-    for bq_table, signature in plan.signatures.items():
-        if bq_table in published_tables:
-            await redis.set(state_key(bq_table), signature)
+        for bq_table, table_plan in plan.partitioned_tables.items():
+            if bq_table in published_tables:
+                manifest = PartitionManifest(
+                    table_signature=table_plan.table_signature,
+                    partitions=table_plan.current_partitions,
+                )
+                pipe.set(
+                    SYNC_PARTITIONS_KEY.format(bq_table=bq_table),
+                    manifest.model_dump_json(),
+                )
 
-    for bq_table, table_plan in plan.partitioned_tables.items():
-        if bq_table not in published_tables:
-            continue
-        manifest = PartitionManifest(
-            table_signature=table_plan.table_signature,
-            partitions=table_plan.current_partitions,
+        pipe.delete(
+            SYNC_ACTIVE_KEY,
+            SYNC_FAILURES_KEY.format(sync_id=plan.sync_id),
+            SYNC_JOB_KEY.format(sync_id=plan.sync_id),
+            SYNC_PLAN_KEY.format(sync_id=plan.sync_id),
+            SYNC_TASK_RESULTS_KEY.format(sync_id=plan.sync_id),
         )
-        await redis.set(
-            SYNC_PARTITIONS_KEY.format(bq_table=bq_table),
-            manifest.model_dump_json(),
-        )
+        await pipe.execute()
 
 
 def failed_path(outcome: TaskOutcome) -> str | None:
@@ -189,9 +193,9 @@ def queue_completion(
     pipe.set(
         remaining_key,
         next_remaining,
-        ex=SYNC_COMPLETION_TTL_SECONDS,
+        ex=SYNC_RUN_TTL_SECONDS,
     )
-    pipe.expire(results_key, SYNC_COMPLETION_TTL_SECONDS)
+    pipe.expire(results_key, SYNC_RUN_TTL_SECONDS)
 
 
 @retry(

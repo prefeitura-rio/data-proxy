@@ -8,10 +8,8 @@ from dp.constants import (
     SYNC_ACTIVE_KEY,
     SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
-    SYNC_JOB_TTL_SECONDS,
     SYNC_PARTITIONS_KEY,
-    SYNC_PLAN_KEY,
-    SYNC_PLAN_TTL_SECONDS,
+    SYNC_RUN_TTL_SECONDS,
     SYNC_STATE_KEY,
     SYNC_TASK_RESULTS_KEY,
     SYNC_TRANSACTION_RETRIES,
@@ -31,13 +29,13 @@ from dp.state import (
     commit_sync_state,
     complete_task,
     create_consumer_group,
+    create_run,
     decode_redis_value,
     has_active_run,
     read_failed_paths,
     read_partition_manifest,
     read_sync_plan,
     read_table_signature,
-    save_sync_plan,
     trim_stale_entries,
 )
 
@@ -61,8 +59,8 @@ async def test_reads_table_signature() -> None:
 
 
 @pytest.mark.asyncio
-async def test_saves_and_reads_required_plan() -> None:
-    """Plans are persisted with their counter and can be read back."""
+async def test_creates_and_reads_required_run() -> None:
+    """A run stores its plan, active flag, and task counter together."""
     fake = FakeRedis()
     plan = SyncPlan(
         sync_id="s1",
@@ -70,26 +68,45 @@ async def test_saves_and_reads_required_plan() -> None:
         paths={"p.d.t": ["s3://b/t/data.parquet"]},
     )
 
-    await save_sync_plan(redis_client(fake), plan, 1)
+    assert await create_run(redis_client(fake), plan, 1) is True
     result = await read_sync_plan(redis_client(fake), "s1")
 
     assert result == plan
-    assert SYNC_PLAN_KEY.format(sync_id="s1") in fake.store
     assert fake.store[SYNC_ACTIVE_KEY] == "s1"
-
-    ttl_by_key = {key: ex for key, _, ex in fake.set_calls}
-    assert ttl_by_key[SYNC_PLAN_KEY.format(sync_id="s1")] == SYNC_PLAN_TTL_SECONDS
-    assert ttl_by_key[SYNC_JOB_KEY.format(sync_id="s1")] == SYNC_JOB_TTL_SECONDS
+    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
+    assert fake.transaction_commands == ["set", "set", "set"]
+    assert {expiration for _, _, expiration in fake.set_calls} == {SYNC_RUN_TTL_SECONDS}
 
 
 @pytest.mark.asyncio
-async def test_zero_task_plan_has_no_worker_counter() -> None:
-    """Deletion-only plans do not create an unusable zero-valued counter."""
+async def test_zero_task_run_has_a_zero_counter() -> None:
+    """A deletion-only run stores an explicit zero remaining count."""
     fake = FakeRedis()
-    await save_sync_plan(redis_client(fake), SyncPlan(sync_id="s1"), 0)
+    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
 
-    assert SYNC_JOB_KEY.format(sync_id="s1") not in fake.store
+    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "0"
     assert fake.store[SYNC_ACTIVE_KEY] == "s1"
+
+
+@pytest.mark.asyncio
+async def test_run_creation_rejects_active_run() -> None:
+    """A producer cannot replace a run that is already active."""
+    fake = FakeRedis()
+    fake.store[SYNC_ACTIVE_KEY] = "active"
+
+    assert await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 1) is False
+    assert fake.transaction_commands == []
+
+
+@pytest.mark.asyncio
+async def test_run_creation_retries_watch_conflict() -> None:
+    """An active-key watch conflict retries the run creation transaction."""
+    fake = FakeRedis(watch_errors=1)
+    plan = SyncPlan(sync_id="s1")
+
+    assert await create_run(redis_client(fake), plan, 1) is True
+    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
+    assert fake.transaction_commands == ["set", "set", "set"]
 
 
 @pytest.mark.asyncio
@@ -109,11 +126,12 @@ async def test_commits_sync_state() -> None:
         paths={"p.d.t": ["s3://b/t/data.parquet"]},
     )
 
-    await save_sync_plan(redis_client(fake), plan, 1)
+    await create_run(redis_client(fake), plan, 1)
     await commit_sync_state(redis_client(fake), plan, {"p.d.t"})
 
     assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
     assert SYNC_ACTIVE_KEY not in fake.store
+    assert fake.transaction_commands == ["set", "delete"]
 
 
 @pytest.mark.asyncio

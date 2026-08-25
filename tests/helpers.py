@@ -214,6 +214,10 @@ class FakePipeline:
         """Queue one TTL refresh."""
         self.commands.append(("expire", (key, seconds), {}))
 
+    def delete(self, *keys: str) -> None:
+        """Queue removal of one or more temporary keys."""
+        self.commands.append(("delete", keys, {}))
+
     async def execute(self) -> list[object]:
         """Apply queued commands or inject one watch conflict."""
         if self.redis.watch_errors:
@@ -223,7 +227,7 @@ class FakePipeline:
 
         results: list[object] = []
         self.redis.transaction_commands = [command for command, _, _ in self.commands]
-        for command, args, _options in self.commands:
+        for command, args, options in self.commands:
             if command == "hset":
                 key, field, value = args
                 hash_values = self.redis.hashes.setdefault(str(key), {})
@@ -231,10 +235,19 @@ class FakePipeline:
                 results.append(1)
             elif command == "set":
                 key, value = args
+                expiration = cast("int | None", options.get("ex"))
                 self.redis.store[str(key)] = str(value)
+                self.redis.set_calls.append((str(key), value, expiration))
                 results.append(True)
             elif command == "expire":
                 results.append(True)
+            elif command == "delete":
+                removed = 0
+                for key in args:
+                    removed += self.redis.store.pop(str(key), None) is not None
+                    removed += self.redis.sets.pop(str(key), None) is not None
+                    removed += self.redis.hashes.pop(str(key), None) is not None
+                results.append(removed)
         return results
 
 
