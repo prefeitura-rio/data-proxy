@@ -2,8 +2,8 @@
 
 Creates two tables matching the sync config schema:
 
-  endpoint_participante_listagem   — dump strategy
-  protocolo_estado_diario          — window strategy (partitioned by date)
+  endpoint_participante_listagem   — full strategy
+  protocolo_estado_diario          — partitioned strategy (partitioned by date)
 
 Idempotent: safe to re-run, tables are recreated each time.
 
