@@ -40,9 +40,9 @@ spec:
             - name: PGPORT
               value: "5432"
             - name: POSTGRES_USER
-              value: {{ .Values.duckdb.db.user | quote }}
+              value: {{ .Values.pgduckdb.db.user | quote }}
             - name: POSTGRES_DB
-              value: {{ .Values.duckdb.db.name | quote }}
+              value: {{ .Values.pgduckdb.db.name | quote }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:

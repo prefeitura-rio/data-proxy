@@ -3,7 +3,7 @@ This file defines the PgBouncer connection pool configurations as Helm templates
 */}}
 {{- define "data-proxy.pgbouncerRwConfig" -}}
 [databases]
-{{ .Values.duckdb.db.name }} = host={{ include "data-proxy.masterServiceName" . }} port=5432 dbname={{ .Values.duckdb.db.name }}
+{{ .Values.pgduckdb.db.name }} = host={{ include "data-proxy.masterServiceName" . }} port=5432 dbname={{ .Values.pgduckdb.db.name }}
 
 [pgbouncer]
 listen_port = 5432
@@ -18,7 +18,7 @@ server_reset_query = DISCARD ALL
 
 {{- define "data-proxy.pgbouncerRoConfig" -}}
 [databases]
-{{ .Values.duckdb.db.name }} = host={{ include "data-proxy.replicaServiceName" . }} port=5432 dbname={{ .Values.duckdb.db.name }}
+{{ .Values.pgduckdb.db.name }} = host={{ include "data-proxy.replicaServiceName" . }} port=5432 dbname={{ .Values.pgduckdb.db.name }}
 
 [pgbouncer]
 listen_port = 5432
@@ -32,6 +32,6 @@ server_reset_query = DISCARD ALL
 {{- end }}
 
 {{- define "data-proxy.pgbouncerUserlist" -}}
-"{{ .Values.duckdb.db.user }}" "{{ .Values.duckdb.password }}"
-"{{ .Values.auth.authenticatorRole }}" "{{ .Values.duckdb.authenticatorPassword }}"
+"{{ .Values.pgduckdb.db.user }}" "{{ .Values.pgduckdb.password }}"
+"{{ .Values.auth.authenticatorRole }}" "{{ .Values.pgduckdb.authenticatorPassword }}"
 {{- end }}

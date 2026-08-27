@@ -10,8 +10,8 @@ templates:
 tests:
   - it: renders standalone StatefulSet
     set:
-      duckdb.password: pgpass
-      duckdb.authenticatorPassword: authpass
+      pgduckdb.password: pgpass
+      pgduckdb.authenticatorPassword: authpass
     asserts:
       - hasDocuments:
           count: 1
@@ -23,9 +23,9 @@ tests:
 
   - it: standalone StatefulSet uses configured replicas
     set:
-      duckdb.password: pgpass
-      duckdb.authenticatorPassword: authpass
-      duckdb.replicas: 2
+      pgduckdb.password: pgpass
+      pgduckdb.authenticatorPassword: authpass
+      pgduckdb.replicas: 2
     asserts:
       - equal:
           path: spec.replicas

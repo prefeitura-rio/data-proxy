@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: duckdb
 spec:
   serviceName: {{ include "data-proxy.fullname" . }}-duckdb
-  replicas: {{ .Values.duckdb.replicas }}
+  replicas: {{ .Values.pgduckdb.replicas }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
@@ -24,7 +24,7 @@ spec:
         fsGroup: 999
       containers:
         - name: duckdb
-          image: {{ .Values.duckdb.image }}
+          image: {{ .Values.pgduckdb.image }}
           ports:
             - name: postgres
               containerPort: 5432
@@ -32,9 +32,9 @@ spec:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_USER
-              value: {{ .Values.duckdb.db.user | quote }}
+              value: {{ .Values.pgduckdb.db.user | quote }}
             - name: POSTGRES_DB
-              value: {{ .Values.duckdb.db.name | quote }}
+              value: {{ .Values.pgduckdb.db.name | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -57,9 +57,9 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - {{ .Values.duckdb.db.user }}
+                - {{ .Values.pgduckdb.db.user }}
                 - -d
-                - {{ .Values.duckdb.db.name }}
+                - {{ .Values.pgduckdb.db.name }}
             initialDelaySeconds: 5
             periodSeconds: 5
           volumeMounts:
@@ -77,10 +77,10 @@ spec:
         name: pgdata
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.duckdb.storage.storageClass }}
+        {{- with .Values.pgduckdb.storage.storageClass }}
         storageClassName: {{ . | quote }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.duckdb.storage.size }}
+            storage: {{ .Values.pgduckdb.storage.size }}
 {{- end }}

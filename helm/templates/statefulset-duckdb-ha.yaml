@@ -50,9 +50,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: PATRONI_SUPERUSER_USERNAME
-              value: {{ .Values.duckdb.db.user | quote }}
+              value: {{ .Values.pgduckdb.db.user | quote }}
             - name: POSTGRES_DB
-              value: {{ .Values.duckdb.db.name | quote }}
+              value: {{ .Values.pgduckdb.db.name | quote }}
             - name: PATRONI_SUPERUSER_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -106,10 +106,10 @@ spec:
         name: pgdata
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.duckdb.storage.storageClass }}
+        {{- with .Values.pgduckdb.storage.storageClass }}
         storageClassName: {{ . | quote }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.duckdb.storage.size }}
+            storage: {{ .Values.pgduckdb.storage.size }}
 {{- end }}

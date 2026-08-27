@@ -2,7 +2,7 @@ image:
   repository: gcr.io/proj/data-proxy
   tag: "1.0.0"
 
-duckdb:
+pgduckdb:
   password: pgpass
   authenticatorPassword: authrole
 

@@ -24,7 +24,7 @@ serviceAccount:
   annotations: {}
 
 ## Configuration for the pgduckdb StatefulSet (PostgreSQL with the pg_duckdb extension).
-duckdb:
+pgduckdb:
   ## pgduckdb container image with PostGIS support.
   image: ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0
   ## Number of StatefulSet replicas in standalone mode.
