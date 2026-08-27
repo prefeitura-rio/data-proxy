@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: duckdb
 spec:
   serviceName: {{ include "data-proxy.fullname" . }}-duckdb
-  replicas: {{ .Values.pgduckdb.replicas }}
+  replicas: 1
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
@@ -68,19 +68,11 @@ spec:
             - name: db-init
               mountPath: /docker-entrypoint-initdb.d
       volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: {{ include "data-proxy.pgduckdbPvcName" (dict "root" . "ordinal" 0) }}
         - name: db-init
           configMap:
             name: {{ include "data-proxy.fullname" . }}-db-init
             defaultMode: 0755
-  volumeClaimTemplates:
-    - metadata:
-        name: pgdata
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        {{- with .Values.pgduckdb.storage.storageClass }}
-        storageClassName: {{ . | quote }}
-        {{- end }}
-        resources:
-          requests:
-            storage: {{ .Values.pgduckdb.storage.size }}
 {{- end }}

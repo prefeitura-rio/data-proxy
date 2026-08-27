@@ -1,0 +1,25 @@
+{{- $root := . -}}
+{{- $memberCount := include "data-proxy.pgduckdbMemberCount" . | int -}}
+{{- range $ordinal := until $memberCount }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "data-proxy.pgduckdbPvcName" (dict "root" $root "ordinal" $ordinal) }}
+  namespace: {{ $root.Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: duckdb
+    data-proxy.io/member: {{ $ordinal | quote }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with $root.Values.pgduckdb.storage.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $root.Values.pgduckdb.storage.size }}
+{{- end }}

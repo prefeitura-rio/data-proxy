@@ -74,6 +74,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.pgduckdbMemberCount" -}}
+{{- if .Values.ha.enabled -}}
+{{- .Values.ha.patroni.replicas -}}
+{{- else -}}
+1
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.pgduckdbStatefulSetName" -}}
+{{- $root := .root -}}
+{{- if $root.Values.ha.enabled -}}
+{{- printf "%s-duckdb-%d" (include "data-proxy.fullname" $root) (.ordinal | int) -}}
+{{- else -}}
+{{- printf "%s-duckdb" (include "data-proxy.fullname" $root) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.pgduckdbPvcName" -}}
+{{- printf "%s-pgdata-%d" (include "data-proxy.fullname" .root) (.ordinal | int) -}}
+{{- end }}
+
+{{- define "data-proxy.patroniMemberName" -}}
+{{- printf "%s-duckdb-%d" (include "data-proxy.fullname" .root) (.ordinal | int) -}}
+{{- end }}
+
 {{- define "data-proxy.masterServiceName" -}}
 {{- include "data-proxy.fullname" . }}-duckdb-master
 {{- end }}

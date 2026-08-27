@@ -27,9 +27,6 @@ serviceAccount:
 pgduckdb:
   ## pgduckdb container image with PostGIS support.
   image: ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0
-  ## Number of StatefulSet replicas in standalone mode.
-  ## This field is ignored when ha.enabled is true; ha.patroni.replicas is used instead.
-  replicas: 1
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
     size: 10Gi

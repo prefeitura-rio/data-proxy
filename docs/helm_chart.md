@@ -21,6 +21,16 @@ See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration
 
 The default standalone image is `ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0`. It contains pg_duckdb. It also contains PostGIS. A custom image must contain the `pg_duckdb` extension. It must also contain the `postgis` extension.
 
+## Database storage
+
+A fresh installation creates one explicit PVC and one single-replica StatefulSet for each pgduckdb member. Standalone mode creates one member. HA mode creates `ha.patroni.replicas` members. Each member mounts only its matching PVC.
+
+Set `pgduckdb.storage.size` to the required capacity. A later increase updates the PVC directly. It does not change an immutable StatefulSet claim template. Kubernetes does not support PVC size reduction.
+
+The chart marks each pgduckdb PVC with `helm.sh/resource-policy: keep`. Helm does not delete database data during an uninstall or HA scale-down. Remove retained PVCs only as a separate destructive operation.
+
+This storage layout applies to fresh installations. The chart does not automatically migrate installations that use StatefulSet `volumeClaimTemplates`. Those installations need a separate migration procedure before they use this layout.
+
 ## Database upgrades
 
 Before every Helm upgrade, the chart runs an idempotent database reconciliation Job. The Job waits for the PostgreSQL writer. It updates roles, extensions, RLS tables, functions, triggers, policies, and every schema declared in `syncConfig.schemas`. In HA mode, it uses the Patroni master Service. In standalone mode, it uses the DuckDB Service.

@@ -33,3 +33,10 @@ tests:
           path: spec.clusterIP
           value: None
         template: service-duckdb.yaml
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: duckdb
+        template: service-duckdb.yaml
+      - notExists:
+          path: spec.selector["data-proxy.io/member"]
+        template: service-duckdb.yaml
