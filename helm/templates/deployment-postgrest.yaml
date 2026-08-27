@@ -14,6 +14,8 @@ spec:
       app.kubernetes.io/component: postgrest
   template:
     metadata:
+      annotations:
+        checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgrest

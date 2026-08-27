@@ -66,6 +66,16 @@ tests:
           path: spec.replicas
           value: 3
 
+  - it: rolls PostgREST when syncConfig changes
+    set:
+      syncConfig.schemas.bcadastro.tables:
+        - name: proj.dataset.cpf
+          strategy: full
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/sync-config"]
+          pattern: "^[0-9a-f]{64}$"
+
   - it: derives PGRST_DB_SCHEMAS from syncConfig.schemas
     set:
       syncConfig.schemas:
