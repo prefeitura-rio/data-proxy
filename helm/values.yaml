@@ -1,3 +1,7 @@
+## PostgreSQL client image for the pre-upgrade database reconciliation Job.
+migration:
+  image: postgres:17-alpine
+
 ## Container image for the producer, worker, and finalizer services.
 image:
   ## Registry path for the data-proxy image, without the tag.

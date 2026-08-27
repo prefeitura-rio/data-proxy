@@ -21,6 +21,12 @@ See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration
 
 The default standalone image is `ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0`. It contains pg_duckdb. It also contains PostGIS. A custom image must contain the `pg_duckdb` extension. It must also contain the `postgis` extension.
 
+## Database upgrades
+
+Before every Helm upgrade, the chart runs an idempotent database reconciliation Job. The Job waits for the PostgreSQL writer. It updates roles, extensions, RLS tables, functions, triggers, policies, and every schema declared in `syncConfig.schemas`. In HA mode, it uses the Patroni master Service. In standalone mode, it uses the DuckDB Service.
+
+The Job is a `pre-upgrade` Helm hook. Helm stops the upgrade if a `psql` command fails. The Job creates each new schema, its `freshness` table, grants, and RLS policy before PostgREST receives the updated schema list. For a new empty volume, PostgreSQL runs the initial database setup.
+
 ## Enable HA
 
 Add the following to your values file and set `ha.patroni.image` to an image built from `Dockerfile.patroni`.

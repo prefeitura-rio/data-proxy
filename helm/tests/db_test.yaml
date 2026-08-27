@@ -1,6 +1,8 @@
 suite: Database authorization
 templates:
   - configmap-db-init.yaml
+  - configmap-db-migrate.yaml
+  - job-db-migrate.yaml
   - deployment-postgrest.yaml
 tests:
   - it: enables PostGIS before pg_duckdb
@@ -18,11 +20,11 @@ tests:
     asserts:
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: CREATE ROLE "test_anon" NOLOGIN NOBYPASSRLS
+          pattern: ALTER ROLE "test_anon" NOLOGIN NOBYPASSRLS
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: CREATE ROLE "test_user" NOLOGIN NOBYPASSRLS
+          pattern: ALTER ROLE "test_user" NOLOGIN NOBYPASSRLS
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
@@ -77,7 +79,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: CREATE ROLE backup NOINHERIT LOGIN
+          pattern: ALTER ROLE backup NOINHERIT LOGIN NOBYPASSRLS
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
@@ -117,6 +119,23 @@ tests:
           path: data["04_access_policy.sql"]
           pattern: CREATE TRIGGER access_policy_metadata_timestamps\s+BEFORE INSERT OR UPDATE ON rls\.access_policy
         template: configmap-db-init.yaml
+
+  - it: renders configured schemas into the upgrade reconciliation scripts
+    set:
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE SCHEMA IF NOT EXISTS "bcadastro"
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE TABLE IF NOT EXISTS "bcadastro"\.freshness
+        template: configmap-db-init.yaml
+      - matchRegex:
+          path: data["02_roles.sh"]
+          pattern: CREATE SCHEMA IF NOT EXISTS "bcadastro"
+        template: configmap-db-migrate.yaml
 
   - it: configures PostgREST anonymous and JWT roles
     set:

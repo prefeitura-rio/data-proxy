@@ -8,10 +8,23 @@ set -e
 
 AUTH_PASSWORD="${PGRST_AUTHENTICATOR_PASSWORD:-{{ .Values.auth.authenticatorRole }}}"
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-CREATE ROLE "{{ .Values.auth.anonRole }}" NOLOGIN NOBYPASSRLS;
-CREATE ROLE "{{ .Values.auth.userRole }}" NOLOGIN NOBYPASSRLS;
-CREATE ROLE "{{ .Values.auth.authenticatorRole }}" NOINHERIT LOGIN PASSWORD '${AUTH_PASSWORD}';
+psql -v ON_ERROR_STOP=1 -v authenticator_password="$AUTH_PASSWORD" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ .Values.auth.anonRole }}') THEN
+        CREATE ROLE "{{ .Values.auth.anonRole }}";
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ .Values.auth.userRole }}') THEN
+        CREATE ROLE "{{ .Values.auth.userRole }}";
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ .Values.auth.authenticatorRole }}') THEN
+        CREATE ROLE "{{ .Values.auth.authenticatorRole }}";
+    END IF;
+END
+\$\$;
+ALTER ROLE "{{ .Values.auth.anonRole }}" NOLOGIN NOBYPASSRLS;
+ALTER ROLE "{{ .Values.auth.userRole }}" NOLOGIN NOBYPASSRLS;
+ALTER ROLE "{{ .Values.auth.authenticatorRole }}" NOINHERIT LOGIN NOBYPASSRLS PASSWORD :'authenticator_password';
 GRANT "{{ .Values.auth.anonRole }}" TO "{{ .Values.auth.authenticatorRole }}";
 GRANT "{{ .Values.auth.userRole }}" TO "{{ .Values.auth.authenticatorRole }}";
 EOSQL
@@ -56,8 +69,15 @@ EOSQL
 
 BACKUP_PASSWORD="${BACKUP_PASSWORD:?BACKUP_PASSWORD is required when backup.enabled is true}"
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-CREATE ROLE backup NOINHERIT LOGIN PASSWORD '${BACKUP_PASSWORD}';
+psql -v ON_ERROR_STOP=1 -v backup_password="$BACKUP_PASSWORD" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backup') THEN
+        CREATE ROLE backup;
+    END IF;
+END
+\$\$;
+ALTER ROLE backup NOINHERIT LOGIN NOBYPASSRLS PASSWORD :'backup_password';
 GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO backup;
 EOSQL
 {{- end }}

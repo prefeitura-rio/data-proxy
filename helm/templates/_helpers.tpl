@@ -109,14 +109,18 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duc
 {{- end -}}
 {{- end }}
 
+{{- define "data-proxy.migrationDatabaseHost" -}}
+{{- if .Values.ha.enabled -}}
+{{- include "data-proxy.masterServiceName" . }}
+{{- else -}}
+{{- include "data-proxy.fullname" . }}-duckdb
+{{- end -}}
+{{- end }}
+
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.duckdb.db.user -}}
 {{- $db   := .Values.duckdb.db.name -}}
-{{- if .Values.ha.enabled -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.masterServiceName" . }}:5432/{{ $db }}
-{{- else -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
-{{- end -}}
+postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDatabaseHost" . }}:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.appEnv" -}}
