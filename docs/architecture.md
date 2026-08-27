@@ -16,7 +16,7 @@ The sync pipeline below keeps pg\_duckdb up to date with BigQuery. This pipeline
 
 ## Data sync
 
-The sync pipeline has three components:
+The sync pipeline has three components. Each component writes one JSON log record per line. Search logs by `component`, `sync_id`, `table`, `stage`, and `consumer_path`.
 
 - **Producer** — runs as a Kubernetes CronJob. On each run, it creates the workers and finalizers consumer groups. It reads the sync configuration. It compares every table's BigQuery modification signature against the last successful sync. It publishes tasks only for changed tables. It writes the sync plan to Valkey. The pod exits once it publishes the plan.
 - **Worker** — runs as a KEDA ScaledJob. KEDA scales Job pods from two triggers on the `dp:sync:tasks` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages delivered but not yet acknowledged. A pod counts as active until it acknowledges its messages. KEDA scales up to `maxReplicaCount` pods. Each pod handles up to `WORKER_MAX_RECORDS` tasks. Each pod writes its tasks as Parquet files to Google Cloud Storage. Workers use one consumer path for new messages and another path to reclaim pending messages after `WORKER_VISIBILITY_TIMEOUT_MS`. Each pod then keeps running until one of two events: the finalizer broadcasts a shutdown signal after the last task in the sync run completes, or the pod reaches `activeDeadlineSeconds`. Pods scale to zero between sync runs.

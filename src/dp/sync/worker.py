@@ -1,5 +1,6 @@
 """FastStream worker application for BigQuery extraction tasks."""
 
+from time import monotonic
 from uuid import uuid4
 
 import uvloop
@@ -18,7 +19,7 @@ from ..constants import (
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..extraction import extract_task
-from ..logging import configure_logging
+from ..log import configure_logging, elapsed_ms
 from ..models import (
     FinalizeMessage,
     ShutdownMessage,
@@ -69,28 +70,35 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
 @broker.subscriber(stream=subs["new"])
 async def process_new_task(task: SyncTask) -> None:
     """Process a newly delivered task."""
-    await process_task(task)
+    await process_task(task, consumer_path="new")
 
 
 @broker.subscriber(stream=subs["stale"])
 async def process_stale_task(task: SyncTask) -> None:
     """Process a task reclaimed from an unavailable worker."""
-    await process_task(task)
+    await process_task(task, consumer_path="stale")
 
 
-async def process_task(task: SyncTask) -> None:
+async def process_task(task: SyncTask, *, consumer_path: str = "unknown") -> None:
     """Extract one task and record its success or failure."""
+    log = logger.bind(
+        component="worker",
+        sync_id=task.sync_id,
+        task_id=task.task_id,
+        table=task.table,
+        consumer_path=consumer_path,
+    )
+
+    started = monotonic()
+    log.info("Task received")
+
     extraction_error: Exception | None = None
+
     try:
         await asyncify(extract_task_wrapper)(task)
     except Exception as error:
         extraction_error = error
-        logger.opt(exception=error).error(
-            "Extraction failed table={} sync_id={} bucket_path={}",
-            task.table,
-            task.sync_id,
-            task.bucket_path,
-        )
+        log.opt(exception=error).error("Extraction failed")
 
     outcome = (
         TaskSuccess()
@@ -101,7 +109,15 @@ async def process_task(task: SyncTask) -> None:
     async with settings.make_redis() as redis:
         result = await complete_task(redis, task, outcome)
 
+    log.info(
+        "Task completed",
+        outcome="failure" if extraction_error else "success",
+        should_finalize=result.should_finalize,
+        elapsed_ms=elapsed_ms(started),
+    )
+
     if result.should_finalize:
+        log.info("Finalizer message published")
         await broker.publish(
             FinalizeMessage(sync_id=task.sync_id),
             stream=SYNC_FINALIZE_STREAM,

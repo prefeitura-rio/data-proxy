@@ -1,13 +1,13 @@
 """Valkey state operations for synchronization orchestration."""
 
 import contextlib
-from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 from redis.asyncio import Redis
 from redis.asyncio.client import Pipeline
 from redis.exceptions import RedisError, ResponseError, WatchError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from whenever import Instant, TimeDelta
 
 from .constants import (
     FINALIZERS_GROUP,
@@ -308,6 +308,6 @@ async def cleanup_consumer(
 
 async def trim_stale_entries(redis: Redis, stream: str, ttl_seconds: int) -> None:
     """Drop stream entries older than a TTL, consumed or not."""
-    cutoff = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
-    minid = f"{int(cutoff.timestamp() * 1000)}-0"
+    cutoff = Instant.now() - TimeDelta(seconds=ttl_seconds)
+    minid = f"{cutoff.timestamp_millis()}-0"
     await redis.xtrim(stream, minid=minid, approximate=False)

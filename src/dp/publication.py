@@ -109,10 +109,12 @@ def apply_partition_fallback(
     for partition_id in failed_ids:
         table_plan.changed_paths.pop(partition_id)
         previous = table_plan.previous_partitions.get(partition_id)
+
         if previous is None:
             table_plan.current_partitions.pop(partition_id, None)
-        else:
-            table_plan.current_partitions[partition_id] = previous
+            continue
+
+        table_plan.current_partitions[partition_id] = previous
 
 
 def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecision:
@@ -125,9 +127,12 @@ def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecis
 
     for table, table_plan in reduced.partitioned_tables.items():
         failed_ids = failed_partition_ids(table_plan, failed_paths)
+
         if not failed_ids:
             continue
+
         failed_partitions[table] = failed_ids
+
         if table_plan.full_rebuild:
             blocked.add(table)
         else:
@@ -161,6 +166,7 @@ def affected_partitions(
         partitioned.current_partitions[partition_id]
         for partition_id in partitioned.changed_paths
     ]
+
     return [*changed, *partitioned.removed_partitions.values()]
 
 
@@ -239,12 +245,23 @@ def prepare_tables(
         )
     )
     prepared: list[TableConfig] = []
+
     for table in config.tables:
         if table.name not in changed:
             continue
+
         partitioned = plan.partitioned_tables.get(table.name)
         paths = planned_paths(plan, table.name, partitioned)
         shadow_name = f"{table.table_name}__next"
+
+        log = logger.bind(
+            component="finalizer",
+            table=table.name,
+            stage="prepare",
+        )
+
+        log.info("Table preparation started", path_count=len(paths))
+
         try:
             match partitioned:
                 case PartitionedTablePlan() as table_plan if (
@@ -264,13 +281,15 @@ def prepare_tables(
                     table.rls,
                     schema_config.claim if schema_config else None,
                 )
+            log.info("Loading table", path_count=len(paths))
             load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
         except Exception as error:
-            logger.opt(exception=error).error(
-                "Failed to prepare table={} — skipping publication", table.name
-            )
+            log.opt(exception=error).error("Table preparation failed")
             continue
+
+        log.info("Table preparation completed")
         prepared.append(table)
+
     return prepared
 
 
@@ -283,7 +302,11 @@ def publish_prepared_tables(
 ) -> set[str]:
     """Publish prepared tables and return those that succeeded."""
     published: set[str] = set()
+
     for table in prepared:
+        log = logger.bind(component="finalizer", table=table.name, stage="publish")
+        log.info("Table publication started")
+
         try:
             with pg_conn.transaction():
                 publish_table(pg_conn, table)
@@ -295,11 +318,10 @@ def publish_prepared_tables(
                     attempted_at,
                 )
         except Exception as error:
-            logger.opt(exception=error).error(
-                "Failed to publish table={} — leaving it eligible for retry",
-                table.name,
-            )
+            log.opt(exception=error).error("Table publication failed")
+
             record_table_failure(pg_conn, table, plan, attempted_at)
+
             with pg_conn.transaction():
                 for partition_id in failed_partitions.get(table.name, set()):
                     upsert_freshness(
@@ -310,5 +332,8 @@ def publish_prepared_tables(
                         success=False,
                     )
             continue
+
+        log.info("Table publication completed")
         published.add(table.name)
+
     return published

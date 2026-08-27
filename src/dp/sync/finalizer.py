@@ -1,5 +1,6 @@
 """FastStream finalizer application for atomic table publication."""
 
+from time import monotonic
 from uuid import uuid4
 
 import psycopg
@@ -8,6 +9,7 @@ from asyncer import asyncify
 from faststream import FastStream
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
+from loguru import logger
 
 from ..constants import (
     FINALIZERS_GROUP,
@@ -17,7 +19,7 @@ from ..constants import (
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
-from ..logging import configure_logging
+from ..log import configure_logging, elapsed_ms
 from ..models import (
     FinalizeMessage,
     PublicationResult,
@@ -87,6 +89,15 @@ async def finalize_stale_sync(message: FinalizeMessage) -> None:
 
 async def finalize_sync(message: FinalizeMessage) -> None:
     """Apply one required synchronization plan and commit its state."""
+    log = logger.bind(
+        component="finalizer",
+        sync_id=message.sync_id,
+    )
+
+    started = monotonic()
+
+    log.info("Finalization started")
+
     await broker.publish(
         ShutdownMessage(sync_id=message.sync_id),
         SYNC_SHUTDOWN_CHANNEL,
@@ -97,6 +108,7 @@ async def finalize_sync(message: FinalizeMessage) -> None:
     async with settings.make_redis() as redis:
         plan = await read_sync_plan(redis, message.sync_id)
         failed_paths = await read_failed_paths(redis, message.sync_id)
+        log.info("Sync plan loaded", failed_path_count=len(failed_paths))
 
         result = await asyncify(apply_sync_plan_wrapper)(
             config,
@@ -104,7 +116,13 @@ async def finalize_sync(message: FinalizeMessage) -> None:
             failed_paths,
         )
 
+        log.info(
+            "Publication completed",
+            published_table_count=len(result.published_tables),
+        )
+
         await commit_sync_state(redis, result.plan, result.published_tables)
+        log.info("Sync state committed", elapsed_ms=elapsed_ms(started))
 
     finalizer.exit()
 

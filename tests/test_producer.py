@@ -27,15 +27,15 @@ def state_patches() -> tuple[AbstractContextManager[object], ...]:
         patch(
             "dp.sync.producer.recover_lost_finalization",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=None,
         ),
     )
 
 
 @pytest.mark.asyncio
-async def test_recovery_without_active_run_returns_false() -> None:
+async def test_recovery_without_active_run_returns_none() -> None:
     """A producer with no active run has nothing to recover."""
-    assert await recover_lost_finalization(redis_client(FakeRedis())) is False
+    assert await recover_lost_finalization(redis_client(FakeRedis())) is None
 
 
 @pytest.mark.asyncio
@@ -44,7 +44,7 @@ async def test_recovery_keeps_extracting_run_untouched() -> None:
     fake = FakeRedis()
     await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 2)
 
-    assert await recover_lost_finalization(redis_client(fake)) is False
+    assert await recover_lost_finalization(redis_client(fake)) is None
 
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_recovery_skips_when_finalizer_message_in_flight() -> None:
     await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
 
     with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
-        assert await recover_lost_finalization(redis_client(fake)) is False
+        assert await recover_lost_finalization(redis_client(fake)) is None
 
     publish.assert_not_awaited()
 
@@ -66,7 +66,7 @@ async def test_recovery_republishes_lost_finalizer_message() -> None:
     await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
 
     with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
-        assert await recover_lost_finalization(redis_client(fake)) is True
+        assert await recover_lost_finalization(redis_client(fake)) == "s1"
 
     publish.assert_awaited_once_with(
         FinalizeMessage(sync_id="s1"),
@@ -85,7 +85,7 @@ async def test_exits_when_recovery_republishes_finalizer(
         patch(
             "dp.sync.producer.recover_lost_finalization",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value="s1",
         ),
         patch("dp.sync.producer.build_sync_plan") as build,
         patch("dp.sync.producer.create_run", new_callable=AsyncMock) as create_run,
