@@ -83,6 +83,11 @@ swaggerUi:
   enabled: false
   ## Swagger UI container image.
   image: swaggerapi/swagger-ui:v5.18.2
+  ## Schemas available in the Swagger UI schema profile selector.
+  schemas:
+    - app_pequenos_cariocas
+    - bcadastro
+    - rls
 
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.

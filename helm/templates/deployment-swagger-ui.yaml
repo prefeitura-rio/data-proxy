@@ -27,9 +27,12 @@ spec:
             - name: http
               containerPort: 8080
           volumeMounts:
-            - name: swagger-ui-initializer
+            - name: swagger-ui-scripts
               mountPath: /usr/share/nginx/html/swagger-initializer.js
-              subPath: swagger-initializer.js
+              subPath: initializer.js
+            - name: swagger-ui-scripts
+              mountPath: /usr/share/nginx/html/schemas.js
+              subPath: schemas.js
           readinessProbe:
             httpGet:
               path: /
@@ -37,7 +40,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
-        - name: swagger-ui-initializer
+        - name: swagger-ui-scripts
           configMap:
-            name: {{ include "data-proxy.fullname" . }}-swagger-ui-initializer
+            name: {{ include "data-proxy.fullname" . }}-swagger-ui-scripts
 {{- end }}

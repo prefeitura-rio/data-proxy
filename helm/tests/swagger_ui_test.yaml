@@ -54,11 +54,11 @@ tests:
           count: 1
         template: configmap-swagger-ui.yaml
       - matchRegex:
-          path: data["swagger-initializer.js"]
-          pattern: "url: \"https://api\\.example\\.com/\""
+          path: data["initializer.js"]
+          pattern: "apiUrl = \"https://api\\.example\\.com/\""
         template: configmap-swagger-ui.yaml
       - matchRegex:
-          path: data["swagger-initializer.js"]
+          path: data["initializer.js"]
           pattern: "requestInterceptor"
         template: configmap-swagger-ui.yaml
 
