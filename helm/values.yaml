@@ -58,6 +58,9 @@ postgrest:
   ## Maximum number of rows PostgREST will return per request.
   ## Requests without an explicit limit are capped at this value.
   maxRows: 1000
+  ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
+  ## Aggregates can be expensive. Limit access with row-level security and indexes.
+  aggregatesEnabled: true
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.

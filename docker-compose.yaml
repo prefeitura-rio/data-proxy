@@ -33,6 +33,7 @@ services:
       PGRST_DB_SCHEMAS: app_pequenos_cariocas,projeto_pequenos_cariocas,rls
       PGRST_DB_ANON_ROLE: anon
       PGRST_DB_PRE_REQUEST: rls.pre_request
+      PGRST_DB_AGGREGATES_ENABLED: "true"
       PGRST_JWT_SECRET: '{"kty":"RSA","e":"AQAB","use":"sig","kid":"default","alg":"RS256","n":"onZcB1ryWS1keTIcbgsLKJ1UBwL1Wbzse5P2HjkrNwbG3Jy2lefUEcTVJxN8bpLeW460Luz3ScZd3d9p8IoHjmhZ2cyO49E41aBRIlBRzWNpebK5xeC95rSKenYHpOPlLzPgybg2qxallzQUOcKCheiF0fsErlapaA9YmKwzP3DwvzYW4JqSrHhDGWPwUCcsR4dpetwKXP_9tRFso06ryr4um3qiq7giyZEyZVG3fHMplD-5e-2-RrzBiGFW_zvs-XVRGPIf9Y5YNjeQJRuS4vF82V8mNZxEZddtUY5plSz-vgX3GSvANLDH-LZJ76Zmx3a8dEZbI7VxgsBQAqcUlQ"}'
       PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3111
       PGRST_OPENAPI_SECURITY_ACTIVE: "true"
