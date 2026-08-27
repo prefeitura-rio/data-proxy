@@ -63,6 +63,9 @@ postgrest:
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
   ## Aggregates can be expensive. Limit access with row-level security and indexes.
   aggregatesEnabled: true
+  ## PostgreSQL client image for database reconciliation before PostgREST starts.
+  dbMigrate:
+    image: postgres:17-alpine
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.

@@ -1,8 +1,6 @@
 suite: Database authorization
 templates:
   - configmap-db-init.yaml
-  - configmap-db-migrate.yaml
-  - job-db-migrate.yaml
   - deployment-postgrest.yaml
 tests:
   - it: enables PostGIS before pg_duckdb
@@ -132,10 +130,6 @@ tests:
           path: data["02_roles.sh"]
           pattern: CREATE TABLE IF NOT EXISTS "bcadastro"\.freshness
         template: configmap-db-init.yaml
-      - matchRegex:
-          path: data["02_roles.sh"]
-          pattern: CREATE SCHEMA IF NOT EXISTS "bcadastro"
-        template: configmap-db-migrate.yaml
 
   - it: configures PostgREST anonymous and JWT roles
     set:

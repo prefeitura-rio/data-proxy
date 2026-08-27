@@ -22,6 +22,50 @@ spec:
         sidecar.istio.io/inject: "true"
     spec:
       initContainers:
+        - name: db-migrate
+          image: {{ .Values.postgrest.dbMigrate.image | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready --host="$PGHOST" --port="$PGPORT" --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"; do
+                echo "waiting for database at $PGHOST:$PGPORT"
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/01_extensions.sql
+              /bin/sh /scripts/02_roles.sh
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/03_pre_request.sql
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/04_access_policy.sql
+          env:
+            - name: PGHOST
+              value: {{ include "data-proxy.migrationDatabaseHost" . | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: {{ .Values.pgduckdb.db.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.pgduckdb.db.name | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+            {{- if .Values.backup.enabled }}
+            - name: BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.backupSecretName" . }}
+                  key: BACKUP_PASSWORD
+            {{- end }}
+          volumeMounts:
+            - name: db-init
+              mountPath: /scripts
+              readOnly: true
         - name: fetch-jwks
           image: {{ .Values.postgrest.jwksFetch.image }}
           command:
@@ -41,6 +85,10 @@ spec:
             - name: jwks
               mountPath: /etc/postgrest
       volumes:
+        - name: db-init
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-db-init
+            defaultMode: 0755
         - name: jwks
           emptyDir: {}
       containers:
