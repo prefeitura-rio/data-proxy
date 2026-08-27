@@ -2,12 +2,18 @@
 
 from contextlib import AbstractContextManager
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 from faststream import TestApp
 from helpers import FakeRedis, redis_client
 
+from dp.constants import (
+    FINALIZERS_GROUP,
+    SYNC_FINALIZE_STREAM,
+    SYNC_TASKS_STREAM,
+    WORKERS_GROUP,
+)
 from dp.models import AllSelection, FinalizeMessage, SyncPlan, SyncTask
 from dp.state import create_run
 from dp.sync.producer import producer, recover_lost_finalization
@@ -189,11 +195,14 @@ async def test_creates_run_before_publishing_tasks(
         bucket_path="s3://bucket/t/data.parquet",
         selection=AllSelection(),
     )
-    trim, group, recover = state_patches()
+    trim, _, recover = state_patches()
     with (
         trim,
-        group,
         recover,
+        patch(
+            "dp.sync.producer.create_consumer_group",
+            new_callable=AsyncMock,
+        ) as create_group,
         patch(
             "dp.sync.producer.build_sync_plan",
             new_callable=AsyncMock,
@@ -214,6 +223,12 @@ async def test_creates_run_before_publishing_tasks(
             pass
 
     create_run.assert_awaited_once_with(ANY, plan, 1)
+    create_group.assert_has_awaits(
+        [
+            call(ANY, SYNC_TASKS_STREAM, WORKERS_GROUP),
+            call(ANY, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP),
+        ]
+    )
     publish.assert_awaited_once_with(task, stream="dp:sync:tasks")
     exit_app.assert_called_once()
 

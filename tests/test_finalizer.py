@@ -2,7 +2,7 @@
 
 from contextlib import AbstractContextManager
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 from faststream.exceptions import StopApplication
@@ -11,12 +11,12 @@ from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
 
 from dp.models import FinalizeMessage, PublicationResult, SyncPlan
 from dp.sync.finalizer import (
-    FINALIZE_SUB,
     broker,
     cleanup_finalizer_consumer,
     ensure_consumer_group,
     finalize_sync,
     finalizer,
+    subs,
 )
 
 
@@ -43,9 +43,11 @@ async def test_startup_ensures_consumer_group() -> None:
     create.assert_awaited_once()
 
 
-def test_finalize_sub_reclaims_only_stale_messages() -> None:
-    """The finalizer uses the configured visibility timeout for auto-claim."""
-    assert FINALIZE_SUB.min_idle_time == 900_000
+def test_finalize_subscriptions_read_new_and_reclaim_stale_messages() -> None:
+    """New finalization uses group reads and stale work uses auto-claim."""
+    assert subs["new"].min_idle_time is None
+    assert subs["stale"].min_idle_time == 900_000
+    assert subs["new"].consumer != subs["stale"].consumer
 
 
 @pytest.mark.asyncio
@@ -57,11 +59,11 @@ async def test_finalizer_shutdown_cleans_its_consumer() -> None:
     ) as cleanup:
         await cleanup_finalizer_consumer()
 
-    cleanup.assert_awaited_once_with(
-        ANY,
-        "dp:sync:finalize",
-        "finalizers",
-        ANY,
+    cleanup.assert_has_awaits(
+        [
+            call(ANY, "dp:sync:finalize", "finalizers", subs["new"].consumer),
+            call(ANY, "dp:sync:finalize", "finalizers", subs["stale"].consumer),
+        ]
     )
 
 

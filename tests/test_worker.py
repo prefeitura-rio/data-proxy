@@ -1,6 +1,6 @@
 """Tests for the FastStream worker orchestrator."""
 
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 from faststream.redis.testing import TestRedisBroker
@@ -16,14 +16,14 @@ from dp.models import (
     TaskSuccess,
 )
 from dp.sync.worker import (
-    TASK_SUB,
     broker,
     cleanup_worker_consumer,
-    process_shard,
+    process_task,
+    subs,
     worker,
 )
 
-TASK = SyncTask(
+task = SyncTask(
     sync_id="s1",
     table="p.d.t",
     bucket_path="s3://bucket/t/data.parquet",
@@ -55,10 +55,10 @@ async def test_process_shard_branches_on_completion_result(
         ) as complete,
         patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
     ):
-        await process_shard(TASK)
+        await process_task(task)
 
-    extract.assert_called_once_with(TASK, db)
-    complete.assert_awaited_once_with(ANY, TASK, TaskSuccess())
+    extract.assert_called_once_with(task, db)
+    complete.assert_awaited_once_with(ANY, task, TaskSuccess())
     assert publish.await_count == (1 if should_finalize else 0)
 
 
@@ -79,19 +79,21 @@ async def test_extraction_failure_is_recorded_before_task_completion() -> None:
         ) as complete,
         patch("dp.sync.worker.broker.publish", new_callable=AsyncMock) as publish,
     ):
-        await process_shard(TASK)
+        await process_task(task)
 
     complete.assert_awaited_once_with(
         ANY,
-        TASK,
+        task,
         TaskFailure(failed_path="s3://bucket/t/data.parquet"),
     )
     publish.assert_not_called()
 
 
-def test_task_sub_reclaims_only_stale_messages() -> None:
-    """The worker uses the configured visibility timeout for auto-claim."""
-    assert TASK_SUB.min_idle_time == 900_000
+def test_task_subscriptions_read_new_and_reclaim_stale_messages() -> None:
+    """New tasks use group reads and stale tasks use auto-claim."""
+    assert subs["new"].min_idle_time is None
+    assert subs["stale"].min_idle_time == 900_000
+    assert subs["new"].consumer != subs["stale"].consumer
 
 
 @pytest.mark.asyncio
@@ -103,11 +105,11 @@ async def test_worker_shutdown_cleans_its_consumer() -> None:
     ) as cleanup:
         await cleanup_worker_consumer()
 
-    cleanup.assert_awaited_once_with(
-        ANY,
-        "dp:sync:tasks",
-        "workers",
-        ANY,
+    cleanup.assert_has_awaits(
+        [
+            call(ANY, "dp:sync:tasks", "workers", subs["new"].consumer),
+            call(ANY, "dp:sync:tasks", "workers", subs["stale"].consumer),
+        ]
     )
 
 

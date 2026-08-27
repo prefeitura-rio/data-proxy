@@ -9,6 +9,7 @@ from loguru import logger
 from redis.asyncio import Redis
 
 from ..constants import (
+    FINALIZERS_GROUP,
     STREAM_TTL_SECONDS,
     SYNC_FINALIZE_STREAM,
     SYNC_TASKS_STREAM,
@@ -35,6 +36,7 @@ producer = FastStream(broker)
 async def recover_lost_finalization(redis: Redis) -> bool:
     """Re-publish a lost finalizer message for a fully extracted run."""
     sync_id = await read_active_sync_id(redis)
+
     if sync_id is None:
         return False
 
@@ -48,6 +50,7 @@ async def recover_lost_finalization(redis: Redis) -> bool:
         FinalizeMessage(sync_id=sync_id),
         stream=SYNC_FINALIZE_STREAM,
     )
+
     logger.info("Recovered lost finalizer message sync_id={}", sync_id)
     return True
 
@@ -64,6 +67,7 @@ async def publish_tasks() -> None:
         await trim_stale_entries(redis, SYNC_FINALIZE_STREAM, STREAM_TTL_SECONDS)
 
         await create_consumer_group(redis, SYNC_TASKS_STREAM, WORKERS_GROUP)
+        await create_consumer_group(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP)
 
         if await recover_lost_finalization(redis):
             producer.exit()

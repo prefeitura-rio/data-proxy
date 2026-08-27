@@ -40,13 +40,19 @@ broker = RedisBroker(
 )
 finalizer = FastStream(broker)
 
-CONSUMER = str(uuid4())
-FINALIZE_SUB = StreamSub(
-    SYNC_FINALIZE_STREAM,
-    group=FINALIZERS_GROUP,
-    consumer=CONSUMER,
-    min_idle_time=settings.FINALIZER_VISIBILITY_TIMEOUT_MS,
-)
+subs = {
+    "new": StreamSub(
+        SYNC_FINALIZE_STREAM,
+        group=FINALIZERS_GROUP,
+        consumer=str(uuid4()),
+    ),
+    "stale": StreamSub(
+        SYNC_FINALIZE_STREAM,
+        group=FINALIZERS_GROUP,
+        consumer=str(uuid4()),
+        min_idle_time=settings.FINALIZER_VISIBILITY_TIMEOUT_MS,
+    ),
+}
 
 
 @finalizer.on_startup
@@ -67,7 +73,18 @@ def apply_sync_plan_wrapper(
         return apply_sync_plan(pg_conn, duckdb_conn, config, plan, failed_paths)
 
 
-@broker.subscriber(stream=FINALIZE_SUB)
+@broker.subscriber(stream=subs["new"])
+async def finalize_new_sync(message: FinalizeMessage) -> None:
+    """Finalize a newly delivered synchronization run."""
+    await finalize_sync(message)
+
+
+@broker.subscriber(stream=subs["stale"])
+async def finalize_stale_sync(message: FinalizeMessage) -> None:
+    """Finalize a synchronization run reclaimed after a crash."""
+    await finalize_sync(message)
+
+
 async def finalize_sync(message: FinalizeMessage) -> None:
     """Apply one required synchronization plan and commit its state."""
     await broker.publish(
@@ -96,7 +113,11 @@ async def finalize_sync(message: FinalizeMessage) -> None:
 async def cleanup_finalizer_consumer() -> None:
     """Remove this finalizer consumer when it has no pending message."""
     async with settings.make_redis() as redis:
-        await cleanup_consumer(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP, CONSUMER)
+        for sub in subs.values():
+            assert sub.consumer is not None
+            await cleanup_consumer(
+                redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP, sub.consumer
+            )
 
 
 if __name__ == "__main__":

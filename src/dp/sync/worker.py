@@ -36,14 +36,21 @@ broker = RedisBroker(
 
 worker = FastStream(broker)
 
-CONSUMER = str(uuid4())
-TASK_SUB = StreamSub(
-    SYNC_TASKS_STREAM,
-    group=WORKERS_GROUP,
-    consumer=CONSUMER,
-    max_records=settings.WORKER_MAX_RECORDS,
-    min_idle_time=settings.WORKER_VISIBILITY_TIMEOUT_MS,
-)
+subs = {
+    "new": StreamSub(
+        SYNC_TASKS_STREAM,
+        group=WORKERS_GROUP,
+        consumer=str(uuid4()),
+        max_records=settings.WORKER_MAX_RECORDS,
+    ),
+    "stale": StreamSub(
+        SYNC_TASKS_STREAM,
+        group=WORKERS_GROUP,
+        consumer=str(uuid4()),
+        max_records=settings.WORKER_MAX_RECORDS,
+        min_idle_time=settings.WORKER_VISIBILITY_TIMEOUT_MS,
+    ),
+}
 
 
 def extract_task_wrapper(task: SyncTask) -> None:
@@ -59,8 +66,19 @@ async def handle_shutdown(message: ShutdownMessage) -> None:
     worker.exit()
 
 
-@broker.subscriber(stream=TASK_SUB)
-async def process_shard(task: SyncTask) -> None:
+@broker.subscriber(stream=subs["new"])
+async def process_new_task(task: SyncTask) -> None:
+    """Process a newly delivered task."""
+    await process_task(task)
+
+
+@broker.subscriber(stream=subs["stale"])
+async def process_stale_task(task: SyncTask) -> None:
+    """Process a task reclaimed from an unavailable worker."""
+    await process_task(task)
+
+
+async def process_task(task: SyncTask) -> None:
     """Extract one task and record its success or failure."""
     extraction_error: Exception | None = None
     try:
@@ -94,7 +112,11 @@ async def process_shard(task: SyncTask) -> None:
 async def cleanup_worker_consumer() -> None:
     """Remove this worker consumer when it has no pending tasks."""
     async with settings.make_redis() as redis:
-        await cleanup_consumer(redis, SYNC_TASKS_STREAM, WORKERS_GROUP, CONSUMER)
+        for sub in subs.values():
+            assert sub.consumer is not None
+            await cleanup_consumer(
+                redis, SYNC_TASKS_STREAM, WORKERS_GROUP, sub.consumer
+            )
 
 
 if __name__ == "__main__":
