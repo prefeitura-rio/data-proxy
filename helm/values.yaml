@@ -32,6 +32,7 @@ pgduckdb:
     size: 10Gi
     ## StorageClass for the PersistentVolumeClaim. Leave empty to use the cluster default.
     storageClass: ""
+    claimNamePrefix: ""
   db:
     ## Name of the PostgreSQL database that the pipeline writes to.
     name: dataproxy

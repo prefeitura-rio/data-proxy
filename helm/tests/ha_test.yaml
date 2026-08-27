@@ -20,12 +20,12 @@ tests:
         template: pvc-pgduckdb.yaml
       - equal:
           path: metadata.name
-          value: data-proxy-pgdata-0
+          value: pgdata-data-proxy-duckdb-0
         documentIndex: 0
         template: pvc-pgduckdb.yaml
       - equal:
           path: metadata.name
-          value: data-proxy-pgdata-2
+          value: pgdata-data-proxy-duckdb-2
         documentIndex: 2
         template: pvc-pgduckdb.yaml
       - equal:
@@ -68,7 +68,7 @@ tests:
         template: statefulset-duckdb-ha.yaml
       - equal:
           path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
-          value: data-proxy-pgdata-0
+          value: pgdata-data-proxy-duckdb-0
         documentIndex: 0
         template: statefulset-duckdb-ha.yaml
       - equal:
@@ -78,7 +78,7 @@ tests:
         template: statefulset-duckdb-ha.yaml
       - equal:
           path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
-          value: data-proxy-pgdata-2
+          value: pgdata-data-proxy-duckdb-2
         documentIndex: 2
         template: statefulset-duckdb-ha.yaml
 

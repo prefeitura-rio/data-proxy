@@ -92,7 +92,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.pgduckdbPvcName" -}}
-{{- printf "%s-pgdata-%d" (include "data-proxy.fullname" .root) (.ordinal | int) -}}
+{{- $prefix := default (printf "pgdata-%s-duckdb" (include "data-proxy.fullname" .root)) .root.Values.pgduckdb.storage.claimNamePrefix -}}
+{{- printf "%s-%d" $prefix (.ordinal | int) -}}
 {{- end }}
 
 {{- define "data-proxy.patroniMemberName" -}}
