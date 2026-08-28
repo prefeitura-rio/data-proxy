@@ -44,7 +44,7 @@ data:
   initializer.js: |
     window.onload = function() {
       var schemaScript = document.createElement('script');
-      schemaScript.src = '/schemas.js';
+      schemaScript.src = 'schemas.js';
       schemaScript.onload = initializeSwagger;
       document.head.appendChild(schemaScript);
     };
