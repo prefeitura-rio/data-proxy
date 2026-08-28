@@ -5,7 +5,6 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-# Pre-install DuckDB extensions so containers don't hit the network on every start.
 RUN .venv/bin/python -c "\
 import duckdb; \
 conn = duckdb.connect(); \
