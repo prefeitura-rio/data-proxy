@@ -23,10 +23,10 @@ serviceAccount:
   ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
   annotations: {}
 
-## Configuration for the pgduckdb StatefulSet (PostgreSQL with the pg_duckdb extension).
+## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
 pgduckdb:
-  ## pgduckdb container image with PostGIS support.
-  image: ghcr.io/prefeitura-rio/data-proxy-pgduckdb:1.0.0
+  ## Database image used by standalone and HA members.
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:1.0.0
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
     size: 10Gi
@@ -236,9 +236,6 @@ ha:
   ## Set to true to enable Patroni and PgBouncer. Set to false for standalone mode.
   enabled: false
   patroni:
-    ## Container image that includes both pg_duckdb and Patroni.
-    ## Build this image from Dockerfile.patroni and push it before you enable HA.
-    image: ghcr.io/prefeitura-rio/data-proxy-patroni:1.0.0
     ## Number of Patroni pod replicas. The minimum for a stable cluster is 3.
     replicas: 3
     ## Maximum number of WAL sender processes on the leader.

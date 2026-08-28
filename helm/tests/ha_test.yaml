@@ -51,7 +51,7 @@ tests:
         template: statefulset-duckdb-ha.yaml
       - equal:
           path: spec.template.spec.containers[0].image
-          value: gcr.io/proj/pgduckdb-patroni:17-v1.1.1
+          value: gcr.io/proj/data-proxy-postgres:17-v1.1.1
         documentIndex: 1
         template: statefulset-duckdb-ha.yaml
       - notExists:

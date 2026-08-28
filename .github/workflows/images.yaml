@@ -3,8 +3,7 @@ on:
   push:
     tags:
       - app-v*
-      - pgduckdb-v*
-      - patroni-v*
+      - postgres-v*
 permissions:
   contents: read
   packages: write
@@ -30,8 +29,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-  pgduckdb:
-    if: startsWith(github.ref_name, 'pgduckdb-v')
+  postgres:
+    if: startsWith(github.ref_name, 'postgres-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -43,32 +42,11 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}-pgduckdb
-          tags: type=match,pattern=pgduckdb-v(.*),group=1
+          images: ghcr.io/${{ github.repository }}-postgres
+          tags: type=match,pattern=postgres-v(.*),group=1
       - uses: docker/build-push-action@v6
         with:
-          file: Dockerfile.pgduckdb
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-  patroni:
-    if: startsWith(github.ref_name, 'patroni-v')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ghcr.io/${{ github.repository }}-patroni
-          tags: type=match,pattern=patroni-v(.*),group=1
-      - uses: docker/build-push-action@v6
-        with:
-          file: Dockerfile.patroni
+          file: Dockerfile.postgres
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

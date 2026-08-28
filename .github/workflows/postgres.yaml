@@ -1,10 +1,10 @@
-name: pg_duckdb image
+name: PostgreSQL image
 on:
   push:
     branches:
       - main
     paths:
-      - Dockerfile.pgduckdb
+      - Dockerfile.postgres
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,13 +22,13 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}-pgduckdb
+          images: ghcr.io/${{ github.repository }}-postgres
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
-          file: Dockerfile.pgduckdb
+          file: Dockerfile.postgres
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

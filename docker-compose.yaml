@@ -2,7 +2,7 @@ services:
   duckdb:
     build:
       context: .
-      dockerfile: Dockerfile.pgduckdb
+      dockerfile: Dockerfile.postgres
     restart: unless-stopped
     ports:
       - 5544:5432
