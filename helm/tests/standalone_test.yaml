@@ -35,7 +35,7 @@ tests:
         template: statefulset-duckdb.yaml
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-postgres:1.0.0
+          value: ghcr.io/prefeitura-rio/data-proxy-postgres:latest
         template: statefulset-duckdb.yaml
       - equal:
           path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
