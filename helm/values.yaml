@@ -26,7 +26,7 @@ serviceAccount:
 ## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
 pgduckdb:
   ## Database image used by standalone and HA members.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:1.0.0
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:latest
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
     size: 10Gi
