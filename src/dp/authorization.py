@@ -43,7 +43,6 @@ def table_access_policy_statement(
             "mapping": {
                 "schema": Identifier(schema),
                 "table": Identifier(table_name),
-                "schema_literal": Literal(schema),
                 "session_var": claim_session_var(claim),
                 "predicate": unit_predicate(rls),
                 "scope": schema_scope_predicate(schema),
@@ -72,10 +71,10 @@ def access_policy_writer_statement(schema: str) -> str:
         {
             "path": "pg/access_policy_writer",
             "mapping": {
+                "schema": Identifier(schema),
                 "policy_writer_role": Identifier(f"policy_writer_{schema}"),
                 "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
-                "policy_name": Identifier(f"policy_writer_{schema}_scope"),
-                "schema_literal": Literal(schema),
+                "policy_name": Identifier(f"policy_writer_{schema}"),
             },
         }
     )

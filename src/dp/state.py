@@ -96,9 +96,11 @@ async def create_run(redis: Redis, plan: SyncPlan, task_count: int) -> bool:
 async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
     """Read a required finalizer plan or fail the synchronization."""
     raw = decode_redis_value(await redis.get(SYNC_PLAN_KEY.format(sync_id=sync_id)))
+
     if raw is None:
         message = f"Sync plan not found: {sync_id}"
         raise RuntimeError(message)
+
     return SyncPlan.model_validate_json(raw)
 
 

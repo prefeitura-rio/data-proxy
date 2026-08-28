@@ -1,29 +1,33 @@
-{{- if .Values.ha.enabled }}
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
 {{- $root := . }}
-{{- range $ordinal := until (.Values.ha.patroni.replicas | int) }}
+{{- range $schema, $stack := $root.Values.ha.schemas }}
+{{- range $ordinal := until (default 1 $stack.members | int) }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "data-proxy.pgduckdbStatefulSetName" (dict "root" $root "ordinal" $ordinal) }}
+  name: {{ include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal) }}
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: duckdb
+    data-proxy.io/schema: {{ $schema | quote }}
     data-proxy.io/member: {{ $ordinal | quote }}
 spec:
-  serviceName: {{ include "data-proxy.fullname" $root }}-duckdb
+  serviceName: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
   replicas: 1
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
       app.kubernetes.io/component: duckdb
+      data-proxy.io/schema: {{ $schema | quote }}
       data-proxy.io/member: {{ $ordinal | quote }}
   template:
     metadata:
       labels:
         {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: duckdb
+        data-proxy.io/schema: {{ $schema | quote }}
         data-proxy.io/member: {{ $ordinal | quote }}
     spec:
       securityContext:
@@ -42,9 +46,9 @@ spec:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
             - name: PATRONI_SCOPE
-              value: {{ include "data-proxy.fullname" $root }}-patroni
+              value: {{ include "data-proxy.schemaPatroniScope" (dict "root" $root "schema" $schema) | quote }}
             - name: PATRONI_NAME
-              value: {{ include "data-proxy.patroniMemberName" (dict "root" $root "ordinal" $ordinal) | quote }}
+              value: {{ include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal) | quote }}
             - name: PATRONI_POD_IP
               valueFrom:
                 fieldRef:
@@ -74,20 +78,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
-            {{- if $root.Values.backup.enabled }}
-            - name: BACKUP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.backupSecretName" $root }}
-                  key: BACKUP_PASSWORD
-            {{- end }}
           readinessProbe:
             httpGet:
               path: /readiness
-              port: 8008
+              port: patroni
             initialDelaySeconds: 10
             periodSeconds: 10
-            failureThreshold: 3
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
@@ -100,13 +96,14 @@ spec:
       volumes:
         - name: pgdata
           persistentVolumeClaim:
-            claimName: {{ include "data-proxy.pgduckdbPvcName" (dict "root" $root "ordinal" $ordinal) }}
+            claimName: {{ include "data-proxy.schemaPvcName" (dict "root" $root "schema" $schema "ordinal" $ordinal) }}
         - name: patroni-config
           configMap:
-            name: {{ include "data-proxy.fullname" $root }}-patroni
+            name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-patroni
         - name: db-init
           configMap:
-            name: {{ include "data-proxy.fullname" $root }}-db-init
+            name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-db-init
             defaultMode: 0755
+{{- end }}
 {{- end }}
 {{- end }}

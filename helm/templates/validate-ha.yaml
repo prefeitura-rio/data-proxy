@@ -1,0 +1,15 @@
+{{- if .Values.ha.enabled }}
+{{- if empty .Values.ha.schemas }}
+{{- fail "ha.schemas must define at least one schema when ha.enabled is true" }}
+{{- end }}
+{{- range $schema, $_ := .Values.syncConfig.schemas }}
+{{- if not (hasKey $.Values.ha.schemas $schema) }}
+{{- fail (printf "ha.schemas must configure %q" $schema) }}
+{{- end }}
+{{- end }}
+{{- range $schema, $_ := .Values.ha.schemas }}
+{{- if not (hasKey $.Values.syncConfig.schemas $schema) }}
+{{- fail (printf "syncConfig.schemas must configure %q" $schema) }}
+{{- end }}
+{{- end }}
+{{- end }}

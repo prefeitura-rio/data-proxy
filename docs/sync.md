@@ -47,13 +47,13 @@ The top-level `schemas` map is the single source of truth for which PostgreSQL s
 
 Each entry in `tables` accepts:
 
-| Field      | Required | Description                                                                                                                                                                                             |
-| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                                |
-| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                                  |
-| `n`        | no       | Keep only the last `n` partitions. Applies to time-partitioned tables only.                                                                                                                             |
-| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when any pair matches a grant in `rls.access_policy` for the requester. Omit `rls` to turn off RLS on this table. See [Security](security.md). |
-| `indexes`  | no       | Array of `{ name, columns }` objects. Data Proxy creates one index per entry after each sync.                                                                                                           |
+| Field      | Required | Description                                                                                                                                                                                              |
+| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                                 |
+| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                                   |
+| `n`        | no       | Keep only the last `n` partitions. Applies to time-partitioned tables only.                                                                                                                              |
+| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when a pair matches a grant in the local `<schema>.access_policy` table. Omit `rls` to turn off RLS on this table. See [Security](security.md). |
+| `indexes`  | no       | Array of `{ name, columns }` objects. Data Proxy creates one index per entry after each sync.                                                                                                            |
 
 ## Geometry Columns
 

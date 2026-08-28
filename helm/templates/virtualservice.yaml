@@ -1,4 +1,5 @@
 {{- if .Values.ingress.enabled }}
+{{- $root := . }}
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -13,7 +14,8 @@ spec:
     - {{ .Values.ingress.host | quote }}
   http:
     {{- if .Values.swaggerUi.enabled }}
-    - match:
+    - name: docs
+      match:
         - uri:
             prefix: /docs
       rewrite:
@@ -24,6 +26,76 @@ spec:
             port:
               number: 8080
     {{- end }}
+    {{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+    {{- range $schema, $_ := .Values.ha.schemas }}
+    {{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+    - name: {{ $schema }}-openapi
+      match:
+        - uri:
+            exact: {{ printf "/openapi/%s" $schema | quote }}
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ $name }}-postgrest-rw
+            port:
+              number: 3000
+    - name: {{ $schema }}-read
+      match:
+        - method:
+            exact: GET
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+        - method:
+            exact: HEAD
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+        - method:
+            exact: OPTIONS
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+      route:
+        - destination:
+            host: {{ $name }}-postgrest-ro
+            port:
+              number: 3000
+    - name: {{ $schema }}-write
+      match:
+        - method:
+            exact: POST
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+        - method:
+            exact: PUT
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+        - method:
+            exact: PATCH
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+        - method:
+            exact: DELETE
+          headers:
+            accept-profile:
+              exact: {{ $schema | quote }}
+      route:
+        - destination:
+            host: {{ $name }}-postgrest-rw
+            port:
+              number: 3000
+    {{- end }}
+    - name: unknown-profile
+      directResponse:
+        status: 404
+        body:
+          string: "Unknown schema profile"
+    {{- else }}
     - route:
         - destination:
             host: {{ include "data-proxy.fullname" . }}-postgrest
@@ -42,4 +114,5 @@ spec:
         retryOn: {{ . | quote }}
         {{- end }}
       {{- end }}
+    {{- end }}
 {{- end }}

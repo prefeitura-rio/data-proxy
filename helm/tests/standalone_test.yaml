@@ -2,11 +2,6 @@ suite: Standalone mode (ha.enabled false)
 templates:
   - pvc-pgduckdb.yaml
   - statefulset-duckdb.yaml
-  - statefulset-duckdb-ha.yaml
-  - service-duckdb-master.yaml
-  - service-duckdb-replica.yaml
-  - deployment-pgbouncer-rw.yaml
-  - deployment-pgbouncer-ro.yaml
   - rbac.yaml
 tests:
   - it: renders one retained pgduckdb PVC
@@ -49,27 +44,6 @@ tests:
       - notExists:
           path: spec.volumeClaimTemplates
         template: statefulset-duckdb.yaml
-
-  - it: does not render HA StatefulSets
-    asserts:
-      - hasDocuments:
-          count: 0
-        template: statefulset-duckdb-ha.yaml
-
-  - it: does not render HA services or PgBouncer
-    asserts:
-      - hasDocuments:
-          count: 0
-        template: service-duckdb-master.yaml
-      - hasDocuments:
-          count: 0
-        template: service-duckdb-replica.yaml
-      - hasDocuments:
-          count: 0
-        template: deployment-pgbouncer-rw.yaml
-      - hasDocuments:
-          count: 0
-        template: deployment-pgbouncer-ro.yaml
 
   - it: does not render HA RBAC resources
     asserts:

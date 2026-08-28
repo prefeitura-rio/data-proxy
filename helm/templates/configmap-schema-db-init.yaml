@@ -1,0 +1,27 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $schemaConfig := $root.Values.syncConfig.schemas }}
+{{- $values := deepCopy $root.Values }}
+{{- $_ := set $values "syncConfig" (dict "schemas" (dict $schema $schemaConfig)) }}
+{{- $context := dict "Values" $values }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-db-init
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: duckdb
+    data-proxy.io/schema: {{ $schema | quote }}
+data:
+  01_extensions.sql: |
+    {{ $root.Files.Get "db/01_extensions.sql" | nindent 4 }}
+  02_roles.sh: |
+    {{ include "data-proxy.rolesScript" $context | nindent 4 }}
+  03_pre_request.sql: |
+    {{ include "data-proxy.preRequestSql" $context | nindent 4 }}
+  04_access_policy.sql: |
+    {{ include "data-proxy.accessPolicySql" $context | nindent 4 }}
+{{- end }}
+{{- end }}

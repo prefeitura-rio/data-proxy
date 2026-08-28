@@ -78,7 +78,9 @@ BEGIN
 END
 \$\$;
 ALTER ROLE backup NOINHERIT LOGIN NOBYPASSRLS PASSWORD :'backup_password';
-GRANT USAGE ON SCHEMA {{ .Values.auth.rlsSchema }} TO backup;
+{{- range $schema, $_ := .Values.syncConfig.schemas }}
+GRANT USAGE ON SCHEMA "{{ $schema }}" TO backup;
+{{- end }}
 EOSQL
 {{- end }}
 {{- end }}
@@ -111,32 +113,20 @@ $$ LANGUAGE plpgsql;
 {{- end }}
 
 {{- define "data-proxy.accessPolicySql" -}}
--- Generic, per-request access grants shared by every protected table in
--- every schema. The backend writes this table directly through PostgREST
--- (role policy_writer_<schema>, granted per schema at sync time); Data Proxy
--- only ever reads it to enforce row visibility, never to compute grants.
-CREATE TABLE IF NOT EXISTS {{ .Values.auth.rlsSchema }}.access_policy (
-    schema text NOT NULL,
+{{- range $schema, $_ := .Values.syncConfig.schemas }}
+CREATE TABLE IF NOT EXISTS {{ $schema }}.access_policy (
     subject text NOT NULL,
     is_admin boolean NOT NULL DEFAULT false,
     is_enabled boolean NOT NULL DEFAULT true,
     unit_type text,
     unit_id text,
-    UNIQUE (schema, subject, unit_type, unit_id)
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE (subject, unit_type, unit_id)
 );
 
--- Idempotent: applies the column to a table an earlier chart version
--- already created, in addition to the CREATE TABLE above.
-ALTER TABLE {{ .Values.auth.rlsSchema }}.access_policy
-    ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE {{ $schema }}.access_policy ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE {{ .Values.auth.rlsSchema }}.access_policy ENABLE ROW LEVEL SECURITY;
-
--- created_at and updated_at live inside metadata, not as their own columns.
--- Postgres sets both on every write; a client-supplied value for either key
--- is always replaced. Any other key a client writes into metadata passes
--- through untouched.
-CREATE OR REPLACE FUNCTION {{ .Values.auth.rlsSchema }}.set_access_policy_metadata_timestamps()
+CREATE OR REPLACE FUNCTION {{ $schema }}.set_access_policy_metadata_timestamps()
 RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -153,34 +143,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON {{ .Values.auth.rlsSchema }}.access_policy;
+DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON {{ $schema }}.access_policy;
 CREATE TRIGGER access_policy_metadata_timestamps
-BEFORE INSERT OR UPDATE ON {{ .Values.auth.rlsSchema }}.access_policy
-FOR EACH ROW EXECUTE FUNCTION {{ .Values.auth.rlsSchema }}.set_access_policy_metadata_timestamps();
+BEFORE INSERT OR UPDATE ON {{ $schema }}.access_policy
+FOR EACH ROW EXECUTE FUNCTION {{ $schema }}.set_access_policy_metadata_timestamps();
 
-GRANT SELECT ON {{ .Values.auth.rlsSchema }}.access_policy TO "{{ .Values.auth.userRole }}";
-{{- if .Values.backup.enabled }}
-GRANT SELECT ON {{ .Values.auth.rlsSchema }}.access_policy TO backup;
+GRANT SELECT ON {{ $schema }}.access_policy TO "{{ $.Values.auth.userRole }}";
+{{- if $.Values.backup.enabled }}
+GRANT SELECT ON {{ $schema }}.access_policy TO backup;
 {{- end }}
 
--- The real access decision is enforced by each protected table's own policy
--- (which matches schema, subject, and unit membership explicitly). This
--- policy only controls direct reads of access_policy itself, which is not an
--- externally exposed API schema.
-DROP POLICY IF EXISTS user_read ON {{ .Values.auth.rlsSchema }}.access_policy;
-CREATE POLICY user_read ON {{ .Values.auth.rlsSchema }}.access_policy
+DROP POLICY IF EXISTS user_read ON {{ $schema }}.access_policy;
+CREATE POLICY user_read ON {{ $schema }}.access_policy
 FOR SELECT
-TO "{{ .Values.auth.userRole }}"
-USING (schema = ANY(string_to_array(current_setting('app.claim_schemas', true), ',')));
-{{- if .Values.backup.enabled }}
-
--- pg_dump still evaluates row security for non-superuser roles, so the
--- backup role needs an explicit read policy covering every row, not just
--- the table-level GRANT SELECT above.
-DROP POLICY IF EXISTS backup_read ON {{ .Values.auth.rlsSchema }}.access_policy;
-CREATE POLICY backup_read ON {{ .Values.auth.rlsSchema }}.access_policy
+TO "{{ $.Values.auth.userRole }}"
+USING ({{ printf "'%s'" $schema }} = ANY(string_to_array(current_setting('app.claim_schemas', true), ',')));
+{{- if $.Values.backup.enabled }}
+DROP POLICY IF EXISTS backup_read ON {{ $schema }}.access_policy;
+CREATE POLICY backup_read ON {{ $schema }}.access_policy
 FOR SELECT
 TO backup
 USING (true);
+{{- end }}
 {{- end }}
 {{- end }}

@@ -1,0 +1,45 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $stack := $root.Values.ha.schemas }}
+{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-haproxy
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: haproxy
+    data-proxy.io/schema: {{ $schema | quote }}
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+    defaults
+      mode tcp
+      timeout connect 5s
+      timeout client 30m
+      timeout server 30m
+      timeout check 5s
+    frontend postgres-primary
+      bind :5000
+      default_backend postgres-primary
+    backend postgres-primary
+      option httpchk GET /primary
+      http-check expect status 200
+{{- range $ordinal := until (default 1 $stack.members | int) }}
+      server member-{{ $ordinal }} {{ include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal) }}:5432 check port 8008
+{{- end }}
+    frontend postgres-replica
+      bind :5001
+      default_backend postgres-replica
+    backend postgres-replica
+      balance roundrobin
+      option httpchk GET /replica
+      http-check expect status 200
+{{- range $ordinal := until (default 1 $stack.members | int) }}
+      server member-{{ $ordinal }} {{ include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal) }}:5432 check port 8008
+{{- end }}
+{{- end }}
+{{- end }}

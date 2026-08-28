@@ -66,6 +66,24 @@ tests:
             value: "1200000"
         template: scaledjob-finalizer.yaml
 
+  - it: finalizer mounts the schema writer configuration
+    set:
+      ha.enabled: true
+      ha.schemas.app:
+        members: 1
+      syncConfig.schemas.app.tables: []
+    asserts:
+      - contains:
+          path: spec.jobTargetRef.template.spec.containers[0].env
+          content:
+            name: SCHEMA_WRITERS_FILE
+            value: /config/schema-writers/writers.json
+        template: scaledjob-finalizer.yaml
+      - equal:
+          path: spec.jobTargetRef.template.spec.volumes[1].configMap.name
+          value: data-proxy-schema-writers
+        template: scaledjob-finalizer.yaml
+
   - it: worker uses configured maxReplicaCount without Job retries
     set:
       worker.keda.maxReplicaCount: 8

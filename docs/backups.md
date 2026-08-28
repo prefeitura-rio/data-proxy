@@ -2,64 +2,47 @@
 
 ## Scope
 
-The backup covers only `rls.access_policy`. A sync rebuilds every BigQuery table. A sync does not rebuild `rls.access_policy`. This table exists only through grants written by PostgREST. No other source holds this data.
+A sync rebuilds application tables from BigQuery. It does not rebuild access grants.
+The chart backs up each `<schema>.access_policy` table separately.
 
 ## How it works
 
-A `CronJob` runs these steps. The flag `backup.enabled` turns it on. The default value is off.
+Set `backup.enabled` to create one CronJob per configured application schema.
+Each job:
 
-1. The job connects to Postgres as a `backup` role. This role has `SELECT` on `rls.access_policy` only.
-2. The job runs `pg_dump` on this one table, in custom format.
-3. The job encrypts the dump with [`age`](https://github.com/FiloSottile/age). The setting `backup.ageRecipient` holds the public key.
-4. The job uploads the encrypted file to `gcs.bucket`, under `backup.prefix`. The file name is the date, for example `2026-01-15.age`.
+1. connects as the `backup` role to the schema writer;
+2. exports `<schema>.access_policy` as CSV;
+3. encrypts the export with [`age`](https://github.com/FiloSottile/age);
+4. uploads it to `<backup.prefix>/<schema>/<date>.csv.age`.
 
-The chart does not store the `age` private key. Keep the private key outside the cluster. Only the holder of the private key can decrypt a backup.
+In standalone mode, all jobs connect to the same PostgreSQL service. In HA mode,
+each job connects to its schema HAProxy writer endpoint.
 
-## Enabling the backup
+The chart does not store the `age` private key. Keep it outside the cluster.
 
-Set these values:
+## Enabling backups
 
 ```yaml
 backup:
   enabled: true
-  ageRecipient: "age1..." # public key from `age-keygen`
-  password: "..." # required unless backup.existingSecret is set
+  ageRecipient: "age1..."
+  password: "..."
 ```
 
-Store the private key outside the cluster.
-
-The chart creates the `backup` role through the same init scripts as every other role. These scripts run once, at the first startup of an empty volume. If the cluster already runs, create the role by hand:
+The backup role needs local schema access:
 
 ```sql
-CREATE ROLE backup NOINHERIT LOGIN PASSWORD '...';
-GRANT USAGE ON SCHEMA rls TO backup;
-GRANT SELECT ON rls.access_policy TO backup;
+GRANT USAGE ON SCHEMA bcadastro TO backup;
+GRANT SELECT ON bcadastro.access_policy TO backup;
 ```
 
 ## Restoring a backup
 
-A restore is a manual task. Follow these steps in order.
+Restore is a manual operation.
 
-1. Download the backup file:
+1. Download and decrypt the schema backup.
+2. Load it into a temporary table.
+3. Compare it with `<schema>.access_policy`.
+4. Apply only reviewed rows to the live local policy table.
 
-   ```bash
-   aws s3 cp "s3://${GCS_BUCKET}/backups/access_policy/2026-01-15.age" backup.age --endpoint-url https://storage.googleapis.com
-   ```
-
-2. Decrypt the file with the private key:
-
-   ```bash
-   age --decrypt --identity key.txt --output backup.dump backup.age
-   ```
-
-3. Check the dump contents:
-
-   ```bash
-   pg_restore --list backup.dump
-   ```
-
-4. Restore the dump into a new table or a new schema.
-5. Compare the restored data against the live table.
-6. Apply only the rows you need.
-
-Do not run `pg_restore` directly against the live `rls.access_policy` table.
+Do not load an unreviewed backup directly into a live policy table.

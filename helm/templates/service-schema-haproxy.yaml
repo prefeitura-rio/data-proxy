@@ -1,0 +1,29 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $_ := $root.Values.ha.schemas }}
+{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-haproxy
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: haproxy
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "data-proxy.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: haproxy
+    data-proxy.io/schema: {{ $schema | quote }}
+  ports:
+    - name: primary
+      port: 5000
+      targetPort: primary
+    - name: replica
+      port: 5001
+      targetPort: replica
+{{- end }}
+{{- end }}

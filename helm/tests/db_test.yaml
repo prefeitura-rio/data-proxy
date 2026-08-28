@@ -74,6 +74,7 @@ tests:
       backup.enabled: true
       backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
       auth.rlsSchema: rls
+      syncConfig.schemas.app.tables: []
     asserts:
       - matchRegex:
           path: data["02_roles.sh"]
@@ -81,18 +82,20 @@ tests:
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["02_roles.sh"]
-          pattern: GRANT USAGE ON SCHEMA rls TO backup
+          pattern: GRANT USAGE ON SCHEMA "app" TO backup
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["04_access_policy.sql"]
-          pattern: GRANT SELECT ON rls\.access_policy TO backup
+          pattern: GRANT SELECT ON app\.access_policy TO backup
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["04_access_policy.sql"]
-          pattern: CREATE POLICY backup_read ON rls\.access_policy\s+FOR SELECT\s+TO backup
+          pattern: CREATE POLICY backup_read ON app\.access_policy\s+FOR SELECT\s+TO backup
         template: configmap-db-init.yaml
 
   - it: creates the admin and enabled flags on access_policy
+    set:
+      syncConfig.schemas.app.tables: []
     asserts:
       - matchRegex:
           path: data["04_access_policy.sql"]
@@ -107,15 +110,17 @@ tests:
           pattern: is_super_admin
         template: configmap-db-init.yaml
 
-  - it: adds an idempotent metadata column and its timestamp trigger
+  - it: creates metadata and its timestamp trigger in each schema
+    set:
+      syncConfig.schemas.app.tables: []
     asserts:
       - matchRegex:
           path: data["04_access_policy.sql"]
-          pattern: ALTER TABLE rls\.access_policy\s+ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '\{\}'::jsonb
+          pattern: metadata jsonb NOT NULL DEFAULT '\{\}'::jsonb
         template: configmap-db-init.yaml
       - matchRegex:
           path: data["04_access_policy.sql"]
-          pattern: CREATE TRIGGER access_policy_metadata_timestamps\s+BEFORE INSERT OR UPDATE ON rls\.access_policy
+          pattern: CREATE TRIGGER access_policy_metadata_timestamps\s+BEFORE INSERT OR UPDATE ON app\.access_policy
         template: configmap-db-init.yaml
 
   - it: renders configured schemas into the upgrade reconciliation scripts

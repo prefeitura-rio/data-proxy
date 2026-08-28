@@ -10,7 +10,7 @@ pg\_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the fina
 
 The read path does not enable DuckDB execution (`duckdb.force_execution`). PostgREST's read workload is small: filtered, index-driven lookups. DuckDB's columnar engine accelerates large scans and aggregations instead. Routing reads through DuckDB gives no benefit here.
 
-The `pre_request` function mirrors every JWT claim into a PostgreSQL session variable. Row-level security policies compare the configured identity claim against grants in `rls.access_policy`. See [Security](security.md) for details.
+The `pre_request` function mirrors every JWT claim into a PostgreSQL session variable. Row-level security policies compare the configured identity claim against grants in the local `<schema>.access_policy` table. See [Security](security.md) for details.
 
 The sync pipeline below keeps pg\_duckdb up to date with BigQuery. This pipeline runs outside the request path.
 
@@ -63,32 +63,36 @@ flowchart TD
 
 ### High Availability
 
-Use HA mode for production. Patroni manages a three-node PostgreSQL cluster. PgBouncer sends write traffic to the leader. PgBouncer sends read traffic to the replicas. The Kubernetes API serves as the distributed configuration store (DCS).
+HA mode creates one independent Patroni and HAProxy stack for each configured application schema. Patroni uses the Kubernetes API as its distributed configuration store (DCS). HAProxy port `5000` sends PostgreSQL connections to the current primary. HAProxy port `5001` sends connections to replicas.
+
+Publication is atomic inside one schema database. It is not atomic across independent schema databases. If one schema publishes and a later schema fails, the finalizer does not commit synchronization state. A retry can publish an already-published schema again. Publication operations must remain idempotent.
 
 ```mermaid
 flowchart TD
     BQ[(BigQuery)]
     R[(Valkey\nStreams)]
     GCS[(GCS\nParquet)]
-    K8S[(K8s API\nDCS)]
+    API[Istio\nVirtualService]
+    Client([API Client])
 
-    subgraph pipeline[Sync pipeline]
+    subgraph pipeline[Shared sync pipeline]
         P[Producer\nCronJob] --> R --> W[Worker\nScaledJob]
         W --> GCS --> FIN[Finalizer\nScaledJob]
     end
 
-    subgraph patroni[Patroni cluster]
-        direction LR
-        PGL[(Leader)] -->|WAL| PGR1[(Replica 1)]
-        PGL -->|WAL| PGR2[(Replica 2)]
+    subgraph cadastro[bcadastro schema stack]
+        direction TB
+        PRW1[PostgREST RW] --> H1[HAProxy :5000]
+        PRO1[PostgREST RO] --> H1R[HAProxy :5001]
+        H1 --> PG1[(Patroni primary)]
+        PG1 -->|WAL| PG2[(Patroni replica)]
+        H1R --> PG2
     end
 
     BQ -->|discover partitions| P
-    FIN -->|write| PBrw[PgBouncer\nrw]
-    PBrw --> PGL
-    PGL & PGR1 & PGR2 <-->|leader election| K8S
-    PGRST[PostgREST] -->|read| PBro[PgBouncer\nro]
-    PGRST -->|write access_policy| PBrw
-    PBro --> PGR1 & PGR2
-    PGRST -->|REST + JWT| Client([API Client])
+    FIN -->|writer map| H1
+    Client --> API
+    API -->|GET, HEAD| PRO1
+    API -->|write methods| PRW1
+    PRW1 -->|local access_policy| PG1
 ```

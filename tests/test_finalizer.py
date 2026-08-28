@@ -71,7 +71,7 @@ async def test_finalizer_shutdown_cleans_its_consumer() -> None:
 async def test_applies_plan_commits_state_and_exits(
     sync_config_path: Path,
 ) -> None:
-    """Successful orchestration applies one plan before committing state."""
+    """Successful orchestration commits an empty plan and exits."""
     plan = SyncPlan(sync_id="s1", signatures={}, paths={})
 
     with (
@@ -104,8 +104,8 @@ async def test_applies_plan_commits_state_and_exits(
 
     publish.assert_awaited_once()
     read.assert_awaited_once()
-    apply.assert_called_once()
-    commit.assert_awaited_once_with(ANY, plan, {"p.d.t"})
+    apply.assert_not_called()
+    commit.assert_awaited_once_with(ANY, plan, set())
     exit_app.assert_called_once()
 
 
@@ -113,8 +113,38 @@ async def test_applies_plan_commits_state_and_exits(
 async def test_loading_failure_stops_application(
     sync_config_path: Path,
 ) -> None:
-    """Domain failures terminate the finite Job with a non-zero status."""
-    plan = SyncPlan(sync_id="s1", signatures={}, paths={})
+    """A later schema failure does not commit shared synchronization state."""
+    (sync_config_path.parent / "writers.json").write_text(
+        """{
+        "writers": {
+          "bcadastro": "postgresql://bcadastro-writer",
+          "app_pequenos_cariocas": "postgresql://app-writer"
+        }
+        }"""
+    )
+    sync_config_path.write_text(
+        """{
+        "schemas": {
+          "bcadastro": {
+            "tables": [{"name": "project.dataset.cpf_rio", "strategy": "full"}]
+          },
+          "app_pequenos_cariocas": {
+            "tables": [{"name": "project.dataset.participants", "strategy": "full"}]
+          }
+        }
+        }"""
+    )
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={
+            "project.dataset.cpf_rio": "cpf",
+            "project.dataset.participants": "participants",
+        },
+        paths={
+            "project.dataset.cpf_rio": ["s3://bucket/cpf"],
+            "project.dataset.participants": ["s3://bucket/participants"],
+        },
+    )
 
     async with TestRedisBroker(broker) as test_broker:
         with (
@@ -131,8 +161,22 @@ async def test_loading_failure_stops_application(
             ),
             patch(
                 "dp.sync.finalizer.apply_sync_plan",
-                side_effect=RuntimeError("failed"),
+                side_effect=[
+                    PublicationResult(
+                        plan=SyncPlan(
+                            sync_id="s1",
+                            signatures={"project.dataset.cpf_rio": "cpf"},
+                            paths={"project.dataset.cpf_rio": ["s3://bucket/cpf"]},
+                        ),
+                        published_tables={"project.dataset.cpf_rio"},
+                    ),
+                    RuntimeError("failed"),
+                ],
             ),
+            patch(
+                "dp.sync.finalizer.commit_sync_state",
+                new_callable=AsyncMock,
+            ) as commit,
             pytest.raises(StopApplication) as result,
         ):
             await test_broker.publish(
@@ -141,3 +185,80 @@ async def test_loading_failure_stops_application(
             )
 
     assert result.value.code == 1
+    commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_routes_each_schema_plan_to_its_writer(sync_config_path: Path) -> None:
+    """One finalizer message uses the configured writer for each schema."""
+    (sync_config_path.parent / "writers.json").write_text(
+        """{
+        "writers": {
+          "bcadastro": "postgresql://bcadastro-writer",
+          "app_pequenos_cariocas": "postgresql://app-writer"
+        }
+        }"""
+    )
+    sync_config_path.write_text(
+        """{
+        "schemas": {
+          "bcadastro": {
+            "tables": [{"name": "project.dataset.cpf_rio", "strategy": "full"}]
+          },
+          "app_pequenos_cariocas": {
+            "tables": [{"name": "project.dataset.participants", "strategy": "full"}]
+          }
+        }
+        }"""
+    )
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={
+            "project.dataset.cpf_rio": "cpf",
+            "project.dataset.participants": "participants",
+        },
+        paths={
+            "project.dataset.cpf_rio": ["s3://bucket/cpf"],
+            "project.dataset.participants": ["s3://bucket/participants"],
+        },
+    )
+
+    def publish(
+        _: object,
+        __: object,
+        ___: object,
+        schema_plan: SyncPlan,
+        ____: object,
+    ) -> PublicationResult:
+        return PublicationResult(
+            plan=schema_plan,
+            published_tables=set(schema_plan.signatures),
+        )
+
+    with (
+        patch_make_redis(),
+        patch(
+            "dp.sync.finalizer.read_sync_plan",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ),
+        patch(
+            "dp.sync.finalizer.psycopg.connect", return_value=FakePgConn()
+        ) as connect,
+        patch("dp.sync.finalizer.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.finalizer.apply_sync_plan", side_effect=publish),
+        patch("dp.sync.finalizer.commit_sync_state", new_callable=AsyncMock) as commit,
+        patch("dp.sync.finalizer.broker.publish", new_callable=AsyncMock),
+        patch.object(finalizer, "exit"),
+    ):
+        await finalize_sync(FinalizeMessage(sync_id="s1"))
+
+    assert connect.call_args_list == [
+        call("postgresql://bcadastro-writer"),
+        call("postgresql://app-writer"),
+    ]
+    commit.assert_awaited_once_with(
+        ANY,
+        plan,
+        {"project.dataset.cpf_rio", "project.dataset.participants"},
+    )

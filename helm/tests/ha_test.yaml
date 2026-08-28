@@ -1,124 +1,107 @@
-suite: HA mode (ha.enabled true)
+suite: Schema HA mode
+
 templates:
   - pvc-pgduckdb.yaml
-  - statefulset-duckdb.yaml
-  - statefulset-duckdb-ha.yaml
-  - service-duckdb-master.yaml
-  - service-duckdb-replica.yaml
-  - deployment-pgbouncer-rw.yaml
-  - deployment-pgbouncer-ro.yaml
-  - secret-pgbouncer.yaml
-  - rbac.yaml
-  - configmap-patroni.yaml
+  - statefulset-duckdb-schema-ha.yaml
+  - configmap-schema-patroni.yaml
+  - configmap-schema-writers.yaml
+  - configmap-schema-haproxy.yaml
+  - deployment-schema-haproxy.yaml
+  - service-schema-haproxy.yaml
+  - deployment-schema-postgrest.yaml
+  - service-schema-postgrest.yaml
+  - virtualservice.yaml
 values:
   - ../ci/test-values-ha.yaml
+set:
+  ingress.enabled: true
+  ingress.host: api.example.com
 tests:
-  - it: renders three retained member PVCs
+  - it: renders retained schema member PVCs
+    template: pvc-pgduckdb.yaml
     asserts:
-      - hasDocuments:
-          count: 3
-        template: pvc-pgduckdb.yaml
-      - equal:
-          path: metadata.name
-          value: pgdata-data-proxy-duckdb-0
-        documentIndex: 0
-        template: pvc-pgduckdb.yaml
-      - equal:
-          path: metadata.name
-          value: pgdata-data-proxy-duckdb-2
-        documentIndex: 2
-        template: pvc-pgduckdb.yaml
-      - equal:
-          path: metadata.annotations["helm.sh/resource-policy"]
-          value: keep
-        documentIndex: 1
-        template: pvc-pgduckdb.yaml
-
-  - it: renders one single-replica StatefulSet per Patroni member
-    asserts:
-      - hasDocuments:
-          count: 3
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.replicas
-          value: 1
-        documentIndex: 0
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.replicas
-          value: 1
-        documentIndex: 2
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.template.spec.containers[0].image
-          value: gcr.io/proj/data-proxy-postgres:17-v1.1.1
-        documentIndex: 1
-        template: statefulset-duckdb-ha.yaml
-      - notExists:
-          path: spec.volumeClaimTemplates
-        documentIndex: 0
-        template: statefulset-duckdb-ha.yaml
-
-  - it: gives each member a stable identity and matching PVC
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[2].value
-          value: data-proxy-duckdb-0
-        documentIndex: 0
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
-          value: pgdata-data-proxy-duckdb-0
-        documentIndex: 0
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.template.spec.containers[0].env[2].value
-          value: data-proxy-duckdb-2
-        documentIndex: 2
-        template: statefulset-duckdb-ha.yaml
-      - equal:
-          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
-          value: pgdata-data-proxy-duckdb-2
-        documentIndex: 2
-        template: statefulset-duckdb-ha.yaml
-
-  - it: does not render standalone StatefulSet
-    asserts:
-      - hasDocuments:
-          count: 0
-        template: statefulset-duckdb.yaml
-
-  - it: renders master and replica services with Patroni role selectors
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: service-duckdb-master.yaml
-      - equal:
-          path: spec.selector.role
-          value: master
-        template: service-duckdb-master.yaml
-      - hasDocuments:
-          count: 1
-        template: service-duckdb-replica.yaml
-      - equal:
-          path: spec.selector.role
-          value: replica
-        template: service-duckdb-replica.yaml
-
-  - it: renders PgBouncer, RBAC, and Patroni configuration
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: deployment-pgbouncer-rw.yaml
-      - hasDocuments:
-          count: 1
-        template: deployment-pgbouncer-ro.yaml
-      - hasDocuments:
-          count: 1
-        template: secret-pgbouncer.yaml
       - hasDocuments:
           count: 2
-        template: rbac.yaml
+      - equal:
+          path: metadata.name
+          value: pgdata-data-proxy-app-pequenos-cariocas-0
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["data-proxy.io/schema"]
+          value: app_pequenos_cariocas
+        documentIndex: 0
+
+  - it: renders an isolated Patroni cluster
+    template: statefulset-duckdb-schema-ha.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: data-proxy-app-pequenos-cariocas-patroni
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.volumes[2].configMap.name
+          value: data-proxy-app-pequenos-cariocas-db-init
+        documentIndex: 0
+
+  - it: maps every schema to its HAProxy writer
+    template: configmap-schema-writers.yaml
+    asserts:
+      - matchRegex:
+          path: data["writers.json"]
+          pattern: '"app_pequenos_cariocas": "postgresql://dataproxy@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy"'
+
+  - it: routes PostgreSQL connections through HAProxy
+    template: configmap-schema-haproxy.yaml
+    asserts:
       - hasDocuments:
           count: 1
-        template: configmap-patroni.yaml
+      - matchRegex:
+          path: data["haproxy.cfg"]
+          pattern: "GET /primary"
+        documentIndex: 0
+      - matchRegex:
+          path: data["haproxy.cfg"]
+          pattern: "GET /replica"
+        documentIndex: 0
+
+  - it: renders schema PostgREST read and write workloads
+    template: deployment-schema-postgrest.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: postgres://dp_auth:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-app-pequenos-cariocas-haproxy:5001/dataproxy
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: postgres://dp_auth:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: db-migrate
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: data-proxy-app-pequenos-cariocas-db-init
+        documentIndex: 1
+
+  - it: routes schema reads, writes, and OpenAPI requests
+    template: virtualservice.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-app-pequenos-cariocas-postgrest-rw
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: data-proxy-app-pequenos-cariocas-postgrest-ro
+      - equal:
+          path: spec.http[2].route[0].destination.host
+          value: data-proxy-app-pequenos-cariocas-postgrest-rw
+      - equal:
+          path: spec.http[3].directResponse.status
+          value: 404

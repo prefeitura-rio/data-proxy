@@ -156,6 +156,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       GCS_ENDPOINT: minio:9000
       SYNC_CONFIG_PATH: config/sync.test.json
+      SCHEMA_WRITERS_FILE: config/schema-writers.json
     volumes:
       - ./config:/app/config:ro
     depends_on:

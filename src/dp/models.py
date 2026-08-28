@@ -139,6 +139,21 @@ TableConfig = Annotated[
 ]
 
 
+class SchemaWriters(BaseModel):
+    """Mapping from PostgreSQL schema names to writer DSNs."""
+
+    writers: dict[str, str]
+
+    def dsn(self, schema: str) -> str:
+        """Return the required writer DSN for a configured schema."""
+        try:
+            return self.writers[schema]
+        except KeyError as error:
+            raise RuntimeError(
+                f"Writer DSN is not configured for schema {schema!r}"
+            ) from error
+
+
 class SchemaConfig(BaseModel):
     """A PostgreSQL schema: its tables and, if any use RLS, its access claim."""
 

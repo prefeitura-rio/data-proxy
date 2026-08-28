@@ -1,0 +1,141 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $stack := $root.Values.ha.schemas }}
+{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+{{- range $mode := list "ro" "rw" }}
+{{- $port := ternary 5001 5000 (eq $mode "ro") }}
+{{- $replicas := ternary (dig "postgrest" "readReplicas" 1 $stack) (dig "postgrest" "writeReplicas" 1 $stack) (eq $mode "ro") }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-postgrest-{{ $mode }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: postgrest-{{ $mode }}
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: postgrest-{{ $mode }}
+      data-proxy.io/schema: {{ $schema | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: postgrest-{{ $mode }}
+        data-proxy.io/schema: {{ $schema | quote }}
+        sidecar.istio.io/inject: "true"
+    spec:
+      initContainers:
+        {{- if eq $mode "rw" }}
+        - name: db-migrate
+          image: {{ $root.Values.postgrest.dbMigrate.image | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready --host="$PGHOST" --port="$PGPORT" --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"; do
+                echo "waiting for database at $PGHOST:$PGPORT"
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/01_extensions.sql
+              /bin/sh /scripts/02_roles.sh
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/03_pre_request.sql
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /scripts/04_access_policy.sql
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-haproxy" $name | quote }}
+            - name: PGPORT
+              value: "5000"
+            - name: POSTGRES_USER
+              value: {{ $root.Values.pgduckdb.db.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ $root.Values.pgduckdb.db.name | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: POSTGRES_PASSWORD
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+          volumeMounts:
+            - name: db-init
+              mountPath: /scripts
+              readOnly: true
+        {{- end }}
+        - name: fetch-jwks
+          image: {{ $root.Values.postgrest.jwksFetch.image }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+{{ $root.Files.Get "files/scripts/fetch-jwks.sh" | nindent 14 }}
+          env:
+            - name: JWKS_URI
+              value: {{ $root.Values.postgrest.jwksUri | quote }}
+            - name: CURL_VERSION
+              value: {{ $root.Values.postgrest.jwksFetch.curlVersion | quote }}
+            - name: JQ_VERSION
+              value: {{ $root.Values.postgrest.jwksFetch.jqVersion | quote }}
+          volumeMounts:
+            - name: jwks
+              mountPath: /etc/postgrest
+      containers:
+        - name: postgrest
+          image: {{ $root.Values.postgrest.image }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PGRST_DB_URI
+              value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s-haproxy:%d/%s" $root.Values.auth.authenticatorRole $name $port $root.Values.pgduckdb.db.name | quote }}
+            - name: PGRST_DB_SCHEMAS
+              value: {{ $schema | quote }}
+            - name: PGRST_DB_ANON_ROLE
+              value: {{ $root.Values.auth.anonRole | quote }}
+            - name: PGRST_JWT_ROLE_CLAIM_KEY
+              value: {{ $root.Values.auth.jwtRoleClaim | quote }}
+            - name: PGRST_DB_PRE_REQUEST
+              value: {{ printf "%s.pre_request" $root.Values.auth.rlsSchema | quote }}
+            - name: PGRST_JWT_SECRET
+              value: "@/etc/postgrest/jwks.json"
+            - name: PGRST_DB_MAX_ROWS
+              value: {{ $root.Values.postgrest.maxRows | quote }}
+            - name: PGRST_OPENAPI_SERVER_PROXY_URI
+              value: {{ $root.Values.postgrest.proxyUri | quote }}
+            - name: PGRST_OPENAPI_SECURITY_ACTIVE
+              value: "true"
+            - name: PGRST_OPENAPI_MODE
+              value: ignore-privileges
+          volumeMounts:
+            - name: jwks
+              mountPath: /etc/postgrest
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+      volumes:
+        {{- if eq $mode "rw" }}
+        - name: db-init
+          configMap:
+            name: {{ $name }}-db-init
+            defaultMode: 0755
+        {{- end }}
+        - name: jwks
+          emptyDir: {}
+{{- end }}
+{{- end }}
+{{- end }}

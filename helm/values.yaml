@@ -139,7 +139,7 @@ producer:
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
 
-## Backup CronJob — dumps rls.access_policy and only rls.access_policy, encrypts it
+## Backup CronJob — exports each <schema>.access_policy table, encrypts it
 ## client-side before it leaves the pod, then uploads it to the GCS bucket above.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
 backup:
@@ -219,25 +219,39 @@ auth:
   anonRole: anon
   ## PostgreSQL role used for authenticated requests. This role receives application table access.
   userRole: user
-  ## PostgreSQL login role that PostgREST and PgBouncer use to connect.
+  ## PostgreSQL login role that PostgREST uses to connect.
   ## PostgREST uses this role in PGRST_DB_URI.
   authenticatorRole: authenticator
   ## PostgREST JSPath expression that selects the database role from JWT claims. A
   ## token may also resolve to policy_writer_<schema>, created per configured
-  ## schema, to write rls.access_policy for that schema only.
+  ## schema, to write that schema's access_policy table only.
   jwtRoleClaim: $.role
-  ## PostgreSQL schema that contains the pre_request function and rls.access_policy.
+  ## PostgreSQL schema that contains the shared pre_request function and sync status type.
   rlsSchema: rls
 
-## High-availability configuration: Patroni (3-node cluster) and PgBouncer (rw and ro pools).
-## Set ha.enabled to true to activate HA mode.
+## High-availability configuration for schema-specific Patroni and HAProxy stacks.
 ## When ha.enabled is false, the chart deploys a single-node pgduckdb StatefulSet.
 ha:
-  ## Set to true to enable Patroni and PgBouncer. Set to false for standalone mode.
+  ## Set to true to enable one Patroni and HAProxy stack per configured schema.
   enabled: false
+  ## Schema-specific HA stacks. Set at least one schema when HA is enabled.
+  ## Each key must also exist in syncConfig.schemas.
+  ## Example:
+  ##   bcadastro:
+  ##     members: 3
+  ##     storage:
+  ##       size: 200Gi
+  ##     postgrest:
+  ##       readReplicas: 2
+  ##       writeReplicas: 1
+  ##     haproxy:
+  ##       replicas: 2
+  schemas: {}
   patroni:
-    ## Number of Patroni pod replicas. The minimum for a stable cluster is 3.
-    replicas: 3
+    ## HAProxy image used for primary and replica routing.
+    haproxyImage: haproxy:3.2
+    ## Number of HAProxy replicas.
+    haproxyReplicas: 2
     ## Maximum number of WAL sender processes on the leader.
     ## Increase this value if you add more replicas.
     maxWalSenders: 10
@@ -248,28 +262,6 @@ ha:
     replicationUsername: replicator
     ## Password for the replication role. Required when ha.enabled is true.
     replicationPassword: ""
-  pgbouncer:
-    ## PgBouncer container image.
-    image: pgbouncer/pgbouncer:1.23.1
-    ## Write pool — routes connections to the Patroni leader.
-    ## The finalizer service uses this pool to write data.
-    rw:
-      ## Number of PgBouncer write-pool replicas.
-      replicas: 1
-      ## Maximum number of client connections to the write pool.
-      maxClientConn: 100
-      ## Number of server connections the write pool maintains per database.
-      defaultPoolSize: 10
-    ## Read pool — routes connections to Patroni replicas.
-    ## PostgREST uses this pool to serve read requests.
-    ro:
-      ## Number of PgBouncer read-pool replicas.
-      replicas: 1
-      ## Maximum number of client connections to the read pool.
-      maxClientConn: 200
-      ## Number of server connections the read pool maintains per database.
-      defaultPoolSize: 20
-
 ## Resource requests and limits applied to all containers.
 ## Leave empty to use no limits. See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 resources: {}

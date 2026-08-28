@@ -1,83 +1,92 @@
 {{- if .Values.backup.enabled }}
+{{- $root := . }}
+{{- range $schema, $_ := .Values.syncConfig.schemas }}
+{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-backup
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}-backup
+  namespace: {{ $root.Release.Namespace }}
   labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
+    {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: backup
+    data-proxy.io/schema: {{ $schema | quote }}
 spec:
-  schedule: {{ .Values.backup.schedule | quote }}
-  startingDeadlineSeconds: {{ .Values.backup.startingDeadlineSeconds }}
+  schedule: {{ $root.Values.backup.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.backup.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
-      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
-      ttlSecondsAfterFinished: {{ .Values.backup.ttlSecondsAfterFinished }}
+      activeDeadlineSeconds: {{ $root.Values.backup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $root.Values.backup.ttlSecondsAfterFinished }}
       backoffLimit: 0
       template:
         metadata:
           labels:
-            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
             app.kubernetes.io/component: backup
+            data-proxy.io/schema: {{ $schema | quote }}
         spec:
           restartPolicy: Never
-          serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+          serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
           containers:
             - name: backup
-              image: {{ .Values.backup.image | quote }}
-              command:
-                - /bin/sh
-                - -c
+              image: {{ $root.Values.backup.image | quote }}
+              command: [/bin/sh, -c]
               args:
                 - |
                   set -eu
-                  apk add --no-cache age aws-cli >/dev/null
-
+                  apk add --no-cache age aws-cli jq >/dev/null
+                  BACKUP_WRITER="$(jq -er --arg schema "$SCHEMA" '.writers[$schema]' /config/schema-writers/writers.json)"
+                  BACKUP_PG_DSN="postgresql://backup:${BACKUP_PASSWORD}@${BACKUP_WRITER#*@}"
                   export AWS_ACCESS_KEY_ID="$GCS_KEY_ID"
                   export AWS_SECRET_ACCESS_KEY="$GCS_SECRET_KEY"
-                  export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
-                  export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
-
                   aws configure set default.s3.addressing_style path
                   aws configure set default.region auto
-
                   scheme="https"
                   [ "$GCS_USE_SSL" = "true" ] || scheme="http"
                   object_date="$(date -u +%F)"
-
-                  psql "$BACKUP_PG_DSN" --no-psqlrc --quiet --command "COPY {{ .Values.auth.rlsSchema }}.access_policy TO STDOUT WITH (FORMAT csv, HEADER true)" \
+                  psql "$BACKUP_PG_DSN" --no-psqlrc --quiet --command "COPY {{ $schema }}.access_policy TO STDOUT WITH (FORMAT csv, HEADER true)" \
                     | age --encrypt --recipient "$AGE_RECIPIENT" \
-                    | aws s3 cp - "s3://${GCS_BUCKET}/${BACKUP_PREFIX}/${object_date}.csv.age" --endpoint-url "${scheme}://${GCS_ENDPOINT}"
+                    | aws s3 cp - "s3://${GCS_BUCKET}/${BACKUP_PREFIX}/{{ $schema }}/${object_date}.csv.age" --endpoint-url "${scheme}://${GCS_ENDPOINT}"
               env:
                 - name: BACKUP_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.backupSecretName" . }}
+                      name: {{ include "data-proxy.backupSecretName" $root }}
                       key: BACKUP_PASSWORD
-                - name: BACKUP_PG_DSN
-                  value: {{ include "data-proxy.backupPgDsn" . | quote }}
+                - name: SCHEMA
+                  value: {{ $schema | quote }}
                 - name: AGE_RECIPIENT
-                  value: {{ required "backup.ageRecipient is required when backup.enabled is true" .Values.backup.ageRecipient | quote }}
+                  value: {{ required "backup.ageRecipient is required when backup.enabled is true" $root.Values.backup.ageRecipient | quote }}
                 - name: BACKUP_PREFIX
-                  value: {{ .Values.backup.prefix | quote }}
+                  value: {{ $root.Values.backup.prefix | quote }}
                 - name: GCS_BUCKET
-                  value: {{ .Values.gcs.bucket | quote }}
+                  value: {{ $root.Values.gcs.bucket | quote }}
                 - name: GCS_ENDPOINT
-                  value: {{ .Values.gcs.endpoint | default "storage.googleapis.com" | quote }}
+                  value: {{ $root.Values.gcs.endpoint | default "storage.googleapis.com" | quote }}
                 - name: GCS_USE_SSL
-                  value: {{ .Values.gcs.useSsl | quote }}
+                  value: {{ $root.Values.gcs.useSsl | quote }}
                 - name: GCS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.gcsSecretName" . }}
+                      name: {{ include "data-proxy.gcsSecretName" $root }}
                       key: GCS_KEY_ID
                 - name: GCS_SECRET_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.gcsSecretName" . }}
+                      name: {{ include "data-proxy.gcsSecretName" $root }}
                       key: GCS_SECRET_KEY
+          volumes:
+            - name: schema-writers
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-schema-writers
+              volumeMounts:
+                - name: schema-writers
+                  mountPath: /config/schema-writers
+                  readOnly: true
+{{- end }}
 {{- end }}

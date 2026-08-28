@@ -75,11 +75,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.pgduckdbMemberCount" -}}
-{{- if .Values.ha.enabled -}}
-{{- .Values.ha.patroni.replicas -}}
-{{- else -}}
 1
-{{- end -}}
 {{- end }}
 
 {{- define "data-proxy.pgduckdbStatefulSetName" -}}
@@ -91,56 +87,49 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end }}
 
+{{- define "data-proxy.schemaStackName" -}}
+{{- printf "%s-%s" (include "data-proxy.fullname" .root) (.schema | replace "_" "-") -}}
+{{- end }}
+
+{{- define "data-proxy.schemaPvcName" -}}
+{{- printf "pgdata-%s-%s-%d" (include "data-proxy.fullname" .root) (.schema | replace "_" "-") (.ordinal | int) -}}
+{{- end }}
+
+{{- define "data-proxy.schemaWriterDsn" -}}
+{{- $root := .root -}}
+{{- if $root.Values.ha.enabled -}}
+postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
+{{- else -}}
+postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.schemaPatroniScope" -}}
+{{- printf "%s-patroni" (include "data-proxy.schemaStackName" .) -}}
+{{- end }}
+
+{{- define "data-proxy.schemaMemberName" -}}
+{{- printf "%s-%d" (include "data-proxy.schemaStackName" .) (.ordinal | int) -}}
+{{- end }}
+
 {{- define "data-proxy.pgduckdbPvcName" -}}
 {{- $prefix := default (printf "pgdata-%s-duckdb" (include "data-proxy.fullname" .root)) .root.Values.pgduckdb.storage.claimNamePrefix -}}
 {{- printf "%s-%d" $prefix (.ordinal | int) -}}
 {{- end }}
 
-{{- define "data-proxy.patroniMemberName" -}}
-{{- printf "%s-duckdb-%d" (include "data-proxy.fullname" .root) (.ordinal | int) -}}
-{{- end }}
-
-{{- define "data-proxy.masterServiceName" -}}
-{{- include "data-proxy.fullname" . }}-duckdb-master
-{{- end }}
-
-{{- define "data-proxy.replicaServiceName" -}}
-{{- include "data-proxy.fullname" . }}-duckdb-replica
-{{- end }}
-
-{{- define "data-proxy.pgbouncerRwName" -}}
-{{- include "data-proxy.fullname" . }}-pgbouncer-rw
-{{- end }}
-
-{{- define "data-proxy.pgbouncerRoName" -}}
-{{- include "data-proxy.fullname" . }}-pgbouncer-ro
-{{- end }}
-
 {{- define "data-proxy.postgresDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
-{{- $db   := .Values.pgduckdb.db.name -}}
-{{- if .Values.ha.enabled -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ include "data-proxy.pgbouncerRoName" . }}:5432/{{ $db }}
-{{- else -}}
+{{- $db := .Values.pgduckdb.db.name -}}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
-{{- end -}}
 {{- end }}
 
 {{- define "data-proxy.backupPgDsn" -}}
 {{- $db := .Values.pgduckdb.db.name -}}
-{{- if .Values.ha.enabled -}}
-postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.pgbouncerRoName" . }}:5432/{{ $db }}
-{{- else -}}
 postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
-{{- end -}}
 {{- end }}
 
 {{- define "data-proxy.migrationDatabaseHost" -}}
-{{- if .Values.ha.enabled -}}
-{{- include "data-proxy.masterServiceName" . }}
-{{- else -}}
 {{- include "data-proxy.fullname" . }}-duckdb
-{{- end -}}
 {{- end }}
 
 {{- define "data-proxy.appPgDsn" -}}
@@ -192,6 +181,8 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
   value: {{ .Values.auth.userRole | quote }}
 - name: AUTH_AUTHENTICATOR_ROLE
   value: {{ .Values.auth.authenticatorRole | quote }}
+- name: SCHEMA_WRITERS_FILE
+  value: /config/schema-writers/writers.json
 {{- end }}
 
 {{- define "data-proxy.syncConfigVolume" -}}
@@ -203,5 +194,17 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
+  readOnly: true
+{{- end }}
+
+{{- define "data-proxy.schemaWritersVolume" -}}
+- name: schema-writers
+  configMap:
+    name: {{ include "data-proxy.fullname" . }}-schema-writers
+{{- end }}
+
+{{- define "data-proxy.schemaWritersVolumeMount" -}}
+- name: schema-writers
+  mountPath: /config/schema-writers
   readOnly: true
 {{- end }}

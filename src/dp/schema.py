@@ -43,6 +43,18 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
                 }
             ).encode()
         )
+        pg_conn.execute(
+            load_template(
+                {
+                    "path": "pg/init_access_policy",
+                    "mapping": {
+                        "schema": Identifier(schema),
+                        "user_role": Identifier(settings.AUTH_USER_ROLE),
+                        "scope": schema_scope_predicate(schema),
+                    },
+                }
+            ).encode()
+        )
         ensure_schema_policy_writer(pg_conn, schema)
 
     pg_conn.commit()

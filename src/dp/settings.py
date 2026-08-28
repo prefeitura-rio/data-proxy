@@ -8,6 +8,8 @@ from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
+from .models import SchemaWriters
+
 
 class Settings(BaseSettings):
     """Settings for the data-proxy sync pipeline."""
@@ -31,6 +33,21 @@ class Settings(BaseSettings):
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
+    SCHEMA_WRITERS_FILE: Path = Path("config/schema-writers/writers.json")
+
+    def schema_writers(self) -> SchemaWriters:
+        """Return the Helm-managed schema-to-writer DSN mapping."""
+        try:
+            raw = self.SCHEMA_WRITERS_FILE.read_text()
+        except FileNotFoundError as error:
+            message = f"Schema writers file is unavailable: {self.SCHEMA_WRITERS_FILE}"
+            raise RuntimeError(message) from error
+
+        try:
+            return SchemaWriters.model_validate_json(raw)
+        except ValueError as error:
+            message = f"Schema writers file is invalid: {self.SCHEMA_WRITERS_FILE}"
+            raise RuntimeError(message) from error
 
     def make_redis(self) -> Redis:
         """Return a Redis client built from the configured URL's parsed fields."""

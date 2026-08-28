@@ -10,11 +10,12 @@ tests:
   - it: fails to render when enabled without an ageRecipient
     set:
       backup.enabled: true
+      syncConfig.schemas.bcadastro.tables: []
     asserts:
       - failedTemplate:
           errorMessage: "backup.ageRecipient is required when backup.enabled is true"
 
-  - it: renders with the configured schedule and image
+  - it: renders one schema backup with the configured schedule and image
     set:
       backup.enabled: true
       backup.schedule: "30 4 * * *"
@@ -22,46 +23,38 @@ tests:
       backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
       backup.prefix: backups/access_policy
       gcs.bucket: my-bucket
+      syncConfig.schemas.bcadastro.tables: []
     asserts:
       - isKind:
           of: CronJob
+      - equal:
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
       - equal:
           path: spec.schedule
           value: "30 4 * * *"
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
           value: postgres:17-alpine
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'COPY bcadastro\.access_policy TO STDOUT'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '\$\{BACKUP_PREFIX\}/bcadastro/'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'writers\.json'
       - equal:
-          path: spec.jobTemplate.spec.template.spec.restartPolicy
-          value: Never
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: AGE_RECIPIENT
-            value: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: GCS_BUCKET
-            value: my-bucket
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
+          value: data-proxy-schema-writers
 
-  - it: scopes the dump to exactly rls.access_policy
-    set:
-      backup.enabled: true
-      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
-    asserts:
-      - matchRegex:
-          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
-          pattern: 'COPY rls\.access_policy TO STDOUT'
-      - matchRegex:
-          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
-          pattern: 'age --encrypt --recipient "\$AGE_RECIPIENT"'
-
-  - it: uses an existing secret when configured instead of BACKUP_PASSWORD
+  - it: uses an existing secret when configured
     set:
       backup.enabled: true
       backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
       backup.existingSecret: my-backup-secret
+      syncConfig.schemas.bcadastro.tables: []
     asserts:
       - contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env

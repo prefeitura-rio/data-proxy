@@ -23,7 +23,7 @@ The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:1.0.0`
 
 ## Database storage
 
-A fresh installation creates one explicit PVC for each pgduckdb member. It creates one single-replica StatefulSet for each member. Standalone mode creates one member. HA mode creates the number of members in `ha.patroni.replicas`. Each member mounts its matching PVC.
+A fresh installation creates one explicit PVC for each pgduckdb member. It creates one single-replica StatefulSet for each member. Standalone mode creates one member. HA mode creates the number of members configured by `ha.schemas.<schema>.members`. Each member mounts its matching PVC.
 
 Set `pgduckdb.storage.size` to the required capacity. A later increase updates the PVC. It does not change a StatefulSet claim template. Kubernetes does not support PVC size reduction.
 
@@ -33,7 +33,7 @@ This storage layout applies to fresh installations. The chart does not migrate i
 
 ## Database upgrades
 
-Before PostgREST starts, an init container waits for the PostgreSQL writer. It then runs the idempotent database reconciliation. The reconciliation updates roles, extensions, RLS tables, functions, triggers, policies, and each schema in `syncConfig.schemas`. In HA mode, the init container uses the Patroni master Service. In standalone mode, it uses the DuckDB Service.
+Before PostgREST RW starts, an init container waits for the PostgreSQL writer. It then runs idempotent database reconciliation. In HA mode, the init container uses the schema HAProxy writer endpoint. It reconciles only that schema. In standalone mode, it uses the DuckDB Service and reconciles all configured schemas.
 
 The init container runs the scripts with `ON_ERROR_STOP=1`. PostgREST starts only when the scripts succeed. A sync configuration checksum change also starts the init container. PostgreSQL runs the initial setup for a new empty volume before the init container continues.
 
@@ -44,6 +44,11 @@ Add the following to your values file. HA members use the same `pgduckdb.image` 
 ```yaml
 ha:
   enabled: true
+  schemas:
+    bcadastro:
+      members: 3
+      storage:
+        size: 80Gi
   patroni:
     replicationPassword: "<strong-password>"
 ```

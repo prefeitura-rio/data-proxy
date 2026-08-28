@@ -32,22 +32,16 @@ auth:
 
 ha:
   enabled: true
+  schemas:
+    app_pequenos_cariocas:
+      members: 2
+      storage:
+        size: 80Gi
   patroni:
-    replicas: 3
     maxWalSenders: 10
     walKeepSize: 1GB
     replicationUsername: replicator
     replicationPassword: replpass
-  pgbouncer:
-    image: pgbouncer/pgbouncer:1.23.1
-    rw:
-      replicas: 1
-      maxClientConn: 100
-      defaultPoolSize: 10
-    ro:
-      replicas: 1
-      maxClientConn: 200
-      defaultPoolSize: 20
 
 syncConfig:
   schemas:

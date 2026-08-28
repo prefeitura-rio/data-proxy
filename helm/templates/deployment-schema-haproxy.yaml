@@ -1,0 +1,46 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $stack := $root.Values.ha.schemas }}
+{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-haproxy
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: haproxy
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  replicas: {{ dig "haproxy" "replicas" $root.Values.ha.patroni.haproxyReplicas $stack }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: haproxy
+      data-proxy.io/schema: {{ $schema | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: haproxy
+        data-proxy.io/schema: {{ $schema | quote }}
+    spec:
+      containers:
+        - name: haproxy
+          image: {{ $root.Values.ha.patroni.haproxyImage }}
+          ports:
+            - name: primary
+              containerPort: 5000
+            - name: replica
+              containerPort: 5001
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-haproxy
+{{- end }}
+{{- end }}

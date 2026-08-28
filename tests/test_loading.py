@@ -227,7 +227,7 @@ def test_publish_table_swaps_before_index_creation() -> None:
 
 
 def test_initialize_schemas_creates_roles_then_schemas() -> None:
-    """Roles, then each schema and its policy_writer role, are created and committed."""
+    """Roles, schemas, local policies, and policy writers are created in order."""
     connection = FakePgConn()
     config = SyncConfig(
         schemas={
@@ -245,8 +245,10 @@ def test_initialize_schemas_creates_roles_then_schemas() -> None:
     assert connection.executed[0] == b"pg/init_roles"
     assert connection.executed[1:] == [
         b"pg/init_schema",
+        b"pg/init_access_policy",
         b"pg/access_policy_writer",
         b"pg/init_schema",
+        b"pg/init_access_policy",
         b"pg/access_policy_writer",
     ]
 

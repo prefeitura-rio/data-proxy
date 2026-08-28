@@ -64,14 +64,43 @@ async def ensure_consumer_group() -> None:
         await create_consumer_group(redis, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP)
 
 
+def plans_by_schema(
+    config: SyncConfig, plan: SyncPlan
+) -> dict[str, tuple[SyncConfig, SyncPlan]]:
+    """Return schema-local views of an unchanged synchronization plan."""
+    schemas = {
+        table.name: schema
+        for schema, schema_config in config.schemas.items()
+        for table in schema_config.tables
+    }
+
+    plans: dict[str, SyncPlan] = {}
+
+    for table, signature in plan.signatures.items():
+        schema = schemas[table]
+        schema_plan = plans.setdefault(schema, SyncPlan(sync_id=plan.sync_id))
+        schema_plan.signatures[table] = signature
+        schema_plan.paths[table] = plan.paths[table]
+
+    for table, partition_plan in plan.partitioned_tables.items():
+        schema = schemas[table]
+        schema_plan = plans.setdefault(schema, SyncPlan(sync_id=plan.sync_id))
+        schema_plan.partitioned_tables[table] = partition_plan
+
+    return {
+        schema: (SyncConfig(schemas={schema: config.schemas[schema]}), schema_plan)
+        for schema, schema_plan in plans.items()
+    }
+
+
 def apply_sync_plan_wrapper(
-    config: SyncConfig, plan: SyncPlan, failed_paths: set[str]
+    dsn: str,
+    config: SyncConfig,
+    plan: SyncPlan,
+    failed_paths: set[str],
 ) -> PublicationResult:
     """Run the blocking Postgres/DuckDB publication for one plan."""
-    with (
-        psycopg.connect(settings.PG_DSN) as pg_conn,
-        connect() as duckdb_conn,
-    ):
+    with psycopg.connect(dsn) as pg_conn, connect() as duckdb_conn:
         return apply_sync_plan(pg_conn, duckdb_conn, config, plan, failed_paths)
 
 
@@ -106,22 +135,32 @@ async def finalize_sync(message: FinalizeMessage) -> None:
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
     async with settings.make_redis() as redis:
-        plan = await read_sync_plan(redis, message.sync_id)
+        source_plan = await read_sync_plan(redis, message.sync_id)
         failed_paths = await read_failed_paths(redis, message.sync_id)
         log.info("Sync plan loaded", failed_path_count=len(failed_paths))
 
-        result = await asyncify(apply_sync_plan_wrapper)(
-            config,
-            plan,
-            failed_paths,
-        )
+        writers = settings.schema_writers()
+        plans = plans_by_schema(config, source_plan)
+        published_tables: set[str] = set()
 
-        log.info(
-            "Publication completed",
-            published_table_count=len(result.published_tables),
-        )
+        for schema, (config, plan) in plans.items():
+            result = await asyncify(apply_sync_plan_wrapper)(
+                writers.dsn(schema),
+                config,
+                plan,
+                failed_paths,
+            )
 
-        await commit_sync_state(redis, result.plan, result.published_tables)
+            published_tables.update(result.published_tables)
+
+            log.info(
+                "Schema publication completed",
+                schema=schema,
+                published_table_count=len(result.published_tables),
+            )
+
+        await commit_sync_state(redis, source_plan, published_tables)
+
         log.info("Sync state committed", elapsed_ms=elapsed_ms(started))
 
     finalizer.exit()

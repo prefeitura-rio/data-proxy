@@ -62,6 +62,12 @@ data:
       }
 
       var apiUrl = {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }};
+      var openapiUrl = apiUrl;
+      {{- if .Values.ha.enabled }}
+      if (selectedSchema) {
+        openapiUrl = apiUrl + 'openapi/' + encodeURIComponent(selectedSchema);
+      }
+      {{- end }}
 
       var selectSchema = function(schema) {
         var url = new URL(window.location.href);
@@ -70,7 +76,7 @@ data:
       };
 
       window.ui = SwaggerUIBundle({
-        url: apiUrl,
+        url: openapiUrl,
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

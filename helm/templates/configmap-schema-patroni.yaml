@@ -1,0 +1,18 @@
+{{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+{{- $root := . }}
+{{- range $schema, $_ := $root.Values.ha.schemas }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-patroni
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: duckdb
+    data-proxy.io/schema: {{ $schema | quote }}
+data:
+  patroni.yaml: |
+    {{ include "data-proxy.patroniConfig" $root | nindent 4 }}
+{{- end }}
+{{- end }}
