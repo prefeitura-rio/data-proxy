@@ -42,9 +42,14 @@ data:
     };
 
   initializer.js: |
-    document.write('<script src="/schemas.js"><\/script>');
-
     window.onload = function() {
+      var schemaScript = document.createElement('script');
+      schemaScript.src = '/schemas.js';
+      schemaScript.onload = initializeSwagger;
+      document.head.appendChild(schemaScript);
+    };
+
+    function initializeSwagger() {
       var schemas = window.dataProxySchemas || [];
       var selectedSchema = new URLSearchParams(window.location.search).get('schema');
       if (!schemas.includes(selectedSchema)) {
