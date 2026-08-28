@@ -12,17 +12,22 @@ data:
     window.dataProxySchemas = {{ .Values.swaggerUi.schemas | toJson }};
 
     window.createSchemaSelector = function(schemas, selectedSchema, onChange) {
-      var container = document.createElement('div');
-      container.style.margin = '1rem auto';
-      container.style.maxWidth = '1460px';
+      var schemes = document.querySelector('.schemes-server-container');
+      if (!schemes || document.getElementById('schema-selector')) {
+        return;
+      }
 
       var label = document.createElement('label');
-      label.textContent = 'Schema: ';
       label.htmlFor = 'schema-selector';
+      label.style.marginLeft = '2rem';
+
+      var title = document.createElement('span');
+      title.className = 'schemes-title';
+      title.textContent = 'Schema';
 
       var select = document.createElement('select');
       select.id = 'schema-selector';
-      select.style.marginLeft = '0.5rem';
+      select.style.textTransform = 'lowercase';
 
       schemas.forEach(function(schema) {
         var option = document.createElement('option');
@@ -36,9 +41,9 @@ data:
         onChange(select.value);
       });
 
+      label.appendChild(title);
       label.appendChild(select);
-      container.appendChild(label);
-      document.body.insertBefore(container, document.getElementById('swagger-ui'));
+      schemes.appendChild(label);
     };
 
   initializer.js: |
@@ -58,11 +63,11 @@ data:
 
       var apiUrl = {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }};
 
-      window.createSchemaSelector(schemas, selectedSchema, function(schema) {
+      var selectSchema = function(schema) {
         var url = new URL(window.location.href);
         url.searchParams.set('schema', schema);
         window.location.href = url.toString();
-      });
+      };
 
       window.ui = SwaggerUIBundle({
         url: apiUrl,
@@ -76,6 +81,9 @@ data:
           SwaggerUIBundle.plugins.DownloadUrl
         ],
         layout: "StandaloneLayout",
+        onComplete: function() {
+          window.createSchemaSelector(schemas, selectedSchema, selectSchema);
+        },
         requestInterceptor: function(req) {
           var auth = req.headers.Authorization;
           if (auth && auth.indexOf('Bearer ') !== 0) {
