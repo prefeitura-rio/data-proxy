@@ -1,0 +1,15 @@
+mode: standalone
+replicas: 1
+rootUser: minioadmin
+rootPassword: minioadmin-local
+persistence:
+  enabled: true
+  size: 2Gi
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+buckets:
+  - name: test-bucket
+    policy: none
+    purge: false

@@ -1,0 +1,25 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: data-proxy-load
+  namespace: data-proxy
+spec:
+  parallelism: 1
+  script:
+    configMap:
+      name: data-proxy-k6
+      file: run.ts
+  runner:
+    env:
+      - name: BASE_URL
+        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
+      - name: API_HOST
+        value: data-proxy.local
+      - name: ACCEPT_PROFILE
+        value: pic
+      - name: K6_PROFILE
+        value: smoke
+      - name: VUS
+        value: "2"
+      - name: DURATION
+        value: 30s

@@ -2,9 +2,10 @@
 
 ## Prerequisites
 
-The following components must be installed in the cluster before you deploy the chart:
+Install these components before you deploy the chart:
 
-- [KEDA](https://keda.sh/docs/latest/deploy/). This chart needs KEDA for the `ScaledJob` and `TriggerAuthentication` resources that drive the worker and the finalizer.
+- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses KEDA for the worker and finalizer `ScaledJob` resources.
+- Istio, when `ingress.enabled` is `true`. The chart uses Istio `VirtualService`, `RequestAuthentication`, and `AuthorizationPolicy` resources.
 
 ## Install
 
@@ -19,7 +20,7 @@ helm install data-proxy \
 
 See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration options and their descriptions.
 
-The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:1.0.0`. Standalone and HA members use this image. It contains PostgreSQL 17, pg_duckdb, PostGIS, Patroni with Kubernetes support, and the required runtime tools.
+The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:latest`. Standalone and HA members use this image. It contains PostgreSQL 17, pg_duckdb, PostGIS, Patroni with Kubernetes support, and the required runtime tools.
 
 ## Database storage
 
@@ -36,6 +37,14 @@ This storage layout applies to fresh installations. The chart does not migrate i
 Before PostgREST RW starts, an init container waits for the PostgreSQL writer. It then runs idempotent database reconciliation. In HA mode, the init container uses the schema HAProxy writer endpoint. It reconciles only that schema. In standalone mode, it uses the DuckDB Service and reconciles all configured schemas.
 
 The init container runs the scripts with `ON_ERROR_STOP=1`. PostgREST starts only when the scripts succeed. A sync configuration checksum change also starts the init container. PostgreSQL runs the initial setup for a new empty volume before the init container continues.
+
+## Istio ingress
+
+Set `ingress.enabled` to `true` to create an Istio `VirtualService`. Install Istio before you install the chart. Create the Gateway named by `ingress.gateway` before you install the chart.
+
+Set `ingress.auth.enabled` to `true` to create JWT authentication and authorization resources. These resources need an Istio control plane.
+
+Keep `ingress.sidecarInject` set to `true` when the cluster kernel supports the Istio iptables setup. Set it to `false` only when the kernel does not support this setup. In this mode, Istio still routes ingress traffic, but Data Proxy pods do not have Istio sidecars.
 
 ## Enable HA
 

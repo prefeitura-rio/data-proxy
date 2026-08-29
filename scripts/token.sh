@@ -2,13 +2,23 @@
 
 set -euo pipefail
 
-TOKEN=$(curl -sf -X POST http://localhost:8081/default/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=dev-client" \
-  | jq -r ".access_token")
+kubectl config use-context data-proxy >/dev/null
+
+TOKEN=$(kubectl run data-proxy-token-client \
+    --namespace data-proxy \
+    --rm \
+    --stdin=false \
+    --restart=Never \
+    --image=curlimages/curl:8.12.1 \
+    --command -- \
+    curl -sf -X POST http://mock-oauth2-server:8080/default/token \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "grant_type=client_credentials" \
+    -d "client_id=dev" |
+    jq -er ".access_token")
 
 echo "export TOKEN='${TOKEN}'"
 echo ""
 echo "# Test RLS:"
-echo "curl -s http://localhost:3111/endpoint_participante_listagem -H \"Authorization: Bearer ${TOKEN}\""
+echo "kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80 >/tmp/data-proxy-api-port-forward.log 2>&1 &"
+echo "curl -s http://localhost:3111/endpoint_participante_listagem -H 'Host: data-proxy.local' -H 'Accept-Profile: pic' -H \"Authorization: Bearer ${TOKEN}\""

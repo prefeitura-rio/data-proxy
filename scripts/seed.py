@@ -16,6 +16,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from os import environ
+from pathlib import Path
 from random import choice, randint
 from random import seed as set_seed
 from typing import cast
@@ -25,14 +26,19 @@ from google.cloud.bigquery import (
     Client,
     LoadJobConfig,
     SchemaField,
+    TimePartitioning,
+    TimePartitioningType,
     WriteDisposition,
 )
 from loguru import logger
+
+from dp.models import SyncConfig
 
 logger.remove()
 logger.add(sys.stderr, format="[{level}] {message}")
 
 type Row = dict[str, str]
+
 
 DEFAULT_UNIDADES = ["cras_1", "cras_2", "cras_3", "cras_4", "cras_5"]
 DEFAULT_ESTADOS = ["ATIVO", "INATIVO", "SUSPENSO"]
@@ -46,6 +52,7 @@ class Config:
     protocolos_por_participante: tuple[int, int]
     partition_days: int
     seed: int | None
+    sync_config: Path
 
 
 def parse_args() -> Config:
@@ -86,6 +93,12 @@ def parse_args() -> Config:
         default=None,
         help="Random seed for reproducibility",
     )
+    parser.add_argument(
+        "--sync-config",
+        type=Path,
+        default=Path("config/sync.test.json"),
+        help="Sync configuration that lists the development tables",
+    )
 
     args = parser.parse_args()
 
@@ -99,6 +112,7 @@ def parse_args() -> Config:
         ),
         partition_days=cast(int, args.partition_days),
         seed=cast("int | None", args.seed),
+        sync_config=cast(Path, args.sync_config),
     )
 
 
@@ -143,17 +157,15 @@ def build_protocolos(n: int, max_days: int) -> list[Row]:
 
 def load_table(
     client: Client,
-    project: str | None,
-    dataset: str,
-    table_id: str,
+    table_ref: str,
     rows: list[Row],
     schema: list[SchemaField],
+    time_partitioning: TimePartitioning | None = None,
 ) -> None:
-    full_table_id = (
-        f"{project}.{dataset}.{table_id}" if project else f"{dataset}.{table_id}"
-    )
+    full_table_id = table_ref
     job_config = LoadJobConfig(
         schema=schema,
+        time_partitioning=time_partitioning,
         write_disposition=WriteDisposition.WRITE_TRUNCATE,
     )
     job = client.load_table_from_json(rows, full_table_id, job_config=job_config)
@@ -168,15 +180,33 @@ def main() -> None:
         set_seed(cfg.seed)
 
     client = Client(project=cfg.project) if cfg.project else Client()
+    sync_config = SyncConfig.model_validate_json(cfg.sync_config.read_text())
+    table_refs = {table.name for table in sync_config.tables}
+    required_tables = {
+        "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
+        "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
+        "rj-ia-desenvolvimento.dev.endpoint_participantes",
+    }
+    missing_tables = required_tables - table_refs
+    if missing_tables:
+        raise ValueError(
+            f"sync config is missing development tables: {sorted(missing_tables)}"
+        )
+
+    def table_ref(table_name: str) -> str:
+        configured = next(
+            table.name for table in sync_config.tables if table.table_name == table_name
+        )
+        if cfg.project:
+            return f"{cfg.project}.{configured.split('.', 1)[1]}"
+        return configured
 
     client.create_dataset(cfg.dataset, exists_ok=True)
 
     participantes = build_participantes(cfg.n_participantes)
     load_table(
         client,
-        cfg.project,
-        cfg.dataset,
-        "endpoint_participante_listagem",
+        table_ref("endpoint_participante_listagem"),
         participantes,
         schema=[
             SchemaField("id", "STRING", mode="REQUIRED"),
@@ -190,9 +220,7 @@ def main() -> None:
     protocolos = build_protocolos(cfg.n_participantes, cfg.partition_days)
     load_table(
         client,
-        cfg.project,
-        cfg.dataset,
-        "protocolo_estado_diario",
+        table_ref("protocolo_estado_diario"),
         protocolos,
         schema=[
             SchemaField("protocolo_id", "STRING", mode="REQUIRED"),
@@ -201,6 +229,31 @@ def main() -> None:
             ),
             SchemaField("estado", "STRING", mode="REQUIRED"),
             SchemaField("id_unidade", "STRING", mode="REQUIRED"),
+        ],
+        time_partitioning=TimePartitioning(
+            type_=TimePartitioningType.DAY,
+            field="protocolo_data_referencia_particicao",
+        ),
+    )
+
+    participantes_extra = [
+        {
+            "id": str(i + 1),
+            "nome": f"Participante {uuid4().hex[:8]}",
+            "id_cras": choice(DEFAULT_UNIDADES),
+            "id_escola": f"escola_{randint(1, 5)}",
+        }
+        for i in range(cfg.n_participantes)
+    ]
+    load_table(
+        client,
+        table_ref("endpoint_participantes"),
+        participantes_extra,
+        schema=[
+            SchemaField("id", "STRING", mode="REQUIRED"),
+            SchemaField("nome", "STRING", mode="REQUIRED"),
+            SchemaField("id_cras", "STRING", mode="REQUIRED"),
+            SchemaField("id_escola", "STRING", mode="REQUIRED"),
         ],
     )
 

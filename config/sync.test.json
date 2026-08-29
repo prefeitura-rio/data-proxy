@@ -1,6 +1,6 @@
 {
   "schemas": {
-    "app_pequenos_cariocas": {
+    "pic": {
       "claim": "preferred_username",
       "tables": [
         {
@@ -12,12 +12,7 @@
               "unit_type": "unidade"
             }
           ]
-        }
-      ]
-    },
-    "projeto_pequenos_cariocas": {
-      "claim": "preferred_username",
-      "tables": [
+        },
         {
           "name": "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
           "strategy": "partitioned",

@@ -18,7 +18,7 @@ spec:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: swagger-ui
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       containers:
         - name: swagger-ui

@@ -28,7 +28,7 @@ spec:
         {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: postgrest-{{ $mode }}
         data-proxy.io/schema: {{ $schema | quote }}
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: {{ $root.Values.ingress.sidecarInject | quote }}
     spec:
       initContainers:
         {{- if eq $mode "rw" }}

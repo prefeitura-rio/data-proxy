@@ -1,0 +1,88 @@
+image:
+  repository: data-proxy
+  tag: local
+  pullPolicy: IfNotPresent
+serviceAccount:
+  create: true
+  name: data-proxy
+pgduckdb:
+  image: data-proxy-postgres:local
+  storage:
+    size: 2Gi
+  db:
+    name: dataproxy
+    user: dataproxy
+  password: dataproxy-local
+  authenticatorPassword: authenticator-local
+postgrest:
+  proxyUri: http://localhost:3111
+  jwksUri: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default/jwks
+gcs:
+  bucket: test-bucket
+  endpoint: minio.data-proxy.svc.cluster.local:9000
+  useSsl: "false"
+  keyId: minioadmin
+  secretKey: minioadmin-local
+valkey:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: valkey-local
+swaggerUi:
+  enabled: true
+worker:
+  keda:
+    lagCount: "7"
+syncConfig:
+  schemas:
+    pic:
+      claim: preferred_username
+      tables:
+        - name: rj-ia-desenvolvimento.dev.endpoint_participante_listagem
+          strategy: full
+          rls:
+            - column: id_unidade
+              unit_type: unidade
+        - name: rj-ia-desenvolvimento.dev.endpoint_participantes
+          strategy: full
+          rls:
+            - column: id_cras
+              unit_type: cras
+            - column: id_escola
+              unit_type: escola
+        - name: rj-ia-desenvolvimento.dev.protocolo_estado_diario
+          strategy: partitioned
+          n: 7
+          rls:
+            - column: id_unidade
+              unit_type: unidade
+ha:
+  enabled: false
+  # schemas:
+  #   pic:
+  #     members: 3
+  #     storage:
+  #       size: 2Gi
+  #     postgrest:
+  #       readReplicas: 2
+  #       writeReplicas: 1
+  #     haproxy:
+  #       replicas: 2
+  # patroni:
+  #   replicationPassword: patroni-local
+ingress:
+  sidecarInject: true
+  enabled: true
+  gateway: istio-system/data-proxy-gateway
+  host: data-proxy.local
+  timeout: 60s
+  retries:
+    attempts: 2
+    perTryTimeout: 30s
+    retryOn: "503"
+  auth:
+    enabled: true
+    issuer: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default
+    jwksUri: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default/jwks
+    audience: dev

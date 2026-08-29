@@ -6,7 +6,7 @@
 POST {{oidc}}/default/token HTTP/1.1
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_id=dev-client&client_secret=dev-secret
+grant_type=client_credentials&client_id=dev&client_secret=dev-secret
 
 ### ANONYMOUS — no JWT, RLS hides all rows
 GET {{host}}/endpoint_participante_listagem HTTP/1.1

@@ -87,7 +87,6 @@ swaggerUi:
   schemas:
     - app_pequenos_cariocas
     - bcadastro
-    - rls
 
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
@@ -269,6 +268,8 @@ resources: {}
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ## No VirtualService is created when enabled is false.
 ingress:
+  ## Inject Istio sidecars into application pods. Disable when the local VM kernel does not provide iptables IPv6 support.
+  sidecarInject: true
   ## Set to true to create an Istio VirtualService for PostgREST.
   enabled: false
   ## Gateway reference in namespace/name format.

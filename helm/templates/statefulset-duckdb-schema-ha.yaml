@@ -48,7 +48,7 @@ spec:
             - name: PATRONI_SCOPE
               value: {{ include "data-proxy.schemaPatroniScope" (dict "root" $root "schema" $schema) | quote }}
             - name: PATRONI_NAME
-              value: {{ include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal) | quote }}
+              value: {{ printf "%s-0" (include "data-proxy.schemaMemberName" (dict "root" $root "schema" $schema "ordinal" $ordinal)) | quote }}
             - name: PATRONI_POD_IP
               valueFrom:
                 fieldRef:

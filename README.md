@@ -13,7 +13,7 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 - [Using the API](docs/using.md) — querying tables through PostgREST: filtering, ordering, pagination, counting.
 - [Environment Variables](docs/environment_variables.md) — configuration read by the producer, worker, and finalizer.
 - [Helm Chart](docs/helm_chart.md) — installing and configuring the chart, including HA mode.
-- [Local Development](docs/local_development.md) — running the full pipeline with `docker-compose.yaml`.
+- [Local Development](docs/development.md) — running the full pipeline on Kubernetes with Minikube and Helm.
 
 ## License
 

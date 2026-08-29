@@ -10,6 +10,8 @@ build/
 credentials.json
 *.parquet
 .devenv/
+.kube/
+.kubeconfig
 .pre-commit-config.yaml
 todo.txt
 .coverage

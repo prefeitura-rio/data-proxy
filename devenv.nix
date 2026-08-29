@@ -5,12 +5,14 @@
 
   env = {
     UV_PYTHON = config.languages.python.package.outPath;
+    KUBECONFIG = "$DEVENV_ROOT/.kubeconfig";
   };
 
   packages = with pkgs; [
     curl
     jq
     k6
+    minikube
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -52,8 +54,9 @@
   };
 
   scripts = {
-    seed.exec = ''uv run python scripts/seed.py "$@"'';
+    seed-data.exec = ''uv run python scripts/seed.py "$@"'';
     get-token.exec = "bash scripts/token.sh";
+    cluster.exec = "bash scripts/cluster.sh \"$@\"";
   };
 
   tasks = {

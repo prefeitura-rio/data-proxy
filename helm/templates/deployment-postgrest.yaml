@@ -20,7 +20,7 @@ spec:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgrest
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       initContainers:
         - name: db-migrate
@@ -107,7 +107,7 @@ spec:
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgresDsn" . | quote }}
             - name: PGRST_DB_SCHEMAS
-              value: {{ append (keys (.Values.syncConfig.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
+              value: {{ keys (.Values.syncConfig.schemas | default dict) | sortAlpha | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY
