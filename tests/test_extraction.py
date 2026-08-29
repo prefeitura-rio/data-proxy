@@ -78,8 +78,8 @@ def test_build_mapping_selects_template(
 
     spec = build_mapping(task)
 
-    assert spec["path"] == expected_path
-    assert render(spec["mapping"][rendered_field]) == expected_rendered
+    assert spec.path == expected_path
+    assert render(spec.mapping[rendered_field]) == expected_rendered
 
 
 def test_extract_task_executes_rendered_sql() -> None:

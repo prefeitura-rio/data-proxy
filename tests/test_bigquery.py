@@ -6,7 +6,14 @@ import pytest
 from google.cloud.bigquery import PartitionRange, RangePartitioning, TimePartitioning
 from helpers import FakeBigQueryClient, bigquery_client
 
-from dp.bigquery import parse_table_reference, physical_partitions, table_modified
+from dp.bigquery import (
+    RangeConfig,
+    TimeConfig,
+    TimeGranularity,
+    parse_table_reference,
+    physical_partitions,
+    table_modified,
+)
 from dp.models import RangeSelection
 
 MODIFIED = datetime(2026, 8, 7, 12, 47, 52, 683000, tzinfo=UTC)
@@ -47,13 +54,6 @@ def test_table_modified_rejects_missing_timestamp() -> None:
         table_modified(bigquery_client(fake), "p.d.t")
 
 
-@pytest.mark.parametrize("value", ["p.d", "p.d.t.extra", "p.d.t; DROP TABLE x"])
-def test_parse_table_reference_rejects_invalid_values(value: str) -> None:
-    """Metadata identifiers must use one canonical project.dataset.table value."""
-    with pytest.raises(ValueError, match="Invalid BigQuery table reference"):
-        parse_table_reference(value)
-
-
 def test_parse_table_reference_returns_named_fields() -> None:
     """A valid reference exposes project, dataset, and table attributes."""
     reference = parse_table_reference("project.dataset.table-name")
@@ -61,6 +61,28 @@ def test_parse_table_reference_returns_named_fields() -> None:
     assert reference.project == "project"
     assert reference.dataset == "dataset"
     assert reference.table == "table-name"
+
+
+@pytest.mark.parametrize(
+    ("field", "start", "end", "interval", "message"),
+    [
+        ("", 0, 10, 1, "field must not be empty"),
+        ("id", 0, 10, 0, "interval must be positive"),
+        ("id", 10, 10, 1, "start must precede end"),
+    ],
+)
+def test_range_config_rejects_invalid_values(
+    field: str, start: int, end: int, interval: int, message: str
+) -> None:
+    """Range configuration owns its value invariants."""
+    with pytest.raises(ValueError, match=message):
+        RangeConfig(field, start, end, interval)
+
+
+def test_time_config_rejects_empty_field() -> None:
+    """Time configuration requires a partition field."""
+    with pytest.raises(ValueError, match="field must not be empty"):
+        TimeConfig("", TimeGranularity.DAY)
 
 
 def test_physical_partitions_normalizes_existing_range_buckets() -> None:

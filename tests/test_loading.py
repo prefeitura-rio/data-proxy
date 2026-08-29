@@ -1,5 +1,6 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
+from typing import cast
 from unittest.mock import ANY, call, patch
 
 import pytest
@@ -17,7 +18,7 @@ from dp.freshness import (
     update_published_freshness,
     upsert_freshness,
 )
-from dp.loading import apply_sync_plan, validate_sync_plan
+from dp.loading import apply_sync_plan
 from dp.models import (
     FullTable,
     IndexConfig,
@@ -47,7 +48,7 @@ from dp.templates import TemplateSpec
 
 def template_name(spec: TemplateSpec) -> str:
     """Return the template path for operation-order assertions."""
-    return spec["path"]
+    return spec.path
 
 
 def physical_partition(partition_id: str) -> PhysicalPartition:
@@ -83,7 +84,7 @@ def test_create_incremental_shadow_excludes_affected_ranges() -> None:
         "pg/partition_range_predicate",
         "pg/prepare_incremental_table",
     ]
-    predicate = rendered[-1]["mapping"]["affected_partitions"]
+    predicate = rendered[-1].mapping["affected_partitions"]
     assert isinstance(predicate, Composable)
 
 
@@ -281,21 +282,6 @@ def test_prepare_tables_skips_table_with_missing_paths() -> None:
     prepared = prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
 
     assert prepared == []
-
-
-def test_validate_sync_plan_rejects_unknown_table() -> None:
-    """A plan cannot publish a table absent from the mounted config."""
-    config = SyncConfig(
-        schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.known")])}
-    )
-    plan = SyncPlan(
-        sync_id="s1",
-        signatures={"p.app.unknown": "100"},
-        paths={"p.app.unknown": ["s3://bucket/unknown/data.parquet"]},
-    )
-
-    with pytest.raises(RuntimeError, match="unknown tables"):
-        validate_sync_plan(config, plan)
 
 
 def test_prepare_tables_uses_exact_planned_paths() -> None:
@@ -612,7 +598,8 @@ def test_delete_freshness_uses_partition_template() -> None:
     with patch("dp.freshness.load_template", return_value="DELETE") as render:
         delete_freshness(postgres_connection(connection), table, "10")
 
-    assert render.call_args.args[0]["path"] == "pg/delete_partition_freshness"
+    spec = cast(TemplateSpec, render.call_args.args[0])
+    assert spec.path == "pg/delete_partition_freshness"
     assert connection.executed == [b"DELETE"]
 
 
@@ -631,7 +618,8 @@ def test_upsert_freshness_uses_shared_status_enum_template() -> None:
             success=False,
         )
 
-    assert render.call_args.args[0]["path"] == "pg/upsert_freshness"
+    spec = cast(TemplateSpec, render.call_args.args[0])
+    assert spec.path == "pg/upsert_freshness"
     assert connection.executed == [b"UPSERT"]
 
 

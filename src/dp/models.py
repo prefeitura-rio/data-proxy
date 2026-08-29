@@ -13,6 +13,14 @@ from pydantic import (
     model_validator,
 )
 
+from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
+
+NonEmptyString = Annotated[str, Field(min_length=1)]
+BigQueryTableName = Annotated[
+    NonEmptyString, Field(pattern=BIGQUERY_TABLE_REFERENCE_PATTERN)
+]
+PositiveInt = Annotated[int, Field(gt=0)]
+
 
 class Strategy(StrEnum):
     """Table synchronization strategy: whole-table or physically partitioned."""
@@ -24,15 +32,15 @@ class Strategy(StrEnum):
 class UnitMapping(BaseModel):
     """One row column that identifies membership in a unit of the given type."""
 
-    column: str
-    unit_type: str
+    column: NonEmptyString
+    unit_type: NonEmptyString
 
 
 class IndexConfig(BaseModel):
     """Index definition for a synced table."""
 
-    name: str
-    columns: list[str]
+    name: NonEmptyString
+    columns: Annotated[list[NonEmptyString], Field(min_length=1)]
 
 
 class AllSelection(BaseModel):
@@ -45,28 +53,49 @@ class TimeRangeSelection(BaseModel):
     """Select rows within one time partition's [lower, upper) date/timestamp bounds."""
 
     type: Literal["time_range"] = "time_range"
-    column: str
-    lower: str
-    upper: str
+    column: NonEmptyString
+    lower: NonEmptyString
+    upper: NonEmptyString
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        """Require chronological lower and upper bounds."""
+        if self.lower >= self.upper:
+            raise ValueError("Time selection lower bound must precede upper bound")
+        return self
 
 
 class RangeSelection(BaseModel):
     """Select rows within one physical integer partition."""
 
     type: Literal["range"] = "range"
-    partition_id: str
-    column: str
+    partition_id: NonEmptyString
+    column: NonEmptyString
     lower: int
     upper: int
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        """Require a non-empty integer range."""
+        if self.lower >= self.upper:
+            raise ValueError("Range selection lower bound must precede upper bound")
+        return self
 
 
 class RemainderSelection(BaseModel):
     """Select rows in BigQuery's ``__NULL__`` bucket: null or out-of-range values."""
 
     type: Literal["remainder"] = "remainder"
-    column: str
+    column: NonEmptyString
     start: int
     end: int
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        """Require a non-empty remainder range."""
+        if self.start >= self.end:
+            raise ValueError("Remainder selection start must precede end")
+        return self
 
 
 TaskSelection = Annotated[
@@ -78,15 +107,26 @@ TaskSelection = Annotated[
 class PhysicalPartition(BaseModel):
     """Normalized state and extraction selection for one physical BigQuery partition."""
 
-    partition_id: str
-    signature: str
+    partition_id: NonEmptyString
+    signature: NonEmptyString
     selection: TimeRangeSelection | RangeSelection | RemainderSelection
+
+    @model_validator(mode="after")
+    def validate_range_partition_id(self) -> Self:
+        """Require range selection IDs to match their physical partition."""
+        if isinstance(self.selection, RangeSelection) and (
+            self.partition_id != self.selection.partition_id
+        ):
+            raise ValueError(
+                "Range selection partition ID must match physical partition"
+            )
+        return self
 
 
 class Table(BaseModel):
     """Common configuration shared by every synced table strategy."""
 
-    name: str
+    name: BigQueryTableName
     rls: list[UnitMapping] | None = None
     indexes: list[IndexConfig] = []
     resolved_schema: str = ""
@@ -129,7 +169,7 @@ class PartitionedTable(Table):
     """A table synced by diffing and reloading only its changed physical partitions."""
 
     strategy: Literal[Strategy.PARTITIONED] = Strategy.PARTITIONED
-    n: int | None = None
+    n: PositiveInt | None = None
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
 
@@ -157,7 +197,7 @@ class SchemaWriters(BaseModel):
 class SchemaConfig(BaseModel):
     """A PostgreSQL schema: its tables and, if any use RLS, its access claim."""
 
-    claim: str | None = None
+    claim: NonEmptyString | None = None
     tables: list[TableConfig] = []
 
 
@@ -178,6 +218,15 @@ class SyncConfig(BaseModel):
             for table in schema.tables:
                 table.resolved_schema = name
 
+        return self
+
+    @model_validator(mode="after")
+    def reject_duplicate_table_names(self) -> Self:
+        """Require every configured source table to have one destination."""
+        names = [table.name for table in self.tables]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"Duplicate configured table names: {duplicates}")
         return self
 
     @model_validator(mode="after")
@@ -316,6 +365,26 @@ class SyncPlan(BaseModel):
         if set(self.signatures) & set(self.partitioned_tables):
             message = "Tables cannot have ordinary and partitioned plans"
             raise ValueError(message)
+        return self
+
+
+class SyncPublicationInput(BaseModel):
+    """A configuration and plan validated together before publication."""
+
+    config: SyncConfig
+    plan: SyncPlan
+
+    @property
+    def changed_tables(self) -> set[str]:
+        """Return every table with work in the plan."""
+        return set(self.plan.signatures) | set(self.plan.partitioned_tables)
+
+    @model_validator(mode="after")
+    def require_configured_plan_tables(self) -> Self:
+        """Reject a plan that names tables absent from its configuration."""
+        unknown = self.changed_tables - {table.name for table in self.config.tables}
+        if unknown:
+            raise ValueError(f"Sync plan contains unknown tables: {sorted(unknown)}")
         return self
 
 

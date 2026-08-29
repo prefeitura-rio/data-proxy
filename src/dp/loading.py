@@ -6,20 +6,15 @@ from whenever import Instant
 
 from .duckdb import DBConnection
 from .freshness import record_table_failure, upsert_freshness
-from .models import PublicationDecision, PublicationResult, SyncConfig, SyncPlan
+from .models import (
+    PublicationDecision,
+    PublicationResult,
+    SyncConfig,
+    SyncPlan,
+    SyncPublicationInput,
+)
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
-
-
-def validate_sync_plan(config: SyncConfig, plan: SyncPlan) -> set[str]:
-    """Validate planned tables and return their configured names."""
-    changed = set(plan.signatures) | set(plan.partitioned_tables)
-    configured = {table.name for table in config.tables}
-    unknown = changed - configured
-    if unknown:
-        message = f"Sync plan contains unknown tables: {sorted(unknown)}"
-        raise RuntimeError(message)
-    return changed
 
 
 def empty_incremental_tables(plan: SyncPlan) -> set[str]:
@@ -114,7 +109,8 @@ def apply_sync_plan(
     failed_paths: set[str] | None = None,
 ) -> PublicationResult:
     """Apply one sync plan and return its exact published state."""
-    changed = validate_sync_plan(config, plan)
+    publication_input = SyncPublicationInput(config=config, plan=plan)
+    changed = publication_input.changed_tables
     decision = reduce_sync_plan(plan, failed_paths or set())
     publication_plan = decision.plan
     empty_incremental = empty_incremental_tables(publication_plan)

@@ -23,17 +23,17 @@ from .models import (
     TableConfig,
 )
 from .state import read_partition_manifest, read_table_signature
-from .templates import load_template
+from .templates import TemplateSpec, load_template
 
 
 def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = db.execute(
         load_template(
-            {
-                "path": "duckdb/describe_table",
-                "mapping": {"bq_table": Literal(bq_table)},
-            }
+            TemplateSpec(
+                path="duckdb/describe_table",
+                mapping={"bq_table": Literal(bq_table)},
+            )
         )
     ).fetchall()
     return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]

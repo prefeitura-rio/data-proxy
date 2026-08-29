@@ -1,9 +1,10 @@
 """Substitute mapping into a cached SQL template and return the final SQL."""
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from string import Template
-from typing import TypedDict
 
 from psycopg.sql import Composable, Identifier, Literal
 
@@ -18,11 +19,12 @@ from .models import (
 SQL_DIR = Path(__file__).parent / "sql"
 
 
-class TemplateSpec(TypedDict):
+@dataclass(frozen=True, slots=True)
+class TemplateSpec:
     """Template path and substitution values for one SQL statement."""
 
     path: str
-    mapping: dict[str, str | Composable]
+    mapping: Mapping[str, str | Composable]
 
 
 @lru_cache
@@ -41,14 +43,14 @@ def load_template(spec: TemplateSpec) -> str:
     """
     rendered: dict[str, str] = {}
 
-    for key, value in spec["mapping"].items():
+    for key, value in spec.mapping.items():
         match value:
             case Composable():
                 rendered[key] = value.as_string(None)
             case _:
                 rendered[key] = value
 
-    return Template(read_template(spec["path"])).substitute(rendered)
+    return Template(read_template(spec.path)).substitute(rendered)
 
 
 def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:

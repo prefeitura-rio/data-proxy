@@ -37,11 +37,11 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
 
     match task.selection:
         case AllSelection():
-            return {"path": "duckdb/write_all", "mapping": mapping}
+            return TemplateSpec(path="duckdb/write_all", mapping=mapping)
         case RangeSelection() | TimeRangeSelection():
-            return {"path": "duckdb/write_partition", "mapping": mapping}
+            return TemplateSpec(path="duckdb/write_partition", mapping=mapping)
         case RemainderSelection():
-            return {"path": "duckdb/write_remainder", "mapping": mapping}
+            return TemplateSpec(path="duckdb/write_remainder", mapping=mapping)
 
 
 def extract_task(task: SyncTask, db: DBConnection) -> None:

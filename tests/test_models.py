@@ -1,17 +1,27 @@
 """Tests for the sync configuration data models."""
 
+from collections.abc import Callable
+
 import pytest
 from pydantic import ValidationError
 
 from dp.models import (
     AllSelection,
     FullTable,
+    IndexConfig,
+    PartitionedTable,
+    PhysicalPartition,
+    RangeSelection,
+    RemainderSelection,
     SchemaConfig,
     SyncConfig,
+    SyncPlan,
+    SyncPublicationInput,
     SyncTask,
     TaskFailure,
     TaskStatus,
     TaskSuccess,
+    TimeRangeSelection,
     UnitMapping,
     task_outcome_adapter,
 )
@@ -74,6 +84,15 @@ def test_unit_mapping_pairs_column_and_type() -> None:
 
     assert mapping.column == "id_cras"
     assert mapping.unit_type == "cras"
+
+
+@pytest.mark.parametrize(
+    "value", [{"column": "", "unit_type": "unit"}, {"column": "id", "unit_type": ""}]
+)
+def test_unit_mapping_requires_column_and_type(value: dict[str, str]) -> None:
+    """RLS mappings must identify both a source column and unit type."""
+    with pytest.raises(ValidationError):
+        UnitMapping.model_validate(value)
 
 
 def test_table_accepts_a_list_of_unit_mappings() -> None:
@@ -175,6 +194,84 @@ def test_sync_config_rejects_rls_table_in_schema_without_claim() -> None:
                 }
             }
         )
+
+
+@pytest.mark.parametrize("name", ["p.d", "p.d.t.extra", "p.d.t; DROP TABLE x"])
+def test_table_rejects_invalid_bigquery_reference(name: str) -> None:
+    """Configured source names must be project.dataset.table references."""
+    with pytest.raises(ValidationError, match="String should match pattern"):
+        FullTable(name=name)
+
+
+def test_sync_config_rejects_duplicate_source_table_names() -> None:
+    """One source table cannot publish to multiple configured schemas."""
+    with pytest.raises(ValidationError, match="Duplicate configured table names"):
+        SyncConfig.model_validate(
+            {
+                "schemas": {
+                    "one": {"tables": [{"name": "p.d.t", "strategy": "full"}]},
+                    "two": {"tables": [{"name": "p.d.t", "strategy": "full"}]},
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize("n", [0, -1])
+def test_partitioned_table_rejects_non_positive_retention(n: int) -> None:
+    """Partition retention must retain at least one time partition."""
+    with pytest.raises(ValidationError):
+        PartitionedTable(name="p.d.t", n=n)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"name": "", "columns": ["id"]},
+        {"name": "idx", "columns": []},
+        {"name": "idx", "columns": [""]},
+    ],
+)
+def test_index_requires_name_and_columns(value: dict[str, object]) -> None:
+    """An index definition must have a name and at least one column."""
+    with pytest.raises(ValidationError):
+        IndexConfig.model_validate(value)
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        lambda: RangeSelection(partition_id="0", column="id", lower=1, upper=1),
+        lambda: RemainderSelection(column="id", start=1, end=1),
+        lambda: TimeRangeSelection(column="dt", lower="2025-01-02", upper="2025-01-01"),
+    ],
+)
+def test_selection_rejects_invalid_bounds(selection: Callable[[], object]) -> None:
+    """Every selection must have an ordered lower and upper bound."""
+    with pytest.raises(ValidationError):
+        selection()
+
+
+def test_physical_partition_rejects_mismatched_range_id() -> None:
+    """A range selection must describe its enclosing physical partition."""
+    with pytest.raises(ValidationError, match="must match physical partition"):
+        PhysicalPartition(
+            partition_id="10",
+            signature="signature",
+            selection=RangeSelection(partition_id="0", column="id", lower=0, upper=10),
+        )
+
+
+def test_publication_input_rejects_plan_table_absent_from_config() -> None:
+    """Publication cannot begin for a table outside the mounted configuration."""
+    config = SyncConfig(schemas={"app": SchemaConfig(tables=[FullTable(name="p.d.t")])})
+    plan = SyncPlan(
+        sync_id="s1",
+        signatures={"p.d.other": "signature"},
+        paths={"p.d.other": ["s3://bucket/other/data.parquet"]},
+    )
+
+    with pytest.raises(ValidationError, match="unknown tables"):
+        SyncPublicationInput(config=config, plan=plan)
 
 
 def test_schema_config_claim_defaults_to_none() -> None:

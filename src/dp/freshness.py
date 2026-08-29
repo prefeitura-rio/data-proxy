@@ -5,7 +5,7 @@ from psycopg.sql import Identifier
 from whenever import Instant
 
 from .models import SyncPlan, TableConfig
-from .templates import load_template
+from .templates import TemplateSpec, load_template
 
 
 def upsert_freshness(
@@ -21,10 +21,10 @@ def upsert_freshness(
     updated_at = attempted_datetime if success else None
     pg_conn.execute(
         load_template(
-            {
-                "path": "pg/upsert_freshness",
-                "mapping": {"schema": Identifier(table.resolved_schema)},
-            }
+            TemplateSpec(
+                path="pg/upsert_freshness",
+                mapping={"schema": Identifier(table.resolved_schema)},
+            )
         ).encode(),
         (
             table.table_name,
@@ -41,10 +41,10 @@ def delete_freshness(pg_conn: Connection, table: TableConfig, partition: str) ->
     """Delete freshness for one removed partition."""
     pg_conn.execute(
         load_template(
-            {
-                "path": "pg/delete_partition_freshness",
-                "mapping": {"schema": Identifier(table.resolved_schema)},
-            }
+            TemplateSpec(
+                path="pg/delete_partition_freshness",
+                mapping={"schema": Identifier(table.resolved_schema)},
+            )
         ).encode(),
         (table.table_name, table.strategy.value, partition),
     )
@@ -54,10 +54,10 @@ def delete_table_freshness(pg_conn: Connection, table: TableConfig) -> None:
     """Delete all freshness rows for one table."""
     pg_conn.execute(
         load_template(
-            {
-                "path": "pg/delete_table_freshness",
-                "mapping": {"schema": Identifier(table.resolved_schema)},
-            }
+            TemplateSpec(
+                path="pg/delete_table_freshness",
+                mapping={"schema": Identifier(table.resolved_schema)},
+            )
         ).encode(),
         (table.table_name,),
     )

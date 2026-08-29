@@ -27,7 +27,7 @@ from .models import (
     TimeRangeSelection,
 )
 from .settings import settings
-from .templates import load_template, selection_fields
+from .templates import TemplateSpec, load_template, selection_fields
 
 
 def load_table(
@@ -40,14 +40,14 @@ def load_table(
     for path in paths:
         conn.execute(
             load_template(
-                {
-                    "path": "duckdb/load_parquet",
-                    "mapping": {
+                TemplateSpec(
+                    path="duckdb/load_parquet",
+                    mapping={
                         "schema": Identifier(schema),
                         "table_name": Identifier(table_name),
                         "gcs_path": Literal(path),
                     },
-                }
+                )
             )
         )
 
@@ -57,9 +57,9 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
     for index in table.indexes:
         conn.execute(
             load_template(
-                {
-                    "path": "pg/create_index",
-                    "mapping": {
+                TemplateSpec(
+                    path="pg/create_index",
+                    mapping={
                         "name": Identifier(index.name),
                         "schema": Identifier(table.resolved_schema),
                         "table": Identifier(table_name),
@@ -67,7 +67,7 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
                             Identifier(column) for column in index.columns
                         ),
                     },
-                }
+                )
             ).encode()
         )
 
@@ -77,15 +77,15 @@ def publish_table(conn: Connection, table: TableConfig) -> None:
     table_name = table.table_name
     conn.execute(
         load_template(
-            {
-                "path": "pg/swap_table",
-                "mapping": {
+            TemplateSpec(
+                path="pg/swap_table",
+                mapping={
                     "schema": Identifier(table.resolved_schema),
                     "table": Identifier(table_name),
                     "next_table": Identifier(f"{table_name}__next"),
                     "old_table": Identifier(f"{table_name}__old"),
                 },
-            }
+            )
         ).encode()
     )
     create_indexes(conn, table, table_name)
@@ -178,7 +178,9 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
             path = "pg/partition_range_predicate"
         case RemainderSelection():
             path = "pg/partition_remainder_predicate"
-    return SQL(cast(LiteralString, load_template({"path": path, "mapping": mapping})))
+    return SQL(
+        cast(LiteralString, load_template(TemplateSpec(path=path, mapping=mapping)))
+    )
 
 
 def create_incremental_shadow(
@@ -190,15 +192,15 @@ def create_incremental_shadow(
     predicates = [partition_predicate(partition) for partition in affected]
     pg_conn.execute(
         load_template(
-            {
-                "path": "pg/prepare_incremental_table",
-                "mapping": {
+            TemplateSpec(
+                path="pg/prepare_incremental_table",
+                mapping={
                     "schema": Identifier(table.resolved_schema),
                     "table": Identifier(table.table_name),
                     "next_table": Identifier(f"{table.table_name}__next"),
                     "affected_partitions": SQL(" OR ").join(predicates),
                 },
-            }
+            )
         ).encode()
     )
     pg_conn.commit()
@@ -216,14 +218,14 @@ def create_shadow_from_parquet(
         raise RuntimeError(message)
     duckdb_conn.execute(
         load_template(
-            {
-                "path": "duckdb/create_table_from_parquet",
-                "mapping": {
+            TemplateSpec(
+                path="duckdb/create_table_from_parquet",
+                mapping={
                     "schema": Identifier(table.resolved_schema),
                     "table": Identifier(shadow_name),
                     "gcs_path": Literal(paths[0]),
                 },
-            }
+            )
         )
     )
 
@@ -238,10 +240,10 @@ def prepare_tables(
     """Prepare, secure, and load each eligible shadow table."""
     duckdb_conn.execute(
         load_template(
-            {
-                "path": "duckdb/attach_postgres",
-                "mapping": {"pg_dsn": Literal(settings.PG_DSN)},
-            }
+            TemplateSpec(
+                path="duckdb/attach_postgres",
+                mapping={"pg_dsn": Literal(settings.PG_DSN)},
+            )
         )
     )
     prepared: list[TableConfig] = []

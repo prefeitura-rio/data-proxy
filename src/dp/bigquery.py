@@ -1,12 +1,13 @@
 """BigQuery metadata helpers for synchronization change detection."""
 
 import json
-import re
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from hashlib import sha256
-from typing import Literal, NamedTuple, cast
+from typing import cast
 
 from google.cloud.bigquery import (
     Client,
@@ -19,17 +20,17 @@ from google.cloud.bigquery import (
 from google.cloud.bigquery.table import Row
 from whenever import PlainDateTime
 
-from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
 from .models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
 )
-from .templates import load_template
+from .templates import TemplateSpec, load_template
 
 
-class TableReference(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class TableReference:
     """Validated project, dataset, and table from a BigQuery reference."""
 
     project: str
@@ -37,7 +38,8 @@ class TableReference(NamedTuple):
     table: str
 
 
-class RangeConfig(NamedTuple):
+@dataclass(slots=True)
+class RangeConfig:
     """Validated integer-range partition configuration for one table."""
 
     field: str
@@ -45,11 +47,27 @@ class RangeConfig(NamedTuple):
     end: int
     interval: int
 
+    def __post_init__(self) -> None:
+        """Require usable field and range metadata."""
+        if not self.field:
+            raise ValueError("Range partition field must not be empty")
+        if self.interval <= 0:
+            raise ValueError("Range partition interval must be positive")
+        if self.start >= self.end:
+            raise ValueError("Range partition start must precede end")
 
-TimeGranularity = Literal["HOUR", "DAY", "MONTH", "YEAR"]
+
+class TimeGranularity(StrEnum):
+    """Supported BigQuery time partition granularities."""
+
+    HOUR = "HOUR"
+    DAY = "DAY"
+    MONTH = "MONTH"
+    YEAR = "YEAR"
 
 
-class TimePartitionSpec(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class TimePartitionSpec:
     """How to parse and step through one BigQuery time-partition granularity."""
 
     strptime_format: str
@@ -57,11 +75,17 @@ class TimePartitionSpec(NamedTuple):
     output_pattern: str
 
 
-class TimeConfig(NamedTuple):
+@dataclass(slots=True)
+class TimeConfig:
     """Validated time-partition configuration for one table."""
 
     field: str
     granularity: TimeGranularity
+
+    def __post_init__(self) -> None:
+        """Require usable time partition metadata."""
+        if not self.field:
+            raise ValueError("Time partition field must not be empty")
 
 
 PartitionKindConfig = RangeConfig | TimeConfig
@@ -100,18 +124,9 @@ def table_modified(client: Client, table: str) -> str:
 
 
 def parse_table_reference(table: str) -> TableReference:
-    """Return a validated project, dataset, and table reference."""
-    match = re.fullmatch(BIGQUERY_TABLE_REFERENCE_PATTERN, table)
-
-    if match is None:
-        msg = f"Invalid BigQuery table reference: {table}"
-        raise ValueError(msg)
-
-    return TableReference(
-        project=match.group("project"),
-        dataset=match.group("dataset"),
-        table=match.group("table"),
-    )
+    """Split a model-validated BigQuery table reference into its components."""
+    project, dataset, table_name = table.split(".")
+    return TableReference(project=project, dataset=dataset, table=table_name)
 
 
 def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
@@ -128,14 +143,11 @@ def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
             msg = f"Incomplete range partition metadata: {table}"
             raise ValueError(msg)
 
-    invalid_interval = interval <= 0
-    invalid_bounds = start >= end
-
-    if invalid_interval or invalid_bounds:
+    try:
+        return RangeConfig(field=field, start=start, end=end, interval=interval)
+    except ValueError as error:
         msg = f"Invalid range partition metadata: {table}"
-        raise ValueError(msg)
-
-    return RangeConfig(field=field, start=start, end=end, interval=interval)
+        raise ValueError(msg) from error
 
 
 def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
@@ -146,13 +158,14 @@ def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
         msg = f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
         raise ValueError(msg)
 
-    granularity = partitioning.type_ or "DAY"
+    assert isinstance(field, str)
+    raw_granularity = partitioning.type_ or TimeGranularity.DAY
 
-    if granularity not in TIME_PARTITION_SPECS:
-        msg = f"Unsupported time partition granularity {granularity}: {table}"
-        raise ValueError(msg)
-
-    return TimeConfig(field=field, granularity=granularity)
+    try:
+        return TimeConfig(field=field, granularity=TimeGranularity(raw_granularity))
+    except ValueError as error:
+        msg = f"Unsupported time partition granularity {raw_granularity}: {table}"
+        raise ValueError(msg) from error
 
 
 def partition_kind_config(metadata: Table, table: str) -> PartitionKindConfig:
@@ -181,7 +194,7 @@ def partitioned_table_signature(
         json.dumps(
             {
                 "config": config_json,
-                **kind_config._asdict(),
+                **asdict(kind_config),
                 "schema": repr(cast(object, metadata.schema)),
             },
             sort_keys=True,
@@ -197,10 +210,10 @@ def partition_rows(
 ) -> Iterable[Row]:
     """Return grouped physical partition metadata rows."""
     query = load_template(
-        {
-            "path": "bigquery/partitions",
-            "mapping": {"project": project, "dataset": dataset},
-        }
+        TemplateSpec(
+            path="bigquery/partitions",
+            mapping={"project": project, "dataset": dataset},
+        )
     )
 
     result = client.query(
@@ -238,10 +251,12 @@ def add_year(dt: PlainDateTime) -> PlainDateTime:
 
 
 TIME_PARTITION_SPECS: dict[TimeGranularity, TimePartitionSpec] = {
-    "HOUR": TimePartitionSpec("%Y%m%d%H", add_hour, "YYYY-MM-DD hh:mm:ss"),
-    "DAY": TimePartitionSpec("%Y%m%d", add_day, "YYYY-MM-DD"),
-    "MONTH": TimePartitionSpec("%Y%m", add_month, "YYYY-MM-DD"),
-    "YEAR": TimePartitionSpec("%Y", add_year, "YYYY-MM-DD"),
+    TimeGranularity.HOUR: TimePartitionSpec(
+        "%Y%m%d%H", add_hour, "YYYY-MM-DD hh:mm:ss"
+    ),
+    TimeGranularity.DAY: TimePartitionSpec("%Y%m%d", add_day, "YYYY-MM-DD"),
+    TimeGranularity.MONTH: TimePartitionSpec("%Y%m", add_month, "YYYY-MM-DD"),
+    TimeGranularity.YEAR: TimePartitionSpec("%Y", add_year, "YYYY-MM-DD"),
 }
 
 
@@ -355,7 +370,7 @@ def physical_partitions(
     ``n`` keeps only the last ``n`` time partitions (highest partition ids)
     and is only valid for time-partitioned tables.
     """
-    project, dataset, table_name = parse_table_reference(table)
+    reference = parse_table_reference(table)
     metadata = client.get_table(table)
     kind_cfg = partition_kind_config(metadata, table)
 
@@ -370,7 +385,9 @@ def physical_partitions(
 
     partitions: dict[str, PhysicalPartition] = {}
 
-    for row in partition_rows(client, project, dataset, table_name):
+    for row in partition_rows(
+        client, reference.project, reference.dataset, reference.table
+    ):
         partition = normalize_partition(row, table, kind_cfg, signature)
 
         if partition is not None:
