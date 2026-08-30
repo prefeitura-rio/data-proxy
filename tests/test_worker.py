@@ -3,24 +3,19 @@
 from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
-from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection
 
-from dp.constants import SYNC_SHUTDOWN_CHANNEL
 from dp.models import (
     AllSelection,
     CompletionResult,
-    ShutdownMessage,
     SyncTask,
     TaskFailure,
     TaskSuccess,
 )
 from dp.sync.worker import (
-    broker,
     cleanup_worker_consumer,
     process_task,
     subs,
-    worker,
 )
 
 task = SyncTask(
@@ -48,7 +43,6 @@ async def test_process_shard_branches_on_completion_result(
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
             return_value=CompletionResult(
-                first_completion=True,
                 remaining=0 if should_finalize else 1,
                 should_finalize=should_finalize,
             ),
@@ -72,7 +66,6 @@ async def test_extraction_failure_is_recorded_before_task_completion() -> None:
             "dp.sync.worker.complete_task",
             new_callable=AsyncMock,
             return_value=CompletionResult(
-                first_completion=True,
                 remaining=1,
                 should_finalize=False,
             ),
@@ -111,16 +104,3 @@ async def test_worker_shutdown_cleans_its_consumer() -> None:
             call(ANY, "dp:sync:tasks", "workers", subs["stale"].consumer),
         ]
     )
-
-
-@pytest.mark.asyncio
-async def test_shutdown_message_exits_worker() -> None:
-    """The finalizer shutdown broadcast exits each worker."""
-    async with TestRedisBroker(broker) as test_broker:
-        with patch.object(worker, "exit") as exit_app:
-            await test_broker.publish(
-                ShutdownMessage(sync_id="s1"),
-                SYNC_SHUTDOWN_CHANNEL,
-            )
-
-    exit_app.assert_called_once()

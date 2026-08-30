@@ -14,7 +14,6 @@ from redis.exceptions import (
 
 from dp.constants import (
     SYNC_ACTIVE_KEY,
-    SYNC_FAILURES_KEY,
     SYNC_JOB_KEY,
     SYNC_PARTITIONS_KEY,
     SYNC_RUN_TTL_SECONDS,
@@ -253,10 +252,8 @@ async def test_completes_each_task_once() -> None:
     first = await complete_task(redis_client(fake), task, outcome)
     duplicate = await complete_task(redis_client(fake), task, outcome)
 
-    assert first.first_completion is True
     assert first.remaining == 1
     assert first.should_finalize is False
-    assert duplicate.first_completion is False
     assert duplicate.remaining == 1
     assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
 
@@ -302,18 +299,6 @@ async def test_ignores_successful_task_outcome_when_reading_failures() -> None:
     await complete_task(redis_client(fake), sync_task(), TaskSuccess())
 
     assert await read_failed_paths(redis_client(fake), "s1") == set()
-
-
-@pytest.mark.asyncio
-async def test_reads_legacy_failed_paths_during_rolling_deployment() -> None:
-    """A new finalizer reads failures recorded by an old worker."""
-    fake = FakeRedis()
-    key = SYNC_FAILURES_KEY.format(sync_id="s1")
-    fake.sets[key] = {"s3://b/legacy-failed.parquet"}
-
-    assert await read_failed_paths(redis_client(fake), "s1") == {
-        "s3://b/legacy-failed.parquet"
-    }
 
 
 @pytest.mark.asyncio

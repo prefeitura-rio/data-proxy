@@ -127,7 +127,7 @@ async def test_applies_plan_commits_state_and_exits(
     ):
         await finalize_sync(FinalizeMessage(sync_id="s1"))
 
-    publish.assert_awaited_once()
+    publish.assert_not_awaited()
     read.assert_awaited_once()
     apply.assert_not_called()
     commit.assert_awaited_once_with(ANY, plan, set())

@@ -306,7 +306,6 @@ TaskOutcome = Annotated[TaskSuccess | TaskFailure, Field(discriminator="status")
 class CompletionResult(BaseModel):
     """Result of one idempotent task completion."""
 
-    first_completion: bool
     remaining: int
     should_finalize: bool
 
@@ -405,12 +404,6 @@ class PublicationResult(BaseModel):
 
 class FinalizeMessage(BaseModel):
     """Signal that every task for a sync run has completed."""
-
-    sync_id: str
-
-
-class ShutdownMessage(BaseModel):
-    """Broadcast telling every worker to exit once finalization starts."""
 
     sync_id: str
 

@@ -14,7 +14,6 @@ from loguru import logger
 from ..constants import (
     FINALIZERS_GROUP,
     SYNC_FINALIZE_STREAM,
-    SYNC_SHUTDOWN_CHANNEL,
 )
 from ..duckdb import connect
 from ..errors import SyncPlanNotFoundError, stop_on_error
@@ -23,7 +22,6 @@ from ..log import configure_logging, elapsed_ms
 from ..models import (
     FinalizeMessage,
     PublicationResult,
-    ShutdownMessage,
     SyncConfig,
     SyncPlan,
 )
@@ -135,11 +133,6 @@ async def finalize_sync(message: FinalizeMessage) -> None:
         except SyncPlanNotFoundError:
             log.warning("Sync plan missing; acknowledging stale finalization message")
             return
-
-        await broker.publish(
-            ShutdownMessage(sync_id=message.sync_id),
-            SYNC_SHUTDOWN_CHANNEL,
-        )
 
         failed_paths = await read_failed_paths(redis, message.sync_id)
         log.info("Sync plan loaded", failed_path_count=len(failed_paths))

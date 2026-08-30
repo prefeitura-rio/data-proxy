@@ -13,7 +13,6 @@ from whenever import Instant, TimeDelta
 from .constants import (
     FINALIZERS_GROUP,
     SYNC_ACTIVE_KEY,
-    SYNC_FAILURES_KEY,
     SYNC_FINALIZE_STREAM,
     SYNC_JOB_KEY,
     SYNC_PARTITIONS_KEY,
@@ -128,7 +127,6 @@ async def commit_sync_state(
 
         pipe.delete(
             SYNC_ACTIVE_KEY,
-            SYNC_FAILURES_KEY.format(sync_id=plan.sync_id),
             SYNC_JOB_KEY.format(sync_id=plan.sync_id),
             SYNC_PLAN_KEY.format(sync_id=plan.sync_id),
             SYNC_TASK_RESULTS_KEY.format(sync_id=plan.sync_id),
@@ -148,19 +146,14 @@ def failed_path(outcome: TaskOutcome) -> str | None:
 
 
 async def read_failed_paths(redis: Redis, sync_id: str) -> set[str]:
-    """Return failed paths from typed task outcomes and legacy workers."""
+    """Return failed paths from typed task outcomes."""
     results_key = SYNC_TASK_RESULTS_KEY.format(sync_id=sync_id)
     outcome_paths = [
         failed_path(task_outcome_adapter.validate_json(value))
         for value in await redis.hvals(results_key)
     ]
 
-    legacy_failures = [
-        decode_redis_value(value)
-        for value in await redis.smembers(SYNC_FAILURES_KEY.format(sync_id=sync_id))
-    ]
-
-    return {path for path in [*outcome_paths, *legacy_failures] if path is not None}
+    return {path for path in outcome_paths if path is not None}
 
 
 async def read_completion_state(
@@ -178,7 +171,6 @@ async def read_completion_state(
 
     if await pipe.hexists(results_key, task.task_id):
         return CompletionResult(
-            first_completion=False,
             remaining=remaining,
             should_finalize=False,
         )
@@ -244,7 +236,6 @@ async def complete_task(
         await pipe.execute()
 
     return CompletionResult(
-        first_completion=True,
         remaining=next_remaining,
         should_finalize=next_remaining == 0,
     )
