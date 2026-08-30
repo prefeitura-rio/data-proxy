@@ -17,7 +17,7 @@ from ..constants import (
     SYNC_SHUTDOWN_CHANNEL,
 )
 from ..duckdb import connect
-from ..errors import stop_on_error
+from ..errors import SyncPlanNotFoundError, stop_on_error
 from ..loading import apply_sync_plan
 from ..log import configure_logging, elapsed_ms
 from ..models import (
@@ -127,15 +127,20 @@ async def finalize_sync(message: FinalizeMessage) -> None:
 
     log.info("Finalization started")
 
-    await broker.publish(
-        ShutdownMessage(sync_id=message.sync_id),
-        SYNC_SHUTDOWN_CHANNEL,
-    )
-
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
     async with settings.make_redis() as redis:
-        source_plan = await read_sync_plan(redis, message.sync_id)
+        try:
+            source_plan = await read_sync_plan(redis, message.sync_id)
+        except SyncPlanNotFoundError:
+            log.warning("Sync plan missing; acknowledging stale finalization message")
+            return
+
+        await broker.publish(
+            ShutdownMessage(sync_id=message.sync_id),
+            SYNC_SHUTDOWN_CHANNEL,
+        )
+
         failed_paths = await read_failed_paths(redis, message.sync_id)
         log.info("Sync plan loaded", failed_path_count=len(failed_paths))
 

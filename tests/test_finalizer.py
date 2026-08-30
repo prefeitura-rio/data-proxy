@@ -9,6 +9,7 @@ from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
 from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
 
+from dp.errors import SyncPlanNotFoundError
 from dp.models import FinalizeMessage, PublicationResult, SyncPlan
 from dp.sync.finalizer import (
     broker,
@@ -65,6 +66,30 @@ async def test_finalizer_shutdown_cleans_its_consumer() -> None:
             call(ANY, "dp:sync:finalize", "finalizers", subs["stale"].consumer),
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_missing_plan_is_acknowledged_without_shutdown(
+    sync_config_path: Path,
+) -> None:
+    """An expired plan is terminal stale work, not a retryable failure."""
+    with (
+        patch_make_redis(),
+        patch(
+            "dp.sync.finalizer.read_sync_plan",
+            new_callable=AsyncMock,
+            side_effect=SyncPlanNotFoundError("Sync plan not found: s1"),
+        ),
+        patch(
+            "dp.sync.finalizer.broker.publish",
+            new_callable=AsyncMock,
+        ) as publish,
+        patch.object(finalizer, "exit") as exit_app,
+    ):
+        await finalize_sync(FinalizeMessage(sync_id="s1"))
+
+    publish.assert_not_awaited()
+    exit_app.assert_not_called()
 
 
 @pytest.mark.asyncio

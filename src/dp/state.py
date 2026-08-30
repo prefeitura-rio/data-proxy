@@ -23,6 +23,7 @@ from .constants import (
     SYNC_TASK_RESULTS_KEY,
     SYNC_TRANSACTION_RETRIES,
 )
+from .errors import SyncPlanNotFoundError
 from .models import (
     CompletionResult,
     PartitionManifest,
@@ -100,7 +101,7 @@ async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
 
     if raw is None:
         message = f"Sync plan not found: {sync_id}"
-        raise RuntimeError(message)
+        raise SyncPlanNotFoundError(message)
 
     return SyncPlan.model_validate_json(raw)
 

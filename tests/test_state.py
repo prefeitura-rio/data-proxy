@@ -22,6 +22,7 @@ from dp.constants import (
     SYNC_TASK_RESULTS_KEY,
     SYNC_TRANSACTION_RETRIES,
 )
+from dp.errors import SyncPlanNotFoundError
 from dp.models import (
     AllSelection,
     PartitionedTablePlan,
@@ -124,7 +125,7 @@ async def test_run_creation_retries_watch_conflict() -> None:
 @pytest.mark.asyncio
 async def test_missing_plan_fails() -> None:
     """A finalizer cannot infer work without its plan."""
-    with pytest.raises(RuntimeError, match="Sync plan not found"):
+    with pytest.raises(SyncPlanNotFoundError, match="Sync plan not found"):
         await read_sync_plan(redis_client(FakeRedis()), "missing")
 
 

@@ -6,6 +6,10 @@ from faststream.exceptions import StopApplication
 from loguru import logger
 
 
+class SyncPlanNotFoundError(RuntimeError):
+    """A finalization message refers to an expired synchronization plan."""
+
+
 async def stop_on_error(error: Exception) -> NoReturn:
     """Log a subscriber failure, then stop the process.
 
