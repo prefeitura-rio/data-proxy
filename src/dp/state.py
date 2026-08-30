@@ -88,7 +88,7 @@ async def create_run(redis: Redis, plan: SyncPlan, task_count: int) -> bool:
 
         pipe.multi()
         pipe.set(SYNC_ACTIVE_KEY, plan.sync_id, ex=SYNC_RUN_TTL_SECONDS)
-        pipe.set(plan_key, plan.model_dump_json(), ex=SYNC_RUN_TTL_SECONDS)
+        pipe.set(plan_key, plan.model_dump_json())
         pipe.set(counter_key, task_count, ex=SYNC_RUN_TTL_SECONDS)
         await pipe.execute()
 

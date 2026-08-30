@@ -88,7 +88,10 @@ async def test_creates_and_reads_required_run() -> None:
     assert fake.store[SYNC_ACTIVE_KEY] == "s1"
     assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
     assert fake.transaction_commands == ["set", "set", "set"]
-    assert {expiration for _, _, expiration in fake.set_calls} == {SYNC_RUN_TTL_SECONDS}
+    assert {expiration for _, _, expiration in fake.set_calls} == {
+        SYNC_RUN_TTL_SECONDS,
+        None,
+    }
 
 
 @pytest.mark.asyncio
