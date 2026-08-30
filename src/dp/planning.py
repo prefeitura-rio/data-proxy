@@ -1,5 +1,6 @@
 """Change detection and task planning for synchronization runs."""
 
+from dataclasses import dataclass
 from hashlib import sha256
 
 from asyncer import asyncify
@@ -16,6 +17,7 @@ from .models import (
     PartitionedTablePlan,
     PartitionManifest,
     PhysicalPartition,
+    SchemaSyncPlan,
     Strategy,
     SyncConfig,
     SyncPlan,
@@ -94,22 +96,47 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
     return changed
 
 
+@dataclass(frozen=True, slots=True)
+class PartitionChanges:
+    """Physical partition changes for one table."""
+
+    full_rebuild: bool
+    changed: set[str]
+    removed: set[str]
+    previous: dict[str, PhysicalPartition]
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionTaskBatch:
+    """Extraction paths and tasks for changed physical partitions."""
+
+    paths: dict[str, str]
+    tasks: list[SyncTask]
+
+
 def partition_changes(
     current: dict[str, PhysicalPartition],
     stored: PartitionManifest | None,
     table_signature: str,
-) -> tuple[bool, set[str], set[str], dict[str, PhysicalPartition]]:
-    """Return rebuild status and changed, removed, and previous partitions."""
+) -> PartitionChanges:
+    """Return changed physical partition state."""
     first_sync = stored is None
     table_changed = stored is not None and stored.table_signature != table_signature
     full_rebuild = first_sync or table_changed
     previous = stored.partitions if stored is not None else {}
+
     changed = {
         partition_id
         for partition_id, partition in current.items()
         if full_rebuild or previous.get(partition_id) != partition
     }
-    return full_rebuild, changed, set(previous) - set(current), previous
+
+    return PartitionChanges(
+        full_rebuild=full_rebuild,
+        changed=changed,
+        removed=previous.keys() - current.keys(),
+        previous=previous,
+    )
 
 
 def build_partition_tasks(
@@ -119,7 +146,7 @@ def build_partition_tasks(
     sync_id: str,
     gcs_bucket: str,
     json_columns: list[str],
-) -> tuple[dict[str, str], list[SyncTask]]:
+) -> PartitionTaskBatch:
     """Create one task and path per changed physical partition.
 
     Numeric partition ids sort first in ascending order; the remainder
@@ -131,6 +158,7 @@ def build_partition_tasks(
             (1, "") if not partition_id.isdigit() else (0, int(partition_id))
         ),
     )
+
     tasks = [
         table.to_task(
             sync_id,
@@ -146,7 +174,7 @@ def build_partition_tasks(
         partition_id: task.bucket_path
         for partition_id, task in zip(ordered, tasks, strict=True)
     }
-    return paths, tasks
+    return PartitionTaskBatch(paths=paths, tasks=tasks)
 
 
 async def plan_partitioned_table(
@@ -162,15 +190,16 @@ async def plan_partitioned_table(
         client, table.name, table.model_dump_json(), table.n
     )
     stored = await read_partition_manifest(redis, table.name)
-    rebuild, changed, removed, previous = partition_changes(current, stored, table_sig)
-    if not changed and not removed:
+    changes = partition_changes(current, stored, table_sig)
+
+    if not changes.changed and not changes.removed:
         return None, []
 
     json_columns = await asyncify(discover_json_columns)(db, table.name)
-    paths, tasks = build_partition_tasks(
+    batch = build_partition_tasks(
         table,
         current,
-        changed,
+        changes.changed,
         sync_id,
         gcs_bucket,
         json_columns,
@@ -178,20 +207,21 @@ async def plan_partitioned_table(
 
     plan = PartitionedTablePlan(
         table_signature=table_sig,
-        full_rebuild=rebuild,
+        full_rebuild=changes.full_rebuild,
         current_partitions=current,
-        changed_paths=paths,
+        changed_paths=batch.paths,
         previous_partitions={
-            partition_id: previous[partition_id]
-            for partition_id in changed
-            if partition_id in previous
+            partition_id: changes.previous[partition_id]
+            for partition_id in changes.changed
+            if partition_id in changes.previous
         },
         removed_partitions={
-            partition_id: previous[partition_id] for partition_id in removed
+            partition_id: changes.previous[partition_id]
+            for partition_id in changes.removed
         },
     )
 
-    return plan, tasks
+    return plan, batch.tasks
 
 
 async def plan_partitioned_tables(
@@ -269,12 +299,21 @@ async def build_sync_plan(
         len(signatures),
         len(partitioned),
     )
-    return (
-        SyncPlan(
-            sync_id=sync_id,
-            signatures=signatures,
-            paths=paths,
-            partitioned_tables=partitioned,
-        ),
-        tasks,
-    )
+    schema_names = {table.name: table.resolved_schema for table in config.tables}
+    grouped: dict[str, SchemaSyncPlan] = {}
+
+    for table, signature in signatures.items():
+        schema_name = schema_names[table]
+        schema_plan = grouped.setdefault(
+            schema_name, SchemaSyncPlan(schema_name=schema_name)
+        )
+        schema_plan.signatures[table] = signature
+        schema_plan.paths[table] = paths[table]
+
+    for table, partition_plan in partitioned.items():
+        schema_name = schema_names[table]
+        grouped.setdefault(
+            schema_name, SchemaSyncPlan(schema_name=schema_name)
+        ).partitioned_tables[table] = partition_plan
+
+    return SyncPlan(sync_id=sync_id, plans=list(grouped.values())), tasks

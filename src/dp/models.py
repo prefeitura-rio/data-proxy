@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PositiveInt,
     TypeAdapter,
     computed_field,
     model_validator,
@@ -19,7 +20,6 @@ NonEmptyString = Annotated[str, Field(min_length=1)]
 BigQueryTableName = Annotated[
     NonEmptyString, Field(pattern=BIGQUERY_TABLE_REFERENCE_PATTERN)
 ]
-PositiveInt = Annotated[int, Field(gt=0)]
 
 
 class Strategy(StrEnum):
@@ -147,6 +147,7 @@ class Table(BaseModel):
     ) -> SyncTask:
         """Create one extraction task for the selected source rows."""
         suffix = f"/{path_suffix}" if path_suffix else ""
+
         return SyncTask(
             sync_id=sync_id,
             table=self.name,
@@ -323,15 +324,15 @@ class PartitionedTablePlan(BaseModel):
     @model_validator(mode="after")
     def validate_partition_sets(self) -> Self:
         """Require changed and removed IDs to match their respective manifests."""
-        if not set(self.changed_paths) <= set(self.current_partitions):
+        if not self.changed_paths.keys() <= self.current_partitions.keys():
             msg = "Changed partition paths must exist in the current manifest"
             raise ValueError(msg)
 
-        if not set(self.previous_partitions) <= set(self.changed_paths):
+        if not self.previous_partitions.keys() <= self.changed_paths.keys():
             msg = "Previous partitions must be changed partitions"
             raise ValueError(msg)
 
-        if set(self.removed_partitions) & set(self.current_partitions):
+        if self.removed_partitions.keys() & self.current_partitions.keys():
             msg = "Removed partitions cannot exist in the current manifest"
             raise ValueError(msg)
         return self
@@ -344,10 +345,10 @@ class PartitionManifest(BaseModel):
     partitions: dict[str, PhysicalPartition]
 
 
-class SyncPlan(BaseModel):
-    """Ordinary and partitioned table work for one synchronization run."""
+class SchemaSyncPlan(BaseModel):
+    """Immutable publication inputs for one PostgreSQL schema."""
 
-    sync_id: str
+    schema_name: str
     signatures: dict[str, str] = {}
     paths: dict[str, list[str]] = {}
     partitioned_tables: dict[str, PartitionedTablePlan] = {}
@@ -355,28 +356,39 @@ class SyncPlan(BaseModel):
     @model_validator(mode="after")
     def validate_paths(self) -> Self:
         """Require ordinary signatures and non-empty paths to match."""
-        if set(self.signatures) != set(self.paths) or any(
+        if self.signatures.keys() != self.paths.keys() or any(
             not paths for paths in self.paths.values()
         ):
-            message = "Sync plan signatures and non-empty paths must match"
-            raise ValueError(message)
-
-        if set(self.signatures) & set(self.partitioned_tables):
-            message = "Tables cannot have ordinary and partitioned plans"
-            raise ValueError(message)
+            raise ValueError("Sync plan signatures and non-empty paths must match")
+        if self.signatures.keys() & self.partitioned_tables.keys():
+            raise ValueError("Tables cannot have ordinary and partitioned plans")
         return self
 
 
+class SyncPlan(BaseModel):
+    """Immutable synchronization work grouped by PostgreSQL schema."""
+
+    sync_id: str
+    plans: list[SchemaSyncPlan] = []
+
+
+class SyncStateUpdate(BaseModel):
+    """Committed signatures and partition manifests for successful tables."""
+
+    signatures: dict[str, str] = {}
+    partitions: dict[str, PartitionManifest] = {}
+
+
 class SyncPublicationInput(BaseModel):
-    """A configuration and plan validated together before publication."""
+    """A configuration and schema-local plan validated together."""
 
     config: SyncConfig
-    plan: SyncPlan
+    plan: SchemaSyncPlan
 
     @property
     def changed_tables(self) -> set[str]:
         """Return every table with work in the plan."""
-        return set(self.plan.signatures) | set(self.plan.partitioned_tables)
+        return self.plan.signatures.keys() | self.plan.partitioned_tables.keys()
 
     @model_validator(mode="after")
     def require_configured_plan_tables(self) -> Self:
@@ -390,7 +402,7 @@ class SyncPublicationInput(BaseModel):
 class PublicationDecision(BaseModel):
     """Publishable plan and failures derived from extraction results."""
 
-    plan: SyncPlan
+    plan: SchemaSyncPlan
     blocked_tables: set[str]
     failed_partitions: dict[str, set[str]]
 
@@ -398,7 +410,7 @@ class PublicationDecision(BaseModel):
 class PublicationResult(BaseModel):
     """Exact plan and table set published by the finalizer."""
 
-    plan: SyncPlan
+    plan: SchemaSyncPlan
     published_tables: set[str]
 
 

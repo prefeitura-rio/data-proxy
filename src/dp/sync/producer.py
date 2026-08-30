@@ -98,7 +98,11 @@ async def publish_tasks() -> None:
             log.info(
                 "Planning completed",
                 task_count=len(tasks),
-                changed_table_count=len(plan.signatures) if plan else 0,
+                changed_table_count=sum(
+                    len(schema_plan.signatures) for schema_plan in plan.plans
+                )
+                if plan
+                else 0,
             )
 
             if plan is None:

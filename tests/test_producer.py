@@ -6,7 +6,7 @@ from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 from faststream import TestApp
-from helpers import FakeRedis, redis_client
+from helpers import FakeRedis, redis_client, sync_plan
 
 from dp.constants import (
     FINALIZERS_GROUP,
@@ -14,7 +14,7 @@ from dp.constants import (
     SYNC_TASKS_STREAM,
     WORKERS_GROUP,
 )
-from dp.models import AllSelection, FinalizeMessage, SyncPlan, SyncTask
+from dp.models import AllSelection, FinalizeMessage, SyncTask
 from dp.state import create_run
 from dp.sync.producer import producer, recover_lost_finalization
 
@@ -42,7 +42,7 @@ async def test_recovery_without_active_run_returns_none() -> None:
 async def test_recovery_keeps_extracting_run_untouched() -> None:
     """A run with pending tasks is not finalized early."""
     fake = FakeRedis()
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 2)
+    await create_run(redis_client(fake), sync_plan(sync_id="s1"), 2)
 
     assert await recover_lost_finalization(redis_client(fake)) is None
 
@@ -51,7 +51,7 @@ async def test_recovery_keeps_extracting_run_untouched() -> None:
 async def test_recovery_skips_when_finalizer_message_in_flight() -> None:
     """A run with a pending finalizer message is not re-published."""
     fake = FakeRedis(pending_groups={("dp:sync:finalize", "finalizers")})
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
+    await create_run(redis_client(fake), sync_plan(sync_id="s1"), 0)
 
     with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
         assert await recover_lost_finalization(redis_client(fake)) is None
@@ -63,7 +63,7 @@ async def test_recovery_skips_when_finalizer_message_in_flight() -> None:
 async def test_recovery_republishes_lost_finalizer_message() -> None:
     """A fully extracted run with no finalizer message is finalized again."""
     fake = FakeRedis()
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
+    await create_run(redis_client(fake), sync_plan(sync_id="s1"), 0)
 
     with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
         assert await recover_lost_finalization(redis_client(fake)) == "s1"
@@ -139,7 +139,7 @@ async def test_exits_when_atomic_run_creation_conflicts(
     sync_config_path: Path,
 ) -> None:
     """An active run prevents task publication."""
-    plan = SyncPlan(
+    plan = sync_plan(
         sync_id="s1",
         signatures={"p.d.t": "100"},
         paths={"p.d.t": ["s3://bucket/t/data.parquet"]},
@@ -184,7 +184,7 @@ async def test_creates_run_before_publishing_tasks(
     sync_config_path: Path,
 ) -> None:
     """A changed run creates state before it publishes every task."""
-    plan = SyncPlan(
+    plan = sync_plan(
         sync_id="s1",
         signatures={"p.d.t": "100"},
         paths={"p.d.t": ["s3://bucket/t/data.parquet"]},
@@ -238,7 +238,7 @@ async def test_deletion_only_plan_publishes_finalizer_directly(
     sync_config_path: Path,
 ) -> None:
     """A plan without extraction tasks bypasses the worker counter."""
-    plan = SyncPlan(sync_id="s1")
+    plan = sync_plan(sync_id="s1")
     trim, group, recover = state_patches()
     with (
         trim,

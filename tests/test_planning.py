@@ -21,6 +21,7 @@ from dp.models import (
     RangeSelection,
     RemainderSelection,
     SchemaConfig,
+    SchemaSyncPlan,
     SyncConfig,
 )
 from dp.planning import (
@@ -29,6 +30,7 @@ from dp.planning import (
     detect_changes,
     discover_json_columns,
     expand_config,
+    partition_changes,
     plan_partitioned_tables,
     table_signature,
 )
@@ -162,6 +164,22 @@ async def test_plans_new_changed_and_removed_physical_partitions() -> None:
     assert tasks[0].bucket_path.endswith("/partitions/10/data.parquet")
 
 
+def test_partition_changes_returns_named_fields() -> None:
+    """Partition differences use a typed result with named fields."""
+    current = {"10": physical_partition("10", "new")}
+    stored = PartitionManifest(
+        table_signature="old-table",
+        partitions={"10": physical_partition("10", "old")},
+    )
+
+    changes = partition_changes(current, stored, "new-table")
+
+    assert changes.full_rebuild is True
+    assert changes.changed == {"10"}
+    assert changes.removed == set()
+    assert changes.previous == stored.partitions
+
+
 def test_build_partition_tasks_orders_remainder_after_numeric_partitions() -> None:
     """A non-numeric remainder id sorts after every numeric partition id."""
     table = PartitionedTable(name="p.d.people")
@@ -176,7 +194,7 @@ def test_build_partition_tasks_orders_remainder_after_numeric_partitions() -> No
         "__NULL__": remainder,
     }
 
-    paths, tasks = build_partition_tasks(
+    batch = build_partition_tasks(
         table,
         current,
         {"0", "20", "__NULL__"},
@@ -185,8 +203,12 @@ def test_build_partition_tasks_orders_remainder_after_numeric_partitions() -> No
         [],
     )
 
-    assert list(paths) == ["0", "20", "__NULL__"]
-    assert [task.selection.type for task in tasks] == ["range", "range", "remainder"]
+    assert list(batch.paths) == ["0", "20", "__NULL__"]
+    assert [task.selection.type for task in batch.tasks] == [
+        "range",
+        "range",
+        "remainder",
+    ]
 
 
 @pytest.mark.asyncio
@@ -292,8 +314,13 @@ async def test_builds_plan_with_exact_parquet_paths() -> None:
         )
 
     assert plan is not None
-    assert plan.signatures == {"p.d.t": "signature"}
-    assert plan.paths == {"p.d.t": ["s3://bucket/d/t/data.parquet"]}
+    assert plan.plans == [
+        SchemaSyncPlan(
+            schema_name="d",
+            signatures={"p.d.t": "signature"},
+            paths={"p.d.t": ["s3://bucket/d/t/data.parquet"]},
+        )
+    ]
     assert len(tasks) == 1
 
 

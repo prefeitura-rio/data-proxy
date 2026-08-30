@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 import pytest
+from helpers import sync_plan
 from pydantic import ValidationError
 
 from dp.models import (
@@ -14,8 +15,8 @@ from dp.models import (
     RangeSelection,
     RemainderSelection,
     SchemaConfig,
+    SchemaSyncPlan,
     SyncConfig,
-    SyncPlan,
     SyncPublicationInput,
     SyncTask,
     TaskFailure,
@@ -25,6 +26,24 @@ from dp.models import (
     UnitMapping,
     task_outcome_adapter,
 )
+
+
+def test_sync_plan_serializes_only_schema_local_plans() -> None:
+    """The stored plan has no duplicate flat table maps."""
+    plan = sync_plan(
+        sync_id="s1",
+        signatures={"p.d.t": "signature"},
+        paths={"p.d.t": ["s3://bucket/t.parquet"]},
+    )
+
+    assert set(plan.model_dump()) == {"sync_id", "plans"}
+    assert plan.plans == [
+        SchemaSyncPlan(
+            schema_name="app",
+            signatures={"p.d.t": "signature"},
+            paths={"p.d.t": ["s3://bucket/t.parquet"]},
+        )
+    ]
 
 
 def test_task_id_is_stable_for_one_run_and_path() -> None:
@@ -264,8 +283,8 @@ def test_physical_partition_rejects_mismatched_range_id() -> None:
 def test_publication_input_rejects_plan_table_absent_from_config() -> None:
     """Publication cannot begin for a table outside the mounted configuration."""
     config = SyncConfig(schemas={"app": SchemaConfig(tables=[FullTable(name="p.d.t")])})
-    plan = SyncPlan(
-        sync_id="s1",
+    plan = SchemaSyncPlan(
+        schema_name="app",
         signatures={"p.d.other": "signature"},
         paths={"p.d.other": ["s3://bucket/other/data.parquet"]},
     )

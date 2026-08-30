@@ -15,6 +15,31 @@ from psycopg import Connection
 from redis.asyncio import Redis
 from redis.exceptions import RedisError, WatchError
 
+from dp.models import PartitionedTablePlan, SchemaSyncPlan, SyncPlan
+
+
+def sync_plan(
+    *,
+    sync_id: str,
+    schema_name: str = "app",
+    signatures: dict[str, str] | None = None,
+    paths: dict[str, list[str]] | None = None,
+    partitioned_tables: dict[str, PartitionedTablePlan] | None = None,
+    plans: list[SchemaSyncPlan] | None = None,
+) -> SyncPlan:
+    """Build one strict grouped synchronization plan for tests."""
+    if plans is None and (signatures or paths or partitioned_tables):
+        plans = [
+            SchemaSyncPlan(
+                schema_name=schema_name,
+                signatures=signatures or {},
+                paths=paths or {},
+                partitioned_tables=partitioned_tables or {},
+            )
+        ]
+
+    return SyncPlan(sync_id=sync_id, plans=plans or [])
+
 
 def postgres_connection(fake: object) -> Connection:
     """Cast a PostgreSQL test double to the production connection type."""
@@ -69,12 +94,23 @@ class FakePgConn:
     """Minimal psycopg connection double with execute call tracking."""
 
     executed: list[object]
+    executed_many: list[tuple[object, list[object]]]
 
     def __init__(self) -> None:
         self.executed = []
+        self.executed_many = []
 
     def execute(self, query: object, _params: object = None) -> FakePgConn:
         self.executed.append(query)
+        return self
+
+    def executemany(self, query: object, params_seq: list[object]) -> FakePgConn:
+        """Record one batch execution."""
+        self.executed_many.append((query, params_seq))
+        return self
+
+    def cursor(self) -> FakePgConn:
+        """Return this test double as a cursor."""
         return self
 
     def commit(self) -> None:
@@ -98,7 +134,6 @@ class FakeRedis:
     store: dict[str, str]
     set_calls: list[tuple[str, object, int | None]]
     xtrim_calls: list[tuple[str, str | None]]
-    sets: dict[str, set[str]]
     hashes: dict[str, dict[str, str]]
     watch_errors: int
     transaction_commands: list[str]
@@ -119,7 +154,6 @@ class FakeRedis:
         self.store = {}
         self.set_calls = []
         self.xtrim_calls = []
-        self.sets = {}
         self.hashes = {}
         self.watch_errors = watch_errors
         self.transaction_commands = []
@@ -144,16 +178,11 @@ class FakeRedis:
         removed = 0
         for key in keys:
             removed += self.store.pop(key, None) is not None
-            removed += self.sets.pop(key, None) is not None
         return removed
 
     async def hvals(self, key: str) -> list[str]:
         """Return all values from one hash."""
         return list(self.hashes.get(key, {}).values())
-
-    async def smembers(self, key: str) -> set[str]:
-        """Return members of one legacy failure set."""
-        return self.sets.get(key, set())
 
     async def xpending_range(
         self,
@@ -191,7 +220,7 @@ class FakeRedis:
 
     async def expire(self, key: str, _seconds: int) -> bool:
         """Accept a TTL for an existing test key."""
-        return key in self.store or key in self.sets
+        return key in self.store
 
     async def xtrim(
         self,
@@ -286,7 +315,6 @@ class FakePipeline:
                 removed = 0
                 for key in args:
                     removed += self.redis.store.pop(str(key), None) is not None
-                    removed += self.redis.sets.pop(str(key), None) is not None
                     removed += self.redis.hashes.pop(str(key), None) is not None
                 results.append(removed)
         return results

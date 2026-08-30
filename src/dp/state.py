@@ -27,6 +27,7 @@ from .models import (
     CompletionResult,
     PartitionManifest,
     SyncPlan,
+    SyncStateUpdate,
     SyncTask,
     TaskFailure,
     TaskOutcome,
@@ -44,14 +45,10 @@ def decode_redis_value(value: bytes | str | None) -> str | None:
             return value
 
 
-def state_key(bq_table: str) -> str:
-    """Return the committed state key for one BigQuery table."""
-    return SYNC_STATE_KEY.format(bq_table=bq_table)
-
-
 async def read_table_signature(redis: Redis, bq_table: str) -> str | None:
     """Read one committed table signature."""
-    return decode_redis_value(await redis.get(state_key(bq_table)))
+    key = SYNC_STATE_KEY.format(bq_table=bq_table)
+    return decode_redis_value(await redis.get(key))
 
 
 async def read_partition_manifest(
@@ -106,31 +103,28 @@ async def read_sync_plan(redis: Redis, sync_id: str) -> SyncPlan:
 
 
 async def commit_sync_state(
-    redis: Redis, plan: SyncPlan, published_tables: set[str]
+    redis: Redis,
+    sync_id: str,
+    update: SyncStateUpdate,
 ) -> None:
-    """Atomically commit successful state and clear temporary run state."""
+    """Atomically commit desired state and clear temporary run state."""
     async with redis.pipeline(transaction=True) as pipe:
-        for bq_table, signature in plan.signatures.items():
-            if bq_table in published_tables:
-                pipe.set(state_key(bq_table), signature)
+        for bq_table, signature in update.signatures.items():
+            pipe.set(SYNC_STATE_KEY.format(bq_table=bq_table), signature)
 
-        for bq_table, table_plan in plan.partitioned_tables.items():
-            if bq_table in published_tables:
-                manifest = PartitionManifest(
-                    table_signature=table_plan.table_signature,
-                    partitions=table_plan.current_partitions,
-                )
-                pipe.set(
-                    SYNC_PARTITIONS_KEY.format(bq_table=bq_table),
-                    manifest.model_dump_json(),
-                )
+        for bq_table, manifest in update.partitions.items():
+            pipe.set(
+                SYNC_PARTITIONS_KEY.format(bq_table=bq_table),
+                manifest.model_dump_json(),
+            )
 
         pipe.delete(
             SYNC_ACTIVE_KEY,
-            SYNC_JOB_KEY.format(sync_id=plan.sync_id),
-            SYNC_PLAN_KEY.format(sync_id=plan.sync_id),
-            SYNC_TASK_RESULTS_KEY.format(sync_id=plan.sync_id),
+            SYNC_JOB_KEY.format(sync_id=sync_id),
+            SYNC_PLAN_KEY.format(sync_id=sync_id),
+            SYNC_TASK_RESULTS_KEY.format(sync_id=sync_id),
         )
+
         await pipe.execute()
 
 
@@ -239,11 +233,6 @@ async def complete_task(
         remaining=next_remaining,
         should_finalize=next_remaining == 0,
     )
-
-
-async def has_active_run(redis: Redis) -> bool:
-    """Return True when a previous synchronization run has not completed."""
-    return await redis.get(SYNC_ACTIVE_KEY) is not None
 
 
 async def read_active_sync_id(redis: Redis) -> str | None:

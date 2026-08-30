@@ -7,10 +7,21 @@ from unittest.mock import ANY, AsyncMock, call, patch
 import pytest
 from faststream.exceptions import StopApplication
 from faststream.redis.testing import TestRedisBroker
-from helpers import FakeDuckDBConnection, FakePgConn, FakeRedis, FakeRedisCM
+from helpers import (
+    FakeDuckDBConnection,
+    FakePgConn,
+    FakeRedis,
+    FakeRedisCM,
+    sync_plan,
+)
 
 from dp.errors import SyncPlanNotFoundError
-from dp.models import FinalizeMessage, PublicationResult, SyncPlan
+from dp.models import (
+    FinalizeMessage,
+    PublicationResult,
+    SchemaSyncPlan,
+    SyncStateUpdate,
+)
 from dp.sync.finalizer import (
     broker,
     cleanup_finalizer_consumer,
@@ -97,7 +108,7 @@ async def test_applies_plan_commits_state_and_exits(
     sync_config_path: Path,
 ) -> None:
     """Successful orchestration commits an empty plan and exits."""
-    plan = SyncPlan(sync_id="s1", signatures={}, paths={})
+    plan = sync_plan(sync_id="s1")
 
     with (
         patch_make_redis(),
@@ -113,7 +124,9 @@ async def test_applies_plan_commits_state_and_exits(
         ),
         patch(
             "dp.sync.finalizer.apply_sync_plan",
-            return_value=PublicationResult(plan=plan, published_tables={"p.d.t"}),
+            return_value=PublicationResult(
+                plan=SchemaSyncPlan(schema_name="app"), published_tables={"p.d.t"}
+            ),
         ) as apply,
         patch(
             "dp.sync.finalizer.commit_sync_state",
@@ -130,7 +143,7 @@ async def test_applies_plan_commits_state_and_exits(
     publish.assert_not_awaited()
     read.assert_awaited_once()
     apply.assert_not_called()
-    commit.assert_awaited_once_with(ANY, plan, set())
+    commit.assert_awaited_once_with(ANY, plan.sync_id, SyncStateUpdate())
     exit_app.assert_called_once()
 
 
@@ -159,16 +172,20 @@ async def test_loading_failure_stops_application(
         }
         }"""
     )
-    plan = SyncPlan(
+    plan = sync_plan(
         sync_id="s1",
-        signatures={
-            "project.dataset.cpf_rio": "cpf",
-            "project.dataset.participants": "participants",
-        },
-        paths={
-            "project.dataset.cpf_rio": ["s3://bucket/cpf"],
-            "project.dataset.participants": ["s3://bucket/participants"],
-        },
+        plans=[
+            SchemaSyncPlan(
+                schema_name="bcadastro",
+                signatures={"project.dataset.cpf_rio": "cpf"},
+                paths={"project.dataset.cpf_rio": ["s3://bucket/cpf"]},
+            ),
+            SchemaSyncPlan(
+                schema_name="app_pequenos_cariocas",
+                signatures={"project.dataset.participants": "participants"},
+                paths={"project.dataset.participants": ["s3://bucket/participants"]},
+            ),
+        ],
     )
 
     async with TestRedisBroker(broker) as test_broker:
@@ -188,8 +205,8 @@ async def test_loading_failure_stops_application(
                 "dp.sync.finalizer.apply_sync_plan",
                 side_effect=[
                     PublicationResult(
-                        plan=SyncPlan(
-                            sync_id="s1",
+                        plan=SchemaSyncPlan(
+                            schema_name="bcadastro",
                             signatures={"project.dataset.cpf_rio": "cpf"},
                             paths={"project.dataset.cpf_rio": ["s3://bucket/cpf"]},
                         ),
@@ -236,23 +253,27 @@ async def test_routes_each_schema_plan_to_its_writer(sync_config_path: Path) -> 
         }
         }"""
     )
-    plan = SyncPlan(
+    plan = sync_plan(
         sync_id="s1",
-        signatures={
-            "project.dataset.cpf_rio": "cpf",
-            "project.dataset.participants": "participants",
-        },
-        paths={
-            "project.dataset.cpf_rio": ["s3://bucket/cpf"],
-            "project.dataset.participants": ["s3://bucket/participants"],
-        },
+        plans=[
+            SchemaSyncPlan(
+                schema_name="bcadastro",
+                signatures={"project.dataset.cpf_rio": "cpf"},
+                paths={"project.dataset.cpf_rio": ["s3://bucket/cpf"]},
+            ),
+            SchemaSyncPlan(
+                schema_name="app_pequenos_cariocas",
+                signatures={"project.dataset.participants": "participants"},
+                paths={"project.dataset.participants": ["s3://bucket/participants"]},
+            ),
+        ],
     )
 
     def publish(
         _: object,
         __: object,
         ___: object,
-        schema_plan: SyncPlan,
+        schema_plan: SchemaSyncPlan,
         ____: object,
     ) -> PublicationResult:
         return PublicationResult(
@@ -284,6 +305,11 @@ async def test_routes_each_schema_plan_to_its_writer(sync_config_path: Path) -> 
     ]
     commit.assert_awaited_once_with(
         ANY,
-        plan,
-        {"project.dataset.cpf_rio", "project.dataset.participants"},
+        plan.sync_id,
+        SyncStateUpdate(
+            signatures={
+                "project.dataset.cpf_rio": "cpf",
+                "project.dataset.participants": "participants",
+            }
+        ),
     )

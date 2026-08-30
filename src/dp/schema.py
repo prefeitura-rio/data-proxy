@@ -9,11 +9,6 @@ from .settings import settings
 from .templates import TemplateSpec, load_template
 
 
-def configured_schemas(config: SyncConfig) -> set[str]:
-    """Return every schema declared in a configuration."""
-    return set(config.schemas)
-
-
 def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
     """Create roles and application schemas before publication."""
     pg_conn.execute(
@@ -29,7 +24,7 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
         ).encode()
     )
 
-    for schema in configured_schemas(config):
+    for schema in config.schemas:
         pg_conn.execute(
             load_template(
                 TemplateSpec(
@@ -62,7 +57,7 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
 
 def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:
     """Revoke anonymous access and request a schema reload."""
-    for schema in configured_schemas(config):
+    for schema in config.schemas:
         pg_conn.execute(
             load_template(
                 TemplateSpec(

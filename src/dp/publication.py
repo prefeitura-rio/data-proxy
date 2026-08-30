@@ -11,7 +11,7 @@ from whenever import Instant
 from .authorization import bootstrap_table
 from .duckdb import DBConnection
 from .freshness import (
-    record_table_failure,
+    record_table_failures,
     update_published_freshness,
     upsert_freshness,
 )
@@ -21,8 +21,8 @@ from .models import (
     PublicationDecision,
     RangeSelection,
     RemainderSelection,
+    SchemaSyncPlan,
     SyncConfig,
-    SyncPlan,
     TableConfig,
     TimeRangeSelection,
 )
@@ -117,7 +117,9 @@ def apply_partition_fallback(
         table_plan.current_partitions[partition_id] = previous
 
 
-def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecision:
+def reduce_sync_plan(
+    plan: SchemaSyncPlan, failed_paths: set[str]
+) -> PublicationDecision:
     """Return the publishable plan and its extraction failures."""
     reduced = plan.model_copy(deep=True)
     blocked = {
@@ -146,7 +148,7 @@ def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecis
 
 
 def planned_paths(
-    plan: SyncPlan,
+    plan: SchemaSyncPlan,
     table: str,
     partitioned: PartitionedTablePlan | None,
 ) -> list[str]:
@@ -160,9 +162,7 @@ def planned_paths(
             assert_never(partitioned)
 
 
-def affected_partitions(
-    partitioned: PartitionedTablePlan,
-) -> list[PhysicalPartition]:
+def affected_partitions(partitioned: PartitionedTablePlan) -> list[PhysicalPartition]:
     """Return changed and removed partitions excluded from the live-table copy."""
     changed = [
         partitioned.current_partitions[partition_id]
@@ -175,6 +175,7 @@ def affected_partitions(
 def partition_predicate(partition: PhysicalPartition) -> SQL:
     """Return the SQL predicate that matches one partition."""
     mapping = selection_fields(partition.selection)
+
     match partition.selection:
         case RangeSelection() | TimeRangeSelection():
             path = "pg/partition_range_predicate"
@@ -182,6 +183,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
             path = "pg/partition_remainder_predicate"
         case _:
             assert_never(partition.selection)
+
     return SQL(
         cast(LiteralString, load_template(TemplateSpec(path=path, mapping=mapping)))
     )
@@ -207,6 +209,7 @@ def create_incremental_shadow(
             )
         ).encode()
     )
+
     pg_conn.commit()
 
 
@@ -238,7 +241,7 @@ def prepare_tables(
     pg_conn: Connection,
     duckdb_conn: DBConnection,
     config: SyncConfig,
-    plan: SyncPlan,
+    plan: SchemaSyncPlan,
     changed: set[str],
 ) -> list[TableConfig]:
     """Prepare, secure, and load each eligible shadow table."""
@@ -278,7 +281,9 @@ def prepare_tables(
                     )
                 case _:
                     create_shadow_from_parquet(duckdb_conn, table, shadow_name, paths)
+
             schema_config = config.schemas.get(table.resolved_schema)
+
             with pg_conn.transaction():
                 bootstrap_table(
                     pg_conn,
@@ -287,6 +292,7 @@ def prepare_tables(
                     table.rls,
                     schema_config.claim if schema_config else None,
                 )
+
             log.info("Loading table", path_count=len(paths))
             load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
         except Exception as error:
@@ -302,7 +308,7 @@ def prepare_tables(
 def publish_prepared_tables(
     pg_conn: Connection,
     prepared: Sequence[TableConfig],
-    plan: SyncPlan,
+    plan: SchemaSyncPlan,
     failed_partitions: dict[str, set[str]],
     attempted_at: Instant,
 ) -> set[str]:
@@ -326,17 +332,17 @@ def publish_prepared_tables(
         except Exception as error:
             log.opt(exception=error).error("Table publication failed")
 
-            record_table_failure(pg_conn, table, plan, attempted_at)
+            record_table_failures(pg_conn, [table], plan, attempted_at)
 
             with pg_conn.transaction():
-                for partition_id in failed_partitions.get(table.name, set()):
-                    upsert_freshness(
-                        pg_conn,
-                        table,
-                        partition_id,
-                        attempted_at,
-                        success=False,
-                    )
+                upsert_freshness(
+                    pg_conn,
+                    table,
+                    failed_partitions.get(table.name, set()),
+                    attempted_at,
+                    success=False,
+                )
+
             continue
 
         log.info("Table publication completed")
