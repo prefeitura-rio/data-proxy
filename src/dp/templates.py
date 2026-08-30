@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from string import Template
+from typing import assert_never
 
 from psycopg.sql import Composable, Identifier, Literal
 
@@ -73,3 +74,5 @@ def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
                 "lower": Literal(start),
                 "upper": Literal(end),
             }
+        case _:
+            assert_never(selection)

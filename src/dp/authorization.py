@@ -1,5 +1,7 @@
 """PostgreSQL authorization and row-level security operations."""
 
+from typing import assert_never
+
 from psycopg import Connection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
@@ -114,7 +116,9 @@ def bootstrap_table(
             statements.append(
                 table_access_policy_statement(schema, table_name, rls, claim)
             )
-        case _:
+        case None:
             statements.append(schema_scope_statement(schema, table_name))
+        case _:
+            assert_never(rls)
 
     pg_conn.execute(";".join(statements).encode())

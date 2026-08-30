@@ -1,5 +1,7 @@
 """BigQuery-to-Parquet extraction operations."""
 
+from typing import assert_never
+
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .duckdb import DBConnection
@@ -42,6 +44,8 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
             return TemplateSpec(path="duckdb/write_partition", mapping=mapping)
         case RemainderSelection():
             return TemplateSpec(path="duckdb/write_remainder", mapping=mapping)
+        case _:
+            assert_never(task.selection)
 
 
 def extract_task(task: SyncTask, db: DBConnection) -> None:

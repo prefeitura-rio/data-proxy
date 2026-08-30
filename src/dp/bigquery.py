@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import cast
+from typing import assert_never, cast
 
 from google.cloud.bigquery import (
     Client,
@@ -357,6 +357,8 @@ def normalize_partition(
                     partition_id=partition_id, column=field, lower=lower, upper=upper
                 ),
             )
+        case _:
+            assert_never(kind_config)
 
 
 def physical_partitions(

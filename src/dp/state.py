@@ -1,6 +1,7 @@
 """Valkey state operations for synchronization orchestration."""
 
 import contextlib
+from typing import assert_never
 
 from loguru import logger
 from redis.asyncio import Redis
@@ -141,6 +142,8 @@ def failed_path(outcome: TaskOutcome) -> str | None:
             return path
         case TaskSuccess():
             return None
+        case _:
+            assert_never(outcome)
 
 
 async def read_failed_paths(redis: Redis, sync_id: str) -> set[str]:
@@ -226,6 +229,8 @@ async def complete_task(
                 return completion
             case int() as remaining:
                 next_remaining = remaining - 1
+            case _:
+                assert_never(completion)
 
         queue_completion(
             pipe,

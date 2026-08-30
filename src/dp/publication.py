@@ -1,7 +1,7 @@
 """Plan reduction, shadow loading, and atomic table publication operations."""
 
 from collections.abc import Sequence
-from typing import LiteralString, cast
+from typing import LiteralString, assert_never, cast
 
 from loguru import logger
 from psycopg import Connection
@@ -156,6 +156,8 @@ def planned_paths(
             return list(partitioned.changed_paths.values())
         case None:
             return plan.paths.get(table, [])
+        case _:
+            assert_never(partitioned)
 
 
 def affected_partitions(
@@ -178,6 +180,8 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
             path = "pg/partition_range_predicate"
         case RemainderSelection():
             path = "pg/partition_remainder_predicate"
+        case _:
+            assert_never(partition.selection)
     return SQL(
         cast(LiteralString, load_template(TemplateSpec(path=path, mapping=mapping)))
     )
