@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run SAST (local action)
-        uses: prefeitura-rio/actions/sast@master
+        uses: prefeitura-rio/actions/sast@18661908a35562307eae31acc8352d033bc816e4 # master
         with:
           sonar_url: ${{ vars.SONARQUBE_URL }}
           sonar_token: ${{ secrets.SONARQUBE_TOKEN }}

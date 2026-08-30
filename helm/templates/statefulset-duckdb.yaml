@@ -20,11 +20,14 @@ spec:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: duckdb
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 999
       containers:
         - name: duckdb
           image: {{ .Values.pgduckdb.image }}
+          resources:
+            {{- toYaml .Values.pgduckdb.resources | nindent 12 }}
           ports:
             - name: postgres
               containerPort: 5432

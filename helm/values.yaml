@@ -38,6 +38,13 @@ pgduckdb:
     name: dataproxy
     ## PostgreSQL superuser name used by the pipeline services to connect.
     user: dataproxy
+  resources:
+    requests:
+      memory: 512Mi
+      ephemeral-storage: 1Gi
+    limits:
+      memory: 2Gi
+      ephemeral-storage: 4Gi
   ## Name of an existing Secret to use instead of creating one.
   ## The Secret must contain POSTGRES_PASSWORD and PGRST_AUTHENTICATOR_PASSWORD.
   existingSecret: ""
@@ -261,9 +268,14 @@ ha:
     replicationUsername: replicator
     ## Password for the replication role. Required when ha.enabled is true.
     replicationPassword: ""
-## Resource requests and limits applied to all containers.
-## Leave empty to use no limits. See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-resources: {}
+## Resource requests and limits applied to PostgREST containers.
+resources:
+  requests:
+    memory: 64Mi
+    ephemeral-storage: 128Mi
+  limits:
+    memory: 256Mi
+    ephemeral-storage: 512Mi
 
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ## No VirtualService is created when enabled is false.
