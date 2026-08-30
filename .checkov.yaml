@@ -1,0 +1,6 @@
+# Development and test-only paths
+skip-path:
+  - scripts
+  - k6
+  - helm/ci
+  - helm/tests

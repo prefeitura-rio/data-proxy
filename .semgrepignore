@@ -1,0 +1,5 @@
+# Development and test-only paths
+scripts/
+k6/
+helm/ci/
+helm/tests/
