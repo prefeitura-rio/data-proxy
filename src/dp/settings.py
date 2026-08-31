@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from pydantic import Field
 from pydantic.networks import RedisDsn
@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
 from .models import SchemaWriters
+from .protocols import RedisClient
 
 
 class Settings(BaseSettings):
@@ -27,8 +28,9 @@ class Settings(BaseSettings):
     GCS_SECRET_KEY: str = "minioadmin"  # noqa: S105
     GCS_ENDPOINT: str = "localhost:9000"
     GCS_USE_SSL: bool = False
-    WORKER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
-    FINALIZER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
@@ -48,17 +50,23 @@ class Settings(BaseSettings):
             message = f"Schema writers file is invalid: {self.SCHEMA_WRITERS_FILE}"
             raise RuntimeError(message) from error
 
-    def make_redis(self) -> Redis:
+    def make_redis(self) -> RedisClient:
         """Return a Redis client built from the configured URL's parsed fields."""
         db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
 
-        return Redis(
-            host=self.REDIS_URL.host or "localhost",
-            port=self.REDIS_URL.port or 6379,
-            db=db,
-            username=self.REDIS_URL.username,
-            password=self.REDIS_URL.password,
-            ssl=self.REDIS_URL.scheme == "rediss",
+        return cast(
+            RedisClient,
+            cast(
+                object,
+                Redis(
+                    host=self.REDIS_URL.host or "localhost",
+                    port=self.REDIS_URL.port or 6379,
+                    db=db,
+                    username=self.REDIS_URL.username,
+                    password=self.REDIS_URL.password,
+                    ssl=self.REDIS_URL.scheme == "rediss",
+                ),
+            ),
         )
 
 

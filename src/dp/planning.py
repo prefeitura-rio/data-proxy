@@ -4,31 +4,29 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from asyncer import asyncify
-from google.cloud.bigquery import Client
 from loguru import logger
 from psycopg.sql import Literal
-from redis.asyncio import Redis
 
 from .bigquery import bigquery_clients, physical_partitions, table_modified
-from .duckdb import DBConnection
 from .models import (
     AllSelection,
+    DumpTask,
     PartitionedTable,
     PartitionedTablePlan,
     PartitionManifest,
     PhysicalPartition,
-    SchemaSyncPlan,
     Strategy,
     SyncConfig,
     SyncPlan,
-    SyncTask,
+    SyncWork,
     TableConfig,
 )
+from .protocols import BigQueryMetadataClient, DuckDBConnection, RedisRead
 from .state import read_partition_manifest, read_table_signature
 from .templates import TemplateSpec, load_template
 
 
-def discover_json_columns(db: DBConnection, bq_table: str) -> list[str]:
+def discover_json_columns(db: DuckDBConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = db.execute(
         load_template(
@@ -45,10 +43,10 @@ def expand_config(
     tables: list[TableConfig],
     gcs_bucket: str,
     sync_id: str,
-    db: DBConnection,
-) -> list[SyncTask]:
+    db: DuckDBConnection,
+) -> list[DumpTask]:
     """Expand full tables into whole-table extraction tasks."""
-    tasks: list[SyncTask] = []
+    tasks: list[DumpTask] = []
 
     for table in tables:
         if table.strategy != Strategy.FULL:
@@ -74,7 +72,7 @@ def table_signature(table: TableConfig, modified: str) -> str:
     return f"{modified}:{config_hash}"
 
 
-async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
+async def detect_changes(config: SyncConfig, redis: RedisRead) -> dict[str, str]:
     """Return full table signatures changed since their successful sync."""
     changed: dict[str, str] = {}
 
@@ -111,7 +109,7 @@ class PartitionTaskBatch:
     """Extraction paths and tasks for changed physical partitions."""
 
     paths: dict[str, str]
-    tasks: list[SyncTask]
+    tasks: list[DumpTask]
 
 
 def partition_changes(
@@ -179,12 +177,12 @@ def build_partition_tasks(
 
 async def plan_partitioned_table(
     table: PartitionedTable,
-    client: Client,
-    redis: Redis,
+    client: BigQueryMetadataClient,
+    redis: RedisRead,
     sync_id: str,
     gcs_bucket: str,
-    db: DBConnection,
-) -> tuple[PartitionedTablePlan | None, list[SyncTask]]:
+    db: DuckDBConnection,
+) -> tuple[PartitionedTablePlan | None, list[DumpTask]]:
     """Plan one physically partitioned table."""
     table_sig, current = await asyncify(physical_partitions)(
         client, table.name, table.model_dump_json(), table.n
@@ -226,14 +224,14 @@ async def plan_partitioned_table(
 
 async def plan_partitioned_tables(
     config: SyncConfig,
-    redis: Redis,
+    redis: RedisRead,
     sync_id: str,
     gcs_bucket: str,
-    db: DBConnection,
-) -> tuple[dict[str, PartitionedTablePlan], list[SyncTask]]:
+    db: DuckDBConnection,
+) -> tuple[dict[str, PartitionedTablePlan], list[DumpTask]]:
     """Plan changed physical partitions for all partitioned tables."""
     plans: dict[str, PartitionedTablePlan] = {}
-    tasks: list[SyncTask] = []
+    tasks: list[DumpTask] = []
 
     with bigquery_clients() as get_client:
         for table in config.tables:
@@ -254,14 +252,14 @@ async def plan_partitioned_tables(
     return plans, tasks
 
 
-async def build_sync_plan(
+async def build_sync_work(
     config: SyncConfig,
-    redis: Redis,
+    redis: RedisRead,
     sync_id: str,
     bucket: str,
-    db: DBConnection,
-) -> tuple[SyncPlan | None, list[SyncTask]]:
-    """Build a finalizer plan and tasks for changed data only."""
+    db: DuckDBConnection,
+) -> SyncWork:
+    """Build a publisher plan and tasks for changed data only."""
     changed = await detect_changes(config, redis)
     logger.info("Detected {} changed full tables", len(changed))
 
@@ -292,7 +290,7 @@ async def build_sync_plan(
 
     if not signatures and not partitioned:
         logger.info("No changes to plan")
-        return None, []
+        return SyncWork(plans=[], tasks=[])
 
     logger.info(
         "Built sync plan with {} full and {} partitioned tables",
@@ -300,20 +298,18 @@ async def build_sync_plan(
         len(partitioned),
     )
     schema_names = {table.name: table.resolved_schema for table in config.tables}
-    grouped: dict[str, SchemaSyncPlan] = {}
+    grouped: dict[str, SyncPlan] = {}
 
     for table, signature in signatures.items():
         schema_name = schema_names[table]
-        schema_plan = grouped.setdefault(
-            schema_name, SchemaSyncPlan(schema_name=schema_name)
-        )
+        schema_plan = grouped.setdefault(schema_name, SyncPlan(schema_name=schema_name))
         schema_plan.signatures[table] = signature
         schema_plan.paths[table] = paths[table]
 
     for table, partition_plan in partitioned.items():
         schema_name = schema_names[table]
         grouped.setdefault(
-            schema_name, SchemaSyncPlan(schema_name=schema_name)
+            schema_name, SyncPlan(schema_name=schema_name)
         ).partitioned_tables[table] = partition_plan
 
-    return SyncPlan(sync_id=sync_id, plans=list(grouped.values())), tasks
+    return SyncWork(plans=list(grouped.values()), tasks=tasks)

@@ -1,36 +1,34 @@
 """Typed test doubles for the data-proxy test suite."""
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
+from types import TracebackType
 from typing import cast, final
 
 from google.cloud.bigquery import (
-    Client,
     RangePartitioning,
     SchemaField,
     TimePartitioning,
 )
-from psycopg import Connection
-from redis.asyncio import Redis
 from redis.exceptions import RedisError, WatchError
 
-from dp.models import PartitionedTablePlan, SchemaSyncPlan, SyncPlan
+from dp.models import AllSelection, DumpTask, PartitionedTablePlan, SyncPlan
 
 
 def sync_plan(
     *,
-    sync_id: str,
+    run_id: str = "r1",
     schema_name: str = "app",
     signatures: dict[str, str] | None = None,
     paths: dict[str, list[str]] | None = None,
     partitioned_tables: dict[str, PartitionedTablePlan] | None = None,
-    plans: list[SchemaSyncPlan] | None = None,
+    plans: list[SyncPlan] | None = None,
 ) -> SyncPlan:
     """Build one strict grouped synchronization plan for tests."""
     if plans is None and (signatures or paths or partitioned_tables):
         plans = [
-            SchemaSyncPlan(
+            SyncPlan(
                 schema_name=schema_name,
                 signatures=signatures or {},
                 paths=paths or {},
@@ -38,22 +36,27 @@ def sync_plan(
             )
         ]
 
-    return SyncPlan(sync_id=sync_id, plans=plans or [])
+    return SyncPlan(
+        schema_name=schema_name,
+        signatures=signatures or {},
+        paths=paths or {},
+        partitioned_tables=partitioned_tables or {},
+    )
 
 
-def postgres_connection(fake: object) -> Connection:
-    """Cast a PostgreSQL test double to the production connection type."""
-    return cast("Connection[tuple[object, ...]]", fake)
-
-
-def redis_client(fake: object) -> Redis:
-    """Cast a Valkey test double to the production Redis type."""
-    return cast(Redis, fake)
-
-
-def bigquery_client(fake: object) -> Client:
-    """Cast a BigQuery metadata test double to the production client type."""
-    return cast(Client, fake)
+def dump(
+    *,
+    run_id: str = "r1",
+    table: str = "p.d.t",
+    bucket_path: str = "s3://b/t",
+) -> DumpTask:
+    """Build one common dump task for tests."""
+    return DumpTask(
+        run_id=run_id,
+        table=table,
+        bucket_path=bucket_path,
+        selection=AllSelection(),
+    )
 
 
 @final
@@ -100,16 +103,16 @@ class FakePgConn:
         self.executed = []
         self.executed_many = []
 
-    def execute(self, query: object, _params: object = None) -> FakePgConn:
+    def execute(self, query: object, params: object = None) -> FakePgConn:
         self.executed.append(query)
         return self
 
-    def executemany(self, query: object, params_seq: list[object]) -> FakePgConn:
+    def executemany(self, query: object, params_seq: Iterable[object]) -> FakePgConn:
         """Record one batch execution."""
-        self.executed_many.append((query, params_seq))
+        self.executed_many.append((query, list(params_seq)))
         return self
 
-    def cursor(self) -> FakePgConn:
+    def cursor(self, *, binary: bool = False) -> FakePgConn:
         """Return this test double as a cursor."""
         return self
 
@@ -123,7 +126,12 @@ class FakePgConn:
     def __enter__(self) -> FakePgConn:
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         pass
 
 
@@ -163,6 +171,13 @@ class FakeRedis:
         self.cleanup_error = cleanup_error
         self.deleted_consumers = []
 
+    async def __aenter__(self) -> FakeRedis:
+        """Enter this direct Redis test double."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Exit this direct Redis test double."""
+
     async def get(self, key: str) -> str | None:
         """Return one stored string value."""
         return self.store.get(key)
@@ -180,7 +195,17 @@ class FakeRedis:
             removed += self.store.pop(key, None) is not None
         return removed
 
-    async def hvals(self, key: str) -> list[str]:
+    async def xrange(self, _name: str) -> list[object]:
+        """Return retained stream entries."""
+        return []
+
+    async def hlen(self, key: str) -> int:
+        return len(self.hashes.get(key, {}))
+
+    async def hget(self, key: str, field: str) -> str | None:
+        return self.hashes.get(key, {}).get(field)
+
+    async def hvals(self, key: str) -> Sequence[bytes | str]:
         """Return all values from one hash."""
         return list(self.hashes.get(key, {}).values())
 
@@ -190,7 +215,7 @@ class FakeRedis:
         groupname: str,
         _minimum: str,
         _maximum: str,
-        _count: int,
+        count: int,
         consumername: str | None = None,
     ) -> list[object]:
         """Return a pending marker for configured consumers or groups."""
@@ -276,6 +301,14 @@ class FakePipeline:
         """Queue one hash result write."""
         self.commands.append(("hset", (key, field, value), {}))
 
+    def hdel(self, key: str, field: str) -> None:
+        """Queue removal of one hash field."""
+        self.commands.append(("hdel", (key, field), {}))
+
+    def hlen(self, key: str) -> None:
+        """Queue one hash length result."""
+        self.commands.append(("hlen", (key,), {}))
+
     def set(self, key: str, value: object, **options: object) -> None:
         """Queue one string write."""
         self.commands.append(("set", (key, value), options))
@@ -309,6 +342,13 @@ class FakePipeline:
                 self.redis.store[str(key)] = str(value)
                 self.redis.set_calls.append((str(key), value, expiration))
                 results.append(True)
+            elif command == "hdel":
+                key, field = args
+                removed = self.redis.hashes.get(str(key), {}).pop(str(field), None)
+                results.append(1 if removed is not None else 0)
+            elif command == "hlen":
+                key = args[0]
+                results.append(len(self.redis.hashes.get(str(key), {})))
             elif command == "expire":
                 results.append(True)
             elif command == "delete":
@@ -321,26 +361,15 @@ class FakePipeline:
 
 
 @final
-class FakeRedisCM[T]:
-    """Async context manager wrapping any Redis double."""
-
-    _redis: T
-
-    def __init__(self, redis: T) -> None:
-        self._redis = redis
-
-    async def __aenter__(self) -> T:
-        return self._redis
-
-    async def __aexit__(self, *args: object) -> None:
-        pass
-
-
-@final
 class FakeBigQueryClient:
     """Metadata client double exposing table and partition metadata."""
 
     _modified: datetime | None
+    _range_partitioning: RangePartitioning | None
+    _time_partitioning: TimePartitioning | None
+    rows: list[dict[str, object]]
+    _table_type: str
+    _schema: list[SchemaField]
     calls: list[str]
     close_calls: int
 
@@ -354,11 +383,11 @@ class FakeBigQueryClient:
         table_type: str = "TABLE",
     ) -> None:
         self._modified = modified
-        self.range_partitioning = range_partitioning
-        self.time_partitioning = time_partitioning
+        self._range_partitioning = range_partitioning
+        self._time_partitioning = time_partitioning
         self.rows = rows or []
-        self.table_type = table_type
-        self.schema = [SchemaField("value", "INTEGER")]
+        self._table_type = table_type
+        self._schema = [SchemaField("value", "INTEGER")]
         self.calls = []
         self.query_calls: list[str] = []
         self.close_calls = 0
@@ -376,6 +405,26 @@ class FakeBigQueryClient:
     def result(self) -> list[dict[str, object]]:
         """Return configured metadata rows."""
         return self.rows
+
+    @property
+    def range_partitioning(self) -> RangePartitioning | None:
+        """Return configured range partition metadata."""
+        return self._range_partitioning
+
+    @property
+    def time_partitioning(self) -> TimePartitioning | None:
+        """Return configured time partition metadata."""
+        return self._time_partitioning
+
+    @property
+    def table_type(self) -> str:
+        """Return configured table type."""
+        return self._table_type
+
+    @property
+    def schema(self) -> Sequence[SchemaField]:
+        """Return configured schema metadata."""
+        return self._schema
 
     @property
     def modified(self) -> datetime | None:

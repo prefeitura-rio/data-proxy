@@ -4,12 +4,10 @@ from collections.abc import Sequence
 from typing import LiteralString, assert_never, cast
 
 from loguru import logger
-from psycopg import Connection
 from psycopg.sql import SQL, Identifier, Literal
 from whenever import Instant
 
 from .authorization import bootstrap_table
-from .duckdb import DBConnection
 from .freshness import (
     record_table_failures,
     update_published_freshness,
@@ -21,17 +19,23 @@ from .models import (
     PublicationDecision,
     RangeSelection,
     RemainderSelection,
-    SchemaSyncPlan,
     SyncConfig,
+    SyncPlan,
     TableConfig,
     TimeRangeSelection,
+)
+from .protocols import (
+    DuckDBConnection,
+    PostgresExecutor,
+    PostgresIncremental,
+    PostgresPublication,
 )
 from .settings import settings
 from .templates import TemplateSpec, load_template, selection_fields
 
 
 def load_table(
-    conn: DBConnection,
+    conn: DuckDBConnection,
     schema: str,
     table_name: str,
     paths: list[str],
@@ -52,7 +56,7 @@ def load_table(
         )
 
 
-def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> None:
+def create_indexes(conn: PostgresExecutor, table: TableConfig, table_name: str) -> None:
     """Create every configured index on a table."""
     for index in table.indexes:
         conn.execute(
@@ -72,7 +76,7 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
         )
 
 
-def publish_table(conn: Connection, table: TableConfig) -> None:
+def publish_table(conn: PostgresExecutor, table: TableConfig) -> None:
     """Atomically swap one prepared shadow table into service."""
     table_name = table.table_name
     conn.execute(
@@ -117,9 +121,7 @@ def apply_partition_fallback(
         table_plan.current_partitions[partition_id] = previous
 
 
-def reduce_sync_plan(
-    plan: SchemaSyncPlan, failed_paths: set[str]
-) -> PublicationDecision:
+def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecision:
     """Return the publishable plan and its extraction failures."""
     reduced = plan.model_copy(deep=True)
     blocked = {
@@ -148,7 +150,7 @@ def reduce_sync_plan(
 
 
 def planned_paths(
-    plan: SchemaSyncPlan,
+    plan: SyncPlan,
     table: str,
     partitioned: PartitionedTablePlan | None,
 ) -> list[str]:
@@ -190,7 +192,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
 
 
 def create_incremental_shadow(
-    pg_conn: Connection,
+    pg_conn: PostgresIncremental,
     table: TableConfig,
     affected: list[PhysicalPartition],
 ) -> None:
@@ -214,7 +216,7 @@ def create_incremental_shadow(
 
 
 def create_shadow_from_parquet(
-    duckdb_conn: DBConnection,
+    duckdb_conn: DuckDBConnection,
     table: TableConfig,
     shadow_name: str,
     paths: list[str],
@@ -238,10 +240,10 @@ def create_shadow_from_parquet(
 
 
 def prepare_tables(
-    pg_conn: Connection,
-    duckdb_conn: DBConnection,
+    pg_conn: PostgresPublication,
+    duckdb_conn: DuckDBConnection,
     config: SyncConfig,
-    plan: SchemaSyncPlan,
+    plan: SyncPlan,
     changed: set[str],
 ) -> list[TableConfig]:
     """Prepare, secure, and load each eligible shadow table."""
@@ -264,7 +266,7 @@ def prepare_tables(
         shadow_name = f"{table.table_name}__next"
 
         log = logger.bind(
-            component="finalizer",
+            component="publisher",
             table=table.name,
             stage="prepare",
         )
@@ -306,9 +308,9 @@ def prepare_tables(
 
 
 def publish_prepared_tables(
-    pg_conn: Connection,
+    pg_conn: PostgresPublication,
     prepared: Sequence[TableConfig],
-    plan: SchemaSyncPlan,
+    plan: SyncPlan,
     failed_partitions: dict[str, set[str]],
     attempted_at: Instant,
 ) -> set[str]:
@@ -316,7 +318,7 @@ def publish_prepared_tables(
     published: set[str] = set()
 
     for table in prepared:
-        log = logger.bind(component="finalizer", table=table.name, stage="publish")
+        log = logger.bind(component="publisher", table=table.name, stage="publish")
         log.info("Table publication started")
 
         try:

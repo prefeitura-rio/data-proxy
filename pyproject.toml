@@ -25,10 +25,12 @@ dev = [
   "basedpyright>=1.39.9",
   "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
+  "hypothesis>=6.165.10",
   "pytest>=8.0.0",
   "pytest-asyncio>=0.24.0",
   "pytest-cov>=6.0.0",
   "pytest-testmon>=2.2.0",
+  "hypothesis>=6.0",
   "ruff>=0.9.3",
   "sqlfluff>=3.0",
   "vulture>=2.16",
@@ -105,15 +107,15 @@ omit = [
   "src/dp/errors.py",
   "src/dp/log.py",
   "src/dp/logging.py",
-  "src/dp/models.py",
+  "src/dp/protocols.py",
   "src/dp/settings.py",
-  "src/dp/templates.py",
   "src/dp/settings.py",
 ]
 
 [tool.coverage.report]
 show_missing = true
 exclude_lines = ["if __name__ == .__main__.", "pragma: no cover"]
+fail_under = 100
 
 [tool.vulture]
 ignore_decorators = [
@@ -125,10 +127,13 @@ ignore_decorators = [
 ignore_names = [
   "model_config",
   "sync_config_path",
+  "binary",
   "exc_type",
   "exc",
+  "exc_value",
   "traceback",
   "parameters",
+  "params",
   "job_config",
   "approximate",
 ]
@@ -136,5 +141,6 @@ ignore_names = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = ["--testmon"]
+strict = true
+addopts = ["--import-mode=importlib", "--testmon"]
 pythonpath = ["src"]

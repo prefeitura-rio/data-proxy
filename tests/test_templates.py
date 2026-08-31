@@ -1,5 +1,8 @@
 """Tests for SQL template substitution and identifier/literal safety."""
 
+from typing import cast
+
+import pytest
 from psycopg.sql import SQL, Identifier, Literal
 
 from dp.models import (
@@ -176,3 +179,9 @@ def test_identifier_list_joins_and_quotes_each_element() -> None:
         rendered
         == 'CREATE INDEX IF NOT EXISTS "idx_table"\n    ON "s"."t" ("a", "b")\n'
     )
+
+
+def test_selection_fields_rejects_invalid_shape() -> None:
+
+    with pytest.raises(AssertionError):
+        selection_fields(cast("AllSelection", cast(object, "invalid")))

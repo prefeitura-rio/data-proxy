@@ -2,7 +2,7 @@
 migration:
   image: postgres:17-alpine
 
-## Container image for the producer, worker, and finalizer services.
+## Container image for the producer, Dumper, Seeder, and Publisher services.
 image:
   ## Registry path for the data-proxy image, without the tag.
   repository: ghcr.io/prefeitura-rio/data-proxy
@@ -176,38 +176,45 @@ backup:
   ## Password for the read-only backup role. Required when existingSecret is empty.
   password: ""
 
-## Worker ScaledJob — KEDA creates one Job pod per pending message on dp:sync:tasks.
+## Dumper ScaledJob — KEDA creates one Job pod per pending message on dp:extract.
 ## Pods scale to zero when the stream is empty.
-worker:
-  ## Time in milliseconds before a worker can reclaim a pending task.
+dumper:
+  ## Time in milliseconds before a Dumper can reclaim a pending task.
   visibilityTimeoutMs: 900000
   keda:
-    ## Number of unread stream messages that triggers one additional worker Job.
+    ## Number of unread stream messages that triggers one additional Dumper Job.
     lagCount: "1"
-    ## Number of delivered-but-unacknowledged messages that keeps a worker Job
+    ## Number of delivered-but-unacknowledged messages that keeps a Dumper Job
     ## alive. lagCount alone reaches 0 as soon as the last message is
     ## delivered, before it is actually processed, so this second trigger
     ## prevents KEDA from terminating a Job still finishing its last task.
     pendingEntriesCount: "1"
-    ## Maximum number of concurrent worker Job pods.
+    ## Maximum number of concurrent Dumper Job pods.
     maxReplicaCount: 10
-    ## Maximum wall-clock time a single worker Job may run before termination.
+    ## Maximum wall-clock time a single Dumper Job may run before termination.
     activeDeadlineSeconds: 3600
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
 
-## Finalizer ScaledJob — KEDA creates one Job pod per pending message on dp:sync:finalize.
-## Only one finalizer runs at a time (maxReplicaCount: 1) because it writes all data.
-finalizer:
-  ## Time in milliseconds before a finalizer can reclaim a pending message.
+## Publisher ScaledJob — KEDA creates one Job pod per schema publication message.
+publisher:
+  ## Time in milliseconds before a publisher can reclaim a pending message.
   visibilityTimeoutMs: 900000
   keda:
     ## Number of delivered-but-unacknowledged messages that keeps the
-    ## finalizer Job alive, for the same reason as worker.keda.pendingEntriesCount.
+    ## Publisher Job alive while it processes a message.
     pendingEntriesCount: "1"
-    ## Maximum wall-clock time a single finalizer Job may run before termination.
+    ## Maximum wall-clock time a single Publisher Job may run before termination.
     activeDeadlineSeconds: 7200
     ## Interval in seconds between KEDA metric checks.
+    pollingInterval: 30
+
+## Seeder ScaledJob — runs shared idempotent database setup once per run.
+seeder:
+  visibilityTimeoutMs: 900000
+  keda:
+    pendingEntriesCount: "1"
+    activeDeadlineSeconds: 3600
     pollingInterval: 30
 
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.

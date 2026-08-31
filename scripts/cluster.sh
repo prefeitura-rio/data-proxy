@@ -83,8 +83,11 @@ sync() {
 k6() {
     local profile="${1:-smoke}"
     case "$profile" in
-        smoke|load|stress) ;;
-        *) echo "Usage: cluster k6 [smoke|load|stress]" >&2; return 2 ;;
+    smoke | load | stress) ;;
+    *)
+        echo "Usage: cluster k6 [smoke|load|stress]" >&2
+        return 2
+        ;;
     esac
     "${KUBECTL[@]}" -n data-proxy create configmap data-proxy-k6 --from-file=run.ts=k6/run.ts --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
     "${KUBECTL[@]}" -n data-proxy delete testrun data-proxy-load --ignore-not-found

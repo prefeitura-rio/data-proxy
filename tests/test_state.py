@@ -1,473 +1,162 @@
-"""Tests for Valkey synchronization state operations."""
+from dp.state import cleanup_run
 
-from unittest.mock import patch
-
+# ruff: noqa: E402
+"""Tests for current run state."""
 import pytest
-from helpers import FakeRedis, FakeRedisGroup, redis_client, sync_plan
-from redis.exceptions import (
-    ConnectionError as RedisConnectionError,
-)
-from redis.exceptions import (
-    ResponseError,
-    WatchError,
-)
 
-from dp.constants import (
-    SYNC_ACTIVE_KEY,
-    SYNC_JOB_KEY,
-    SYNC_PARTITIONS_KEY,
-    SYNC_RUN_TTL_SECONDS,
-    SYNC_STATE_KEY,
-    SYNC_TASK_RESULTS_KEY,
-    SYNC_TRANSACTION_RETRIES,
-)
-from dp.errors import SyncPlanNotFoundError
 from dp.models import (
     AllSelection,
-    PartitionedTablePlan,
-    PartitionManifest,
-    PhysicalPartition,
-    RangeSelection,
-    SyncStateUpdate,
-    SyncTask,
-    TaskFailure,
-    TaskSuccess,
+    DumpFailure,
+    DumpSuccess,
+    DumpTask,
+    Strategy,
+    SyncPlan,
+    TableState,
 )
 from dp.state import (
     cleanup_consumer,
-    commit_sync_state,
-    complete_task,
+    complete_dump,
+    complete_schema,
     create_consumer_group,
     create_run,
-    decode_redis_value,
-    has_pending_finalize_message,
-    read_active_sync_id,
-    read_failed_paths,
+    ensure_groups,
+    read_active_run,
     read_partition_manifest,
-    read_remaining_tasks,
+    read_remaining,
     read_sync_plan,
+    read_sync_plans,
     read_table_signature,
-    trim_stale_entries,
+    read_table_state,
 )
-
-
-def test_decodes_bytes_and_preserves_strings() -> None:
-    """Valkey values are normalized to strings."""
-    assert decode_redis_value(b"value") == "value"
-    assert decode_redis_value("value") == "value"
-    assert decode_redis_value(None) is None
+from tests.helpers import FakeRedis
 
 
 @pytest.mark.asyncio
-async def test_reads_table_signature() -> None:
-    """Committed signatures are read from their table state key."""
-    fake = FakeRedis()
-    fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] = "100"
-
-    result = await read_table_signature(redis_client(fake), "p.d.t")
-
-    assert result == "100"
+async def test_run_stores_schema_plans_in_hash(redis: FakeRedis) -> None:
+    fake = redis
+    plan = SyncPlan(
+        schema_name="app", signatures={"p.d.t": "s"}, paths={"p.d.t": ["s3://b/t"]}
+    )
+    assert await create_run((fake), "r1", [plan], 1)
+    assert await read_sync_plan((fake), "r1", "app") == plan
 
 
 @pytest.mark.asyncio
-async def test_creates_and_reads_required_run() -> None:
-    """A run stores its plan, active flag, and task counter together."""
-    fake = FakeRedis()
-    plan = sync_plan(
-        sync_id="s1",
-        signatures={"p.d.t": "100"},
-        paths={"p.d.t": ["s3://b/t/data.parquet"]},
+async def test_dump_result_is_idempotent(redis: FakeRedis) -> None:
+    fake = redis
+    fake.store["dp:remaining:r1"] = "1"
+    task = DumpTask(
+        run_id="r1", table="p.d.t", bucket_path="s3://b/t", selection=AllSelection()
     )
-
-    assert await create_run(redis_client(fake), plan, 1) is True
-    result = await read_sync_plan(redis_client(fake), "s1")
-
-    assert result == plan
-    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
-    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
-    assert fake.transaction_commands == ["set", "set", "set"]
-    assert {expiration for _, _, expiration in fake.set_calls} == {
-        SYNC_RUN_TTL_SECONDS,
-        None,
-    }
+    assert await complete_dump((fake), task, DumpFailure(failed_path="s3://b/t")) == 0
+    assert await complete_dump((fake), task, DumpSuccess()) is None
 
 
 @pytest.mark.asyncio
-async def test_zero_task_run_has_a_zero_counter() -> None:
-    """A deletion-only run stores an explicit zero remaining count."""
-    fake = FakeRedis()
-    await create_run(redis_client(fake), sync_plan(sync_id="s1"), 0)
-
-    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "0"
-    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
-
-
-@pytest.mark.asyncio
-async def test_run_creation_rejects_active_run() -> None:
-    """A producer cannot replace a run that is already active."""
-    fake = FakeRedis()
-    fake.store[SYNC_ACTIVE_KEY] = "active"
-
-    assert await create_run(redis_client(fake), sync_plan(sync_id="s1"), 1) is False
-    assert fake.transaction_commands == []
+async def test_schema_completion_removes_one_plan_and_counts_remaining(
+    redis: FakeRedis,
+) -> None:
+    fake = redis
+    plans_key = "dp:plans:r1"
+    fake.hashes[plans_key] = {"app": "{}", "other": "{}"}
+    states = {"p.d.t": TableState(strategy=Strategy.FULL, signature="s")}
+    assert await complete_schema((fake), "r1", "app", states) == 1
+    assert "app" not in fake.hashes[plans_key]
+    assert await complete_schema((fake), "r1", "app", states) is None
 
 
-@pytest.mark.asyncio
-async def test_run_creation_retries_watch_conflict() -> None:
-    """An active-key watch conflict retries the run creation transaction."""
-    fake = FakeRedis(watch_errors=1)
-    plan = sync_plan(sync_id="s1")
+"""State boundary and error coverage."""
+from redis.exceptions import ResponseError
 
-    assert await create_run(redis_client(fake), plan, 1) is True
-    assert fake.store[SYNC_ACTIVE_KEY] == "s1"
-    assert fake.transaction_commands == ["set", "set", "set"]
+from tests.helpers import FakeRedisGroup
 
 
 @pytest.mark.asyncio
-async def test_missing_plan_fails() -> None:
-    """A finalizer cannot infer work without its plan."""
-    with pytest.raises(SyncPlanNotFoundError, match="Sync plan not found"):
-        await read_sync_plan(redis_client(FakeRedis()), "missing")
+async def test_state_reads_missing_and_present_values(redis: FakeRedis) -> None:
+    fake = redis
+    assert await read_table_state((fake), "p.d.t") is None
+    assert await read_table_signature((fake), "p.d.t") is None
+    assert await read_partition_manifest((fake), "p.d.t") is None
+    assert await read_active_run(fake) is None
+    assert await read_remaining((fake), "r") is None
+    fake.store["dp:active"] = "r"
+    fake.store["dp:remaining:r"] = "2"
+    fake.store["dp:state:p.d.t"] = TableState(
+        strategy=Strategy.FULL, signature="s"
+    ).model_dump_json()
+    assert await read_active_run(fake) == "r"
+    assert await read_remaining((fake), "r") == 2
+    assert await read_table_signature((fake), "p.d.t") == "s"
 
 
 @pytest.mark.asyncio
-async def test_commits_sync_state() -> None:
-    """Successful plans commit every table signature."""
-    fake = FakeRedis()
-    plan = sync_plan(
-        sync_id="s1",
-        signatures={"p.d.t": "100"},
-        paths={"p.d.t": ["s3://b/t/data.parquet"]},
-    )
-
-    await create_run(redis_client(fake), plan, 1)
-    await commit_sync_state(
-        redis_client(fake),
-        plan.sync_id,
-        SyncStateUpdate(signatures={"p.d.t": "100"}),
-    )
-
-    assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.t")] == "100"
-    assert SYNC_ACTIVE_KEY not in fake.store
-    assert fake.transaction_commands == ["set", "delete"]
-
-
-@pytest.mark.asyncio
-async def test_does_not_commit_unpublished_partition_manifest() -> None:
-    """An unpublished partitioned table keeps its prior manifest."""
-    partition = PhysicalPartition(
-        partition_id="0",
-        signature="new",
-        selection=RangeSelection(partition_id="0", column="cpf", lower=0, upper=10),
-    )
-    fake = FakeRedis()
-    key = SYNC_PARTITIONS_KEY.format(bq_table="p.d.t")
-    fake.store[key] = "old"
-    plan = sync_plan(
-        sync_id="s1",
-        partitioned_tables={
-            "p.d.t": PartitionedTablePlan(
-                table_signature="table",
-                full_rebuild=True,
-                current_partitions={"0": partition},
-                changed_paths={"0": "s3://b/t/0.parquet"},
-                removed_partitions={},
-            )
-        },
-    )
-
-    await commit_sync_state(redis_client(fake), plan.sync_id, SyncStateUpdate())
-
-    assert fake.store[key] == "old"
-
-
-@pytest.mark.asyncio
-async def test_reads_and_commits_partition_manifest() -> None:
-    """Successful publication replaces the complete physical partition manifest."""
-    partition = PhysicalPartition(
-        partition_id="0",
-        signature="part",
-        selection=RangeSelection(partition_id="0", column="cpf", lower=0, upper=10),
-    )
-    fake = FakeRedis()
-    plan = sync_plan(
-        sync_id="s1",
-        partitioned_tables={
-            "p.d.t": PartitionedTablePlan(
-                table_signature="table",
-                full_rebuild=True,
-                current_partitions={"0": partition},
-                changed_paths={"0": "s3://b/t/0/data.parquet"},
-                removed_partitions={},
-            )
-        },
-    )
-
-    assert await read_partition_manifest(redis_client(fake), "p.d.t") is None
-    await commit_sync_state(
-        redis_client(fake),
-        plan.sync_id,
-        SyncStateUpdate(
-            partitions={
-                "p.d.t": PartitionManifest(
-                    table_signature="table", partitions={"0": partition}
-                )
-            }
-        ),
-    )
-
-    result = await read_partition_manifest(redis_client(fake), "p.d.t")
-    assert result == PartitionManifest(
-        table_signature="table", partitions={"0": partition}
-    )
-    assert SYNC_PARTITIONS_KEY.format(bq_table="p.d.t") in fake.store
-
-
-@pytest.mark.asyncio
-async def test_commits_only_published_tables() -> None:
-    """Failed tables keep their old state and stay eligible for retry."""
-    fake = FakeRedis()
-    failed_key = SYNC_STATE_KEY.format(bq_table="p.d.failed")
-    fake.store[failed_key] = "old"
-    plan = sync_plan(
-        sync_id="s1",
-        signatures={"p.d.ok": "new-ok", "p.d.failed": "new-failed"},
-        paths={
-            "p.d.ok": ["s3://b/ok.parquet"],
-            "p.d.failed": ["s3://b/failed.parquet"],
-        },
-    )
-
-    await commit_sync_state(
-        redis_client(fake),
-        plan.sync_id,
-        SyncStateUpdate(signatures={"p.d.ok": "new-ok"}),
-    )
-
-    assert fake.store[SYNC_STATE_KEY.format(bq_table="p.d.ok")] == "new-ok"
-    assert fake.store[failed_key] == "old"
-
-
-def sync_task(path: str = "s3://b/t.parquet", sync_id: str = "s1") -> SyncTask:
-    """Return one stable task for completion tests."""
-    return SyncTask(
-        sync_id=sync_id,
-        table="p.d.t",
-        bucket_path=path,
-        selection=AllSelection(),
+async def test_group_busy_is_ignored() -> None:
+    await create_consumer_group(
+        (FakeRedisGroup(side_effect=ResponseError("BUSYGROUP"))), "s", "g"
     )
 
 
 @pytest.mark.asyncio
-async def test_completes_each_task_once() -> None:
-    """Duplicate delivery does not decrement the remaining count twice."""
-    fake = FakeRedis()
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "2"
-    task = sync_task()
-    outcome = TaskSuccess()
-
-    first = await complete_task(redis_client(fake), task, outcome)
-    duplicate = await complete_task(redis_client(fake), task, outcome)
-
-    assert first.remaining == 1
-    assert first.should_finalize is False
-    assert duplicate.remaining == 1
-    assert fake.store[SYNC_JOB_KEY.format(sync_id="s1")] == "1"
+async def test_cleanup_consumer_keeps_pending_and_deletes_idle() -> None:
+    pending = FakeRedis(pending_consumers={"c"})
+    await cleanup_consumer((pending), "s", "g", "c")
+    assert pending.deleted_consumers == []
+    idle = FakeRedis()
+    await cleanup_consumer((idle), "s", "g", "c")
+    assert idle.deleted_consumers == [("s", "g", "c")]
 
 
 @pytest.mark.asyncio
-async def test_final_unique_completion_requests_finalization() -> None:
-    """Only the final unique task requests finalization."""
-    fake = FakeRedis()
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
-
-    result = await complete_task(
-        redis_client(fake),
-        sync_task(),
-        TaskSuccess(),
+async def test_dump_missing_and_invalid_counter(redis: FakeRedis) -> None:
+    task = DumpTask(
+        run_id="r", table="p.d.t", bucket_path="s3://b", selection=AllSelection()
     )
-
-    assert result.should_finalize is True
-
-
-@pytest.mark.asyncio
-async def test_records_failed_path_in_typed_outcome() -> None:
-    """The finalizer can read a failed task path from the result hash."""
-    fake = FakeRedis()
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
-    path = "s3://b/failed.parquet"
-
-    await complete_task(
-        redis_client(fake),
-        sync_task(path),
-        TaskFailure(failed_path=path),
-    )
-
-    assert await read_failed_paths(redis_client(fake), "s1") == {path}
-    assert SYNC_TASK_RESULTS_KEY.format(sync_id="s1") in fake.hashes
+    with pytest.raises(RuntimeError, match="Remaining task count"):
+        await complete_dump((FakeRedis()), task, DumpSuccess())
+    fake = redis
+    fake.store["dp:remaining:r"] = "0"
+    with pytest.raises(RuntimeError, match="Invalid remaining"):
+        await complete_dump((fake), task, DumpSuccess())
 
 
 @pytest.mark.asyncio
-async def test_ignores_successful_task_outcome_when_reading_failures() -> None:
-    """A successful task outcome has no failed path."""
-    fake = FakeRedis()
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
-
-    await complete_task(redis_client(fake), sync_task(), TaskSuccess())
-
-    assert await read_failed_paths(redis_client(fake), "s1") == set()
-
-
-@pytest.mark.asyncio
-async def test_completion_retries_watch_conflict_with_fixed_commands() -> None:
-    """A watch conflict retries one fixed transaction command sequence."""
-    remaining_key = SYNC_JOB_KEY.format(sync_id="s1")
-    fake = FakeRedis(
-        watch_errors=1,
-        conflict_store_updates={remaining_key: "1"},
-    )
-    fake.store[remaining_key] = "2"
-
-    result = await complete_task(
-        redis_client(fake),
-        sync_task(),
-        TaskSuccess(),
-    )
-
-    assert result.remaining == 0
-    assert result.should_finalize is True
-    assert fake.store[remaining_key] == "0"
-    assert fake.transaction_commands == ["hset", "set", "expire"]
+async def test_state_readers_and_group_setup(redis: FakeRedis) -> None:
+    fake = redis
+    fake.store["dp:active"] = "r1"
+    fake.store["dp:remaining:r1"] = "2"
+    fake.store["dp:state:p.d.t"] = TableState(
+        strategy=Strategy.FULL, signature="s"
+    ).model_dump_json()
+    fake.hashes["dp:plans:r1"] = {"app": SyncPlan(schema_name="app").model_dump_json()}
+    assert await read_active_run(fake) == "r1"
+    assert await read_remaining((fake), "r1") == 2
+    assert await read_table_signature((fake), "p.d.t") == "s"
+    assert await read_table_state((fake), "p.d.t") is not None
+    assert await read_partition_manifest((fake), "p.d.t") is None
+    assert len(await read_sync_plans((fake), "r1")) == 1
+    await ensure_groups(fake)
 
 
 @pytest.mark.asyncio
-async def test_completion_requires_task_counter() -> None:
-    """A completion cannot infer a missing remaining count."""
-    with pytest.raises(RuntimeError, match="counter not found"):
-        await complete_task(
-            redis_client(FakeRedis()),
-            sync_task(),
-            TaskSuccess(),
-        )
+async def test_state_cleanup_and_idle_consumer(redis: FakeRedis) -> None:
+    fake = redis
+    fake.store.update({"dp:active": "r1", "dp:remaining:r1": "0"})
+    await cleanup_consumer((fake), "stream", "group", "consumer")
+    await cleanup_run((fake), "r1")
+    assert fake.store == {}
 
 
 @pytest.mark.asyncio
-async def test_completion_rejects_exhausted_counter() -> None:
-    """A new task cannot complete after the counter reaches zero."""
-    fake = FakeRedis()
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "0"
-
-    with pytest.raises(RuntimeError, match="Invalid task counter"):
-        await complete_task(
-            redis_client(fake),
-            sync_task(),
-            TaskSuccess(),
-        )
+async def test_partition_manifest_reader_returns_manifest(redis: FakeRedis) -> None:
+    fake = redis
+    fake.store["dp:state:p.d.t"] = TableState(
+        strategy=Strategy.PARTITIONED, signature="s", partitions={}
+    ).model_dump_json()
+    assert await read_partition_manifest((fake), "p.d.t") is not None
 
 
 @pytest.mark.asyncio
-async def test_completion_stops_after_bounded_watch_conflicts() -> None:
-    """Persistent transaction conflicts fail after the configured limit."""
-    fake = FakeRedis(watch_errors=SYNC_TRANSACTION_RETRIES)
-    fake.store[SYNC_JOB_KEY.format(sync_id="s1")] = "1"
-
-    with pytest.raises(WatchError):
-        await complete_task(
-            redis_client(fake),
-            sync_task(),
-            TaskSuccess(),
-        )
-
-
-@pytest.mark.asyncio
-async def test_deletes_idle_consumer() -> None:
-    """A consumer with no pending messages is deleted."""
-    fake = FakeRedis()
-
-    await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
-
-    assert fake.deleted_consumers == [("stream", "group", "worker")]
-
-
-@pytest.mark.asyncio
-async def test_keeps_consumer_with_pending_messages() -> None:
-    """A consumer with pending messages remains for later reclaim."""
-    fake = FakeRedis(pending_consumers={"worker"})
-
-    await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
-
-    assert fake.deleted_consumers == []
-
-
-@pytest.mark.asyncio
-async def test_cleanup_logs_and_ignores_valkey_error() -> None:
-    """A Valkey cleanup failure is visible but does not block shutdown."""
-    fake = FakeRedis(cleanup_error=RedisConnectionError())
-
-    with patch("dp.state.logger.warning") as warning:
-        await cleanup_consumer(redis_client(fake), "stream", "group", "worker")
-
-    warning.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_existing_consumer_group_is_ignored() -> None:
-    """Consumer group creation is idempotent."""
-    fake = FakeRedisGroup(side_effect=ResponseError("BUSYGROUP"))
-
-    await create_consumer_group(redis_client(fake), "stream", "group")
-
-
-@pytest.mark.asyncio
-async def test_reads_active_sync_id() -> None:
-    """The active run ID is read from the active flag."""
-    fake = FakeRedis()
-    fake.store[SYNC_ACTIVE_KEY] = "s1"
-
-    assert await read_active_sync_id(redis_client(fake)) == "s1"
-    assert await read_active_sync_id(redis_client(FakeRedis())) is None
-
-
-@pytest.mark.asyncio
-async def test_reads_remaining_task_count() -> None:
-    """The remaining task count is read from the run counter."""
-    fake = FakeRedis()
-    await create_run(redis_client(fake), sync_plan(sync_id="s1"), 3)
-
-    assert await read_remaining_tasks(redis_client(fake), "s1") == 3
-
-
-@pytest.mark.asyncio
-async def test_missing_task_counter_fails() -> None:
-    """A missing task counter is reported instead of guessed."""
-    with pytest.raises(RuntimeError, match="Task counter not found"):
-        await read_remaining_tasks(redis_client(FakeRedis()), "s1")
-
-
-@pytest.mark.asyncio
-async def test_pending_finalize_message_returns_false_when_empty() -> None:
-    """An idle finalizer stream has no pending finalizer message."""
-    fake = FakeRedis()
-
-    assert await has_pending_finalize_message(redis_client(fake)) is False
-
-
-@pytest.mark.asyncio
-async def test_pending_finalize_message_detected_in_group() -> None:
-    """A pending finalizer message keeps a run from being re-published."""
-    fake = FakeRedis(pending_groups={("dp:sync:finalize", "finalizers")})
-
-    assert await has_pending_finalize_message(redis_client(fake)) is True
-
-
-@pytest.mark.asyncio
-async def test_trims_stale_stream_entries() -> None:
-    """Trimming a stream requests a MINID cutoff derived from the TTL."""
-    fake = FakeRedis()
-
-    await trim_stale_entries(redis_client(fake), "dp:sync:tasks", 3_600)
-
-    [(stream, minid)] = fake.xtrim_calls
-    assert stream == "dp:sync:tasks"
-    assert minid is not None
-    assert minid.endswith("-0")
+async def test_create_run_rejects_active_run(redis: FakeRedis) -> None:
+    fake = redis
+    fake.store["dp:active"] = "old"
+    assert await create_run((fake), "new", [], 0) is False

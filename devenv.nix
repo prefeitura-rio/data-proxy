@@ -1,5 +1,4 @@
 { pkgs, config, ... }:
-
 {
   name = "data-proxy";
 
@@ -14,6 +13,7 @@
     k6
     minikube
     ast-grep
+    kubeconform
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -61,15 +61,26 @@
   };
 
   tasks = {
-    "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "app:lint".exec = ''
+    "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "dp:test:full".exec = "uv run pytest --cov=dp --cov-report=term-missing --no-testmon";
+    "dp:lint".exec = ''
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/
       uv run complexipy src/ tests/
       uv run vulture src/ tests/
     '';
-    "app:fmt".exec = "ruff check --fix && ruff format";
+    "dp:fmt".exec = "ruff check --fix && ruff format";
     "charts:lint".exec = "helm lint helm/";
-    "charts:test".exec = "helm unittest helm/";
+    "charts:test".exec = ''
+      helm lint helm/ -f helm/ci/test-values.yaml
+      helm lint helm/ -f helm/ci/test-values-ha.yaml
+      helm unittest helm/
+
+      for values in helm/ci/test-values.yaml helm/ci/test-values-ha.yaml; do
+          helm template data-proxy helm/ -f "$values" | kubeconform -strict -summary -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+      done
+    '';
   };
 }

@@ -1,23 +1,22 @@
 """Synchronization plan validation and publication orchestration."""
 
 from loguru import logger
-from psycopg import Connection
 from whenever import Instant
 
-from .duckdb import DBConnection
 from .freshness import record_table_failures
 from .models import (
     PublicationDecision,
     PublicationResult,
-    SchemaSyncPlan,
     SyncConfig,
+    SyncPlan,
     SyncPublicationInput,
 )
+from .protocols import DuckDBConnection, PostgresPublication
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
 
 
-def empty_incremental_tables(plan: SchemaSyncPlan) -> set[str]:
+def empty_incremental_tables(plan: SyncPlan) -> set[str]:
     """Return incremental tables that have no publishable data changes."""
     return {
         table
@@ -29,9 +28,9 @@ def empty_incremental_tables(plan: SchemaSyncPlan) -> set[str]:
 
 
 def record_extraction_failures(
-    pg_conn: Connection,
+    pg_conn: PostgresPublication,
     config: SyncConfig,
-    source_plan: SchemaSyncPlan,
+    source_plan: SyncPlan,
     decision: PublicationDecision,
     empty_incremental: set[str],
     attempted_at: Instant,
@@ -54,9 +53,9 @@ def record_extraction_failures(
 
 
 def record_preparation_failures(
-    pg_conn: Connection,
+    pg_conn: PostgresPublication,
     config: SyncConfig,
-    source_plan: SchemaSyncPlan,
+    source_plan: SyncPlan,
     eligible: set[str],
     prepared_names: set[str],
     attempted_at: Instant,
@@ -69,10 +68,10 @@ def record_preparation_failures(
 
 
 def publish_eligible_tables(
-    pg_conn: Connection,
-    duckdb_conn: DBConnection,
+    pg_conn: PostgresPublication,
+    duckdb_conn: DuckDBConnection,
     config: SyncConfig,
-    source_plan: SchemaSyncPlan,
+    source_plan: SyncPlan,
     decision: PublicationDecision,
     eligible: set[str],
     attempted_at: Instant,
@@ -103,10 +102,10 @@ def publish_eligible_tables(
 
 
 def apply_sync_plan(
-    pg_conn: Connection,
-    duckdb_conn: DBConnection,
+    pg_conn: PostgresPublication,
+    duckdb_conn: DuckDBConnection,
     config: SyncConfig,
-    plan: SchemaSyncPlan,
+    plan: SyncPlan,
     failed_paths: set[str] | None = None,
 ) -> PublicationResult:
     """Apply one sync plan and return its exact published state."""

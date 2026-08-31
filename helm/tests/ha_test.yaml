@@ -6,6 +6,7 @@ templates:
   - configmap-schema-patroni.yaml
   - configmap-schema-writers.yaml
   - configmap-schema-haproxy.yaml
+  - configmap-schema-db-init.yaml
   - deployment-schema-haproxy.yaml
   - service-schema-haproxy.yaml
   - deployment-schema-postgrest.yaml
@@ -17,6 +18,14 @@ set:
   ingress.enabled: true
   ingress.host: api.example.com
 tests:
+  - it: renders schema database initialization
+    set:
+      syncConfig.schemas.second.tables: []
+    template: configmap-schema-db-init.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+
   - it: renders retained schema member PVCs
     template: pvc-pgduckdb.yaml
     asserts:

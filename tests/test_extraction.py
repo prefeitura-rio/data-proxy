@@ -4,18 +4,18 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
-from helpers import FakeDuckDBConnection
 from psycopg.sql import Composable
 
 from dp.extraction import build_columns, build_mapping, extract_task
 from dp.models import (
     AllSelection,
+    DumpTask,
     RangeSelection,
     RemainderSelection,
-    SyncTask,
     TaskSelection,
     TimeRangeSelection,
 )
+from tests.helpers import FakeDuckDBConnection
 
 
 def render(value: object) -> str:
@@ -69,8 +69,8 @@ def test_build_mapping_selects_template(
     expected_rendered: str,
 ) -> None:
     """A task's discriminated selection chooses its extraction template."""
-    task = SyncTask(
-        sync_id="s1",
+    task = DumpTask(
+        run_id="s1",
         table="p.d.t",
         bucket_path="s3://b/t/data.parquet",
         selection=selection,
@@ -85,8 +85,8 @@ def test_build_mapping_selects_template(
 def test_extract_task_executes_rendered_sql() -> None:
     """Extraction writes one rendered statement through the provided DuckDB."""
     db = FakeDuckDBConnection()
-    task = SyncTask(
-        sync_id="s1",
+    task = DumpTask(
+        run_id="s1",
         table="p.d.t",
         bucket_path="s3://b/t/data.parquet",
         selection=AllSelection(),
@@ -96,3 +96,23 @@ def test_extract_task_executes_rendered_sql() -> None:
         extract_task(task, db)
 
     assert db.executed == ["SELECT 1"]
+
+
+def test_build_mapping_rejects_invalid_selection() -> None:
+
+    # The exhaustive branch is defensive; use an invalid runtime value.
+    invalid = type(
+        "InvalidTask",
+        (),
+        {
+            "table": "p.d.t",
+            "bucket_path": "s3://b",
+            "json_columns": [],
+            "selection": object(),
+        },
+    )()
+    with (
+        patch("dp.extraction.selection_fields", return_value={}),
+        pytest.raises(AssertionError),
+    ):
+        build_mapping(cast(DumpTask, cast(object, invalid)))

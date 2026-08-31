@@ -3,59 +3,42 @@
 from collections.abc import Callable
 
 import pytest
-from helpers import sync_plan
 from pydantic import ValidationError
 
 from dp.models import (
     AllSelection,
+    DumpFailure,
+    DumpStatus,
+    DumpSuccess,
+    DumpTask,
     FullTable,
     IndexConfig,
     PartitionedTable,
+    PartitionedTablePlan,
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     SchemaConfig,
-    SchemaSyncPlan,
+    SchemaWriters,
     SyncConfig,
+    SyncPlan,
     SyncPublicationInput,
-    SyncTask,
-    TaskFailure,
-    TaskStatus,
-    TaskSuccess,
     TimeRangeSelection,
     UnitMapping,
     task_outcome_adapter,
 )
 
 
-def test_sync_plan_serializes_only_schema_local_plans() -> None:
-    """The stored plan has no duplicate flat table maps."""
-    plan = sync_plan(
-        sync_id="s1",
-        signatures={"p.d.t": "signature"},
-        paths={"p.d.t": ["s3://bucket/t.parquet"]},
-    )
-
-    assert set(plan.model_dump()) == {"sync_id", "plans"}
-    assert plan.plans == [
-        SchemaSyncPlan(
-            schema_name="app",
-            signatures={"p.d.t": "signature"},
-            paths={"p.d.t": ["s3://bucket/t.parquet"]},
-        )
-    ]
-
-
 def test_task_id_is_stable_for_one_run_and_path() -> None:
     """Equal run and path values produce the same task identity."""
-    first = SyncTask(
-        sync_id="s1",
+    first = DumpTask(
+        run_id="s1",
         table="p.d.t",
         bucket_path="s3://b/t.parquet",
         selection=AllSelection(),
     )
-    second = SyncTask(
-        sync_id="s1",
+    second = DumpTask(
+        run_id="s1",
         table="p.d.t",
         bucket_path="s3://b/t.parquet",
         selection=AllSelection(),
@@ -66,13 +49,13 @@ def test_task_id_is_stable_for_one_run_and_path() -> None:
 
 def test_task_id_changes_with_run_or_path() -> None:
     """A different run or path produces a different task identity."""
-    task = SyncTask(
-        sync_id="s1",
+    task = DumpTask(
+        run_id="s1",
         table="p.d.t",
         bucket_path="s3://b/t.parquet",
         selection=AllSelection(),
     )
-    other_run = task.model_copy(update={"sync_id": "s2"})
+    other_run = task.model_copy(update={"run_id": "s2"})
     other_path = task.model_copy(update={"bucket_path": "s3://b/other.parquet"})
 
     assert len({task.task_id, other_run.task_id, other_path.task_id}) == 3
@@ -80,8 +63,8 @@ def test_task_id_changes_with_run_or_path() -> None:
 
 def test_task_outcome_statuses_are_discriminated() -> None:
     """Each task outcome exposes its fixed status value."""
-    assert TaskSuccess().status == TaskStatus.SUCCESS
-    assert TaskFailure(failed_path="s3://b/failed").status == TaskStatus.FAILURE
+    assert DumpSuccess().status == DumpStatus.SUCCESS
+    assert DumpFailure(failed_path="s3://b/failed").status == DumpStatus.FAILURE
 
 
 @pytest.mark.parametrize(
@@ -236,7 +219,7 @@ def test_sync_config_rejects_duplicate_source_table_names() -> None:
 
 
 @pytest.mark.parametrize("n", [0, -1])
-def test_partitioned_table_rejects_non_positive_retention(n: int) -> None:
+def test_partitioned_rejects_non_positive_retention(n: int) -> None:
     """Partition retention must retain at least one time partition."""
     with pytest.raises(ValidationError):
         PartitionedTable(name="p.d.t", n=n)
@@ -259,9 +242,20 @@ def test_index_requires_name_and_columns(value: dict[str, object]) -> None:
 @pytest.mark.parametrize(
     "selection",
     [
-        lambda: RangeSelection(partition_id="0", column="id", lower=1, upper=1),
-        lambda: RemainderSelection(column="id", start=1, end=1),
-        lambda: TimeRangeSelection(column="dt", lower="2025-01-02", upper="2025-01-01"),
+        pytest.param(
+            lambda: RangeSelection(partition_id="0", column="id", lower=1, upper=1),
+            id="range",
+        ),
+        pytest.param(
+            lambda: RemainderSelection(column="id", start=1, end=1),
+            id="remainder",
+        ),
+        pytest.param(
+            lambda: TimeRangeSelection(
+                column="dt", lower="2025-01-02", upper="2025-01-01"
+            ),
+            id="time",
+        ),
     ],
 )
 def test_selection_rejects_invalid_bounds(selection: Callable[[], object]) -> None:
@@ -283,7 +277,7 @@ def test_physical_partition_rejects_mismatched_range_id() -> None:
 def test_publication_input_rejects_plan_table_absent_from_config() -> None:
     """Publication cannot begin for a table outside the mounted configuration."""
     config = SyncConfig(schemas={"app": SchemaConfig(tables=[FullTable(name="p.d.t")])})
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={"p.d.other": "signature"},
         paths={"p.d.other": ["s3://bucket/other/data.parquet"]},
@@ -299,3 +293,66 @@ def test_schema_config_claim_defaults_to_none() -> None:
 
     assert schema.claim is None
     assert schema.tables == []
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"signatures": {"p.d.t": "s"}, "paths": {}},
+        {"signatures": {"p.d.t": "s"}, "paths": {"p.d.t": []}},
+    ],
+)
+def test_sync_plan_rejects_invalid_paths(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match=r"paths|ordinary"):
+        SyncPlan.model_validate({"schema_name": "app", **kwargs})
+
+
+def test_sync_plan_rejects_ordinary_partition_overlap() -> None:
+    with pytest.raises(ValueError, match="ordinary"):
+        SyncPlan(
+            schema_name="app",
+            signatures={"p.d.t": "s"},
+            paths={"p.d.t": ["p"]},
+            partitioned_tables={
+                "p.d.t": PartitionedTablePlan(
+                    table_signature="s",
+                    full_rebuild=True,
+                    current_partitions={},
+                    changed_paths={},
+                    removed_partitions={},
+                )
+            },
+        )
+
+
+def test_schema_writers_reject_missing_schema() -> None:
+    with pytest.raises(RuntimeError, match="not configured"):
+        SchemaWriters(writers={}).dsn("missing")
+
+
+def test_partition_plan_rejects_invalid_sets() -> None:
+    partition = PhysicalPartition(
+        partition_id="1",
+        signature="s",
+        selection=RangeSelection(partition_id="1", column="id", lower=1, upper=2),
+    )
+    cases: list[dict[str, object]] = [
+        {"changed_paths": {"2": "p"}, "current_partitions": {"1": partition}},
+        {"previous_partitions": {"1": partition}, "changed_paths": {}},
+        {
+            "removed_partitions": {"1": partition},
+            "current_partitions": {"1": partition},
+        },
+    ]
+    for update in cases:
+        base: dict[str, object] = {
+            "table_signature": "s",
+            "full_rebuild": False,
+            "current_partitions": {},
+            "changed_paths": {},
+            "previous_partitions": {},
+            "removed_partitions": {},
+        }
+        base.update(update)
+        with pytest.raises(ValueError, match="partition"):
+            PartitionedTablePlan.model_validate(base)

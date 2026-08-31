@@ -4,7 +4,6 @@ from typing import cast
 from unittest.mock import ANY, call, patch
 
 import pytest
-from helpers import FakeDuckDBConnection, FakePgConn, postgres_connection
 from psycopg.sql import Composable
 from whenever import Instant
 
@@ -28,8 +27,8 @@ from dp.models import (
     RangeSelection,
     RemainderSelection,
     SchemaConfig,
-    SchemaSyncPlan,
     SyncConfig,
+    SyncPlan,
     TimeRangeSelection,
     UnitMapping,
 )
@@ -44,6 +43,7 @@ from dp.publication import (
 )
 from dp.schema import initialize_schemas, reload_postgrest
 from dp.templates import TemplateSpec
+from tests.helpers import FakeDuckDBConnection, FakePgConn
 
 
 def template_name(spec: TemplateSpec) -> str:
@@ -74,7 +74,7 @@ def test_create_incremental_shadow_excludes_affected_ranges() -> None:
 
     with patch("dp.publication.load_template", side_effect=render):
         create_incremental_shadow(
-            postgres_connection(connection),
+            (connection),
             PartitionedTable(name="p.app.people"),
             [physical_partition("10"), physical_partition("20")],
         )
@@ -139,7 +139,7 @@ def test_bootstrap_grants_access_without_rls() -> None:
 
     with patch("dp.authorization.load_template", side_effect=template_name):
         bootstrap_table(
-            postgres_connection(connection),
+            (connection),
             schema="app",
             table_name="table",
             rls=None,
@@ -155,7 +155,7 @@ def test_bootstrap_installs_access_policy_check() -> None:
 
     with patch("dp.authorization.load_template", side_effect=template_name):
         bootstrap_table(
-            postgres_connection(connection),
+            (connection),
             schema="app",
             table_name="table",
             rls=[UnitMapping(column="id_cras", unit_type="cras")],
@@ -183,7 +183,7 @@ def test_bootstrap_requires_a_configured_claim_for_protected_tables() -> None:
         pytest.raises(RuntimeError, match="identity claim"),
     ):
         bootstrap_table(
-            postgres_connection(connection),
+            (connection),
             schema="app",
             table_name="table",
             rls=[UnitMapping(column="id_cras", unit_type="cras")],
@@ -219,7 +219,7 @@ def test_publish_table_swaps_before_index_creation() -> None:
     )
 
     with patch("dp.publication.load_template", side_effect=template_name):
-        publish_table(postgres_connection(connection), table)
+        publish_table((connection), table)
 
     assert connection.executed == [
         b"pg/swap_table",
@@ -241,7 +241,7 @@ def test_initialize_schemas_creates_roles_then_schemas() -> None:
         patch("dp.schema.load_template", side_effect=template_name),
         patch("dp.authorization.load_template", side_effect=template_name),
     ):
-        initialize_schemas(postgres_connection(connection), config)
+        initialize_schemas((connection), config)
 
     assert connection.executed[0] == b"pg/init_roles"
     assert connection.executed[1:] == [
@@ -262,7 +262,7 @@ def test_reload_postgrest_revokes_then_notifies() -> None:
     )
 
     with patch("dp.schema.load_template", return_value="SELECT 1"):
-        reload_postgrest(postgres_connection(connection), config)
+        reload_postgrest((connection), config)
 
     assert connection.executed == [
         b"SELECT 1",
@@ -275,8 +275,8 @@ def test_prepare_tables_skips_table_with_missing_paths() -> None:
     config = SyncConfig(
         schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
     )
-    plan = SchemaSyncPlan(schema_name="app")
-    pg_conn = postgres_connection(FakePgConn())
+    plan = SyncPlan(schema_name="app")
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
 
     prepared = prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
@@ -297,12 +297,12 @@ def test_prepare_tables_uses_exact_planned_paths() -> None:
         }
     )
     path = "s3://bucket/changed/data.parquet"
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={"p.app.changed": "100"},
         paths={"p.app.changed": [path]},
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
 
     with (
@@ -335,7 +335,7 @@ def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
             )
         }
     )
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={
             "p.app.first": "1",
@@ -346,7 +346,7 @@ def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
             "p.app.second": ["s3://bucket/second/data.parquet"],
         },
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
 
     with (
@@ -365,7 +365,7 @@ def test_apply_sync_plan_publishes_other_tables_after_a_load_failure() -> None:
 
 def test_reduce_sync_plan_keeps_plan_without_failures() -> None:
     """A plan without failed paths stays eligible without failure details."""
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             "p.app.people": PartitionedTablePlan(
@@ -393,7 +393,7 @@ def test_reduce_incremental_plan_keeps_failed_existing_partition() -> None:
     previous = physical_partition("10")
     current = previous.model_copy(update={"signature": "new"})
     successful = physical_partition("20")
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             "p.app.people": PartitionedTablePlan(
@@ -421,7 +421,7 @@ def test_reduce_incremental_plan_keeps_failed_existing_partition() -> None:
 
 def test_reduce_incremental_plan_omits_failed_new_partition() -> None:
     """A failed new partition is absent from the publication manifest."""
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             "p.app.people": PartitionedTablePlan(
@@ -444,7 +444,7 @@ def test_reduce_incremental_plan_omits_failed_new_partition() -> None:
 
 def test_reduce_sync_plan_blocks_failed_full_rebuild() -> None:
     """A failed partition blocks a complete partitioned rebuild."""
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             "p.app.people": PartitionedTablePlan(
@@ -468,7 +468,7 @@ def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
     changed = physical_partition("10")
     removed = physical_partition("20")
     path = "s3://bucket/app/people/partitions/10/data.parquet"
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             table.name: PartitionedTablePlan(
@@ -480,7 +480,7 @@ def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
             )
         },
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
 
     with (
@@ -502,12 +502,12 @@ def test_prepare_tables_incrementally_replaces_affected_partitions() -> None:
     assert prepared == [table]
 
 
-def test_prepare_tables_full_rebuilds_partitioned_table_from_parquet() -> None:
+def test_prepare_tables_full_rebuilds_partitioned_from_parquet() -> None:
     """A full-rebuild partitioned table starts from Parquet, not a live copy."""
     table = PartitionedTable(name="p.app.people")
     partition = physical_partition("10")
     path = "s3://bucket/app/people/partitions/10/data.parquet"
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             table.name: PartitionedTablePlan(
@@ -519,7 +519,7 @@ def test_prepare_tables_full_rebuilds_partitioned_table_from_parquet() -> None:
             )
         },
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
     rendered: list[TemplateSpec] = []
 
@@ -565,12 +565,12 @@ def test_prepare_tables_secures_shadow_before_load() -> None:
         }
     )
     path = "s3://bucket/changed/data.parquet"
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={"p.app.changed": "100"},
         paths={"p.app.changed": [path]},
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
     calls: list[str] = []
 
@@ -596,7 +596,7 @@ def test_delete_freshness_uses_partition_template() -> None:
     table = PartitionedTable(name="p.app.people", resolved_schema="app")
 
     with patch("dp.freshness.load_template", return_value="DELETE") as render:
-        delete_freshness(postgres_connection(connection), table, {"10"})
+        delete_freshness((connection), table, {"10"})
 
     spec = cast(TemplateSpec, render.call_args.args[0])
     assert spec.path == "pg/delete_partition_freshness"
@@ -611,7 +611,7 @@ def test_upsert_freshness_uses_shared_status_enum_template() -> None:
 
     with patch("dp.freshness.load_template", return_value="UPSERT") as render:
         upsert_freshness(
-            postgres_connection(connection),
+            (connection),
             table,
             {"10"},
             attempted_at,
@@ -626,7 +626,7 @@ def test_upsert_freshness_uses_shared_status_enum_template() -> None:
 def test_full_rebuild_freshness_replaces_all_partition_rows() -> None:
     """A full rebuild resets freshness to its complete current manifest."""
     table = PartitionedTable(name="p.app.people")
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             table.name: PartitionedTablePlan(
@@ -638,7 +638,7 @@ def test_full_rebuild_freshness_replaces_all_partition_rows() -> None:
             )
         },
     )
-    connection = postgres_connection(FakePgConn())
+    connection = FakePgConn()
     attempted_at = Instant.now()
 
     with (
@@ -655,7 +655,7 @@ def test_full_rebuild_freshness_replaces_all_partition_rows() -> None:
 def test_incremental_freshness_records_success_failure_and_removal() -> None:
     """Freshness matches each result in a partial partition publication."""
     table = PartitionedTable(name="p.app.people")
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             table.name: PartitionedTablePlan(
@@ -667,7 +667,7 @@ def test_incremental_freshness_records_success_failure_and_removal() -> None:
             )
         },
     )
-    connection = postgres_connection(FakePgConn())
+    connection = FakePgConn()
     attempted_at = Instant.now()
 
     with (
@@ -691,14 +691,14 @@ def test_publish_prepared_tables_swaps_each_table() -> None:
         FullTable(name="p.app.two"),
     ]
 
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={table.name: "new" for table in tables},
         paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
     )
     with patch("dp.publication.publish_table") as publish:
         result = publish_prepared_tables(
-            postgres_connection(connection),
+            (connection),
             tables,
             plan,
             {},
@@ -714,7 +714,7 @@ def test_publish_prepared_tables_excludes_failed_publication() -> None:
     connection = FakePgConn()
     tables = [FullTable(name="p.app.one"), FullTable(name="p.app.two")]
 
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={table.name: "new" for table in tables},
         paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
@@ -723,7 +723,7 @@ def test_publish_prepared_tables_excludes_failed_publication() -> None:
         "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
     ):
         result = publish_prepared_tables(
-            postgres_connection(connection),
+            (connection),
             tables,
             plan,
             {"p.app.one": {"10"}},
@@ -738,12 +738,12 @@ def test_apply_sync_plan_delegates_all_steps() -> None:
     config = SyncConfig(
         schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
     )
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={"p.app.changed": "100"},
         paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
     duckdb = FakeDuckDBConnection()
 
     with (
@@ -768,7 +768,7 @@ def test_apply_sync_plan_records_failure_without_incremental_publication() -> No
     """A fully failed incremental change records failure without a swap."""
     table = PartitionedTable(name="p.app.people")
     path = "s3://bucket/people/10.parquet"
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         partitioned_tables={
             table.name: PartitionedTablePlan(
@@ -780,7 +780,7 @@ def test_apply_sync_plan_records_failure_without_incremental_publication() -> No
             )
         },
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
 
     with (
         patch("dp.loading.initialize_schemas"),
@@ -809,12 +809,12 @@ def test_apply_sync_plan_excludes_extraction_failures() -> None:
     config = SyncConfig(
         schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
     )
-    plan = SchemaSyncPlan(
+    plan = SyncPlan(
         schema_name="app",
         signatures={"p.app.changed": "100"},
         paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
     )
-    pg_conn = postgres_connection(FakePgConn())
+    pg_conn = FakePgConn()
 
     with (
         patch("dp.loading.initialize_schemas"),

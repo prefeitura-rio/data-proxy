@@ -4,14 +4,14 @@ from typing import assert_never
 
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from .duckdb import DBConnection
 from .models import (
     AllSelection,
+    DumpTask,
     RangeSelection,
     RemainderSelection,
-    SyncTask,
     TimeRangeSelection,
 )
+from .protocols import DuckDBConnection
 from .templates import TemplateSpec, load_template, selection_fields
 
 
@@ -27,7 +27,7 @@ def build_columns(json_columns: list[str]) -> Composable:
     return SQL("* REPLACE ({replacements})").format(replacements=replacements)
 
 
-def build_mapping(task: SyncTask) -> TemplateSpec:
+def build_mapping(task: DumpTask) -> TemplateSpec:
     """Return the DuckDB template and values for one extraction task."""
     mapping: dict[str, str | Composable] = {
         "bq_table": Literal(task.table),
@@ -48,7 +48,7 @@ def build_mapping(task: SyncTask) -> TemplateSpec:
             assert_never(task.selection)
 
 
-def extract_task(task: SyncTask, db: DBConnection) -> None:
+def extract_task(task: DumpTask, db: DuckDBConnection) -> None:
     """Write one BigQuery task to GCS Parquet through DuckDB."""
     spec = build_mapping(task)
     db.execute(load_template(spec))

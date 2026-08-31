@@ -14,7 +14,6 @@ from google.cloud.bigquery import (
     QueryJobConfig,
     RangePartitioning,
     ScalarQueryParameter,
-    Table,
     TimePartitioning,
 )
 from google.cloud.bigquery.table import Row
@@ -26,6 +25,7 @@ from .models import (
     RemainderSelection,
     TimeRangeSelection,
 )
+from .protocols import BigQueryMetadataClient, BigQueryTable
 from .templates import TemplateSpec, load_template
 
 
@@ -92,27 +92,28 @@ PartitionKindConfig = RangeConfig | TimeConfig
 
 
 @contextmanager
-def bigquery_clients() -> Generator[Callable[[str], Client]]:
+def bigquery_clients() -> Generator[Callable[[str], BigQueryMetadataClient]]:
     """Yield a per-project BigQuery client getter, closing every client on exit."""
     clients: dict[str, Client] = {}
 
-    def get_client(project: str) -> Client:
+    def get_client(project: str) -> BigQueryMetadataClient:
         client = clients.get(project)
 
         if client is None:
             client = Client(project=project)
             clients[project] = client
 
-        return client
+        return cast(BigQueryMetadataClient, cast(object, client))
 
     try:
         yield get_client
+
     finally:
         for client in clients.values():
             client.close()
 
 
-def table_modified(client: Client, table: str) -> str:
+def table_modified(client: BigQueryMetadataClient, table: str) -> str:
     """Return the table modification time in epoch milliseconds."""
     modified = client.get_table(table).modified
 
@@ -168,7 +169,7 @@ def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
         raise ValueError(msg) from error
 
 
-def partition_kind_config(metadata: Table, table: str) -> PartitionKindConfig:
+def partition_kind_config(metadata: BigQueryTable, table: str) -> PartitionKindConfig:
     """Detect and return the time or range partition configuration."""
     if metadata.table_type != "TABLE":
         msg = f"partitioned requires a physically partitioned table: {table}"
@@ -185,7 +186,7 @@ def partition_kind_config(metadata: Table, table: str) -> PartitionKindConfig:
 
 
 def partitioned_table_signature(
-    metadata: Table,
+    metadata: BigQueryTable,
     config_json: str,
     kind_config: PartitionKindConfig,
 ) -> str:
@@ -203,7 +204,7 @@ def partitioned_table_signature(
 
 
 def partition_rows(
-    client: Client,
+    client: BigQueryMetadataClient,
     project: str,
     dataset: str,
     table_name: str,
@@ -362,7 +363,7 @@ def normalize_partition(
 
 
 def physical_partitions(
-    client: Client,
+    client: BigQueryMetadataClient,
     table: str,
     config_json: str,
     n: int | None = None,

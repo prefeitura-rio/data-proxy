@@ -1,6 +1,6 @@
 # Environment Variables
 
-All pipeline components (producer, worker, finalizer) read these variables.
+All pipeline components (producer, Dumper, Publisher) read these variables.
 
 | Variable                         | Default                                      | Description                                                                                                               |
 | -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -13,9 +13,9 @@ All pipeline components (producer, worker, finalizer) read these variables.
 | `GCS_SECRET_KEY`                 | —                                            | HMAC secret key for GCS access.                                                                                           |
 | `SYNC_CONFIG_PATH`               | `config/sync.json`                           | Path to the sync configuration file.                                                                                      |
 | `GOOGLE_APPLICATION_CREDENTIALS` | —                                            | Path to a GCP service account JSON file for BigQuery access. Skip this variable on GKE with Workload Identity.            |
-| `WORKER_MAX_RECORDS`             | `1`                                          | Maximum number of stream messages a worker pod processes per run.                                                         |
-| `WORKER_VISIBILITY_TIMEOUT_MS`   | `900000`                                     | Time a task message must stay pending before a new worker can reclaim it. Set a value longer than normal task duration. |
-| `FINALIZER_VISIBILITY_TIMEOUT_MS` | `900000`                                     | Time a finalizer message must stay pending before a new finalizer can reclaim it. Set a value longer than normal publication duration. |
+| `DUMPER_VISIBILITY_TIMEOUT_MS`    | `900000`                                     | Time a dump task must stay pending before a new Dumper can reclaim it. Set a value longer than normal dump duration. |
+| `SEEDER_VISIBILITY_TIMEOUT_MS`    | `900000`                                     | Time a seed task must stay pending before a new Seeder can reclaim it. |
+| `PUBLISHER_VISIBILITY_TIMEOUT_MS` | `900000`                                     | Time a publish task must stay pending before a new Publisher can reclaim it. Set a value longer than normal publication duration. |
 | `AUTH_ANON_ROLE`                 | `anon`                                       | PostgreSQL role PostgREST uses for unauthenticated requests.                                                              |
 | `AUTH_USER_ROLE`                 | `user`                                       | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
 | `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |

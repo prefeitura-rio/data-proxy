@@ -1,39 +1,41 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledJob
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-worker
+  name: {{ include "data-proxy.fullname" . }}-seeder
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: worker
+    app.kubernetes.io/component: seeder
 spec:
   jobTargetRef:
     parallelism: 1
     completions: 1
-    activeDeadlineSeconds: {{ .Values.worker.keda.activeDeadlineSeconds }}
+    activeDeadlineSeconds: {{ .Values.seeder.keda.activeDeadlineSeconds }}
     backoffLimit: 0
     template:
       metadata:
         labels:
           {{- include "data-proxy.selectorLabels" . | nindent 10 }}
-          app.kubernetes.io/component: worker
+          app.kubernetes.io/component: seeder
       spec:
         restartPolicy: Never
         serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
         containers:
-          - name: worker
+          - name: seeder
             image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
             imagePullPolicy: {{ .Values.image.pullPolicy }}
-            command: ["python", "-m", "dp.sync.worker"]
+            command: ["python", "-m", "dp.sync.seeder"]
             env:
               {{- include "data-proxy.appEnv" . | nindent 14 }}
             volumeMounts:
               {{- include "data-proxy.syncConfigVolumeMount" . | nindent 14 }}
+              {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 14 }}
         volumes:
           {{- include "data-proxy.syncConfigVolume" . | nindent 10 }}
-  pollingInterval: {{ .Values.worker.keda.pollingInterval }}
+          {{- include "data-proxy.schemaWritersVolume" . | nindent 10 }}
+  pollingInterval: {{ .Values.seeder.keda.pollingInterval }}
   minReplicaCount: 0
-  maxReplicaCount: {{ .Values.worker.keda.maxReplicaCount }}
+  maxReplicaCount: 1
   scalingStrategy:
     strategy: accurate
   triggers:
@@ -42,14 +44,14 @@ spec:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
       metadata:
         address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
-        stream: dp:sync:tasks
-        consumerGroup: workers
-        lagCount: {{ .Values.worker.keda.lagCount | quote }}
+        stream: dp:prepare
+        consumerGroup: seeders
+        lagCount: "1"
     - type: redis-streams
       authenticationRef:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
       metadata:
         address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
-        stream: dp:sync:tasks
-        consumerGroup: workers
-        pendingEntriesCount: {{ .Values.worker.keda.pendingEntriesCount | quote }}
+        stream: dp:prepare
+        consumerGroup: seeders
+        pendingEntriesCount: {{ .Values.seeder.keda.pendingEntriesCount | quote }}

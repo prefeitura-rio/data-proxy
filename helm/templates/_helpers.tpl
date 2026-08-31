@@ -171,10 +171,12 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
       key: GCS_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
-- name: WORKER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.worker.visibilityTimeoutMs | quote }}
-- name: FINALIZER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.finalizer.visibilityTimeoutMs | quote }}
+- name: DUMPER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.dumper.visibilityTimeoutMs | quote }}
+- name: SEEDER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.seeder.visibilityTimeoutMs | quote }}
+- name: PUBLISHER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.publisher.visibilityTimeoutMs | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE

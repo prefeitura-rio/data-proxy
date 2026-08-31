@@ -1,0 +1,34 @@
+suite: TriggerAuthentication
+templates:
+  - triggerauthentication.yaml
+values:
+  - ../ci/test-values.yaml
+tests:
+  - it: references the Valkey password secret
+    asserts:
+      - equal:
+          path: apiVersion
+          value: keda.sh/v1alpha1
+      - equal:
+          path: kind
+          value: TriggerAuthentication
+      - equal:
+          path: spec.secretTargetRef[0].parameter
+          value: password
+      - equal:
+          path: spec.secretTargetRef[0].name
+          value: RELEASE-NAME-valkey
+      - equal:
+          path: spec.secretTargetRef[0].key
+          value: password
+  - it: uses an existing Valkey secret
+    set:
+      valkey.auth.existingSecret: external-valkey
+      valkey.auth.existingSecretKey: redis-password
+    asserts:
+      - equal:
+          path: spec.secretTargetRef[0].name
+          value: external-valkey
+      - equal:
+          path: spec.secretTargetRef[0].key
+          value: redis-password

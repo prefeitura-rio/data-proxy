@@ -1,5 +1,6 @@
 """Data models for the sync pipeline."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from typing import Annotated, ClassVar, Literal, Self
@@ -139,17 +140,17 @@ class Table(BaseModel):
 
     def to_task(
         self,
-        sync_id: str,
+        run_id: str,
         gcs_bucket: str,
         selection: TaskSelection,
         path_suffix: str | None = None,
         json_columns: list[str] | None = None,
-    ) -> SyncTask:
+    ) -> DumpTask:
         """Create one extraction task for the selected source rows."""
         suffix = f"/{path_suffix}" if path_suffix else ""
 
-        return SyncTask(
-            sync_id=sync_id,
+        return DumpTask(
+            run_id=run_id,
             table=self.name,
             bucket_path=(
                 f"s3://{gcs_bucket}/{self.resolved_schema}/"
@@ -261,10 +262,10 @@ class SyncConfig(BaseModel):
         return self
 
 
-class SyncTask(BaseModel):
+class DumpTask(BaseModel):
     """One extraction unit: a source table (or partition) and its GCS destination."""
 
-    sync_id: str
+    run_id: str
     table: str
     bucket_path: str
     selection: TaskSelection
@@ -274,34 +275,34 @@ class SyncTask(BaseModel):
     @property
     def task_id(self) -> str:
         """Return the deterministic identity for this run and task path."""
-        return sha256(f"{self.sync_id}:{self.bucket_path}".encode()).hexdigest()
+        return sha256(f"{self.run_id}:{self.bucket_path}".encode()).hexdigest()
 
 
-class TaskStatus(StrEnum):
+class DumpStatus(StrEnum):
     """Result status for one extraction task."""
 
     SUCCESS = "success"
     FAILURE = "failure"
 
 
-class TaskSuccess(BaseModel):
+class DumpSuccess(BaseModel):
     """Successful extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    status: Literal[TaskStatus.SUCCESS] = TaskStatus.SUCCESS
+    status: Literal[DumpStatus.SUCCESS] = DumpStatus.SUCCESS
 
 
-class TaskFailure(BaseModel):
+class DumpFailure(BaseModel):
     """Failed extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    status: Literal[TaskStatus.FAILURE] = TaskStatus.FAILURE
+    status: Literal[DumpStatus.FAILURE] = DumpStatus.FAILURE
     failed_path: str
 
 
-TaskOutcome = Annotated[TaskSuccess | TaskFailure, Field(discriminator="status")]
+DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]
 
 
 class CompletionResult(BaseModel):
@@ -345,7 +346,7 @@ class PartitionManifest(BaseModel):
     partitions: dict[str, PhysicalPartition]
 
 
-class SchemaSyncPlan(BaseModel):
+class SyncPlan(BaseModel):
     """Immutable publication inputs for one PostgreSQL schema."""
 
     schema_name: str
@@ -365,15 +366,37 @@ class SchemaSyncPlan(BaseModel):
         return self
 
 
-class SyncPlan(BaseModel):
-    """Immutable synchronization work grouped by PostgreSQL schema."""
+class SeedTask(BaseModel):
+    """Request shared database preparation for one run."""
 
-    sync_id: str
-    plans: list[SchemaSyncPlan] = []
+    run_id: str
+
+
+class PublishTask(BaseModel):
+    """Request publication of one schema for one run."""
+
+    run_id: str
+    schema_name: str
+
+
+class TableState(BaseModel):
+    """Committed state for one table."""
+
+    strategy: Strategy
+    signature: str
+    partitions: dict[str, PhysicalPartition] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SyncWork:
+    """Producer planning result."""
+
+    plans: list[SyncPlan]
+    tasks: list[DumpTask]
 
 
 class SyncStateUpdate(BaseModel):
-    """Committed signatures and partition manifests for successful tables."""
+    """Committed state for successful tables."""
 
     signatures: dict[str, str] = {}
     partitions: dict[str, PartitionManifest] = {}
@@ -383,7 +406,7 @@ class SyncPublicationInput(BaseModel):
     """A configuration and schema-local plan validated together."""
 
     config: SyncConfig
-    plan: SchemaSyncPlan
+    plan: SyncPlan
 
     @property
     def changed_tables(self) -> set[str]:
@@ -402,22 +425,16 @@ class SyncPublicationInput(BaseModel):
 class PublicationDecision(BaseModel):
     """Publishable plan and failures derived from extraction results."""
 
-    plan: SchemaSyncPlan
+    plan: SyncPlan
     blocked_tables: set[str]
     failed_partitions: dict[str, set[str]]
 
 
 class PublicationResult(BaseModel):
-    """Exact plan and table set published by the finalizer."""
+    """Exact plan and table set published by the publisher."""
 
-    plan: SchemaSyncPlan
+    plan: SyncPlan
     published_tables: set[str]
 
 
-class FinalizeMessage(BaseModel):
-    """Signal that every task for a sync run has completed."""
-
-    sync_id: str
-
-
-task_outcome_adapter: TypeAdapter[TaskOutcome] = TypeAdapter(TaskOutcome)
+task_outcome_adapter: TypeAdapter[DumpResult] = TypeAdapter(DumpResult)
