@@ -16,8 +16,6 @@ from dp.models import (
     PublicationResult,
     PublishTask,
     RangeSelection,
-    SchemaConfig,
-    SyncConfig,
     SyncPlan,
 )
 from dp.sync.publisher import (
@@ -28,6 +26,7 @@ from dp.sync.publisher import (
     subs,
 )
 from dp.sync.seeder import broker as seeder_broker
+from tests.helpers import sync_config
 
 pytestmark = pytest.mark.usefixtures("test_settings")
 
@@ -73,9 +72,7 @@ class TestPublisher:
         WHEN: publish_plan is called.
         THEN: it wraps PostgreSQL and DuckDB connections and delegates to apply_sync_plan.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
-        )
+        config = sync_config([FullTable(name="p.app.t")])
         plan = SyncPlan(schema_name="app")
         with (
             patch("dp.sync.publisher.psycopg.connect", return_value=postgres),
@@ -102,9 +99,7 @@ class TestPublisher:
         THEN: it publishes the schema and keeps the remaining plan.
         """
         sync_config_path.write_text(
-            SyncConfig(
-                schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
-            ).model_dump_json()
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
         )
         plan = SyncPlan(
             schema_name="app",
@@ -139,9 +134,7 @@ class TestPublisher:
         THEN: it commits the partition state and cleans the last plan.
         """
         sync_config_path.write_text(
-            SyncConfig(
-                schemas={"app": SchemaConfig(tables=[PartitionedTable(name="p.app.t")])}
-            ).model_dump_json()
+            sync_config([PartitionedTable(name="p.app.t")]).model_dump_json()
         )
         plan = SyncPlan(
             schema_name="app",

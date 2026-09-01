@@ -64,7 +64,7 @@
 
   tasks = {
     "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "dp:test:full".exec = "uv run pytest --cov=dp --cov-report=term-missing --no-testmon";
+    "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
     "dp:lint".exec = ''
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/

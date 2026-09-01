@@ -7,6 +7,8 @@ from dp.models import (
     DumpFailure,
     DumpSuccess,
     DumpTask,
+    PhysicalPartition,
+    RangeSelection,
     Strategy,
     SyncPlan,
     TableState,
@@ -256,3 +258,139 @@ class TestState:
         )
 
         assert await read_failed_paths(settings.redis, "r1") == {"s3://b/t"}
+
+    @pytest.mark.asyncio
+    async def test_read_table_state_returns_decoded_table_state_fields(
+        self,
+    ) -> None:
+        """
+        GIVEN: a stored table state with strategy and signature.
+        WHEN: read_table_state is called.
+        THEN: it returns a TableState with the exact strategy and signature.
+        """
+        await settings.redis.set(
+            "dp:state:p.d.t",
+            TableState(strategy=Strategy.FULL, signature="s").model_dump_json(),
+        )
+
+        state = await read_table_state(settings.redis, "p.d.t")
+
+        assert state is not None
+        assert state.strategy == Strategy.FULL
+        assert state.signature == "s"
+
+    @pytest.mark.asyncio
+    async def test_read_table_signature_returns_exact_stored_signature(
+        self,
+    ) -> None:
+        """
+        GIVEN: a stored table state with a known signature.
+        WHEN: read_table_signature is called.
+        THEN: it returns the exact signature string, not None.
+        """
+        await settings.redis.set(
+            "dp:state:p.d.t",
+            TableState(strategy=Strategy.FULL, signature="sig123").model_dump_json(),
+        )
+
+        assert await read_table_signature(settings.redis, "p.d.t") == "sig123"
+
+    @pytest.mark.asyncio
+    async def test_read_partition_manifest_returns_manifest_with_exact_fields(
+        self,
+    ) -> None:
+        """
+        GIVEN: a partitioned table state with a non-null partitions dict.
+        WHEN: read_partition_manifest is called.
+        THEN: it returns a manifest with the exact signature and partitions.
+        """
+        await settings.redis.set(
+            "dp:state:p.d.t",
+            TableState(
+                strategy=Strategy.PARTITIONED,
+                signature="sig456",
+                partitions={
+                    "1": PhysicalPartition(
+                        partition_id="1",
+                        signature="ps",
+                        selection=RangeSelection(
+                            partition_id="1", column="id", lower=0, upper=1
+                        ),
+                    )
+                },
+            ).model_dump_json(),
+        )
+
+        manifest = await read_partition_manifest(settings.redis, "p.d.t")
+
+        assert manifest is not None
+        assert manifest.table_signature == "sig456"
+        assert "1" in manifest.partitions
+
+    @pytest.mark.asyncio
+    async def test_read_partition_manifest_returns_none_for_full_table_with_null_partitions(
+        self,
+    ) -> None:
+        """
+        GIVEN: a full table state where partitions is None.
+        WHEN: read_partition_manifest is called.
+        THEN: it returns None because partitions is None.
+        """
+        await settings.redis.set(
+            "dp:state:p.d.t",
+            TableState(strategy=Strategy.FULL, signature="s").model_dump_json(),
+        )
+
+        assert await read_partition_manifest(settings.redis, "p.d.t") is None
+
+    @pytest.mark.asyncio
+    async def test_create_run_returns_true_and_writes_all_keys_to_redis(
+        self,
+    ) -> None:
+        """
+        GIVEN: no active run in Redis.
+        WHEN: create_run is called with a plan and task count.
+        THEN: it returns True and writes active, plans, and remaining keys.
+        """
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"p.d.t": "s"},
+            paths={"p.d.t": ["s3://b/t"]},
+        )
+
+        result = await create_run(settings.redis, "r1", [plan], 3)
+
+        assert result is True
+        assert await settings.redis.get("dp:active") == b"r1"
+        assert await settings.redis.hexists("dp:plans:r1", "app")
+        assert await settings.redis.get("dp:remaining:r1") == b"3"
+
+    @pytest.mark.asyncio
+    async def test_create_run_returns_false_when_active_run_exists(
+        self,
+    ) -> None:
+        """
+        GIVEN: an existing active run.
+        WHEN: create_run is called for a new run.
+        THEN: it returns False and does not write the new run keys.
+        """
+        await settings.redis.set("dp:active", "old")
+
+        result = await create_run(settings.redis, "new", [], 0)
+
+        assert result is False
+        assert await settings.redis.hexists("dp:plans:new", "app") is False
+
+    @pytest.mark.asyncio
+    async def test_create_consumer_group_creates_group_in_redis(
+        self,
+    ) -> None:
+        """
+        GIVEN: a stream with no consumer group.
+        WHEN: create_consumer_group is called.
+        THEN: the group exists in Redis.
+        """
+        await create_consumer_group(settings.redis, "new-stream", "new-group")
+
+        groups = await settings.redis.xinfo_groups("new-stream")
+        assert any(group["name"] == b"new-group" for group in groups)

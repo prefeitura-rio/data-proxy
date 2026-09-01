@@ -414,7 +414,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
-    { name = "pytest-testmon" },
+    { name = "pytest-gremlins" },
     { name = "ruff" },
     { name = "sqlfluff" },
     { name = "testcontainers" },
@@ -448,7 +448,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-testmon", specifier = ">=2.2.0" },
+    { name = "pytest-gremlins", specifier = ">=1.9.0" },
     { name = "ruff", specifier = ">=0.9.3" },
     { name = "sqlfluff", specifier = ">=3.0" },
     { name = "testcontainers", specifier = ">=4.15.0" },
@@ -1141,16 +1141,16 @@ wheels = [
 ]
 
 [[package]]
-name = "pytest-testmon"
-version = "2.2.0"
+name = "pytest-gremlins"
+version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "coverage" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/1d/3e4230cc67cd6205bbe03c3527500c0ccaf7f0c78b436537eac71590ee4a/pytest_testmon-2.2.0.tar.gz", hash = "sha256:01f488e955ed0e0049777bee598bf1f647dd524e06f544c31a24e68f8d775a51", size = 23108, upload-time = "2025-12-01T07:30:24.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/b6/74470cd5b97eb0cf5f3d7e2ef7feb2d6136b5cbe2df6e070299c5faf5e7c/pytest_gremlins-1.9.0.tar.gz", hash = "sha256:12966b4d24146b46d58aa1dc8a6d0881918863ca4454a44d109b295f22d27c24", size = 4013393, upload-time = "2026-07-01T12:55:33.149Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/55/ebb3c2f59fb089f08d00f764830d35780fc4e4c41dffcadafa3264682b65/pytest_testmon-2.2.0-py3-none-any.whl", hash = "sha256:2604ca44a54d61a2e830d9ce828b41a837075e4ebc1f81b148add8e90d34815b", size = 25199, upload-time = "2025-12-01T07:30:23.623Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/f7/f582cd587ebdfad6e7f6426ca3220b051d7adb41c824576851732843777a/pytest_gremlins-1.9.0-py3-none-any.whl", hash = "sha256:26997e1e6ac0cbdef70c68ddadbbd2bf93c7d41e143d9f2d84ec318b7d552b67", size = 118421, upload-time = "2026-07-01T12:55:31.708Z" },
 ]
 
 [[package]]

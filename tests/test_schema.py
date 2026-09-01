@@ -4,7 +4,7 @@ from psycopg import Connection
 
 from dp.models import FullTable, SchemaConfig, SyncConfig
 from dp.schema import initialize_schemas, reload_postgrest
-from tests.helpers import execute_sql
+from tests.helpers import execute_sql, sync_config
 
 
 class TestSchema:
@@ -42,9 +42,7 @@ class TestSchema:
         WHEN: reload_postgrest is called.
         THEN: anonymous access is revoked per schema before the reload notification.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.one")])}
-        )
+        config = sync_config([FullTable(name="p.app.one")])
 
         reload_postgrest(postgres, config)
 

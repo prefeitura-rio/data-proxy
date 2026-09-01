@@ -14,8 +14,6 @@ from dp.models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
-    SchemaConfig,
-    SyncConfig,
     SyncPlan,
     TimeRangeSelection,
     UnitMapping,
@@ -27,7 +25,7 @@ from dp.publication import (
     reduce_sync_plan,
 )
 from dp.templates import TemplateSpec
-from tests.helpers import partition
+from tests.helpers import partition, sync_config
 
 
 class TestLoadingPartitionPredicate:
@@ -108,9 +106,7 @@ class TestLoadingPrepareTablesPaths:
         WHEN: prepare_tables runs.
         THEN: it returns no prepared tables.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
-        )
+        config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
         duckdb = connect(":memory:")
 
@@ -128,15 +124,8 @@ class TestLoadingPrepareTablesPaths:
         WHEN: prepare_tables runs.
         THEN: it loads only the planned table and its exact paths.
         """
-        config = SyncConfig(
-            schemas={
-                "app": SchemaConfig(
-                    tables=[
-                        FullTable(name="p.app.changed"),
-                        FullTable(name="p.app.unchanged"),
-                    ]
-                )
-            }
+        config = sync_config(
+            [FullTable(name="p.app.changed"), FullTable(name="p.app.unchanged")]
         )
         path = "s3://bucket/changed/data.parquet"
         plan = SyncPlan(
@@ -271,7 +260,7 @@ class TestLoadingPrepareTablesPartitions:
             prepared = prepare_tables(
                 postgres,
                 duckdb,
-                SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+                sync_config([table]),
                 plan,
                 {table.name},
             )
@@ -320,7 +309,7 @@ class TestLoadingPrepareTablesPartitions:
             prepared = prepare_tables(
                 postgres,
                 duckdb,
-                SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+                sync_config([table]),
                 plan,
                 {table.name},
             )
@@ -339,18 +328,14 @@ class TestLoadingPrepareTablesPartitions:
         WHEN: prepare_tables runs.
         THEN: grants and RLS run on the empty shadow before any data loads.
         """
-        config = SyncConfig(
-            schemas={
-                "app": SchemaConfig(
-                    claim="preferred_username",
-                    tables=[
-                        FullTable(
-                            name="p.app.changed",
-                            rls=[UnitMapping(column="id_cras", unit_type="cras")],
-                        )
-                    ],
+        config = sync_config(
+            [
+                FullTable(
+                    name="p.app.changed",
+                    rls=[UnitMapping(column="id_cras", unit_type="cras")],
                 )
-            }
+            ],
+            claim="preferred_username",
         )
         path = "s3://bucket/changed/data.parquet"
         plan = SyncPlan(
@@ -456,9 +441,7 @@ class TestLoadingApplySyncPlan:
         WHEN: apply_sync_plan runs.
         THEN: the orchestrator delegates to initialize, prepare, publish, and reload.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
-        )
+        config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.app.changed": "100"},
@@ -517,7 +500,7 @@ class TestLoadingApplySyncPlan:
             result = apply_sync_plan(
                 postgres,
                 connect(":memory:"),
-                SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
+                sync_config([table]),
                 plan,
                 {path},
             )
@@ -537,9 +520,7 @@ class TestLoadingApplySyncPlan:
         WHEN: apply_sync_plan runs.
         THEN: the table is not prepared from stale Parquet.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
-        )
+        config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.app.changed": "100"},
@@ -573,9 +554,7 @@ class TestLoadingApplySyncPlan:
         WHEN: apply_sync_plan runs.
         THEN: it records the preparation failure without publishing.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
-        )
+        config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.app.changed": "100"},

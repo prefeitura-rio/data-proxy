@@ -9,11 +9,15 @@ from psycopg.sql import Composable
 from dp.models import (
     AllSelection,
     DumpTask,
+    NonEmptyString,
     PartitionedTablePlan,
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
+    SchemaConfig,
+    SyncConfig,
     SyncPlan,
+    TableConfig,
 )
 from dp.templates import TemplateSpec, load_template
 from tests.constants import FILES
@@ -33,6 +37,16 @@ def sync_plan(
         paths=paths or {},
         partitioned_tables=partitioned_tables or {},
     )
+
+
+def sync_config(
+    tables: list[TableConfig],
+    *,
+    schema_name: str = "app",
+    claim: NonEmptyString | None = None,
+) -> SyncConfig:
+    """Build one single-schema synchronization config for tests."""
+    return SyncConfig(schemas={schema_name: SchemaConfig(tables=tables, claim=claim)})
 
 
 def dump(

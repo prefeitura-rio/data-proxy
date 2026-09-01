@@ -16,7 +16,6 @@ from dp.models import (
     PartitionManifest,
     PhysicalPartition,
     RangeSelection,
-    SchemaConfig,
     SyncConfig,
     SyncWork,
     TableConfig,
@@ -33,7 +32,7 @@ from dp.planning import (
     table_signature,
 )
 from dp.settings import settings
-from tests.helpers import planning_partition
+from tests.helpers import planning_partition, sync_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,9 +104,7 @@ class TestPlanningPlanPartitioned:
         WHEN: plan_partitioned_tables is called.
         THEN: it groups the table plan by table name.
         """
-        config = SyncConfig(
-            schemas={"d": SchemaConfig(tables=[PartitionedTable(name="p.d.t")])}
-        )
+        config = sync_config([PartitionedTable(name="p.d.t")], schema_name="d")
         table_plan = PartitionedTablePlan(
             table_signature="s",
             full_rebuild=True,
@@ -170,9 +167,7 @@ class TestPlanningBuildSync:
         WHEN: build_sync_work is called.
         THEN: it groups the full table task by schema.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
-        )
+        config = sync_config([FullTable(name="p.app.t")])
         task = config.tables[0].to_task("r1", "b", AllSelection())
         with (
             patch(
@@ -207,9 +202,7 @@ class TestPlanning:
         WHEN: build_sync_work is called.
         THEN: it groups the partitioned plan by schema.
         """
-        config = SyncConfig(
-            schemas={"app": SchemaConfig(tables=[PartitionedTable(name="p.app.t")])}
-        )
+        config = sync_config([PartitionedTable(name="p.app.t")])
         table_plan = PartitionedTablePlan(
             table_signature="s",
             full_rebuild=True,
@@ -354,12 +347,9 @@ class TestPlanning:
         WHEN: detect_changes is called.
         THEN: only the changed full table is returned.
         """
-        config = SyncConfig(
-            schemas={
-                "d": SchemaConfig(
-                    tables=[FullTable(name="p.d.t"), PartitionedTable(name="p.d.p")]
-                )
-            }
+        config = sync_config(
+            [FullTable(name="p.d.t"), PartitionedTable(name="p.d.p")],
+            schema_name="d",
         )
         with (
             patch(
@@ -419,9 +409,7 @@ class TestPlanning:
         WHEN: plan_partitioned_tables is called.
         THEN: it returns no plans and no tasks.
         """
-        config = SyncConfig(
-            schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])}
-        )
+        config = sync_config([FullTable(name="p.d.t")], schema_name="d")
         with patch(
             "dp.planning.bigquery_clients",
             return_value=nullcontext(MagicMock(return_value=bigquery)),
