@@ -29,6 +29,8 @@ from dp.sync.publisher import (
 )
 from dp.sync.seeder import broker as seeder_broker
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
 
 class TestPublisher:
     """Tests for publisher subscriber behavior."""

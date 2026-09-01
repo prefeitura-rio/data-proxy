@@ -1,12 +1,15 @@
 """Shared fixtures for the data-proxy test suite."""
 
+import secrets
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import LiteralString, cast
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit, urlunsplit
 
+import duckdb
+import psycopg
 import pytest
-from duckdb import DuckDBPyConnection, connect
 from fakeredis import FakeAsyncRedis
 from faststream.redis import RedisBroker, TestRedisBroker
 from google.cloud.bigquery import (
@@ -14,9 +17,7 @@ from google.cloud.bigquery import (
     Table,
 )
 from minio import Minio
-from psycopg import Connection
-from psycopg import connect as connect_postgres
-from psycopg.sql import SQL
+from psycopg.sql import SQL, Identifier
 from redis.asyncio import Redis
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
@@ -55,7 +56,7 @@ def schema_writers() -> SchemaWriters:
     )
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def test_settings(
     monkeypatch: pytest.MonkeyPatch,
     redis: Redis,
@@ -77,14 +78,14 @@ async def broker() -> AsyncIterator[tuple[RedisBroker, ...]]:
         dumper_broker,
         seeder_broker,
         publisher_broker,
-    ) as b:
-        yield b
+    ) as broker:
+        yield broker
 
 
 @pytest.fixture
 def bigquery() -> Iterator[Client]:
     """Provide an isolated DuckDB-backed BigQuery client mock."""
-    database = connect(":memory:")
+    database = duckdb.connect(":memory:")
     database.read_csv(FILES / "partitions.csv", all_varchar=True).create_view(
         "partition_metadata"
     )
@@ -149,34 +150,79 @@ def bigquery() -> Iterator[Client]:
         database.close()
 
 
-@pytest.fixture
-def postgres() -> Iterator[Connection[tuple[object, ...]]]:
-    """Provide a PostgreSQL connection with the `app` schema and read role."""
+@pytest.fixture(scope="session")
+def postgres_container() -> Iterator[PostgresContainer]:
+    """Provide one PostgreSQL container and an initialized template database."""
     container = PostgresContainer(
         "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
         driver=None,
     )
-
     container.start()
-    connection = connect_postgres(container.get_connection_url())
+    admin_url = container.get_connection_url()
 
-    connection.execute(
-        SQL(
-            cast(
-                LiteralString,
-                load_template(
-                    TemplateSpec(path="postgres/fixture", mapping={}),
-                    FILES.parent / "sql",
-                ),
+    with psycopg.connect(admin_url, autocommit=True) as connection:
+        connection.execute("CREATE DATABASE test_template")
+
+    with psycopg.connect(
+        urlunsplit(urlsplit(admin_url)._replace(path="/test_template"))
+    ) as connection:
+        connection.execute(
+            SQL(
+                cast(
+                    LiteralString,
+                    load_template(
+                        TemplateSpec(path="postgres/fixture", mapping={}),
+                        FILES.parent / "sql",
+                    ),
+                )
             )
         )
-    )
 
+    try:
+        yield container
+    finally:
+        container.stop()
+
+
+@pytest.fixture(name="postgres")
+def postgres_connection(
+    postgres_container: PostgresContainer,
+) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
+    """Provide an isolated PostgreSQL database cloned from the template."""
+    admin_url = postgres_container.get_connection_url()
+    database = f"test_{secrets.randbelow(10**16):016d}"
+
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(
+            SQL("CREATE DATABASE {} TEMPLATE test_template").format(
+                Identifier(database)
+            )
+        )
+
+    connection = psycopg.connect(
+        urlunsplit(urlsplit(admin_url)._replace(path=f"/{database}"))
+    )
     try:
         yield connection
     finally:
         connection.close()
-        container.stop()
+        with psycopg.connect(admin_url, autocommit=True) as admin:
+            admin.execute(
+                cast(
+                    LiteralString,
+                    load_template(
+                        TemplateSpec(
+                            path="postgres/terminate_connections",
+                            mapping={},
+                        ),
+                        FILES.parent / "sql",
+                    ),
+                ),
+                (database,),
+            )
+            admin.execute(
+                SQL("DROP DATABASE IF EXISTS {}").format(Identifier(database))
+            )
 
 
 @pytest.fixture
@@ -200,10 +246,10 @@ def minio() -> Iterator[Minio]:
         container.stop()
 
 
-@pytest.fixture
-def duckdb() -> Iterator[DuckDBPyConnection]:
+@pytest.fixture(name="duckdb")
+def duckdb_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     """Provide an isolated in-memory DuckDB connection."""
-    connection = connect(":memory:")
+    connection = duckdb.connect(":memory:")
 
     try:
         yield connection

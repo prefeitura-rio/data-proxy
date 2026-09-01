@@ -46,7 +46,7 @@ from dp.publication import (
 )
 from dp.schema import initialize_schemas, reload_postgrest
 from dp.templates import TemplateSpec, load_template
-from tests.helpers import partition, template_name
+from tests.helpers import partition
 
 
 class TestLoadingPartitionPredicate:
@@ -310,9 +310,7 @@ class TestLoadingPrepareTablesPartitions:
                 {table.name},
             )
 
-        assert "duckdb/create_table_from_parquet" in [
-            template_name(spec) for spec in rendered
-        ]
+        assert "duckdb/create_table_from_parquet" in [spec.path for spec in rendered]
         create_shadow.assert_not_called()
         load.assert_called_once_with(duckdb, "app", "people__next", [path])
         assert prepared == [table]
@@ -555,7 +553,7 @@ class TestLoading:
                 [partition("10"), partition("20")],
             )
 
-        assert [template_name(spec) for spec in rendered] == [
+        assert [spec.path for spec in rendered] == [
             "pg/partition_range_predicate",
             "pg/partition_range_predicate",
             "pg/prepare_incremental_table",

@@ -38,6 +38,9 @@ from tests.helpers import planning_partition
 """Coverage tests for planning branches."""
 
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
+
 class TestPlanningPlanPartitioned:
     """Tests for PlanPartitioned behavior."""
 

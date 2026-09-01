@@ -14,6 +14,8 @@ from dp.sync.seeder import seed_sync
 from tests.helpers import dump as make_dump
 from tests.helpers import sync_plan
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
 
 class TestProducer:
     """Tests for producer planning and dispatch behavior."""

@@ -13,29 +13,16 @@ from dp.models import (
     RemainderSelection,
     SyncPlan,
 )
-from dp.templates import TemplateSpec
 
 
 def sync_plan(
     *,
-    run_id: str = "r1",
     schema_name: str = "app",
     signatures: dict[str, str] | None = None,
     paths: dict[str, list[str]] | None = None,
     partitioned_tables: dict[str, PartitionedTablePlan] | None = None,
-    plans: list[SyncPlan] | None = None,
 ) -> SyncPlan:
-    """Build one strict grouped synchronization plan for tests."""
-    if plans is None and (signatures or paths or partitioned_tables):
-        plans = [
-            SyncPlan(
-                schema_name=schema_name,
-                signatures=signatures or {},
-                paths=paths or {},
-                partitioned_tables=partitioned_tables or {},
-            )
-        ]
-
+    """Build one synchronization plan for tests."""
     return SyncPlan(
         schema_name=schema_name,
         signatures=signatures or {},
@@ -92,16 +79,12 @@ def planning_partition(partition_id: str, signature: str = "s") -> PhysicalParti
             upper=int(partition_id) + 1,
         )
     )
+
     return PhysicalPartition(
         partition_id=partition_id,
         signature=signature,
         selection=selection,
     )
-
-
-def template_name(spec: TemplateSpec) -> str:
-    """Return a template path for operation-order assertions."""
-    return spec.path
 
 
 def render(value: object) -> str:

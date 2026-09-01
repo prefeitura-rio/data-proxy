@@ -17,6 +17,8 @@ from dp.sync.dumper import (
 from dp.sync.seeder import seed_sync
 from tests.helpers import dump as make_dump
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
 
 class TestDumper:
     """Tests for dump subscriber behavior."""

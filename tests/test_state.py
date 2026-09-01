@@ -30,6 +30,8 @@ from dp.state import (
     read_table_state,
 )
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
 
 class TestState:
     """Tests for synchronization state behavior."""

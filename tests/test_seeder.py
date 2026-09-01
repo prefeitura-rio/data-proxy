@@ -18,6 +18,8 @@ from dp.planning import expand_config
 from dp.sync.publisher import publish_schema, publisher
 from dp.sync.seeder import cleanup_seeder_consumers, dispatch_exists, seed_sync, seeder
 
+pytestmark = pytest.mark.usefixtures("test_settings")
+
 
 class TestSeeder:
     """Tests for seeder dispatch behavior."""
