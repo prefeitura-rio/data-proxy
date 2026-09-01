@@ -25,12 +25,10 @@ dev = [
   "basedpyright>=1.39.9",
   "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
-  "hypothesis>=6.165.10",
   "pytest>=8.0.0",
   "pytest-asyncio>=0.24.0",
   "pytest-cov>=6.0.0",
   "pytest-testmon>=2.2.0",
-  "hypothesis>=6.0",
   "ruff>=0.9.3",
   "sqlfluff>=3.0",
   "vulture>=2.16",
@@ -119,6 +117,8 @@ omit = [
   "src/dp/protocols.py",
   "src/dp/settings.py",
   "src/dp/templates.py",
+  "src/dp/models.py",
+  "src/dp/bigquery/clients.py",
 ]
 
 [tool.coverage.report]

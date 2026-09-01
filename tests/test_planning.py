@@ -1,6 +1,7 @@
 """Tests for planning result types."""
 
 from contextlib import nullcontext
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -209,55 +210,61 @@ class TestPlanning:
         assert work.tasks == []
 
     @pytest.mark.parametrize(
-        ("stored", "signature", "rebuild", "changed", "removed"),
+        "case",
         [
-            (None, "s", True, {"1"}, set[str]()),
-            (
-                PartitionManifest(
+            {
+                "name": "new",
+                "stored": None,
+                "signature": "s",
+                "rebuild": True,
+                "changed": {"1"},
+                "removed": set[str](),
+            },
+            {
+                "name": "unchanged",
+                "stored": PartitionManifest(
                     table_signature="s",
                     partitions={"1": planning_partition("1", "new")},
                 ),
-                "s",
-                False,
-                set[str](),
-                set[str](),
-            ),
-            (
-                PartitionManifest(
+                "signature": "s",
+                "rebuild": False,
+                "changed": set[str](),
+                "removed": set[str](),
+            },
+            {
+                "name": "rebuild",
+                "stored": PartitionManifest(
                     table_signature="old", partitions={"1": planning_partition("1")}
                 ),
-                "s",
-                True,
-                {"1"},
-                set[str](),
-            ),
-            (
-                PartitionManifest(
+                "signature": "s",
+                "rebuild": True,
+                "changed": {"1"},
+                "removed": set[str](),
+            },
+            {
+                "name": "removed",
+                "stored": PartitionManifest(
                     table_signature="s", partitions={"2": planning_partition("2")}
                 ),
-                "s",
-                False,
-                {"1"},
-                {"2"},
-            ),
+                "signature": "s",
+                "rebuild": False,
+                "changed": {"1"},
+                "removed": {"2"},
+            },
         ],
+        ids=lambda case: case["name"],
     )
-    def test_partition_changes_table_cases(
-        self,
-        stored: PartitionManifest | None,
-        signature: str,
-        rebuild: bool,
-        changed: set[str],
-        removed: set[str],
-    ) -> None:
+    def test_partition_changes_table_cases(self, case: dict[str, object]) -> None:
         """Verify partition changes table cases."""
         result = partition_changes(
-            {"1": planning_partition("1", "new")}, stored, signature
+            {"1": planning_partition("1", "new")},
+            cast("PartitionManifest | None", case["stored"]),
+            cast(str, case["signature"]),
         )
         assert (result.full_rebuild, result.changed, result.removed) == (
-            rebuild,
-            changed,
-            removed,
+            case["rebuild"],
+            case["changed"],
+            case["removed"],
         )
 
     def test_expand_config_and_json_columns(self, duckdb: DuckDBPyConnection) -> None:

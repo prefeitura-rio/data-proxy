@@ -17,8 +17,10 @@ class TableReference:
 def table_modified(client: Client, table: str) -> str:
     """Return the table modification time in epoch milliseconds."""
     modified = client.get_table(table).modified
+
     if modified is None:
         raise ValueError(f"Missing BigQuery modification time: {table}")
+
     return str(int(modified.timestamp() * 1000))
 
 

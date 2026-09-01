@@ -29,62 +29,74 @@ class TestExtraction:
             selection_fields(cast("TaskSelection", object()))
 
     @pytest.mark.parametrize(
-        ("json_columns", "expected"),
+        "case",
         [
-            ([], "*"),
-            (
-                ["units", "data"],
-                '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")',
-            ),
+            {"json_columns": [], "expected": "*"},
+            {
+                "json_columns": ["units", "data"],
+                "expected": '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")',
+            },
         ],
+        ids=lambda case: "flat" if not case["json_columns"] else "json",
     )
-    def test_build_columns(self, json_columns: list[str], expected: str) -> None:
+    def test_build_columns(self, case: dict[str, object]) -> None:
         """STRUCT columns are replaced with JSON expressions; flat tables keep `*`."""
-        assert build_columns(json_columns).as_string(None) == expected
+        assert (
+            build_columns(cast("list[str]", case["json_columns"])).as_string(None)
+            == case["expected"]
+        )
 
     @pytest.mark.parametrize(
-        ("selection", "expected_path", "rendered_field", "expected_rendered"),
+        "case",
         [
-            (AllSelection(), "duckdb/write_all", "gcs_path", "'s3://b/t/data.parquet'"),
-            (
-                TimeRangeSelection(column="dt", lower="2025-01-15", upper="2025-01-16"),
-                "duckdb/write_partition",
-                "upper",
-                "'2025-01-16'",
-            ),
-            (
-                RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
-                "duckdb/write_partition",
-                "upper",
-                "20",
-            ),
-            (
-                RemainderSelection(column="cpf", start=0, end=100),
-                "duckdb/write_remainder",
-                "upper",
-                "100",
-            ),
+            {
+                "name": "all",
+                "selection": AllSelection(),
+                "path": "duckdb/write_all",
+                "field": "gcs_path",
+                "expected": "'s3://b/t/data.parquet'",
+            },
+            {
+                "name": "time",
+                "selection": TimeRangeSelection(
+                    column="dt", lower="2025-01-15", upper="2025-01-16"
+                ),
+                "path": "duckdb/write_partition",
+                "field": "upper",
+                "expected": "'2025-01-16'",
+            },
+            {
+                "name": "range",
+                "selection": RangeSelection(
+                    partition_id="10", column="cpf", lower=10, upper=20
+                ),
+                "path": "duckdb/write_partition",
+                "field": "upper",
+                "expected": "20",
+            },
+            {
+                "name": "remainder",
+                "selection": RemainderSelection(column="cpf", start=0, end=100),
+                "path": "duckdb/write_remainder",
+                "field": "upper",
+                "expected": "100",
+            },
         ],
+        ids=lambda case: case["name"],
     )
-    def test_build_mapping_selects_template(
-        self,
-        selection: TaskSelection,
-        expected_path: str,
-        rendered_field: str,
-        expected_rendered: str,
-    ) -> None:
+    def test_build_mapping_selects_template(self, case: dict[str, object]) -> None:
         """A task's discriminated selection chooses its extraction template."""
         task = DumpTask(
             run_id="s1",
             table="p.d.t",
             bucket_path="s3://b/t/data.parquet",
-            selection=selection,
+            selection=cast("TaskSelection", case["selection"]),
         )
 
         spec = build_mapping(task)
 
-        assert spec.path == expected_path
-        assert render(spec.mapping[rendered_field]) == expected_rendered
+        assert spec.path == case["path"]
+        assert render(spec.mapping[cast(str, case["field"])]) == case["expected"]
 
     def test_extract_task_executes_rendered_sql(
         self, duckdb: DuckDBPyConnection
