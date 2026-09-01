@@ -1,7 +1,7 @@
 """Tests for planning result types."""
 
 from contextlib import nullcontext
-from typing import cast
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,7 +35,17 @@ from dp.planning import (
 from dp.settings import settings
 from tests.helpers import planning_partition
 
-"""Coverage tests for planning branches."""
+
+@dataclass(frozen=True, slots=True)
+class PartitionChangeCase:
+    """One partition change scenario for parametrized testing."""
+
+    name: str
+    stored: PartitionManifest | None
+    signature: str
+    rebuild: bool
+    changed: set[str]
+    removed: set[str]
 
 
 pytestmark = pytest.mark.usefixtures("test_settings")
@@ -49,7 +59,11 @@ class TestPlanningPlanPartitioned:
         self,
         bigquery: Client,
     ) -> None:
-        """Verify plan partitioned table builds changed plan."""
+        """
+        GIVEN: a partitioned table with changed partitions and no stored manifest.
+        WHEN: plan_partitioned_table is called.
+        THEN: it returns a changed plan and tasks.
+        """
         table = PartitionedTable(name="p.d.t")
         current = {
             "1": PhysicalPartition(
@@ -77,6 +91,7 @@ class TestPlanningPlanPartitioned:
                 "b",
                 connect(":memory:"),
             )
+
         assert plan is not None
         assert tasks
 
@@ -85,7 +100,11 @@ class TestPlanningPlanPartitioned:
         self,
         bigquery: Client,
     ) -> None:
-        """Verify plan partitioned tables groups partitioned tables."""
+        """
+        GIVEN: a config with one partitioned table.
+        WHEN: plan_partitioned_tables is called.
+        THEN: it groups the table plan by table name.
+        """
         config = SyncConfig(
             schemas={"d": SchemaConfig(tables=[PartitionedTable(name="p.d.t")])}
         )
@@ -114,17 +133,18 @@ class TestPlanningPlanPartitioned:
         assert tasks == []
 
 
-"""Coverage for planning orchestration branches."""
-
-
 class TestPlanningBuildSync:
     """Tests for BuildSync behavior."""
 
     @pytest.mark.asyncio
-    async def test_build_sync_work_no_changes(
+    async def test_build_sync_work_returns_empty_when_no_changes(
         self,
     ) -> None:
-        """Verify build sync work no changes."""
+        """
+        GIVEN: an empty sync config with no changes.
+        WHEN: build_sync_work is called.
+        THEN: it returns empty plans and tasks.
+        """
         config = SyncConfig(schemas={})
         with (
             patch(
@@ -145,7 +165,11 @@ class TestPlanningBuildSync:
     async def test_build_sync_work_groups_full_table_by_schema(
         self,
     ) -> None:
-        """Verify build sync work groups full table by schema."""
+        """
+        GIVEN: a config with a changed full table.
+        WHEN: build_sync_work is called.
+        THEN: it groups the full table task by schema.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
         )
@@ -178,7 +202,11 @@ class TestPlanning:
     async def test_build_sync_work_groups_partitioned_plan(
         self,
     ) -> None:
-        """Verify build sync work groups partitioned plan."""
+        """
+        GIVEN: a config with a partitioned table plan.
+        WHEN: build_sync_work is called.
+        THEN: it groups the partitioned plan by schema.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[PartitionedTable(name="p.app.t")])}
         )
@@ -204,10 +232,14 @@ class TestPlanning:
             )
         assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
-    def test_sync_work_has_named_parts(
+    def test_sync_work_exposes_plans_and_tasks_lists(
         self,
     ) -> None:
-        """Verify sync work has named parts."""
+        """
+        GIVEN: an empty SyncWork.
+        WHEN: its parts are accessed.
+        THEN: plans and tasks are both empty.
+        """
         work = SyncWork(plans=[], tasks=[])
         assert work.plans == []
         assert work.tasks == []
@@ -215,63 +247,68 @@ class TestPlanning:
     @pytest.mark.parametrize(
         "case",
         [
-            {
-                "name": "new",
-                "stored": None,
-                "signature": "s",
-                "rebuild": True,
-                "changed": {"1"},
-                "removed": set[str](),
-            },
-            {
-                "name": "unchanged",
-                "stored": PartitionManifest(
+            PartitionChangeCase("new", None, "s", True, {"1"}, set[str]()),
+            PartitionChangeCase(
+                "unchanged",
+                PartitionManifest(
                     table_signature="s",
                     partitions={"1": planning_partition("1", "new")},
                 ),
-                "signature": "s",
-                "rebuild": False,
-                "changed": set[str](),
-                "removed": set[str](),
-            },
-            {
-                "name": "rebuild",
-                "stored": PartitionManifest(
+                "s",
+                False,
+                set[str](),
+                set[str](),
+            ),
+            PartitionChangeCase(
+                "rebuild",
+                PartitionManifest(
                     table_signature="old", partitions={"1": planning_partition("1")}
                 ),
-                "signature": "s",
-                "rebuild": True,
-                "changed": {"1"},
-                "removed": set[str](),
-            },
-            {
-                "name": "removed",
-                "stored": PartitionManifest(
+                "s",
+                True,
+                {"1"},
+                set[str](),
+            ),
+            PartitionChangeCase(
+                "removed",
+                PartitionManifest(
                     table_signature="s", partitions={"2": planning_partition("2")}
                 ),
-                "signature": "s",
-                "rebuild": False,
-                "changed": {"1"},
-                "removed": {"2"},
-            },
+                "s",
+                False,
+                {"1"},
+                {"2"},
+            ),
         ],
-        ids=lambda case: case["name"],
+        ids=lambda case: case.name,
     )
-    def test_partition_changes_table_cases(self, case: dict[str, object]) -> None:
-        """Verify partition changes table cases."""
+    def test_partition_changes_detects_new_unchanged_rebuild_and_removed(
+        self, case: PartitionChangeCase
+    ) -> None:
+        """
+        GIVEN: current partitions and a stored manifest with various change scenarios.
+        WHEN: partition_changes is called.
+        THEN: it returns the correct rebuild, changed, and removed sets.
+        """
         result = partition_changes(
             {"1": planning_partition("1", "new")},
-            cast("PartitionManifest | None", case["stored"]),
-            cast(str, case["signature"]),
+            case.stored,
+            case.signature,
         )
         assert (result.full_rebuild, result.changed, result.removed) == (
-            case["rebuild"],
-            case["changed"],
-            case["removed"],
+            case.rebuild,
+            case.changed,
+            case.removed,
         )
 
-    def test_expand_config_and_json_columns(self, duckdb: DuckDBPyConnection) -> None:
-        """Verify expand config and json columns."""
+    def test_expand_config_discovers_json_columns_for_full_tables(
+        self, duckdb: DuckDBPyConnection
+    ) -> None:
+        """
+        GIVEN: a full table config with no JSON columns.
+        WHEN: expand_config is called.
+        THEN: tasks have empty json_columns and the table signature is derived from the modified column.
+        """
         config: list[TableConfig] = [FullTable(name="p.d.t")]
         with patch("dp.planning.discover_json_columns", return_value=[]):
             tasks = expand_config(config, "bucket", "run", duckdb)
@@ -281,7 +318,11 @@ class TestPlanning:
     def test_partition_tasks_order_numeric_before_remainder(
         self,
     ) -> None:
-        """Verify partition tasks order numeric before remainder."""
+        """
+        GIVEN: partitions with numeric and __NULL__ ids.
+        WHEN: build_partition_tasks is called.
+        THEN: numeric partitions are ordered before the remainder.
+        """
         table = PartitionedTable(name="p.d.t")
         current = {
             "10": planning_partition("10"),
@@ -291,8 +332,14 @@ class TestPlanning:
         batch = build_partition_tasks(table, current, set(current), "run", "bucket", [])
         assert list(batch.paths) == ["2", "10", "__NULL__"]
 
-    def test_discover_json_columns(self, duckdb: DuckDBPyConnection) -> None:
-        """Verify discover json columns."""
+    def test_discover_json_columns_returns_only_struct_columns(
+        self, duckdb: DuckDBPyConnection
+    ) -> None:
+        """
+        GIVEN: a source table with a STRUCT column and a VARCHAR column.
+        WHEN: discover_json_columns is called.
+        THEN: it returns only the STRUCT column name.
+        """
         duckdb.execute("CREATE TABLE source (a STRUCT(x INTEGER), b VARCHAR)")
         with patch("dp.planning.load_template", return_value="DESCRIBE source"):
             assert discover_json_columns(duckdb, "p.d.t") == ["a"]
@@ -302,7 +349,11 @@ class TestPlanning:
         self,
         bigquery: Client,
     ) -> None:
-        """Verify detect changes filters unchanged and partitioned."""
+        """
+        GIVEN: a config with an unchanged full table and a partitioned table.
+        WHEN: detect_changes is called.
+        THEN: only the changed full table is returned.
+        """
         config = SyncConfig(
             schemas={
                 "d": SchemaConfig(
@@ -326,11 +377,15 @@ class TestPlanning:
         assert set(result) == {"p.d.t"}
 
     @pytest.mark.asyncio
-    async def test_partitioned_without_changes_returns_none(
+    async def test_partitioned_table_returns_none_when_unchanged(
         self,
         bigquery: Client,
     ) -> None:
-        """Verify partitioned without changes returns none."""
+        """
+        GIVEN: a partitioned table with no changes since the stored manifest.
+        WHEN: plan_partitioned_table is called.
+        THEN: it returns no plan and no tasks.
+        """
         table = PartitionedTable(name="p.d.t")
         with (
             patch(
@@ -359,7 +414,11 @@ class TestPlanning:
 
     @pytest.mark.asyncio
     async def test_partitioned_tables_skips_full_tables(self, bigquery: Client) -> None:
-        """Verify partitioned tables skips full tables."""
+        """
+        GIVEN: a config with only full tables.
+        WHEN: plan_partitioned_tables is called.
+        THEN: it returns no plans and no tasks.
+        """
         config = SyncConfig(
             schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])}
         )

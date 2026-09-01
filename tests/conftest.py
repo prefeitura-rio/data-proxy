@@ -2,7 +2,9 @@
 
 import secrets
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import LiteralString, cast
 from unittest.mock import MagicMock
 from urllib.parse import urlsplit, urlunsplit
@@ -14,6 +16,7 @@ from fakeredis import FakeAsyncRedis
 from faststream.redis import RedisBroker, TestRedisBroker
 from google.cloud.bigquery import (
     Client,
+    Row,
     Table,
 )
 from minio import Minio
@@ -22,7 +25,18 @@ from redis.asyncio import Redis
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
 
-from dp.models import SchemaWriters
+from dp.bigquery.config import PartitionKindConfig
+from dp.models import (
+    AllSelection,
+    DumpTask,
+    FullTable,
+    PartitionedTable,
+    PartitionedTablePlan,
+    PhysicalPartition,
+    SchemaWriters,
+    TaskSelection,
+    UnitMapping,
+)
 from dp.settings import Settings, settings
 from dp.sync.dumper import broker as dumper_broker
 from dp.sync.producer import broker as producer_broker
@@ -54,6 +68,92 @@ def schema_writers() -> SchemaWriters:
     return SchemaWriters(
         writers={"app": "postgresql://writer", "other": "postgresql://writer"}
     )
+
+
+@pytest.fixture
+def standard_dump_task() -> DumpTask:
+    """Return a standard dump task for tests."""
+    return DumpTask(
+        run_id="r1",
+        table="p.d.t",
+        bucket_path="s3://b/t",
+        selection=AllSelection(),
+    )
+
+
+@pytest.fixture
+def invalid_rls() -> list[UnitMapping]:
+    """Return an invalid runtime RLS value for guard tests."""
+    return cast("list[UnitMapping]", cast(object, "invalid"))
+
+
+@pytest.fixture
+def invalid_partition_plan() -> PartitionedTablePlan:
+    """Return an invalid partition plan for guard tests."""
+    return cast("PartitionedTablePlan", cast(object, "invalid"))
+
+
+@pytest.fixture
+def invalid_physical_partition() -> PhysicalPartition:
+    """Return a physical partition with an invalid selection."""
+    return cast(
+        "PhysicalPartition",
+        cast(object, SimpleNamespace(selection=object())),
+    )
+
+
+@pytest.fixture
+def invalid_dump_task() -> DumpTask:
+    """Return a dump task with an invalid selection."""
+    return cast(
+        DumpTask,
+        cast(
+            object,
+            type(
+                "InvalidTask",
+                (),
+                {
+                    "table": "p.d.t",
+                    "bucket_path": "s3://b",
+                    "json_columns": [],
+                    "selection": object(),
+                },
+            )(),
+        ),
+    )
+
+
+@pytest.fixture
+def invalid_partition_row() -> Row:
+    """Return an invalid partition row for guard tests."""
+    return cast(
+        "Row",
+        cast(object, {"partition_id": "1", "last_modified_time": datetime.now(UTC)}),
+    )
+
+
+@pytest.fixture
+def invalid_kind_config() -> PartitionKindConfig:
+    """Return an invalid partition kind config for guard tests."""
+    return cast("PartitionKindConfig", cast(object, "invalid"))
+
+
+@pytest.fixture
+def invalid_selection() -> TaskSelection:
+    """Return an unknown task selection for guard tests."""
+    return cast("TaskSelection", object())
+
+
+@pytest.fixture
+def full_table() -> FullTable:
+    """Return a full table in the app schema for tests."""
+    return FullTable(name="p.app.t", resolved_schema="app")
+
+
+@pytest.fixture
+def partitioned_table() -> PartitionedTable:
+    """Return a partitioned table in the app schema for tests."""
+    return PartitionedTable(name="p.app.t", resolved_schema="app")
 
 
 @pytest.fixture

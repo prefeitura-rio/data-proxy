@@ -20,17 +20,25 @@ pytestmark = pytest.mark.usefixtures("test_settings")
 class TestProducer:
     """Tests for producer planning and dispatch behavior."""
 
-    def test_empty_work_has_no_tasks(
+    def test_empty_sync_work_has_no_tasks(
         self,
     ) -> None:
-        """Verify empty work has no tasks."""
+        """
+        GIVEN: an empty SyncWork.
+        WHEN: its tasks are accessed.
+        THEN: there are no tasks.
+        """
         assert SyncWork(plans=[], tasks=[]).tasks == []
 
     @pytest.mark.asyncio
-    async def test_producer_exits_when_no_changes(
+    async def test_producer_exits_when_no_changes_detected(
         self, sync_config_path: Path, redis: Redis
     ) -> None:
-        """Verify producer exits when no changes."""
+        """
+        GIVEN: no changes detected by build_sync_work.
+        WHEN: produce runs.
+        THEN: the producer application exits.
+        """
         with (
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
@@ -45,13 +53,17 @@ class TestProducer:
         exit_app.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_producer_publishes_dumps(
+    async def test_producer_publishes_each_dump_task(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify producer publishes dumps."""
+        """
+        GIVEN: a sync work with dump tasks.
+        WHEN: produce runs.
+        THEN: each dump task is published.
+        """
         task = DumpTask(
             run_id="run",
             table="p.d.t",
@@ -89,22 +101,23 @@ class TestProducer:
         dump_task.mock.assert_called_with(task.model_dump(mode="json"))
 
     @pytest.mark.asyncio
-    async def test_producer_recovers_zero_remaining_run(
+    async def test_producer_recovers_run_with_zero_remaining_tasks(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify producer recovers zero remaining run."""
-        fake = redis
-        await fake.set("dp:active", "old")
-        await fake.set("dp:remaining:old", "0")
+        """
+        GIVEN: an active run with zero remaining tasks.
+        WHEN: produce runs.
+        THEN: the producer recovers the run and publishes a seed sync.
+        """
+        await redis.set("dp:active", "old")
+        await redis.set("dp:remaining:old", "0")
         with patch.object(producer, "exit"):
             await produce()
         assert seed_sync.mock.call_count == 2
         seed_sync.mock.assert_called_with({"run_id": "old"})
-
-    """Pipeline branch coverage."""
 
     @pytest.mark.asyncio
     async def test_producer_refuses_active_run_with_remaining_tasks(
@@ -113,22 +126,29 @@ class TestProducer:
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify producer refuses active run with remaining tasks."""
-        fake = redis
-        await fake.set("dp:active", "old")
-        await fake.set("dp:remaining:old", "2")
+        """
+        GIVEN: an active run with remaining tasks.
+        WHEN: produce runs.
+        THEN: the producer refuses to start a new run and does not publish a seed.
+        """
+        await redis.set("dp:active", "old")
+        await redis.set("dp:remaining:old", "2")
         with patch.object(producer, "exit"):
             await produce()
         assert not seed_sync.mock.called
 
     @pytest.mark.asyncio
-    async def test_producer_publishes_seed_for_zero_dumps(
+    async def test_producer_publishes_seed_sync_when_no_dumps(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify producer publishes seed for zero dumps."""
+        """
+        GIVEN: a sync work with plans but zero dump tasks.
+        WHEN: produce runs.
+        THEN: the producer publishes a seed sync for the run.
+        """
         with (
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
@@ -160,7 +180,11 @@ class TestProducer:
         sync_config_path: Path,
         redis: Redis,
     ) -> None:
-        """Verify producer rejects run creation conflict."""
+        """
+        GIVEN: a run creation conflict where create_run returns False.
+        WHEN: produce runs.
+        THEN: the producer rejects the new run without publishing dumps.
+        """
         with (
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),

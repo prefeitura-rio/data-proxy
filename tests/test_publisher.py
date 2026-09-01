@@ -38,19 +38,24 @@ class TestPublisher:
     def test_publisher_has_new_and_stale_subscriptions(
         self,
     ) -> None:
-        """Verify publisher has new and stale subscriptions."""
+        """
+        GIVEN: the publisher subscriber configuration.
+        WHEN: the subscriptions are inspected.
+        THEN: new has no min_idle_time and stale does.
+        """
         assert subs["new"].min_idle_time is None
         assert subs["stale"].min_idle_time is not None
 
-    """Coverage for Publisher terminal paths."""
-
     @pytest.mark.asyncio
-    async def test_missing_publish_plan_exits(
+    async def test_missing_publish_plan_exits_application(
         self, sync_config_path: Path, redis: Redis
     ) -> None:
-        """Verify missing publish plan exits."""
-        fake = redis
-        await fake.set("dp:active", "r1")
+        """
+        GIVEN: an active run with no remaining publish plan.
+        WHEN: publish_schema is called.
+        THEN: the publisher application exits.
+        """
+        await redis.set("dp:active", "r1")
         with (
             patch("dp.sync.publisher.psycopg.connect", return_value=MagicMock()),
             patch("dp.sync.publisher.reload_postgrest"),
@@ -59,13 +64,15 @@ class TestPublisher:
             await publish_schema(PublishTask(run_id="r1", schema_name="app"))
         exit_app.assert_called_once()
 
-    """Additional Publisher coverage."""
-
     def test_publish_plan_wraps_connections(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Verify publish plan wraps connections."""
+        """
+        GIVEN: a writer DSN, config, and plan.
+        WHEN: publish_plan is called.
+        THEN: it wraps PostgreSQL and DuckDB connections and delegates to apply_sync_plan.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
         )
@@ -89,19 +96,22 @@ class TestPublisher:
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify publish schema publishes and keeps remaining plan."""
+        """
+        GIVEN: a stored plan with remaining schemas after publication.
+        WHEN: publish_schema is called.
+        THEN: it publishes the schema and keeps the remaining plan.
+        """
         sync_config_path.write_text(
             SyncConfig(
                 schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.t")])}
             ).model_dump_json()
         )
-        fake = redis
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.app.t": "sig"},
             paths={"p.app.t": ["s3://b/t"]},
         )
-        await fake.hset("dp:plans:r1", "app", plan.model_dump_json())
+        await redis.hset("dp:plans:r1", "app", plan.model_dump_json())
         result = PublicationResult(plan=plan, published_tables={"p.app.t"})
         with (
             patch.object(publisher, "exit"),
@@ -117,22 +127,17 @@ class TestPublisher:
             )
         assert publish_schema.mock.call_count == 2
 
-    """Publisher path coverage."""
-
-    def partition(self) -> PhysicalPartition:
-        return PhysicalPartition(
-            partition_id="1",
-            signature="s",
-            selection=RangeSelection(partition_id="1", column="id", lower=1, upper=2),
-        )
-
     @pytest.mark.asyncio
     async def test_publisher_commits_partition_state_and_cleans_last_plan(
         self,
         sync_config_path: Path,
         redis: Redis,
     ) -> None:
-        """Verify publisher commits partition state and cleans last plan."""
+        """
+        GIVEN: a published partitioned table with zero remaining schemas.
+        WHEN: publish_schema is called.
+        THEN: it commits the partition state and cleans the last plan.
+        """
         sync_config_path.write_text(
             SyncConfig(
                 schemas={"app": SchemaConfig(tables=[PartitionedTable(name="p.app.t")])}
@@ -144,7 +149,15 @@ class TestPublisher:
                 "p.app.t": PartitionedTablePlan(
                     table_signature="table",
                     full_rebuild=True,
-                    current_partitions={"1": self.partition()},
+                    current_partitions={
+                        "1": PhysicalPartition(
+                            partition_id="1",
+                            signature="s",
+                            selection=RangeSelection(
+                                partition_id="1", column="id", lower=1, upper=2
+                            ),
+                        )
+                    },
                     changed_paths={"1": "s3://b"},
                     removed_partitions={},
                 )
@@ -177,8 +190,14 @@ class TestPublisher:
             await publish_schema(PublishTask(run_id="r1", schema_name="app"))
 
     @pytest.mark.asyncio
-    async def test_publisher_cleanup_removes_consumers(self, redis: Redis) -> None:
-        """Verify publisher cleanup removes consumers."""
+    async def test_publisher_cleanup_removes_each_consumer_once(
+        self, redis: Redis
+    ) -> None:
+        """
+        GIVEN: two publisher consumers.
+        WHEN: cleanup_publisher_consumers runs.
+        THEN: each consumer is cleaned up exactly once.
+        """
         with (
             patch(
                 "dp.sync.publisher.cleanup_consumer", new_callable=AsyncMock

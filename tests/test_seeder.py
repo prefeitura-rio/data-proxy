@@ -24,14 +24,16 @@ pytestmark = pytest.mark.usefixtures("test_settings")
 class TestSeeder:
     """Tests for seeder dispatch behavior."""
 
-    def test_dispatch_exists_uses_run_id(
+    def test_dispatch_exists_matches_run_id_in_payload(
         self,
     ) -> None:
-        """Verify dispatch exists uses run id."""
+        """
+        GIVEN: stream entries with a run_id in the payload.
+        WHEN: dispatch_exists is called with a matching run id.
+        THEN: it returns True for a match and False for a mismatch.
+        """
         assert dispatch_exists([(b"1-0", {b"__data__": b'"run_id":"r1"'})], "r1")
         assert not dispatch_exists([(b"1-0", {b"__data__": b'"run_id":"r1"'})], "r2")
-
-    """Additional Seeder coverage."""
 
     @pytest.mark.asyncio
     async def test_seeder_groups_schemas_and_dispatches(
@@ -40,15 +42,18 @@ class TestSeeder:
         redis: Redis,
         broker: object,
     ) -> None:
-        """Verify seeder groups schemas and dispatches."""
+        """
+        GIVEN: stored plans for multiple schemas.
+        WHEN: seed_sync is called.
+        THEN: it groups schemas and dispatches each to publish_schema.
+        """
         sync_config_path.write_text(
             SyncConfig(
                 schemas={"app": SchemaConfig(), "other": SchemaConfig()}
             ).model_dump_json()
         )
-        fake = redis
         plans_key = "dp:plans:r1"
-        await fake.hset(
+        await redis.hset(
             plans_key,
             mapping={
                 "app": SyncPlan(schema_name="app").model_dump_json(),
@@ -75,34 +80,50 @@ class TestSeeder:
         assert publish_schema.mock.call_count == 4
 
     @pytest.mark.asyncio
-    async def test_seeder_cleanup_removes_consumers(self, redis: Redis) -> None:
-        """Verify seeder cleanup removes consumers."""
+    async def test_seeder_cleanup_removes_each_consumer_once(
+        self, redis: Redis
+    ) -> None:
+        """
+        GIVEN: two seeder consumers.
+        WHEN: cleanup_seeder_consumers runs.
+        THEN: each consumer is cleaned up exactly once.
+        """
         with (
             patch("dp.sync.seeder.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):
             await cleanup_seeder_consumers()
         assert cleanup.await_count == 2
 
-    """Pipeline branch coverage."""
-
     def test_expand_config_skips_partitioned(
         self,
     ) -> None:
-        """Verify expand config skips partitioned."""
+        """
+        GIVEN: a config with only partitioned tables.
+        WHEN: expand_config is called.
+        THEN: it returns no tasks.
+        """
         db = connect(":memory:")
         assert expand_config([PartitionedTable(name="p.d.t")], "b", "r", db) == []
 
-    def test_seeder_dispatch_guard(
+    def test_dispatch_exists_returns_false_for_empty_stream(
         self,
     ) -> None:
-        """Verify seeder dispatch guard."""
+        """
+        GIVEN: an empty stream.
+        WHEN: dispatch_exists is called.
+        THEN: it returns False.
+        """
         assert dispatch_exists([], "r1") is False
 
     @pytest.mark.asyncio
     async def test_seeder_skips_existing_dispatch(
         self, sync_config_path: Path, redis: Redis
     ) -> None:
-        """Verify seeder skips existing dispatch."""
+        """
+        GIVEN: an existing dispatch for the run.
+        WHEN: seed_sync is called.
+        THEN: the seeder skips dispatch and exits.
+        """
         with (
             patch("dp.sync.seeder.dispatch_exists", return_value=True),
             patch.object(seeder, "exit") as exit_app,

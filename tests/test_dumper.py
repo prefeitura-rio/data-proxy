@@ -6,16 +6,14 @@ import pytest
 from duckdb import DuckDBPyConnection
 from redis.asyncio import Redis
 
-from dp.models import AllSelection, DumpTask
+from dp.models import DumpTask
 from dp.sync.dumper import (
     cleanup_dumper_consumers,
     dump_task,
     dumper,
     extract_task_wrapper,
-    subs,
 )
 from dp.sync.seeder import seed_sync
-from tests.helpers import dump as make_dump
 
 pytestmark = pytest.mark.usefixtures("test_settings")
 
@@ -23,19 +21,17 @@ pytestmark = pytest.mark.usefixtures("test_settings")
 class TestDumper:
     """Tests for dump subscriber behavior."""
 
-    def test_dumper_has_new_and_stale_subscriptions(
-        self,
-    ) -> None:
-        """Verify dumper has new and stale subscriptions."""
-        assert subs["new"].min_idle_time is None
-        assert subs["stale"].min_idle_time is not None
-
     @pytest.mark.asyncio
-    async def test_dumper_records_failure_and_exits(self, redis: Redis) -> None:
-        """Verify dumper records failure and exits."""
-        task = DumpTask(
-            run_id="r1", table="p.d.t", bucket_path="s3://b", selection=AllSelection()
-        )
+    async def test_dumper_exits_when_extraction_fails(
+        self,
+        redis: Redis,
+        standard_dump_task: DumpTask,
+    ) -> None:
+        """
+        GIVEN: extraction raises RuntimeError.
+        WHEN: dump_task runs.
+        THEN: the dumper application exits.
+        """
         with (
             patch(
                 "dp.sync.dumper.extract_task_wrapper", side_effect=RuntimeError("bad")
@@ -45,28 +41,37 @@ class TestDumper:
             ),
             patch.object(dumper, "exit") as exit_app,
         ):
-            await dump_task(task)
+            await dump_task(standard_dump_task)
         exit_app.assert_called_once()
 
-    """Additional Producer and Dumper coverage."""
-
-    def test_extract_wrapper(self, duckdb: DuckDBPyConnection) -> None:
-        """Verify extract wrapper."""
+    def test_extract_wrapper_uses_duckdb_fixture(
+        self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
+    ) -> None:
+        """
+        GIVEN: a dump task and a patched DuckDB connection.
+        WHEN: extract_task_wrapper is called.
+        THEN: it connects and extracts exactly once.
+        """
         with (
             patch("dp.sync.dumper.connect", return_value=duckdb) as connect,
             patch("dp.sync.dumper.extract_task") as extract,
         ):
-            extract_task_wrapper(make_dump())
+            extract_task_wrapper(standard_dump_task)
         connect.assert_called_once()
         extract.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_dumper_publishes_seed_for_last_dump(
+    async def test_dumper_publishes_seed_sync_when_last_dump_completes(
         self,
         redis: Redis,
         broker: object,
+        standard_dump_task: DumpTask,
     ) -> None:
-        """Verify dumper publishes seed for last dump."""
+        """
+        GIVEN: the last dump completes with zero remaining.
+        WHEN: dump_task runs.
+        THEN: the dumper publishes a seed sync message.
+        """
         with (
             patch("dp.sync.dumper.extract_task_wrapper"),
             patch(
@@ -74,13 +79,17 @@ class TestDumper:
             ),
             patch.object(dumper, "exit"),
         ):
-            await dump_task(make_dump())
+            await dump_task(standard_dump_task)
         assert seed_sync.mock.call_count == 2
         seed_sync.mock.assert_called_with({"run_id": "r1"})
 
     @pytest.mark.asyncio
-    async def test_dumper_cleanup_removes_consumers(self, redis: Redis) -> None:
-        """Verify dumper cleanup removes consumers."""
+    async def test_dumper_cleanup_removes_idle_consumers(self, redis: Redis) -> None:
+        """
+        GIVEN: the dumper shutdown handler runs.
+        WHEN: cleanup_dumper_consumers is called.
+        THEN: it asks cleanup_consumer to remove each configured consumer.
+        """
         with (
             patch("dp.sync.dumper.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):

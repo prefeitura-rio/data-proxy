@@ -305,13 +305,6 @@ class DumpFailure(BaseModel):
 DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]
 
 
-class CompletionResult(BaseModel):
-    """Result of one idempotent task completion."""
-
-    remaining: int
-    should_finalize: bool
-
-
 class PartitionedTablePlan(BaseModel):
     """Current and affected physical partitions for one table."""
 
@@ -393,13 +386,6 @@ class SyncWork:
 
     plans: list[SyncPlan]
     tasks: list[DumpTask]
-
-
-class SyncStateUpdate(BaseModel):
-    """Committed state for successful tables."""
-
-    signatures: dict[str, str] = {}
-    partitions: dict[str, PartitionManifest] = {}
 
 
 class SyncPublicationInput(BaseModel):

@@ -11,10 +11,14 @@ class TestErrors:
     """Tests for error handling behavior."""
 
     @pytest.mark.asyncio
-    async def test_logs_error_before_stopping_application(
+    async def test_stop_on_error_logs_then_raises_stop_application(
         self,
     ) -> None:
-        """The original exception is logged before the application stops."""
+        """
+        GIVEN: a subscriber raises RuntimeError.
+        WHEN: stop_on_error handles the error.
+        THEN: the error is logged and StopApplication is raised with the original cause.
+        """
         error = RuntimeError("boom")
         messages: list[str] = []
         sink_id = logger.add(messages.append, level="ERROR")

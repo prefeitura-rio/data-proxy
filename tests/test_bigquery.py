@@ -1,7 +1,6 @@
 """Tests for BigQuery table metadata helpers."""
 
-from datetime import UTC, datetime
-from typing import cast
+from dataclasses import dataclass
 
 import pytest
 from google.cloud.bigquery import Client, Row
@@ -17,11 +16,44 @@ from dp.bigquery.tables import parse_table_reference, table_modified
 from dp.models import RangeSelection
 
 
+@dataclass(frozen=True, slots=True)
+class RangeConfigCase:
+    """One invalid range configuration case for parametrized testing."""
+
+    field: str
+    start: int
+    end: int
+    interval: int
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class TimeGranularityCase:
+    """One time-partition granularity case for parametrized testing."""
+
+    type: str
+    partition_id: str
+    lower: str
+    upper: str
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidMetadataCase:
+    """One invalid metadata case for parametrized testing."""
+
+    table: str
+    message: str
+
+
 class TestBigQueryTableModified:
     """Tests for TableModified behavior."""
 
     def test_table_modified_returns_epoch_milliseconds(self, bigquery: Client) -> None:
-        """A real emulator metadata timestamp is normalized to epoch milliseconds."""
+        """
+        GIVEN: a table with a real metadata timestamp.
+        WHEN: table_modified is called.
+        THEN: it returns the timestamp as epoch milliseconds.
+        """
         bigquery.get_table("test.dataset.plain")
 
         result = table_modified(bigquery, "test.dataset.plain")
@@ -32,7 +64,11 @@ class TestBigQueryTableModified:
         self,
         bigquery: Client,
     ) -> None:
-        """Missing modification metadata fails instead of silently resyncing."""
+        """
+        GIVEN: a table without modification metadata.
+        WHEN: table_modified is called.
+        THEN: it raises ValueError instead of silently resyncing.
+        """
         with pytest.raises(ValueError, match="Missing BigQuery modification time"):
             table_modified(bigquery, "test.dataset.missing_modified")
 
@@ -43,7 +79,11 @@ class TestBigQueryPhysicalPartitions:
     def test_physical_partitions_normalizes_existing_range_buckets(
         self, bigquery: Client
     ) -> None:
-        """BigQuery range metadata becomes generic lower and upper bounds."""
+        """
+        GIVEN: a range-partitioned table with aligned buckets.
+        WHEN: physical_partitions is called.
+        THEN: range metadata becomes generic lower and upper bounds.
+        """
         table_signature, partitions = physical_partitions(
             bigquery, "test.dataset.range_buckets", '{"strategy":"partitioned"}'
         )
@@ -67,7 +107,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """Range metadata with an explicit nonzero start remains unchanged."""
+        """
+        GIVEN: range metadata with an explicit nonzero start.
+        WHEN: physical_partitions is called.
+        THEN: the start remains unchanged.
+        """
         _, partitions = physical_partitions(
             bigquery, "test.dataset.range_start_five", "{}"
         )
@@ -80,7 +124,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """BigQuery's __NULL__ bucket becomes a remainder partition, not an error."""
+        """
+        GIVEN: a range-partitioned table with a __NULL__ bucket.
+        WHEN: physical_partitions is called.
+        THEN: the null bucket becomes a remainder partition.
+        """
         _, partitions = physical_partitions(bigquery, "test.dataset.range_null", "{}")
 
         remainder = partitions["__NULL__"].selection
@@ -93,7 +141,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """DAY time partitions normalize raw partition ids into [start, end) ranges."""
+        """
+        GIVEN: a DAY time-partitioned table.
+        WHEN: physical_partitions is called.
+        THEN: raw partition ids normalize into [start, end) date ranges.
+        """
         _, partitions = physical_partitions(bigquery, "test.dataset.time_day", "{}")
 
         assert partitions["20250101"].selection.model_dump() == {
@@ -106,57 +158,48 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.parametrize(
         "case",
         [
-            {
-                "type": "HOUR",
-                "partition_id": "2025010112",
-                "lower": "2025-01-01 12:00:00",
-                "upper": "2025-01-01 13:00:00",
-            },
-            {
-                "type": "DAY",
-                "partition_id": "20250101",
-                "lower": "2025-01-01",
-                "upper": "2025-01-02",
-            },
-            {
-                "type": "MONTH",
-                "partition_id": "202512",
-                "lower": "2025-12-01",
-                "upper": "2026-01-01",
-            },
-            {
-                "type": "YEAR",
-                "partition_id": "2025",
-                "lower": "2025-01-01",
-                "upper": "2026-01-01",
-            },
+            TimeGranularityCase(
+                "HOUR", "2025010112", "2025-01-01 12:00:00", "2025-01-01 13:00:00"
+            ),
+            TimeGranularityCase("DAY", "20250101", "2025-01-01", "2025-01-02"),
+            TimeGranularityCase("MONTH", "202512", "2025-12-01", "2026-01-01"),
+            TimeGranularityCase("YEAR", "2025", "2025-01-01", "2026-01-01"),
         ],
-        ids=lambda case: case["type"],
+        ids=lambda case: case.type,
     )
     def test_physical_partitions_normalizes_every_time_granularity(
-        self, bigquery: Client, case: dict[str, str]
+        self, bigquery: Client, case: TimeGranularityCase
     ) -> None:
-        """Every BigQuery time-partition granularity resolves correct [start, end) bounds."""
+        """
+        GIVEN: a time-partitioned table for each supported granularity.
+        WHEN: physical_partitions is called.
+        THEN: each partition id resolves to its correct [start, end) bounds.
+        """
         table_name = {
             "HOUR": "time_hour",
             "DAY": "time_day",
             "MONTH": "time_month",
             "YEAR": "time_year",
-        }[case["type"]]
+        }[case.type]
+
         _, partitions = physical_partitions(
             bigquery, f"test.dataset.{table_name}", "{}"
         )
 
-        selection = partitions[case["partition_id"]].selection
+        selection = partitions[case.partition_id].selection
         assert selection.model_dump() == {
             "type": "time_range",
             "column": "data_particao",
-            "lower": case["lower"],
-            "upper": case["upper"],
+            "lower": case.lower,
+            "upper": case.upper,
         }
 
     def test_physical_partitions_skips_time_null_bucket(self, bigquery: Client) -> None:
-        """The __NULL__ bucket is meaningless for a time column and is skipped."""
+        """
+        GIVEN: a time-partitioned table with a __NULL__ bucket.
+        WHEN: physical_partitions is called.
+        THEN: the null bucket is skipped.
+        """
         _, partitions = physical_partitions(
             bigquery, "test.dataset.time_day_skip", "{}"
         )
@@ -166,7 +209,11 @@ class TestBigQueryPhysicalPartitions:
     def test_physical_partitions_keeps_last_n_time_partitions(
         self, bigquery: Client
     ) -> None:
-        """n keeps only the highest n time partition ids."""
+        """
+        GIVEN: a time-partitioned table with more than n partitions.
+        WHEN: physical_partitions is called with n=2.
+        THEN: only the highest n partition ids are kept.
+        """
         _, partitions = physical_partitions(
             bigquery, "test.dataset.time_day", "{}", n=2
         )
@@ -177,7 +224,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """n only makes sense for time-partitioned tables."""
+        """
+        GIVEN: a range-partitioned table.
+        WHEN: physical_partitions is called with n=2.
+        THEN: it raises ValueError because n only supports time partitions.
+        """
         with pytest.raises(
             ValueError, match="n is only supported for time-partitioned"
         ):
@@ -187,7 +238,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """An unrecognized BigQuery time-partition granularity fails explicitly."""
+        """
+        GIVEN: a table with an unrecognized time partition granularity.
+        WHEN: physical_partitions is called.
+        THEN: it raises ValueError.
+        """
         with pytest.raises(ValueError, match="Unsupported time partition granularity"):
             physical_partitions(bigquery, "test.dataset.time_week", "{}")
 
@@ -195,7 +250,11 @@ class TestBigQueryPhysicalPartitions:
         self,
         bigquery: Client,
     ) -> None:
-        """Ingestion-time partitioning without an explicit field is unsupported."""
+        """
+        GIVEN: a table with ingestion-time partitioning and no explicit field.
+        WHEN: physical_partitions is called.
+        THEN: it raises ValueError.
+        """
         with pytest.raises(ValueError, match="Ingestion-time partitioning"):
             physical_partitions(bigquery, "test.dataset.time_ingestion", "{}")
 
@@ -206,7 +265,11 @@ class TestBigQuery:
     def test_parse_table_reference_returns_named_fields(
         self,
     ) -> None:
-        """A valid reference exposes project, dataset, and table attributes."""
+        """
+        GIVEN: a valid project.dataset.table reference.
+        WHEN: parse_table_reference is called.
+        THEN: it exposes project, dataset, and table attributes.
+        """
         reference = parse_table_reference("project.dataset.table-name")
 
         assert reference.project == "project"
@@ -216,108 +279,94 @@ class TestBigQuery:
     @pytest.mark.parametrize(
         "case",
         [
-            {
-                "field": "",
-                "start": 0,
-                "end": 10,
-                "interval": 1,
-                "message": "field must not be empty",
-            },
-            {
-                "field": "id",
-                "start": 0,
-                "end": 10,
-                "interval": 0,
-                "message": "interval must be positive",
-            },
-            {
-                "field": "id",
-                "start": 10,
-                "end": 10,
-                "interval": 1,
-                "message": "start must precede end",
-            },
+            RangeConfigCase("", 0, 10, 1, "field must not be empty"),
+            RangeConfigCase("id", 0, 10, 0, "interval must be positive"),
+            RangeConfigCase("id", 10, 10, 1, "start must precede end"),
         ],
-        ids=lambda case: case["message"],
+        ids=lambda case: case.message,
     )
-    def test_range_config_rejects_invalid_values(self, case: dict[str, object]) -> None:
-        """Range configuration owns its value invariants."""
-        with pytest.raises(ValueError, match=cast(str, case["message"])):
+    def test_range_config_rejects_invalid_field_interval_and_bounds(
+        self, case: RangeConfigCase
+    ) -> None:
+        """
+        GIVEN: invalid range configuration values.
+        WHEN: RangeConfig is constructed.
+        THEN: it raises ValueError with the invariant message.
+        """
+        with pytest.raises(ValueError, match=case.message):
             RangeConfig(
-                cast(str, case["field"]),
-                cast(int, case["start"]),
-                cast(int, case["end"]),
-                cast(int, case["interval"]),
+                case.field,
+                case.start,
+                case.end,
+                case.interval,
             )
 
     def test_time_config_rejects_empty_field(
         self,
     ) -> None:
-        """Time configuration requires a partition field."""
+        """
+        GIVEN: an empty partition field.
+        WHEN: TimeConfig is constructed.
+        THEN: it raises ValueError.
+        """
         with pytest.raises(ValueError, match="field must not be empty"):
             TimeConfig("", TimeGranularity.DAY)
 
     @pytest.mark.parametrize(
         "case",
         [
-            {
-                "table": "plain",
-                "message": "requires a time- or range-partitioned table",
-            },
-            {
-                "table": "range_view",
-                "message": "requires a physically partitioned table",
-            },
-            {
-                "table": "range_missing_interval",
-                "message": "Incomplete range partition metadata",
-            },
-            {
-                "table": "range_zero_interval",
-                "message": "Invalid range partition metadata",
-            },
-            {
-                "table": "range_unpartitioned",
-                "message": "Unsupported BigQuery partition",
-            },
-            {"table": "range_bad_id", "message": "Invalid range partition ID"},
-            {"table": "range_misaligned_id", "message": "Invalid range partition ID"},
-            {
-                "table": "range_missing_partition_modified",
-                "message": "Missing partition modification time",
-            },
-            {
-                "table": "time_unpartitioned",
-                "message": "Unsupported BigQuery partition",
-            },
-            {"table": "time_bad_id", "message": "Invalid time partition ID"},
+            InvalidMetadataCase("plain", "requires a time- or range-partitioned table"),
+            InvalidMetadataCase(
+                "range_view", "requires a physically partitioned table"
+            ),
+            InvalidMetadataCase(
+                "range_missing_interval", "Incomplete range partition metadata"
+            ),
+            InvalidMetadataCase(
+                "range_zero_interval", "Invalid range partition metadata"
+            ),
+            InvalidMetadataCase(
+                "range_unpartitioned", "Unsupported BigQuery partition"
+            ),
+            InvalidMetadataCase("range_bad_id", "Invalid range partition ID"),
+            InvalidMetadataCase("range_misaligned_id", "Invalid range partition ID"),
+            InvalidMetadataCase(
+                "range_missing_partition_modified",
+                "Missing partition modification time",
+            ),
+            InvalidMetadataCase("time_unpartitioned", "Unsupported BigQuery partition"),
+            InvalidMetadataCase("time_bad_id", "Invalid time partition ID"),
         ],
-        ids=lambda case: case["table"],
+        ids=lambda case: case.table,
     )
-    def test_physical_partitions_rejects_invalid_metadata(
-        self, bigquery: Client, case: dict[str, str]
+    def test_physical_partitions_rejects_invalid_metadata_cases(
+        self, bigquery: Client, case: InvalidMetadataCase
     ) -> None:
-        """Invalid or incomplete physical metadata fails explicitly."""
+        """
+        GIVEN: invalid or incomplete physical partition metadata.
+        WHEN: physical_partitions is called.
+        THEN: it raises ValueError or TypeError with an explicit message.
+        """
         with pytest.raises(
-            TypeError if "modification" in case["message"] else ValueError,
-            match=case["message"],
+            TypeError if "modification" in case.message else ValueError,
+            match=case.message,
         ):
-            physical_partitions(bigquery, f"test.dataset.{case['table']}", "{}")
+            physical_partitions(bigquery, f"test.dataset.{case.table}", "{}")
 
     def test_normalize_partition_rejects_invalid_kind_config(
         self,
+        invalid_partition_row: Row,
+        invalid_kind_config: PartitionKindConfig,
     ) -> None:
-        """Verify normalize partition rejects invalid kind config."""
+        """
+        GIVEN: an invalid partition kind config.
+        WHEN: normalize_partition is called.
+        THEN: it raises AssertionError.
+        """
         with pytest.raises(AssertionError):
             normalize_partition(
-                cast(
-                    "Row",
-                    cast(
-                        object,
-                        {"partition_id": "1", "last_modified_time": datetime.now(UTC)},
-                    ),
-                ),
+                invalid_partition_row,
                 "p.d.t",
-                cast("PartitionKindConfig", cast(object, "invalid")),
+                invalid_kind_config,
                 "sig",
             )

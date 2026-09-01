@@ -1,5 +1,3 @@
-from typing import cast
-
 import pytest
 from psycopg import Connection
 
@@ -13,14 +11,12 @@ class TestAuthorization:
     def test_bootstrap_rejects_an_invalid_runtime_rls_value(
         self,
         postgres: Connection[tuple[object, ...]],
+        invalid_rls: list[UnitMapping],
     ) -> None:
-        """Verify bootstrap rejects an invalid runtime rls value."""
-        invalid_rls = cast("list[UnitMapping]", cast(object, "invalid"))
+        """
+        GIVEN: an invalid runtime RLS value.
+        WHEN: bootstrap_table is called.
+        THEN: it raises AssertionError.
+        """
         with pytest.raises(AssertionError):
-            bootstrap_table(
-                postgres,
-                "app",
-                "table",
-                invalid_rls,
-                None,
-            )
+            bootstrap_table(postgres, "app", "table", invalid_rls, None)

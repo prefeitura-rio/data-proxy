@@ -46,6 +46,7 @@ from dp.publication import (
 )
 from dp.schema import initialize_schemas, reload_postgrest
 from dp.templates import TemplateSpec, load_template
+from tests.constants import FILES
 from tests.helpers import partition
 
 
@@ -55,7 +56,11 @@ class TestLoadingPartitionPredicate:
     def test_partition_predicate_matches_remainder_rows_outside_the_range(
         self,
     ) -> None:
-        """A remainder partition's predicate matches null and out-of-range rows."""
+        """
+        GIVEN: a remainder partition with [0, 100) bounds.
+        WHEN: partition_predicate is rendered.
+        THEN: it matches null and out-of-range rows.
+        """
         remainder = PhysicalPartition(
             partition_id="__NULL__",
             signature="signature",
@@ -71,7 +76,11 @@ class TestLoadingPartitionPredicate:
     def test_partition_predicate_matches_bounded_range_rows(
         self,
     ) -> None:
-        """An ordinary partition's predicate matches its [lower, upper) bounds."""
+        """
+        GIVEN: a bounded range partition with [10, 20) bounds.
+        WHEN: partition_predicate is rendered.
+        THEN: it matches rows within the [lower, upper) range.
+        """
         bounded = PhysicalPartition(
             partition_id="10",
             signature="signature",
@@ -88,7 +97,11 @@ class TestLoadingPartitionPredicate:
     def test_partition_predicate_matches_time_range_rows(
         self,
     ) -> None:
-        """A time partition's predicate matches its [lower, upper) date bounds."""
+        """
+        GIVEN: a time range partition with [2025-01-01, 2025-01-02) bounds.
+        WHEN: partition_predicate is rendered.
+        THEN: it matches rows within the [lower, upper) date range.
+        """
         value = PhysicalPartition(
             partition_id="20250101",
             signature="signature",
@@ -110,7 +123,11 @@ class TestLoadingPrepareTablesPaths:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A changed table absent from the plan's paths is logged and skipped."""
+        """
+        GIVEN: a changed table with no entry in the plan paths.
+        WHEN: prepare_tables runs.
+        THEN: it returns no prepared tables.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
         )
@@ -126,7 +143,11 @@ class TestLoadingPrepareTablesPaths:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Preparation loads only planned tables and their exact paths."""
+        """
+        GIVEN: a plan with exact paths for one changed table.
+        WHEN: prepare_tables runs.
+        THEN: it loads only the planned table and its exact paths.
+        """
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(
@@ -169,7 +190,11 @@ class TestLoadingReduceIncremental:
     def test_reduce_incremental_plan_keeps_failed_existing_partition(
         self,
     ) -> None:
-        """A failed existing partition keeps its old manifest entry and path."""
+        """
+        GIVEN: a failed existing partition with a previous manifest entry.
+        WHEN: reduce_sync_plan is called.
+        THEN: the old manifest entry and path are kept and the partition is recorded as failed.
+        """
         previous = partition("10")
         current = previous.model_copy(update={"signature": "new"})
         successful = partition("20")
@@ -201,7 +226,11 @@ class TestLoadingReduceIncremental:
     def test_reduce_incremental_plan_omits_failed_new_partition(
         self,
     ) -> None:
-        """A failed new partition is absent from the publication manifest."""
+        """
+        GIVEN: a failed new partition without a previous manifest entry.
+        WHEN: reduce_sync_plan is called.
+        THEN: the partition is absent from the publication manifest.
+        """
         plan = SyncPlan(
             schema_name="app",
             partitioned_tables={
@@ -230,7 +259,11 @@ class TestLoadingPrepareTablesPartitions:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Existing partitioned tables retain old rows and load only changed paths."""
+        """
+        GIVEN: an existing partitioned table with changed and removed partitions.
+        WHEN: prepare_tables runs incrementally.
+        THEN: old rows are retained and only changed paths are loaded.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         changed = partition("10")
         removed = partition("20")
@@ -247,7 +280,6 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        pg_conn = postgres
         duckdb = connect(":memory:")
 
         with (
@@ -257,14 +289,14 @@ class TestLoadingPrepareTablesPartitions:
             patch("dp.publication.load_table") as load,
         ):
             prepared = prepare_tables(
-                pg_conn,
+                postgres,
                 duckdb,
                 SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
                 plan,
                 {table.name},
             )
 
-        create_shadow.assert_called_once_with(pg_conn, table, [changed, removed])
+        create_shadow.assert_called_once_with(postgres, table, [changed, removed])
         load.assert_called_once_with(duckdb, "app", "people__next", [path])
         assert prepared == [table]
 
@@ -272,7 +304,11 @@ class TestLoadingPrepareTablesPartitions:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A full-rebuild partitioned table starts from Parquet, not a live copy."""
+        """
+        GIVEN: a full-rebuild partitioned table.
+        WHEN: prepare_tables runs.
+        THEN: the table starts from Parquet instead of a live copy.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         current_partition = partition("10")
         path = "s3://bucket/app/people/partitions/10/data.parquet"
@@ -288,7 +324,6 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        pg_conn = postgres
         duckdb = connect(":memory:")
         rendered: list[TemplateSpec] = []
 
@@ -303,7 +338,7 @@ class TestLoadingPrepareTablesPartitions:
             patch("dp.publication.load_table") as load,
         ):
             prepared = prepare_tables(
-                pg_conn,
+                postgres,
                 duckdb,
                 SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
                 plan,
@@ -319,7 +354,11 @@ class TestLoadingPrepareTablesPartitions:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Grants and RLS run on the empty shadow before any data loads."""
+        """
+        GIVEN: a table with RLS configuration.
+        WHEN: prepare_tables runs.
+        THEN: grants and RLS run on the empty shadow before any data loads.
+        """
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(
@@ -339,7 +378,6 @@ class TestLoadingPrepareTablesPartitions:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": [path]},
         )
-        pg_conn = postgres
         duckdb = connect(":memory:")
         calls: list[str] = []
 
@@ -354,7 +392,7 @@ class TestLoadingPrepareTablesPartitions:
             patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
             patch("dp.publication.load_table", side_effect=record_load),
         ):
-            prepare_tables(pg_conn, duckdb, config, plan, {"p.app.changed"})
+            prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
 
         assert calls == ["bootstrap", "load"]
 
@@ -366,8 +404,11 @@ class TestLoadingPublishPrepared:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Every prepared shadow table is atomically published."""
-        connection = postgres
+        """
+        GIVEN: multiple prepared shadow tables.
+        WHEN: publish_prepared_tables runs.
+        THEN: each table is atomically published.
+        """
         tables: list[FullTable | PartitionedTable] = [
             FullTable(name="p.app.one", resolved_schema="app"),
             FullTable(name="p.app.two", resolved_schema="app"),
@@ -380,7 +421,7 @@ class TestLoadingPublishPrepared:
         )
         with patch("dp.publication.publish_table") as publish:
             result = publish_prepared_tables(
-                (connection),
+                (postgres),
                 tables,
                 plan,
                 {},
@@ -394,8 +435,11 @@ class TestLoadingPublishPrepared:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A failed swap is not reported as synchronized."""
-        connection = postgres
+        """
+        GIVEN: one table swap raises RuntimeError.
+        WHEN: publish_prepared_tables runs.
+        THEN: only the successful tables are reported as synchronized.
+        """
         tables = [
             FullTable(name="p.app.one", resolved_schema="app"),
             FullTable(name="p.app.two", resolved_schema="app"),
@@ -410,7 +454,7 @@ class TestLoadingPublishPrepared:
             "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
         ):
             result = publish_prepared_tables(
-                (connection),
+                (postgres),
                 tables,
                 plan,
                 {"p.app.one": {"10"}},
@@ -427,7 +471,11 @@ class TestLoadingApplySyncPlan:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """The orchestrator receives connections and runs every step."""
+        """
+        GIVEN: a sync config and plan with changes.
+        WHEN: apply_sync_plan runs.
+        THEN: the orchestrator delegates to initialize, prepare, publish, and reload.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
         )
@@ -436,7 +484,6 @@ class TestLoadingApplySyncPlan:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
         )
-        pg_conn = postgres
         duckdb = connect(":memory:")
 
         with (
@@ -448,7 +495,7 @@ class TestLoadingApplySyncPlan:
             ) as publish,
             patch("dp.loading.reload_postgrest") as reload,
         ):
-            result = apply_sync_plan(pg_conn, duckdb, config, plan)
+            result = apply_sync_plan(postgres, duckdb, config, plan)
 
         initialize.assert_called_once()
         publish.assert_called_once()
@@ -460,7 +507,11 @@ class TestLoadingApplySyncPlan:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A fully failed incremental change records failure without a swap."""
+        """
+        GIVEN: a fully failed incremental change.
+        WHEN: apply_sync_plan runs.
+        THEN: it records failure without performing a publication swap.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         path = "s3://bucket/people/10.parquet"
         plan = SyncPlan(
@@ -475,7 +526,6 @@ class TestLoadingApplySyncPlan:
                 )
             },
         )
-        pg_conn = postgres
 
         with (
             patch("dp.loading.initialize_schemas"),
@@ -485,16 +535,16 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.reload_postgrest"),
         ):
             result = apply_sync_plan(
-                pg_conn,
+                postgres,
                 connect(":memory:"),
                 SyncConfig(schemas={"app": SchemaConfig(tables=[table])}),
                 plan,
                 {path},
             )
 
-        prepare.assert_called_once_with(pg_conn, ANY, ANY, ANY, set())
+        prepare.assert_called_once_with(postgres, ANY, ANY, ANY, set())
         record_failures.assert_called_once_with(
-            pg_conn, [table], plan, ANY, {table.name: {"10"}}
+            postgres, [table], plan, ANY, {table.name: {"10"}}
         )
         assert result.published_tables == set()
 
@@ -502,7 +552,11 @@ class TestLoadingApplySyncPlan:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A table with a failed extraction is not prepared from stale Parquet."""
+        """
+        GIVEN: a table with a failed extraction path.
+        WHEN: apply_sync_plan runs.
+        THEN: the table is not prepared from stale Parquet.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.changed")])}
         )
@@ -511,7 +565,6 @@ class TestLoadingApplySyncPlan:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
         )
-        pg_conn = postgres
 
         with (
             patch("dp.loading.initialize_schemas"),
@@ -520,14 +573,14 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.reload_postgrest"),
         ):
             result = apply_sync_plan(
-                pg_conn,
+                postgres,
                 connect(":memory:"),
                 config,
                 plan,
                 {"s3://bucket/changed/data.parquet"},
             )
 
-        prepare.assert_called_once_with(pg_conn, ANY, config, plan, set())
+        prepare.assert_called_once_with(postgres, ANY, config, plan, set())
         assert result.plan == plan
         assert result.published_tables == set()
 
@@ -539,7 +592,11 @@ class TestLoading:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Shadow preparation copies only rows outside changed physical bounds."""
+        """
+        GIVEN: a partitioned table with changed physical bounds.
+        WHEN: create_incremental_shadow runs.
+        THEN: it copies only rows outside the changed bounds.
+        """
         rendered: list[TemplateSpec] = []
 
         def render(spec: TemplateSpec) -> str:
@@ -565,7 +622,11 @@ class TestLoading:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A non-RLS table receives its read grant and a schema-scope policy."""
+        """
+        GIVEN: a non-RLS table.
+        WHEN: bootstrap_table is called.
+        THEN: it receives a read grant and a schema-scope policy.
+        """
         postgres.execute(
             SQL(
                 cast(
@@ -594,25 +655,32 @@ class TestLoading:
         )
 
         relrowsecurity = postgres.execute(
-            "SELECT relrowsecurity FROM pg_class WHERE oid = 'app.table'::regclass"
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/relrowsecurity", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
         ).fetchone()
         assert relrowsecurity == (True,)
         policies = postgres.execute(
-            "".join(
-                (
-                    "SELECT policyname FROM pg_policies ",
-                    "WHERE schemaname = 'app' AND tablename = 'table'",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/policy_names", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         ).fetchall()
         assert policies == [("schema_scoped",)]
         grantee = postgres.execute(
-            "".join(
-                (
-                    "SELECT grantee FROM information_schema.role_table_grants ",
-                    "WHERE table_schema = 'app' AND table_name = 'table' ",
-                    "AND privilege_type = 'SELECT' AND grantee = 'user'",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/select_grants", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         ).fetchall()
         assert grantee == [("user",)]
@@ -621,7 +689,11 @@ class TestLoading:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A protected table renders grants and its access_policy check together."""
+        """
+        GIVEN: a protected table with RLS and an access_policy table.
+        WHEN: bootstrap_table is called.
+        THEN: it renders grants and the access_policy check together.
+        """
         postgres.execute(
             SQL(
                 cast(
@@ -641,12 +713,12 @@ class TestLoading:
             )
         )
         postgres.execute(
-            "".join(
-                (
-                    "CREATE TABLE app.access_policy (",
-                    " subject text, is_enabled boolean, is_admin boolean, ",
-                    "unit_type text, id_cras text, unit_id text)",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/create_access_policy", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         )
 
@@ -659,11 +731,12 @@ class TestLoading:
         )
 
         policies = postgres.execute(
-            "".join(
-                (
-                    "SELECT policyname FROM pg_policies ",
-                    "WHERE schemaname = 'app' AND tablename = 'table'",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/policy_names", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         ).fetchall()
         assert policies == [("access_policy_scoped",)]
@@ -671,7 +744,11 @@ class TestLoading:
     def test_schema_scope_predicate_checks_the_mirrored_schemas_claim(
         self,
     ) -> None:
-        """The schema-scope predicate matches one schema against the schemas claim."""
+        """
+        GIVEN: a schema name.
+        WHEN: schema_scope_predicate is rendered.
+        THEN: it checks the schema against the mirrored schemas claim.
+        """
         rendered = schema_scope_predicate("app").as_string(None)
 
         assert "'app'" in rendered
@@ -682,7 +759,11 @@ class TestLoading:
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A protected table without a configured schema claim fails loudly."""
+        """
+        GIVEN: a protected table without a configured schema claim.
+        WHEN: bootstrap_table is called.
+        THEN: it raises RuntimeError.
+        """
         with pytest.raises(RuntimeError, match="identity claim"):
             bootstrap_table(
                 postgres,
@@ -692,32 +773,52 @@ class TestLoading:
                 claim=None,
             )
 
-    def test_claim_session_var_uses_generic_naming(
+    def test_claim_session_var_maps_to_generic_session_variable_name(
         self,
     ) -> None:
-        """Every claim maps to its generic `app.claim_<name>` session variable."""
+        """
+        GIVEN: a claim name.
+        WHEN: claim_session_var is rendered.
+        THEN: it maps to the generic `app.claim_<name>` session variable.
+        """
         assert (
             claim_session_var("preferred_username").as_string(None)
             == "'app.claim_preferred_username'"
         )
 
-    def test_load_table_uses_exact_paths(
+    def test_load_table_loads_only_explicitly_planned_paths(
         self,
     ) -> None:
-        """Only explicitly planned Parquet paths are loaded."""
+        """
+        GIVEN: explicitly planned Parquet paths.
+        WHEN: load_table is called.
+        THEN: only those paths are loaded.
+        """
         duckdb = connect(":memory:")
         paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
 
         with patch("dp.publication.load_template", return_value="SELECT 1"):
             load_table(duckdb, "app", "table__next", paths)
 
-        assert duckdb.execute("SELECT 1").fetchone() == (1,)
+        assert duckdb.execute(
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/select_one", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
+        ).fetchone() == (1,)
 
     def test_publish_table_swaps_before_index_creation(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A prepared table is bootstrapped, swapped, and indexed in order."""
+        """
+        GIVEN: a prepared shadow table with an index configuration.
+        WHEN: publish_table is called.
+        THEN: the table is swapped before the index is created.
+        """
         postgres.execute(
             SQL(
                 cast(
@@ -745,25 +846,35 @@ class TestLoading:
         publish_table(postgres, table)
 
         relation = postgres.execute(
-            "SELECT to_regclass('app.table'), to_regclass('app.table__next')"
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/regclass_table_and_shadow", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
         ).fetchone()
         assert relation == ('app."table"', None)
         indexes = postgres.execute(
-            "".join(
-                (
-                    "SELECT indexname FROM pg_indexes ",
-                    "WHERE schemaname = 'app' AND tablename = 'table'",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/index_names", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         ).fetchall()
         assert indexes == [("idx_table",)]
 
-    def test_initialize_schemas_creates_roles_then_schemas(
+    def test_initialize_schemas_creates_roles_schemas_and_policies_in_order(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Roles, schemas, local policies, and policy writers are created in order."""
-        connection = postgres
+        """
+        GIVEN: a sync config with multiple schemas.
+        WHEN: initialize_schemas is called.
+        THEN: roles, schemas, local policies, and policy writers are created in order.
+        """
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(tables=[FullTable(name="p.app.one")]),
@@ -771,37 +882,53 @@ class TestLoading:
             }
         )
 
-        initialize_schemas(connection, config)
+        initialize_schemas(postgres, config)
 
         schemas = postgres.execute(
-            "".join(
-                (
-                    "SELECT schema_name FROM information_schema.schemata ",
-                    "WHERE schema_name IN ('app', 'other') ORDER BY schema_name",
-                )
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/schema_names", mapping={}),
+                    FILES.parent / "sql",
+                ),
             )
         ).fetchall()
         assert schemas == [("app",), ("other",)]
 
-    def test_reload_postgrest_revokes_then_notifies(
+    def test_reload_postgrest_revokes_anonymous_then_notifies(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Anonymous access is revoked per schema before the reload notification."""
-        connection = postgres
+        """
+        GIVEN: a sync config.
+        WHEN: reload_postgrest is called.
+        THEN: anonymous access is revoked per schema before the reload notification.
+        """
         config = SyncConfig(
             schemas={"app": SchemaConfig(tables=[FullTable(name="p.app.one")])}
         )
 
-        reload_postgrest(connection, config)
+        reload_postgrest(postgres, config)
 
-        assert postgres.execute("SELECT 1").fetchone() == (1,)
+        assert postgres.execute(
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/select_one", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
+        ).fetchone() == (1,)
 
     def test_apply_sync_plan_publishes_other_tables_after_a_load_failure(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A failed load skips only its own table, not the whole synchronization."""
+        """
+        GIVEN: two tables where the second load fails.
+        WHEN: apply_sync_plan runs.
+        THEN: only the failed table is skipped, not the whole synchronization.
+        """
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(
@@ -823,7 +950,6 @@ class TestLoading:
                 "p.app.second": ["s3://bucket/second/data.parquet"],
             },
         )
-        pg_conn = postgres
         duckdb = connect(":memory:")
 
         with (
@@ -835,14 +961,18 @@ class TestLoading:
             ),
             patch("dp.loading.publish_prepared_tables") as publish,
         ):
-            apply_sync_plan(pg_conn, duckdb, config, plan)
+            apply_sync_plan(postgres, duckdb, config, plan)
 
-        publish.assert_called_once_with(pg_conn, [config.tables[0]], plan, {}, ANY)
+        publish.assert_called_once_with(postgres, [config.tables[0]], plan, {}, ANY)
 
     def test_reduce_sync_plan_keeps_plan_without_failures(
         self,
     ) -> None:
-        """A plan without failed paths stays eligible without failure details."""
+        """
+        GIVEN: a plan without failed paths.
+        WHEN: reduce_sync_plan is called.
+        THEN: the plan stays eligible with no failure details.
+        """
         plan = SyncPlan(
             schema_name="app",
             partitioned_tables={
@@ -868,7 +998,11 @@ class TestLoading:
     def test_reduce_sync_plan_blocks_failed_full_rebuild(
         self,
     ) -> None:
-        """A failed partition blocks a complete partitioned rebuild."""
+        """
+        GIVEN: a full rebuild plan with a failed partition.
+        WHEN: reduce_sync_plan is called.
+        THEN: the table is blocked from publication.
+        """
         plan = SyncPlan(
             schema_name="app",
             partitioned_tables={
@@ -886,38 +1020,62 @@ class TestLoading:
 
         assert decision.blocked_tables == {"p.app.people"}
 
-    def test_delete_freshness_uses_partition_template(
+    def test_delete_freshness_removes_specified_partitions(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A partition removal uses its freshness SQL template."""
-        connection = postgres
+        """
+        GIVEN: a partitioned table with a partition to remove.
+        WHEN: delete_freshness is called.
+        THEN: the partition is removed using the freshness SQL template.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
 
-        delete_freshness(connection, table, {"10"})
+        delete_freshness(postgres, table, {"10"})
 
-        assert postgres.execute("SELECT count(*) FROM app.freshness").fetchone() == (0,)
+        assert postgres.execute(
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/freshness_count", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
+        ).fetchone() == (0,)
 
-    def test_upsert_freshness_uses_shared_status_enum_template(
+    def test_upsert_freshness_writes_failure_status_using_enum_template(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A freshness write uses the shared enum SQL template and values."""
-        connection = postgres
+        """
+        GIVEN: a partitioned table with a failed partition.
+        WHEN: upsert_freshness is called.
+        THEN: the freshness write uses the shared status enum template with the failure value.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         attempted_at = Instant.now()
 
-        upsert_freshness(connection, table, {"10"}, attempted_at, success=False)
+        upsert_freshness(postgres, table, {"10"}, attempted_at, success=False)
 
         assert postgres.execute(
-            "SELECT status::text FROM app.freshness"
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/freshness_status", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
         ).fetchone() == ("failure",)
 
-    def test_full_rebuild_freshness_replaces_all_partition_rows(
+    def test_full_rebuild_freshness_resets_to_current_manifest(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """A full rebuild resets freshness to its complete current manifest."""
+        """
+        GIVEN: a full rebuild plan with current partitions.
+        WHEN: update_published_freshness is called.
+        THEN: freshness is reset to the complete current manifest.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         plan = SyncPlan(
             schema_name="app",
@@ -931,20 +1089,29 @@ class TestLoading:
                 )
             },
         )
-        connection = postgres
         attempted_at = Instant.now()
 
-        update_published_freshness(connection, table, plan, set(), attempted_at)
+        update_published_freshness(postgres, table, plan, set(), attempted_at)
 
         assert postgres.execute(
-            "SELECT partition, status::text FROM app.freshness"
+            cast(
+                LiteralString,
+                load_template(
+                    TemplateSpec(path="postgres/freshness_partitions", mapping={}),
+                    FILES.parent / "sql",
+                ),
+            )
         ).fetchall() == [("10", "success")]
 
     def test_incremental_freshness_records_success_failure_and_removal(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
-        """Freshness matches each result in a partial partition publication."""
+        """
+        GIVEN: a partial partition publication with successful, failed, and removed partitions.
+        WHEN: update_published_freshness is called.
+        THEN: freshness matches each result with its correct status.
+        """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         plan = SyncPlan(
             schema_name="app",
@@ -958,17 +1125,16 @@ class TestLoading:
                 )
             },
         )
-        connection = postgres
         attempted_at = Instant.now()
 
         with (
             patch("dp.freshness.upsert_freshness") as upsert,
             patch("dp.freshness.delete_freshness") as delete,
         ):
-            update_published_freshness(connection, table, plan, {"20"}, attempted_at)
+            update_published_freshness(postgres, table, plan, {"20"}, attempted_at)
 
         assert upsert.call_args_list == [
-            call(connection, table, {"10"}, attempted_at, success=True),
-            call(connection, table, {"20"}, attempted_at, success=False),
+            call(postgres, table, {"10"}, attempted_at, success=True),
+            call(postgres, table, {"20"}, attempted_at, success=False),
         ]
-        delete.assert_called_once_with(connection, table, {"30"})
+        delete.assert_called_once_with(postgres, table, {"30"})
