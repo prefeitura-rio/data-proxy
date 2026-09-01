@@ -1,9 +1,32 @@
-"""Tests for publication input validation."""
+"""Tests for publication input validation and SQL behavior."""
+
+from pathlib import Path
+from typing import LiteralString, cast
+from unittest.mock import patch
 
 import pytest
+from duckdb import connect
+from psycopg import Connection
+from psycopg.sql import SQL, Composable
 
-from dp.models import PartitionedTablePlan, PhysicalPartition, SyncPlan
-from dp.publication import partition_predicate, planned_paths
+from dp.models import (
+    FullTable,
+    IndexConfig,
+    PartitionedTable,
+    PartitionedTablePlan,
+    PhysicalPartition,
+    SyncPlan,
+)
+from dp.publication import (
+    create_incremental_shadow,
+    load_table,
+    partition_predicate,
+    planned_paths,
+    publish_table,
+    reduce_sync_plan,
+)
+from dp.templates import TemplateSpec, load_template
+from tests.helpers import execute_sql, partition
 
 
 class TestPublication:
@@ -36,3 +59,147 @@ class TestPublication:
         """
         with pytest.raises(AssertionError):
             partition_predicate(invalid_physical_partition)
+
+
+class TestPublicationTemplates:
+    """Tests for publication SQL and plan reduction behavior."""
+
+    def test_create_incremental_shadow_excludes_affected_ranges(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a partitioned table with changed physical bounds.
+        WHEN: create_incremental_shadow runs.
+        THEN: it copies only rows outside the changed bounds.
+        """
+        rendered: list[TemplateSpec] = []
+
+        def render(spec: TemplateSpec) -> str:
+            rendered.append(spec)
+            return "SELECT 1"
+
+        with patch("dp.publication.load_template", side_effect=render):
+            create_incremental_shadow(
+                postgres,
+                PartitionedTable(name="p.app.people"),
+                [partition("10"), partition("20")],
+            )
+
+        assert [spec.path for spec in rendered] == [
+            "pg/partition_range_predicate",
+            "pg/partition_range_predicate",
+            "pg/prepare_incremental_table",
+        ]
+        predicate = rendered[-1].mapping["affected_partitions"]
+        assert isinstance(predicate, Composable)
+
+    def test_load_table_loads_only_explicitly_planned_paths(
+        self,
+    ) -> None:
+        """
+        GIVEN: explicitly planned Parquet paths.
+        WHEN: load_table is called.
+        THEN: only those paths are loaded.
+        """
+        duckdb = connect(":memory:")
+        paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
+
+        with patch("dp.publication.load_template", return_value="SELECT 1"):
+            load_table(duckdb, "app", "table__next", paths)
+
+        assert duckdb.execute("SELECT 1").fetchone() == (1,)
+
+    def test_publish_table_swaps_before_index_creation(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a prepared shadow table with an index configuration.
+        WHEN: publish_table is called.
+        THEN: the table is swapped before the index is created.
+        """
+        postgres.execute(
+            SQL(
+                cast(
+                    LiteralString,
+                    load_template(
+                        TemplateSpec(
+                            path="postgres/create_table",
+                            mapping={
+                                "schema": "app",
+                                "table": "table__next",
+                                "columns": "id int",
+                            },
+                        ),
+                        Path(__file__).parent / "sql",
+                    ),
+                )
+            )
+        )
+        table = FullTable(
+            name="p.app.table",
+            resolved_schema="app",
+            indexes=[IndexConfig(name="idx_table", columns=["id"])],
+        )
+
+        publish_table(postgres, table)
+
+        assert execute_sql(
+            postgres, "postgres/regclass_table_and_shadow"
+        ).fetchone() == ('app."table"', None)
+        assert execute_sql(postgres, "postgres/index_names").fetchall() == [
+            ("idx_table",)
+        ]
+
+    def test_reduce_sync_plan_keeps_plan_without_failures(
+        self,
+    ) -> None:
+        """
+        GIVEN: a plan without failed paths.
+        WHEN: reduce_sync_plan is called.
+        THEN: the plan stays eligible with no failure details.
+        """
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                "p.app.people": PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "successful"},
+                    removed_partitions={},
+                )
+            },
+        )
+
+        decision = reduce_sync_plan(plan, set())
+
+        assert decision.plan == plan
+        assert decision.blocked_tables == set()
+        assert decision.failed_partitions == {}
+
+    def test_reduce_sync_plan_blocks_failed_full_rebuild(
+        self,
+    ) -> None:
+        """
+        GIVEN: a full rebuild plan with a failed partition.
+        WHEN: reduce_sync_plan is called.
+        THEN: the table is blocked from publication.
+        """
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                "p.app.people": PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=True,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "failed"},
+                    removed_partitions={},
+                )
+            },
+        )
+
+        decision = reduce_sync_plan(plan, {"failed"})
+
+        assert decision.blocked_tables == {"p.app.people"}

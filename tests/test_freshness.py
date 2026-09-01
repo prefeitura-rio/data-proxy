@@ -1,5 +1,7 @@
 """Freshness edge coverage."""
 
+from unittest.mock import call, patch
+
 from psycopg import Connection
 from whenever import Instant
 
@@ -143,3 +145,111 @@ class TestFreshness:
             ("full", "override", "failure"),
             ("partitioned", "1", "failure"),
         ]
+
+
+class TestFreshnessTemplates:
+    """Tests for freshness SQL template usage."""
+
+    def test_delete_freshness_removes_specified_partitions(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        partitioned_table: PartitionedTable,
+    ) -> None:
+        """
+        GIVEN: a partitioned table with a partition to remove.
+        WHEN: delete_freshness is called.
+        THEN: the partition is removed using the freshness SQL template.
+        """
+        delete_freshness(postgres, partitioned_table, {"10"})
+
+        assert execute_sql(postgres, "postgres/freshness_count").fetchone() == (0,)
+
+    def test_upsert_freshness_writes_failure_status_using_enum_template(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        partitioned_table: PartitionedTable,
+    ) -> None:
+        """
+        GIVEN: a partitioned table with a failed partition.
+        WHEN: upsert_freshness is called.
+        THEN: the freshness write uses the shared status enum template with the failure value.
+        """
+        attempted_at = Instant.now()
+
+        upsert_freshness(
+            postgres, partitioned_table, {"10"}, attempted_at, success=False
+        )
+
+        assert execute_sql(postgres, "postgres/freshness_status").fetchone() == (
+            "failure",
+        )
+
+    def test_full_rebuild_freshness_resets_to_current_manifest(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        partitioned_table: PartitionedTable,
+    ) -> None:
+        """
+        GIVEN: a full rebuild plan with current partitions.
+        WHEN: update_published_freshness is called.
+        THEN: freshness is reset to the complete current manifest.
+        """
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                partitioned_table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=True,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "successful"},
+                    removed_partitions={},
+                )
+            },
+        )
+        attempted_at = Instant.now()
+
+        update_published_freshness(
+            postgres, partitioned_table, plan, set(), attempted_at
+        )
+
+        assert execute_sql(postgres, "postgres/freshness_partitions").fetchall() == [
+            ("10", "success")
+        ]
+
+    def test_incremental_freshness_records_success_failure_and_removal(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        partitioned_table: PartitionedTable,
+    ) -> None:
+        """
+        GIVEN: a partial partition publication with successful, failed, and removed partitions.
+        WHEN: update_published_freshness is called.
+        THEN: freshness matches each result with its correct status.
+        """
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                partitioned_table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "successful"},
+                    removed_partitions={"30": partition("30")},
+                )
+            },
+        )
+        attempted_at = Instant.now()
+
+        with (
+            patch("dp.freshness.upsert_freshness") as upsert,
+            patch("dp.freshness.delete_freshness") as delete,
+        ):
+            update_published_freshness(
+                postgres, partitioned_table, plan, {"20"}, attempted_at
+            )
+
+        assert upsert.call_args_list == [
+            call(postgres, partitioned_table, {"10"}, attempted_at, success=True),
+            call(postgres, partitioned_table, {"20"}, attempted_at, success=False),
+        ]
+        delete.assert_called_once_with(postgres, partitioned_table, {"30"})

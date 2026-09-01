@@ -64,6 +64,7 @@ def record_preparation_failures(
     """Record each eligible table that did not prepare successfully."""
     tables = {table.name: table for table in config.tables}
     failed = [tables[table_name] for table_name in eligible - prepared_names]
+
     if failed:
         record_table_failures(pg_conn, failed, source_plan, attempted_at)
 
