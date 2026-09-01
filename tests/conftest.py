@@ -28,10 +28,9 @@ from dp.sync.producer import broker as producer_broker
 from dp.sync.publisher import broker as publisher_broker
 from dp.sync.seeder import broker as seeder_broker
 from dp.templates import TemplateSpec, load_template
+from tests.constants import FILES
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
-
-FILES = Path(__file__).parent / "files"
 
 
 @pytest.fixture
@@ -86,8 +85,12 @@ async def broker() -> AsyncIterator[tuple[RedisBroker, ...]]:
 def bigquery() -> Iterator[Client]:
     """Provide an isolated DuckDB-backed BigQuery client mock."""
     database = connect(":memory:")
-    database.read_csv(FILES / "partitions.csv").create_view("partition_metadata")
-    database.read_csv(FILES / "metadata.csv").create_view("table_metadata")
+    database.read_csv(FILES / "partitions.csv", all_varchar=True).create_view(
+        "partition_metadata"
+    )
+    database.read_csv(FILES / "metadata.csv", all_varchar=True).create_view(
+        "table_metadata"
+    )
 
     client = MagicMock(spec=Client)
 

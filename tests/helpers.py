@@ -1,6 +1,19 @@
-"""Typed test doubles for the data-proxy test suite."""
+"""Shared test builders and assertions for the data-proxy test suite."""
 
-from dp.models import AllSelection, DumpTask, PartitionedTablePlan, SyncPlan
+from typing import cast
+
+from psycopg.sql import Composable
+
+from dp.models import (
+    AllSelection,
+    DumpTask,
+    PartitionedTablePlan,
+    PhysicalPartition,
+    RangeSelection,
+    RemainderSelection,
+    SyncPlan,
+)
+from dp.templates import TemplateSpec
 
 
 def sync_plan(
@@ -44,3 +57,53 @@ def dump(
         bucket_path=bucket_path,
         selection=AllSelection(),
     )
+
+
+def partition(
+    partition_id: str,
+    signature: str = "signature",
+    *,
+    column: str = "cpf",
+    width: int = 10,
+) -> PhysicalPartition:
+    """Build one normalized integer range partition for tests."""
+    lower = int(partition_id)
+    return PhysicalPartition(
+        partition_id=partition_id,
+        signature=signature,
+        selection=RangeSelection(
+            partition_id=partition_id,
+            column=column,
+            lower=lower,
+            upper=lower + width,
+        ),
+    )
+
+
+def planning_partition(partition_id: str, signature: str = "s") -> PhysicalPartition:
+    """Build one planning partition, including the null remainder bucket."""
+    selection = (
+        RemainderSelection(column="id", start=0, end=1)
+        if partition_id == "__NULL__"
+        else RangeSelection(
+            partition_id=partition_id,
+            column="id",
+            lower=int(partition_id),
+            upper=int(partition_id) + 1,
+        )
+    )
+    return PhysicalPartition(
+        partition_id=partition_id,
+        signature=signature,
+        selection=selection,
+    )
+
+
+def template_name(spec: TemplateSpec) -> str:
+    """Return a template path for operation-order assertions."""
+    return spec.path
+
+
+def render(value: object) -> str:
+    """Render a mapping value expected to be a Psycopg SQL object."""
+    return cast(Composable, value).as_string(None)

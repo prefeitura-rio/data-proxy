@@ -12,3 +12,9 @@ test.dataset.time_hour,time,data_particao,,,,HOUR,2025010112,2026-08-07 12:47:52
 test.dataset.time_month,time,data_particao,,,,MONTH,202512,2026-08-07 12:47:52.683000
 test.dataset.time_year,time,data_particao,,,,YEAR,2025,2026-08-07 12:47:52.683000
 test.dataset.plain,none,,,,,,,2026-08-07 12:47:52.683000
+test.dataset.range_unpartitioned,range,cpf,0,100,10,,__UNPARTITIONED__,2026-08-07 12:47:52.683000
+test.dataset.range_bad_id,range,cpf,0,100,10,,bad,2026-08-07 12:47:52.683000
+test.dataset.range_misaligned_id,range,cpf,0,100,10,,5,2026-08-07 12:47:52.683000
+test.dataset.range_missing_partition_modified,range,cpf,0,100,10,,0,
+test.dataset.time_unpartitioned,time,data_particao,,,,DAY,__UNPARTITIONED__,2026-08-07 12:47:52.683000
+test.dataset.time_bad_id,time,data_particao,,,,DAY,bad,2026-08-07 12:47:52.683000
