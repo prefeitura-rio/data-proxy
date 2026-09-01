@@ -11,7 +11,9 @@ from loguru import logger
 from psycopg.sql import Literal
 from redis.asyncio import Redis
 
-from .bigquery import bigquery_clients, physical_partitions, table_modified
+from .bigquery.clients import bigquery_clients
+from .bigquery.partitions import physical_partitions
+from .bigquery.tables import table_modified
 from .models import (
     AllSelection,
     DumpTask,

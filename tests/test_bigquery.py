@@ -6,16 +6,14 @@ from typing import cast
 import pytest
 from google.cloud.bigquery import Client, Row
 
-from dp.bigquery import (
+from dp.bigquery.config import (
     PartitionKindConfig,
     RangeConfig,
     TimeConfig,
     TimeGranularity,
-    normalize_partition,
-    parse_table_reference,
-    physical_partitions,
-    table_modified,
 )
+from dp.bigquery.partitions import normalize_partition, physical_partitions
+from dp.bigquery.tables import parse_table_reference, table_modified
 from dp.models import RangeSelection
 
 
@@ -43,8 +41,7 @@ class TestBigQueryPhysicalPartitions:
     """Tests for PhysicalPartitions behavior."""
 
     def test_physical_partitions_normalizes_existing_range_buckets(
-        self,
-        bigquery: Client,
+        self, bigquery: Client
     ) -> None:
         """BigQuery range metadata becomes generic lower and upper bounds."""
         table_signature, partitions = physical_partitions(

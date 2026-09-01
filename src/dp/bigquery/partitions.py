@@ -1,208 +1,31 @@
-"""BigQuery metadata helpers for synchronization change detection."""
+"""BigQuery physical partition query and normalization helpers."""
 
-import json
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from enum import StrEnum
 from hashlib import sha256
 from typing import assert_never, cast
 
-from google.cloud.bigquery import (
-    Client,
-    QueryJobConfig,
-    RangePartitioning,
-    ScalarQueryParameter,
-    Table,
-    TimePartitioning,
-)
+from google.cloud.bigquery import Client, QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row
 from whenever import PlainDateTime
 
-from .models import (
+from ..models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
 )
-from .templates import TemplateSpec, load_template
-
-
-@dataclass(frozen=True, slots=True)
-class TableReference:
-    """Validated project, dataset, and table from a BigQuery reference."""
-
-    project: str
-    dataset: str
-    table: str
-
-
-@dataclass(slots=True)
-class RangeConfig:
-    """Validated integer-range partition configuration for one table."""
-
-    field: str
-    start: int
-    end: int
-    interval: int
-
-    def __post_init__(self) -> None:
-        """Require usable field and range metadata."""
-        if not self.field:
-            raise ValueError("Range partition field must not be empty")
-        if self.interval <= 0:
-            raise ValueError("Range partition interval must be positive")
-        if self.start >= self.end:
-            raise ValueError("Range partition start must precede end")
-
-
-class TimeGranularity(StrEnum):
-    """Supported BigQuery time partition granularities."""
-
-    HOUR = "HOUR"
-    DAY = "DAY"
-    MONTH = "MONTH"
-    YEAR = "YEAR"
-
-
-@dataclass(frozen=True, slots=True)
-class TimePartitionSpec:
-    """How to parse and step through one BigQuery time-partition granularity."""
-
-    strptime_format: str
-    step: Callable[[PlainDateTime], PlainDateTime]
-    output_pattern: str
-
-
-@dataclass(slots=True)
-class TimeConfig:
-    """Validated time-partition configuration for one table."""
-
-    field: str
-    granularity: TimeGranularity
-
-    def __post_init__(self) -> None:
-        """Require usable time partition metadata."""
-        if not self.field:
-            raise ValueError("Time partition field must not be empty")
-
-
-PartitionKindConfig = RangeConfig | TimeConfig
-
-
-@contextmanager
-def bigquery_clients() -> Generator[Callable[[str], Client]]:
-    """Yield a per-project BigQuery client getter, closing every client on exit."""
-    clients: dict[str, Client] = {}
-
-    def get_client(project: str) -> Client:
-        client = clients.get(project)
-
-        if client is None:
-            client = Client(project=project)
-            clients[project] = client
-
-        return client
-
-    try:
-        yield get_client
-
-    finally:
-        for client in clients.values():
-            client.close()
-
-
-def table_modified(client: Client, table: str) -> str:
-    """Return the table modification time in epoch milliseconds."""
-    modified = client.get_table(table).modified
-
-    if modified is None:
-        msg = f"Missing BigQuery modification time: {table}"
-        raise ValueError(msg)
-
-    return str(int(modified.timestamp() * 1000))
-
-
-def parse_table_reference(table: str) -> TableReference:
-    """Split a model-validated BigQuery table reference into its components."""
-    project, dataset, table_name = table.split(".")
-    return TableReference(project=project, dataset=dataset, table=table_name)
-
-
-def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
-    """Return validated integer-range configuration from range metadata."""
-    match (
-        partitioning.field,
-        partitioning.range_.start,
-        partitioning.range_.end,
-        partitioning.range_.interval,
-    ):
-        case str(field), (None | 0), int(end), int(interval):
-            start = 0
-        case str(field), int(start), int(end), int(interval):
-            pass
-        case _:
-            msg = f"Incomplete range partition metadata: {table}"
-            raise ValueError(msg)
-
-    try:
-        return RangeConfig(field=field, start=start, end=end, interval=interval)
-    except ValueError as error:
-        msg = f"Invalid range partition metadata: {table}"
-        raise ValueError(msg) from error
-
-
-def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
-    """Return validated time-partition configuration from time metadata."""
-    field = partitioning.field
-
-    if field is None:
-        msg = f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
-        raise ValueError(msg)
-
-    assert isinstance(field, str)
-    raw_granularity = partitioning.type_ or TimeGranularity.DAY
-
-    try:
-        return TimeConfig(field=field, granularity=TimeGranularity(raw_granularity))
-    except ValueError as error:
-        msg = f"Unsupported time partition granularity {raw_granularity}: {table}"
-        raise ValueError(msg) from error
-
-
-def partition_kind_config(metadata: Table, table: str) -> PartitionKindConfig:
-    """Detect and return the time or range partition configuration."""
-    if metadata.table_type != "TABLE":
-        msg = f"partitioned requires a physically partitioned table: {table}"
-        raise ValueError(msg)
-
-    if metadata.range_partitioning is not None:
-        return range_config(metadata.range_partitioning, table)
-
-    if metadata.time_partitioning is not None:
-        return time_config(metadata.time_partitioning, table)
-
-    msg = f"partitioned requires a time- or range-partitioned table: {table}"
-    raise ValueError(msg)
-
-
-def partitioned_table_signature(
-    metadata: Table,
-    config_json: str,
-    kind_config: PartitionKindConfig,
-) -> str:
-    """Hash source schema, partition metadata, and synchronization configuration."""
-    return sha256(
-        json.dumps(
-            {
-                "config": config_json,
-                **asdict(kind_config),
-                "schema": repr(cast(object, metadata.schema)),
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+from ..templates import TemplateSpec, load_template
+from .config import (
+    PartitionKindConfig,
+    RangeConfig,
+    TimeConfig,
+    TimeGranularity,
+    TimePartitionSpec,
+    partition_kind_config,
+    partitioned_table_signature,
+)
+from .tables import parse_table_reference
 
 
 def partition_rows(
