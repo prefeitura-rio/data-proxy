@@ -69,7 +69,7 @@ def build_mapping(task: DumpTask) -> TemplateSpec:
             return TemplateSpec(path="duckdb/write_partition", mapping=mapping)
         case RemainderSelection():
             return TemplateSpec(path="duckdb/write_remainder", mapping=mapping)
-        case _:
+        case _:  # pragma: no cover
             assert_never(task.selection)
 
 

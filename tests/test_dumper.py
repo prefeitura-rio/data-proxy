@@ -8,7 +8,7 @@ from redis.asyncio import Redis
 
 from dp.models import DumpTask
 from dp.sync.dumper import (
-    cleanup_dumper_consumers,
+    cleanup_consumers,
     dump_task,
     dumper,
     extract_task_wrapper,
@@ -87,11 +87,11 @@ class TestDumper:
     async def test_dumper_cleanup_removes_idle_consumers(self, redis: Redis) -> None:
         """
         GIVEN: the dumper shutdown handler runs.
-        WHEN: cleanup_dumper_consumers is called.
+        WHEN: cleanup_consumers is called.
         THEN: it asks cleanup_consumer to remove each configured consumer.
         """
         with (
             patch("dp.sync.dumper.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):
-            await cleanup_dumper_consumers()
+            await cleanup_consumers()
         assert cleanup.await_count == 2

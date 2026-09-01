@@ -70,7 +70,7 @@ async def dump_task(task: DumpTask) -> None:
 
 
 @dumper.on_shutdown
-async def cleanup_dumper_consumers() -> None:
+async def cleanup_consumers() -> None:
     """Remove idle dumper consumers."""
     async with settings.redis as redis:
         for sub in subs.values():

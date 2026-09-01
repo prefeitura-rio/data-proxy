@@ -75,7 +75,7 @@ async def seed_sync(task: SeedTask) -> None:
 
 
 @seeder.on_shutdown
-async def cleanup_seeder_consumers() -> None:
+async def cleanup_consumers() -> None:
     """Remove idle seeder consumers."""
     async with settings.redis as redis:
         for sub in subs.values():

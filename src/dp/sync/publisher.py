@@ -120,7 +120,7 @@ async def publish_schema(task: PublishTask) -> None:
 
 
 @publisher.on_shutdown
-async def cleanup_publisher_consumers() -> None:
+async def cleanup_consumers() -> None:
     """Remove idle publisher consumers."""
     async with settings.redis as redis:
         for sub in subs.values():

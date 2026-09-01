@@ -1,7 +1,9 @@
 """Shared test builders and assertions for the data-proxy test suite."""
 
-from typing import cast
+from typing import LiteralString, cast
 
+from psycopg import Connection
+from psycopg.cursor import Cursor
 from psycopg.sql import Composable
 
 from dp.models import (
@@ -13,6 +15,8 @@ from dp.models import (
     RemainderSelection,
     SyncPlan,
 )
+from dp.templates import TemplateSpec, load_template
+from tests.constants import FILES
 
 
 def sync_plan(
@@ -88,5 +92,23 @@ def planning_partition(partition_id: str, signature: str = "s") -> PhysicalParti
 
 
 def render(value: object) -> str:
-    """Render a mapping value expected to be a Psycopg SQL object."""
+    """Render a mapping value expected to be a Psycopg SQL object3 object."""
     return cast(Composable, value).as_string(None)
+
+
+def execute_sql(
+    connection: Connection[tuple[object, ...]],
+    path: str,
+    params: tuple[object, ...] = (),
+) -> Cursor[tuple[object, ...]]:
+    """Execute a SQL fixture template and return the cursor."""
+    return connection.execute(
+        cast(
+            LiteralString,
+            load_template(
+                TemplateSpec(path=path, mapping={}),
+                FILES.parent / "sql",
+            ),
+        ),
+        params,
+    )

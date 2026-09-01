@@ -21,7 +21,7 @@ from dp.models import (
     SyncPlan,
 )
 from dp.sync.publisher import (
-    cleanup_publisher_consumers,
+    cleanup_consumers,
     publish_plan,
     publish_schema,
     publisher,
@@ -195,7 +195,7 @@ class TestPublisher:
     ) -> None:
         """
         GIVEN: two publisher consumers.
-        WHEN: cleanup_publisher_consumers runs.
+        WHEN: cleanup_consumers runs.
         THEN: each consumer is cleaned up exactly once.
         """
         with (
@@ -203,5 +203,5 @@ class TestPublisher:
                 "dp.sync.publisher.cleanup_consumer", new_callable=AsyncMock
             ) as cleanup,
         ):
-            await cleanup_publisher_consumers()
+            await cleanup_consumers()
         assert cleanup.await_count == 2

@@ -180,7 +180,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
             path = "pg/partition_range_predicate"
         case RemainderSelection():
             path = "pg/partition_remainder_predicate"
-        case _:
+        case _:  # pragma: no cover
             assert_never(partition.selection)
 
     return SQL(

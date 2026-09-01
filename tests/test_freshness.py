@@ -1,7 +1,5 @@
 """Freshness edge coverage."""
 
-from typing import LiteralString, cast
-
 from psycopg import Connection
 from whenever import Instant
 
@@ -12,9 +10,7 @@ from dp.freshness import (
     upsert_freshness,
 )
 from dp.models import FullTable, PartitionedTable, PartitionedTablePlan, SyncPlan
-from dp.templates import TemplateSpec, load_template
-from tests.constants import FILES
-from tests.helpers import partition
+from tests.helpers import execute_sql, partition
 
 
 class TestFreshnessPublishedFreshness:
@@ -46,17 +42,8 @@ class TestFreshnessPublishedFreshness:
             attempted_at,
         )
 
-        assert postgres.execute(
-            cast(
-                LiteralString,
-                load_template(
-                    TemplateSpec(
-                        path="postgres/freshness_partitions_by_table", mapping={}
-                    ),
-                    FILES.parent / "sql",
-                ),
-            ),
-            ("t",),
+        assert execute_sql(
+            postgres, "postgres/freshness_partitions_by_table", ("t",)
         ).fetchall() == [(None, "success")]
 
     def test_update_published_freshness_records_partition_results(
@@ -91,18 +78,8 @@ class TestFreshnessPublishedFreshness:
             postgres, partitioned_table, plan, {"2"}, attempted_at
         )
 
-        assert postgres.execute(
-            cast(
-                LiteralString,
-                load_template(
-                    TemplateSpec(
-                        path="postgres/freshness_partitions_by_table_ordered",
-                        mapping={},
-                    ),
-                    FILES.parent / "sql",
-                ),
-            ),
-            ("t",),
+        assert execute_sql(
+            postgres, "postgres/freshness_partitions_by_table_ordered", ("t",)
         ).fetchall() == [("1", "success"), ("2", "failure")]
 
 
@@ -124,15 +101,7 @@ class TestFreshness:
         upsert_freshness(postgres, full_table, set(), attempted_at, success=True)
         delete_freshness(postgres, full_table, set())
 
-        assert postgres.execute(
-            cast(
-                LiteralString,
-                load_template(
-                    TemplateSpec(path="postgres/select_one", mapping={}),
-                    FILES.parent / "sql",
-                ),
-            )
-        ).fetchone() == (1,)
+        assert execute_sql(postgres, "postgres/select_one").fetchone() == (1,)
 
     def test_record_table_failures_uses_explicit_or_changed_partitions(
         self,
@@ -168,16 +137,8 @@ class TestFreshness:
             {"p.app.full": {"override"}},
         )
 
-        assert postgres.execute(
-            cast(
-                LiteralString,
-                load_template(
-                    TemplateSpec(
-                        path="postgres/freshness_table_partitions", mapping={}
-                    ),
-                    FILES.parent / "sql",
-                ),
-            )
+        assert execute_sql(
+            postgres, "postgres/freshness_table_partitions"
         ).fetchall() == [
             ("full", "override", "failure"),
             ("partitioned", "1", "failure"),

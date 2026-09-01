@@ -16,7 +16,7 @@ from dp.models import (
 )
 from dp.planning import expand_config
 from dp.sync.publisher import publish_schema, publisher
-from dp.sync.seeder import cleanup_seeder_consumers, dispatch_exists, seed_sync, seeder
+from dp.sync.seeder import cleanup_consumers, dispatch_exists, seed_sync, seeder
 
 pytestmark = pytest.mark.usefixtures("test_settings")
 
@@ -85,13 +85,13 @@ class TestSeeder:
     ) -> None:
         """
         GIVEN: two seeder consumers.
-        WHEN: cleanup_seeder_consumers runs.
+        WHEN: cleanup_consumers runs.
         THEN: each consumer is cleaned up exactly once.
         """
         with (
             patch("dp.sync.seeder.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):
-            await cleanup_seeder_consumers()
+            await cleanup_consumers()
         assert cleanup.await_count == 2
 
     def test_expand_config_skips_partitioned(
