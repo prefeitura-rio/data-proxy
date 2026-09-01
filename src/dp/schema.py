@@ -1,15 +1,15 @@
 """PostgreSQL schema initialization and PostgREST reload operations."""
 
+from psycopg import Connection
 from psycopg.sql import Identifier
 
 from .authorization import ensure_schema_policy_writer, schema_scope_predicate
 from .models import SyncConfig
-from .protocols import PostgresExecutor, PostgresSchema
 from .settings import settings
 from .templates import TemplateSpec, load_template
 
 
-def initialize_schemas(pg_conn: PostgresSchema, config: SyncConfig) -> None:
+def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
     """Create roles and application schemas before publication."""
     pg_conn.execute(
         load_template(
@@ -55,7 +55,7 @@ def initialize_schemas(pg_conn: PostgresSchema, config: SyncConfig) -> None:
     pg_conn.commit()
 
 
-def reload_postgrest(pg_conn: PostgresExecutor, config: SyncConfig) -> None:
+def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:
     """Revoke anonymous access and request a schema reload."""
     for schema in config.schemas:
         pg_conn.execute(

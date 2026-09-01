@@ -4,9 +4,10 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from duckdb import DuckDBPyConnection
 from psycopg.sql import Composable
 
-from dp.extraction import build_columns, build_mapping, extract_task
+from dp.extraction import build_columns, build_mapping, extract_task, selection_fields
 from dp.models import (
     AllSelection,
     DumpTask,
@@ -15,12 +16,17 @@ from dp.models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from tests.helpers import FakeDuckDBConnection
 
 
 def render(value: object) -> str:
     """Render a mapping value that is expected to be a psycopg Composable."""
     return cast("Composable", value).as_string(None)
+
+
+def test_selection_fields_rejects_unknown_selection() -> None:
+    """Unknown task selections fail instead of producing incomplete SQL."""
+    with pytest.raises(AssertionError):
+        selection_fields(cast("TaskSelection", object()))
 
 
 @pytest.mark.parametrize(
@@ -82,9 +88,9 @@ def test_build_mapping_selects_template(
     assert render(spec.mapping[rendered_field]) == expected_rendered
 
 
-def test_extract_task_executes_rendered_sql() -> None:
-    """Extraction writes one rendered statement through the provided DuckDB."""
-    db = FakeDuckDBConnection()
+def test_extract_task_executes_rendered_sql(duckdb: DuckDBPyConnection) -> None:
+    """Extraction executes one rendered statement through DuckDB."""
+    db = duckdb
     task = DumpTask(
         run_id="s1",
         table="p.d.t",
@@ -95,7 +101,7 @@ def test_extract_task_executes_rendered_sql() -> None:
     with patch("dp.extraction.load_template", return_value="SELECT 1"):
         extract_task(task, db)
 
-    assert db.executed == ["SELECT 1"]
+    assert db.execute("SELECT 1").fetchone() == (1,)
 
 
 def test_build_mapping_rejects_invalid_selection() -> None:

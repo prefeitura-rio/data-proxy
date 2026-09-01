@@ -2,10 +2,10 @@
 
 from typing import assert_never
 
+from psycopg import Connection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .models import UnitMapping
-from .protocols import PostgresExecutor
 from .settings import settings
 from .templates import TemplateSpec, load_template
 
@@ -82,13 +82,13 @@ def access_policy_writer_statement(schema: str) -> str:
     )
 
 
-def ensure_schema_policy_writer(pg_conn: PostgresExecutor, schema: str) -> None:
+def ensure_schema_policy_writer(pg_conn: Connection, schema: str) -> None:
     """Create one schema policy-writer role when it is missing."""
     pg_conn.execute(access_policy_writer_statement(schema).encode())
 
 
 def bootstrap_table(
-    pg_conn: PostgresExecutor,
+    pg_conn: Connection,
     schema: str,
     table_name: str,
     rls: list[UnitMapping] | None,

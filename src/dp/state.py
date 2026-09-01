@@ -3,6 +3,8 @@
 import contextlib
 from typing import cast
 
+from redis.asyncio import Redis
+from redis.asyncio.client import Pipeline
 from redis.exceptions import ResponseError, WatchError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
@@ -30,13 +32,6 @@ from .models import (
     TableState,
     task_outcome_adapter,
 )
-from .protocols import (
-    RedisConsumerCleanup,
-    RedisKeyDelete,
-    RedisRead,
-    RedisStreamCreate,
-    RedisTransaction,
-)
 
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
@@ -44,15 +39,13 @@ def decode_redis_value(value: bytes | str | None) -> str | None:
     return value.decode() if isinstance(value, bytes) else value
 
 
-async def read_table_signature(redis: RedisRead, table: str) -> str | None:
+async def read_table_signature(redis: Redis, table: str) -> str | None:
     """Read the committed signature for one table."""
     state = await read_table_state(redis, table)
     return state.signature if state is not None else None
 
 
-async def read_partition_manifest(
-    redis: RedisRead, table: str
-) -> PartitionManifest | None:
+async def read_partition_manifest(redis: Redis, table: str) -> PartitionManifest | None:
     """Read a partition manifest from unified table state."""
     state = await read_table_state(redis, table)
     if state is None or state.partitions is None:
@@ -62,15 +55,13 @@ async def read_partition_manifest(
     )
 
 
-async def read_table_state(redis: RedisRead, table: str) -> TableState | None:
+async def read_table_state(redis: Redis, table: str) -> TableState | None:
     """Read committed state for one table."""
     raw = decode_redis_value(await redis.get(STATE_KEY.format(table=table)))
     return TableState.model_validate_json(raw) if raw is not None else None
 
 
-async def create_consumer_group(
-    redis: RedisStreamCreate, stream: str, group: str
-) -> None:
+async def create_consumer_group(redis: Redis, stream: str, group: str) -> None:
     """Create a stream consumer group when it does not exist."""
     with contextlib.suppress(ResponseError):
         await redis.xgroup_create(stream, group, id="0", mkstream=True)
@@ -82,7 +73,7 @@ async def create_consumer_group(
     reraise=True,
 )
 async def create_run(
-    redis: RedisTransaction, run_id: str, plans: list[SyncPlan], task_count: int
+    redis: Redis, run_id: str, plans: list[SyncPlan], task_count: int
 ) -> bool:
     """Atomically reserve one run and store its schema plans."""
     plans_key = PLANS_KEY.format(run_id=run_id)
@@ -101,7 +92,7 @@ async def create_run(
 
 
 async def read_sync_plan(
-    redis: RedisRead, run_id: str, schema_name: str
+    redis: Redis, run_id: str, schema_name: str
 ) -> SyncPlan | None:
     """Read one immutable schema plan."""
     raw = decode_redis_value(
@@ -110,18 +101,18 @@ async def read_sync_plan(
     return SyncPlan.model_validate_json(raw) if raw is not None else None
 
 
-async def read_active_run(redis: RedisRead) -> str | None:
+async def read_active_run(redis: Redis) -> str | None:
     """Read the active run ID."""
     return decode_redis_value(await redis.get(ACTIVE_KEY))
 
 
-async def read_remaining(redis: RedisRead, run_id: str) -> int | None:
+async def read_remaining(redis: Redis, run_id: str) -> int | None:
     """Read remaining dump tasks for one run."""
     raw = decode_redis_value(await redis.get(REMAINING_KEY.format(run_id=run_id)))
     return int(raw) if raw is not None else None
 
 
-async def read_sync_plans(redis: RedisRead, run_id: str) -> list[SyncPlan]:
+async def read_sync_plans(redis: Redis, run_id: str) -> list[SyncPlan]:
     """Read all immutable schema plans for one run."""
     return [
         SyncPlan.model_validate_json(value)
@@ -134,15 +125,14 @@ async def read_sync_plans(redis: RedisRead, run_id: str) -> list[SyncPlan]:
     stop=stop_after_attempt(SYNC_TRANSACTION_RETRIES),
     reraise=True,
 )
-async def complete_dump(
-    redis: RedisTransaction, task: DumpTask, result: DumpResult
-) -> int | None:
+async def complete_dump(redis: Redis, task: DumpTask, result: DumpResult) -> int | None:
     """Store one unique dump result and return remaining tasks, or None if duplicate."""
     results_key = RESULTS_KEY.format(run_id=task.run_id)
     remaining_key = REMAINING_KEY.format(run_id=task.run_id)
-    async with redis.pipeline(transaction=True) as pipe:
+    async with redis.pipeline(transaction=True) as raw_pipe:
+        pipe: Pipeline = raw_pipe
         await pipe.watch(results_key, remaining_key)
-        remaining_raw = await pipe.get(remaining_key)
+        remaining_raw = cast(bytes | None, await pipe.get(remaining_key))
         if remaining_raw is None:
             raise RuntimeError(f"Remaining task count not found: {task.run_id}")
         if await pipe.hexists(results_key, task.task_id):
@@ -160,7 +150,7 @@ async def complete_dump(
     return next_remaining
 
 
-async def read_failed_paths(redis: RedisRead, run_id: str) -> set[str]:
+async def read_failed_paths(redis: Redis, run_id: str) -> set[str]:
     """Return failed Parquet paths from dump results."""
     results = [
         task_outcome_adapter.validate_json(value)
@@ -175,7 +165,7 @@ async def read_failed_paths(redis: RedisRead, run_id: str) -> set[str]:
     reraise=True,
 )
 async def complete_schema(
-    redis: RedisTransaction,
+    redis: Redis,
     run_id: str,
     schema_name: str,
     states: dict[str, TableState],
@@ -195,7 +185,7 @@ async def complete_schema(
     return cast(int, result[-1])
 
 
-async def cleanup_run(redis: RedisKeyDelete, run_id: str) -> None:
+async def cleanup_run(redis: Redis, run_id: str) -> None:
     """Delete temporary state after final PostgREST reload."""
     await redis.delete(
         ACTIVE_KEY,
@@ -206,7 +196,7 @@ async def cleanup_run(redis: RedisKeyDelete, run_id: str) -> None:
 
 
 async def cleanup_consumer(
-    redis: RedisConsumerCleanup, stream: str, group: str, consumer: str
+    redis: Redis, stream: str, group: str, consumer: str
 ) -> None:
     """Delete one consumer when it has no pending messages."""
     if await redis.xpending_range(stream, group, "-", "+", 1, consumername=consumer):
@@ -215,7 +205,7 @@ async def cleanup_consumer(
         await redis.xgroup_delconsumer(stream, group, consumer)
 
 
-async def ensure_groups(redis: RedisStreamCreate) -> None:
+async def ensure_groups(redis: Redis) -> None:
     """Create all pipeline consumer groups."""
     await create_consumer_group(redis, DUMP_STREAM, DUMPERS_GROUP)
     await create_consumer_group(redis, SEED_STREAM, SEEDERS_GROUP)

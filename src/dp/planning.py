@@ -2,10 +2,14 @@
 
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import cast
 
 from asyncer import asyncify
+from duckdb import DuckDBPyConnection
+from google.cloud.bigquery import Client
 from loguru import logger
 from psycopg.sql import Literal
+from redis.asyncio import Redis
 
 from .bigquery import bigquery_clients, physical_partitions, table_modified
 from .models import (
@@ -21,12 +25,11 @@ from .models import (
     SyncWork,
     TableConfig,
 )
-from .protocols import BigQueryMetadataClient, DuckDBConnection, RedisRead
 from .state import read_partition_manifest, read_table_signature
 from .templates import TemplateSpec, load_template
 
 
-def discover_json_columns(db: DuckDBConnection, bq_table: str) -> list[str]:
+def discover_json_columns(db: DuckDBPyConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = db.execute(
         load_template(
@@ -36,14 +39,18 @@ def discover_json_columns(db: DuckDBConnection, bq_table: str) -> list[str]:
             )
         )
     ).fetchall()
-    return [str(row[0]) for row in rows if "STRUCT" in str(row[1]).upper()]
+    return [
+        str(cast(object, row[0]))
+        for row in rows
+        if "STRUCT" in str(cast(object, row[1])).upper()
+    ]
 
 
 def expand_config(
     tables: list[TableConfig],
     gcs_bucket: str,
     sync_id: str,
-    db: DuckDBConnection,
+    db: DuckDBPyConnection,
 ) -> list[DumpTask]:
     """Expand full tables into whole-table extraction tasks."""
     tasks: list[DumpTask] = []
@@ -72,7 +79,7 @@ def table_signature(table: TableConfig, modified: str) -> str:
     return f"{modified}:{config_hash}"
 
 
-async def detect_changes(config: SyncConfig, redis: RedisRead) -> dict[str, str]:
+async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
     """Return full table signatures changed since their successful sync."""
     changed: dict[str, str] = {}
 
@@ -177,11 +184,11 @@ def build_partition_tasks(
 
 async def plan_partitioned_table(
     table: PartitionedTable,
-    client: BigQueryMetadataClient,
-    redis: RedisRead,
+    client: Client,
+    redis: Redis,
     sync_id: str,
     gcs_bucket: str,
-    db: DuckDBConnection,
+    db: DuckDBPyConnection,
 ) -> tuple[PartitionedTablePlan | None, list[DumpTask]]:
     """Plan one physically partitioned table."""
     table_sig, current = await asyncify(physical_partitions)(
@@ -224,10 +231,10 @@ async def plan_partitioned_table(
 
 async def plan_partitioned_tables(
     config: SyncConfig,
-    redis: RedisRead,
+    redis: Redis,
     sync_id: str,
     gcs_bucket: str,
-    db: DuckDBConnection,
+    db: DuckDBPyConnection,
 ) -> tuple[dict[str, PartitionedTablePlan], list[DumpTask]]:
     """Plan changed physical partitions for all partitioned tables."""
     plans: dict[str, PartitionedTablePlan] = {}
@@ -254,10 +261,10 @@ async def plan_partitioned_tables(
 
 async def build_sync_work(
     config: SyncConfig,
-    redis: RedisRead,
+    redis: Redis,
     sync_id: str,
     bucket: str,
-    db: DuckDBConnection,
+    db: DuckDBPyConnection,
 ) -> SyncWork:
     """Build a publisher plan and tasks for changed data only."""
     changed = await detect_changes(config, redis)

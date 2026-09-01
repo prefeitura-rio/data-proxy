@@ -1,6 +1,8 @@
 """Synchronization plan validation and publication orchestration."""
 
+from duckdb import DuckDBPyConnection
 from loguru import logger
+from psycopg import Connection
 from whenever import Instant
 
 from .freshness import record_table_failures
@@ -11,7 +13,6 @@ from .models import (
     SyncPlan,
     SyncPublicationInput,
 )
-from .protocols import DuckDBConnection, PostgresPublication
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
 
@@ -28,7 +29,7 @@ def empty_incremental_tables(plan: SyncPlan) -> set[str]:
 
 
 def record_extraction_failures(
-    pg_conn: PostgresPublication,
+    pg_conn: Connection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
@@ -53,7 +54,7 @@ def record_extraction_failures(
 
 
 def record_preparation_failures(
-    pg_conn: PostgresPublication,
+    pg_conn: Connection,
     config: SyncConfig,
     source_plan: SyncPlan,
     eligible: set[str],
@@ -68,8 +69,8 @@ def record_preparation_failures(
 
 
 def publish_eligible_tables(
-    pg_conn: PostgresPublication,
-    duckdb_conn: DuckDBConnection,
+    pg_conn: Connection,
+    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
@@ -102,8 +103,8 @@ def publish_eligible_tables(
 
 
 def apply_sync_plan(
-    pg_conn: PostgresPublication,
-    duckdb_conn: DuckDBConnection,
+    pg_conn: Connection,
+    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     plan: SyncPlan,
     failed_paths: set[str] | None = None,

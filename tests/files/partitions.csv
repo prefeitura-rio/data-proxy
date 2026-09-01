@@ -1,0 +1,14 @@
+table_name,partition_kind,partition_field,range_start,range_end,range_interval,time_granularity,partition_id,last_modified_time
+test.dataset.range_buckets,range,cpf,0,25,10,,0,2026-08-07 12:47:52.683000
+test.dataset.range_buckets,range,cpf,0,25,10,,20,2026-08-07 12:47:52.683000
+test.dataset.range_start_five,range,cpf,5,25,10,,5,2026-08-07 12:47:52.683000
+test.dataset.range_null,range,cpf,0,25,10,,__NULL__,2026-08-07 12:47:52.683000
+test.dataset.time_day,time,data_particao,,,,DAY,20250101,2026-08-07 12:47:52.683000
+test.dataset.time_day,time,data_particao,,,,DAY,20250102,2026-08-07 12:47:52.683000
+test.dataset.time_day,time,data_particao,,,,DAY,20250103,2026-08-07 12:47:52.683000
+test.dataset.time_day_skip,time,data_particao,,,,DAY,__NULL__,2026-08-07 12:47:52.683000
+test.dataset.time_day_skip,time,data_particao,,,,DAY,20250101,2026-08-07 12:47:52.683000
+test.dataset.time_hour,time,data_particao,,,,HOUR,2025010112,2026-08-07 12:47:52.683000
+test.dataset.time_month,time,data_particao,,,,MONTH,202512,2026-08-07 12:47:52.683000
+test.dataset.time_year,time,data_particao,,,,YEAR,2025,2026-08-07 12:47:52.683000
+test.dataset.plain,none,,,,,,,2026-08-07 12:47:52.683000

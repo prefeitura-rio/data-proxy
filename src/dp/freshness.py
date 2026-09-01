@@ -2,16 +2,16 @@
 
 from collections.abc import Collection, Mapping
 
+from psycopg import Connection
 from psycopg.sql import Identifier
 from whenever import Instant
 
 from .models import SyncPlan, TableConfig
-from .protocols import PostgresExecutor, PostgresFreshness
 from .templates import TemplateSpec, load_template
 
 
 def upsert_freshness(
-    pg_conn: PostgresFreshness,
+    pg_conn: Connection | Connection,
     table: TableConfig,
     partitions: Collection[str | None],
     attempted_at: Instant,
@@ -48,7 +48,7 @@ def upsert_freshness(
 
 
 def delete_freshness(
-    pg_conn: PostgresFreshness, table: TableConfig, partitions: Collection[str]
+    pg_conn: Connection | Connection, table: TableConfig, partitions: Collection[str]
 ) -> None:
     """Delete freshness for removed partitions."""
     if not partitions:
@@ -69,7 +69,9 @@ def delete_freshness(
         )
 
 
-def delete_table_freshness(pg_conn: PostgresExecutor, table: TableConfig) -> None:
+def delete_table_freshness(
+    pg_conn: Connection | Connection, table: TableConfig
+) -> None:
     """Delete all freshness rows for one table."""
     pg_conn.execute(
         load_template(
@@ -83,7 +85,7 @@ def delete_table_freshness(pg_conn: PostgresExecutor, table: TableConfig) -> Non
 
 
 def update_published_freshness(
-    pg_conn: PostgresFreshness,
+    pg_conn: Connection | Connection,
     table: TableConfig,
     plan: SyncPlan,
     failed_partitions: set[str],
@@ -114,7 +116,7 @@ def update_published_freshness(
 
 
 def record_table_failures(
-    pg_conn: PostgresFreshness,
+    pg_conn: Connection | Connection,
     tables: list[TableConfig],
     plan: SyncPlan,
     attempted_at: Instant,

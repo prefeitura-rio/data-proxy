@@ -9,19 +9,20 @@ from asyncer import asyncify
 from faststream import FastStream
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
+from psycopg import Connection
 
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
 from ..models import PublishTask, SyncConfig, SyncPlan, TableState
-from ..protocols import PostgresPublication
 from ..schema import reload_postgrest
 from ..settings import settings
 from ..state import (
     cleanup_consumer,
     cleanup_run,
     complete_schema,
+    read_active_run,
     read_failed_paths,
     read_sync_plan,
 )
@@ -46,7 +47,7 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
     """Run blocking schema publication."""
     with psycopg.connect(dsn) as pg_conn, connect() as duckdb_conn:
         return apply_sync_plan(
-            cast(PostgresPublication, cast(object, pg_conn)),
+            cast(Connection, cast(object, pg_conn)),
             duckdb_conn,
             config,
             plan,
@@ -58,16 +59,16 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
 @broker.subscriber(stream=subs["stale"])
 async def publish_schema(task: PublishTask) -> None:
     """Publish one schema and complete its immutable plan field."""
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
         if plan is None:
             if (
-                await redis.get("dp:active") == task.run_id
+                await read_active_run(redis) == task.run_id
                 and await redis.hlen(f"dp:plans:{task.run_id}") == 0
             ):
                 with psycopg.connect(settings.PG_DSN) as conn:
                     reload_postgrest(
-                        conn,
+                        cast(Connection, cast(object, conn)),
                         SyncConfig.model_validate_json(
                             settings.SYNC_CONFIG_PATH.read_text()
                         ),
@@ -82,7 +83,7 @@ async def publish_schema(task: PublishTask) -> None:
         schemas={task.schema_name: config.schemas[task.schema_name]}
     )
     result = await asyncify(publish_plan)(
-        settings.schema_writers().dsn(task.schema_name),
+        settings.schema_writers.dsn(task.schema_name),
         schema_config,
         plan,
         failed_paths,
@@ -109,11 +110,11 @@ async def publish_schema(task: PublishTask) -> None:
                 signature=table_plan.table_signature,
                 partitions=table_plan.current_partitions,
             )
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         remaining = await complete_schema(redis, task.run_id, task.schema_name, states)
         if remaining == 0:
             with psycopg.connect(settings.PG_DSN) as conn:
-                reload_postgrest(conn, config)
+                reload_postgrest(cast(Connection, cast(object, conn)), config)
             await cleanup_run(redis, task.run_id)
     publisher.exit()
 
@@ -121,7 +122,7 @@ async def publish_schema(task: PublishTask) -> None:
 @publisher.on_shutdown
 async def cleanup_publisher_consumers() -> None:
     """Remove idle publisher consumers."""
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         for sub in subs.values():
             assert sub.consumer is not None
             await cleanup_consumer(

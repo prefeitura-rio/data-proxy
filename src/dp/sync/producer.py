@@ -26,7 +26,7 @@ async def produce() -> None:
     run_id = Instant.now().format_iso()
     started = monotonic()
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         active_run = await read_active_run(redis)
         if active_run is not None:
             remaining = await read_remaining(redis, active_run)

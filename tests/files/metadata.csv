@@ -1,0 +1,10 @@
+table_name,table_type,partition_kind,partition_field,range_start,range_end,range_interval,time_granularity,modified
+test.dataset.plain,TABLE,none,,,,,,2026-08-07 12:47:52.683000
+test.dataset.range_buckets,TABLE,range,cpf,0,25,10,,2026-08-07 12:47:52.683000
+test.dataset.range_start_five,TABLE,range,cpf,5,25,10,,2026-08-07 12:47:52.683000
+test.dataset.range_null,TABLE,range,cpf,0,25,10,,2026-08-07 12:47:52.683000
+test.dataset.time_day,TABLE,time,data_particao,,,,DAY,2026-08-07 12:47:52.683000
+test.dataset.time_day_skip,TABLE,time,data_particao,,,,DAY,2026-08-07 12:47:52.683000
+test.dataset.time_hour,TABLE,time,data_particao,,,,HOUR,2026-08-07 12:47:52.683000
+test.dataset.time_month,TABLE,time,data_particao,,,,MONTH,2026-08-07 12:47:52.683000
+test.dataset.time_year,TABLE,time,data_particao,,,,YEAR,2026-08-07 12:47:52.683000

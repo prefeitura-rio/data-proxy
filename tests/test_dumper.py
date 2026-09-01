@@ -1,8 +1,21 @@
-# ruff: noqa: E402
-# ruff: noqa: E402
 """Tests for Dumper subscriptions."""
 
-from dp.sync.dumper import subs
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from duckdb import DuckDBPyConnection
+from redis.asyncio import Redis
+
+from dp.models import AllSelection, DumpTask
+from dp.sync.dumper import (
+    cleanup_dumper_consumers,
+    dump_task,
+    dumper,
+    extract_task_wrapper,
+    subs,
+)
+from dp.sync.seeder import seed_sync
+from tests.helpers import dump as make_dump
 
 
 def test_dumper_has_new_and_stale_subscriptions() -> None:
@@ -10,18 +23,8 @@ def test_dumper_has_new_and_stale_subscriptions() -> None:
     assert subs["stale"].min_idle_time is not None
 
 
-"""Coverage for Dumper branches."""
-from unittest.mock import AsyncMock, patch
-
-import pytest
-
-from dp.models import AllSelection, DumpTask
-from dp.sync.dumper import cleanup_dumper_consumers, dump_task, dumper
-from tests.helpers import FakeRedis
-
-
 @pytest.mark.asyncio
-async def test_dumper_records_failure_and_exits(valkey: FakeRedis) -> None:
+async def test_dumper_records_failure_and_exits(redis: Redis) -> None:
     task = DumpTask(
         run_id="r1", table="p.d.t", bucket_path="s3://b", selection=AllSelection()
     )
@@ -37,13 +40,7 @@ async def test_dumper_records_failure_and_exits(valkey: FakeRedis) -> None:
 """Additional Producer and Dumper coverage."""
 
 
-from dp.models import SeedTask
-from dp.sync.dumper import extract_task_wrapper
-from tests.helpers import FakeDuckDBConnection
-from tests.helpers import dump as make_dump
-
-
-def test_extract_wrapper(duckdb: FakeDuckDBConnection) -> None:
+def test_extract_wrapper(duckdb: DuckDBPyConnection) -> None:
     with (
         patch("dp.sync.dumper.connect", return_value=duckdb) as connect,
         patch("dp.sync.dumper.extract_task") as extract,
@@ -54,19 +51,22 @@ def test_extract_wrapper(duckdb: FakeDuckDBConnection) -> None:
 
 
 @pytest.mark.asyncio
-async def test_dumper_publishes_seed_for_last_dump(valkey: FakeRedis) -> None:
+async def test_dumper_publishes_seed_for_last_dump(
+    redis: Redis,
+    broker: object,
+) -> None:
     with (
         patch("dp.sync.dumper.extract_task_wrapper"),
         patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=0),
-        patch("dp.sync.dumper.broker.publish", new_callable=AsyncMock) as publish,
         patch.object(dumper, "exit"),
     ):
         await dump_task(make_dump())
-    publish.assert_awaited_once_with(SeedTask(run_id="r1"), stream="dp:prepare")
+    assert seed_sync.mock.call_count == 2
+    seed_sync.mock.assert_called_with({"run_id": "r1"})
 
 
 @pytest.mark.asyncio
-async def test_dumper_cleanup_removes_consumers(valkey: FakeRedis) -> None:
+async def test_dumper_cleanup_removes_consumers(redis: Redis) -> None:
     with (
         patch("dp.sync.dumper.cleanup_consumer", new_callable=AsyncMock) as cleanup,
     ):

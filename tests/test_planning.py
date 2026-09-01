@@ -1,9 +1,14 @@
 from dp.planning import expand_config
+from dp.settings import settings
 
 # ruff: noqa: E402
 # ruff: noqa: E402
 """Tests for planning result types."""
+from unittest.mock import MagicMock
+
 import pytest
+from duckdb import connect
+from google.cloud.bigquery import Client
 
 from dp.models import (
     PartitionedTable,
@@ -13,7 +18,6 @@ from dp.models import (
     SyncWork,
 )
 from dp.planning import build_sync_work
-from tests.helpers import FakeBigQueryClient, FakeDuckDBConnection, FakeRedis
 
 
 @pytest.mark.asyncio
@@ -37,7 +41,7 @@ async def test_build_sync_work_groups_partitioned_plan() -> None:
         ),
     ):
         work = await build_sync_work(
-            config, (FakeRedis()), "r", "b", FakeDuckDBConnection()
+            config, (settings.redis), "r", "b", connect(":memory:")
         )
     assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
@@ -52,6 +56,8 @@ def test_sync_work_has_named_parts() -> None:
 from collections.abc import Callable
 from contextlib import nullcontext
 from unittest.mock import AsyncMock, patch
+
+from duckdb import DuckDBPyConnection
 
 from dp.models import (
     AllSelection,
@@ -105,11 +111,11 @@ async def test_plan_partitioned_table_builds_changed_plan() -> None:
     ):
         plan, tasks = await plan_partitioned_table(
             table,
-            FakeBigQueryClient(),
-            (FakeRedis()),
+            MagicMock(spec=Client),
+            (settings.redis),
             "r",
             "b",
-            FakeDuckDBConnection(),
+            connect(":memory:"),
         )
     assert plan is not None
     assert tasks
@@ -130,7 +136,7 @@ async def test_plan_partitioned_tables_groups_partitioned_tables() -> None:
     with (
         patch(
             "dp.planning.bigquery_clients",
-            return_value=nullcontext(client_factory(FakeBigQueryClient())),
+            return_value=nullcontext(client_factory(MagicMock(spec=Client))),
         ),
         patch(
             "dp.planning.plan_partitioned_table",
@@ -139,7 +145,7 @@ async def test_plan_partitioned_tables_groups_partitioned_tables() -> None:
         ),
     ):
         plans, tasks = await plan_partitioned_tables(
-            config, (FakeRedis()), "r", "b", FakeDuckDBConnection()
+            config, (settings.redis), "r", "b", connect(":memory:")
         )
     assert plans == {"p.d.t": table_plan}
     assert tasks == []
@@ -187,10 +193,10 @@ def test_partition_changes_table_cases(
     )
 
 
-def test_expand_config_and_json_columns() -> None:
-    db = FakeDuckDBConnection(rows=[("payload", "STRUCT(x INT)"), ("name", "VARCHAR")])
+def test_expand_config_and_json_columns(duckdb: DuckDBPyConnection) -> None:
     config: list[TableConfig] = [FullTable(name="p.d.t")]
-    tasks = expand_config(config, "bucket", "run", db)
+    with patch("dp.planning.discover_json_columns", return_value=[]):
+        tasks = expand_config(config, "bucket", "run", duckdb)
     assert tasks[0].json_columns == []
     assert table_signature(config[0], "modified").startswith("modified:")
 
@@ -202,9 +208,10 @@ def test_partition_tasks_order_numeric_before_remainder() -> None:
     assert list(batch.paths) == ["2", "10", "__NULL__"]
 
 
-def test_discover_json_columns() -> None:
-    db = FakeDuckDBConnection(rows=[("a", "struct(x)"), ("b", "VARCHAR")])
-    assert discover_json_columns(db, "p.d.t") == []
+def test_discover_json_columns(duckdb: DuckDBPyConnection) -> None:
+    duckdb.execute("CREATE TABLE source (a STRUCT(x INTEGER), b VARCHAR)")
+    with patch("dp.planning.load_template", return_value="DESCRIBE source"):
+        assert discover_json_columns(duckdb, "p.d.t") == ["a"]
 
 
 @pytest.mark.asyncio
@@ -216,7 +223,7 @@ async def test_detect_changes_filters_unchanged_and_partitioned() -> None:
             )
         }
     )
-    client = FakeBigQueryClient()
+    client = MagicMock(spec=Client)
     with (
         patch(
             "dp.planning.bigquery_clients",
@@ -229,7 +236,7 @@ async def test_detect_changes_filters_unchanged_and_partitioned() -> None:
             return_value=None,
         ),
     ):
-        result = await detect_changes(config, (FakeRedis()))
+        result = await detect_changes(config, (settings.redis))
     assert set(result) == {"p.d.t"}
 
 
@@ -251,11 +258,11 @@ async def test_partitioned_without_changes_returns_none() -> None:
     ):
         plan, tasks = await plan_partitioned_table(
             table,
-            FakeBigQueryClient(),
-            (FakeRedis()),
+            MagicMock(spec=Client),
+            (settings.redis),
             "run",
             "bucket",
-            FakeDuckDBConnection(),
+            connect(":memory:"),
         )
     assert plan is None
     assert tasks == []
@@ -266,10 +273,10 @@ async def test_partitioned_tables_skips_full_tables() -> None:
     config = SyncConfig(schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])})
     with patch(
         "dp.planning.bigquery_clients",
-        return_value=nullcontext(client_factory(FakeBigQueryClient())),
+        return_value=nullcontext(client_factory(MagicMock(spec=Client))),
     ):
         plans, tasks = await plan_partitioned_tables(
-            config, (FakeRedis()), "run", "bucket", FakeDuckDBConnection()
+            config, (settings.redis), "run", "bucket", connect(":memory:")
         )
     assert plans == {}
     assert tasks == []
@@ -290,7 +297,7 @@ async def test_build_sync_work_no_changes() -> None:
         ),
     ):
         result = await build_sync_work(
-            config, (FakeRedis()), "r1", "b", FakeDuckDBConnection()
+            config, (settings.redis), "r1", "b", connect(":memory:")
         )
     assert result == SyncWork(plans=[], tasks=[])
 
@@ -315,7 +322,7 @@ async def test_build_sync_work_groups_full_table_by_schema() -> None:
         ),
     ):
         result = await build_sync_work(
-            config, (FakeRedis()), "r1", "b", FakeDuckDBConnection()
+            config, (settings.redis), "r1", "b", connect(":memory:")
         )
     assert len(result.plans) == 1
     assert result.plans[0].schema_name == "app"
@@ -326,9 +333,9 @@ async def test_build_sync_work_groups_full_table_by_schema() -> None:
 
 
 def client_factory(
-    client: FakeBigQueryClient,
-) -> Callable[[str], FakeBigQueryClient]:
-    def get_client(_: str) -> FakeBigQueryClient:
+    client: Client,
+) -> Callable[[str], Client]:
+    def get_client(_: str) -> Client:
         return client
 
     return get_client

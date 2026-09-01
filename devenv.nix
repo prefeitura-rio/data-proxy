@@ -5,6 +5,8 @@
   env = {
     UV_PYTHON = config.languages.python.package.outPath;
     KUBECONFIG = "$DEVENV_ROOT/.kubeconfig";
+    DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
+    TESTCONTAINERS_RYUK_DISABLED = "true";
   };
 
   packages = with pkgs; [

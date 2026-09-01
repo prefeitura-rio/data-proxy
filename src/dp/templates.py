@@ -5,17 +5,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from string import Template
-from typing import assert_never
 
-from psycopg.sql import Composable, Identifier, Literal
-
-from .models import (
-    AllSelection,
-    RangeSelection,
-    RemainderSelection,
-    TaskSelection,
-    TimeRangeSelection,
-)
+from psycopg.sql import Composable
 
 SQL_DIR = Path(__file__).parent / "sql"
 
@@ -29,12 +20,12 @@ class TemplateSpec:
 
 
 @lru_cache
-def read_template(name: str) -> str:
-    """Read and cache a SQL template by name."""
-    return (SQL_DIR / f"{name}.sql").read_text()
+def read_template(name: str, root: Path = SQL_DIR) -> str:
+    """Read and cache a SQL template by name from one SQL directory."""
+    return (root / f"{name}.sql").read_text()
 
 
-def load_template(spec: TemplateSpec) -> str:
+def load_template(spec: TemplateSpec, root: Path = SQL_DIR) -> str:
     """Substitute a mapping into its named SQL template.
 
     Values that are `Composable` (`Identifier`, `Literal`, `SQL`) render
@@ -51,28 +42,4 @@ def load_template(spec: TemplateSpec) -> str:
             case _:
                 rendered[key] = value
 
-    return Template(read_template(spec.path)).substitute(rendered)
-
-
-def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
-    """Return the column and bound literals encoded by one task selection."""
-    match selection:
-        case AllSelection():
-            return {}
-        case (
-            RangeSelection(column=column, lower=lower, upper=upper)
-            | TimeRangeSelection(column=column, lower=lower, upper=upper)
-        ):
-            return {
-                "column": Identifier(column),
-                "lower": Literal(lower),
-                "upper": Literal(upper),
-            }
-        case RemainderSelection(column=column, start=start, end=end):
-            return {
-                "column": Identifier(column),
-                "lower": Literal(start),
-                "upper": Literal(end),
-            }
-        case _:
-            assert_never(selection)
+    return Template(read_template(spec.path, root)).substitute(rendered)

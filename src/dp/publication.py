@@ -3,11 +3,14 @@
 from collections.abc import Sequence
 from typing import LiteralString, assert_never, cast
 
+from duckdb import DuckDBPyConnection
 from loguru import logger
+from psycopg import Connection
 from psycopg.sql import SQL, Identifier, Literal
 from whenever import Instant
 
 from .authorization import bootstrap_table
+from .extraction import selection_fields
 from .freshness import (
     record_table_failures,
     update_published_freshness,
@@ -24,18 +27,12 @@ from .models import (
     TableConfig,
     TimeRangeSelection,
 )
-from .protocols import (
-    DuckDBConnection,
-    PostgresExecutor,
-    PostgresIncremental,
-    PostgresPublication,
-)
 from .settings import settings
-from .templates import TemplateSpec, load_template, selection_fields
+from .templates import TemplateSpec, load_template
 
 
 def load_table(
-    conn: DuckDBConnection,
+    conn: DuckDBPyConnection,
     schema: str,
     table_name: str,
     paths: list[str],
@@ -56,7 +53,7 @@ def load_table(
         )
 
 
-def create_indexes(conn: PostgresExecutor, table: TableConfig, table_name: str) -> None:
+def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> None:
     """Create every configured index on a table."""
     for index in table.indexes:
         conn.execute(
@@ -76,7 +73,7 @@ def create_indexes(conn: PostgresExecutor, table: TableConfig, table_name: str) 
         )
 
 
-def publish_table(conn: PostgresExecutor, table: TableConfig) -> None:
+def publish_table(conn: Connection, table: TableConfig) -> None:
     """Atomically swap one prepared shadow table into service."""
     table_name = table.table_name
     conn.execute(
@@ -192,7 +189,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
 
 
 def create_incremental_shadow(
-    pg_conn: PostgresIncremental,
+    pg_conn: Connection,
     table: TableConfig,
     affected: list[PhysicalPartition],
 ) -> None:
@@ -216,7 +213,7 @@ def create_incremental_shadow(
 
 
 def create_shadow_from_parquet(
-    duckdb_conn: DuckDBConnection,
+    duckdb_conn: DuckDBPyConnection,
     table: TableConfig,
     shadow_name: str,
     paths: list[str],
@@ -240,8 +237,8 @@ def create_shadow_from_parquet(
 
 
 def prepare_tables(
-    pg_conn: PostgresPublication,
-    duckdb_conn: DuckDBConnection,
+    pg_conn: Connection,
+    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     plan: SyncPlan,
     changed: set[str],
@@ -308,7 +305,7 @@ def prepare_tables(
 
 
 def publish_prepared_tables(
-    pg_conn: PostgresPublication,
+    pg_conn: Connection,
     prepared: Sequence[TableConfig],
     plan: SyncPlan,
     failed_partitions: dict[str, set[str]],

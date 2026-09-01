@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from pydantic import Field
 from pydantic.networks import RedisDsn
@@ -9,7 +9,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
 from .models import SchemaWriters
-from .protocols import RedisClient
 
 
 class Settings(BaseSettings):
@@ -36,6 +35,7 @@ class Settings(BaseSettings):
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     SCHEMA_WRITERS_FILE: Path = Path("config/schema-writers/writers.json")
 
+    @property
     def schema_writers(self) -> SchemaWriters:
         """Return the Helm-managed schema-to-writer DSN mapping."""
         try:
@@ -50,23 +50,18 @@ class Settings(BaseSettings):
             message = f"Schema writers file is invalid: {self.SCHEMA_WRITERS_FILE}"
             raise RuntimeError(message) from error
 
-    def make_redis(self) -> RedisClient:
+    @property
+    def redis(self) -> Redis:
         """Return a Redis client built from the configured URL's parsed fields."""
         db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
 
-        return cast(
-            RedisClient,
-            cast(
-                object,
-                Redis(
-                    host=self.REDIS_URL.host or "localhost",
-                    port=self.REDIS_URL.port or 6379,
-                    db=db,
-                    username=self.REDIS_URL.username,
-                    password=self.REDIS_URL.password,
-                    ssl=self.REDIS_URL.scheme == "rediss",
-                ),
-            ),
+        return Redis(
+            host=self.REDIS_URL.host or "localhost",
+            port=self.REDIS_URL.port or 6379,
+            db=db,
+            username=self.REDIS_URL.username,
+            password=self.REDIS_URL.password,
+            ssl=self.REDIS_URL.scheme == "rediss",
         )
 
 

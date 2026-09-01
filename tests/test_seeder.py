@@ -13,45 +13,60 @@ def test_dispatch_exists_uses_run_id() -> None:
 
 
 """Additional Seeder coverage."""
-from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from duckdb import connect
+from redis.asyncio import Redis
 
-from dp.models import SchemaConfig, SchemaWriters, SeedTask, SyncConfig, SyncPlan
+from dp.models import SchemaConfig, SeedTask, SyncConfig, SyncPlan
+from dp.sync.publisher import publish_schema, publisher
 from dp.sync.seeder import cleanup_seeder_consumers, seed_sync, seeder
-from tests.helpers import FakeRedis
 
 
 @pytest.mark.asyncio
 async def test_seeder_groups_schemas_and_dispatches(
-    config: Callable[[SyncConfig], None],
-    valkey: FakeRedis,
-    writers: SchemaWriters,
+    sync_config_path: Path,
+    redis: Redis,
+    broker: object,
 ) -> None:
-    config(SyncConfig(schemas={"app": SchemaConfig(), "other": SchemaConfig()}))
-    fake = valkey
+    sync_config_path.write_text(
+        SyncConfig(
+            schemas={"app": SchemaConfig(), "other": SchemaConfig()}
+        ).model_dump_json()
+    )
+    fake = redis
     plans_key = "dp:plans:r1"
-    fake.hashes[plans_key] = {
-        "app": SyncPlan(schema_name="app").model_dump_json(),
-        "other": SyncPlan(schema_name="other").model_dump_json(),
-    }
-    publish = AsyncMock()
-    publisher = MagicMock(publish=publish)
+    await fake.hset(
+        plans_key,
+        mapping={
+            "app": SyncPlan(schema_name="app").model_dump_json(),
+            "other": SyncPlan(schema_name="other").model_dump_json(),
+        },
+    )
     with (
-        patch("dp.settings.Settings.schema_writers", return_value=writers),
-        patch("dp.sync.seeder.broker.publisher", return_value=publisher),
         patch("dp.sync.seeder.psycopg.connect", return_value=MagicMock()),
         patch("dp.sync.seeder.initialize_schemas"),
+        patch(
+            "dp.sync.publisher.asyncify",
+            return_value=AsyncMock(
+                return_value=MagicMock(
+                    plan=SyncPlan(schema_name="app"),
+                    published_tables=set(),
+                )
+            ),
+        ),
+        patch("dp.sync.publisher.complete_schema", new_callable=AsyncMock),
+        patch.object(publisher, "exit"),
         patch.object(seeder, "exit"),
     ):
         await seed_sync(SeedTask(run_id="r1"))
-    assert publish.await_count == 2
+    assert publish_schema.mock.call_count == 4
 
 
 @pytest.mark.asyncio
-async def test_seeder_cleanup_removes_consumers(valkey: FakeRedis) -> None:
+async def test_seeder_cleanup_removes_consumers(redis: Redis) -> None:
     with (
         patch("dp.sync.seeder.cleanup_consumer", new_callable=AsyncMock) as cleanup,
     ):
@@ -64,11 +79,10 @@ async def test_seeder_cleanup_removes_consumers(valkey: FakeRedis) -> None:
 from dp.models import (
     PartitionedTable,
 )
-from tests.helpers import FakeDuckDBConnection
 
 
 def test_expand_config_skips_partitioned() -> None:
-    db = FakeDuckDBConnection()
+    db = connect(":memory:")
     assert expand_config([PartitionedTable(name="p.d.t")], "b", "r", db) == []
 
 
@@ -77,7 +91,9 @@ def test_seeder_dispatch_guard() -> None:
 
 
 @pytest.mark.asyncio
-async def test_seeder_skips_existing_dispatch(path: Path, valkey: FakeRedis) -> None:
+async def test_seeder_skips_existing_dispatch(
+    sync_config_path: Path, redis: Redis
+) -> None:
     with (
         patch("dp.sync.seeder.dispatch_exists", return_value=True),
         patch.object(seeder, "exit") as exit_app,

@@ -2,6 +2,7 @@
 
 from typing import assert_never
 
+from duckdb import DuckDBPyConnection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .models import (
@@ -9,10 +10,34 @@ from .models import (
     DumpTask,
     RangeSelection,
     RemainderSelection,
+    TaskSelection,
     TimeRangeSelection,
 )
-from .protocols import DuckDBConnection
-from .templates import TemplateSpec, load_template, selection_fields
+from .templates import TemplateSpec, load_template
+
+
+def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
+    """Return the column and bound literals encoded by one task selection."""
+    match selection:
+        case AllSelection():
+            return {}
+        case (
+            RangeSelection(column=column, lower=lower, upper=upper)
+            | TimeRangeSelection(column=column, lower=lower, upper=upper)
+        ):
+            return {
+                "column": Identifier(column),
+                "lower": Literal(lower),
+                "upper": Literal(upper),
+            }
+        case RemainderSelection(column=column, start=start, end=end):
+            return {
+                "column": Identifier(column),
+                "lower": Literal(start),
+                "upper": Literal(end),
+            }
+        case _:
+            assert_never(selection)
 
 
 def build_columns(json_columns: list[str]) -> Composable:
@@ -48,7 +73,7 @@ def build_mapping(task: DumpTask) -> TemplateSpec:
             assert_never(task.selection)
 
 
-def extract_task(task: DumpTask, db: DuckDBConnection) -> None:
+def extract_task(task: DumpTask, db: DuckDBPyConnection) -> None:
     """Write one BigQuery task to GCS Parquet through DuckDB."""
     spec = build_mapping(task)
     db.execute(load_template(spec))

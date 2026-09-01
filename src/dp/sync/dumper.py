@@ -58,7 +58,7 @@ async def dump_task(task: DumpTask) -> None:
     else:
         result = DumpSuccess()
 
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         remaining = await complete_dump(redis, task, result)
 
     if remaining == 0:
@@ -72,7 +72,7 @@ async def dump_task(task: DumpTask) -> None:
 @dumper.on_shutdown
 async def cleanup_dumper_consumers() -> None:
     """Remove idle dumper consumers."""
-    async with settings.make_redis() as redis:
+    async with settings.redis as redis:
         for sub in subs.values():
             assert sub.consumer is not None
             await cleanup_consumer(redis, DUMP_STREAM, DUMPERS_GROUP, sub.consumer)

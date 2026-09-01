@@ -1,14 +1,14 @@
 """DuckDB connection factory and connection protocol."""
 
 import duckdb
+from duckdb import DuckDBPyConnection
 from psycopg.sql import Literal
 
-from .protocols import DuckDBConnection
 from .settings import settings
 from .templates import TemplateSpec, load_template
 
 
-def connect() -> DuckDBConnection:
+def connect() -> DuckDBPyConnection:
     """Create an in-memory DuckDB connection with all extensions and secrets loaded."""
     conn = duckdb.connect()
 

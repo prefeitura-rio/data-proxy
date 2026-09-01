@@ -1,32 +1,31 @@
-# ruff: noqa: E402
-# ruff: noqa: E402
-# ruff: noqa: E402
 """Tests for current producer planning output."""
 
-from dp.models import SyncWork
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from duckdb import connect
+from redis.asyncio import Redis
+
+from dp.models import AllSelection, DumpTask, SyncWork
+from dp.sync.dumper import dump_task, dumper
+from dp.sync.producer import produce, producer
+from dp.sync.seeder import seed_sync
+from tests.helpers import dump as make_dump
+from tests.helpers import sync_plan
 
 
 def test_empty_work_has_no_tasks() -> None:
     assert SyncWork(plans=[], tasks=[]).tasks == []
 
 
-"""Coverage for pipeline applications at external boundaries."""
-from pathlib import Path
-from unittest.mock import ANY, AsyncMock, call, patch
-
-import pytest
-
-from dp.models import AllSelection, DumpTask, SeedTask
-from dp.sync.producer import produce, producer
-from tests.helpers import FakeDuckDBConnection, FakeRedis, sync_plan
-from tests.helpers import dump as make_dump
-
-
 @pytest.mark.asyncio
-async def test_producer_exits_when_no_changes(path: Path, valkey: FakeRedis) -> None:
+async def test_producer_exits_when_no_changes(
+    sync_config_path: Path, redis: Redis
+) -> None:
     with (
         patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-        patch("dp.sync.producer.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.producer.connect", return_value=connect(":memory:")),
         patch(
             "dp.sync.producer.build_sync_work",
             new_callable=AsyncMock,
@@ -39,13 +38,17 @@ async def test_producer_exits_when_no_changes(path: Path, valkey: FakeRedis) -> 
 
 
 @pytest.mark.asyncio
-async def test_producer_publishes_dumps(path: Path, valkey: FakeRedis) -> None:
+async def test_producer_publishes_dumps(
+    sync_config_path: Path,
+    redis: Redis,
+    broker: object,
+) -> None:
     task = DumpTask(
         run_id="run", table="p.d.t", bucket_path="s3://b/t", selection=AllSelection()
     )
     with (
         patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-        patch("dp.sync.producer.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.producer.connect", return_value=connect(":memory:")),
         patch(
             "dp.sync.producer.build_sync_work",
             new_callable=AsyncMock,
@@ -60,26 +63,29 @@ async def test_producer_publishes_dumps(path: Path, valkey: FakeRedis) -> None:
             ),
         ),
         patch("dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True),
-        patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
+        patch("dp.sync.dumper.extract_task_wrapper"),
+        patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1),
+        patch.object(dumper, "exit"),
         patch.object(producer, "exit"),
     ):
         await produce()
-    publish.assert_awaited_once_with(task, stream="dp:extract")
+    assert dump_task.mock.call_count == 2
+    dump_task.mock.assert_called_with(task.model_dump(mode="json"))
 
 
 @pytest.mark.asyncio
 async def test_producer_recovers_zero_remaining_run(
-    path: Path, valkey: FakeRedis
+    sync_config_path: Path,
+    redis: Redis,
+    broker: object,
 ) -> None:
-    fake = valkey
-    fake.store["dp:active"] = "old"
-    fake.store["dp:remaining:old"] = "0"
-    with (
-        patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
-        patch.object(producer, "exit"),
-    ):
+    fake = redis
+    await fake.set("dp:active", "old")
+    await fake.set("dp:remaining:old", "0")
+    with patch.object(producer, "exit"):
         await produce()
-    publish.assert_awaited_once_with(SeedTask(run_id="old"), stream="dp:prepare")
+    assert seed_sync.mock.call_count == 2
+    seed_sync.mock.assert_called_with({"run_id": "old"})
 
 
 """Pipeline branch coverage."""
@@ -87,27 +93,27 @@ async def test_producer_recovers_zero_remaining_run(
 
 @pytest.mark.asyncio
 async def test_producer_refuses_active_run_with_remaining_tasks(
-    path: Path,
-    valkey: FakeRedis,
+    sync_config_path: Path,
+    redis: Redis,
+    broker: object,
 ) -> None:
-    fake = valkey
-    fake.store["dp:active"] = "old"
-    fake.store["dp:remaining:old"] = "2"
-    with (
-        patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
-        patch.object(producer, "exit"),
-    ):
+    fake = redis
+    await fake.set("dp:active", "old")
+    await fake.set("dp:remaining:old", "2")
+    with patch.object(producer, "exit"):
         await produce()
-    publish.assert_not_awaited()
+    assert not seed_sync.mock.called
 
 
 @pytest.mark.asyncio
 async def test_producer_publishes_seed_for_zero_dumps(
-    path: Path, valkey: FakeRedis
+    sync_config_path: Path,
+    redis: Redis,
+    broker: object,
 ) -> None:
     with (
         patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-        patch("dp.sync.producer.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.producer.connect", return_value=connect(":memory:")),
         patch(
             "dp.sync.producer.build_sync_work",
             new_callable=AsyncMock,
@@ -122,22 +128,21 @@ async def test_producer_publishes_seed_for_zero_dumps(
             ),
         ),
         patch("dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True),
-        patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
         patch.object(producer, "exit"),
     ):
         await produce()
-    publish.assert_awaited_once()
-    assert publish.await_args == call(ANY, stream="dp:prepare")
+    assert seed_sync.mock.call_count == 2
+    assert all(call.args[0]["run_id"] for call in seed_sync.mock.call_args_list)
 
 
 @pytest.mark.asyncio
 async def test_producer_rejects_run_creation_conflict(
-    path: Path,
-    valkey: FakeRedis,
+    sync_config_path: Path,
+    redis: Redis,
 ) -> None:
     with (
         patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-        patch("dp.sync.producer.connect", return_value=FakeDuckDBConnection()),
+        patch("dp.sync.producer.connect", return_value=connect(":memory:")),
         patch(
             "dp.sync.producer.build_sync_work",
             new_callable=AsyncMock,

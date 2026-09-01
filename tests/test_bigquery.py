@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from google.cloud.bigquery import (
+    Client,
     PartitionRange,
     RangePartitioning,
     Row,
+    Table,
     TimePartitioning,
 )
 
@@ -24,9 +26,13 @@ from dp.bigquery import (
     table_modified,
 )
 from dp.models import RangeSelection
-from tests.helpers import FakeBigQueryClient
 
 MODIFIED = datetime(2026, 8, 7, 12, 47, 52, 683000, tzinfo=UTC)
+
+
+def preseeded_table(client: Client, name: str) -> Table:
+    """Return one table from the canonical BigQuery CSV dataset."""
+    return client.get_table(f"test.dataset.{name}")
 
 
 def range_config(
@@ -61,22 +67,22 @@ def test_bigquery_clients_reuses_and_closes_clients() -> None:
         second_close.assert_called_once()
 
 
-def test_table_modified_returns_epoch_milliseconds() -> None:
-    """A metadata timestamp is normalized to epoch milliseconds."""
-    fake = FakeBigQueryClient(MODIFIED)
+def test_table_modified_returns_epoch_milliseconds(bigquery: Client) -> None:
+    """A real emulator metadata timestamp is normalized to epoch milliseconds."""
+    preseeded_table(bigquery, "plain")
 
-    result = table_modified((fake), "p.d.t")
+    result = table_modified(bigquery, "test.dataset.plain")
 
-    assert result == "1786106872683"
-    assert fake.calls == ["p.d.t"]
+    assert result.isdigit()
 
 
 def test_table_modified_rejects_missing_timestamp() -> None:
     """Missing modification metadata fails instead of silently resyncing."""
-    fake = FakeBigQueryClient(None)
+    client = MagicMock(spec=Client)
+    client.get_table.return_value.modified = None
 
     with pytest.raises(ValueError, match="Missing BigQuery modification time"):
-        table_modified((fake), "p.d.t")
+        table_modified(client, "p.d.t")
 
 
 def test_parse_table_reference_returns_named_fields() -> None:
@@ -110,18 +116,12 @@ def test_time_config_rejects_empty_field() -> None:
         TimeConfig("", TimeGranularity.DAY)
 
 
-def test_physical_partitions_normalizes_existing_range_buckets() -> None:
+def test_physical_partitions_normalizes_existing_range_buckets(
+    bigquery: Client,
+) -> None:
     """BigQuery range metadata becomes generic lower and upper bounds."""
-    fake = FakeBigQueryClient(
-        range_partitioning=range_config(end=25),
-        rows=[
-            {"partition_id": "0", "last_modified_time": MODIFIED},
-            {"partition_id": "20", "last_modified_time": MODIFIED},
-        ],
-    )
-
     table_signature, partitions = physical_partitions(
-        (fake), "p.d.t", '{"strategy":"partitioned"}'
+        bigquery, "test.dataset.range_buckets", '{"strategy":"partitioned"}'
     )
 
     assert table_signature
@@ -138,17 +138,24 @@ def test_physical_partitions_normalizes_existing_range_buckets() -> None:
     upper_selection = partitions["20"].selection
     assert isinstance(upper_selection, RangeSelection)
     assert upper_selection.upper == 25
-    assert "INFORMATION_SCHEMA.PARTITIONS" in fake.query_calls[0]
 
 
-def test_physical_partitions_normalizes_null_bucket_into_remainder() -> None:
+def test_physical_partitions_accepts_nonzero_range_start(
+    bigquery: Client,
+) -> None:
+    """Range metadata with an explicit nonzero start remains unchanged."""
+    _, partitions = physical_partitions(bigquery, "test.dataset.range_start_five", "{}")
+
+    selection = partitions["5"].selection
+    assert isinstance(selection, RangeSelection)
+    assert selection.lower == 5
+
+
+def test_physical_partitions_normalizes_null_bucket_into_remainder(
+    bigquery: Client,
+) -> None:
     """BigQuery's __NULL__ bucket becomes a remainder partition, not an error."""
-    fake = FakeBigQueryClient(
-        range_partitioning=range_config(end=25),
-        rows=[{"partition_id": "__NULL__", "last_modified_time": MODIFIED}],
-    )
-
-    _, partitions = physical_partitions((fake), "p.d.t", "{}")
+    _, partitions = physical_partitions(bigquery, "test.dataset.range_null", "{}")
 
     remainder = partitions["__NULL__"].selection
     assert remainder.type == "remainder"
@@ -157,17 +164,11 @@ def test_physical_partitions_normalizes_null_bucket_into_remainder() -> None:
     assert remainder.end == 25
 
 
-def test_physical_partitions_normalizes_time_partitions_into_ranges() -> None:
+def test_physical_partitions_normalizes_time_partitions_into_ranges(
+    bigquery: Client,
+) -> None:
     """DAY time partitions normalize raw partition ids into [start, end) ranges."""
-    fake = FakeBigQueryClient(
-        time_partitioning=time_config(),
-        rows=[
-            {"partition_id": "20250101", "last_modified_time": MODIFIED},
-            {"partition_id": "20250102", "last_modified_time": MODIFIED},
-        ],
-    )
-
-    _, partitions = physical_partitions((fake), "p.d.t", "{}")
+    _, partitions = physical_partitions(bigquery, "test.dataset.time_day", "{}")
 
     assert partitions["20250101"].selection.model_dump() == {
         "type": "time_range",
@@ -187,15 +188,16 @@ def test_physical_partitions_normalizes_time_partitions_into_ranges() -> None:
     ],
 )
 def test_physical_partitions_normalizes_every_time_granularity(
-    type_: str, partition_id: str, lower: str, upper: str
+    bigquery: Client, type_: str, partition_id: str, lower: str, upper: str
 ) -> None:
     """Every BigQuery time-partition granularity resolves correct [start, end) bounds."""
-    fake = FakeBigQueryClient(
-        time_partitioning=time_config(type_=type_),
-        rows=[{"partition_id": partition_id, "last_modified_time": MODIFIED}],
-    )
-
-    _, partitions = physical_partitions((fake), "p.d.t", "{}")
+    table_name = {
+        "HOUR": "time_hour",
+        "DAY": "time_day",
+        "MONTH": "time_month",
+        "YEAR": "time_year",
+    }[type_]
+    _, partitions = physical_partitions(bigquery, f"test.dataset.{table_name}", "{}")
 
     selection = partitions[partition_id].selection
     assert selection.model_dump() == {
@@ -206,78 +208,89 @@ def test_physical_partitions_normalizes_every_time_granularity(
     }
 
 
-def test_physical_partitions_skips_time_null_bucket() -> None:
+def test_physical_partitions_skips_time_null_bucket(bigquery: Client) -> None:
     """The __NULL__ bucket is meaningless for a time column and is skipped."""
-    fake = FakeBigQueryClient(
-        time_partitioning=time_config(),
-        rows=[
-            {"partition_id": "__NULL__", "last_modified_time": MODIFIED},
-            {"partition_id": "20250101", "last_modified_time": MODIFIED},
-        ],
-    )
-
-    _, partitions = physical_partitions((fake), "p.d.t", "{}")
+    _, partitions = physical_partitions(bigquery, "test.dataset.time_day_skip", "{}")
 
     assert set(partitions) == {"20250101"}
 
 
-def test_physical_partitions_keeps_last_n_time_partitions() -> None:
+def test_physical_partitions_keeps_last_n_time_partitions(bigquery: Client) -> None:
     """n keeps only the highest n time partition ids."""
-    fake = FakeBigQueryClient(
-        time_partitioning=time_config(),
-        rows=[
-            {"partition_id": pid, "last_modified_time": MODIFIED}
-            for pid in ("20250101", "20250102", "20250103")
-        ],
-    )
-
-    _, partitions = physical_partitions((fake), "p.d.t", "{}", n=2)
+    _, partitions = physical_partitions(bigquery, "test.dataset.time_day", "{}", n=2)
 
     assert set(partitions) == {"20250102", "20250103"}
 
 
-def test_physical_partitions_rejects_n_for_range_partitioned_tables() -> None:
+def test_physical_partitions_rejects_n_for_range_partitioned_tables(
+    bigquery: Client,
+) -> None:
     """n only makes sense for time-partitioned tables."""
-    fake = FakeBigQueryClient(range_partitioning=range_config())
-
     with pytest.raises(ValueError, match="n is only supported for time-partitioned"):
-        physical_partitions((fake), "p.d.t", "{}", n=2)
+        physical_partitions(bigquery, "test.dataset.range_buckets", "{}", n=2)
 
 
 def test_physical_partitions_rejects_unsupported_time_granularity() -> None:
     """An unrecognized BigQuery time-partition granularity fails explicitly."""
-    fake = FakeBigQueryClient(time_partitioning=time_config(type_="WEEK"))
+    client = MagicMock(spec=Client)
+    client.get_table.return_value = MagicMock(
+        range_partitioning=None,
+        time_partitioning=time_config(type_="WEEK"),
+        table_type="TABLE",
+    )
 
     with pytest.raises(ValueError, match="Unsupported time partition granularity"):
-        physical_partitions((fake), "p.d.t", "{}")
+        physical_partitions(client, "p.d.t", "{}")
 
 
 def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
     """Ingestion-time partitioning without an explicit field is unsupported."""
-    fake = FakeBigQueryClient(time_partitioning=time_config(field=None))
+    client = MagicMock(spec=Client)
+    client.get_table.return_value = MagicMock(
+        range_partitioning=None,
+        time_partitioning=time_config(field=None),
+        table_type="TABLE",
+    )
 
     with pytest.raises(ValueError, match="Ingestion-time partitioning"):
-        physical_partitions((fake), "p.d.t", "{}")
+        physical_partitions(client, "p.d.t", "{}")
+
+
+def _mock_client(
+    *,
+    range_partitioning: RangePartitioning | None = None,
+    time_partitioning: TimePartitioning | None = None,
+    table_type: str = "TABLE",
+    rows: list[dict[str, object]] | None = None,
+) -> Client:
+    client = MagicMock(spec=Client)
+    client.get_table.return_value = MagicMock(
+        range_partitioning=range_partitioning,
+        time_partitioning=time_partitioning,
+        table_type=table_type,
+    )
+    client.query.return_value.result.return_value = rows or []
+    return cast(Client, client)
 
 
 @pytest.mark.parametrize(
-    ("fake", "message"),
+    ("client", "message"),
     [
-        (FakeBigQueryClient(), "requires a time- or range-partitioned table"),
+        (_mock_client(), "requires a time- or range-partitioned table"),
         (
-            FakeBigQueryClient(range_partitioning=range_config(), table_type="VIEW"),
+            _mock_client(range_partitioning=range_config(), table_type="VIEW"),
             "requires a physically partitioned table",
         ),
         (
-            FakeBigQueryClient(range_partitioning=range_config(interval=None)),
+            _mock_client(range_partitioning=range_config(interval=None)),
             "Incomplete range partition metadata",
         ),
         (
-            FakeBigQueryClient(range_partitioning=range_config(interval=0)),
+            _mock_client(range_partitioning=range_config(interval=0)),
             "Invalid range partition metadata",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 range_partitioning=range_config(),
                 rows=[
                     {
@@ -289,28 +302,28 @@ def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
             "Unsupported BigQuery partition",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 range_partitioning=range_config(),
                 rows=[{"partition_id": "bad", "last_modified_time": MODIFIED}],
             ),
             "Invalid range partition ID",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 range_partitioning=range_config(),
                 rows=[{"partition_id": "5", "last_modified_time": MODIFIED}],
             ),
             "Invalid range partition ID",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 range_partitioning=range_config(),
                 rows=[{"partition_id": "0", "last_modified_time": None}],
             ),
             "Missing partition modification time",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 time_partitioning=time_config(),
                 rows=[
                     {
@@ -322,7 +335,7 @@ def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
             "Unsupported BigQuery partition",
         ),
         (
-            FakeBigQueryClient(
+            _mock_client(
                 time_partitioning=time_config(),
                 rows=[{"partition_id": "bad", "last_modified_time": MODIFIED}],
             ),
@@ -331,12 +344,12 @@ def test_physical_partitions_rejects_ingestion_time_partitioning() -> None:
     ],
 )
 def test_physical_partitions_rejects_invalid_metadata(
-    fake: FakeBigQueryClient, message: str
+    client: Client, message: str
 ) -> None:
     """Invalid or incomplete physical metadata fails explicitly."""
     error = TypeError if "modification" in message else ValueError
     with pytest.raises(error, match=message):
-        physical_partitions((fake), "p.d.t", "{}")
+        physical_partitions(client, "p.d.t", "{}")
 
 
 def test_normalize_partition_rejects_invalid_kind_config() -> None:
