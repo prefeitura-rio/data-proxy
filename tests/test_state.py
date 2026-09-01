@@ -23,6 +23,7 @@ from dp.state import (
     create_run,
     ensure_groups,
     read_active_run,
+    read_failed_paths,
     read_partition_manifest,
     read_remaining,
     read_sync_plan,
@@ -174,3 +175,21 @@ async def test_create_run_rejects_active_run() -> None:
     fake = settings.redis
     await fake.set("dp:active", "old")
     assert await create_run(settings.redis, "new", [], 0) is False
+
+
+@pytest.mark.asyncio
+async def test_read_failed_paths_filters_successes() -> None:
+    fake = settings.redis
+    task = DumpTask(
+        run_id="r1", table="p.app.t", bucket_path="s3://b/t", selection=AllSelection()
+    )
+
+    await fake.hset(
+        "dp:results:r1",
+        mapping={
+            task.task_id: DumpFailure(failed_path="s3://b/t").model_dump_json(),
+            "success": DumpSuccess().model_dump_json(),
+        },
+    )
+
+    assert await read_failed_paths(settings.redis, "r1") == {"s3://b/t"}
