@@ -34,5 +34,7 @@ spec:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
+                {{- include "data-proxy.gcpVolumeMount" . | nindent 16 }}
           volumes:
             {{- include "data-proxy.syncConfigVolume" . | nindent 12 }}
+            {{- include "data-proxy.gcpVolume" . | nindent 12 }}

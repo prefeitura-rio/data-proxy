@@ -11,11 +11,13 @@ KUBECTL=(kubectl --kubeconfig="$KUBECONFIG_FILE")
 
 usage() {
     cat <<'EOF'
-Usage: cluster [up|sync|down|status]
+Usage: cluster [up|sync|e2e|k6|down|status]
 
 Commands:
   up      Start Minikube and install the complete local stack.
   sync    Create a one-time Job from the producer CronJob.
+  e2e     Run the full sync pipeline and validate with k6.
+  k6      Run a k6 load test [smoke|load|stress].
   down    Remove the stack and the Minikube profile.
   status  Show Minikube and Kubernetes status.
 EOF
@@ -63,9 +65,15 @@ up() {
     helm install data-proxy-gateway bedag/raw --namespace istio-system --values "$ROOT_DIR/scripts/values/gateway.yaml"
     helm install minio oci://registry-1.docker.io/cloudpirates/minio --namespace data-proxy --create-namespace --version 0.13.3 --values "$ROOT_DIR/scripts/values/minio.yaml"
     helm install mock-oauth2-server bedag/raw --namespace data-proxy --values "$ROOT_DIR/scripts/values/mock-oauth2.yaml"
+    helm install webdis bedag/raw --namespace data-proxy --values "$ROOT_DIR/scripts/values/webdis.yaml"
+
+    if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+        "${KUBECTL[@]}" -n data-proxy create secret generic gcp-key --from-file=key.json="$GOOGLE_APPLICATION_CREDENTIALS" --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
+    fi
+
     helm install data-proxy "$ROOT_DIR/helm" --namespace data-proxy --values "$ROOT_DIR/scripts/values/data-proxy.yaml"
 
-    wait_for_deployments keda/keda-operator keda/keda-operator-metrics-apiserver keda/keda-admission-webhooks k6-operator-system/k6-operator-controller-manager istio-system/istiod istio-ingress/istio-ingressgateway data-proxy/minio data-proxy/mock-oauth2-server data-proxy/data-proxy-postgrest data-proxy/data-proxy-swagger-ui
+    wait_for_deployments keda/keda-operator keda/keda-operator-metrics-apiserver keda/keda-admission-webhooks k6-operator-system/k6-operator-controller-manager istio-system/istiod istio-ingress/istio-ingressgateway data-proxy/minio data-proxy/mock-oauth2-server data-proxy/webdis data-proxy/data-proxy-postgrest data-proxy/data-proxy-swagger-ui
 
     wait_for_statefulsets data-proxy/data-proxy-duckdb data-proxy/data-proxy-valkey
     "${KUBECTL[@]}" get pods -A
@@ -95,8 +103,20 @@ k6() {
     "${KUBECTL[@]}" -n data-proxy get testrun data-proxy-load -w
 }
 
+e2e() {
+    sync
+    "${KUBECTL[@]}" -n data-proxy create configmap data-proxy-e2e --from-file=e2e.ts=k6/e2e.ts --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f -
+    "${KUBECTL[@]}" -n data-proxy delete testrun data-proxy-e2e --ignore-not-found
+    "${KUBECTL[@]}" apply -f k6/e2e.yaml
+    "${KUBECTL[@]}" -n data-proxy wait --for=condition=complete testrun/data-proxy-e2e --timeout=15m
+    local e2e_pod
+    e2e_pod=$("${KUBECTL[@]}" -n data-proxy get pods -l k6-test-run-id=data-proxy-e2e -o jsonpath='{.items[0].metadata.name}')
+    "${KUBECTL[@]}" -n data-proxy logs "$e2e_pod"
+}
+
 down() {
     helm uninstall data-proxy -n data-proxy --no-hooks 2>/dev/null || true
+    helm uninstall webdis -n data-proxy 2>/dev/null || true
     helm uninstall mock-oauth2-server -n data-proxy 2>/dev/null || true
     helm uninstall minio -n data-proxy 2>/dev/null || true
     helm uninstall data-proxy-gateway -n istio-system 2>/dev/null || true
@@ -117,6 +137,7 @@ status() {
 case "${1:-up}" in
 up) up ;;
 sync) sync ;;
+e2e) e2e ;;
 k6) k6 "${2:-smoke}" ;;
 down) down ;;
 status) status ;;

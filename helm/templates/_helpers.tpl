@@ -185,6 +185,26 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: SCHEMA_WRITERS_FILE
   value: /config/schema-writers/writers.json
+{{- if .Values.gcp.existingSecret }}
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: /gcp/key.json
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.gcpVolume" -}}
+{{- if .Values.gcp.existingSecret }}
+- name: gcp-key
+  secret:
+    secretName: {{ .Values.gcp.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.gcpVolumeMount" -}}
+{{- if .Values.gcp.existingSecret }}
+- name: gcp-key
+  mountPath: /gcp
+  readOnly: true
+{{- end }}
 {{- end }}
 
 {{- define "data-proxy.syncConfigVolume" -}}

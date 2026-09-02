@@ -1,0 +1,55 @@
+resources:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: webdis-config
+    data:
+      webdis.json: |
+        {
+          "redis_host": "data-proxy-valkey",
+          "redis_port": 6379,
+          "redis_auth": "valkey-local",
+          "http_port": 7379,
+          "daemonize": false,
+          "logfile": "/dev/stdout"
+        }
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: webdis
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: webdis
+      template:
+        metadata:
+          labels:
+            app: webdis
+        spec:
+          containers:
+            - name: webdis
+              image: nicolas/webdis:latest
+              ports:
+                - name: http
+                  containerPort: 7379
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/webdis
+                  readOnly: true
+              command: ["/usr/local/bin/webdis", "/etc/webdis/webdis.json"]
+          volumes:
+            - name: config
+              configMap:
+                name: webdis-config
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: webdis
+    spec:
+      selector:
+        app: webdis
+      ports:
+        - name: http
+          port: 7379
+          targetPort: http

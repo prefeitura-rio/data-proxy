@@ -29,6 +29,8 @@ valkey:
   auth:
     enabled: true
     password: valkey-local
+gcp:
+  existingSecret: gcp-key
 swaggerUi:
   enabled: true
 worker:

@@ -1,0 +1,19 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: data-proxy-e2e
+  namespace: data-proxy
+spec:
+  parallelism: 1
+  script:
+    configMap:
+      name: data-proxy-e2e
+      file: e2e.ts
+  runner:
+    env:
+      - name: BASE_URL
+        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
+      - name: API_HOST
+        value: data-proxy.local
+      - name: WEBDIS_URL
+        value: http://webdis.data-proxy.svc.cluster.local:7379

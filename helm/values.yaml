@@ -95,6 +95,14 @@ swaggerUi:
     - app_pequenos_cariocas
     - bcadastro
 
+## Google Cloud Platform credentials for BigQuery access.
+## In GKE, use Workload Identity via serviceAccount.annotations instead.
+## In minikube, set existingSecret to a Secret containing key.json.
+gcp:
+  ## Name of an existing Secret with a key.json file for BigQuery access.
+  ## Leave empty to use Workload Identity (no key file mounted).
+  existingSecret: ""
+
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
 ## Use Workload Identity (via the ServiceAccount annotation) for BigQuery access.
