@@ -58,7 +58,7 @@
   scripts = {
     seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
     token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
-    cluster.exec = "${pkgs.nushell}/bin/nu scripts/cluster.nu -- \"$@\"";
+    cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
   };
 
   tasks = {

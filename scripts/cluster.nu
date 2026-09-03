@@ -291,7 +291,7 @@ def "main down" []: nothing -> string {
     ^minikube --profile $PROFILE delete
 }
 
-# Show Minikube and Kubernetes status as structured tables.
+# Script to create a testing environment with minikube
 def main []: nothing -> nothing {
     let kubecfg = git-root | path join ".kubeconfig"
 
