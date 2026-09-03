@@ -10,10 +10,9 @@
   };
 
   packages = with pkgs; [
-    curl
-    jq
     k6
     minikube
+    nushell
     ast-grep
     kubeconform
     (google-cloud-sdk.withExtraComponents (
@@ -49,7 +48,7 @@
     basedpyright = {
       enable = true;
       name = "basedpyright";
-      entry = "uv run basedpyright src/ tests/";
+      entry = "${pkgs.uv}/bin/uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
       pass_filenames = false;
@@ -57,9 +56,9 @@
   };
 
   scripts = {
-    seed-data.exec = ''uv run python scripts/seed.py "$@"'';
-    get-token.exec = "bash scripts/token.sh";
-    cluster.exec = "bash scripts/cluster.sh \"$@\"";
+    seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
+    token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
+    cluster.exec = "${pkgs.nushell}/bin/nu scripts/cluster.nu -- \"$@\"";
   };
 
   tasks = {
@@ -73,16 +72,6 @@
     '';
     "dp:fmt".exec = "ruff check --fix && ruff format";
     "charts:lint".exec = "helm lint helm/";
-    "charts:test".exec = ''
-      helm lint helm/ -f helm/ci/test-values.yaml
-      helm lint helm/ -f helm/ci/test-values-ha.yaml
-      helm unittest helm/
-
-      for values in helm/ci/test-values.yaml helm/ci/test-values-ha.yaml; do
-          helm template data-proxy helm/ -f "$values" | kubeconform -strict -summary -ignore-missing-schemas \
-            -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-      done
-    '';
+    "charts:test".exec = "${pkgs.nushell}/bin/nu scripts/test-charts.nu";
   };
 }

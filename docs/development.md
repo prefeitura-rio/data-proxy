@@ -43,7 +43,7 @@ The script installs:
 Check the cluster:
 
 ```bash
-cluster status
+cluster
 ```
 
 ## Load BigQuery test data
@@ -86,7 +86,7 @@ kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80
 Get a local token:
 
 ```bash
-bash scripts/token.sh
+get-token
 ```
 
 The token script gets the token from the mock OAuth2 service inside the cluster.

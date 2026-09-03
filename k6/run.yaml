@@ -18,7 +18,7 @@ spec:
       - name: ACCEPT_PROFILE
         value: pic
       - name: K6_PROFILE
-        value: smoke
+        value: _profile_
       - name: VUS
         value: "2"
       - name: DURATION
