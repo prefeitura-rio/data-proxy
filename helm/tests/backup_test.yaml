@@ -46,7 +46,7 @@ tests:
           path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
           pattern: 'writers\.json'
       - equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
+          path: spec.jobTemplate.spec.template.spec.volumes[0].secret.secretName
           value: data-proxy-schema-writers
 
   - it: uses an existing secret when configured

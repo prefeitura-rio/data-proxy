@@ -4,7 +4,7 @@
 
 Install these components before you deploy the chart:
 
-- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses KEDA for the worker and finalizer `ScaledJob` resources.
+- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses KEDA for the Dumper and Publisher `ScaledJob` resources.
 - Istio, when `ingress.enabled` is `true`. The chart uses Istio `VirtualService`, `RequestAuthentication`, and `AuthorizationPolicy` resources.
 
 ## Install
@@ -19,6 +19,18 @@ helm install data-proxy \
 ```
 
 See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration options and their descriptions.
+
+## Chart tests
+
+Run the complete local chart check with:
+
+```bash
+devenv tasks charts:test
+```
+
+The check runs Helm lint, Helm unit tests, and Kubeconform against standalone and HA values. Kubeconform uses strict Kubernetes schemas and the Datree CRD catalog for KEDA and Istio resources. Missing schemas are allowed only for CRDs that are not in the catalog. Standard Kubernetes resources must always have a valid schema.
+
+CI runs the same `scripts/test-charts.sh` check before chart packaging.
 
 The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:latest`. Standalone and HA members use this image. It contains PostgreSQL 17, pg_duckdb, PostGIS, Patroni with Kubernetes support, and the required runtime tools.
 

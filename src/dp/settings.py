@@ -27,14 +27,15 @@ class Settings(BaseSettings):
     GCS_SECRET_KEY: str = "minioadmin"  # noqa: S105
     GCS_ENDPOINT: str = "localhost:9000"
     GCS_USE_SSL: bool = False
-    WORKER_MAX_RECORDS: int = 1
-    WORKER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
-    FINALIZER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     SCHEMA_WRITERS_FILE: Path = Path("config/schema-writers/writers.json")
 
+    @property
     def schema_writers(self) -> SchemaWriters:
         """Return the Helm-managed schema-to-writer DSN mapping."""
         try:
@@ -49,7 +50,8 @@ class Settings(BaseSettings):
             message = f"Schema writers file is invalid: {self.SCHEMA_WRITERS_FILE}"
             raise RuntimeError(message) from error
 
-    def make_redis(self) -> Redis:
+    @property
+    def redis(self) -> Redis:
         """Return a Redis client built from the configured URL's parsed fields."""
         db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
 

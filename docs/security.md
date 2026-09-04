@@ -168,8 +168,8 @@ Do not attach the shared `data-proxy` client scope to this client. That scope ca
 
 A user can log in through `app-pic`, or through whichever end-user client the section above configures. Once the user can log in, verify the resulting token before you grant access:
 
-1. Note the value of the claim configured in `schemas.<schema>.claim` for this user (see [Sync Configuration](sync.md)). For example, when that claim is `preferred_username`, note the user's username. This value is the `subject` you use in `access_policy`.
-2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes all three claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `schemas.my_schema.claim: preferred_username` looks like this:
+1. Note the value of the claim configured in `syncConfig.schemas.<schema>.claim` for this user (see [Sync Configuration](sync.md)). For example, when that claim is `preferred_username`, note the user's username. This value is the `subject` you use in `access_policy`.
+2. Decode a token from that user. Use `jwt.io`, or use `jq` against the base64-decoded payload. Confirm the token includes all three claims. A decoded payload with `auth.jwtRoleClaim: $.role` and `syncConfig.schemas.my_schema.claim: preferred_username` looks like this:
 
    ```json
    {
@@ -211,18 +211,18 @@ A backend service writes grants into the local `<schema>.access_policy` table th
 curl --request POST \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
-  --header "Content-Profile: rls" \
+  --header "Accept-Profile: my_schema" \
   --header "Prefer: resolution=merge-duplicates" \
   --data '[
-    {"schema": "my_schema", "subject": "123", "unit_type": "cras", "unit_id": "1"},
-    {"schema": "my_schema", "subject": "123", "unit_type": "escola", "unit_id": "55"}
+    {"subject": "123", "unit_type": "cras", "unit_id": "1"},
+    {"subject": "123", "unit_type": "escola", "unit_id": "55"}
   ]' \
   "${BASE_URL}/access_policy"
 ```
 
-`Content-Profile: rls` is required. PostgREST now exposes multiple schemas: every configured schema, plus `rls`. Without this header, PostgREST resolves the request against the first schema in `PGRST_DB_SCHEMAS`. PostgREST then returns a "table not found" error.
+`Accept-Profile: my_schema` is required when PostgREST exposes multiple schemas. Without this header, PostgREST resolves the request against the first schema in `PGRST_DB_SCHEMAS`. PostgREST then returns a "table not found" error.
 
-The request must authenticate as a `policy_writer_<schema>` role. Postgres rejects any row whose `schema` does not match that role's own schema. Postgres enforces this structurally, with no claim parsing involved. A `policy_writer_my_schema` token cannot write a grant for any other schema. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op. A unique constraint on `(schema, subject, unit_type, unit_id)` enforces this.
+The request must authenticate as a `policy_writer_<schema>` role. Postgres rejects the request because the role has no `GRANT` on other schemas' `access_policy` tables. Postgres enforces this structurally, with no claim parsing involved. A `policy_writer_my_schema` token cannot write a grant for any other schema. `Prefer: resolution=merge-duplicates` makes resending the same grant a safe no-op. A unique constraint on `(subject, unit_type, unit_id)` enforces this.
 
 A row becomes visible to a user when the matching grant exists. `is_enabled` must be `true`. This needs no resync and no token refresh. Each local `access_policy` table is append-only. `policy_writer_<schema>` has no `DELETE` grant on its local table. To revoke access, send a `PATCH` request that sets `is_enabled` to `false`. Do not delete the row:
 
@@ -230,7 +230,7 @@ A row becomes visible to a user when the matching grant exists. `is_enabled` mus
 curl --request PATCH \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
-  --header "Content-Profile: rls" \
+  --header "Accept-Profile: my_schema" \
   --data '{"is_enabled": false}' \
   "${BASE_URL}/access_policy?subject=eq.123&unit_type=eq.cras&unit_id=eq.1"
 ```
@@ -243,7 +243,7 @@ PostgREST applies a `PATCH` to every row that matches the filter, not only one r
 curl --request PATCH \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
-  --header "Content-Profile: rls" \
+  --header "Accept-Profile: my_schema" \
   --data '{"is_enabled": false}' \
   "${BASE_URL}/access_policy?subject=eq.123"
 ```

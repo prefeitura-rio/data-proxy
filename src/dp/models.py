@@ -1,5 +1,6 @@
 """Data models for the sync pipeline."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from typing import Annotated, ClassVar, Literal, Self
@@ -8,6 +9,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PositiveInt,
     TypeAdapter,
     computed_field,
     model_validator,
@@ -19,7 +21,6 @@ NonEmptyString = Annotated[str, Field(min_length=1)]
 BigQueryTableName = Annotated[
     NonEmptyString, Field(pattern=BIGQUERY_TABLE_REFERENCE_PATTERN)
 ]
-PositiveInt = Annotated[int, Field(gt=0)]
 
 
 class Strategy(StrEnum):
@@ -139,16 +140,17 @@ class Table(BaseModel):
 
     def to_task(
         self,
-        sync_id: str,
+        run_id: str,
         gcs_bucket: str,
         selection: TaskSelection,
         path_suffix: str | None = None,
         json_columns: list[str] | None = None,
-    ) -> SyncTask:
+    ) -> DumpTask:
         """Create one extraction task for the selected source rows."""
         suffix = f"/{path_suffix}" if path_suffix else ""
-        return SyncTask(
-            sync_id=sync_id,
+
+        return DumpTask(
+            run_id=run_id,
             table=self.name,
             bucket_path=(
                 f"s3://{gcs_bucket}/{self.resolved_schema}/"
@@ -260,10 +262,10 @@ class SyncConfig(BaseModel):
         return self
 
 
-class SyncTask(BaseModel):
+class DumpTask(BaseModel):
     """One extraction unit: a source table (or partition) and its GCS destination."""
 
-    sync_id: str
+    run_id: str
     table: str
     bucket_path: str
     selection: TaskSelection
@@ -273,42 +275,34 @@ class SyncTask(BaseModel):
     @property
     def task_id(self) -> str:
         """Return the deterministic identity for this run and task path."""
-        return sha256(f"{self.sync_id}:{self.bucket_path}".encode()).hexdigest()
+        return sha256(f"{self.run_id}:{self.bucket_path}".encode()).hexdigest()
 
 
-class TaskStatus(StrEnum):
+class DumpStatus(StrEnum):
     """Result status for one extraction task."""
 
     SUCCESS = "success"
     FAILURE = "failure"
 
 
-class TaskSuccess(BaseModel):
+class DumpSuccess(BaseModel):
     """Successful extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    status: Literal[TaskStatus.SUCCESS] = TaskStatus.SUCCESS
+    status: Literal[DumpStatus.SUCCESS] = DumpStatus.SUCCESS
 
 
-class TaskFailure(BaseModel):
+class DumpFailure(BaseModel):
     """Failed extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    status: Literal[TaskStatus.FAILURE] = TaskStatus.FAILURE
+    status: Literal[DumpStatus.FAILURE] = DumpStatus.FAILURE
     failed_path: str
 
 
-TaskOutcome = Annotated[TaskSuccess | TaskFailure, Field(discriminator="status")]
-
-
-class CompletionResult(BaseModel):
-    """Result of one idempotent task completion."""
-
-    first_completion: bool
-    remaining: int
-    should_finalize: bool
+DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]
 
 
 class PartitionedTablePlan(BaseModel):
@@ -324,15 +318,15 @@ class PartitionedTablePlan(BaseModel):
     @model_validator(mode="after")
     def validate_partition_sets(self) -> Self:
         """Require changed and removed IDs to match their respective manifests."""
-        if not set(self.changed_paths) <= set(self.current_partitions):
+        if not self.changed_paths.keys() <= self.current_partitions.keys():
             msg = "Changed partition paths must exist in the current manifest"
             raise ValueError(msg)
 
-        if not set(self.previous_partitions) <= set(self.changed_paths):
+        if not self.previous_partitions.keys() <= self.changed_paths.keys():
             msg = "Previous partitions must be changed partitions"
             raise ValueError(msg)
 
-        if set(self.removed_partitions) & set(self.current_partitions):
+        if self.removed_partitions.keys() & self.current_partitions.keys():
             msg = "Removed partitions cannot exist in the current manifest"
             raise ValueError(msg)
         return self
@@ -346,9 +340,9 @@ class PartitionManifest(BaseModel):
 
 
 class SyncPlan(BaseModel):
-    """Ordinary and partitioned table work for one synchronization run."""
+    """Immutable publication inputs for one PostgreSQL schema."""
 
-    sync_id: str
+    schema_name: str
     signatures: dict[str, str] = {}
     paths: dict[str, list[str]] = {}
     partitioned_tables: dict[str, PartitionedTablePlan] = {}
@@ -356,20 +350,46 @@ class SyncPlan(BaseModel):
     @model_validator(mode="after")
     def validate_paths(self) -> Self:
         """Require ordinary signatures and non-empty paths to match."""
-        if set(self.signatures) != set(self.paths) or any(
+        if self.signatures.keys() != self.paths.keys() or any(
             not paths for paths in self.paths.values()
         ):
-            message = "Sync plan signatures and non-empty paths must match"
-            raise ValueError(message)
-
-        if set(self.signatures) & set(self.partitioned_tables):
-            message = "Tables cannot have ordinary and partitioned plans"
-            raise ValueError(message)
+            raise ValueError("Sync plan signatures and non-empty paths must match")
+        if self.signatures.keys() & self.partitioned_tables.keys():
+            raise ValueError("Tables cannot have ordinary and partitioned plans")
         return self
 
 
+class SeedTask(BaseModel):
+    """Request shared database preparation for one run."""
+
+    run_id: str
+
+
+class PublishTask(BaseModel):
+    """Request publication of one schema for one run."""
+
+    run_id: str
+    schema_name: str
+
+
+class TableState(BaseModel):
+    """Committed state for one table."""
+
+    strategy: Strategy
+    signature: str
+    partitions: dict[str, PhysicalPartition] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SyncWork:
+    """Producer planning result."""
+
+    plans: list[SyncPlan]
+    tasks: list[DumpTask]
+
+
 class SyncPublicationInput(BaseModel):
-    """A configuration and plan validated together before publication."""
+    """A configuration and schema-local plan validated together."""
 
     config: SyncConfig
     plan: SyncPlan
@@ -377,7 +397,7 @@ class SyncPublicationInput(BaseModel):
     @property
     def changed_tables(self) -> set[str]:
         """Return every table with work in the plan."""
-        return set(self.plan.signatures) | set(self.plan.partitioned_tables)
+        return self.plan.signatures.keys() | self.plan.partitioned_tables.keys()
 
     @model_validator(mode="after")
     def require_configured_plan_tables(self) -> Self:
@@ -397,22 +417,10 @@ class PublicationDecision(BaseModel):
 
 
 class PublicationResult(BaseModel):
-    """Exact plan and table set published by the finalizer."""
+    """Exact plan and table set published by the publisher."""
 
     plan: SyncPlan
     published_tables: set[str]
 
 
-class FinalizeMessage(BaseModel):
-    """Signal that every task for a sync run has completed."""
-
-    sync_id: str
-
-
-class ShutdownMessage(BaseModel):
-    """Broadcast telling every worker to exit once finalization starts."""
-
-    sync_id: str
-
-
-task_outcome_adapter: TypeAdapter[TaskOutcome] = TypeAdapter(TaskOutcome)
+task_outcome_adapter: TypeAdapter[DumpResult] = TypeAdapter(DumpResult)

@@ -72,17 +72,13 @@ spec:
         {{- end }}
         - name: fetch-jwks
           image: {{ $root.Values.postgrest.jwksFetch.image }}
-          command: ["/bin/sh", "-c"]
+          command: ["/usr/bin/nu", "-c"]
           args:
             - |
-{{ $root.Files.Get "files/scripts/fetch-jwks.sh" | nindent 14 }}
+{{ $root.Files.Get "files/scripts/fetch-jwks.nu" | nindent 14 }}
           env:
             - name: JWKS_URI
               value: {{ $root.Values.postgrest.jwksUri | quote }}
-            - name: CURL_VERSION
-              value: {{ $root.Values.postgrest.jwksFetch.curlVersion | quote }}
-            - name: JQ_VERSION
-              value: {{ $root.Values.postgrest.jwksFetch.jqVersion | quote }}
           volumeMounts:
             - name: jwks
               mountPath: /etc/postgrest

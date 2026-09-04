@@ -62,7 +62,7 @@ tests:
           pattern: "requestInterceptor"
         template: configmap-swagger-ui.yaml
 
-  - it: routes /docs to swagger-ui ahead of the postgrest catch-all
+  - it: redirects /docs to /docs/ and routes /docs/ to swagger-ui ahead of the postgrest catch-all
     set:
       ingress.enabled: true
       ingress.host: api.example.com
@@ -70,16 +70,31 @@ tests:
     template: virtualservice.yaml
     asserts:
       - equal:
-          path: spec.http[0].match[0].uri.prefix
+          path: spec.http[0].name
+          value: docs-redirect
+      - equal:
+          path: spec.http[0].match[0].uri.exact
           value: /docs
       - equal:
-          path: spec.http[0].route[0].destination.host
-          value: data-proxy-swagger-ui
+          path: spec.http[0].redirect.redirectCode
+          value: 302
       - equal:
-          path: spec.http[0].rewrite.uri
+          path: spec.http[0].redirect.uri
+          value: /docs/
+      - equal:
+          path: spec.http[1].name
+          value: docs
+      - equal:
+          path: spec.http[1].match[0].uri.prefix
+          value: /docs/
+      - equal:
+          path: spec.http[1].rewrite.uri
           value: /
       - equal:
           path: spec.http[1].route[0].destination.host
+          value: data-proxy-swagger-ui
+      - equal:
+          path: spec.http[2].route[0].destination.host
           value: data-proxy-postgrest
 
   - it: does not add a /docs route when swagger-ui is disabled

@@ -1,0 +1,40 @@
+suite: HA validation
+templates:
+  - validate-ha.yaml
+values:
+  - ../ci/test-values.yaml
+tests:
+  - it: allows standalone mode
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: allows matching HA schemas
+    set:
+      ha.enabled: true
+      ha.schemas.app_pequenos_cariocas.members: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: rejects HA without schemas
+    set:
+      ha.enabled: true
+      ha.schemas: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: ha.schemas must define at least one schema when ha.enabled is true
+  - it: rejects a sync schema missing from HA configuration
+    set:
+      ha.enabled: true
+      syncConfig.schemas.app_pequenos_cariocas.tables: []
+      ha.schemas: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: ha.schemas must define at least one schema when ha.enabled is true
+  - it: rejects an HA schema missing from sync configuration
+    set:
+      ha.enabled: true
+      ha.schemas.app_pequenos_cariocas.members: 1
+      ha.schemas.other.members: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: syncConfig.schemas must configure "other"

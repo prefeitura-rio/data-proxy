@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS ${schema}.access_policy (
 ALTER TABLE ${schema}.access_policy ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION ${schema}.set_access_policy_metadata_timestamps()
-RETURNS trigger AS $$
+RETURNS trigger AS $$$$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.metadata := coalesce(NEW.metadata, '{}'::jsonb)
@@ -25,7 +25,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$$$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON ${schema}.access_policy;
 CREATE TRIGGER access_policy_metadata_timestamps

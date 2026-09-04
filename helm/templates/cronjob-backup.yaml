@@ -81,12 +81,8 @@ spec:
                       name: {{ include "data-proxy.gcsSecretName" $root }}
                       key: GCS_SECRET_KEY
           volumes:
-            - name: schema-writers
-              configMap:
-                name: {{ include "data-proxy.fullname" $root }}-schema-writers
+            {{- include "data-proxy.schemaWritersVolume" $root | nindent 12 }}
               volumeMounts:
-                - name: schema-writers
-                  mountPath: /config/schema-writers
-                  readOnly: true
+                {{- include "data-proxy.schemaWritersVolumeMount" $root | nindent 16 }}
 {{- end }}
 {{- end }}

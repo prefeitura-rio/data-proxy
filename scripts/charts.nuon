@@ -1,0 +1,71 @@
+[
+    {
+        name: keda
+        chart: kedacore/keda
+        namespace: keda
+        create_namespace: true
+        version: 2.18.0
+        repo: "https://kedacore.github.io/charts"
+    }
+    {
+        name: k6-operator
+        chart: grafana/k6-operator
+        namespace: k6-operator-system
+        create_namespace: true
+        version: 4.6.0
+        repo: "https://grafana.github.io/k6-operator"
+    }
+    {
+        name: istio-base
+        chart: istio/base
+        namespace: istio-system
+        create_namespace: true
+        version: 1.27.1
+        repo: "https://istio-release.storage.googleapis.com/charts"
+    }
+    {
+        name: istiod
+        chart: istio/istiod
+        namespace: istio-system
+        version: 1.27.1
+        repo: "https://istio-release.storage.googleapis.com/charts"
+    }
+    {
+        name: istio-ingressgateway
+        chart: istio/gateway
+        namespace: istio-ingress
+        create_namespace: true
+        version: 1.27.1
+        set: "service.type=NodePort"
+        repo: "https://istio-release.storage.googleapis.com/charts"
+    }
+    {
+        name: data-proxy-gateway
+        chart: bedag/raw
+        namespace: istio-system
+        values_file: gateway.yaml
+        repo: "https://bedag.github.io/helm-charts/"
+    }
+    {
+        name: minio
+        chart: "oci://registry-1.docker.io/cloudpirates/minio"
+        namespace: data-proxy
+        create_namespace: true
+        version: 0.13.3
+        values_file: minio.yaml
+    }
+    {
+        name: oidc
+        chart: bedag/raw
+        namespace: data-proxy
+        values_file: oidc.yaml
+        repo: "https://bedag.github.io/helm-charts/"
+    }
+    {
+        name: webdis
+        chart: bedag/raw
+        namespace: data-proxy
+        values_file: webdis.yaml
+        repo: "https://bedag.github.io/helm-charts/"
+    }
+]

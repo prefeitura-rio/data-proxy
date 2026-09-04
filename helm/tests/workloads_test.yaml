@@ -1,8 +1,9 @@
 suite: Workloads
 templates:
   - cronjob-producer.yaml
-  - scaledjob-finalizer.yaml
-  - scaledjob-worker.yaml
+  - scaledjob-publisher.yaml
+  - scaledjob-dumper.yaml
+  - scaledjob-seeder.yaml
 tests:
   - it: producer CronJob uses configured schedule
     set:
@@ -37,36 +38,36 @@ tests:
           value: [python, -m, dp.sync.producer]
         template: cronjob-producer.yaml
 
-  - it: finalizer is capped at maxReplicaCount 1 without Job retries
+  - it: publisher is capped at maxReplicaCount 1 without Job retries
     asserts:
       - equal:
           path: spec.maxReplicaCount
           value: 1
-        template: scaledjob-finalizer.yaml
+        template: scaledjob-publisher.yaml
       - equal:
           path: spec.jobTargetRef.backoffLimit
           value: 0
-        template: scaledjob-finalizer.yaml
+        template: scaledjob-publisher.yaml
 
-  - it: finalizer triggers on the finalize stream
+  - it: publisher triggers on the finalize stream
     asserts:
       - equal:
           path: spec.triggers[0].metadata.stream
-          value: dp:sync:finalize
-        template: scaledjob-finalizer.yaml
+          value: dp:publish
+        template: scaledjob-publisher.yaml
 
-  - it: finalizer passes its configured visibility timeout
+  - it: publisher passes its configured visibility timeout
     set:
-      finalizer.visibilityTimeoutMs: "1200000"
+      publisher.visibilityTimeoutMs: "1200000"
     asserts:
       - contains:
           path: spec.jobTargetRef.template.spec.containers[0].env
           content:
-            name: FINALIZER_VISIBILITY_TIMEOUT_MS
+            name: PUBLISHER_VISIBILITY_TIMEOUT_MS
             value: "1200000"
-        template: scaledjob-finalizer.yaml
+        template: scaledjob-publisher.yaml
 
-  - it: finalizer mounts the schema writer configuration
+  - it: publisher mounts the schema writer configuration
     set:
       ha.enabled: true
       ha.schemas.app:
@@ -78,45 +79,56 @@ tests:
           content:
             name: SCHEMA_WRITERS_FILE
             value: /config/schema-writers/writers.json
-        template: scaledjob-finalizer.yaml
+        template: scaledjob-publisher.yaml
       - equal:
-          path: spec.jobTargetRef.template.spec.volumes[1].configMap.name
+          path: spec.jobTargetRef.template.spec.volumes[1].secret.secretName
           value: data-proxy-schema-writers
-        template: scaledjob-finalizer.yaml
+        template: scaledjob-publisher.yaml
 
-  - it: worker uses configured maxReplicaCount without Job retries
+  - it: dumper uses configured maxReplicaCount without Job retries
     set:
-      worker.keda.maxReplicaCount: 8
+      dumper.keda.maxReplicaCount: 8
     asserts:
       - equal:
           path: spec.maxReplicaCount
           value: 8
-        template: scaledjob-worker.yaml
+        template: scaledjob-dumper.yaml
       - equal:
           path: spec.jobTargetRef.backoffLimit
           value: 0
-        template: scaledjob-worker.yaml
+        template: scaledjob-dumper.yaml
 
-  - it: worker passes its configured visibility timeout
+  - it: dumper passes its configured visibility timeout
     set:
-      worker.visibilityTimeoutMs: "1200000"
+      dumper.visibilityTimeoutMs: "1200000"
     asserts:
       - contains:
           path: spec.jobTargetRef.template.spec.containers[0].env
           content:
-            name: WORKER_VISIBILITY_TIMEOUT_MS
+            name: DUMPER_VISIBILITY_TIMEOUT_MS
             value: "1200000"
-        template: scaledjob-worker.yaml
+        template: scaledjob-dumper.yaml
 
-  - it: worker triggers on the tasks stream with configured lagCount
+  - it: dumper triggers on the tasks stream with configured lagCount
     set:
-      worker.keda.lagCount: "2"
+      dumper.keda.lagCount: "2"
     asserts:
       - equal:
           path: spec.triggers[0].metadata.stream
-          value: dp:sync:tasks
-        template: scaledjob-worker.yaml
+          value: dp:extract
+        template: scaledjob-dumper.yaml
       - equal:
           path: spec.triggers[0].metadata.lagCount
           value: "2"
-        template: scaledjob-worker.yaml
+        template: scaledjob-dumper.yaml
+
+  - it: seeder uses the preparation stream and command
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata.stream
+          value: dp:prepare
+        template: scaledjob-seeder.yaml
+      - equal:
+          path: spec.jobTargetRef.template.spec.containers[0].command
+          value: [python, -m, dp.sync.seeder]
+        template: scaledjob-seeder.yaml

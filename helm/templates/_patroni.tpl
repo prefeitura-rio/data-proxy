@@ -34,7 +34,7 @@ bootstrap:
   pg_hba:
     - host replication {{ .Values.ha.patroni.replicationUsername }} 0.0.0.0/0 md5
     - host all all 0.0.0.0/0 md5
-  post_init: /scripts/post_init.sh
+  post_init: /scripts/post-init.sh
 
 postgresql:
   listen: 0.0.0.0:5432

@@ -33,6 +33,13 @@ jobs:
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.24"
+      - name: Install kubeconform
+        run: |
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - name: Read current version
         id: version
         run: |
@@ -69,6 +76,9 @@ jobs:
       - name: Unit tests
         if: steps.guard.outputs.skip != 'true'
         run: helm unittest helm/
+      - name: Render and validate chart
+        if: steps.guard.outputs.skip != 'true'
+        run: bash scripts/test-charts.sh
       - name: Package
         if: steps.guard.outputs.skip != 'true'
         run: helm package helm/ --destination ./packaged/

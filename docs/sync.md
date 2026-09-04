@@ -61,11 +61,11 @@ Data Proxy keeps a Parquet `GEOMETRY` column as a PostgreSQL `geometry` column. 
 
 ## Schema Creation
 
-You never run `CREATE SCHEMA` yourself. Every finalizer run checks every schema declared in the top-level `schemas` map. For each schema that does not yet exist, the finalizer creates it before it publishes any table. The finalizer creates:
+You never run `CREATE SCHEMA` yourself. Every Publisher run checks every schema declared in the top-level `schemas` map. For each schema that does not yet exist, the Publisher creates it before it publishes any table. The Publisher creates:
 
 - The schema itself (`CREATE SCHEMA IF NOT EXISTS`).
 - A `GRANT USAGE` on the schema, for the `user` role. This grant lets PostgREST reach tables inside the schema.
-- The schema's `policy_writer_<schema>` role (see [Security](security.md#row-level-security-rls)). The finalizer creates this role even when no table in the schema declares `rls`.
+- The schema's `policy_writer_<schema>` role (see [Security](security.md#row-level-security-rls)). The Publisher creates this role even when no table in the schema declares `rls`.
 
 Adding a new entry to the top-level `schemas` map needs no separate migration step. The next sync run creates the schema and grants it.
 
@@ -76,6 +76,6 @@ Adding a new entry to the top-level `schemas` map needs no separate migration st
 | `full`        | The complete table fits comfortably in one extraction task.                                                                          |
 | `partitioned` | The source table is time or range-partitioned in BigQuery. Sync one physical partition at a time. Optionally keep only the last `n`. |
 
-The `partitioned` strategy reads several facts directly from BigQuery metadata. These facts are the partition column, the partition type (time or range), the bounds or interval, and the existing partition IDs. Do not add these values to the sync configuration. Each new or changed physical partition becomes one worker task and one Parquet file. The producer re-extracts only the partitions whose BigQuery metadata changed. Finalization deletes removed partitions. Publication stays atomic through this whole process.
+The `partitioned` strategy reads several facts directly from BigQuery metadata. These facts are the partition column, the partition type (time or range), the bounds or interval, and the existing partition IDs. Do not add these values to the sync configuration. Each new or changed physical partition becomes one Dumper task and one Parquet file. The producer re-extracts only the partitions whose BigQuery metadata changed. Finalization deletes removed partitions. Publication stays atomic through this whole process.
 
 For time-partitioned tables, `n` keeps only the highest `n` raw partition ids. BigQuery calls this id `partition_id` (for example `20250115` for a daily partition). As new partitions appear, older partitions drop off incrementally. Data Proxy uses the partition id exactly as BigQuery reports it. Data Proxy applies no granularity conversion, for example from daily to monthly. If a table needs a different granularity, model that granularity in BigQuery or in a derived dataset. Do not model it in this configuration. `n` is rejected for range-partitioned tables. A range partition has no natural recency order to rank by. BigQuery's `__NULL__` bucket behaves differently by partition type. For time-partitioned tables, Data Proxy skips this bucket. A null time value carries no partition identity. For range-partitioned tables, Data Proxy syncs this bucket as a remainder partition. This partition holds real out-of-range or null data. `__UNPARTITIONED__` always raises an error. This value indicates an unsupported partitioning type.

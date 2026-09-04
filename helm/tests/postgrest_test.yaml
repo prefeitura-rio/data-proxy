@@ -23,46 +23,28 @@ tests:
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs
-      postgrest.jwksFetch.image: alpine:3.24.1
-      postgrest.jwksFetch.curlVersion: 8.21.0-r0
-      postgrest.jwksFetch.jqVersion: 1.8.1-r0
+      postgrest.jwksFetch.image: ghcr.io/nushell/nushell:0.115.1-alpine
     asserts:
       - equal:
           path: spec.template.spec.initContainers[1].image
-          value: alpine:3.24.1
+          value: ghcr.io/nushell/nushell:0.115.1-alpine
       - equal:
           path: spec.template.spec.initContainers[1].command
-          value: [/bin/sh, -c]
+          value: [/usr/bin/nu, -c]
       - equal:
           path: spec.template.spec.initContainers[1].env[0]
           value:
             name: JWKS_URI
             value: https://auth.example.com/certs
-      - equal:
-          path: spec.template.spec.initContainers[1].env[1]
-          value:
-            name: CURL_VERSION
-            value: 8.21.0-r0
-      - equal:
-          path: spec.template.spec.initContainers[1].env[2]
-          value:
-            name: JQ_VERSION
-            value: 1.8.1-r0
       - matchRegex:
           path: spec.template.spec.initContainers[1].args[0]
-          pattern: 'apk add --no-cache'
+          pattern: 'http get'
       - matchRegex:
           path: spec.template.spec.initContainers[1].args[0]
-          pattern: '--retry 5'
+          pattern: 'to json'
       - matchRegex:
           path: spec.template.spec.initContainers[1].args[0]
-          pattern: '--connect-timeout 5'
-      - matchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
-          pattern: 'jq -e'
-      - matchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
-          pattern: 'mv "\$temporary_file" "\$jwks_file"'
+          pattern: 'save -f'
       - equal:
           path: spec.template.spec.initContainers[1].volumeMounts[0].mountPath
           value: /etc/postgrest

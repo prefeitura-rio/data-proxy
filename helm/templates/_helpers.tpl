@@ -66,6 +66,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.schemaWritersSecretName" -}}
+{{- if .Values.pgduckdb.existingSecret }}
+{{- .Values.pgduckdb.existingSecret }}-schema-writers
+{{- else }}
+{{- include "data-proxy.fullname" . }}-schema-writers
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.valkeySecretKey" -}}
 {{- if .Values.valkey.auth.existingSecret }}
 {{- .Values.valkey.auth.existingSecretKey }}
@@ -98,9 +106,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.schemaWriterDsn" -}}
 {{- $root := .root -}}
 {{- if $root.Values.ha.enabled -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
+postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
 {{- else -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
+postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
 {{- end -}}
 {{- end }}
 
@@ -171,10 +179,12 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
       key: GCS_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
-- name: WORKER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.worker.visibilityTimeoutMs | quote }}
-- name: FINALIZER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.finalizer.visibilityTimeoutMs | quote }}
+- name: DUMPER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.dumper.visibilityTimeoutMs | quote }}
+- name: SEEDER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.seeder.visibilityTimeoutMs | quote }}
+- name: PUBLISHER_VISIBILITY_TIMEOUT_MS
+  value: {{ .Values.publisher.visibilityTimeoutMs | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
@@ -183,6 +193,26 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: SCHEMA_WRITERS_FILE
   value: /config/schema-writers/writers.json
+{{- if .Values.gcp.existingSecret }}
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: /gcp/key.json
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.gcpVolume" -}}
+{{- if .Values.gcp.existingSecret }}
+- name: gcp-key
+  secret:
+    secretName: {{ .Values.gcp.existingSecret }}
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.gcpVolumeMount" -}}
+{{- if .Values.gcp.existingSecret }}
+- name: gcp-key
+  mountPath: /gcp
+  readOnly: true
+{{- end }}
 {{- end }}
 
 {{- define "data-proxy.syncConfigVolume" -}}
@@ -199,8 +229,8 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
 
 {{- define "data-proxy.schemaWritersVolume" -}}
 - name: schema-writers
-  configMap:
-    name: {{ include "data-proxy.fullname" . }}-schema-writers
+  secret:
+    secretName: {{ include "data-proxy.schemaWritersSecretName" . }}
 {{- end }}
 
 {{- define "data-proxy.schemaWritersVolumeMount" -}}

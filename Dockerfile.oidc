@@ -1,0 +1,13 @@
+FROM docker.io/alpine:3.23.5
+
+RUN apk add --no-cache nushell openssl
+
+ADD https://github.com/cablehead/http-nu/releases/download/v0.17.2/http-nu-v0.17.2-linux-amd64.tar.gz /tmp/http-nu.tar.gz
+RUN tar xzf /tmp/http-nu.tar.gz -C /usr/local/bin/ --strip-components=1 && rm /tmp/http-nu.tar.gz
+
+COPY scripts/oidc.nu /scripts/oidc.nu
+COPY scripts/oidc.nuon /config/oidc.nuon
+
+EXPOSE 8080
+
+CMD ["http-nu", "0.0.0.0:8080", "/scripts/oidc.nu"]

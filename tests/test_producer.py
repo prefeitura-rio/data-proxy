@@ -1,269 +1,211 @@
-"""Tests for the FastStream producer orchestrator."""
+"""Tests for current producer planning output."""
 
-from contextlib import AbstractContextManager
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from faststream import TestApp
-from helpers import FakeRedis, redis_client
+from duckdb import connect
+from redis.asyncio import Redis
 
-from dp.constants import (
-    FINALIZERS_GROUP,
-    SYNC_FINALIZE_STREAM,
-    SYNC_TASKS_STREAM,
-    WORKERS_GROUP,
-)
-from dp.models import AllSelection, FinalizeMessage, SyncPlan, SyncTask
-from dp.state import create_run
-from dp.sync.producer import producer, recover_lost_finalization
+from dp.models import AllSelection, DumpTask, SyncWork
+from dp.sync.dumper import dump_task, dumper
+from dp.sync.producer import produce, producer
+from dp.sync.seeder import seed_sync
+from tests.helpers import dump as make_dump
+from tests.helpers import sync_plan
 
-
-def state_patches() -> tuple[AbstractContextManager[object], ...]:
-    """Return common state-operation patches for producer tests."""
-    return (
-        patch("dp.sync.producer.trim_stale_entries", new_callable=AsyncMock),
-        patch("dp.sync.producer.create_consumer_group", new_callable=AsyncMock),
-        patch(
-            "dp.sync.producer.recover_lost_finalization",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
-    )
+pytestmark = pytest.mark.usefixtures("test_settings")
 
 
-@pytest.mark.asyncio
-async def test_recovery_without_active_run_returns_none() -> None:
-    """A producer with no active run has nothing to recover."""
-    assert await recover_lost_finalization(redis_client(FakeRedis())) is None
+class TestProducer:
+    """Tests for producer planning and dispatch behavior."""
 
+    def test_empty_sync_work_has_no_tasks(
+        self,
+    ) -> None:
+        """
+        GIVEN: an empty SyncWork.
+        WHEN: its tasks are accessed.
+        THEN: there are no tasks.
+        """
+        assert SyncWork(plans=[], tasks=[]).tasks == []
 
-@pytest.mark.asyncio
-async def test_recovery_keeps_extracting_run_untouched() -> None:
-    """A run with pending tasks is not finalized early."""
-    fake = FakeRedis()
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 2)
+    @pytest.mark.asyncio
+    async def test_producer_exits_when_no_changes_detected(
+        self, sync_config_path: Path, redis: Redis
+    ) -> None:
+        """
+        GIVEN: no changes detected by build_sync_work.
+        WHEN: produce runs.
+        THEN: the producer application exits.
+        """
+        with (
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=SyncWork([], []),
+            ),
+            patch.object(producer, "exit") as exit_app,
+        ):
+            await produce()
+        exit_app.assert_called_once()
 
-    assert await recover_lost_finalization(redis_client(fake)) is None
+    @pytest.mark.asyncio
+    async def test_producer_publishes_each_dump_task(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+        broker: object,
+    ) -> None:
+        """
+        GIVEN: a sync work with dump tasks.
+        WHEN: produce runs.
+        THEN: each dump task is published.
+        """
+        task = DumpTask(
+            run_id="run",
+            table="p.d.t",
+            bucket_path="s3://b/t",
+            selection=AllSelection(),
+        )
+        with (
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=SyncWork(
+                    [
+                        sync_plan(
+                            signatures={"p.d.t": "sig"},
+                            paths={"p.d.t": ["s3://b/t/data.parquet"]},
+                        )
+                    ],
+                    [task],
+                ),
+            ),
+            patch(
+                "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
+            ),
+            patch("dp.sync.dumper.extract_task_wrapper"),
+            patch(
+                "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(dumper, "exit"),
+            patch.object(producer, "exit"),
+        ):
+            await produce()
+        assert dump_task.mock.call_count == 2
+        dump_task.mock.assert_called_with(task.model_dump(mode="json"))
 
+    @pytest.mark.asyncio
+    async def test_producer_recovers_run_with_zero_remaining_tasks(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+        broker: object,
+    ) -> None:
+        """
+        GIVEN: an active run with zero remaining tasks.
+        WHEN: produce runs.
+        THEN: the producer recovers the run and publishes a seed sync.
+        """
+        await redis.set("dp:active", "old")
+        await redis.set("dp:remaining:old", "0")
+        with patch.object(producer, "exit"):
+            await produce()
+        assert seed_sync.mock.call_count == 2
+        seed_sync.mock.assert_called_with({"run_id": "old"})
 
-@pytest.mark.asyncio
-async def test_recovery_skips_when_finalizer_message_in_flight() -> None:
-    """A run with a pending finalizer message is not re-published."""
-    fake = FakeRedis(pending_groups={("dp:sync:finalize", "finalizers")})
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
+    @pytest.mark.asyncio
+    async def test_producer_refuses_active_run_with_remaining_tasks(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+        broker: object,
+    ) -> None:
+        """
+        GIVEN: an active run with remaining tasks.
+        WHEN: produce runs.
+        THEN: the producer refuses to start a new run and does not publish a seed.
+        """
+        await redis.set("dp:active", "old")
+        await redis.set("dp:remaining:old", "2")
+        with patch.object(producer, "exit"):
+            await produce()
+        assert not seed_sync.mock.called
 
-    with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
-        assert await recover_lost_finalization(redis_client(fake)) is None
+    @pytest.mark.asyncio
+    async def test_producer_publishes_seed_sync_when_no_dumps(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+        broker: object,
+    ) -> None:
+        """
+        GIVEN: a sync work with plans but zero dump tasks.
+        WHEN: produce runs.
+        THEN: the producer publishes a seed sync for the run.
+        """
+        with (
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=SyncWork(
+                    [
+                        sync_plan(
+                            signatures={"p.d.t": "sig"},
+                            paths={"p.d.t": ["s3://b/t/data.parquet"]},
+                        )
+                    ],
+                    [],
+                ),
+            ),
+            patch(
+                "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(producer, "exit"),
+        ):
+            await produce()
+        assert seed_sync.mock.call_count == 2
+        assert all(call.args[0]["run_id"] for call in seed_sync.mock.call_args_list)
 
-    publish.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_recovery_republishes_lost_finalizer_message() -> None:
-    """A fully extracted run with no finalizer message is finalized again."""
-    fake = FakeRedis()
-    await create_run(redis_client(fake), SyncPlan(sync_id="s1"), 0)
-
-    with patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish:
-        assert await recover_lost_finalization(redis_client(fake)) == "s1"
-
-    publish.assert_awaited_once_with(
-        FinalizeMessage(sync_id="s1"),
-        stream="dp:sync:finalize",
-    )
-
-
-@pytest.mark.asyncio
-async def test_exits_when_recovery_republishes_finalizer(
-    sync_config_path: Path,
-) -> None:
-    """A recovered run exits without building a new plan."""
-    with (
-        patch("dp.sync.producer.trim_stale_entries", new_callable=AsyncMock),
-        patch("dp.sync.producer.create_consumer_group", new_callable=AsyncMock),
-        patch(
-            "dp.sync.producer.recover_lost_finalization",
-            new_callable=AsyncMock,
-            return_value="s1",
-        ),
-        patch("dp.sync.producer.build_sync_plan") as build,
-        patch("dp.sync.producer.create_run", new_callable=AsyncMock) as create_run,
-        patch(
-            "dp.sync.producer.broker.publish",
-            new_callable=AsyncMock,
-        ) as publish,
-        patch.object(producer, "exit") as exit_app,
-    ):
-        async with TestApp(producer):
-            pass
-
-    build.assert_not_awaited()
-    create_run.assert_not_awaited()
-    publish.assert_not_awaited()
-    exit_app.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_exits_when_planning_finds_no_tasks(
-    sync_config_path: Path,
-) -> None:
-    """An unchanged run exits without state or message publication."""
-    trim, group, recover = state_patches()
-    with (
-        trim,
-        group,
-        recover,
-        patch(
-            "dp.sync.producer.build_sync_plan",
-            new_callable=AsyncMock,
-            return_value=(None, []),
-        ),
-        patch("dp.sync.producer.create_run", new_callable=AsyncMock) as create_run,
-        patch(
-            "dp.sync.producer.broker.publish",
-            new_callable=AsyncMock,
-        ) as publish,
-        patch.object(producer, "exit") as exit_app,
-    ):
-        async with TestApp(producer):
-            pass
-
-    create_run.assert_not_awaited()
-    publish.assert_not_awaited()
-    exit_app.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_exits_when_atomic_run_creation_conflicts(
-    sync_config_path: Path,
-) -> None:
-    """An active run prevents task publication."""
-    plan = SyncPlan(
-        sync_id="s1",
-        signatures={"p.d.t": "100"},
-        paths={"p.d.t": ["s3://bucket/t/data.parquet"]},
-    )
-    task = SyncTask(
-        sync_id="s1",
-        table="p.d.t",
-        bucket_path="s3://bucket/t/data.parquet",
-        selection=AllSelection(),
-    )
-    trim, group, recover = state_patches()
-    with (
-        trim,
-        group,
-        recover,
-        patch(
-            "dp.sync.producer.build_sync_plan",
-            new_callable=AsyncMock,
-            return_value=(plan, [task]),
-        ),
-        patch(
-            "dp.sync.producer.create_run",
-            new_callable=AsyncMock,
-            return_value=False,
-        ) as create_run,
-        patch(
-            "dp.sync.producer.broker.publish",
-            new_callable=AsyncMock,
-        ) as publish,
-        patch.object(producer, "exit") as exit_app,
-    ):
-        async with TestApp(producer):
-            pass
-
-    create_run.assert_awaited_once_with(ANY, plan, 1)
-    publish.assert_not_awaited()
-    exit_app.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_creates_run_before_publishing_tasks(
-    sync_config_path: Path,
-) -> None:
-    """A changed run creates state before it publishes every task."""
-    plan = SyncPlan(
-        sync_id="s1",
-        signatures={"p.d.t": "100"},
-        paths={"p.d.t": ["s3://bucket/t/data.parquet"]},
-    )
-    task = SyncTask(
-        sync_id="s1",
-        table="p.d.t",
-        bucket_path="s3://bucket/t/data.parquet",
-        selection=AllSelection(),
-    )
-    trim, _, recover = state_patches()
-    with (
-        trim,
-        recover,
-        patch(
-            "dp.sync.producer.create_consumer_group",
-            new_callable=AsyncMock,
-        ) as create_group,
-        patch(
-            "dp.sync.producer.build_sync_plan",
-            new_callable=AsyncMock,
-            return_value=(plan, [task]),
-        ),
-        patch(
-            "dp.sync.producer.create_run",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as create_run,
-        patch(
-            "dp.sync.producer.broker.publish",
-            new_callable=AsyncMock,
-        ) as publish,
-        patch.object(producer, "exit") as exit_app,
-    ):
-        async with TestApp(producer):
-            pass
-
-    create_run.assert_awaited_once_with(ANY, plan, 1)
-    create_group.assert_has_awaits(
-        [
-            call(ANY, SYNC_TASKS_STREAM, WORKERS_GROUP),
-            call(ANY, SYNC_FINALIZE_STREAM, FINALIZERS_GROUP),
-        ]
-    )
-    publish.assert_awaited_once_with(task, stream="dp:sync:tasks")
-    exit_app.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_deletion_only_plan_publishes_finalizer_directly(
-    sync_config_path: Path,
-) -> None:
-    """A plan without extraction tasks bypasses the worker counter."""
-    plan = SyncPlan(sync_id="s1")
-    trim, group, recover = state_patches()
-    with (
-        trim,
-        group,
-        recover,
-        patch(
-            "dp.sync.producer.build_sync_plan",
-            new_callable=AsyncMock,
-            return_value=(plan, []),
-        ),
-        patch(
-            "dp.sync.producer.create_run",
-            new_callable=AsyncMock,
-            return_value=True,
-        ) as create_run,
-        patch(
-            "dp.sync.producer.broker.publish",
-            new_callable=AsyncMock,
-        ) as publish,
-        patch.object(producer, "exit"),
-    ):
-        async with TestApp(producer):
-            pass
-
-    create_run.assert_awaited_once_with(ANY, plan, 0)
-    publish.assert_awaited_once_with(
-        FinalizeMessage(sync_id=plan.sync_id), stream="dp:sync:finalize"
-    )
+    @pytest.mark.asyncio
+    async def test_producer_rejects_run_creation_conflict(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+    ) -> None:
+        """
+        GIVEN: a run creation conflict where create_run returns False.
+        WHEN: produce runs.
+        THEN: the producer rejects the new run without publishing dumps.
+        """
+        with (
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=SyncWork(
+                    [
+                        sync_plan(
+                            signatures={"p.d.t": "sig"},
+                            paths={"p.d.t": ["s3://b/t/data.parquet"]},
+                        )
+                    ],
+                    [make_dump()],
+                ),
+            ),
+            patch(
+                "dp.sync.producer.create_run",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(producer, "exit"),
+        ):
+            await produce()

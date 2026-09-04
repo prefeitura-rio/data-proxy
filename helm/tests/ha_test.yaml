@@ -4,8 +4,9 @@ templates:
   - pvc-pgduckdb.yaml
   - statefulset-duckdb-schema-ha.yaml
   - configmap-schema-patroni.yaml
-  - configmap-schema-writers.yaml
+  - secret-schema-writers.yaml
   - configmap-schema-haproxy.yaml
+  - configmap-schema-db-init.yaml
   - deployment-schema-haproxy.yaml
   - service-schema-haproxy.yaml
   - deployment-schema-postgrest.yaml
@@ -17,6 +18,14 @@ set:
   ingress.enabled: true
   ingress.host: api.example.com
 tests:
+  - it: renders schema database initialization
+    set:
+      syncConfig.schemas.second.tables: []
+    template: configmap-schema-db-init.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+
   - it: renders retained schema member PVCs
     template: pvc-pgduckdb.yaml
     asserts:
@@ -46,11 +55,11 @@ tests:
         documentIndex: 0
 
   - it: maps every schema to its HAProxy writer
-    template: configmap-schema-writers.yaml
+    template: secret-schema-writers.yaml
     asserts:
       - matchRegex:
-          path: data["writers.json"]
-          pattern: '"app_pequenos_cariocas": "postgresql://dataproxy@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy"'
+          path: stringData["writers.json"]
+          pattern: '"app_pequenos_cariocas": "postgresql://dataproxy:pgpass@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy"'
 
   - it: routes PostgreSQL connections through HAProxy
     template: configmap-schema-haproxy.yaml

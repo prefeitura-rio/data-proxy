@@ -1,11 +1,11 @@
 """Synchronization plan validation and publication orchestration."""
 
+from duckdb import DuckDBPyConnection
 from loguru import logger
 from psycopg import Connection
 from whenever import Instant
 
-from .duckdb import DBConnection
-from .freshness import record_table_failure, upsert_freshness
+from .freshness import record_table_failures
 from .models import (
     PublicationDecision,
     PublicationResult,
@@ -38,19 +38,19 @@ def record_extraction_failures(
 ) -> None:
     """Record blocked tables and incremental plans with no successful task."""
     tables = {table.name: table for table in config.tables}
-    for table_name in decision.blocked_tables:
-        record_table_failure(pg_conn, tables[table_name], source_plan, attempted_at)
-    for table_name in empty_incremental:
-        table = tables[table_name]
-        with pg_conn.transaction():
-            for partition_id in decision.failed_partitions.get(table_name, set()):
-                upsert_freshness(
-                    pg_conn,
-                    table,
-                    partition_id,
-                    attempted_at,
-                    success=False,
-                )
+
+    failed_tables = decision.blocked_tables | empty_incremental
+    partitions_by_table = {
+        table_name: decision.failed_partitions.get(table_name, set())
+        for table_name in empty_incremental
+    }
+    record_table_failures(
+        pg_conn,
+        [tables[table_name] for table_name in failed_tables],
+        source_plan,
+        attempted_at,
+        partitions_by_table,
+    )
 
 
 def record_preparation_failures(
@@ -63,13 +63,15 @@ def record_preparation_failures(
 ) -> None:
     """Record each eligible table that did not prepare successfully."""
     tables = {table.name: table for table in config.tables}
-    for table_name in eligible - prepared_names:
-        record_table_failure(pg_conn, tables[table_name], source_plan, attempted_at)
+    failed = [tables[table_name] for table_name in eligible - prepared_names]
+
+    if failed:
+        record_table_failures(pg_conn, failed, source_plan, attempted_at)
 
 
 def publish_eligible_tables(
     pg_conn: Connection,
-    duckdb_conn: DBConnection,
+    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
@@ -103,7 +105,7 @@ def publish_eligible_tables(
 
 def apply_sync_plan(
     pg_conn: Connection,
-    duckdb_conn: DBConnection,
+    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     plan: SyncPlan,
     failed_paths: set[str] | None = None,

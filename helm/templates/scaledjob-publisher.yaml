@@ -1,0 +1,59 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-publisher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: publisher
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    activeDeadlineSeconds: {{ .Values.publisher.keda.activeDeadlineSeconds }}
+    backoffLimit: 0
+    template:
+      metadata:
+        labels:
+          {{- include "data-proxy.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: publisher
+      spec:
+        restartPolicy: Never
+        serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+        containers:
+          - name: publisher
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            command: ["python", "-m", "dp.sync.publisher"]
+            env:
+              {{- include "data-proxy.appEnv" . | nindent 14 }}
+            volumeMounts:
+              {{- include "data-proxy.syncConfigVolumeMount" . | nindent 14 }}
+              {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 14 }}
+              {{- include "data-proxy.gcpVolumeMount" . | nindent 14 }}
+        volumes:
+          {{- include "data-proxy.syncConfigVolume" . | nindent 10 }}
+          {{- include "data-proxy.schemaWritersVolume" . | nindent 10 }}
+          {{- include "data-proxy.gcpVolume" . | nindent 10 }}
+  pollingInterval: {{ .Values.publisher.keda.pollingInterval }}
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  scalingStrategy:
+    strategy: accurate
+  triggers:
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:publish
+        consumerGroup: publishers
+        lagCount: "1"
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:publish
+        consumerGroup: publishers
+        pendingEntriesCount: {{ .Values.publisher.keda.pendingEntriesCount | quote }}

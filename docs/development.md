@@ -20,7 +20,7 @@ devenv shell
 ```
 
 The script stores Kubernetes credentials in the ignored `.kubeconfig` file in the repository.
-It does not change your user kubeconfig.
+The script does not change your user kubeconfig.
 
 ## Start the cluster
 
@@ -34,7 +34,7 @@ The script installs:
 - k6 operator
 - Istio
 - MinIO
-- Mock OAuth2
+- OIDC provider
 - PostgreSQL with pg_duckdb
 - Valkey
 - PostgREST
@@ -43,7 +43,7 @@ The script installs:
 Check the cluster:
 
 ```bash
-cluster status
+cluster
 ```
 
 ## Load BigQuery test data
@@ -57,7 +57,7 @@ gcloud auth application-default login
 Seed the three test tables:
 
 ```bash
-seed-data --project rj-ia-desenvolvimento
+seed --project rj-ia-desenvolvimento
 ```
 
 The producer also needs Google Cloud credentials inside Kubernetes.
@@ -66,7 +66,7 @@ Configure those credentials before you run a sync.
 Run one sync:
 
 ```bash
-cluster sync
+kubectl -n data-proxy create job --from=cronjob/data-proxy-producer data-proxy-producer-manual
 ```
 
 ## Access the API
@@ -86,25 +86,25 @@ kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80
 Get a local token:
 
 ```bash
-bash scripts/token.sh
+token
 ```
 
-The token script gets the token from the mock OAuth2 service inside the cluster.
-It does not forward the OAuth2 service.
+The token script gets the token from the OIDC provider inside the cluster.
+The script does not forward the OIDC service.
 
 See [Using the API](using.md) for request examples.
 
-## Run the k6 test
+## Run the k6 load test
 
-The k6 test uses the mock token service and the Istio ingress gateway.
-It tests the `pic` schema and all three synced tables.
+The k6 load test uses the OIDC provider and the Istio ingress gateway.
+The test accesses the `pic` schema and all three synced tables.
 
 Run one profile:
 
 ```bash
-cluster k6 smoke
-cluster k6 load
-cluster k6 stress
+cluster k6 load-test smoke
+cluster k6 load-test load
+cluster k6 load-test stress
 ```
 
 The profiles use these default loads:
@@ -113,13 +113,25 @@ The profiles use these default loads:
 - `load`: 10 VUs for 5 minutes
 - `stress`: 50 VUs for 10 minutes
 
+## Run the k6 e2e test
+
+The e2e test triggers a full sync pipeline, seeds access policy rows, and
+validates that all tables publish with fresh data and correct RLS filtering.
+
+```bash
+cluster k6 e2e
+```
+
+The command clears MinIO, Redis, and Postgres state before the test runs.
+The command waits for the pipeline to complete and prints the k6 summary.
+
 ## Stop the cluster
 
 ```bash
 cluster down
 ```
 
-If a Helm install fails, remove the cluster and start it again:
+If a Helm install fails, remove the cluster and start the cluster again:
 
 ```bash
 cluster down

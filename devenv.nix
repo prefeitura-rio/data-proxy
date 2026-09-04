@@ -1,18 +1,22 @@
 { pkgs, config, ... }:
-
 {
   name = "data-proxy";
 
   env = {
     UV_PYTHON = config.languages.python.package.outPath;
-    KUBECONFIG = "$DEVENV_ROOT/.kubeconfig";
+    KUBECONFIG = ".kubeconfig";
+    DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
+    TESTCONTAINERS_RYUK_DISABLED = "true";
+    NU_LIB_DIRS = "vendor";
   };
 
   packages = with pkgs; [
-    curl
-    jq
     k6
     minikube
+    nushell
+    http-nu
+    ast-grep
+    kubeconform
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -46,7 +50,7 @@
     basedpyright = {
       enable = true;
       name = "basedpyright";
-      entry = "uv run basedpyright src/ tests/";
+      entry = "${pkgs.uv}/bin/uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
       pass_filenames = false;
@@ -54,21 +58,22 @@
   };
 
   scripts = {
-    seed-data.exec = ''uv run python scripts/seed.py "$@"'';
-    get-token.exec = "bash scripts/token.sh";
-    cluster.exec = "bash scripts/cluster.sh \"$@\"";
+    seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
+    token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
+    cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
   };
 
   tasks = {
-    "app:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "app:lint".exec = ''
+    "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
+    "dp:lint".exec = ''
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/
       uv run complexipy src/ tests/
       uv run vulture src/ tests/
     '';
-    "app:fmt".exec = "ruff check --fix && ruff format";
+    "dp:fmt".exec = "ruff check --fix && ruff format";
     "charts:lint".exec = "helm lint helm/";
-    "charts:test".exec = "helm unittest helm/";
+    "charts:test".exec = "${pkgs.nushell}/bin/nu scripts/test-charts.nu";
   };
 }
