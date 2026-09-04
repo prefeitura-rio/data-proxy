@@ -6,7 +6,6 @@
     UV_PYTHON = config.languages.python.package.outPath;
     KUBECONFIG = ".kubeconfig";
     DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
-    TESTCONTAINERS_RYUK_DISABLED = "true";
     NU_LIB_DIRS = "vendor";
   };
 

@@ -76,9 +76,14 @@ jobs:
       - name: Unit tests
         if: steps.guard.outputs.skip != 'true'
         run: helm unittest helm/
+      - name: Install Nushell
+        if: steps.guard.outputs.skip != 'true'
+        uses: hustcer/setup-nu@main
+        with:
+          version: "0.107.0"
       - name: Render and validate chart
         if: steps.guard.outputs.skip != 'true'
-        run: bash scripts/test-charts.sh
+        run: nu scripts/test-charts.nu
       - name: Package
         if: steps.guard.outputs.skip != 'true'
         run: helm package helm/ --destination ./packaged/

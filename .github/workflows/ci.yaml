@@ -48,13 +48,7 @@ jobs:
       - run: uv sync --all-groups --frozen
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .testmondata*
-          key: ${{ runner.os }}-python-3.14-testmon-${{ hashFiles('uv.lock') }}-${{ github.ref_name }}
-          restore-keys: |
-            ${{ runner.os }}-python-3.14-testmon-${{ hashFiles('uv.lock') }}-
-      - run: uv run pytest tests/ -q --testmon
+      - run: uv run pytest tests/ -q
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
   build:
