@@ -2,24 +2,25 @@
 
 ## Serving Layer
 
-The product is a PostgreSQL database that uses the pg\_duckdb extension. This database mirrors a set of BigQuery tables. PostgREST serves this data as a REST API.
+The product is a PostgreSQL database that uses the pg_duckdb extension. This database mirrors a set of BigQuery tables. PostgREST serves this data as a REST API.
 
-BigQuery is the source of truth. pg\_duckdb is a read cache. Clients query pg\_duckdb over HTTP. Clients never query BigQuery directly.
+BigQuery is the source of truth. pg_duckdb is a read cache. Clients query pg_duckdb over HTTP. Clients never query BigQuery directly.
 
-pg\_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from GCS. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
+pg_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from GCS. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
 
 The read path does not enable DuckDB execution (`duckdb.force_execution`). PostgREST's read workload is small: filtered, index-driven lookups. DuckDB's columnar engine accelerates large scans and aggregations instead. Routing reads through DuckDB gives no benefit here.
 
 The `pre_request` function mirrors every JWT claim into a PostgreSQL session variable. Row-level security policies compare the configured identity claim against grants in the local `<schema>.access_policy` table. See [Security](security.md) for details.
 
-The sync pipeline below keeps pg\_duckdb up to date with BigQuery. This pipeline runs outside the request path.
+The sync pipeline runs outside the request path.
 
 ## Data sync
 
-The sync pipeline has three components. Each component writes one JSON log record per line. Search logs with `component`, `sync_id`, `table`, or `stage`.
+The sync pipeline has four components. Each component writes one JSON log record per line. Search logs with `component`, `sync_id`, `table`, or `stage`.
 
-- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
-- **Dumper** — runs as a KEDA ScaledJob. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. One subscription reads new messages. The other subscription reclaims pending messages after `DUMPER_VISIBILITY_TIMEOUT_MS`. The number of pods decreases to zero between sync runs.
+- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
+- **Dumper** — runs as a KEDA ScaledJob. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
+- **Seeder** — runs as a KEDA ScaledJob. KEDA scales on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. The Seeder reads the sync plan, initializes PostgreSQL schemas and roles, and publishes one publication task per schema to `dp:publish`. The pod exits after it dispatches the publication tasks.
 - **Publisher** — runs as a KEDA ScaledJob. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. It loads only the Parquet paths in the schema plan. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
 
 The producer skips a BigQuery table that has not changed since its last successful sync. The producer checks this with a modification signature. This signature combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
@@ -34,7 +35,7 @@ A full table is atomic. A partitioned full rebuild is also atomic. One extractio
 
 Each configured schema has a `freshness` table. This table gives the last publication time. It also gives the result of the latest attempt. The Publisher updates freshness in the same transaction as the data-table swap.
 
-A loss of Valkey state causes a full resync. This is safe. BigQuery stays the source of truth at all times.
+A loss of Valkey state causes a full resync. This is safe.
 
 ## Modes
 
@@ -51,7 +52,7 @@ flowchart TD
 
     subgraph pipeline[Sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledJob]
-        W --> GCS --> FIN[Publisher\nScaledJob]
+        W --> GCS --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
     end
 
     BQ -->|discover partitions| P
@@ -77,7 +78,7 @@ flowchart TD
 
     subgraph pipeline[Shared sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledJob]
-        W --> GCS --> FIN[Publisher\nScaledJob]
+        W --> GCS --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
     end
 
     subgraph cadastro[bcadastro schema stack]

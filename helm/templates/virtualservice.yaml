@@ -14,10 +14,17 @@ spec:
     - {{ .Values.ingress.host | quote }}
   http:
     {{- if .Values.swaggerUi.enabled }}
+    - name: docs-redirect
+      match:
+        - uri:
+            exact: /docs
+      redirect:
+        redirectCode: 302
+        uri: /docs/
     - name: docs
       match:
         - uri:
-            prefix: /docs
+            prefix: /docs/
       rewrite:
         uri: /
       route:
