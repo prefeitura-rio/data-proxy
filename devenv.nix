@@ -4,15 +4,17 @@
 
   env = {
     UV_PYTHON = config.languages.python.package.outPath;
-    KUBECONFIG = "$DEVENV_ROOT/.kubeconfig";
+    KUBECONFIG = ".kubeconfig";
     DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
     TESTCONTAINERS_RYUK_DISABLED = "true";
+    NU_LIB_DIRS = "vendor";
   };
 
   packages = with pkgs; [
     k6
     minikube
     nushell
+    http-nu
     ast-grep
     kubeconform
     (google-cloud-sdk.withExtraComponents (

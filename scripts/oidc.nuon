@@ -1,0 +1,38 @@
+{
+    issuer: "http://oidc.data-proxy.svc.cluster.local:8080"
+    secret: "ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq"
+    audience: ["dev"]
+    token_ttl: 86400
+    clients: {
+        user-with-access: {
+            client_secret: "test-secret"
+            grant_types: ["client_credentials"]
+            claims: {
+                sub: "user-1"
+                role: "user"
+                preferred_username: "user-1"
+                schemas: ["pic"]
+            }
+        }
+        user-no-access: {
+            client_secret: "test-secret"
+            grant_types: ["client_credentials"]
+            claims: {
+                sub: "user-no-access"
+                role: "user"
+                preferred_username: "user-no-access"
+                schemas: ["pic"]
+            }
+        }
+        policy-writer: {
+            client_secret: "test-secret"
+            grant_types: ["client_credentials"]
+            claims: {
+                sub: "policy-writer"
+                role: "policy_writer_pic"
+                preferred_username: "policy-writer"
+                schemas: ["pic"]
+            }
+        }
+    }
+}

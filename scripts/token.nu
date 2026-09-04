@@ -1,4 +1,4 @@
-# Fetch a dev OAuth2 token from the mock server inside the cluster
+# Fetch a dev OAuth2 token from the OIDC mock inside the cluster
 # and print an `export TOKEN='...'` line suitable for `eval`.
 
 ^kubectl config use-context data-proxy | ignore
@@ -10,10 +10,11 @@ let token = (^kubectl run data-proxy-token-client
   --restart=Never
   --image=curlimages/curl:8.12.1
   --command --
-  curl -sf -X POST http://mock-oauth2-server:8080/default/token
+  curl -sf -X POST http://oidc:8080/token
   -H "Content-Type: application/x-www-form-urlencoded"
   -d "grant_type=client_credentials"
-  -d "client_id=dev"
+  -d "client_id=user-with-access"
+  -d "client_secret=test-secret"
   | from json
   | get access_token)
 

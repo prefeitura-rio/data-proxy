@@ -68,31 +68,31 @@ spec:
             - name: db-init
               mountPath: /scripts
               readOnly: true
+        {{- if not .Values.postgrest.jwtSecret }}
         - name: fetch-jwks
           image: {{ .Values.postgrest.jwksFetch.image }}
           command:
-            - /bin/sh
+            - /usr/bin/nu
             - -c
           args:
             - |
-{{ .Files.Get "files/scripts/fetch-jwks.sh" | nindent 14 }}
+{{ .Files.Get "files/scripts/fetch-jwks.nu" | nindent 14 }}
           env:
             - name: JWKS_URI
               value: {{ .Values.postgrest.jwksUri | quote }}
-            - name: CURL_VERSION
-              value: {{ .Values.postgrest.jwksFetch.curlVersion | quote }}
-            - name: JQ_VERSION
-              value: {{ .Values.postgrest.jwksFetch.jqVersion | quote }}
           volumeMounts:
             - name: jwks
               mountPath: /etc/postgrest
+        {{- end }}
       volumes:
         - name: db-init
           configMap:
             name: {{ include "data-proxy.fullname" . }}-db-init
             defaultMode: 0755
+        {{- if not .Values.postgrest.jwtSecret }}
         - name: jwks
           emptyDir: {}
+        {{- end }}
       containers:
         - name: postgrest
           image: {{ .Values.postgrest.image }}
@@ -116,7 +116,11 @@ spec:
             - name: PGRST_DB_PRE_REQUEST
               value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
             - name: PGRST_JWT_SECRET
+              {{- if .Values.postgrest.jwtSecret }}
+              value: {{ .Values.postgrest.jwtSecret | quote }}
+              {{- else }}
               value: "@/etc/postgrest/jwks.json"
+              {{- end }}
             - name: PGRST_DB_MAX_ROWS
               value: {{ .Values.postgrest.maxRows | quote }}
             - name: PGRST_DB_AGGREGATES_ENABLED
@@ -130,9 +134,11 @@ spec:
               value: ignore-privileges
             {{- end }}
           volumeMounts:
+            {{- if not .Values.postgrest.jwtSecret }}
             - name: jwks
               mountPath: /etc/postgrest
               readOnly: true
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /

@@ -1,22 +1,23 @@
 image:
-  repository: data-proxy
+  repository: localhost/data-proxy
   tag: local
   pullPolicy: IfNotPresent
 serviceAccount:
   create: true
   name: data-proxy
 pgduckdb:
-  image: data-proxy-postgres:local
+  image: localhost/data-proxy-postgres:local
   storage:
     size: 2Gi
   db:
     name: dataproxy
     user: dataproxy
-  password: dataproxy-local
-  authenticatorPassword: authenticator-local
+  existingSecret: ""
+  password: test-pg-pass
+  authenticatorPassword: test-auth-pass
 postgrest:
   proxyUri: http://localhost:3111
-  jwksUri: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default/jwks
+  jwtSecret: ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq
 gcs:
   bucket: test-bucket
   endpoint: minio.data-proxy.svc.cluster.local:9000
@@ -84,7 +85,7 @@ ingress:
     perTryTimeout: 30s
     retryOn: "503"
   auth:
-    enabled: true
-    issuer: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default
-    jwksUri: http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default/jwks
+    enabled: false
+    issuer: http://oidc.data-proxy.svc.cluster.local:8080
+    jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
     audience: dev

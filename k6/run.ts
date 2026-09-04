@@ -22,8 +22,9 @@ type Route = {
 };
 
 const API_URL = __ENV.BASE_URL || "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
-const OIDC_TOKEN_URL = __ENV.OIDC_TOKEN_URL || "http://mock-oauth2-server.data-proxy.svc.cluster.local:8080/default/token";
-const OIDC_CLIENT_ID = __ENV.OIDC_CLIENT_ID || "dev";
+const OIDC_TOKEN_URL = __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
+const OIDC_CLIENT_ID = __ENV.OIDC_CLIENT_ID || "user-with-access";
+const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
 const TOKEN_REFRESH_SECONDS = 30;
@@ -55,6 +56,12 @@ export const options = {
 };
 
 const isArray = (body: unknown): boolean => Array.isArray(body);
+
+const ACCESS_POLICY_ROWS = [
+  { subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
+  { subject: "user-1", unit_type: "cras", unit_id: "cras_1" },
+  { subject: "user-1", unit_type: "escola", unit_id: "escola_1" },
+];
 
 const ROUTES: Route[] = [
   {
@@ -95,10 +102,11 @@ const ROUTES: Route[] = [
   },
 ];
 
-function fetchToken(): TokenData {
+function fetchToken(clientId: string = OIDC_CLIENT_ID): TokenData {
   const response = http.post(OIDC_TOKEN_URL, {
     grant_type: "client_credentials",
-    client_id: OIDC_CLIENT_ID,
+    client_id: clientId,
+    client_secret: OIDC_CLIENT_SECRET,
   }) as K6Response;
   const body = response.json() as TokenResponse;
   check(response, { "token request succeeded": (item: K6Response) => item.status === 200 });
@@ -111,7 +119,46 @@ function fetchToken(): TokenData {
   };
 }
 
+function seedAccessPolicy(): void {
+  const token = fetchToken("policy-writer");
+  const headers = {
+    Authorization: `Bearer ${token.token}`,
+    Host: HOST,
+    "Accept-Profile": "pic",
+    "Content-Type": "application/json",
+    Prefer: "resolution=merge-duplicates",
+  };
+  const response = http.post(
+    `${API_URL}/access_policy`,
+    JSON.stringify(ACCESS_POLICY_ROWS),
+    { headers, tags: { name: "seed_access_policy" } },
+  ) as K6Response;
+  check(response, {
+    "access_policy seeded": (item: K6Response) => item.status === 201,
+  });
+}
+
+function verifyNoAccess(): void {
+  const token = fetchToken("user-no-access");
+  const headers = {
+    Authorization: `Bearer ${token.token}`,
+    Host: HOST,
+    "Accept-Profile": "pic",
+  };
+  const response = http.get(
+    `${API_URL}/endpoint_participante_listagem?limit=1`,
+    { headers, tags: { name: "no_access_check" } },
+  ) as K6Response;
+  const body = response.json();
+  check(response, {
+    "user without policy gets empty array": (item: K6Response) => item.status === 200,
+    "no-access returns zero rows": () => Array.isArray(body) && body.length === 0,
+  });
+}
+
 export function setup(): TokenData {
+  seedAccessPolicy();
+  verifyNoAccess();
   return fetchToken();
 }
 

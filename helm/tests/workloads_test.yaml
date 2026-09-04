@@ -81,7 +81,7 @@ tests:
             value: /config/schema-writers/writers.json
         template: scaledjob-publisher.yaml
       - equal:
-          path: spec.jobTargetRef.template.spec.volumes[1].configMap.name
+          path: spec.jobTargetRef.template.spec.volumes[1].secret.secretName
           value: data-proxy-schema-writers
         template: scaledjob-publisher.yaml
 

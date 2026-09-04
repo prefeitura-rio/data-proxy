@@ -64,6 +64,8 @@ postgrest:
   proxyUri: ""
   ## JWKS URI for JWT validation. PostgREST fetches and caches the public keys at startup.
   jwksUri: ""
+  ## Symmetric JWT secret (HS256). When set, overrides JWKS validation.
+  jwtSecret: ""
   ## Maximum number of rows PostgREST will return per request.
   ## Requests without an explicit limit are capped at this value.
   maxRows: 1000
@@ -76,11 +78,7 @@ postgrest:
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
-    image: alpine:3.24.1
-    ## Exact Alpine curl package version installed at startup.
-    curlVersion: 8.21.0-r0
-    ## Exact Alpine jq package version installed at startup.
-    jqVersion: 1.8.1-r0
+    image: ghcr.io/nushell/nushell:0.115.1-alpine
 
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled

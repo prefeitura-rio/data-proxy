@@ -1,4 +1,4 @@
-FROM pgduckdb/pgduckdb:17-v1.1.1
+FROM docker.io/pgduckdb/pgduckdb:17-v1.1.1
 
 USER root
 

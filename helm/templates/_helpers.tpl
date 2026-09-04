@@ -66,6 +66,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.schemaWritersSecretName" -}}
+{{- if .Values.pgduckdb.existingSecret }}
+{{- .Values.pgduckdb.existingSecret }}-schema-writers
+{{- else }}
+{{- include "data-proxy.fullname" . }}-schema-writers
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.valkeySecretKey" -}}
 {{- if .Values.valkey.auth.existingSecret }}
 {{- .Values.valkey.auth.existingSecretKey }}
@@ -98,9 +106,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.schemaWriterDsn" -}}
 {{- $root := .root -}}
 {{- if $root.Values.ha.enabled -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
+postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
 {{- else -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
+postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
 {{- end -}}
 {{- end }}
 
@@ -221,8 +229,8 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
 
 {{- define "data-proxy.schemaWritersVolume" -}}
 - name: schema-writers
-  configMap:
-    name: {{ include "data-proxy.fullname" . }}-schema-writers
+  secret:
+    secretName: {{ include "data-proxy.schemaWritersSecretName" . }}
 {{- end }}
 
 {{- define "data-proxy.schemaWritersVolumeMount" -}}

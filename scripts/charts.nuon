@@ -55,10 +55,10 @@
         values_file: minio.yaml
     }
     {
-        name: mock-oauth2-server
+        name: oidc
         chart: bedag/raw
         namespace: data-proxy
-        values_file: mock-oauth2.yaml
+        values_file: oidc.yaml
         repo: "https://bedag.github.io/helm-charts/"
     }
     {
