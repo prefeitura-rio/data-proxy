@@ -1,16 +1,14 @@
 ## PostgreSQL client image for the pre-upgrade database reconciliation Job.
 migration:
   image: postgres:17-alpine
-
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
 image:
   ## Registry path for the data-proxy image, without the tag.
   repository: ghcr.io/prefeitura-rio/data-proxy
   ## Immutable application image version.
-  tag: "b8f9e4c"
+  tag: b8f9e4c
   ## Image pull policy. Use Always when the tag is mutable (for example, latest).
   pullPolicy: IfNotPresent
-
 ## Kubernetes ServiceAccount for the pipeline pods.
 ## Attach a Workload Identity annotation here to allow BigQuery access without
 ## a service account key file.
@@ -22,14 +20,13 @@ serviceAccount:
   ## Annotations to add to the ServiceAccount. Use this field for Workload Identity.
   ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
   annotations: {}
-
 ## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
 pgduckdb:
   ## Database image used by standalone and HA members.
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:latest
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
-    size: 10Gi
+    size: 100Gi
     ## StorageClass for the PersistentVolumeClaim. Leave empty to use the cluster default.
     storageClass: ""
     claimNamePrefix: ""
@@ -52,7 +49,6 @@ pgduckdb:
   password: ""
   ## Password for the PostgREST authenticator role. Required when existingSecret is empty.
   authenticatorPassword: ""
-
 ## Configuration for the PostgREST REST API service.
 postgrest:
   ## PostgREST container image.
@@ -79,7 +75,6 @@ postgrest:
   jwksFetch:
     ## Alpine image used by the JWKS init container.
     image: ghcr.io/nushell/nushell:0.115.1-alpine
-
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -92,7 +87,6 @@ swaggerUi:
   schemas:
     - app_pequenos_cariocas
     - bcadastro
-
 ## Google Cloud Platform credentials for BigQuery access.
 ## In GKE, use Workload Identity via serviceAccount.annotations instead.
 ## In minikube, set existingSecret to a Secret containing key.json.
@@ -100,7 +94,6 @@ gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
   ## Leave empty to use Workload Identity (no key file mounted).
   existingSecret: ""
-
 ## Google Cloud Storage credentials for DuckDB S3-compatible access.
 ## The pipeline uses HMAC keys (not a service account) for GCS access.
 ## Use Workload Identity (via the ServiceAccount annotation) for BigQuery access.
@@ -119,7 +112,6 @@ gcs:
   keyId: ""
   ## HMAC secret key for GCS access. Required when existingSecret is empty.
   secretKey: ""
-
 ## Valkey (Redis-compatible) in-cluster message broker for the sync task queue.
 ## Valkey is deployed as a subchart. The pipeline reads from and writes to Valkey streams.
 valkey:
@@ -138,19 +130,17 @@ valkey:
     existingSecretKey: password
     ## Password for Valkey authentication. Required when existingSecret is empty.
     password: ""
-
 ## Producer CronJob — runs once per schedule, publishes sync tasks to Valkey, then exits.
 producer:
   ## Cron expression that controls when the producer runs.
   ## Default: daily at 02:00 UTC.
-  schedule: "0 2 * * *"
+  schedule: 0 2 * * *
   ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
   ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
   activeDeadlineSeconds: 3600
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
-
 ## Backup CronJob — exports each <schema>.access_policy table, encrypts it
 ## client-side before it leaves the pod, then uploads it to the GCS bucket above.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
@@ -163,7 +153,7 @@ backup:
   image: postgres:17-alpine
   ## Cron expression that controls when the backup runs.
   ## Default: daily at 03:00 UTC, after the producer.
-  schedule: "0 3 * * *"
+  schedule: 0 3 * * *
   ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
   ## Maximum wall-clock time the backup Job may run before Kubernetes terminates it.
@@ -181,7 +171,6 @@ backup:
   existingSecret: ""
   ## Password for the read-only backup role. Required when existingSecret is empty.
   password: ""
-
 ## Dumper ScaledJob — KEDA creates one Job pod per pending message on dp:extract.
 ## Pods scale to zero when the stream is empty.
 dumper:
@@ -201,7 +190,6 @@ dumper:
     activeDeadlineSeconds: 3600
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
-
 ## Publisher ScaledJob — KEDA creates one Job pod per schema publication message.
 publisher:
   ## Time in milliseconds before a publisher can reclaim a pending message.
@@ -214,7 +202,6 @@ publisher:
     activeDeadlineSeconds: 7200
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
-
 ## Seeder ScaledJob — runs shared idempotent database setup once per run.
 seeder:
   visibilityTimeoutMs: 900000
@@ -222,14 +209,12 @@ seeder:
     pendingEntriesCount: "1"
     activeDeadlineSeconds: 3600
     pollingInterval: 30
-
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
 syncConfig:
   ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
   ## schema's identity claim and its list of tables. See docs/sync.md.
   schemas: {}
-
 ## Role names, JWT claim, and schema configuration for row-level security.
 ## These values are rendered into the db-init ConfigMap and the PostgREST Deployment.
 auth:
@@ -247,7 +232,6 @@ auth:
   jwtRoleClaim: $.role
   ## PostgreSQL schema that contains the shared pre_request function and sync status type.
   rlsSchema: rls
-
 ## High-availability configuration for schema-specific Patroni and HAProxy stacks.
 ## When ha.enabled is false, the chart deploys a single-node pgduckdb StatefulSet.
 ha:
@@ -281,12 +265,10 @@ ha:
     replicationUsername: replicator
     ## Password for the replication role. Required when ha.enabled is true.
     replicationPassword: ""
-
 ## Pushgateway URL for metrics push from short-lived worker pods.
 ## Defaults to the service created by the prometheus-community/prometheus-pushgateway chart.
 pushgateway:
   url: ""
-
 ## Resource requests and limits applied to PostgREST containers.
 resources:
   requests:
@@ -295,7 +277,6 @@ resources:
   limits:
     memory: 256Mi
     ephemeral-storage: 512Mi
-
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ## No VirtualService is created when enabled is false.
 ingress:
@@ -304,7 +285,7 @@ ingress:
   ## Set to true to create an Istio VirtualService for PostgREST.
   enabled: false
   ## Gateway reference in namespace/name format.
-  gateway: "istio-system/istio-gateway"
+  gateway: istio-system/istio-gateway
   ## External hostname the VirtualService matches. Required when enabled is true.
   host: ""
   ## Request timeout for the PostgREST route. Leave empty for no timeout.
