@@ -52,7 +52,7 @@ jobs:
       - run: uv run pytest tests/ -q
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
-  build:
+  build-dp:
     if: github.ref == 'refs/heads/main'
     needs:
       - lint
@@ -80,7 +80,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-  build-postgres:
+  build-pg:
     if: github.ref == 'refs/heads/main'
     needs:
       - lint
