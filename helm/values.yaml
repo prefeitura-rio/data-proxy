@@ -6,7 +6,7 @@ image:
   ## Registry path for the data-proxy image, without the tag.
   repository: ghcr.io/prefeitura-rio/data-proxy
   ## Immutable application image version.
-  tag: b8f9e4c
+  tag: "1320942"
   ## Image pull policy. Use Always when the tag is mutable (for example, latest).
   pullPolicy: IfNotPresent
 ## Kubernetes ServiceAccount for the pipeline pods.
@@ -23,7 +23,7 @@ serviceAccount:
 ## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
 pgduckdb:
   ## Database image used by standalone and HA members.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:latest
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:1320942
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
     size: 100Gi
