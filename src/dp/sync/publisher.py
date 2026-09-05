@@ -1,7 +1,6 @@
 """FastStream publisher application for one schema plan."""
 
 from time import monotonic
-from typing import cast
 from uuid import uuid4
 
 import psycopg
@@ -10,7 +9,6 @@ from asyncer import asyncify
 from faststream import FastStream, Logger
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
-from psycopg import Connection
 
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..duckdb import connect
@@ -63,7 +61,7 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
     """Run blocking schema publication."""
     with psycopg.connect(dsn) as pg_conn, connect() as duckdb_conn:
         return apply_sync_plan(
-            cast(Connection, cast(object, pg_conn)),
+            pg_conn,
             duckdb_conn,
             config,
             plan,
@@ -85,7 +83,7 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
             ):
                 with psycopg.connect(settings.PG_DSN) as conn:
                     reload_postgrest(
-                        cast(Connection, cast(object, conn)),
+                        conn,
                         SyncConfig.model_validate_json(
                             settings.SYNC_CONFIG_PATH.read_text()
                         ),
@@ -151,7 +149,7 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
 
         if remaining == 0:
             with psycopg.connect(settings.PG_DSN) as conn:
-                reload_postgrest(cast(Connection, cast(object, conn)), config)
+                reload_postgrest(conn, config)
 
             await cleanup_run(redis, task.run_id)
 

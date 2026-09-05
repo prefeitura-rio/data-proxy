@@ -182,6 +182,51 @@ class TestState:
         )
 
     @pytest.mark.asyncio
+    async def test_cleanup_run_trims_publish_stream_entries_for_run(
+        self,
+    ) -> None:
+        """
+        GIVEN: publish stream entries for run r1 and run r2.
+        WHEN: cleanup_run is called for run r1.
+        THEN: only run r2 entries remain in the publish stream.
+        """
+        await settings.redis.mset({"dp:active": "r1", "dp:remaining:r1": "0"})
+        await settings.redis.xadd("dp:publish", {"run_id": "r1", "schema_name": "app"})
+        await settings.redis.xadd("dp:publish", {"run_id": "r2", "schema_name": "app"})
+        await settings.redis.xadd(
+            "dp:publish", {"run_id": "r1", "schema_name": "other"}
+        )
+
+        await cleanup_run(settings.redis, "r1")
+
+        remaining = await settings.redis.xrange("dp:publish")
+        assert remaining is not None
+
+        remaining_run_ids = [
+            fields.get(b"run_id") for _, fields in remaining if fields is not None
+        ]
+
+        assert remaining_run_ids == [b"r2"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_run_with_no_matching_publish_entries_is_noop(
+        self,
+    ) -> None:
+        """
+        GIVEN: publish stream entries only for run r2.
+        WHEN: cleanup_run is called for run r1.
+        THEN: all run r2 entries remain unchanged.
+        """
+        await settings.redis.mset({"dp:active": "r1", "dp:remaining:r1": "0"})
+        await settings.redis.xadd("dp:publish", {"run_id": "r2", "schema_name": "app"})
+
+        await cleanup_run(settings.redis, "r1")
+
+        remaining = await settings.redis.xrange("dp:publish")
+        assert remaining is not None
+        assert len(remaining) == 1
+
+    @pytest.mark.asyncio
     async def test_cleanup_consumer_preserves_pending_messages(
         self,
     ) -> None:

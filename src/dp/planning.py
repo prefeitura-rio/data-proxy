@@ -43,6 +43,7 @@ def discover_json_columns(db: DuckDBPyConnection, bq_table: str) -> list[str]:
             )
         )
     ).fetchall()
+
     return [
         str(cast(object, row[0]))
         for row in rows

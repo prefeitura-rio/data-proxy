@@ -4,7 +4,6 @@ import contextlib
 from typing import cast
 
 from redis.asyncio import Redis
-from redis.asyncio.client import Pipeline
 from redis.exceptions import ResponseError, WatchError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
@@ -78,16 +77,22 @@ async def create_run(
     """Atomically reserve one run and store its schema plans."""
     plans_key = PLANS_KEY.format(run_id=run_id)
     remaining_key = REMAINING_KEY.format(run_id=run_id)
+
     async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(ACTIVE_KEY)
+
         if await pipe.get(ACTIVE_KEY) is not None:
             return False
+
         pipe.multi()
         pipe.set(ACTIVE_KEY, run_id, ex=SYNC_RUN_TTL_SECONDS)
+
         for plan in plans:
             pipe.hset(plans_key, plan.schema_name, plan.model_dump_json())
+
         pipe.set(remaining_key, task_count, ex=SYNC_RUN_TTL_SECONDS)
         await pipe.execute()
+
     return True
 
 
@@ -129,17 +134,22 @@ async def complete_dump(redis: Redis, task: DumpTask, result: DumpResult) -> int
     """Store one unique dump result and return remaining tasks, or None if duplicate."""
     results_key = RESULTS_KEY.format(run_id=task.run_id)
     remaining_key = REMAINING_KEY.format(run_id=task.run_id)
-    async with redis.pipeline(transaction=True) as raw_pipe:
-        pipe: Pipeline = raw_pipe
+
+    async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(results_key, remaining_key)
-        remaining_raw = cast(bytes | None, await pipe.get(remaining_key))
+        remaining_raw = await pipe.get(remaining_key)
+
         if remaining_raw is None:
             raise RuntimeError(f"Remaining task count not found: {task.run_id}")
+
         if await pipe.hexists(results_key, task.task_id):
             return None
+
         remaining = int(decode_redis_value(remaining_raw) or 0)
+
         if remaining <= 0:
             raise RuntimeError(f"Invalid remaining task count: {task.run_id}")
+
         next_remaining = remaining - 1
         pipe.multi()
         pipe.hset(results_key, task.task_id, result.model_dump_json())
@@ -147,6 +157,7 @@ async def complete_dump(redis: Redis, task: DumpTask, result: DumpResult) -> int
         pipe.expire(results_key, SYNC_RUN_TTL_SECONDS)
         pipe.expire(ACTIVE_KEY, SYNC_RUN_TTL_SECONDS)
         await pipe.execute()
+
     return next_remaining
 
 
@@ -172,21 +183,27 @@ async def complete_schema(
 ) -> int | None:
     """Commit one schema state and remove its immutable plan field."""
     plans_key = PLANS_KEY.format(run_id=run_id)
+
     async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(plans_key)
         if not await pipe.hexists(plans_key, schema_name):
             return None
+
         pipe.multi()
+
         for table, state in states.items():
             pipe.set(STATE_KEY.format(table=table), state.model_dump_json())
+
         pipe.hdel(plans_key, schema_name)
         pipe.hlen(plans_key)
         result = await pipe.execute()
+
     return cast(int, result[-1])
 
 
 async def cleanup_run(redis: Redis, run_id: str) -> None:
     """Delete temporary state after final PostgREST reload."""
+    await trim_publish_stream(redis, run_id)
     await redis.delete(
         ACTIVE_KEY,
         PLANS_KEY.format(run_id=run_id),
@@ -195,12 +212,30 @@ async def cleanup_run(redis: Redis, run_id: str) -> None:
     )
 
 
+async def trim_publish_stream(redis: Redis, run_id: str) -> None:
+    """Remove publish stream entries for one completed run."""
+    run_id_bytes = run_id.encode()
+    entries = await redis.xrange(PUBLISH_STREAM) or []
+
+    entry_ids = [
+        entry_id
+        for entry_id, fields in entries
+        if entry_id is not None
+        and fields is not None
+        and fields.get(b"run_id") == run_id_bytes
+    ]
+
+    if entry_ids:
+        await redis.xdel(PUBLISH_STREAM, *entry_ids)
+
+
 async def cleanup_consumer(
     redis: Redis, stream: str, group: str, consumer: str
 ) -> None:
     """Delete one consumer when it has no pending messages."""
     if await redis.xpending_range(stream, group, "-", "+", 1, consumername=consumer):
         return
+
     with contextlib.suppress(ResponseError):
         await redis.xgroup_delconsumer(stream, group, consumer)
 

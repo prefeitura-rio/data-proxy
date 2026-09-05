@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import assert_never, cast
+from typing import Protocol, assert_never
 
 from google.cloud.bigquery import Client, QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row
@@ -28,6 +28,27 @@ from .config import (
 from .tables import parse_table_reference
 
 
+class TypedRow(Protocol):
+    """Typed interface for BigQuery Row untyped subscript access."""
+
+    def __getitem__(self, key: str) -> object: ...
+
+
+def row_partition_id(row: TypedRow) -> str:
+    """Extract partition_id from a BigQuery row as a string."""
+    return str(row["partition_id"])
+
+
+def row_modified(row: TypedRow) -> datetime | None:
+    """Extract last_modified_time from a BigQuery row as a datetime."""
+    value = row["last_modified_time"]
+
+    if isinstance(value, datetime):
+        return value
+
+    return None
+
+
 def partition_rows(
     client: Client,
     project: str,
@@ -42,7 +63,7 @@ def partition_rows(
         )
     )
 
-    result = client.query(
+    return client.query(
         query,
         job_config=(
             QueryJobConfig(
@@ -52,8 +73,6 @@ def partition_rows(
             )
         ),
     ).result()
-
-    return cast("Iterable[Row]", result)
 
 
 def add_hour(dt: PlainDateTime) -> PlainDateTime:
@@ -109,7 +128,7 @@ def time_partition_bounds(
 
 
 def normalize_partition(
-    row: Row,
+    row: TypedRow,
     table: str,
     kind_config: PartitionKindConfig,
     table_signature: str,
@@ -120,21 +139,16 @@ def normalize_partition(
     normalize it into a ``RemainderSelection`` instead of dropping it.
     ``__UNPARTITIONED__`` is always rejected.
     """
-    partition_id_value = cast(object, row["partition_id"])
-    partition_id = str(partition_id_value)
+    partition_id = row_partition_id(row)
 
     if partition_id == "__UNPARTITIONED__":
         msg = f"Unsupported BigQuery partition {partition_id}: {table}"
         raise ValueError(msg)
 
-    modified_value = cast(object, row["last_modified_time"])
-
-    match modified_value:
-        case datetime() as modified:
-            pass
-        case _:
-            msg = f"Missing partition modification time {partition_id}: {table}"
-            raise TypeError(msg)
+    modified = row_modified(row)
+    if modified is None:
+        msg = f"Missing partition modification time {partition_id}: {table}"
+        raise TypeError(msg)
 
     signature = sha256(
         f"{partition_id}:{modified.isoformat()}:{table_signature}".encode()
