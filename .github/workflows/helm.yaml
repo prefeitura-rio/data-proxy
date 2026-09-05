@@ -1,18 +1,9 @@
 name: Helm chart
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/helm.yaml
-      - helm/Chart.yaml
-      - helm/Chart.lock
-      - helm/values.yaml
-      - helm/ci/**
-      - helm/db/**
-      - helm/files/**
-      - helm/templates/**
-      - helm/tests/**
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 concurrency:
   group: helm-release

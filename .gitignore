@@ -12,6 +12,7 @@ credentials.json
 .devenv/
 .kube/
 .kubeconfig
+gke_gcloud_auth_plugin_cache
 .pre-commit-config.yaml
 todo.txt
 .coverage

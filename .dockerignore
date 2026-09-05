@@ -10,7 +10,7 @@ tests
 *.md
 *.log
 .env*
-.gke_gcloud_auth_plugin_cache
+gke_gcloud_auth_plugin_cache
 __pycache__
 *.pyc
 .pytest_cache
