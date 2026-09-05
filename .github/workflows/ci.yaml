@@ -22,6 +22,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: read
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -58,17 +59,38 @@ jobs:
       - lint
       - test
     runs-on: ubuntu-latest
+    outputs:
+      built: ${{ steps.guard.outputs.built }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Skip if Dockerfile and deps unchanged since last build
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          EXISTING=$(gh api orgs/prefeitura-rio/packages/container/data-proxy/versions \
+            --jq ".metadata.container.tags | map(select(. != \"latest\")) | any(. == \"$SHORT_SHA\")" 2>/dev/null || echo "false")
+          if [ "$EXISTING" = "true" ]; then
+            echo "Image $SHORT_SHA already exists in GHCR — skipping build."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: hadolint/hadolint-action@v3.2.0
+        if: steps.guard.outputs.built == 'true'
         with:
           dockerfile: Dockerfile
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: steps.guard.outputs.built == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        if: steps.guard.outputs.built == 'true'
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
@@ -76,6 +98,7 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        if: steps.guard.outputs.built == 'true'
         with:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -86,17 +109,38 @@ jobs:
       - lint
       - test
     runs-on: ubuntu-latest
+    outputs:
+      built: ${{ steps.guard.outputs.built }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Skip if Dockerfile.postgres unchanged since last build
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          EXISTING=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-postgres/versions \
+            --jq ".metadata.container.tags | map(select(. != \"latest\")) | any(. == \"$SHORT_SHA\")" 2>/dev/null || echo "false")
+          if [ "$EXISTING" = "true" ]; then
+            echo "Image $SHORT_SHA already exists in GHCR — skipping build."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: hadolint/hadolint-action@v3.2.0
+        if: steps.guard.outputs.built == 'true'
         with:
           dockerfile: Dockerfile.postgres
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: steps.guard.outputs.built == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        if: steps.guard.outputs.built == 'true'
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}-postgres
@@ -104,6 +148,7 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        if: steps.guard.outputs.built == 'true'
         with:
           file: Dockerfile.postgres
           push: true
