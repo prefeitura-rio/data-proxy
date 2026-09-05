@@ -4,9 +4,11 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import hypothesis
 import pytest
 from duckdb import DuckDBPyConnection, connect
 from google.cloud.bigquery import Client
+from hypothesis import strategies as st
 
 from dp.models import (
     AllSelection,
@@ -494,3 +496,26 @@ class TestTableSignature:
         sig_a = table_signature(case.table_a, case.claim_a, "m")
         sig_b = table_signature(case.table_b, case.claim_b, "m")
         assert (sig_a != sig_b) == case.should_differ
+
+    @hypothesis.given(
+        schema_x=st.text(
+            min_size=1, alphabet=st.characters(whitelist_categories=("Ll",))
+        ),
+        schema_y=st.text(
+            min_size=1, alphabet=st.characters(whitelist_categories=("Ll",))
+        ),
+    )
+    @hypothesis.example(schema_x="app", schema_y="other")
+    def test_resolved_schema_never_affects_signature(
+        self, schema_x: str, schema_y: str
+    ) -> None:
+        """
+        GIVEN: any two resolved_schema values.
+        WHEN: table_signature is computed.
+        THEN: the signatures are identical.
+        """
+        table_x = FullTable(name="p.d.t", resolved_schema=schema_x)
+        table_y = FullTable(name="p.d.t", resolved_schema=schema_y)
+        assert table_signature(table_x, None, "m") == table_signature(
+            table_y, None, "m"
+        )

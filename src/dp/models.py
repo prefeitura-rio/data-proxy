@@ -272,6 +272,7 @@ class DumpTask(BaseModel):
     bucket_path: str
     selection: TaskSelection
     json_columns: list[str] = []
+    retry_count: int = 0
 
     @computed_field
     @property

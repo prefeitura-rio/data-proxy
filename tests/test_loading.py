@@ -1,7 +1,9 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
+from dataclasses import dataclass
 from unittest.mock import ANY, patch
 
+import pytest
 from duckdb import connect
 from psycopg import Connection
 from whenever import Instant
@@ -28,70 +30,66 @@ from dp.templates import TemplateSpec
 from tests.helpers import partition, sync_config
 
 
+@dataclass(frozen=True, slots=True)
+class PredicateCase:
+    """One partition predicate rendering scenario."""
+
+    name: str
+    partition: PhysicalPartition
+    expected: list[str]
+
+
 class TestLoadingPartitionPredicate:
     """Tests for PartitionPredicate behavior."""
 
-    def test_partition_predicate_matches_remainder_rows_outside_the_range(
-        self,
-    ) -> None:
-        """
-        GIVEN: a remainder partition with [0, 100) bounds.
-        WHEN: partition_predicate is rendered.
-        THEN: it matches null and out-of-range rows.
-        """
-        remainder = PhysicalPartition(
-            partition_id="__NULL__",
-            signature="signature",
-            selection=RemainderSelection(column="cpf", start=0, end=100),
-        )
-
-        rendered = partition_predicate(remainder).as_string(None)
-
-        assert '"cpf" IS NULL' in rendered
-        assert '"cpf" < 0' in rendered
-        assert '"cpf" >= 100' in rendered
-
-    def test_partition_predicate_matches_bounded_range_rows(
-        self,
-    ) -> None:
-        """
-        GIVEN: a bounded range partition with [10, 20) bounds.
-        WHEN: partition_predicate is rendered.
-        THEN: it matches rows within the [lower, upper) range.
-        """
-        bounded = PhysicalPartition(
-            partition_id="10",
-            signature="signature",
-            selection=RangeSelection(
-                partition_id="10", column="cpf", lower=10, upper=20
+    @pytest.mark.parametrize(
+        "case",
+        [
+            PredicateCase(
+                "remainder",
+                PhysicalPartition(
+                    partition_id="__NULL__",
+                    signature="signature",
+                    selection=RemainderSelection(column="cpf", start=0, end=100),
+                ),
+                ['"cpf" IS NULL', '"cpf" < 0', '"cpf" >= 100'],
             ),
-        )
-
-        rendered = partition_predicate(bounded).as_string(None)
-
-        assert '"cpf" >= 10' in rendered
-        assert '"cpf" < 20' in rendered
-
-    def test_partition_predicate_matches_time_range_rows(
-        self,
+            PredicateCase(
+                "bounded range",
+                PhysicalPartition(
+                    partition_id="10",
+                    signature="signature",
+                    selection=RangeSelection(
+                        partition_id="10", column="cpf", lower=10, upper=20
+                    ),
+                ),
+                ['"cpf" >= 10', '"cpf" < 20'],
+            ),
+            PredicateCase(
+                "time range",
+                PhysicalPartition(
+                    partition_id="20250101",
+                    signature="signature",
+                    selection=TimeRangeSelection(
+                        column="dt", lower="2025-01-01", upper="2025-01-02"
+                    ),
+                ),
+                ["\"dt\" >= '2025-01-01'", "\"dt\" < '2025-01-02'"],
+            ),
+        ],
+        ids=lambda case: case.name,
+    )
+    def test_partition_predicate_renders_correct_predicates(
+        self, case: PredicateCase
     ) -> None:
         """
-        GIVEN: a time range partition with [2025-01-01, 2025-01-02) bounds.
+        GIVEN: a physical partition with a specific selection type.
         WHEN: partition_predicate is rendered.
-        THEN: it matches rows within the [lower, upper) date range.
+        THEN: the rendered SQL contains the expected predicates.
         """
-        value = PhysicalPartition(
-            partition_id="20250101",
-            signature="signature",
-            selection=TimeRangeSelection(
-                column="dt", lower="2025-01-01", upper="2025-01-02"
-            ),
-        )
-
-        rendered = partition_predicate(value).as_string(None)
-
-        assert "\"dt\" >= '2025-01-01'" in rendered
-        assert "\"dt\" < '2025-01-02'" in rendered
+        rendered = partition_predicate(case.partition).as_string(None)
+        for expected in case.expected:
+            assert expected in rendered
 
 
 class TestLoadingPrepareTablesPaths:

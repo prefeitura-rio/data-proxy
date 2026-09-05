@@ -276,12 +276,25 @@ class TestPublicationTemplates:
         assert indexdef is not None
         assert cast(str, indexdef[0]).endswith("USING gin (((data -> 'status'::text)))")
 
-    def test_cast_json_columns_to_jsonb_converts_json_columns(
+    @pytest.mark.parametrize(
+        ("columns", "expected"),
+        [
+            (
+                "id int, data json, name text",
+                [("data", "jsonb"), ("id", "integer"), ("name", "text")],
+            ),
+            ("id int, name text", [("id", "integer"), ("name", "text")]),
+        ],
+        ids=["with json", "without json"],
+    )
+    def test_cast_json_columns_to_jsonb(
         self,
         postgres: Connection[tuple[object, ...]],
+        columns: str,
+        expected: list[tuple[str, str]],
     ) -> None:
         """
-        GIVEN: a table with json and non-json columns.
+        GIVEN: a table with or without json columns.
         WHEN: cast_json_columns_to_jsonb is called.
         THEN: json columns become jsonb and other columns are unchanged.
         """
@@ -292,46 +305,14 @@ class TestPublicationTemplates:
                 mapping={
                     "schema": "app",
                     "table": "table",
-                    "columns": "id int, data json, name text",
+                    "columns": columns,
                 },
             ),
         )
 
         cast_json_columns_to_jsonb(postgres, "app", "table")
 
-        columns = postgres.execute(
+        result = postgres.execute(
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'app' AND table_name = 'table' ORDER BY column_name"
         ).fetchall()
-        assert columns == [
-            ("data", "jsonb"),
-            ("id", "integer"),
-            ("name", "text"),
-        ]
-
-    def test_cast_json_columns_to_jsonb_leaves_table_without_json_unchanged(
-        self,
-        postgres: Connection[tuple[object, ...]],
-    ) -> None:
-        """
-        GIVEN: a table with no json columns.
-        WHEN: cast_json_columns_to_jsonb is called.
-        THEN: no columns are altered.
-        """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
-                    "schema": "app",
-                    "table": "table",
-                    "columns": "id int, name text",
-                },
-            ),
-        )
-
-        cast_json_columns_to_jsonb(postgres, "app", "table")
-
-        columns = postgres.execute(
-            "SELECT data_type FROM information_schema.columns WHERE table_schema = 'app' AND table_name = 'table' ORDER BY column_name"
-        ).fetchall()
-        assert columns == [("integer",), ("text",)]
+        assert result == expected

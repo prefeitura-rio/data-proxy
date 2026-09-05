@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    DUMPER_MAX_RETRIES: int = 3
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"

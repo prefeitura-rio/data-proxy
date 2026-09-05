@@ -6,22 +6,20 @@ from uuid import uuid4
 import uvloop
 from asyncer import asyncify
 from faststream import FastStream, Logger
-from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import DUMP_STREAM, DUMPERS_GROUP, SEED_STREAM
 from ..duckdb import connect
-from ..errors import stop_on_error
+from ..errors import retry_or_stop
 from ..extraction import extract_task
 from ..log import elapsed_ms
 from ..metrics import dump_task_duration_seconds, dump_tasks_total, push_to_gateway
-from ..models import DumpFailure, DumpSuccess, DumpTask, SeedTask
+from ..models import DumpSuccess, DumpTask, SeedTask
 from ..settings import settings
 from ..state import cleanup_consumer, complete_dump
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
-    middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
 
 dumper = FastStream(broker)
@@ -59,9 +57,10 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
 
     try:
         await asyncify(extract_task_wrapper)(task)
-    except Exception:
-        logger.exception("Dump failed")
-        result = DumpFailure(failed_path=task.bucket_path)
+    except Exception as error:
+        await retry_or_stop(
+            error, task, broker.publish, max_retries=settings.DUMPER_MAX_RETRIES
+        )
     else:
         result = DumpSuccess()
 

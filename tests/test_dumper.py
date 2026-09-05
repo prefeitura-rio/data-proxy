@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from duckdb import DuckDBPyConnection
+from faststream.exceptions import StopApplication
 from redis.asyncio import Redis
 
-from dp.models import DumpTask
+from dp.errors import retry_or_stop
+from dp.models import AllSelection, DumpTask
 from dp.sync.dumper import (
     cleanup_consumers,
     dump_task,
@@ -28,24 +30,24 @@ class TestDumper:
     async def test_dumper_exits_when_extraction_fails(
         self,
         redis: Redis,
+        broker: object,
         standard_dump_task: DumpTask,
     ) -> None:
         """
         GIVEN: extraction raises RuntimeError.
         WHEN: dump_task runs.
-        THEN: the dumper application exits.
+        THEN: retry_or_stop re-publishes the task and raises StopApplication.
         """
         with (
             patch(
                 "dp.sync.dumper.extract_task_wrapper", side_effect=RuntimeError("bad")
             ),
-            patch(
-                "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(dumper, "exit") as exit_app,
+            patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock),
+            patch.object(dumper, "exit"),
+            patch("dp.sync.dumper.broker.publish", new_callable=AsyncMock),
+            pytest.raises(StopApplication),
         ):
             await dump_task(standard_dump_task, test_logger)
-        exit_app.assert_called_once()
 
     def test_extract_wrapper_uses_duckdb_fixture(
         self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
@@ -98,3 +100,57 @@ class TestDumper:
         ):
             await cleanup_consumers()
         assert cleanup.await_count == 2
+
+
+class TestRetryOrStop:
+    """Tests for retry_or_stop error handling."""
+
+    @pytest.mark.asyncio
+    async def test_retry_republishes_with_incremented_count(self) -> None:
+        """
+        GIVEN: a failed task with retry_count=0 and max_retries=3.
+        WHEN: retry_or_stop is called.
+        THEN: the task is re-published with retry_count=1 and StopApplication is raised.
+        """
+        task = DumpTask(
+            run_id="r1",
+            table="p.d.t",
+            bucket_path="s3://b/t",
+            selection=AllSelection(),
+        )
+        broker = AsyncMock()
+        with (
+            patch("dp.errors.DUMP_STREAM", "dp:extract"),
+            pytest.raises(StopApplication),
+        ):
+            await retry_or_stop(
+                RuntimeError("bad"), task, broker.publish, max_retries=3
+            )
+        broker.publish.assert_called_once()
+        republished = broker.publish.call_args.args[0]
+        assert republished.retry_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_at_limit_records_failure_and_stops(self) -> None:
+        """
+        GIVEN: a failed task with retry_count=3 and max_retries=3.
+        WHEN: retry_or_stop is called.
+        THEN: the task is not re-published and StopApplication is raised.
+        """
+        task = DumpTask(
+            run_id="r1",
+            table="p.d.t",
+            bucket_path="s3://b/t",
+            selection=AllSelection(),
+            retry_count=3,
+        )
+        broker = AsyncMock()
+        with (
+            patch("dp.errors.complete_dump", new_callable=AsyncMock) as complete,
+            pytest.raises(StopApplication),
+        ):
+            await retry_or_stop(
+                RuntimeError("bad"), task, broker.publish, max_retries=3
+            )
+        broker.publish.assert_not_called()
+        complete.assert_awaited_once()

@@ -35,6 +35,7 @@ dev = [
   "fakeredis>=2.37.1",
   "testcontainers>=4.15.0",
   "pytest-gremlins>=1.9.0",
+  "hypothesis>=6.165.10",
 ]
 
 [tool.uv]
