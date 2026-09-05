@@ -52,7 +52,7 @@ async def push_to_gateway(url: str, job: str) -> None:
     try:
         async with AsyncClient(timeout=5) as client:
             await client.post(
-                f"{url}/job/{job}",
+                f"{url}/metrics/job/{job}",
                 content=body,
                 headers={"Content-Type": "text/plain; version=0.0.4; charset=utf-8"},
             )
