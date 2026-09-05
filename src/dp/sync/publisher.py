@@ -1,5 +1,6 @@
 """FastStream publisher application for one schema plan."""
 
+from time import monotonic
 from typing import cast
 from uuid import uuid4
 
@@ -15,7 +16,11 @@ from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
-from ..metrics import publish_tables_total, push_to_gateway
+from ..metrics import (
+    publish_table_duration_seconds,
+    publish_tables_total,
+    push_to_gateway,
+)
 from ..models import PublishTask, SyncConfig, SyncPlan, TableState
 from ..schema import reload_postgrest
 from ..settings import settings
@@ -98,15 +103,18 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
         schemas={task.schema_name: config.schemas[task.schema_name]}
     )
 
+    started = monotonic()
     result = await asyncify(publish_plan)(
         settings.schema_writers.dsn(task.schema_name),
         schema_config,
         plan,
         failed_paths,
     )
+    duration = monotonic() - started
 
     for _ in result.published_tables:
         publish_tables_total.labels(status="success").inc()
+        publish_table_duration_seconds.labels(schema=task.schema_name).observe(duration)
 
     for table_name in result.plan.signatures:
         if table_name not in result.published_tables:
