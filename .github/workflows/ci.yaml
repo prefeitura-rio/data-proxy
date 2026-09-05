@@ -22,7 +22,6 @@ on:
 permissions:
   contents: read
   packages: write
-  actions: read
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -65,16 +64,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - name: Skip if Dockerfile and deps unchanged since last build
+      - name: Skip if Dockerfile and deps unchanged
         id: guard
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          EXISTING=$(gh api orgs/prefeitura-rio/packages/container/data-proxy/versions \
-            --jq ".metadata.container.tags | map(select(. != \"latest\")) | any(. == \"$SHORT_SHA\")" 2>/dev/null || echo "false")
-          if [ "$EXISTING" = "true" ]; then
-            echo "Image $SHORT_SHA already exists in GHCR — skipping build."
+          if [ -z "$(git diff --name-only HEAD~1 HEAD -- Dockerfile pyproject.toml uv.lock src/ config/)" ]; then
+            echo "No changes to Dockerfile or build context — skipping build."
             echo "built=false" >> "$GITHUB_OUTPUT"
           else
             echo "built=true" >> "$GITHUB_OUTPUT"
@@ -115,16 +109,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - name: Skip if Dockerfile.postgres unchanged since last build
+      - name: Skip if Dockerfile.postgres unchanged
         id: guard
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          EXISTING=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-postgres/versions \
-            --jq ".metadata.container.tags | map(select(. != \"latest\")) | any(. == \"$SHORT_SHA\")" 2>/dev/null || echo "false")
-          if [ "$EXISTING" = "true" ]; then
-            echo "Image $SHORT_SHA already exists in GHCR — skipping build."
+          if [ -z "$(git diff --name-only HEAD~1 HEAD -- Dockerfile.postgres)" ]; then
+            echo "No changes to Dockerfile.postgres — skipping build."
             echo "built=false" >> "$GITHUB_OUTPUT"
           else
             echo "built=true" >> "$GITHUB_OUTPUT"
