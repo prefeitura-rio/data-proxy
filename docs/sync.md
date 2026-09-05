@@ -82,7 +82,7 @@ For time-partitioned tables, `n` keeps only the highest `n` raw partition ids. B
 
 ## JSONB Support
 
-BigQuery `RECORD` and `STRUCT` columns are automatically converted to JSON during extraction. Data Proxy publishes these columns as PostgreSQL `jsonb` (not `json`), enabling GIN index support for efficient JSON path queries through PostgREST.
+BigQuery `RECORD` and `STRUCT` columns are automatically converted to JSON during extraction. Data Proxy loads these columns as PostgreSQL `json`, then alters them to `jsonb` after loading. This two-step approach is required because pg_duckdb's COPY cannot write directly into `jsonb` columns. The ALTER happens inside a transaction after the data is loaded, enabling GIN index support for efficient JSON path queries through PostgREST.
 
 To index a JSON path, declare an index with `method: "gin"` and an `expressions` list. Each expression is a raw SQL expression referencing a JSON path with the `->` operator (which returns `jsonb`). Wrap the expression in parentheses:
 
