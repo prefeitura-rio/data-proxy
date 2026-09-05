@@ -75,8 +75,8 @@ jobs:
           # Check for helm/ file changes (excluding tests)
           git diff --name-only "$LAST_TAG" HEAD -- helm/ \
             | grep -v '^helm/tests/' | grep -q . && exit 0
-          # Check if image SHAs changed in values.yaml
-          git diff --name-only "$LAST_TAG" HEAD -- helm/values.yaml | grep -q . && exit 0
+          # Check if pinned image SHAs changed in the working tree
+          git diff --name-only -- helm/values.yaml | grep -q . && exit 0
           echo "No helm or image changes since $LAST_TAG — nothing to release."
           echo "skip=true" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
