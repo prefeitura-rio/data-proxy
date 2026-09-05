@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from hashlib import sha256
+from json import dumps
 from typing import cast
 
 from asyncer import asyncify
@@ -76,9 +77,22 @@ def expand_config(
     return tasks
 
 
-def table_signature(table: TableConfig, modified: str) -> str:
-    """Combine source modification time with synchronization configuration."""
-    config_hash = sha256(table.model_dump_json().encode()).hexdigest()
+def table_signature(table: TableConfig, claim: str | None, modified: str) -> str:
+    """Combine source modification time with table and schema configuration.
+
+    Hashes extraction fields (name, strategy, n) and publication fields
+    (rls, indexes, claim) so that RLS, index, or claim changes trigger
+    re-sync. Excludes resolved_schema (internal, set by stamp_resolved_schema).
+    """
+    config_fields = {
+        "name": table.name,
+        "strategy": table.strategy,
+        "n": getattr(table, "n", None),
+        "rls": [r.model_dump() for r in table.rls] if table.rls else None,
+        "indexes": [i.model_dump() for i in table.indexes] if table.indexes else None,
+        "claim": claim,
+    }
+    config_hash = sha256(dumps(config_fields, sort_keys=True).encode()).hexdigest()
     return f"{modified}:{config_hash}"
 
 
@@ -95,7 +109,8 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
             client = get_client(project)
 
             modified = await asyncify(table_modified)(client, table.name)
-            current = table_signature(table, modified)
+            claim = config.schemas[table.resolved_schema].claim
+            current = table_signature(table, claim, modified)
             stored = await read_table_signature(redis, table.name)
 
             if stored != current:

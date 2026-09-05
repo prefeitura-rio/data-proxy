@@ -11,6 +11,7 @@ from google.cloud.bigquery import Client
 from dp.models import (
     AllSelection,
     FullTable,
+    IndexConfig,
     PartitionedTable,
     PartitionedTablePlan,
     PartitionManifest,
@@ -19,6 +20,7 @@ from dp.models import (
     SyncConfig,
     SyncWork,
     TableConfig,
+    UnitMapping,
 )
 from dp.planning import (
     build_partition_tasks,
@@ -306,7 +308,7 @@ class TestPlanning:
         with patch("dp.planning.discover_json_columns", return_value=[]):
             tasks = expand_config(config, "bucket", "run", duckdb)
         assert tasks[0].json_columns == []
-        assert table_signature(config[0], "modified").startswith("modified:")
+        assert table_signature(config[0], None, "modified").startswith("modified:")
 
     def test_partition_tasks_order_numeric_before_remainder(
         self,
@@ -419,3 +421,76 @@ class TestPlanning:
             )
         assert plans == {}
         assert tasks == []
+
+
+@dataclass(frozen=True, slots=True)
+class SignatureCase:
+    """One table_signature change detection scenario."""
+
+    name: str
+    table_a: TableConfig
+    claim_a: str | None
+    table_b: TableConfig
+    claim_b: str | None
+    should_differ: bool
+
+
+class TestTableSignature:
+    """Tests for table_signature change detection scoping."""
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            SignatureCase(
+                "rls change",
+                FullTable(
+                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="unit")]
+                ),
+                None,
+                FullTable(
+                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="cras")]
+                ),
+                None,
+                True,
+            ),
+            SignatureCase(
+                "indexes change",
+                FullTable(
+                    name="p.d.t", indexes=[IndexConfig(name="idx", columns=["col"])]
+                ),
+                None,
+                FullTable(
+                    name="p.d.t",
+                    indexes=[IndexConfig(name="idx", columns=["col"], method="gin")],
+                ),
+                None,
+                True,
+            ),
+            SignatureCase(
+                "claim change",
+                FullTable(name="p.d.t"),
+                "old_claim",
+                FullTable(name="p.d.t"),
+                "new_claim",
+                True,
+            ),
+            SignatureCase(
+                "resolved_schema ignored",
+                FullTable(name="p.d.t", resolved_schema="schema_x"),
+                None,
+                FullTable(name="p.d.t", resolved_schema="schema_y"),
+                None,
+                False,
+            ),
+        ],
+        ids=lambda case: case.name,
+    )
+    def test_signature_scoping(self, case: SignatureCase) -> None:
+        """
+        GIVEN: two table configs that differ in one field.
+        WHEN: table_signature is computed for both.
+        THEN: signatures differ iff the field affects extraction or publication.
+        """
+        sig_a = table_signature(case.table_a, case.claim_a, "m")
+        sig_b = table_signature(case.table_b, case.claim_b, "m")
+        assert (sig_a != sig_b) == case.should_differ
