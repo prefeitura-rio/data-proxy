@@ -10,8 +10,8 @@ from whenever import Instant
 from ..constants import DUMP_STREAM, SEED_STREAM
 from ..duckdb import connect
 from ..log import elapsed_ms, logger
-from ..metrics import producer_runs_total, push_to_gateway
-from ..models import SeedTask, SyncConfig
+from ..metrics import producer_runs_total, tracker
+from ..models import SeedTask
 from ..planning import build_sync_work
 from ..settings import settings
 from ..state import create_run, ensure_groups, read_active_run, read_remaining
@@ -21,11 +21,11 @@ producer = FastStream(broker)
 
 
 @producer.after_startup
+@tracker("producer")
 async def produce() -> None:
     """Plan one run, persist schema plans, and publish dump tasks."""
     run_id = Instant.now().format_iso()
     started = monotonic()
-    config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
 
     async with settings.redis as redis:
         active_run = await read_active_run(redis)
@@ -35,7 +35,6 @@ async def produce() -> None:
             if remaining == 0:
                 await broker.publish(SeedTask(run_id=active_run), stream=SEED_STREAM)
             producer_runs_total.labels(status="recovered").inc()
-            await push_to_gateway(settings.PUSHGATEWAY_URL, "producer")
 
             producer.exit()
             return
@@ -43,12 +42,13 @@ async def produce() -> None:
         await ensure_groups(redis)
 
         with connect() as db:
-            work = await build_sync_work(config, redis, run_id, settings.GCS_BUCKET, db)
+            work = await build_sync_work(
+                settings.sync_config, redis, run_id, settings.GCS_BUCKET, db
+            )
 
         if not work.plans:
             logger.info("No table changes")
             producer_runs_total.labels(status="no_changes").inc()
-            await push_to_gateway(settings.PUSHGATEWAY_URL, "producer")
 
             producer.exit()
             return
@@ -56,7 +56,6 @@ async def produce() -> None:
         if not await create_run(redis, run_id, work.plans, len(work.tasks)):
             logger.warning("An active run already exists")
             producer_runs_total.labels(status="active_run_conflict").inc()
-            await push_to_gateway(settings.PUSHGATEWAY_URL, "producer")
 
             producer.exit()
             return
@@ -69,7 +68,6 @@ async def produce() -> None:
 
     logger.info("Run published run_id=%s elapsed_ms=%d", run_id, elapsed_ms(started))
     producer_runs_total.labels(status="success").inc()
-    await push_to_gateway(settings.PUSHGATEWAY_URL, "producer")
 
     producer.exit()
 

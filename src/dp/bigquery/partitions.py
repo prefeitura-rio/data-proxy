@@ -15,7 +15,7 @@ from ..models import (
     RemainderSelection,
     TimeRangeSelection,
 )
-from ..templates import TemplateSpec, load_template
+from ..templates import render_template
 from .config import (
     PartitionKindConfig,
     RangeConfig,
@@ -56,11 +56,8 @@ def partition_rows(
     table_name: str,
 ) -> Iterable[Row]:
     """Return grouped physical partition metadata rows."""
-    query = load_template(
-        TemplateSpec(
-            path="bigquery/partitions",
-            mapping={"project": project, "dataset": dataset},
-        )
+    query = render_template(
+        path="bigquery/partitions", mapping={"project": project, "dataset": dataset}
     )
 
     return client.query(

@@ -122,10 +122,13 @@ class TestExtraction:
             selection=case.selection,
         )
 
-        spec = build_mapping(task)
+        with patch("dp.extraction.render_template") as mock_render:
+            build_mapping(task)
 
-        assert spec.path == case.path
-        assert render(spec.mapping[case.field]) == case.expected
+        mock_render.assert_called_once()
+        path, mapping = mock_render.call_args.args
+        assert path == case.path
+        assert render(mapping[case.field]) == case.expected
 
     def test_extract_task_executes_rendered_sql(
         self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
@@ -135,7 +138,7 @@ class TestExtraction:
         WHEN: extract_task is called.
         THEN: it executes one rendered SQL statement through DuckDB.
         """
-        with patch("dp.extraction.load_template", return_value="SELECT 1"):
+        with patch("dp.extraction.render_template", return_value="SELECT 1"):
             extract_task(standard_dump_task, duckdb)
 
         assert duckdb.execute("SELECT 1").fetchone() == (1,)

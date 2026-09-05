@@ -1,9 +1,14 @@
 """Prometheus metrics and async Pushgateway client for pipeline workers."""
 
+from collections.abc import Awaitable, Callable
+from functools import wraps
+from typing import ParamSpec
+
 from httpx2 import AsyncClient
 from prometheus_client import Counter, Histogram, generate_latest
 
 from dp.log import logger
+from dp.settings import settings
 
 dump_tasks_total = Counter(
     "dump_tasks_total",
@@ -58,3 +63,22 @@ async def push_to_gateway(url: str, job: str) -> None:
             )
     except Exception:
         logger.debug("pushgateway unavailable", exc_info=True)
+
+
+P = ParamSpec("P")
+
+
+def tracker(
+    job: str,
+) -> Callable[[Callable[P, Awaitable[None]]], Callable[P, Awaitable[None]]]:
+    """Decorate an async worker to push metrics to Pushgateway after it completes."""
+
+    def decorator(fn: Callable[P, Awaitable[None]]) -> Callable[P, Awaitable[None]]:
+        @wraps(fn)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
+            await fn(*args, **kwargs)
+            await push_to_gateway(settings.PUSHGATEWAY_URL, job)
+
+        return wrapper
+
+    return decorator

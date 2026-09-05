@@ -8,7 +8,7 @@ from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
-from .models import SchemaWriters
+from .models import SchemaWriters, SyncConfig
 
 
 class Settings(BaseSettings):
@@ -51,6 +51,11 @@ class Settings(BaseSettings):
         except ValueError as error:
             message = f"Schema writers file is invalid: {self.SCHEMA_WRITERS_FILE}"
             raise RuntimeError(message) from error
+
+    @property
+    def sync_config(self) -> SyncConfig:
+        """Return the synchronization configuration from the config file."""
+        return SyncConfig.model_validate_json(self.SYNC_CONFIG_PATH.read_text())
 
     @property
     def redis(self) -> Redis:

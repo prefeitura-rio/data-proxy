@@ -338,7 +338,7 @@ class TestPlanning:
         THEN: it returns only the STRUCT column name.
         """
         duckdb.execute("CREATE TABLE source (a STRUCT(x INTEGER), b VARCHAR)")
-        with patch("dp.planning.load_template", return_value="DESCRIBE source"):
+        with patch("dp.planning.render_template", return_value="DESCRIBE source"):
             assert discover_json_columns(duckdb, "p.d.t") == ["a"]
 
     @pytest.mark.asyncio

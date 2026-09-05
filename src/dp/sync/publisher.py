@@ -17,7 +17,7 @@ from ..loading import apply_sync_plan
 from ..metrics import (
     publish_table_duration_seconds,
     publish_tables_total,
-    push_to_gateway,
+    tracker,
 )
 from ..models import PublishTask, SyncConfig, SyncPlan, TableState
 from ..schema import reload_postgrest
@@ -71,6 +71,7 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
 
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
+@tracker("publisher")
 async def publish_schema(task: PublishTask, logger: Logger) -> None:
     """Publish one schema and complete its immutable plan field."""
     async with settings.redis as redis:
@@ -84,9 +85,7 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
                 with psycopg.connect(settings.PG_DSN) as conn:
                     reload_postgrest(
                         conn,
-                        SyncConfig.model_validate_json(
-                            settings.SYNC_CONFIG_PATH.read_text()
-                        ),
+                        settings.sync_config,
                     )
 
                 await cleanup_run(redis, task.run_id)
@@ -96,9 +95,8 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
 
         failed_paths = await read_failed_paths(redis, task.run_id)
 
-    config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
     schema_config = SyncConfig(
-        schemas={task.schema_name: config.schemas[task.schema_name]}
+        schemas={task.schema_name: settings.sync_config.schemas[task.schema_name]}
     )
 
     started = monotonic()
@@ -117,8 +115,6 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
     for table_name in result.plan.signatures:
         if table_name not in result.published_tables:
             publish_tables_total.labels(status="failure").inc()
-
-    await push_to_gateway(settings.PUSHGATEWAY_URL, "publisher")
 
     states: dict[str, TableState] = {}
     for table_name, signature in result.plan.signatures.items():
@@ -149,7 +145,7 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
 
         if remaining == 0:
             with psycopg.connect(settings.PG_DSN) as conn:
-                reload_postgrest(conn, config)
+                reload_postgrest(conn, settings.sync_config)
 
             await cleanup_run(redis, task.run_id)
 

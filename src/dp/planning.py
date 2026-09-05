@@ -30,17 +30,14 @@ from .models import (
     TableConfig,
 )
 from .state import read_partition_manifest, read_table_signature
-from .templates import TemplateSpec, load_template
+from .templates import render_template
 
 
 def discover_json_columns(db: DuckDBPyConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = db.execute(
-        load_template(
-            TemplateSpec(
-                path="duckdb/describe_table",
-                mapping={"bq_table": Literal(bq_table)},
-            )
+        render_template(
+            path="duckdb/describe_table", mapping={"bq_table": Literal(bq_table)}
         )
     ).fetchall()
 

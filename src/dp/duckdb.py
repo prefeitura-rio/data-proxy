@@ -5,7 +5,7 @@ from duckdb import DuckDBPyConnection
 from psycopg.sql import Literal
 
 from .settings import settings
-from .templates import TemplateSpec, load_template
+from .templates import render_template
 
 
 def connect() -> DuckDBPyConnection:
@@ -13,16 +13,14 @@ def connect() -> DuckDBPyConnection:
     conn = duckdb.connect()
 
     conn.execute(
-        load_template(
-            TemplateSpec(
-                path="duckdb/setup",
-                mapping={
-                    "key_id": Literal(settings.GCS_KEY_ID),
-                    "secret_key": Literal(settings.GCS_SECRET_KEY),
-                    "endpoint": Literal(settings.GCS_ENDPOINT),
-                    "use_ssl": "true" if settings.GCS_USE_SSL else "false",
-                },
-            )
+        render_template(
+            path="duckdb/setup",
+            mapping={
+                "key_id": Literal(settings.GCS_KEY_ID),
+                "secret_key": Literal(settings.GCS_SECRET_KEY),
+                "endpoint": Literal(settings.GCS_ENDPOINT),
+                "use_ssl": "true" if settings.GCS_USE_SSL else "false",
+            },
         )
     )
 

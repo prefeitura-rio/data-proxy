@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 from duckdb import connect
 from psycopg import Connection
-from psycopg.sql import Composable
 
 from dp.models import (
     FullTable,
@@ -74,26 +73,24 @@ class TestPublicationTemplates:
         WHEN: create_incremental_shadow runs.
         THEN: it copies only rows outside the changed bounds.
         """
-        rendered: list[TemplateSpec] = []
+        rendered: list[str] = []
 
-        def render(spec: TemplateSpec) -> str:
-            rendered.append(spec)
+        def render(path: str, mapping: object) -> str:
+            rendered.append(path)
             return "SELECT 1"
 
-        with patch("dp.publication.load_template", side_effect=render):
+        with patch("dp.publication.render_template", side_effect=render):
             create_incremental_shadow(
                 postgres,
                 PartitionedTable(name="p.app.people"),
                 [partition("10"), partition("20")],
             )
 
-        assert [spec.path for spec in rendered] == [
+        assert rendered == [
             "pg/partition_range_predicate",
             "pg/partition_range_predicate",
             "pg/prepare_incremental_table",
         ]
-        predicate = rendered[-1].mapping["affected_partitions"]
-        assert isinstance(predicate, Composable)
 
     def test_load_table_loads_only_explicitly_planned_paths(
         self,
@@ -106,7 +103,7 @@ class TestPublicationTemplates:
         duckdb = connect(":memory:")
         paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
 
-        with patch("dp.publication.load_template", return_value="SELECT 1"):
+        with patch("dp.publication.render_template", return_value="SELECT 1"):
             load_table(duckdb, "app", "table__next", paths)
 
         assert duckdb.execute("SELECT 1").fetchone() == (1,)

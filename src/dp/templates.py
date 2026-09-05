@@ -43,3 +43,8 @@ def load_template(spec: TemplateSpec, root: Path = SQL_DIR) -> str:
                 rendered[key] = value
 
     return Template(read_template(spec.path, root)).substitute(rendered)
+
+
+def render_template(path: str, mapping: Mapping[str, str | Composable]) -> str:
+    """Load and substitute a SQL template in one call."""
+    return load_template(TemplateSpec(path=path, mapping=mapping))

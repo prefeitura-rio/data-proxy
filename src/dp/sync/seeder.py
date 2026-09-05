@@ -12,7 +12,7 @@ from redis.typing import StreamRangeResponse
 
 from ..constants import PUBLISH_STREAM, SEED_STREAM, SEEDERS_GROUP
 from ..errors import stop_on_error
-from ..metrics import push_to_gateway, seed_runs_total
+from ..metrics import seed_runs_total, tracker
 from ..models import PublishTask, SeedTask, SyncConfig
 from ..schema import initialize_schemas
 from ..settings import settings
@@ -51,6 +51,7 @@ subs = {
 
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
+@tracker("seeder")
 async def seed_sync(task: SeedTask, logger: Logger) -> None:
     """Run idempotent setup and dispatch one publication task per schema."""
     async with settings.redis as redis:
@@ -61,7 +62,6 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
             seeder.exit()
             return
 
-    config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
     writers = settings.schema_writers
     by_dsn: dict[str, list[str]] = {}
 
@@ -72,7 +72,11 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
         with psycopg.connect(dsn) as conn:
             initialize_schemas(
                 conn,
-                SyncConfig(schemas={name: config.schemas[name] for name in schemas}),
+                SyncConfig(
+                    schemas={
+                        name: settings.sync_config.schemas[name] for name in schemas
+                    }
+                ),
             )
 
     stream_publisher = broker.publisher(stream=PUBLISH_STREAM)
@@ -86,8 +90,6 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
         await pipe.execute()
 
     seed_runs_total.labels(status="success").inc()
-
-    await push_to_gateway(settings.PUSHGATEWAY_URL, "seeder")
 
     seeder.exit()
 

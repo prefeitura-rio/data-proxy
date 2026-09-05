@@ -1,7 +1,7 @@
 """Shared fixtures for the data-proxy test suite."""
 
 import secrets
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,15 +45,25 @@ from tests.constants import FILES
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
+Tracker = Callable[[Callable[..., object]], Callable[..., object]]
+
 
 @pytest.fixture
 def mock_push_to_gateway() -> object:
     """Prevent real HTTP calls to Pushgateway during tests."""
+
+    def fake_tracker(job: str) -> Tracker:
+        def decorator(function: Callable[..., object]) -> Callable[..., object]:
+            return function
+
+        return decorator
+
     with (
-        patch("dp.sync.publisher.push_to_gateway", new_callable=AsyncMock),
-        patch("dp.sync.dumper.push_to_gateway", new_callable=AsyncMock),
-        patch("dp.sync.seeder.push_to_gateway", new_callable=AsyncMock),
-        patch("dp.sync.producer.push_to_gateway", new_callable=AsyncMock),
+        patch("dp.metrics.push_to_gateway", new_callable=AsyncMock),
+        patch("dp.sync.publisher.tracker", fake_tracker),
+        patch("dp.sync.dumper.tracker", fake_tracker),
+        patch("dp.sync.seeder.tracker", fake_tracker),
+        patch("dp.sync.producer.tracker", fake_tracker),
     ):
         yield
 

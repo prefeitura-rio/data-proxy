@@ -26,7 +26,6 @@ from dp.publication import (
     publish_prepared_tables,
     reduce_sync_plan,
 )
-from dp.templates import TemplateSpec
 from tests.helpers import partition, sync_config
 
 
@@ -108,7 +107,7 @@ class TestLoadingPrepareTablesPaths:
         plan = SyncPlan(schema_name="app")
         duckdb = connect(":memory:")
 
-        with patch("dp.publication.load_template", return_value="SELECT 1"):
+        with patch("dp.publication.render_template", return_value="SELECT 1"):
             prepared = prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
 
         assert prepared == []
@@ -134,7 +133,7 @@ class TestLoadingPrepareTablesPaths:
         duckdb = connect(":memory:")
 
         with (
-            patch("dp.publication.load_template", return_value="SELECT 1"),
+            patch("dp.publication.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table") as bootstrap,
             patch("dp.publication.load_table") as load,
         ):
@@ -250,7 +249,7 @@ class TestLoadingPrepareTablesPartitions:
         duckdb = connect(":memory:")
 
         with (
-            patch("dp.publication.load_template", return_value="SELECT 1"),
+            patch("dp.publication.render_template", return_value="SELECT 1"),
             patch("dp.publication.create_incremental_shadow") as create_shadow,
             patch("dp.publication.bootstrap_table"),
             patch("dp.publication.load_table") as load,
@@ -292,14 +291,14 @@ class TestLoadingPrepareTablesPartitions:
             },
         )
         duckdb = connect(":memory:")
-        rendered: list[TemplateSpec] = []
+        rendered: list[str] = []
 
-        def render(spec: TemplateSpec) -> str:
-            rendered.append(spec)
+        def render(path: str, mapping: object) -> str:
+            rendered.append(path)
             return "SELECT 1"
 
         with (
-            patch("dp.publication.load_template", side_effect=render),
+            patch("dp.publication.render_template", side_effect=render),
             patch("dp.publication.create_incremental_shadow") as create_shadow,
             patch("dp.publication.bootstrap_table"),
             patch("dp.publication.load_table") as load,
@@ -312,7 +311,7 @@ class TestLoadingPrepareTablesPartitions:
                 {table.name},
             )
 
-        assert "duckdb/create_table_from_parquet" in [spec.path for spec in rendered]
+        assert "duckdb/create_table_from_parquet" in rendered
         create_shadow.assert_not_called()
         load.assert_called_once_with(duckdb, "app", "people__next", [path])
         assert prepared == [table]
@@ -351,7 +350,7 @@ class TestLoadingPrepareTablesPartitions:
             calls.append("load")
 
         with (
-            patch("dp.publication.load_template", return_value="SELECT 1"),
+            patch("dp.publication.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
             patch("dp.publication.load_table", side_effect=record_load),
         ):

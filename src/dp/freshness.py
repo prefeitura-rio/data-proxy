@@ -7,7 +7,7 @@ from psycopg.sql import Identifier
 from whenever import Instant
 
 from .models import SyncPlan, TableConfig
-from .templates import TemplateSpec, load_template
+from .templates import render_template
 
 
 def upsert_freshness(
@@ -27,11 +27,9 @@ def upsert_freshness(
 
     with pg_conn.cursor() as cursor:
         cursor.executemany(
-            load_template(
-                TemplateSpec(
-                    path="pg/upsert_freshness",
-                    mapping={"schema": Identifier(table.resolved_schema)},
-                )
+            render_template(
+                path="pg/upsert_freshness",
+                mapping={"schema": Identifier(table.resolved_schema)},
             ).encode(),
             [
                 (
@@ -56,11 +54,9 @@ def delete_freshness(
 
     with pg_conn.cursor() as cursor:
         cursor.executemany(
-            load_template(
-                TemplateSpec(
-                    path="pg/delete_partition_freshness",
-                    mapping={"schema": Identifier(table.resolved_schema)},
-                )
+            render_template(
+                path="pg/delete_partition_freshness",
+                mapping={"schema": Identifier(table.resolved_schema)},
             ).encode(),
             [
                 (table.table_name, table.strategy.value, partition)
@@ -74,11 +70,9 @@ def delete_table_freshness(
 ) -> None:
     """Delete all freshness rows for one table."""
     pg_conn.execute(
-        load_template(
-            TemplateSpec(
-                path="pg/delete_table_freshness",
-                mapping={"schema": Identifier(table.resolved_schema)},
-            )
+        render_template(
+            path="pg/delete_table_freshness",
+            mapping={"schema": Identifier(table.resolved_schema)},
         ).encode(),
         (table.table_name,),
     )
@@ -152,11 +146,9 @@ def record_table_failures(
         )
     with pg_conn.transaction(), pg_conn.cursor() as cursor:
         cursor.executemany(
-            load_template(
-                TemplateSpec(
-                    path="pg/upsert_freshness",
-                    mapping={"schema": Identifier(tables[0].resolved_schema)},
-                )
+            render_template(
+                path="pg/upsert_freshness",
+                mapping={"schema": Identifier(tables[0].resolved_schema)},
             ).encode(),
             rows,
         )

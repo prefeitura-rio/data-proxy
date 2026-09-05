@@ -13,7 +13,7 @@ from .models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from .templates import TemplateSpec, load_template
+from .templates import render_template
 
 
 def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
@@ -52,8 +52,8 @@ def build_columns(json_columns: list[str]) -> Composable:
     return SQL("* REPLACE ({replacements})").format(replacements=replacements)
 
 
-def build_mapping(task: DumpTask) -> TemplateSpec:
-    """Return the DuckDB template and values for one extraction task."""
+def build_mapping(task: DumpTask) -> str:
+    """Return the DuckDB SQL for one extraction task."""
     mapping: dict[str, str | Composable] = {
         "bq_table": Literal(task.table),
         "gcs_path": Literal(task.bucket_path),
@@ -64,16 +64,15 @@ def build_mapping(task: DumpTask) -> TemplateSpec:
 
     match task.selection:
         case AllSelection():
-            return TemplateSpec(path="duckdb/write_all", mapping=mapping)
+            return render_template("duckdb/write_all", mapping)
         case RangeSelection() | TimeRangeSelection():
-            return TemplateSpec(path="duckdb/write_partition", mapping=mapping)
+            return render_template("duckdb/write_partition", mapping)
         case RemainderSelection():
-            return TemplateSpec(path="duckdb/write_remainder", mapping=mapping)
+            return render_template("duckdb/write_remainder", mapping)
         case _:  # pragma: no cover
             assert_never(task.selection)
 
 
 def extract_task(task: DumpTask, db: DuckDBPyConnection) -> None:
     """Write one BigQuery task to GCS Parquet through DuckDB."""
-    spec = build_mapping(task)
-    db.execute(load_template(spec))
+    db.execute(build_mapping(task))

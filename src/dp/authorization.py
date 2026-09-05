@@ -7,7 +7,7 @@ from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .models import UnitMapping
 from .settings import settings
-from .templates import TemplateSpec, load_template
+from .templates import render_template
 
 
 def claim_session_var(claim: str) -> Literal:
@@ -39,46 +39,40 @@ def table_access_policy_statement(
     claim: str,
 ) -> str:
     """Render one access-policy RLS statement."""
-    return load_template(
-        TemplateSpec(
-            path="pg/access_policy_check",
-            mapping={
-                "schema": Identifier(schema),
-                "table": Identifier(table_name),
-                "session_var": claim_session_var(claim),
-                "predicate": unit_predicate(rls),
-                "scope": schema_scope_predicate(schema),
-            },
-        )
+    return render_template(
+        path="pg/access_policy_check",
+        mapping={
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
+            "session_var": claim_session_var(claim),
+            "predicate": unit_predicate(rls),
+            "scope": schema_scope_predicate(schema),
+        },
     )
 
 
 def schema_scope_statement(schema: str, table_name: str) -> str:
     """Render one schema-scope RLS statement."""
-    return load_template(
-        TemplateSpec(
-            path="pg/schema_scope_check",
-            mapping={
-                "schema": Identifier(schema),
-                "table": Identifier(table_name),
-                "scope": schema_scope_predicate(schema),
-            },
-        )
+    return render_template(
+        path="pg/schema_scope_check",
+        mapping={
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
+            "scope": schema_scope_predicate(schema),
+        },
     )
 
 
 def access_policy_writer_statement(schema: str) -> str:
     """Render one schema policy-writer statement."""
-    return load_template(
-        TemplateSpec(
-            path="pg/access_policy_writer",
-            mapping={
-                "schema": Identifier(schema),
-                "policy_writer_role": Identifier(f"policy_writer_{schema}"),
-                "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
-                "policy_name": Identifier(f"policy_writer_{schema}"),
-            },
-        )
+    return render_template(
+        path="pg/access_policy_writer",
+        mapping={
+            "schema": Identifier(schema),
+            "policy_writer_role": Identifier(f"policy_writer_{schema}"),
+            "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
+            "policy_name": Identifier(f"policy_writer_{schema}"),
+        },
     )
 
 
@@ -96,15 +90,13 @@ def bootstrap_table(
 ) -> None:
     """Apply table grants and optional row-level security."""
     statements = [
-        load_template(
-            TemplateSpec(
-                path="pg/grant_select",
-                mapping={
-                    "schema": Identifier(schema),
-                    "table": Identifier(table_name),
-                    "user_role": Identifier(settings.AUTH_USER_ROLE),
-                },
-            )
+        render_template(
+            path="pg/grant_select",
+            mapping={
+                "schema": Identifier(schema),
+                "table": Identifier(table_name),
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+            },
         )
     ]
 
