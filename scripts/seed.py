@@ -11,7 +11,6 @@ Auth: uses Application Default Credentials. Set --project to override
 the default GCP project.
 """
 
-import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -30,14 +29,13 @@ from google.cloud.bigquery import (
     TimePartitioningType,
     WriteDisposition,
 )
-from loguru import logger
 
+from dp.log import logger
 from dp.models import SyncConfig
 
-logger.remove()
-logger.add(sys.stderr, format="[{level}] {message}")
-
-type Row = dict[str, str]
+type Scalar = str | None
+type NestedValue = Scalar | dict[str, "NestedValue"]
+type Row = dict[str, NestedValue]
 
 
 DEFAULT_UNIDADES = ["cras_1", "cras_2", "cras_3", "cras_4", "cras_5"]
@@ -51,7 +49,7 @@ class Config:
     n_participantes: int
     protocolos_por_participante: tuple[int, int]
     partition_days: int
-    seed: int | None
+    seed: int
     sync_config: Path
 
 
@@ -90,8 +88,8 @@ def parse_args() -> Config:
     parser.add_argument(
         "--seed",
         type=int,
-        default=None,
-        help="Random seed for reproducibility",
+        default=42,
+        help="Random seed for reproducibility (default: 42)",
     )
     parser.add_argument(
         "--sync-config",
@@ -111,7 +109,7 @@ def parse_args() -> Config:
             tuple(cast("list[int]", args.protocolos_por_participante)),
         ),
         partition_days=cast(int, args.partition_days),
-        seed=cast("int | None", args.seed),
+        seed=cast(int, args.seed),
         sync_config=cast(Path, args.sync_config),
     )
 
@@ -132,16 +130,36 @@ def build_participantes(n: int) -> list[Row]:
                 ),
                 "data_nascimento": birth.isoformat(),
                 "id_unidade": choice(DEFAULT_UNIDADES),
+                "indicadores": {
+                    "status": choice(DEFAULT_ESTADOS),
+                    "secretaria": choice(["smas", "sme", "sms"]),
+                    "smas": {
+                        "acesso_alimentacao": choice([None, "regular", "irregular"]),
+                        "cadunico_atualizado": choice([None, "regular", "irregular"]),
+                    },
+                    "sme": {
+                        "frequencia_escolar": choice([None, "regular", "irregular"]),
+                        "matriculado_creche": choice([None, "sim", "nao"]),
+                    },
+                    "sms": {
+                        "consultas_pre_natal": choice([None, "regular", "irregular"]),
+                        "vacinacao_pentavalente": choice(
+                            [None, "regular", "irregular"]
+                        ),
+                    },
+                },
             }
         )
     return rows
 
 
-def build_protocolos(n: int, max_days: int) -> list[Row]:
+def build_protocolos(
+    n: int, max_days: int, protocolos_range: tuple[int, int]
+) -> list[Row]:
     rows: list[Row] = []
     now = datetime.now(tz=UTC).date()
     for _ in range(n):
-        n_prot = randint(1, 3)
+        n_prot = randint(*protocolos_range)
         for _ in range(n_prot):
             ref_date = now - timedelta(days=randint(0, max_days - 1))
             rows.append(
@@ -170,14 +188,13 @@ def load_table(
     )
     job = client.load_table_from_json(rows, full_table_id, job_config=job_config)
     job.result()
-    logger.info("Loaded {} rows into {}", len(rows), full_table_id)
+    logger.info("Rows loaded rows=%d table=%s", len(rows), full_table_id)
 
 
 def main() -> None:
     cfg = parse_args()
 
-    if cfg.seed is not None:
-        set_seed(cfg.seed)
+    set_seed(cfg.seed)
 
     client = Client(project=cfg.project) if cfg.project else Client()
     sync_config = SyncConfig.model_validate_json(cfg.sync_config.read_text())
@@ -214,10 +231,62 @@ def main() -> None:
             SchemaField("cpf", "STRING", mode="REQUIRED"),
             SchemaField("data_nascimento", "DATE", mode="REQUIRED"),
             SchemaField("id_unidade", "STRING", mode="REQUIRED"),
+            SchemaField(
+                "indicadores",
+                "RECORD",
+                mode="NULLABLE",
+                fields=[
+                    SchemaField("status", "STRING", mode="NULLABLE"),
+                    SchemaField("secretaria", "STRING", mode="NULLABLE"),
+                    SchemaField(
+                        "smas",
+                        "RECORD",
+                        mode="NULLABLE",
+                        fields=[
+                            SchemaField(
+                                "acesso_alimentacao", "STRING", mode="NULLABLE"
+                            ),
+                            SchemaField(
+                                "cadunico_atualizado", "STRING", mode="NULLABLE"
+                            ),
+                        ],
+                    ),
+                    SchemaField(
+                        "sme",
+                        "RECORD",
+                        mode="NULLABLE",
+                        fields=[
+                            SchemaField(
+                                "frequencia_escolar", "STRING", mode="NULLABLE"
+                            ),
+                            SchemaField(
+                                "matriculado_creche", "STRING", mode="NULLABLE"
+                            ),
+                        ],
+                    ),
+                    SchemaField(
+                        "sms",
+                        "RECORD",
+                        mode="NULLABLE",
+                        fields=[
+                            SchemaField(
+                                "consultas_pre_natal", "STRING", mode="NULLABLE"
+                            ),
+                            SchemaField(
+                                "vacinacao_pentavalente", "STRING", mode="NULLABLE"
+                            ),
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
-    protocolos = build_protocolos(cfg.n_participantes, cfg.partition_days)
+    protocolos = build_protocolos(
+        cfg.n_participantes,
+        cfg.partition_days,
+        cfg.protocolos_por_participante,
+    )
     load_table(
         client,
         table_ref("protocolo_estado_diario"),
@@ -236,7 +305,7 @@ def main() -> None:
         ),
     )
 
-    participantes_extra = [
+    participantes_extra: list[Row] = [
         {
             "id": str(i + 1),
             "nome": f"Participante {uuid4().hex[:8]}",
@@ -258,7 +327,7 @@ def main() -> None:
     )
 
     logger.info(
-        "Done. {} participantes, {} protocolos across {} units.",
+        "Seed completed participantes=%d protocolos=%d units=%d",
         len(participantes),
         len(protocolos),
         len(DEFAULT_UNIDADES),

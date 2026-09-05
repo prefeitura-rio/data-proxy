@@ -193,6 +193,8 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: SCHEMA_WRITERS_FILE
   value: /config/schema-writers/writers.json
+- name: PUSHGATEWAY_URL
+  value: {{ .Values.pushgateway.url | default (printf "http://pushgateway-prometheus-pushgateway.%s.svc.cluster.local:9091" .Release.Namespace) | quote }}
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
   value: /gcp/key.json

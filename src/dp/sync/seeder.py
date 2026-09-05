@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import psycopg
 import uvloop
-from faststream import FastStream
+from faststream import FastStream, Logger
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 from psycopg import Connection
@@ -14,6 +14,7 @@ from redis.typing import StreamRangeResponse
 
 from ..constants import PUBLISH_STREAM, SEED_STREAM, SEEDERS_GROUP
 from ..errors import stop_on_error
+from ..metrics import push_to_gateway, seed_runs_total
 from ..models import PublishTask, SeedTask, SyncConfig
 from ..schema import initialize_schemas
 from ..settings import settings
@@ -32,11 +33,19 @@ def dispatch_exists(entries: StreamRangeResponse, run_id: str) -> bool:
 
 
 subs = {
-    "new": StreamSub(SEED_STREAM, group=SEEDERS_GROUP, consumer=str(uuid4())),
+    "new": StreamSub(
+        SEED_STREAM,
+        group=SEEDERS_GROUP,
+        consumer=str(uuid4()),
+        max_records=1,
+        polling_interval=30,
+    ),
     "stale": StreamSub(
         SEED_STREAM,
         group=SEEDERS_GROUP,
         consumer=str(uuid4()),
+        max_records=1,
+        polling_interval=30,
         min_idle_time=settings.SEEDER_VISIBILITY_TIMEOUT_MS,
     ),
 }
@@ -44,7 +53,7 @@ subs = {
 
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
-async def seed_sync(task: SeedTask) -> None:
+async def seed_sync(task: SeedTask, logger: Logger) -> None:
     """Run idempotent setup and dispatch one publication task per schema."""
     async with settings.redis as redis:
         plans = await read_sync_plans(redis, task.run_id)
@@ -71,6 +80,10 @@ async def seed_sync(task: SeedTask) -> None:
                 pipeline=cast("Pipeline", cast(object, pipe)),
             )
         await pipe.execute()
+    seed_runs_total.labels(status="success").inc()
+
+    await push_to_gateway(settings.PUSHGATEWAY_URL, "seeder")
+
     seeder.exit()
 
 

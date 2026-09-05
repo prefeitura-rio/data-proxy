@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     SCHEMA_WRITERS_FILE: Path = Path("config/schema-writers/writers.json")
+    PUSHGATEWAY_URL: str = "http://pushgateway.data-proxy.svc.cluster.local:9091"
 
     @property
     def schema_writers(self) -> SchemaWriters:

@@ -1,9 +1,5 @@
-from pathlib import Path
-from typing import LiteralString, cast
-
 import pytest
 from psycopg import Connection
-from psycopg.sql import SQL
 
 from dp.authorization import (
     bootstrap_table,
@@ -11,8 +7,8 @@ from dp.authorization import (
     schema_scope_predicate,
 )
 from dp.models import UnitMapping
-from dp.templates import TemplateSpec, load_template
-from tests.helpers import execute_sql
+from dp.templates import TemplateSpec
+from tests.helpers import execute_sql, execute_template
 
 
 class TestAuthorization:
@@ -40,23 +36,16 @@ class TestAuthorization:
         WHEN: bootstrap_table is called.
         THEN: it receives a read grant and a schema-scope policy.
         """
-        postgres.execute(
-            SQL(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(
-                            path="postgres/create_table",
-                            mapping={
-                                "schema": "app",
-                                "table": "table",
-                                "columns": "id_cras text",
-                            },
-                        ),
-                        Path(__file__).parent / "sql",
-                    ),
-                )
-            )
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "id_cras text",
+                },
+            ),
         )
 
         bootstrap_table(
@@ -82,37 +71,23 @@ class TestAuthorization:
         WHEN: bootstrap_table is called.
         THEN: it renders grants and the access_policy check together.
         """
-        postgres.execute(
-            SQL(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(
-                            path="postgres/create_table",
-                            mapping={
-                                "schema": "app",
-                                "table": "table",
-                                "columns": "id_cras text",
-                            },
-                        ),
-                        Path(__file__).parent / "sql",
-                    ),
-                )
-            )
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "id_cras text",
+                },
+            ),
         )
-        postgres.execute(
-            SQL(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(
-                            path="postgres/create_access_policy",
-                            mapping={},
-                        ),
-                        Path(__file__).parent / "sql",
-                    ),
-                )
-            )
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_access_policy",
+                mapping={},
+            ),
         )
 
         bootstrap_table(

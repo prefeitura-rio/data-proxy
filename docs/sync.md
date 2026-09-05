@@ -47,13 +47,13 @@ The top-level `schemas` map is the single source of truth for which PostgreSQL s
 
 Each entry in `tables` accepts:
 
-| Field      | Required | Description                                                                                                                                                                                              |
-| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                                 |
-| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                                   |
-| `n`        | no       | Keep only the last `n` partitions. Applies to time-partitioned tables only.                                                                                                                              |
-| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when a pair matches a grant in the local `<schema>.access_policy` table. Omit `rls` to turn off RLS on this table. See [Security](security.md). |
-| `indexes`  | no       | Array of `{ name, columns }` objects. Data Proxy creates one index per entry after each sync.                                                                                                            |
+| Field      | Required | Description                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`     | yes      | Full BigQuery table reference (`project.dataset.table`).                                                                                                                                                                                                                                                                                                                                         |
+| `strategy` | yes      | `full` replaces the whole table. `partitioned` syncs one physical partition at a time.                                                                                                                                                                                                                                                                                                           |
+| `n`        | no       | Keep only the last `n` partitions. Applies to time-partitioned tables only.                                                                                                                                                                                                                                                                                                                      |
+| `rls`      | no       | Array of `{ column, unit_type }` pairs. A row is visible when a pair matches a grant in the local `<schema>.access_policy` table. Omit `rls` to turn off RLS on this table. See [Security](security.md).                                                                                                                                                                                         |
+| `indexes`  | no       | Array of `{ name, columns, method?, expressions? }` objects. Data Proxy creates one index per entry after each sync. `method` defaults to `btree`; set to `gin` for GIN indexes on `jsonb` columns. `expressions` is an optional list of raw SQL expressions (e.g. `(col->'key')`); when set, the index is built on those expressions instead of `columns`. See [JSONB Support](#jsonb-support). |
 
 ## Geometry Columns
 
@@ -79,3 +79,31 @@ Adding a new entry to the top-level `schemas` map needs no separate migration st
 The `partitioned` strategy reads several facts directly from BigQuery metadata. These facts are the partition column, the partition type (time or range), the bounds or interval, and the existing partition IDs. Do not add these values to the sync configuration. Each new or changed physical partition becomes one Dumper task and one Parquet file. The producer re-extracts only the partitions whose BigQuery metadata changed. Finalization deletes removed partitions. Publication stays atomic through this whole process.
 
 For time-partitioned tables, `n` keeps only the highest `n` raw partition ids. BigQuery calls this id `partition_id` (for example `20250115` for a daily partition). As new partitions appear, older partitions drop off incrementally. Data Proxy uses the partition id exactly as BigQuery reports it. Data Proxy applies no granularity conversion, for example from daily to monthly. If a table needs a different granularity, model that granularity in BigQuery or in a derived dataset. Do not model it in this configuration. `n` is rejected for range-partitioned tables. A range partition has no natural recency order to rank by. BigQuery's `__NULL__` bucket behaves differently by partition type. For time-partitioned tables, Data Proxy skips this bucket. A null time value carries no partition identity. For range-partitioned tables, Data Proxy syncs this bucket as a remainder partition. This partition holds real out-of-range or null data. `__UNPARTITIONED__` always raises an error. This value indicates an unsupported partitioning type.
+
+## JSONB Support
+
+BigQuery `RECORD` and `STRUCT` columns are automatically converted to JSON during extraction. Data Proxy publishes these columns as PostgreSQL `jsonb` (not `json`), enabling GIN index support for efficient JSON path queries through PostgREST.
+
+To index a JSON path, declare an index with `method: "gin"` and an `expressions` list. Each expression is a raw SQL expression referencing a JSON path with the `->` operator (which returns `jsonb`). Wrap the expression in parentheses:
+
+```json
+{
+  "name": "idx_indicadores_status",
+  "columns": ["indicadores"],
+  "method": "gin",
+  "expressions": ["(indicadores->'status')"]
+}
+```
+
+For nested paths, chain `->` operators:
+
+```json
+{
+  "name": "idx_indicadores_smas_cadunico",
+  "columns": ["indicadores"],
+  "method": "gin",
+  "expressions": ["(indicadores->'smas'->'cadunico_atualizado')"]
+}
+```
+
+PostgREST queries that filter on these JSON paths use the GIN index for efficient lookups instead of full table scans.

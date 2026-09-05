@@ -68,4 +68,13 @@
         values_file: webdis.yaml
         repo: "https://bedag.github.io/helm-charts/"
     }
+    {
+        name: pushgateway
+        chart: prometheus-community/prometheus-pushgateway
+        namespace: data-proxy
+        create_namespace: true
+        version: 2.16.0
+        values_file: pushgateway.yaml
+        repo: "https://prometheus-community.github.io/helm-charts"
+    }
 ]

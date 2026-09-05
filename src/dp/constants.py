@@ -13,7 +13,6 @@ RESULTS_KEY = "dp:results:{run_id}"
 STATE_KEY = "dp:state:{table}"
 SYNC_RUN_TTL_SECONDS = 18_000
 SYNC_TRANSACTION_RETRIES = 8
-
 BIGQUERY_TABLE_REFERENCE_PATTERN = (
     r"^(?P<project>[A-Za-z0-9_-]+)"
     r"\.(?P<dataset>[A-Za-z0-9_]+)"

@@ -42,6 +42,8 @@ class IndexConfig(BaseModel):
 
     name: NonEmptyString
     columns: Annotated[list[NonEmptyString], Field(min_length=1)]
+    method: Literal["btree", "gin"] = "btree"
+    expressions: list[NonEmptyString] | None = None
 
 
 class AllSelection(BaseModel):

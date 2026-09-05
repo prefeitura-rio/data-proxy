@@ -1,5 +1,6 @@
 """Tests for seeder dispatch policy."""
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,7 +19,7 @@ from dp.planning import expand_config
 from dp.sync.publisher import publish_schema, publisher
 from dp.sync.seeder import cleanup_consumers, dispatch_exists, seed_sync, seeder
 
-pytestmark = pytest.mark.usefixtures("test_settings")
+pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
 
 class TestSeeder:
@@ -76,7 +77,7 @@ class TestSeeder:
             patch.object(publisher, "exit"),
             patch.object(seeder, "exit"),
         ):
-            await seed_sync(SeedTask(run_id="r1"))
+            await seed_sync(SeedTask(run_id="r1"), logging.getLogger("test"))
         assert publish_schema.mock.call_count == 4
 
     @pytest.mark.asyncio
@@ -128,5 +129,5 @@ class TestSeeder:
             patch("dp.sync.seeder.dispatch_exists", return_value=True),
             patch.object(seeder, "exit") as exit_app,
         ):
-            await seed_sync(SeedTask(run_id="r1"))
+            await seed_sync(SeedTask(run_id="r1"), logging.getLogger("test"))
         exit_app.assert_called_once()

@@ -4,7 +4,7 @@ from typing import LiteralString, cast
 
 from psycopg import Connection
 from psycopg.cursor import Cursor
-from psycopg.sql import Composable
+from psycopg.sql import SQL, Composable
 
 from dp.models import (
     AllSelection,
@@ -125,4 +125,14 @@ def execute_sql(
             ),
         ),
         params,
+    )
+
+
+def execute_template(
+    connection: Connection[tuple[object, ...]],
+    spec: TemplateSpec,
+) -> Cursor[tuple[object, ...]]:
+    """Execute a SQL template spec against a Postgres connection."""
+    return connection.execute(
+        SQL(cast(LiteralString, load_template(spec, FILES.parent / "sql")))
     )

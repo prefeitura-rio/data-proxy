@@ -1,13 +1,12 @@
 """Tests for publication input validation and SQL behavior."""
 
-from pathlib import Path
-from typing import LiteralString, cast
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 from duckdb import connect
 from psycopg import Connection
-from psycopg.sql import SQL, Composable
+from psycopg.sql import Composable
 
 from dp.models import (
     FullTable,
@@ -18,15 +17,17 @@ from dp.models import (
     SyncPlan,
 )
 from dp.publication import (
+    cast_json_columns_to_jsonb,
     create_incremental_shadow,
+    create_indexes,
     load_table,
     partition_predicate,
     planned_paths,
     publish_table,
     reduce_sync_plan,
 )
-from dp.templates import TemplateSpec, load_template
-from tests.helpers import execute_sql, partition
+from dp.templates import TemplateSpec
+from tests.helpers import execute_sql, execute_template, partition
 
 
 class TestPublication:
@@ -119,23 +120,16 @@ class TestPublicationTemplates:
         WHEN: publish_table is called.
         THEN: the table is swapped before the index is created.
         """
-        postgres.execute(
-            SQL(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(
-                            path="postgres/create_table",
-                            mapping={
-                                "schema": "app",
-                                "table": "table__next",
-                                "columns": "id int",
-                            },
-                        ),
-                        Path(__file__).parent / "sql",
-                    ),
-                )
-            )
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table__next",
+                    "columns": "id int",
+                },
+            ),
         )
         table = FullTable(
             name="p.app.table",
@@ -203,3 +197,141 @@ class TestPublicationTemplates:
         decision = reduce_sync_plan(plan, {"failed"})
 
         assert decision.blocked_tables == {"p.app.people"}
+
+    def test_create_indexes_creates_btree_index_for_columns(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a table with an index config using only columns.
+        WHEN: create_indexes is called.
+        THEN: a plain B-tree index is created on those columns.
+        """
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "id int",
+                },
+            ),
+        )
+
+        table = FullTable(
+            name="p.app.table",
+            resolved_schema="app",
+            indexes=[IndexConfig(name="idx_id", columns=["id"])],
+        )
+
+        create_indexes(postgres, table, "table")
+
+        assert execute_sql(postgres, "postgres/index_names").fetchall() == [("idx_id",)]
+
+    def test_create_indexes_creates_gin_index_for_expressions(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a table with a jsonb column and a gin index config using expressions.
+        WHEN: create_indexes is called.
+        THEN: a GIN index is created on the JSON path expression.
+        """
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "data jsonb",
+                },
+            ),
+        )
+        table = FullTable(
+            name="p.app.table",
+            resolved_schema="app",
+            indexes=[
+                IndexConfig(
+                    name="idx_data_status",
+                    columns=["data"],
+                    method="gin",
+                    expressions=["(data->'status')"],
+                )
+            ],
+        )
+
+        create_indexes(postgres, table, "table")
+
+        result = postgres.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'app' AND tablename = 'table'"
+        ).fetchall()
+
+        assert result == [("idx_data_status",)]
+
+        indexdef = postgres.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_data_status'"
+        ).fetchone()
+        assert indexdef is not None
+        assert cast(str, indexdef[0]).endswith("USING gin (((data -> 'status'::text)))")
+
+    def test_cast_json_columns_to_jsonb_converts_json_columns(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a table with json and non-json columns.
+        WHEN: cast_json_columns_to_jsonb is called.
+        THEN: json columns become jsonb and other columns are unchanged.
+        """
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "id int, data json, name text",
+                },
+            ),
+        )
+
+        cast_json_columns_to_jsonb(postgres, "app", "table")
+
+        columns = postgres.execute(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'app' AND table_name = 'table' ORDER BY column_name"
+        ).fetchall()
+        assert columns == [
+            ("data", "jsonb"),
+            ("id", "integer"),
+            ("name", "text"),
+        ]
+
+    def test_cast_json_columns_to_jsonb_leaves_table_without_json_unchanged(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a table with no json columns.
+        WHEN: cast_json_columns_to_jsonb is called.
+        THEN: no columns are altered.
+        """
+        execute_template(
+            postgres,
+            TemplateSpec(
+                path="postgres/create_table",
+                mapping={
+                    "schema": "app",
+                    "table": "table",
+                    "columns": "id int, name text",
+                },
+            ),
+        )
+
+        cast_json_columns_to_jsonb(postgres, "app", "table")
+
+        columns = postgres.execute(
+            "SELECT data_type FROM information_schema.columns WHERE table_schema = 'app' AND table_name = 'table' ORDER BY column_name"
+        ).fetchall()
+        assert columns == [("integer",), ("text",)]

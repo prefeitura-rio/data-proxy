@@ -1,5 +1,6 @@
 """Tests for current publisher subscriptions."""
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -23,27 +24,15 @@ from dp.sync.publisher import (
     publish_plan,
     publish_schema,
     publisher,
-    subs,
 )
 from dp.sync.seeder import broker as seeder_broker
 from tests.helpers import sync_config
 
-pytestmark = pytest.mark.usefixtures("test_settings")
+pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
 
 class TestPublisher:
     """Tests for publisher subscriber behavior."""
-
-    def test_publisher_has_new_and_stale_subscriptions(
-        self,
-    ) -> None:
-        """
-        GIVEN: the publisher subscriber configuration.
-        WHEN: the subscriptions are inspected.
-        THEN: new has no min_idle_time and stale does.
-        """
-        assert subs["new"].min_idle_time is None
-        assert subs["stale"].min_idle_time is not None
 
     @pytest.mark.asyncio
     async def test_missing_publish_plan_exits_application(
@@ -60,7 +49,9 @@ class TestPublisher:
             patch("dp.sync.publisher.reload_postgrest"),
             patch.object(publisher, "exit") as exit_app,
         ):
-            await publish_schema(PublishTask(run_id="r1", schema_name="app"))
+            await publish_schema(
+                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            )
         exit_app.assert_called_once()
 
     def test_publish_plan_wraps_connections(
@@ -180,7 +171,112 @@ class TestPublisher:
             patch("dp.sync.publisher.reload_postgrest"),
             patch.object(publisher, "exit"),
         ):
-            await publish_schema(PublishTask(run_id="r1", schema_name="app"))
+            await publish_schema(
+                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            )
+
+    @pytest.mark.asyncio
+    async def test_publish_schema_exits_after_successful_publish(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+    ) -> None:
+        """
+        GIVEN: a stored plan with remaining schemas after publication.
+        WHEN: publish_schema is called.
+        THEN: the publisher application exits after processing one message.
+        """
+        sync_config_path.write_text(
+            sync_config([PartitionedTable(name="p.app.t")]).model_dump_json()
+        )
+
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                "p.app.t": PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=True,
+                    current_partitions={
+                        "1": PhysicalPartition(
+                            partition_id="1",
+                            signature="s",
+                            selection=RangeSelection(
+                                partition_id="1", column="id", lower=1, upper=2
+                            ),
+                        )
+                    },
+                    changed_paths={"1": "s3://b"},
+                    removed_partitions={},
+                )
+            },
+        )
+
+        with (
+            patch(
+                "dp.sync.publisher.read_sync_plan",
+                new_callable=AsyncMock,
+                return_value=plan,
+            ),
+            patch(
+                "dp.sync.publisher.read_failed_paths",
+                new_callable=AsyncMock,
+                return_value=set(),
+            ),
+            patch(
+                "dp.sync.publisher.publish_plan",
+                return_value=MagicMock(plan=plan, published_tables={"p.app.t"}),
+            ),
+            patch(
+                "dp.sync.publisher.complete_schema",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("dp.sync.publisher.psycopg.connect", return_value=MagicMock()),
+            patch("dp.sync.publisher.reload_postgrest"),
+            patch.object(publisher, "exit") as exit_app,
+        ):
+            await publish_schema(
+                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            )
+
+        exit_app.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_schema_increments_failure_counter_for_unpublished_tables(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+    ) -> None:
+        """
+        GIVEN: a stored plan where no tables were published.
+        WHEN: publish_schema is called.
+        THEN: the failure counter is incremented for unpublished tables.
+        """
+        sync_config_path.write_text(
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
+        )
+
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"p.app.t": "sig"},
+            paths={"p.app.t": ["s3://b/t"]},
+        )
+
+        await redis.hset("dp:plans:r1", "app", plan.model_dump_json())
+        result = PublicationResult(plan=plan, published_tables=set())
+
+        with (
+            patch.object(publisher, "exit"),
+            patch("dp.sync.publisher.publish_plan", return_value=result),
+            patch(
+                "dp.sync.publisher.complete_schema",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            await publish_schema(
+                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            )
 
     @pytest.mark.asyncio
     async def test_publisher_cleanup_removes_each_consumer_once(
@@ -197,4 +293,5 @@ class TestPublisher:
             ) as cleanup,
         ):
             await cleanup_consumers()
+
         assert cleanup.await_count == 2

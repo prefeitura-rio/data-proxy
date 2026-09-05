@@ -56,14 +56,16 @@ def helm [spec: record, kubecfg: path]: nothing -> string {
 # Start Minikube if it is not already running.
 def start-minikube [kubecfg: path]: nothing -> string {
     if (mk $kubecfg status | complete).exit_code != 0 {
-        (mk
-            $kubecfg
-            start
-            --driver=podman
-            --container-runtime=containerd
-            --cpus=6
-            --memory=12288
-            --disk-size=40g
+        (
+            (mk
+                $kubecfg
+                start
+                --driver=podman
+                --container-runtime=containerd
+                --cpus=6
+                --memory=12288
+                --disk-size=40g
+            )
         )
     }
 
@@ -128,19 +130,10 @@ def apply-gcp-secret [kubecfg: path]: nothing -> string {
         return
     }
 
-    (kc
-        $kubecfg
-        -n
-        data-proxy
-        create
-        secret
-        generic
-        gcp-key
-        $"--from-file=key.json=($creds)"
-        --dry-run=client
-        -o
-        yaml
-    ) | kc $kubecfg apply -f -
+    (
+        kc $kubecfg -n data-proxy create secret generic gcp-key $"--from-file=key.json=($creds)" --dry-run=client -o yaml
+    )
+    | kc $kubecfg apply -f -
 }
 
 # Format a duration as a human-readable string, dropping sub-second precision.
@@ -159,80 +152,67 @@ def format-age [d: duration]: nothing -> string {
     | str join " "
 }
 
+# Run an mc command inside the MinIO pod with credentials pre-configured.
+def mc [kubecfg: path, command: string]: nothing -> nothing {
+    let minio_pod = (
+        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
+        | str trim
+    )
+
+    let minio_user = (
+        (kc $kubecfg -n data-proxy get secret minio -o jsonpath='{.data.root-user}')
+        | decode base64
+        | decode utf-8
+        | str trim
+    )
+
+    let minio_pass = (
+        (kc $kubecfg -n data-proxy get secret minio -o jsonpath='{.data.root-password}')
+        | decode base64
+        | decode utf-8
+        | str trim
+    )
+
+    (
+        (kc
+            $kubecfg
+            -n
+            data-proxy
+            exec
+            $minio_pod
+            --
+            sh
+            -c
+            $"mc alias set local http://localhost:9000 ($minio_user) ($minio_pass) >/dev/null 2>&1; ($command) >/dev/null 2>&1; true"
+        )
+    ) | ignore
+}
+
+# Create the MinIO test-bucket via the S3 API.
+def create-bucket [kubecfg: path]: nothing -> nothing {
+    log info "Creating MinIO test-bucket…"
+    mc $kubecfg "mc mb --ignore-existing local/test-bucket"
+}
+
+# Delete the MinIO test-bucket via the S3 API.
+def delete-bucket [kubecfg: path]: nothing -> nothing {
+    log info "Deleting MinIO test-bucket…"
+    mc $kubecfg "mc rb --force --ignore-existing local/test-bucket"
+}
+
 # Clear MinIO, Redis, and Postgres so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
-    log info "Clearing MinIO test-bucket…"
-    let minio_pod = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            app.kubernetes.io/name=minio
-            -o
-            jsonpath='{.items[0].metadata.name}'
-        )
-        | str trim
-    )
-    let minio_user = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            secret
-            minio
-            -o
-            jsonpath='{.data.root-user}'
-        )
-        | decode base64
-        | decode utf-8
-        | str trim
-    )
-    let minio_pass = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            secret
-            minio
-            -o
-            jsonpath='{.data.root-password}'
-        )
-        | decode base64
-        | decode utf-8
-        | str trim
-    )
-    (kc
-        $kubecfg
-        -n
-        data-proxy
-        exec
-        $minio_pod
-        --
-        sh
-        -c
-        $"mc alias set local http://localhost:9000 ($minio_user) ($minio_pass) >/dev/null 2>&1; mc rm --recursive --force local/test-bucket >/dev/null 2>&1; true"
-    )
+    create-bucket $kubecfg
+
+    log info "Clearing MinIO test-bucket contents…"
+    mc $kubecfg "mc rm --recursive --force local/test-bucket"
 
     log info "Clearing redis streams and consumer groups…"
     let valkey = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            app.kubernetes.io/name=valkey
-            -o
-            jsonpath='{.items[0].metadata.name}'
-        )
+        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o jsonpath='{.items[0].metadata.name}')
         | str trim
     )
+
     (kc
         $kubecfg
         -n
@@ -246,6 +226,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         dp:extract
         dumpers
     )
+
     (kc
         $kubecfg
         -n
@@ -259,6 +240,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         dp:prepare
         seeders
     )
+
     (kc
         $kubecfg
         -n
@@ -272,6 +254,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         dp:publish
         publishers
     )
+
     (kc
         $kubecfg
         -n
@@ -285,41 +268,24 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
     )
 
     log info "Clearing Postgres tables…"
-    let duckdb = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            app.kubernetes.io/name=data-proxy
-            -l
-            app.kubernetes.io/component=duckdb
-            -o
-            jsonpath='{.items[0].metadata.name}'
-        )
-        | str trim
-    )
+    let duckdb = (kc
+        $kubecfg
+        -n
+        data-proxy
+        get
+        pod
+        -l
+        app.kubernetes.io/name=data-proxy
+        -l
+        app.kubernetes.io/component=duckdb
+        -o
+        jsonpath='{.items[0].metadata.name}'
+    ) | str trim
+
     let tables = (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $duckdb
-            --
-            psql
-            -U
-            dataproxy
-            -d
-            dataproxy
-            -t
-            -A
-            -c
-            "SELECT tablename FROM pg_tables WHERE schemaname='pic' AND tablename NOT IN ('freshness','access_policy')"
-        )
+        kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -t -A -c"SELECT tablename FROM pg_tables WHERE schemaname='pic' AND tablename NOT IN ('freshness','access_policy')"
     )
+
     if ($tables | str trim | is-not-empty) {
         let drop_stmt = (
             $tables
@@ -327,36 +293,12 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             | each {|t| $"DROP TABLE IF EXISTS pic.\"($t | str trim)\" CASCADE"}
             | str join "; "
         )
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $duckdb
-            --
-            psql
-            -U
-            dataproxy
-            -d
-            dataproxy
-            -c
-            $"($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+        (
+            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c $"($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     } else {
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $duckdb
-            --
-            psql
-            -U
-            dataproxy
-            -d
-            dataproxy
-            -c
-            "DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+        (
+            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c "DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     }
 }
@@ -370,17 +312,19 @@ def "main k6 load-test" [
     clear-test-resources $kubecfg
 
     log info "Creating k6 configmap…"
-    (kc
-        $kubecfg
-        -n
-        data-proxy
-        create
-        configmap
-        data-proxy-k6
-        --from-file=run.ts=k6/run.ts
-        --dry-run=client
-        -o
-        yaml
+    (
+        (kc
+            $kubecfg
+            -n
+            data-proxy
+            create
+            configmap
+            data-proxy-k6
+            --from-file=run.ts=k6/run.ts
+            --dry-run=client
+            -o
+            yaml
+        )
     )
     | kc $kubecfg apply -f -
 
@@ -404,6 +348,7 @@ def "main k6 e2e" []: nothing -> string {
     let kubecfg = git-root | path join ".kubeconfig"
 
     clear-test-resources $kubecfg
+    create-bucket $kubecfg
 
     log info "Creating e2e configmap…"
     (kc
@@ -478,7 +423,7 @@ def "main k6 e2e" []: nothing -> string {
         k6_cr=data-proxy-e2e,runner=true
         -o
         jsonpath='{.items[0].metadata.name}'
-    ) | kc $kubecfg -n data-proxy logs $in
+    ) | kc $kubecfg -n data-proxy logs $in | tee { delete-bucket $kubecfg }
 }
 
 # Start Minikube and install the complete local stack.

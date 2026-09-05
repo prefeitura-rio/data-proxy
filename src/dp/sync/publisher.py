@@ -6,7 +6,7 @@ from uuid import uuid4
 import psycopg
 import uvloop
 from asyncer import asyncify
-from faststream import FastStream
+from faststream import FastStream, Logger
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 from psycopg import Connection
@@ -15,6 +15,7 @@ from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
+from ..metrics import publish_tables_total, push_to_gateway
 from ..models import PublishTask, SyncConfig, SyncPlan, TableState
 from ..schema import reload_postgrest
 from ..settings import settings
@@ -31,13 +32,23 @@ broker = RedisBroker(
     str(settings.REDIS_URL),
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
+
 publisher = FastStream(broker)
+
 subs = {
-    "new": StreamSub(PUBLISH_STREAM, group=PUBLISHERS_GROUP, consumer=str(uuid4())),
+    "new": StreamSub(
+        PUBLISH_STREAM,
+        group=PUBLISHERS_GROUP,
+        consumer=str(uuid4()),
+        max_records=1,
+        polling_interval=30,
+    ),
     "stale": StreamSub(
         PUBLISH_STREAM,
         group=PUBLISHERS_GROUP,
         consumer=str(uuid4()),
+        max_records=1,
+        polling_interval=30,
         min_idle_time=settings.PUBLISHER_VISIBILITY_TIMEOUT_MS,
     ),
 }
@@ -57,10 +68,11 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
 
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
-async def publish_schema(task: PublishTask) -> None:
+async def publish_schema(task: PublishTask, logger: Logger) -> None:
     """Publish one schema and complete its immutable plan field."""
     async with settings.redis as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
+
         if plan is None:
             if (
                 await read_active_run(redis) == task.run_id
@@ -73,21 +85,35 @@ async def publish_schema(task: PublishTask) -> None:
                             settings.SYNC_CONFIG_PATH.read_text()
                         ),
                     )
+
                 await cleanup_run(redis, task.run_id)
+
             publisher.exit()
             return
+
         failed_paths = await read_failed_paths(redis, task.run_id)
 
     config = SyncConfig.model_validate_json(settings.SYNC_CONFIG_PATH.read_text())
     schema_config = SyncConfig(
         schemas={task.schema_name: config.schemas[task.schema_name]}
     )
+
     result = await asyncify(publish_plan)(
         settings.schema_writers.dsn(task.schema_name),
         schema_config,
         plan,
         failed_paths,
     )
+
+    for _ in result.published_tables:
+        publish_tables_total.labels(status="success").inc()
+
+    for table_name in result.plan.signatures:
+        if table_name not in result.published_tables:
+            publish_tables_total.labels(status="failure").inc()
+
+    await push_to_gateway(settings.PUSHGATEWAY_URL, "publisher")
+
     states: dict[str, TableState] = {}
     for table_name, signature in result.plan.signatures.items():
         if table_name in result.published_tables:
@@ -99,6 +125,7 @@ async def publish_schema(task: PublishTask) -> None:
                 signature=signature,
                 partitions=None,
             )
+
     for table_name, table_plan in result.plan.partitioned_tables.items():
         if table_name in result.published_tables:
             states[table_name] = TableState(
@@ -110,12 +137,16 @@ async def publish_schema(task: PublishTask) -> None:
                 signature=table_plan.table_signature,
                 partitions=table_plan.current_partitions,
             )
+
     async with settings.redis as redis:
         remaining = await complete_schema(redis, task.run_id, task.schema_name, states)
+
         if remaining == 0:
             with psycopg.connect(settings.PG_DSN) as conn:
                 reload_postgrest(cast(Connection, cast(object, conn)), config)
+
             await cleanup_run(redis, task.run_id)
+
     publisher.exit()
 
 

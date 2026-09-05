@@ -14,7 +14,7 @@ from dp.sync.seeder import seed_sync
 from tests.helpers import dump as make_dump
 from tests.helpers import sync_plan
 
-pytestmark = pytest.mark.usefixtures("test_settings")
+pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
 
 class TestProducer:
@@ -50,6 +50,7 @@ class TestProducer:
             patch.object(producer, "exit") as exit_app,
         ):
             await produce()
+
         exit_app.assert_called_once()
 
     @pytest.mark.asyncio

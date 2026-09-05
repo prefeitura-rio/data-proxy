@@ -1,9 +1,10 @@
 """Synchronization plan validation and publication orchestration."""
 
 from duckdb import DuckDBPyConnection
-from loguru import logger
 from psycopg import Connection
 from whenever import Instant
+
+from dp.log import logger
 
 from .freshness import record_table_failures
 from .models import (
@@ -80,7 +81,7 @@ def publish_eligible_tables(
 ) -> set[str]:
     """Prepare eligible tables and publish each successful result."""
     prepared = prepare_tables(pg_conn, duckdb_conn, config, decision.plan, eligible)
-    logger.info("Prepared {} tables", len(prepared))
+    logger.info("Prepared %d tables", len(prepared))
 
     record_preparation_failures(
         pg_conn,
@@ -99,7 +100,7 @@ def publish_eligible_tables(
         attempted_at,
     )
 
-    logger.info("Published {} changed tables", len(published))
+    logger.info("Published %d changed tables", len(published))
     return published
 
 
@@ -119,9 +120,7 @@ def apply_sync_plan(
     eligible = changed - decision.blocked_tables - empty_incremental
 
     logger.info(
-        "Validated sync plan with {} changed and {} eligible tables",
-        len(changed),
-        len(eligible),
+        "Validated sync plan changed=%d eligible=%d", len(changed), len(eligible)
     )
 
     initialize_schemas(pg_conn, config)
@@ -142,5 +141,5 @@ def apply_sync_plan(
     )
 
     reload_postgrest(pg_conn, config)
-    logger.info("Requested PostgREST schema reload")
+    logger.info("PostgREST schema reload requested")
     return PublicationResult(plan=publication_plan, published_tables=published)

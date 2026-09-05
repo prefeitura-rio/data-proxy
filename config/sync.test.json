@@ -11,6 +11,38 @@
               "column": "id_unidade",
               "unit_type": "unidade"
             }
+          ],
+          "indexes": [
+            {
+              "name": "idx_indicadores_status",
+              "columns": [
+                "indicadores"
+              ],
+              "method": "gin",
+              "expressions": [
+                "(indicadores->'status')"
+              ]
+            },
+            {
+              "name": "idx_indicadores_smas_cadunico",
+              "columns": [
+                "indicadores"
+              ],
+              "method": "gin",
+              "expressions": [
+                "(indicadores->'smas'->'cadunico_atualizado')"
+              ]
+            },
+            {
+              "name": "idx_indicadores_sms_consultas",
+              "columns": [
+                "indicadores"
+              ],
+              "method": "gin",
+              "expressions": [
+                "(indicadores->'sms'->'consultas_pre_natal')"
+              ]
+            }
           ]
         },
         {

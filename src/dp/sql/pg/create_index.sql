@@ -1,2 +1,2 @@
 CREATE INDEX IF NOT EXISTS ${name}
-    ON ${schema}.${table} (${columns})
+    ON ${schema}.${table}${method} (${columns})

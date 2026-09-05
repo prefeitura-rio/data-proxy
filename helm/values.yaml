@@ -196,7 +196,7 @@ dumper:
     ## prevents KEDA from terminating a Job still finishing its last task.
     pendingEntriesCount: "1"
     ## Maximum number of concurrent Dumper Job pods.
-    maxReplicaCount: 10
+    maxReplicaCount: 15
     ## Maximum wall-clock time a single Dumper Job may run before termination.
     activeDeadlineSeconds: 3600
     ## Interval in seconds between KEDA metric checks.
@@ -281,6 +281,12 @@ ha:
     replicationUsername: replicator
     ## Password for the replication role. Required when ha.enabled is true.
     replicationPassword: ""
+
+## Pushgateway URL for metrics push from short-lived worker pods.
+## Defaults to the service created by the prometheus-community/prometheus-pushgateway chart.
+pushgateway:
+  url: ""
+
 ## Resource requests and limits applied to PostgREST containers.
 resources:
   requests:

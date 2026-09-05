@@ -7,9 +7,10 @@ from typing import cast
 from asyncer import asyncify
 from duckdb import DuckDBPyConnection
 from google.cloud.bigquery import Client
-from loguru import logger
 from psycopg.sql import Literal
 from redis.asyncio import Redis
+
+from dp.log import logger
 
 from .bigquery.clients import bigquery_clients
 from .bigquery.partitions import physical_partitions
@@ -270,7 +271,7 @@ async def build_sync_work(
 ) -> SyncWork:
     """Build a publisher plan and tasks for changed data only."""
     changed = await detect_changes(config, redis)
-    logger.info("Detected {} changed full tables", len(changed))
+    logger.info("Detected %d changed full tables", len(changed))
 
     changed_tables = [table for table in config.tables if table.name in changed]
 
@@ -302,7 +303,7 @@ async def build_sync_work(
         return SyncWork(plans=[], tasks=[])
 
     logger.info(
-        "Built sync plan with {} full and {} partitioned tables",
+        "Built sync plan with %d full and %d partitioned tables",
         len(signatures),
         len(partitioned),
     )

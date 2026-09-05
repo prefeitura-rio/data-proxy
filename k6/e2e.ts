@@ -20,7 +20,7 @@ interface MetricRequest {
     metric: string;
     method: string;
     url: string;
-    params: Record<string, unknown>;
+    params: Record<string, string | object>;
     extract: (r: K6Response) => unknown;
 }
 
@@ -82,16 +82,19 @@ function safeJson(r: K6Response): unknown {
 }
 
 function fetchToken(clientId: string = OIDC_CLIENT_ID): string {
-    const response = http.post(OIDC_TOKEN_URL, {
-        grant_type: "client_credentials",
-        client_id: clientId,
-        client_secret: OIDC_CLIENT_SECRET,
-    }) as K6Response;
-    const body = safeJson(response) as { access_token?: string } | null;
-    if (!body?.access_token) {
-        throw new Error(`Token request failed: ${response.body}`);
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const response = http.post(OIDC_TOKEN_URL, {
+            grant_type: "client_credentials",
+            client_id: clientId,
+            client_secret: OIDC_CLIENT_SECRET,
+        }) as K6Response;
+        const body = safeJson(response) as { access_token?: string } | null;
+        if (body?.access_token) {
+            return body.access_token;
+        }
+        sleep(2);
     }
-    return body.access_token;
+    throw new Error(`Token request failed for client: ${clientId}`);
 }
 
 function authHeaders(token: string): Record<string, string> {
@@ -181,6 +184,29 @@ function verifyNoAccess(): void {
     check(null, {
         "user without policy gets 200": () => status === 200,
         "no-access returns zero rows": () => Array.isArray(body) && body.length === 0,
+    });
+}
+
+function verifyJsonbColumn(): void {
+    const token = fetchToken();
+
+    let filterStatus = 0;
+    let filterBody: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const response = http.get(
+            `${API_URL}/endpoint_participante_listagem?indicadores->>status=eq.ATIVO&limit=1`,
+            { headers: authHeaders(token), tags: { name: "json_path_filter" } },
+        ) as K6Response;
+        filterStatus = response.status;
+        filterBody = safeJson(response);
+        if (filterStatus === 200) break;
+        sleep(1);
+    }
+
+    log("verify", "postgrest", "json_path_filter_status", filterStatus);
+    check(null, {
+        "json path filter returns 200": () => filterStatus === 200,
+        "json path filter returns rows": () => Array.isArray(filterBody) && filterBody.length > 0,
     });
 }
 
@@ -275,7 +301,7 @@ function pollOnce(metrics: MetricRequest[]): boolean {
         if (m.method === "GET") {
             responses.push(http.get(m.url, m.params) as K6Response);
         } else {
-            responses.push(http.post(m.url, m.params) as K6Response);
+            responses.push(http.post(m.url, JSON.stringify(m.params), { headers: { "Content-Type": "application/json" } }) as K6Response);
         }
     }
 
@@ -346,6 +372,7 @@ export default function(): void {
         if (complete) {
             log("done", "redis", "pipeline_complete", true);
             verifyNoAccess();
+            verifyJsonbColumn();
             break;
         }
         sleep(POLL_INTERVAL);

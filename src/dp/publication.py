@@ -4,10 +4,11 @@ from collections.abc import Sequence
 from typing import LiteralString, assert_never, cast
 
 from duckdb import DuckDBPyConnection
-from loguru import logger
 from psycopg import Connection
 from psycopg.sql import SQL, Identifier, Literal
 from whenever import Instant
+
+from dp.log import logger
 
 from .authorization import bootstrap_table
 from .extraction import selection_fields
@@ -53,9 +54,45 @@ def load_table(
         )
 
 
+def cast_json_columns_to_jsonb(
+    conn: Connection,
+    schema: str,
+    table_name: str,
+) -> None:
+    """Alter every json column on a table to jsonb before loading data."""
+    rows = conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND data_type = 'json' ORDER BY column_name",
+        (schema, table_name),
+    ).fetchall()
+
+    for row in rows:
+        column = cast(str, row[0])
+        conn.execute(
+            load_template(
+                TemplateSpec(
+                    path="pg/cast_json_to_jsonb",
+                    mapping={
+                        "schema": Identifier(schema),
+                        "table": Identifier(table_name),
+                        "column": Identifier(column),
+                    },
+                )
+            ).encode()
+        )
+
+
 def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> None:
     """Create every configured index on a table."""
     for index in table.indexes:
+        method = "" if index.method == "btree" else f" USING {index.method}"
+
+        if index.expressions is not None:
+            columns = SQL(", ").join(
+                SQL(cast(LiteralString, expr)) for expr in index.expressions
+            )
+        else:
+            columns = SQL(", ").join(Identifier(column) for column in index.columns)
+
         conn.execute(
             load_template(
                 TemplateSpec(
@@ -64,9 +101,8 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
                         "name": Identifier(index.name),
                         "schema": Identifier(table.resolved_schema),
                         "table": Identifier(table_name),
-                        "columns": SQL(", ").join(
-                            Identifier(column) for column in index.columns
-                        ),
+                        "method": SQL(method),
+                        "columns": columns,
                     },
                 )
             ).encode()
@@ -89,6 +125,7 @@ def publish_table(conn: Connection, table: TableConfig) -> None:
             )
         ).encode()
     )
+
     create_indexes(conn, table, table_name)
 
 
@@ -262,13 +299,9 @@ def prepare_tables(
         paths = planned_paths(plan, table.name, partitioned)
         shadow_name = f"{table.table_name}__next"
 
-        log = logger.bind(
-            component="publisher",
-            table=table.name,
-            stage="prepare",
+        logger.info(
+            "Table preparation started table=%s path_count=%d", table.name, len(paths)
         )
-
-        log.info("Table preparation started", path_count=len(paths))
 
         try:
             match partitioned:
@@ -292,13 +325,16 @@ def prepare_tables(
                     schema_config.claim if schema_config else None,
                 )
 
-            log.info("Loading table", path_count=len(paths))
+            logger.info("Loading table table=%s path_count=%d", table.name, len(paths))
             load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
-        except Exception as error:
-            log.opt(exception=error).error("Table preparation failed")
+
+            with pg_conn.transaction():
+                cast_json_columns_to_jsonb(pg_conn, table.resolved_schema, shadow_name)
+        except Exception:
+            logger.exception("Table preparation failed table=%s", table.name)
             continue
 
-        log.info("Table preparation completed")
+        logger.info("Table preparation completed table=%s", table.name)
         prepared.append(table)
 
     return prepared
@@ -315,8 +351,7 @@ def publish_prepared_tables(
     published: set[str] = set()
 
     for table in prepared:
-        log = logger.bind(component="publisher", table=table.name, stage="publish")
-        log.info("Table publication started")
+        logger.info("Table publication started table=%s", table.name)
 
         try:
             with pg_conn.transaction():
@@ -328,8 +363,8 @@ def publish_prepared_tables(
                     failed_partitions.get(table.name, set()),
                     attempted_at,
                 )
-        except Exception as error:
-            log.opt(exception=error).error("Table publication failed")
+        except Exception:
+            logger.exception("Table publication failed table=%s", table.name)
 
             record_table_failures(pg_conn, [table], plan, attempted_at)
 
@@ -344,7 +379,7 @@ def publish_prepared_tables(
 
             continue
 
-        log.info("Table publication completed")
+        logger.info("Table publication completed table=%s", table.name)
         published.add(table.name)
 
     return published

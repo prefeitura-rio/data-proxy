@@ -1,7 +1,8 @@
 mode: standalone
 replicas: 1
-rootUser: minioadmin
-rootPassword: minioadmin-local
+auth:
+  rootUser: minioadmin
+  rootPassword: minioadmin-local
 persistence:
   enabled: true
   size: 2Gi

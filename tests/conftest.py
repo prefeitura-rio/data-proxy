@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import LiteralString, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlsplit, urlunsplit
 
 import duckdb
@@ -19,11 +19,9 @@ from google.cloud.bigquery import (
     Row,
     Table,
 )
-from minio import Minio
 from psycopg.sql import SQL, Identifier
 from redis.asyncio import Redis
 from testcontainers.community.postgres import PostgresContainer
-from testcontainers.core.container import DockerContainer
 
 from dp.bigquery.config import PartitionKindConfig
 from dp.models import (
@@ -46,6 +44,18 @@ from dp.templates import TemplateSpec, load_template
 from tests.constants import FILES
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
+
+
+@pytest.fixture
+def mock_push_to_gateway() -> object:
+    """Prevent real HTTP calls to Pushgateway during tests."""
+    with (
+        patch("dp.sync.publisher.push_to_gateway", new_callable=AsyncMock),
+        patch("dp.sync.dumper.push_to_gateway", new_callable=AsyncMock),
+        patch("dp.sync.seeder.push_to_gateway", new_callable=AsyncMock),
+        patch("dp.sync.producer.push_to_gateway", new_callable=AsyncMock),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -323,27 +333,6 @@ def postgres_connection(
             admin.execute(
                 SQL("DROP DATABASE IF EXISTS {}").format(Identifier(database))
             )
-
-
-@pytest.fixture
-def minio() -> Iterator[Minio]:
-    """Provide a MinIO-compatible client backed by a Silo container."""
-    container = DockerContainer("docker.io/pgsty/silo:latest")
-    container.with_env("MINIO_ROOT_USER", "minioadmin")
-    container.with_env("MINIO_ROOT_PASSWORD", "minioadmin")
-    container.with_exposed_ports(9000).start()
-
-    client = Minio(
-        f"{container.get_container_host_ip()}:{container.get_exposed_port(9000)}",
-        access_key="minioadmin",
-        secret_key="minioadmin",  # noqa: S106
-        secure=False,
-    )
-
-    try:
-        yield client
-    finally:
-        container.stop()
 
 
 @pytest.fixture(name="duckdb")

@@ -1,5 +1,6 @@
 """Tests for Dumper subscriptions."""
 
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -15,7 +16,9 @@ from dp.sync.dumper import (
 )
 from dp.sync.seeder import seed_sync
 
-pytestmark = pytest.mark.usefixtures("test_settings")
+pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
+
+test_logger = logging.getLogger("test")
 
 
 class TestDumper:
@@ -41,7 +44,7 @@ class TestDumper:
             ),
             patch.object(dumper, "exit") as exit_app,
         ):
-            await dump_task(standard_dump_task)
+            await dump_task(standard_dump_task, test_logger)
         exit_app.assert_called_once()
 
     def test_extract_wrapper_uses_duckdb_fixture(
@@ -79,7 +82,7 @@ class TestDumper:
             ),
             patch.object(dumper, "exit"),
         ):
-            await dump_task(standard_dump_task)
+            await dump_task(standard_dump_task, test_logger)
         assert seed_sync.mock.call_count == 2
         seed_sync.mock.assert_called_with({"run_id": "r1"})
 

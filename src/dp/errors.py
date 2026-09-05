@@ -3,7 +3,8 @@
 from typing import NoReturn
 
 from faststream.exceptions import StopApplication
-from loguru import logger
+
+from dp.log import logger
 
 
 async def stop_on_error(error: Exception) -> NoReturn:
@@ -14,5 +15,5 @@ async def stop_on_error(error: Exception) -> NoReturn:
     it internally instead of exiting with a failure status. Logging the
     original exception here is the only way its cause is ever recorded.
     """
-    logger.opt(exception=error).error("Subscriber failed — stopping application")
+    logger.exception("Subscriber failed")
     raise StopApplication(1) from error
