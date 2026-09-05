@@ -1,7 +1,13 @@
 name: Helm chart
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - helm/**
+      - '!helm/tests/**'
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, PostgreSQL image]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -21,6 +27,26 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      - name: Resolve latest image SHAs from GHCR
+        id: shas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APP_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy/versions \
+            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
+          PG_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-postgres/versions \
+            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
+          echo "app=$APP_SHA" >> "$GITHUB_OUTPUT"
+          echo "postgres=$PG_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved app image SHA: $APP_SHA"
+          echo "Resolved postgres image SHA: $PG_SHA"
+      - name: Pin image SHAs in values.yaml
+        run: |
+          yq e ".image.tag = strenv(APP_SHA)" -i helm/values.yaml
+          yq e ".pgduckdb.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
+        env:
+          APP_SHA: ${{ steps.shas.outputs.app }}
+          PG_SHA: ${{ steps.shas.outputs.postgres }}
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
@@ -41,13 +67,17 @@ jobs:
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "next=$NEXT"         >> "$GITHUB_OUTPUT"
           echo "tag=helm-v$CURRENT"   >> "$GITHUB_OUTPUT"
-      - name: Skip if no helm changes since last release
+      - name: Skip if no changes since last release
         id: guard
         run: |
           LAST_TAG=$(git tag --sort=-v:refname | grep -E "^helm-v" | head -1 || echo "")
           [ -z "$LAST_TAG" ] && exit 0
-          git diff --name-only "$LAST_TAG" HEAD -- helm/ | grep -q . && exit 0
-          echo "No helm changes since $LAST_TAG — nothing to release."
+          # Check for helm/ file changes (excluding tests)
+          git diff --name-only "$LAST_TAG" HEAD -- helm/ \
+            | grep -v '^helm/tests/' | grep -q . && exit 0
+          # Check if image SHAs changed in values.yaml
+          git diff --name-only "$LAST_TAG" HEAD -- helm/values.yaml | grep -q . && exit 0
+          echo "No helm or image changes since $LAST_TAG — nothing to release."
           echo "skip=true" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
         if: steps.guard.outputs.skip != 'true'
@@ -91,7 +121,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add helm/Chart.yaml
+          git add helm/Chart.yaml helm/values.yaml
           git commit -m "chore: bump helm chart to ${{ steps.version.outputs.next }} [skip ci]"
           git tag ${{ steps.version.outputs.tag }}
           git pull --rebase origin main
