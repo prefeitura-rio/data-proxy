@@ -145,17 +145,13 @@ jobs:
           ### Install
 
           \`\`\`bash
-          helm install my-release \
-            oci://${{ env.REGISTRY_PREFIX }}/data-proxy \
-            --version $CURRENT
+          helm install my-release oci://${{ env.REGISTRY_PREFIX }}/data-proxy --version $CURRENT
           \`\`\`
 
           ### Pull
 
           \`\`\`bash
-          helm pull \
-            oci://${{ env.REGISTRY_PREFIX }}/data-proxy \
-            --version $CURRENT
+          helm pull oci://${{ env.REGISTRY_PREFIX }}/data-proxy --version $CURRENT
           \`\`\`"
       - name: Upload .tgz to GitHub release
         if: steps.guard.outputs.skip != 'true'
