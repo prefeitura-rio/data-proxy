@@ -1,6 +1,6 @@
 FROM docker.io/alpine:3.23.5
 
-RUN apk add --no-cache nushell openssl
+RUN apk add --no-cache nushell=0.104.1-r0 openssl=3.5.8-r0
 
 ADD https://github.com/cablehead/http-nu/releases/download/v0.17.2/http-nu-v0.17.2-linux-amd64.tar.gz /tmp/http-nu.tar.gz
 RUN tar xzf /tmp/http-nu.tar.gz -C /usr/local/bin/ --strip-components=1 && rm /tmp/http-nu.tar.gz
