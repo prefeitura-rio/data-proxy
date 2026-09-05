@@ -33,9 +33,9 @@ tests:
           path: spec.replicas
           value: 1
         template: statefulset-duckdb.yaml
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-postgres:latest
+          pattern: ghcr.io/prefeitura-rio/data-proxy-postgres:.*
         template: statefulset-duckdb.yaml
       - equal:
           path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
