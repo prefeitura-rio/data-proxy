@@ -265,9 +265,11 @@ ha:
     replicationUsername: replicator
     ## Password for the replication role. Required when ha.enabled is true.
     replicationPassword: ""
-## Pushgateway URL for metrics push from short-lived worker pods.
-## Defaults to the service created by the prometheus-community/prometheus-pushgateway chart.
+## Pushgateway for metrics push from short-lived worker pods.
+## When enabled, deploys prometheus-pushgateway as a subchart.
+## When disabled, set pushgateway.url to point to an external service.
 pushgateway:
+  enabled: true
   url: ""
 ## Resource requests and limits applied to PostgREST containers.
 resources:
