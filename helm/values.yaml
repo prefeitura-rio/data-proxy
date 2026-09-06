@@ -6,7 +6,7 @@ image:
   ## Registry path for the data-proxy image, without the tag.
   repository: ghcr.io/prefeitura-rio/data-proxy
   ## Immutable application image version.
-  tag: "52a429d"
+  tag: "eb16a0a"
   ## Image pull policy. Use Always when the tag is mutable (for example, latest).
   pullPolicy: IfNotPresent
 ## Kubernetes ServiceAccount for the pipeline pods.
