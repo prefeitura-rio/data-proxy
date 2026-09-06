@@ -170,6 +170,16 @@ backup:
   existingSecret: ""
   ## Password for the read-only backup role. Required when existingSecret is empty.
   password: ""
+## Stale table cleanup CronJob — drops PostgreSQL tables that are no longer
+## listed in the sync config. System tables (freshness, access_policy) are preserved.
+cleanup:
+  ## Set to true to deploy the cleanup CronJob.
+  enabled: false
+  ## Cron expression that controls when the cleanup runs.
+  ## Default: daily at 04:00 UTC, after the backup.
+  schedule: "0 4 * * *"
+  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+  startingDeadlineSeconds: 600
 ## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
 ## Scales to zero when the stream is empty.
 dumper:

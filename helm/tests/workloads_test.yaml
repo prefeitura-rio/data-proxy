@@ -2,6 +2,7 @@ suite: Workloads
 templates:
   - cronjob-producer.yaml
   - cronjob-backup.yaml
+  - cronjob-cleanup.yaml
   - deployment-publisher.yaml
   - scaledobject-publisher.yaml
   - deployment-dumper.yaml
@@ -158,3 +159,32 @@ tests:
       - exists:
           path: spec.template.spec.topologySpreadConstraints
         template: deployment-dumper.yaml
+
+  - it: cleanup CronJob runs the Nushell script and mounts sync config
+    set:
+      cleanup.enabled: true
+      syncConfig.schemas.app_example: {}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: ghcr.io/nushell/nushell:0.115.1-alpine
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cleanup
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[2].name
+          value: cleanup-script
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cleanup
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cleanup
+
+  - it: cleanup does not render when disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: cronjob-cleanup.yaml
