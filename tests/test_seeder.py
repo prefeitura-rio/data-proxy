@@ -123,11 +123,11 @@ class TestSeeder:
         """
         GIVEN: an existing dispatch for the run.
         WHEN: seed_sync is called.
-        THEN: the seeder skips dispatch and exits.
+        THEN: the seeder skips dispatch and does not exit.
         """
         with (
             patch("dp.sync.seeder.dispatch_exists", return_value=True),
             patch.object(seeder, "exit") as exit_app,
         ):
             await seed_sync(SeedTask(run_id="r1"), logging.getLogger("test"))
-        exit_app.assert_called_once()
+        exit_app.assert_not_called()

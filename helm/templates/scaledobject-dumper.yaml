@@ -1,0 +1,33 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-dumper
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dumper
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-dumper
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: {{ .Values.dumper.keda.pollingInterval }}
+  minReplicaCount: 0
+  maxReplicaCount: {{ .Values.dumper.keda.maxReplicaCount }}
+  triggers:
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:extract
+        consumerGroup: dumpers
+        lagCount: {{ .Values.dumper.keda.lagCount | quote }}
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:extract
+        consumerGroup: dumpers
+        pendingEntriesCount: {{ .Values.dumper.keda.pendingEntriesCount | quote }}

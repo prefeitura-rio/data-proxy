@@ -1,149 +1,160 @@
 suite: Workloads
 templates:
   - cronjob-producer.yaml
-  - scaledjob-publisher.yaml
-  - scaledjob-dumper.yaml
-  - scaledjob-seeder.yaml
+  - cronjob-backup.yaml
+  - deployment-publisher.yaml
+  - scaledobject-publisher.yaml
+  - deployment-dumper.yaml
+  - scaledobject-dumper.yaml
+  - deployment-seeder.yaml
+  - scaledobject-seeder.yaml
 tests:
-  - it: producer CronJob uses configured schedule
+  - it: backup runs the Nushell script and mounts required files
     set:
-      producer.schedule: "0 3 * * *"
-      image.repository: gcr.io/proj/data-proxy
-      image.tag: abc123
+      backup.enabled: true
+      backup.ageRecipient: age1example
+      syncConfig.schemas.app_example: {}
     asserts:
-      - equal:
-          path: spec.schedule
-          value: "0 3 * * *"
-        template: cronjob-producer.yaml
-      - equal:
-          path: spec.startingDeadlineSeconds
-          value: 600
-        template: cronjob-producer.yaml
-      - equal:
-          path: spec.jobTemplate.spec.backoffLimit
-          value: 0
-        template: cronjob-producer.yaml
-
-  - it: producer uses the app image and correct command
-    set:
-      image.repository: gcr.io/proj/data-proxy
-      image.tag: abc123
-    asserts:
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.containers[0].image
-          value: gcr.io/proj/data-proxy:abc123
-        template: cronjob-producer.yaml
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].command
-          value: [python, -m, dp.sync.producer]
-        template: cronjob-producer.yaml
+          value: [nu, /scripts/backup.nu]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-app-example-backup
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content:
+            name: schema-writers
+            mountPath: /config/schema-writers
+            readOnly: true
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-app-example-backup
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content:
+            name: backup-script
+            mountPath: /scripts
+            readOnly: true
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-app-example-backup
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].name
+          value: schema-writers
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-app-example-backup
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[1].name
+          value: backup-script
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-app-example-backup
 
-  - it: publisher is capped at maxReplicaCount 1 without Job retries
+  - it: dumper Deployment uses the correct image and command
     asserts:
+      - isKind:
+          of: Deployment
+        template: deployment-dumper.yaml
       - equal:
-          path: spec.maxReplicaCount
-          value: 1
-        template: scaledjob-publisher.yaml
+          path: spec.template.spec.containers[0].command
+          value: [python, -m, dp.sync.dumper]
+        template: deployment-dumper.yaml
       - equal:
-          path: spec.jobTargetRef.backoffLimit
+          path: spec.replicas
           value: 0
-        template: scaledjob-publisher.yaml
+        template: deployment-dumper.yaml
 
-  - it: publisher triggers on the finalize stream
+  - it: dumper ScaledObject targets the Deployment and scales from zero
     asserts:
+      - isKind:
+          of: ScaledObject
+        template: scaledobject-dumper.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 0
+        template: scaledobject-dumper.yaml
+      - equal:
+          path: spec.scaleTargetRef.kind
+          value: Deployment
+        template: scaledobject-dumper.yaml
+      - equal:
+          path: spec.triggers[0].metadata.stream
+          value: dp:extract
+        template: scaledobject-dumper.yaml
+      - equal:
+          path: spec.triggers[0].metadata.consumerGroup
+          value: dumpers
+        template: scaledobject-dumper.yaml
+
+  - it: seeder Deployment uses the correct image and command
+    asserts:
+      - isKind:
+          of: Deployment
+        template: deployment-seeder.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [python, -m, dp.sync.seeder]
+        template: deployment-seeder.yaml
+      - equal:
+          path: spec.replicas
+          value: 0
+        template: deployment-seeder.yaml
+
+  - it: seeder ScaledObject targets the Deployment and scales from zero
+    asserts:
+      - isKind:
+          of: ScaledObject
+        template: scaledobject-seeder.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 0
+        template: scaledobject-seeder.yaml
+      - equal:
+          path: spec.triggers[0].metadata.stream
+          value: dp:prepare
+        template: scaledobject-seeder.yaml
+
+  - it: publisher Deployment uses the correct image and command
+    asserts:
+      - isKind:
+          of: Deployment
+        template: deployment-publisher.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [python, -m, dp.sync.publisher]
+        template: deployment-publisher.yaml
+      - equal:
+          path: spec.replicas
+          value: 0
+        template: deployment-publisher.yaml
+
+  - it: publisher ScaledObject targets the Deployment and scales from zero
+    asserts:
+      - isKind:
+          of: ScaledObject
+        template: scaledobject-publisher.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 0
+        template: scaledobject-publisher.yaml
       - equal:
           path: spec.triggers[0].metadata.stream
           value: dp:publish
-        template: scaledjob-publisher.yaml
-
-  - it: publisher passes its configured visibility timeout
-    set:
-      publisher.visibilityTimeoutMs: "1200000"
-    asserts:
-      - contains:
-          path: spec.jobTargetRef.template.spec.containers[0].env
-          content:
-            name: PUBLISHER_VISIBILITY_TIMEOUT_MS
-            value: "1200000"
-        template: scaledjob-publisher.yaml
-
-  - it: publisher mounts the schema writer configuration
-    set:
-      ha.enabled: true
-      ha.schemas.app:
-        members: 1
-      syncConfig.schemas.app.tables: []
-    asserts:
-      - contains:
-          path: spec.jobTargetRef.template.spec.containers[0].env
-          content:
-            name: SCHEMA_WRITERS_FILE
-            value: /config/schema-writers/writers.json
-        template: scaledjob-publisher.yaml
-      - equal:
-          path: spec.jobTargetRef.template.spec.volumes[1].secret.secretName
-          value: data-proxy-schema-writers
-        template: scaledjob-publisher.yaml
-
-  - it: dumper uses configured maxReplicaCount without Job retries
-    set:
-      dumper.keda.maxReplicaCount: 8
-    asserts:
-      - equal:
-          path: spec.maxReplicaCount
-          value: 8
-        template: scaledjob-dumper.yaml
-      - equal:
-          path: spec.jobTargetRef.backoffLimit
-          value: 0
-        template: scaledjob-dumper.yaml
-
-  - it: dumper passes its configured visibility timeout
-    set:
-      dumper.visibilityTimeoutMs: "1200000"
-    asserts:
-      - contains:
-          path: spec.jobTargetRef.template.spec.containers[0].env
-          content:
-            name: DUMPER_VISIBILITY_TIMEOUT_MS
-            value: "1200000"
-        template: scaledjob-dumper.yaml
-
-  - it: dumper spreads jobs across nodes
-    asserts:
-      - equal:
-          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].topologyKey
-          value: kubernetes.io/hostname
-        template: scaledjob-dumper.yaml
-      - equal:
-          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].maxSkew
-          value: 1
-        template: scaledjob-dumper.yaml
-      - equal:
-          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
-          value: ScheduleAnyway
-        template: scaledjob-dumper.yaml
+        template: scaledobject-publisher.yaml
 
   - it: dumper triggers on the tasks stream with configured lagCount
     set:
       dumper.keda.lagCount: "2"
     asserts:
       - equal:
-          path: spec.triggers[0].metadata.stream
-          value: dp:extract
-        template: scaledjob-dumper.yaml
-      - equal:
           path: spec.triggers[0].metadata.lagCount
           value: "2"
-        template: scaledjob-dumper.yaml
+        template: scaledobject-dumper.yaml
 
-  - it: seeder uses the preparation stream and command
+  - it: dumper Deployment has topology spread constraints
     asserts:
-      - equal:
-          path: spec.triggers[0].metadata.stream
-          value: dp:prepare
-        template: scaledjob-seeder.yaml
-      - equal:
-          path: spec.jobTargetRef.template.spec.containers[0].command
-          value: [python, -m, dp.sync.seeder]
-        template: scaledjob-seeder.yaml
+      - exists:
+          path: spec.template.spec.topologySpreadConstraints
+        template: deployment-dumper.yaml

@@ -81,8 +81,6 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
         elapsed_ms(started),
     )
 
-    dumper.exit()
-
 
 @dumper.on_shutdown
 async def cleanup_consumers() -> None:

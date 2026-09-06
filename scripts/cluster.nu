@@ -488,7 +488,7 @@ def "main down" []: nothing -> nothing {
     ^minikube --profile $PROFILE delete
 }
 
-# Print cluster status tables for pods, deployments, and scaled jobs.
+# Print cluster status tables for pods, deployments, and scaled objects.
 def show-status [kubecfg: path]: nothing -> nothing {
     print "\nPods:"
 
@@ -528,10 +528,10 @@ def show-status [kubecfg: path]: nothing -> nothing {
         }
         | sort-by name)
 
-    print "\nScaledJobs:"
+    print "\nScaledObjects:"
 
     try {
-        print (kc $kubecfg -n data-proxy get scaledjob -o json
+        print (kc $kubecfg -n data-proxy get scaledobject -o json
             | from json
             | get items
             | each {|s|
@@ -543,7 +543,7 @@ def show-status [kubecfg: path]: nothing -> nothing {
                 }
             }
             | sort-by name)
-    } catch { print --stderr "no scaledjobs found" }
+    } catch { print --stderr "no scaledobjects found" }
 }
 
 # Script to create a testing environment with minikube

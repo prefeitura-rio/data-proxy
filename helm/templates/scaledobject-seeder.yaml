@@ -1,0 +1,33 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-seeder
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: seeder
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-seeder
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: {{ .Values.seeder.keda.pollingInterval }}
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  triggers:
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:prepare
+        consumerGroup: seeders
+        lagCount: "1"
+    - type: redis-streams
+      authenticationRef:
+        name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
+      metadata:
+        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        stream: dp:prepare
+        consumerGroup: seeders
+        pendingEntriesCount: {{ .Values.seeder.keda.pendingEntriesCount | quote }}

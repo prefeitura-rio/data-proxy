@@ -90,7 +90,6 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
 
                 await cleanup_run(redis, task.run_id)
 
-            publisher.exit()
             return
 
         failed_paths = await read_failed_paths(redis, task.run_id)
@@ -148,8 +147,6 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
                 reload_postgrest(conn, settings.sync_config)
 
             await cleanup_run(redis, task.run_id)
-
-    publisher.exit()
 
 
 @publisher.on_shutdown

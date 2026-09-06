@@ -147,10 +147,9 @@ producer:
 backup:
   ## Set to true to deploy the backup CronJob.
   enabled: false
-  ## Alpine-based image with pg_dump matching the duckdb image's PostgreSQL major
-  ## version. age and aws-cli are installed at container startup via apk, the same
-  ## pattern postgrest.jwksFetch uses.
-  image: postgres:17-alpine
+  ## Alpine-based image with Nushell. PostgreSQL client, age, and aws-cli
+  ## are installed at container startup via apk.
+  image: ghcr.io/nushell/nushell:0.115.1-alpine
   ## Cron expression that controls when the backup runs.
   ## Default: daily at 03:00 UTC, after the producer.
   schedule: 0 3 * * *
@@ -171,10 +170,10 @@ backup:
   existingSecret: ""
   ## Password for the read-only backup role. Required when existingSecret is empty.
   password: ""
-## Dumper ScaledJob — KEDA creates one Job pod per pending message on dp:extract.
-## Pods scale to zero when the stream is empty.
+## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
+## Scales to zero when the stream is empty.
 dumper:
-  ## Spread concurrent Dumper Jobs across nodes when possible.
+  ## Spread concurrent Dumper pods across nodes when possible.
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname
@@ -186,38 +185,39 @@ dumper:
           app.kubernetes.io/name: data-proxy
   ## Time in milliseconds before a Dumper can reclaim a pending task.
   visibilityTimeoutMs: 900000
+  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+  terminationGracePeriodSeconds: 900
   keda:
-    ## Number of unread stream messages that triggers one additional Dumper Job.
+    ## Number of unread stream messages that triggers one additional Dumper pod.
     lagCount: "1"
-    ## Number of delivered-but-unacknowledged messages that keeps a Dumper Job
+    ## Number of delivered-but-unacknowledged messages that keeps a Dumper pod
     ## alive. lagCount alone reaches 0 as soon as the last message is
     ## delivered, before it is actually processed, so this second trigger
-    ## prevents KEDA from terminating a Job still finishing its last task.
+    ## prevents KEDA from terminating a pod still finishing its last task.
     pendingEntriesCount: "1"
-    ## Maximum number of concurrent Dumper Job pods.
+    ## Maximum number of concurrent Dumper pods.
     maxReplicaCount: 15
-    ## Maximum wall-clock time a single Dumper Job may run before termination.
-    activeDeadlineSeconds: 3600
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
-## Publisher ScaledJob — KEDA creates one Job pod per schema publication message.
+## Publisher — KEDA-scaled Deployment that loops on the dp:publish stream.
 publisher:
   ## Time in milliseconds before a publisher can reclaim a pending message.
   visibilityTimeoutMs: 900000
+  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+  terminationGracePeriodSeconds: 1800
   keda:
     ## Number of delivered-but-unacknowledged messages that keeps the
-    ## Publisher Job alive while it processes a message.
+    ## Publisher pod alive while it processes a message.
     pendingEntriesCount: "1"
-    ## Maximum wall-clock time a single Publisher Job may run before termination.
-    activeDeadlineSeconds: 7200
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
-## Seeder ScaledJob — runs shared idempotent database setup once per run.
+## Seeder — KEDA-scaled Deployment that loops on the dp:prepare stream.
 seeder:
   visibilityTimeoutMs: 900000
+  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+  terminationGracePeriodSeconds: 900
   keda:
     pendingEntriesCount: "1"
-    activeDeadlineSeconds: 3600
     pollingInterval: 30
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.

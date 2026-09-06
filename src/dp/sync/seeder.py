@@ -59,7 +59,6 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
         entries = cast(StreamRangeResponse, await redis.xrange(PUBLISH_STREAM))
 
         if dispatch_exists(entries, task.run_id):
-            seeder.exit()
             return
 
     writers = settings.schema_writers
@@ -90,8 +89,6 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
         await pipe.execute()
 
     seed_runs_total.labels(status="success").inc()
-
-    seeder.exit()
 
 
 @seeder.on_shutdown

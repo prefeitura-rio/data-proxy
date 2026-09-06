@@ -35,13 +35,13 @@ class TestPublisher:
     """Tests for publisher subscriber behavior."""
 
     @pytest.mark.asyncio
-    async def test_missing_publish_plan_exits_application(
+    async def test_missing_publish_plan_does_not_exit_application(
         self, sync_config_path: Path, redis: Redis
     ) -> None:
         """
         GIVEN: an active run with no remaining publish plan.
         WHEN: publish_schema is called.
-        THEN: the publisher application exits.
+        THEN: the publisher application does not exit so it can process the next message.
         """
         await redis.set("dp:active", "r1")
         with (
@@ -52,7 +52,7 @@ class TestPublisher:
             await publish_schema(
                 PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
             )
-        exit_app.assert_called_once()
+        exit_app.assert_not_called()
 
     def test_publish_plan_wraps_connections(
         self,
@@ -176,7 +176,7 @@ class TestPublisher:
             )
 
     @pytest.mark.asyncio
-    async def test_publish_schema_exits_after_successful_publish(
+    async def test_publish_schema_continues_after_successful_publish(
         self,
         sync_config_path: Path,
         redis: Redis,
@@ -184,7 +184,7 @@ class TestPublisher:
         """
         GIVEN: a stored plan with remaining schemas after publication.
         WHEN: publish_schema is called.
-        THEN: the publisher application exits after processing one message.
+        THEN: the publisher application does not exit so it can process the next message.
         """
         sync_config_path.write_text(
             sync_config([PartitionedTable(name="p.app.t")]).model_dump_json()
@@ -239,7 +239,7 @@ class TestPublisher:
                 PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
             )
 
-        exit_app.assert_called_once()
+        exit_app.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_publish_schema_increments_failure_counter_for_unpublished_tables(

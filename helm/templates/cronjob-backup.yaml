@@ -3,6 +3,19 @@
 {{- range $schema, $_ := .Values.syncConfig.schemas }}
 {{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-backup-script
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: backup
+    data-proxy.io/schema: {{ $schema | quote }}
+data:
+  backup.nu: |
+{{ $root.Files.Get "files/scripts/backup.nu" | nindent 4 }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -35,23 +48,7 @@ spec:
           containers:
             - name: backup
               image: {{ $root.Values.backup.image | quote }}
-              command: [/bin/sh, -c]
-              args:
-                - |
-                  set -eu
-                  apk add --no-cache age aws-cli jq >/dev/null
-                  BACKUP_WRITER="$(jq -er --arg schema "$SCHEMA" '.writers[$schema]' /config/schema-writers/writers.json)"
-                  BACKUP_PG_DSN="postgresql://backup:${BACKUP_PASSWORD}@${BACKUP_WRITER#*@}"
-                  export AWS_ACCESS_KEY_ID="$GCS_KEY_ID"
-                  export AWS_SECRET_ACCESS_KEY="$GCS_SECRET_KEY"
-                  aws configure set default.s3.addressing_style path
-                  aws configure set default.region auto
-                  scheme="https"
-                  [ "$GCS_USE_SSL" = "true" ] || scheme="http"
-                  object_date="$(date -u +%F)"
-                  psql "$BACKUP_PG_DSN" --no-psqlrc --quiet --command "COPY {{ $schema }}.access_policy TO STDOUT WITH (FORMAT csv, HEADER true)" \
-                    | age --encrypt --recipient "$AGE_RECIPIENT" \
-                    | aws s3 cp - "s3://${GCS_BUCKET}/${BACKUP_PREFIX}/{{ $schema }}/${object_date}.csv.age" --endpoint-url "${scheme}://${GCS_ENDPOINT}"
+              command: [nu, /scripts/backup.nu]
               env:
                 - name: BACKUP_PASSWORD
                   valueFrom:
@@ -70,19 +67,33 @@ spec:
                   value: {{ $root.Values.gcs.endpoint | default "storage.googleapis.com" | quote }}
                 - name: GCS_USE_SSL
                   value: {{ $root.Values.gcs.useSsl | quote }}
-                - name: GCS_KEY_ID
+                - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "data-proxy.gcsSecretName" $root }}
                       key: GCS_KEY_ID
-                - name: GCS_SECRET_KEY
+                - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "data-proxy.gcsSecretName" $root }}
                       key: GCS_SECRET_KEY
-          volumes:
-            {{- include "data-proxy.schemaWritersVolume" $root | nindent 12 }}
+                - name: SCHEMA_WRITERS_FILE
+                  value: /config/schema-writers/writers.json
               volumeMounts:
-                {{- include "data-proxy.schemaWritersVolumeMount" $root | nindent 16 }}
+                - name: schema-writers
+                  mountPath: /config/schema-writers
+                  readOnly: true
+                - name: backup-script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: schema-writers
+              secret:
+                secretName: {{ include "data-proxy.fullname" $root }}-duckdb-schema-writers
+                defaultMode: 0440
+            - name: backup-script
+              configMap:
+                name: {{ $name }}-backup-script
+                defaultMode: 0555
 {{- end }}
 {{- end }}

@@ -306,7 +306,6 @@ function pollOnce(metrics: MetricRequest[]): boolean {
     }
 
     let allStreamsDrained = true;
-    let allTablesPopulated = true;
     let activeRunGone = true;
 
     for (let i = 0; i < metrics.length; i++) {
@@ -320,46 +319,47 @@ function pollOnce(metrics: MetricRequest[]): boolean {
         if (m.metric === "active_run" && value !== null) {
             activeRunGone = false;
         }
-        if (m.metric.startsWith("table_row_count:") && typeof value === "number" && value === 0) {
-            allTablesPopulated = false;
-        }
-        if (m.metric.startsWith("freshness_count:") && typeof value === "number" && value === 0) {
-            allTablesPopulated = false;
+    }
+
+    return allStreamsDrained && activeRunGone;
+}
+
+function verifyMetrics(metrics: MetricRequest[]): void {
+    const responses: K6Response[] = [];
+    for (const m of metrics) {
+        if (m.method === "GET") {
+            responses.push(http.get(m.url, m.params) as K6Response);
+        } else {
+            responses.push(http.post(m.url, JSON.stringify(m.params), { headers: { "Content-Type": "application/json" } }) as K6Response);
         }
     }
 
-    const complete = allStreamsDrained && allTablesPopulated && activeRunGone;
-
-    if (complete) {
-        for (let i = 0; i < metrics.length; i++) {
-            const m = metrics[i];
-            const value = m.extract(responses[i]);
-            check(null, {
-                [m.metric]: () => {
-                    if (typeof value === "boolean") return value;
-                    if (typeof value === "number") {
-                        if (m.metric.startsWith("stream_length:")) return value === 0;
-                        if (m.metric === "db_size") return value < 10;
-                        if (m.metric.startsWith("table_row_count:")) return value > 0;
-                        if (m.metric.startsWith("freshness_count:")) return value > 0;
-                        if (m.metric === "partition_count:" + PARTITIONED_TABLE) return value === 7;
-                        return true;
-                    }
-                    if (m.metric === "active_run") return value === null;
+    for (let i = 0; i < metrics.length; i++) {
+        const m = metrics[i];
+        const value = m.extract(responses[i]);
+        log(m.stage, m.source, m.metric, value);
+        check(null, {
+            [m.metric]: () => {
+                if (typeof value === "boolean") return value;
+                if (typeof value === "number") {
+                    if (m.metric.startsWith("stream_length:")) return value === 0;
+                    if (m.metric === "db_size") return value < 10;
+                    if (m.metric.startsWith("table_row_count:")) return value > 0;
+                    if (m.metric.startsWith("freshness_count:")) return value > 0;
+                    if (m.metric === "partition_count:" + PARTITIONED_TABLE) return value === 7;
                     return true;
-                },
-            });
-        }
+                }
+                if (m.metric === "active_run") return value === null;
+                return true;
+            },
+        });
     }
-
-    return complete;
 }
 
 export function setup(): void {
     const k8s = new Kubernetes();
     const jobName = triggerSync(k8s);
     waitForSyncJob(k8s, jobName);
-    seedAccessPolicy();
 }
 
 export default function(): void {
@@ -368,9 +368,12 @@ export default function(): void {
 
     const deadline = Date.now() + 600_000;
     while (Date.now() < deadline) {
-        const complete = pollOnce(metrics);
-        if (complete) {
+        const pipelineDone = pollOnce(metrics);
+        if (pipelineDone) {
             log("done", "redis", "pipeline_complete", true);
+            seedAccessPolicy();
+            sleep(2);
+            verifyMetrics(metrics);
             verifyNoAccess();
             verifyJsonbColumn();
             break;
