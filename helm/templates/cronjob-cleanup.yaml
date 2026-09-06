@@ -42,6 +42,8 @@ spec:
             - name: cleanup
               image: {{ .Values.backup.image | quote }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                runAsUser: 0
               command:
                 - /bin/sh
                 - -ec
