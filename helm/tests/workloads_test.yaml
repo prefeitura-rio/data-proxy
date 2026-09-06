@@ -109,6 +109,21 @@ tests:
             value: "1200000"
         template: scaledjob-dumper.yaml
 
+  - it: dumper spreads jobs across nodes
+    asserts:
+      - equal:
+          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].topologyKey
+          value: kubernetes.io/hostname
+        template: scaledjob-dumper.yaml
+      - equal:
+          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].maxSkew
+          value: 1
+        template: scaledjob-dumper.yaml
+      - equal:
+          path: spec.jobTargetRef.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: ScheduleAnyway
+        template: scaledjob-dumper.yaml
+
   - it: dumper triggers on the tasks stream with configured lagCount
     set:
       dumper.keda.lagCount: "2"

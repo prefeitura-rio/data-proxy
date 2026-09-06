@@ -19,6 +19,8 @@ spec:
           app.kubernetes.io/component: dumper
       spec:
         restartPolicy: Never
+        topologySpreadConstraints:
+          {{- toYaml .Values.dumper.topologySpreadConstraints | nindent 10 }}
         serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
         containers:
           - name: dumper
