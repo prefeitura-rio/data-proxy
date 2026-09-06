@@ -13,7 +13,7 @@ from dp.settings import settings
 dump_tasks_total = Counter(
     "dump_tasks_total",
     "Total dump tasks processed",
-    labelnames=("status",),
+    labelnames=("table", "status"),
 )
 
 dump_task_duration_seconds = Histogram(
@@ -25,13 +25,13 @@ dump_task_duration_seconds = Histogram(
 publish_tables_total = Counter(
     "publish_tables_total",
     "Total tables published",
-    labelnames=("status",),
+    labelnames=("schema", "status"),
 )
 
 publish_table_duration_seconds = Histogram(
     "publish_table_duration_seconds",
     "Table publication duration in seconds",
-    labelnames=("schema",),
+    labelnames=("table",),
 )
 
 seed_runs_total = Counter(

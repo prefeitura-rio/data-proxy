@@ -120,7 +120,10 @@ def apply_sync_plan(
     eligible = changed - decision.blocked_tables - empty_incremental
 
     logger.info(
-        "Validated sync plan changed=%d eligible=%d", len(changed), len(eligible)
+        "Validated sync plan schema=%s changed=%d eligible=%d",
+        plan.schema_name,
+        len(changed),
+        len(eligible),
     )
 
     initialize_schemas(pg_conn, config)

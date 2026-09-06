@@ -12,7 +12,7 @@ from ..constants import DUMP_STREAM, DUMPERS_GROUP, SEED_STREAM
 from ..duckdb import connect
 from ..errors import retry_or_stop
 from ..extraction import extract_task
-from ..log import elapsed_ms
+from ..log import elapsed_ms, logger, runid, tablename
 from ..metrics import dump_task_duration_seconds, dump_tasks_total, tracker
 from ..models import DumpSuccess, DumpTask, SeedTask
 from ..settings import settings
@@ -20,9 +20,10 @@ from ..state import cleanup_consumer, complete_dump
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
+    logger=logger,
 )
 
-dumper = FastStream(broker)
+dumper = FastStream(broker, logger=logger)
 
 subs = {
     "new": StreamSub(
@@ -53,8 +54,11 @@ def extract_task_wrapper(task: DumpTask) -> None:
 @broker.subscriber(stream=subs["stale"])
 @tracker("dumper")
 async def dump_task(task: DumpTask, logger: Logger) -> None:
-    """Dump one task, record its result, and exit."""
+    """Dump one task, record its result, and continue to the next."""
+    runid.set(task.run_id)
+    tablename.set(task.table)
     started = monotonic()
+    logger.info("Dump started task_id=%s", task.task_id)
 
     try:
         await asyncify(extract_task_wrapper)(task)
@@ -73,12 +77,14 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
 
     duration = monotonic() - started
     dump_task_duration_seconds.labels(table=task.table).observe(duration)
-    dump_tasks_total.labels(status=result.status.value).inc()
+    dump_tasks_total.labels(table=task.table, status=result.status.value).inc()
 
     logger.info(
-        "Dump completed status=%s elapsed_ms=%d",
+        "Dump completed task_id=%s status=%s elapsed_ms=%d remaining=%d",
+        task.task_id,
         result.status.value,
         elapsed_ms(started),
+        remaining,
     )
 
 

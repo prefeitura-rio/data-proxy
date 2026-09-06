@@ -72,15 +72,10 @@ def start-minikube [kubecfg: path]: nothing -> string {
     mk $kubecfg update-context
 }
 
-# Build the data-proxy container images into Minikube.
+# Build the platform container images into Minikube.
 def --env build-images [kubecfg: path]: nothing -> string {
     let repo = git-root
     cd $repo
-
-    log info "Building data-proxy:local…"
-    ^docker build -t data-proxy:local -f Dockerfile .
-    log info "Loading data-proxy:local into Minikube…"
-    ^docker save data-proxy:local | mk $kubecfg image load -
 
     log info "Building data-proxy-postgres:local…"
     ^docker build -t data-proxy-postgres:local -f Dockerfile.postgres .
@@ -347,6 +342,26 @@ def "main k6 load-test" [
 def "main k6 e2e" []: nothing -> string {
     let kubecfg = git-root | path join ".kubeconfig"
 
+    let repo = git-root
+    cd $repo
+
+    log info "Building data-proxy:local…"
+    ^docker build -t data-proxy:local -f Dockerfile .
+    log info "Loading data-proxy:local into Minikube…"
+    ^docker save data-proxy:local | mk $kubecfg image load -
+
+    log info "Upgrading data-proxy release…"
+    (hm
+        $kubecfg
+        upgrade
+        data-proxy
+        $"($repo)/helm"
+        --namespace
+        data-proxy
+        --values
+        $"($repo)/scripts/values/data-proxy.yaml"
+    )
+
     clear-test-resources $kubecfg
     create-bucket $kubecfg
 
@@ -439,6 +454,11 @@ def "main up" []: nothing -> nothing {
 
     log info "Building container images…"
     build-images $kubecfg
+
+    log info "Building data-proxy:local…"
+    ^docker build -t data-proxy:local -f ($repo | path join "Dockerfile") $repo
+    log info "Loading data-proxy:local into Minikube…"
+    ^docker save data-proxy:local | mk $kubecfg image load -
 
     log info "Building Helm dependencies…"
     hm $kubecfg dependency build $"($repo)/helm"

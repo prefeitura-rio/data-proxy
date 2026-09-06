@@ -12,6 +12,7 @@ from redis.typing import StreamRangeResponse
 
 from ..constants import PUBLISH_STREAM, SEED_STREAM, SEEDERS_GROUP
 from ..errors import stop_on_error
+from ..log import logger, runid
 from ..metrics import seed_runs_total, tracker
 from ..models import PublishTask, SeedTask, SyncConfig
 from ..schema import initialize_schemas
@@ -20,9 +21,10 @@ from ..state import cleanup_consumer, read_sync_plans
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
+    logger=logger,
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
-seeder = FastStream(broker)
+seeder = FastStream(broker, logger=logger)
 
 
 def dispatch_exists(entries: StreamRangeResponse, run_id: str) -> bool:
@@ -54,12 +56,16 @@ subs = {
 @tracker("seeder")
 async def seed_sync(task: SeedTask, logger: Logger) -> None:
     """Run idempotent setup and dispatch one publication task per schema."""
+    runid.set(task.run_id)
     async with settings.redis as redis:
         plans = await read_sync_plans(redis, task.run_id)
         entries = cast(StreamRangeResponse, await redis.xrange(PUBLISH_STREAM))
 
         if dispatch_exists(entries, task.run_id):
+            logger.info("Seed skipped dispatch already exists")
             return
+
+    logger.info("Seed started plans=%d", len(plans))
 
     writers = settings.schema_writers
     by_dsn: dict[str, list[str]] = {}
@@ -89,6 +95,10 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
         await pipe.execute()
 
     seed_runs_total.labels(status="success").inc()
+
+    logger.info(
+        "Seed completed schemas=%s", ",".join(plan.schema_name for plan in plans)
+    )
 
 
 @seeder.on_shutdown

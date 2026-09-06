@@ -14,6 +14,7 @@ from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
+from ..log import elapsed_ms, logger, runid, schemaname
 from ..metrics import (
     publish_table_duration_seconds,
     publish_tables_total,
@@ -33,10 +34,11 @@ from ..state import (
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
+    logger=logger,
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
 
-publisher = FastStream(broker)
+publisher = FastStream(broker, logger=logger)
 
 subs = {
     "new": StreamSub(
@@ -74,6 +76,8 @@ def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set
 @tracker("publisher")
 async def publish_schema(task: PublishTask, logger: Logger) -> None:
     """Publish one schema and complete its immutable plan field."""
+    runid.set(task.run_id)
+    schemaname.set(task.schema_name)
     async with settings.redis as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
 
@@ -98,6 +102,8 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
         schemas={task.schema_name: settings.sync_config.schemas[task.schema_name]}
     )
 
+    logger.info("Publish started")
+
     started = monotonic()
     result = await asyncify(publish_plan)(
         settings.schema_writers.dsn(task.schema_name),
@@ -107,13 +113,19 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
     )
     duration = monotonic() - started
 
-    for _ in result.published_tables:
-        publish_tables_total.labels(status="success").inc()
-        publish_table_duration_seconds.labels(schema=task.schema_name).observe(duration)
+    for table_name in result.published_tables:
+        publish_tables_total.labels(schema=task.schema_name, status="success").inc()
+        publish_table_duration_seconds.labels(table=table_name).observe(duration)
 
     for table_name in result.plan.signatures:
         if table_name not in result.published_tables:
-            publish_tables_total.labels(status="failure").inc()
+            publish_tables_total.labels(schema=task.schema_name, status="failure").inc()
+
+    logger.info(
+        "Publish completed tables=%d elapsed_ms=%d",
+        len(result.published_tables),
+        elapsed_ms(started),
+    )
 
     states: dict[str, TableState] = {}
     for table_name, signature in result.plan.signatures.items():
