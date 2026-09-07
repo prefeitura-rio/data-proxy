@@ -54,6 +54,8 @@ spec:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
                 - name: GCS_ENDPOINT_URL
                   value: {{ printf "%s://%s" (ternary "https" "http" (eq .Values.gcs.useSsl "true")) (.Values.gcs.endpoint | default "storage.googleapis.com") | quote }}
+                - name: REDIS_HOST
+                  value: {{ printf "%s-valkey" (include "data-proxy.fullname" .) | quote }}
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
                 {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 16 }}
