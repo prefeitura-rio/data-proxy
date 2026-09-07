@@ -19,7 +19,7 @@ $config.schemas
       | get tables
       | each {|t| $t.name | split row "." | last }
 
-    let all = ^psql $dsn --no-psqlrc --quiet -t -A -c $"SELECT tablename FROM pg_tables WHERE schemaname = '\''($schema)'\''"
+    let all = ^psql $dsn --no-psqlrc --quiet -t -A -c $"SELECT tablename FROM pg_tables WHERE schemaname = '($schema)'"
       | lines
       | str trim
 
@@ -39,7 +39,7 @@ $config.schemas
             ^psql $dsn --no-psqlrc --quiet -c $"DROP TABLE IF EXISTS ($schema).\\\"($table)\\\" CASCADE"
 
             log info $"Deleting freshness rows for ($full_name)"
-            ^psql $dsn --no-psqlrc --quiet -c $"DELETE FROM ($schema).freshness WHERE \\\"table\\\" = '\''($table)'\''"
+            ^psql $dsn --no-psqlrc --quiet -c $"DELETE FROM ($schema).freshness WHERE \\\"table\\\" = '($table)'"
 
             log info $"Deleting Redis state for ($full_name)"
             let deleted = ^redis-cli -u $env.REDIS_URL DEL $"dp:state:($full_name)" $"dp:sync:partitions:($full_name)" $"dp:sync:state:($full_name)"
