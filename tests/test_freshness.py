@@ -6,7 +6,7 @@ from psycopg import Connection
 from whenever import Instant
 
 from dp.freshness import (
-    delete_freshness,
+    delete_partition_freshness,
     record_table_failures,
     update_published_freshness,
     upsert_freshness,
@@ -44,8 +44,7 @@ class TestFreshnessPublishedFreshness:
             attempted_at,
         )
 
-        assert execute_sql(
-            postgres, "postgres/freshness_partitions_by_table", ("t",)
+        assert execute_sql(postgres, "postgres/freshness_partitions_by_table", params=("t",)
         ).fetchall() == [(None, "success")]
 
     def test_update_published_freshness_records_partition_results(
@@ -80,8 +79,7 @@ class TestFreshnessPublishedFreshness:
             postgres, partitioned_table, plan, {"2"}, attempted_at
         )
 
-        assert execute_sql(
-            postgres, "postgres/freshness_partitions_by_table_ordered", ("t",)
+        assert execute_sql(postgres, "postgres/freshness_partitions_by_table_ordered", params=("t",)
         ).fetchall() == [("1", "success"), ("2", "failure")]
 
 
@@ -101,7 +99,7 @@ class TestFreshness:
         attempted_at = Instant.now()
 
         upsert_freshness(postgres, full_table, set(), attempted_at, success=True)
-        delete_freshness(postgres, full_table, set())
+        delete_partition_freshness(postgres, full_table, set())
 
         assert execute_sql(postgres, "postgres/select_one").fetchone() == (1,)
 
@@ -160,7 +158,7 @@ class TestFreshnessTemplates:
         WHEN: delete_freshness is called.
         THEN: the partition is removed using the freshness SQL template.
         """
-        delete_freshness(postgres, partitioned_table, {"10"})
+        delete_partition_freshness(postgres, partitioned_table, {"10"})
 
         assert execute_sql(postgres, "postgres/freshness_count").fetchone() == (0,)
 
@@ -242,7 +240,7 @@ class TestFreshnessTemplates:
 
         with (
             patch("dp.freshness.upsert_freshness") as upsert,
-            patch("dp.freshness.delete_freshness") as delete,
+            patch("dp.freshness.delete_partition_freshness") as delete,
         ):
             update_published_freshness(
                 postgres, partitioned_table, plan, {"20"}, attempted_at

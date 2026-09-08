@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import LiteralString, cast
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlsplit, urlunsplit
 
@@ -42,6 +42,7 @@ from dp.sync.publisher import broker as publisher_broker
 from dp.sync.seeder import broker as seeder_broker
 from dp.templates import TemplateSpec, load_template
 from tests.constants import FILES
+from tests.helpers import execute_sql
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -273,10 +274,14 @@ def bigquery() -> Iterator[Client]:
 @pytest.fixture(scope="session")
 def postgres_container() -> Iterator[PostgresContainer]:
     """Provide one PostgreSQL container and an initialized template database."""
+    files_dir = str((Path(__file__).parent / "files").absolute())
+
     container = PostgresContainer(
         "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
         driver=None,
+        volumes=[(files_dir, "/test-files", "ro")],
     )
+
     container.start()
     admin_url = container.get_connection_url()
 
@@ -286,17 +291,7 @@ def postgres_container() -> Iterator[PostgresContainer]:
     with psycopg.connect(
         urlunsplit(urlsplit(admin_url)._replace(path="/test_template"))
     ) as connection:
-        connection.execute(
-            SQL(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(path="postgres/fixture", mapping={}),
-                        FILES.parent / "sql",
-                    ),
-                )
-            )
-        )
+        execute_sql(connection, "postgres/fixture")
 
     try:
         yield container
@@ -327,19 +322,12 @@ def postgres_connection(
     finally:
         connection.close()
         with psycopg.connect(admin_url, autocommit=True) as admin:
-            admin.execute(
-                cast(
-                    LiteralString,
-                    load_template(
-                        TemplateSpec(
-                            path="postgres/terminate_connections",
-                            mapping={},
-                        ),
-                        FILES.parent / "sql",
-                    ),
-                ),
-                (database,),
+            execute_sql(
+                admin,
+                "postgres/terminate_connections",
+                params=(database,),
             )
+
             admin.execute(
                 SQL("DROP DATABASE IF EXISTS {}").format(Identifier(database))
             )

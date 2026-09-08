@@ -1,10 +1,11 @@
 """Shared test builders and assertions for the data-proxy test suite."""
 
-from typing import LiteralString, cast
+from collections.abc import Mapping
+from typing import cast
 
 from psycopg import Connection
 from psycopg.cursor import Cursor
-from psycopg.sql import SQL, Composable
+from psycopg.sql import Composable
 
 from dp.models import (
     AllSelection,
@@ -19,8 +20,10 @@ from dp.models import (
     SyncPlan,
     TableConfig,
 )
-from dp.templates import TemplateSpec, load_template
+from dp.templates import render_template
 from tests.constants import FILES
+
+TEST_SQL_DIR = FILES.parent / "sql"
 
 
 def sync_plan(
@@ -113,26 +116,12 @@ def render(value: object) -> str:
 def execute_sql(
     connection: Connection[tuple[object, ...]],
     path: str,
+    *,
+    mapping: Mapping[str, str | Composable] | None = None,
     params: tuple[object, ...] = (),
 ) -> Cursor[tuple[object, ...]]:
     """Execute a SQL fixture template and return the cursor."""
     return connection.execute(
-        cast(
-            LiteralString,
-            load_template(
-                TemplateSpec(path=path, mapping={}),
-                FILES.parent / "sql",
-            ),
-        ),
+        render_template(path, mapping or {}, as_literal=True, root=TEST_SQL_DIR),
         params,
-    )
-
-
-def execute_template(
-    connection: Connection[tuple[object, ...]],
-    spec: TemplateSpec,
-) -> Cursor[tuple[object, ...]]:
-    """Execute a SQL template spec against a Postgres connection."""
-    return connection.execute(
-        SQL(cast(LiteralString, load_template(spec, FILES.parent / "sql")))
     )

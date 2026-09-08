@@ -17,16 +17,16 @@ from dp.models import (
 )
 from dp.publication import (
     cast_json_columns_to_jsonb,
-    create_incremental_shadow,
     create_indexes,
+    delete_partitions,
+    load_partition,
     load_table,
     partition_predicate,
     planned_paths,
     publish_table,
     reduce_sync_plan,
 )
-from dp.templates import TemplateSpec
-from tests.helpers import execute_sql, execute_template, partition
+from tests.helpers import execute_sql, partition
 
 
 class TestPublication:
@@ -64,32 +64,35 @@ class TestPublication:
 class TestPublicationTemplates:
     """Tests for publication SQL and plan reduction behavior."""
 
-    def test_create_incremental_shadow_excludes_affected_ranges(
+    def test_delete_partitions_renders_predicate_and_delete(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
-        GIVEN: a partitioned table with changed physical bounds.
-        WHEN: create_incremental_shadow runs.
-        THEN: it copies only rows outside the changed bounds.
+        GIVEN: a table with changed physical partitions.
+        WHEN: delete_partitions is called.
+        THEN: it renders partition predicates and a delete statement.
         """
         rendered: list[str] = []
 
-        def render(path: str, mapping: object) -> str:
+        def render(path: str, mapping: object, **_: object) -> str:
             rendered.append(path)
             return "SELECT 1"
 
-        with patch("dp.publication.render_template", side_effect=render):
-            create_incremental_shadow(
+        with (
+            patch("dp.publication.render_template", side_effect=render),
+            patch("dp.templates.render_template", side_effect=render),
+        ):
+            delete_partitions(
                 postgres,
                 PartitionedTable(name="p.app.people"),
                 [partition("10"), partition("20")],
             )
 
         assert rendered == [
-            "pg/partition_range_predicate",
-            "pg/partition_range_predicate",
-            "pg/prepare_incremental_table",
+            "postgres/partition_range_predicate",
+            "postgres/partition_range_predicate",
+            "postgres/delete_partitions",
         ]
 
     def test_load_table_loads_only_explicitly_planned_paths(
@@ -103,10 +106,43 @@ class TestPublicationTemplates:
         duckdb = connect(":memory:")
         paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
 
-        with patch("dp.publication.render_template", return_value="SELECT 1"):
+        with patch("dp.templates.render_template", return_value="SELECT 1"):
             load_table(duckdb, "app", "table__next", paths)
 
         assert duckdb.execute("SELECT 1").fetchone() == (1,)
+
+    def test_load_partition_inserts_via_read_parquet(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a table and a Parquet file with matching columns.
+        WHEN: load_partition is called.
+        THEN: the Parquet data is inserted into the table.
+        """
+        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
+        postgres.commit()
+
+        load_partition(
+            postgres, "app", "people", "/test-files/people_partition_10.parquet"
+        )
+        postgres.commit()
+
+        rows = postgres.execute(
+            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        ).fetchall()
+        assert rows == [
+            (10, "name10"),
+            (11, "name11"),
+            (12, "name12"),
+            (13, "name13"),
+            (14, "name14"),
+            (15, "name15"),
+            (16, "name16"),
+            (17, "name17"),
+            (18, "name18"),
+            (19, "name19"),
+        ]
 
     def test_publish_table_swaps_before_index_creation(
         self,
@@ -117,17 +153,11 @@ class TestPublicationTemplates:
         WHEN: publish_table is called.
         THEN: the table is swapped before the index is created.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table__next",
                     "columns": "id int",
-                },
-            ),
-        )
+                })
         table = FullTable(
             name="p.app.table",
             resolved_schema="app",
@@ -204,17 +234,11 @@ class TestPublicationTemplates:
         WHEN: create_indexes is called.
         THEN: a plain B-tree index is created on those columns.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table",
                     "columns": "id int",
-                },
-            ),
-        )
+                })
 
         table = FullTable(
             name="p.app.table",
@@ -235,17 +259,11 @@ class TestPublicationTemplates:
         WHEN: create_indexes is called.
         THEN: a GIN index is created on the JSON path expression.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table",
                     "columns": "data jsonb",
-                },
-            ),
-        )
+                })
         table = FullTable(
             name="p.app.table",
             resolved_schema="app",
@@ -295,17 +313,11 @@ class TestPublicationTemplates:
         WHEN: cast_json_columns_to_jsonb is called.
         THEN: json columns become jsonb and other columns are unchanged.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table",
                     "columns": columns,
-                },
-            ),
-        )
+                })
 
         cast_json_columns_to_jsonb(postgres, "app", "table")
 

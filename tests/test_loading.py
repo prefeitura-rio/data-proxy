@@ -107,7 +107,7 @@ class TestLoadingPrepareTablesPaths:
         plan = SyncPlan(schema_name="app")
         duckdb = connect(":memory:")
 
-        with patch("dp.publication.render_template", return_value="SELECT 1"):
+        with patch("dp.templates.render_template", return_value="SELECT 1"):
             prepared = prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
 
         assert prepared == []
@@ -133,8 +133,9 @@ class TestLoadingPrepareTablesPaths:
         duckdb = connect(":memory:")
 
         with (
-            patch("dp.publication.render_template", return_value="SELECT 1"),
+            patch("dp.templates.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table") as bootstrap,
+            patch("dp.publication.cast_json_columns_to_jsonb"),
             patch("dp.publication.load_table") as load,
         ):
             prepared = prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
@@ -226,21 +227,22 @@ class TestLoadingPrepareTablesPartitions:
         postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
-        GIVEN: an existing partitioned table with changed and removed partitions.
-        WHEN: prepare_tables runs incrementally.
-        THEN: old rows are retained and only changed paths are loaded.
+        GIVEN: an existing partitioned table with data in partitions 10, 20, and 30.
+        WHEN: prepare_tables runs incrementally with changed partition 10 and removed partition 20.
+        THEN: partition 10 is replaced, partition 20 is deleted, partition 30 is unchanged.
         """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
         changed = partition("10")
         removed = partition("20")
-        path = "s3://bucket/app/people/partitions/10/data.parquet"
+        kept = partition("30")
+        path = "/test-files/people_partition_10.parquet"
         plan = SyncPlan(
             schema_name="app",
             partitioned_tables={
                 table.name: PartitionedTablePlan(
                     table_signature="table",
                     full_rebuild=False,
-                    current_partitions={"10": changed},
+                    current_partitions={"10": changed, "30": kept},
                     changed_paths={"10": path},
                     removed_partitions={"20": removed},
                 )
@@ -248,23 +250,180 @@ class TestLoadingPrepareTablesPartitions:
         )
         duckdb = connect(":memory:")
 
-        with (
-            patch("dp.publication.render_template", return_value="SELECT 1"),
-            patch("dp.publication.create_incremental_shadow") as create_shadow,
-            patch("dp.publication.bootstrap_table"),
-            patch("dp.publication.load_table") as load,
-        ):
-            prepared = prepare_tables(
-                postgres,
-                duckdb,
-                sync_config([table]),
-                plan,
-                {table.name},
-            )
+        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
+        postgres.execute(
+            "INSERT INTO app.people VALUES (10, 'old10'), (11, 'old11'), (20, 'old20'), (21, 'old21'), (30, 'keep30'), (31, 'keep31')"
+        )
+        postgres.commit()
 
-        create_shadow.assert_called_once_with(postgres, table, [changed, removed])
-        load.assert_called_once_with(duckdb, "app", "people__next", [path])
+        prepared = prepare_tables(
+            postgres,
+            duckdb,
+            sync_config([table]),
+            plan,
+            {table.name},
+        )
+
+        remaining = postgres.execute(
+            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        ).fetchall()
+
         assert prepared == [table]
+        assert remaining == [
+            (10, "name10"),
+            (11, "name11"),
+            (12, "name12"),
+            (13, "name13"),
+            (14, "name14"),
+            (15, "name15"),
+            (16, "name16"),
+            (17, "name17"),
+            (18, "name18"),
+            (19, "name19"),
+            (30, "keep30"),
+            (31, "keep31"),
+        ]
+
+    def test_prepare_tables_incremental_failure_rolls_back_only_failed_partition(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: an existing partitioned table with data in partitions 10, 20, and 30.
+        WHEN: prepare_tables runs incrementally but partition 20's Parquet path does not exist.
+        THEN: partitions 10 and 30 are updated, partition 20 retains its original data.
+        """
+        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        changed_10 = partition("10")
+        changed_20 = partition("20")
+        kept = partition("30")
+        path_10 = "/test-files/people_partition_10.parquet"
+        path_20_missing = "/test-files/nonexistent.parquet"
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={
+                        "10": changed_10,
+                        "20": changed_20,
+                        "30": kept,
+                    },
+                    changed_paths={"10": path_10, "20": path_20_missing},
+                    removed_partitions={},
+                )
+            },
+        )
+        duckdb = connect(":memory:")
+
+        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
+        postgres.execute(
+            "INSERT INTO app.people VALUES "
+            + "(10, 'old10'), (11, 'old11'), "
+            + "(20, 'old20'), (21, 'old21'), "
+            + "(30, 'keep30'), (31, 'keep31')"
+        )
+        postgres.commit()
+
+        prepared = prepare_tables(
+            postgres,
+            duckdb,
+            sync_config([table]),
+            plan,
+            {table.name},
+        )
+
+        remaining = postgres.execute(
+            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        ).fetchall()
+
+        assert prepared == [table]
+        assert remaining == [
+            (10, "name10"),
+            (11, "name11"),
+            (12, "name12"),
+            (13, "name13"),
+            (14, "name14"),
+            (15, "name15"),
+            (16, "name16"),
+            (17, "name17"),
+            (18, "name18"),
+            (19, "name19"),
+            (20, "old20"),
+            (21, "old21"),
+            (30, "keep30"),
+            (31, "keep31"),
+        ]
+
+    def test_prepare_tables_incremental_skips_failed_removed_partition(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: an existing table with a removed partition that references a non-existent column.
+        WHEN: prepare_tables runs incrementally.
+        THEN: the failed delete is rolled back and changed partitions still succeed.
+        """
+        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        changed_10 = partition("10")
+        bad_removed = PhysicalPartition(
+            partition_id="99",
+            signature="signature",
+            selection=RangeSelection(
+                partition_id="99",
+                column="nonexistent",
+                lower=0,
+                upper=100,
+            ),
+        )
+        path_10 = "/test-files/people_partition_10.parquet"
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={"10": changed_10},
+                    changed_paths={"10": path_10},
+                    removed_partitions={"99": bad_removed},
+                )
+            },
+        )
+        duckdb = connect(":memory:")
+
+        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
+        postgres.execute(
+            "INSERT INTO app.people VALUES (10, 'old10'), (11, 'old11'), (20, 'keep20')"
+        )
+        postgres.commit()
+
+        prepared = prepare_tables(
+            postgres,
+            duckdb,
+            sync_config([table]),
+            plan,
+            {table.name},
+        )
+
+        remaining = postgres.execute(
+            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        ).fetchall()
+
+        assert prepared == [table]
+        assert remaining == [
+            (10, "name10"),
+            (11, "name11"),
+            (12, "name12"),
+            (13, "name13"),
+            (14, "name14"),
+            (15, "name15"),
+            (16, "name16"),
+            (17, "name17"),
+            (18, "name18"),
+            (19, "name19"),
+            (20, "keep20"),
+        ]
 
     def test_prepare_tables_full_rebuilds_partitioned_from_parquet(
         self,
@@ -298,9 +457,9 @@ class TestLoadingPrepareTablesPartitions:
             return "SELECT 1"
 
         with (
-            patch("dp.publication.render_template", side_effect=render),
-            patch("dp.publication.create_incremental_shadow") as create_shadow,
+            patch("dp.templates.render_template", side_effect=render),
             patch("dp.publication.bootstrap_table"),
+            patch("dp.publication.cast_json_columns_to_jsonb"),
             patch("dp.publication.load_table") as load,
         ):
             prepared = prepare_tables(
@@ -312,7 +471,6 @@ class TestLoadingPrepareTablesPartitions:
             )
 
         assert "duckdb/create_table_from_parquet" in rendered
-        create_shadow.assert_not_called()
         load.assert_called_once_with(duckdb, "app", "people__next", [path])
         assert prepared == [table]
 
@@ -350,8 +508,9 @@ class TestLoadingPrepareTablesPartitions:
             calls.append("load")
 
         with (
-            patch("dp.publication.render_template", return_value="SELECT 1"),
+            patch("dp.templates.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
+            patch("dp.publication.cast_json_columns_to_jsonb"),
             patch("dp.publication.load_table", side_effect=record_load),
         ):
             prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
@@ -392,6 +551,45 @@ class TestLoadingPublishPrepared:
 
         assert publish.call_count == 2
         assert result == {"p.app.one", "p.app.two"}
+
+    def test_publish_prepared_tables_skips_swap_for_incremental(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: an incremental partitioned table that was prepared.
+        WHEN: publish_prepared_tables runs.
+        THEN: it skips the table swap and only updates freshness.
+        """
+        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "s3://bucket/10.parquet"},
+                    removed_partitions={},
+                )
+            },
+        )
+
+        with (
+            patch("dp.publication.publish_table") as publish,
+            patch("dp.publication.update_published_freshness") as freshness,
+        ):
+            result = publish_prepared_tables(
+                postgres,
+                [table],
+                plan,
+                {},
+                Instant.now(),
+            )
+
+        publish.assert_not_called()
+        freshness.assert_called_once()
+        assert result == {"p.app.people"}
 
     def test_publish_prepared_tables_excludes_failed_publication(
         self,

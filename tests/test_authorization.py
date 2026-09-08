@@ -7,8 +7,7 @@ from dp.authorization import (
     schema_scope_predicate,
 )
 from dp.models import UnitMapping
-from dp.templates import TemplateSpec
-from tests.helpers import execute_sql, execute_template
+from tests.helpers import execute_sql
 
 
 class TestAuthorization:
@@ -36,17 +35,11 @@ class TestAuthorization:
         WHEN: bootstrap_table is called.
         THEN: it receives a read grant and a schema-scope policy.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table",
                     "columns": "id_cras text",
-                },
-            ),
-        )
+                })
 
         bootstrap_table(
             postgres,
@@ -71,24 +64,12 @@ class TestAuthorization:
         WHEN: bootstrap_table is called.
         THEN: it renders grants and the access_policy check together.
         """
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_table",
-                mapping={
+        execute_sql(postgres, "postgres/create_table", mapping={
                     "schema": "app",
                     "table": "table",
                     "columns": "id_cras text",
-                },
-            ),
-        )
-        execute_template(
-            postgres,
-            TemplateSpec(
-                path="postgres/create_access_policy",
-                mapping={},
-            ),
-        )
+                })
+        execute_sql(postgres, "postgres/create_access_policy")
 
         bootstrap_table(
             postgres,
