@@ -8,6 +8,7 @@ from faststream.exceptions import StopApplication
 from dp.constants import DUMP_STREAM
 from dp.log import logger
 from dp.models import DumpFailure, DumpTask
+from dp.settings import settings
 from dp.state import complete_dump
 
 type Publish = Callable[..., Awaitable[object]]
@@ -29,8 +30,6 @@ async def retry_or_stop(
             stream=DUMP_STREAM,
         )
         raise StopApplication(1) from error
-
-    from dp.settings import settings
 
     async with settings.redis as redis:
         await complete_dump(redis, task, DumpFailure(failed_path=task.bucket_path))

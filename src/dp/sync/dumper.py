@@ -13,7 +13,7 @@ from ..duckdb import connect
 from ..errors import retry_or_stop
 from ..extraction import extract_task
 from ..log import elapsed_ms, logger, runid, tablename
-from ..metrics import dump_task_duration_seconds, dump_tasks_total, tracker
+from ..metrics import metrics, tracker
 from ..models import DumpSuccess, DumpTask, SeedTask
 from ..settings import settings
 from ..state import cleanup_consumer, complete_dump
@@ -76,8 +76,9 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
         await broker.publish(SeedTask(run_id=task.run_id), stream=SEED_STREAM)
 
     duration = monotonic() - started
-    dump_task_duration_seconds.labels(table=task.table).observe(duration)
-    dump_tasks_total.labels(table=task.table, status=result.status.value).inc()
+
+    metrics.dump_task_duration_seconds.labels(table=task.table).observe(duration)
+    metrics.dump_tasks_total.labels(table=task.table, status=result.status.value).inc()
 
     logger.info(
         "Dump completed task_id=%s status=%s elapsed_ms=%d remaining=%d",

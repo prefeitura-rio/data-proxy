@@ -33,6 +33,24 @@ from .state import read_partition_manifest, read_table_signature
 from .templates import render_template
 
 
+@dataclass(frozen=True, slots=True)
+class PartitionChanges:
+    """Physical partition changes for one table."""
+
+    full_rebuild: bool
+    changed: set[str]
+    removed: set[str]
+    previous: dict[str, PhysicalPartition]
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionTaskBatch:
+    """Extraction paths and tasks for changed physical partitions."""
+
+    paths: dict[str, str]
+    tasks: list[DumpTask]
+
+
 def discover_json_columns(db: DuckDBPyConnection, bq_table: str) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = db.execute(
@@ -76,12 +94,7 @@ def expand_config(
 
 
 def table_signature(table: TableConfig, claim: str | None, modified: str) -> str:
-    """Combine source modification time with table and schema configuration.
-
-    Hashes extraction fields (name, strategy, n) and publication fields
-    (rls, indexes, claim) so that RLS, index, or claim changes trigger
-    re-sync. Excludes resolved_schema (internal, set by stamp_resolved_schema).
-    """
+    """Combine source modification time with table and schema configuration."""
     config_fields = {
         "name": table.name,
         "strategy": table.strategy,
@@ -115,24 +128,6 @@ async def detect_changes(config: SyncConfig, redis: Redis) -> dict[str, str]:
                 changed[table.name] = current
 
     return changed
-
-
-@dataclass(frozen=True, slots=True)
-class PartitionChanges:
-    """Physical partition changes for one table."""
-
-    full_rebuild: bool
-    changed: set[str]
-    removed: set[str]
-    previous: dict[str, PhysicalPartition]
-
-
-@dataclass(frozen=True, slots=True)
-class PartitionTaskBatch:
-    """Extraction paths and tasks for changed physical partitions."""
-
-    paths: dict[str, str]
-    tasks: list[DumpTask]
 
 
 def partition_changes(

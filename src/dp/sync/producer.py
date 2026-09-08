@@ -10,7 +10,7 @@ from whenever import Instant
 from ..constants import DUMP_STREAM, SEED_STREAM
 from ..duckdb import connect
 from ..log import elapsed_ms, logger, runid
-from ..metrics import producer_runs_total, tracker
+from ..metrics import metrics, tracker
 from ..models import SeedTask
 from ..planning import build_sync_work
 from ..settings import settings
@@ -34,7 +34,7 @@ async def produce() -> None:
             remaining = await read_remaining(redis, active_run)
             if remaining == 0:
                 await broker.publish(SeedTask(run_id=active_run), stream=SEED_STREAM)
-            producer_runs_total.labels(status="recovered").inc()
+            metrics.producer_runs_total.labels(status="recovered").inc()
 
             producer.exit()
             return
@@ -48,14 +48,14 @@ async def produce() -> None:
 
         if not work.plans:
             logger.info("No table changes")
-            producer_runs_total.labels(status="no_changes").inc()
+            metrics.producer_runs_total.labels(status="no_changes").inc()
 
             producer.exit()
             return
 
         if not await create_run(redis, runidval, work.plans, len(work.tasks)):
             logger.warning("An active run already exists")
-            producer_runs_total.labels(status="active_run_conflict").inc()
+            metrics.producer_runs_total.labels(status="active_run_conflict").inc()
 
             producer.exit()
             return
@@ -74,7 +74,7 @@ async def produce() -> None:
         len(work.plans),
         elapsed_ms(started),
     )
-    producer_runs_total.labels(status="success").inc()
+    metrics.producer_runs_total.labels(status="success").inc()
 
     producer.exit()
 

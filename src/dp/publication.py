@@ -29,7 +29,7 @@ from .models import (
     TimeRangeSelection,
 )
 from .settings import settings
-from .templates import render_template
+from .templates import execute_sql, render_template
 
 
 def load_table(
@@ -40,16 +40,53 @@ def load_table(
 ) -> None:
     """Load exact Parquet paths into a prepared PostgreSQL table."""
     for path in paths:
-        conn.execute(
-            render_template(
-                path="duckdb/load_parquet",
-                mapping={
-                    "schema": Identifier(schema),
-                    "table_name": Identifier(table_name),
-                    "gcs_path": Literal(path),
-                },
-            )
+        execute_sql(
+            conn,
+            "duckdb/load_parquet",
+            mapping={
+                "schema": Identifier(schema),
+                "table_name": Identifier(table_name),
+                "gcs_path": Literal(path),
+            },
         )
+
+
+def load_partition(
+    pg_conn: Connection,
+    schema: str,
+    table_name: str,
+    path: str,
+) -> None:
+    """Load one Parquet partition into a table via pgduckdb read_parquet."""
+    rows = cast(
+        "list[tuple[str, str]]",
+        execute_sql(
+            pg_conn,
+            "postgres/column_types",
+            params=(schema, table_name),
+        ).fetchall(),
+    )
+
+    select_list = SQL(", ").join(
+        SQL("r[{}]::{} AS {}").format(
+            Literal(col),
+            SQL(cast(LiteralString, typ)),
+            Identifier(col),
+        )
+        for col, typ in rows
+    )
+
+    execute_sql(
+        pg_conn,
+        "postgres/load_partition",
+        mapping={
+            "temp": Identifier("_load_partition"),
+            "cols": select_list,
+            "path": Literal(path),
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
+        },
+    )
 
 
 def cast_json_columns_to_jsonb(
@@ -58,22 +95,22 @@ def cast_json_columns_to_jsonb(
     table_name: str,
 ) -> None:
     """Alter every json column on a table to jsonb before loading data."""
-    rows = conn.execute(
-        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s AND data_type = 'json' ORDER BY column_name",
-        (schema, table_name),
+    rows = execute_sql(
+        conn,
+        "postgres/json_columns",
+        params=(schema, table_name),
     ).fetchall()
 
     for row in rows:
         column = cast(str, row[0])
-        conn.execute(
-            render_template(
-                path="pg/cast_json_to_jsonb",
-                mapping={
-                    "schema": Identifier(schema),
-                    "table": Identifier(table_name),
-                    "column": Identifier(column),
-                },
-            ).encode()
+        execute_sql(
+            conn,
+            "postgres/cast_json_to_jsonb",
+            mapping={
+                "schema": Identifier(schema),
+                "table": Identifier(table_name),
+                "column": Identifier(column),
+            },
         )
 
 
@@ -89,33 +126,31 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
         else:
             columns = SQL(", ").join(Identifier(column) for column in index.columns)
 
-        conn.execute(
-            render_template(
-                path="pg/create_index",
-                mapping={
-                    "name": Identifier(index.name),
-                    "schema": Identifier(table.resolved_schema),
-                    "table": Identifier(table_name),
-                    "method": SQL(method),
-                    "columns": columns,
-                },
-            ).encode()
+        execute_sql(
+            conn,
+            "postgres/create_index",
+            mapping={
+                "name": Identifier(index.name),
+                "schema": Identifier(table.resolved_schema),
+                "table": Identifier(table_name),
+                "method": SQL(method),
+                "columns": columns,
+            },
         )
 
 
 def publish_table(conn: Connection, table: TableConfig) -> None:
     """Atomically swap one prepared shadow table into service."""
     table_name = table.table_name
-    conn.execute(
-        render_template(
-            path="pg/swap_table",
-            mapping={
-                "schema": Identifier(table.resolved_schema),
-                "table": Identifier(table_name),
-                "next_table": Identifier(f"{table_name}__next"),
-                "old_table": Identifier(f"{table_name}__old"),
-            },
-        ).encode()
+    execute_sql(
+        conn,
+        "postgres/swap_table",
+        mapping={
+            "schema": Identifier(table.resolved_schema),
+            "table": Identifier(table_name),
+            "next_table": Identifier(f"{table_name}__next"),
+            "old_table": Identifier(f"{table_name}__old"),
+        },
     )
 
     create_indexes(conn, table, table_name)
@@ -190,51 +225,37 @@ def planned_paths(
             assert_never(partitioned)
 
 
-def affected_partitions(partitioned: PartitionedTablePlan) -> list[PhysicalPartition]:
-    """Return changed and removed partitions excluded from the live-table copy."""
-    changed = [
-        partitioned.current_partitions[partition_id]
-        for partition_id in partitioned.changed_paths
-    ]
-
-    return [*changed, *partitioned.removed_partitions.values()]
-
-
 def partition_predicate(partition: PhysicalPartition) -> SQL:
     """Return the SQL predicate that matches one partition."""
     mapping = selection_fields(partition.selection)
 
     match partition.selection:
         case RangeSelection() | TimeRangeSelection():
-            path = "pg/partition_range_predicate"
+            path = "postgres/partition_range_predicate"
         case RemainderSelection():
-            path = "pg/partition_remainder_predicate"
+            path = "postgres/partition_remainder_predicate"
         case _:  # pragma: no cover
             assert_never(partition.selection)
 
-    return SQL(cast(LiteralString, render_template(path, mapping)))
+    return SQL(render_template(path, mapping, as_literal=True))
 
 
-def create_incremental_shadow(
+def delete_partitions(
     pg_conn: Connection,
     table: TableConfig,
     affected: list[PhysicalPartition],
 ) -> None:
-    """Create a shadow table and retain rows outside affected ranges."""
+    """Delete rows in affected partitions from the live table."""
     predicates = [partition_predicate(partition) for partition in affected]
-    pg_conn.execute(
-        render_template(
-            path="pg/prepare_incremental_table",
-            mapping={
-                "schema": Identifier(table.resolved_schema),
-                "table": Identifier(table.table_name),
-                "next_table": Identifier(f"{table.table_name}__next"),
-                "affected_partitions": SQL(" OR ").join(predicates),
-            },
-        ).encode()
+    execute_sql(
+        pg_conn,
+        "postgres/delete_partitions",
+        mapping={
+            "schema": Identifier(table.resolved_schema),
+            "table": Identifier(table.table_name),
+            "affected_partitions": SQL(" OR ").join(predicates),
+        },
     )
-
-    pg_conn.commit()
 
 
 def create_shadow_from_parquet(
@@ -247,15 +268,15 @@ def create_shadow_from_parquet(
     if not paths:
         message = f"Parquet paths missing from sync plan: {table.name}"
         raise RuntimeError(message)
-    duckdb_conn.execute(
-        render_template(
-            path="duckdb/create_table_from_parquet",
-            mapping={
-                "schema": Identifier(table.resolved_schema),
-                "table": Identifier(shadow_name),
-                "gcs_path": Literal(paths[0]),
-            },
-        )
+
+    execute_sql(
+        duckdb_conn,
+        "duckdb/create_table_from_parquet",
+        mapping={
+            "schema": Identifier(table.resolved_schema),
+            "table": Identifier(shadow_name),
+            "gcs_path": Literal(paths[0]),
+        },
     )
 
 
@@ -266,12 +287,21 @@ def prepare_tables(
     plan: SyncPlan,
     changed: set[str],
 ) -> list[TableConfig]:
-    """Prepare, secure, and load each eligible shadow table."""
-    duckdb_conn.execute(
-        render_template(
-            path="duckdb/attach_postgres", mapping={"pg_dsn": Literal(settings.PG_DSN)}
-        )
+    """Prepare, secure, and load each eligible table."""
+    needs_duckdb = any(
+        plan.partitioned_tables.get(table.name) is None
+        or plan.partitioned_tables[table.name].full_rebuild
+        for table in config.tables
+        if table.name in changed
     )
+
+    if needs_duckdb:
+        execute_sql(
+            duckdb_conn,
+            "duckdb/attach_postgres",
+            mapping={"pg_dsn": Literal(settings.PG_DSN)},
+        )
+
     prepared: list[TableConfig] = []
 
     for table in config.tables:
@@ -283,7 +313,9 @@ def prepare_tables(
         shadow_name = f"{table.table_name}__next"
 
         logger.info(
-            "Table preparation started table=%s path_count=%d", table.name, len(paths)
+            "Table preparation started table=%s path_count=%d",
+            table.name,
+            len(paths),
         )
 
         try:
@@ -291,28 +323,62 @@ def prepare_tables(
                 case PartitionedTablePlan() as table_plan if (
                     not table_plan.full_rebuild
                 ):
-                    create_incremental_shadow(
-                        pg_conn, table, affected_partitions(table_plan)
-                    )
+                    pg_conn.autocommit = True
+                    try:
+                        for partition_id, path in table_plan.changed_paths.items():
+                            single = table_plan.current_partitions[partition_id]
+                            try:
+                                with pg_conn.transaction():
+                                    delete_partitions(pg_conn, table, [single])
+                                    load_partition(
+                                        pg_conn,
+                                        table.resolved_schema,
+                                        table.table_name,
+                                        path,
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "Partition load failed table=%s partition=%s",
+                                    table.name,
+                                    partition_id,
+                                )
+
+                        for single in table_plan.removed_partitions.values():
+                            try:
+                                with pg_conn.transaction():
+                                    delete_partitions(pg_conn, table, [single])
+                            except Exception:
+                                logger.exception(
+                                    "Partition delete failed table=%s partition=%s",
+                                    table.name,
+                                    single.partition_id,
+                                )
+                    finally:
+                        pg_conn.autocommit = False
                 case _:
                     create_shadow_from_parquet(duckdb_conn, table, shadow_name, paths)
+                    schema_config = config.schemas.get(table.resolved_schema)
 
-            schema_config = config.schemas.get(table.resolved_schema)
+                    with pg_conn.transaction():
+                        bootstrap_table(
+                            pg_conn,
+                            table.resolved_schema,
+                            shadow_name,
+                            table.rls,
+                            schema_config.claim if schema_config else None,
+                        )
 
-            with pg_conn.transaction():
-                bootstrap_table(
-                    pg_conn,
-                    table.resolved_schema,
-                    shadow_name,
-                    table.rls,
-                    schema_config.claim if schema_config else None,
-                )
+                    logger.info(
+                        "Loading table table=%s path_count=%d",
+                        table.name,
+                        len(paths),
+                    )
+                    load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
 
-            logger.info("Loading table table=%s path_count=%d", table.name, len(paths))
-            load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
-
-            with pg_conn.transaction():
-                cast_json_columns_to_jsonb(pg_conn, table.resolved_schema, shadow_name)
+                    with pg_conn.transaction():
+                        cast_json_columns_to_jsonb(
+                            pg_conn, table.resolved_schema, shadow_name
+                        )
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
             continue
@@ -336,9 +402,14 @@ def publish_prepared_tables(
     for table in prepared:
         logger.info("Table publication started table=%s", table.name)
 
+        table_plan = plan.partitioned_tables.get(table.name)
+        is_incremental = table_plan is not None and not table_plan.full_rebuild
+
         try:
             with pg_conn.transaction():
-                publish_table(pg_conn, table)
+                if not is_incremental:
+                    publish_table(pg_conn, table)
+
                 update_published_freshness(
                     pg_conn,
                     table,

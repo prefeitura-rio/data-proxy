@@ -1,8 +1,8 @@
 """Prometheus metrics and async Pushgateway client for pipeline workers."""
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from functools import wraps
-from typing import ParamSpec
 
 from httpx2 import AsyncClient
 from prometheus_client import Counter, Histogram, generate_latest
@@ -10,41 +10,50 @@ from prometheus_client import Counter, Histogram, generate_latest
 from dp.log import logger
 from dp.settings import settings
 
-dump_tasks_total = Counter(
-    "dump_tasks_total",
-    "Total dump tasks processed",
-    labelnames=("table", "status"),
-)
 
-dump_task_duration_seconds = Histogram(
-    "dump_task_duration_seconds",
-    "Dump task duration in seconds",
-    labelnames=("table",),
-)
+@dataclass(slots=True)
+class Metrics:
+    """Container for all pipeline Prometheus metrics."""
 
-publish_tables_total = Counter(
-    "publish_tables_total",
-    "Total tables published",
-    labelnames=("schema", "status"),
-)
+    dump_tasks_total: Counter = field(init=False)
+    dump_task_duration_seconds: Histogram = field(init=False)
+    publish_tables_total: Counter = field(init=False)
+    publish_table_duration_seconds: Histogram = field(init=False)
+    seed_runs_total: Counter = field(init=False)
+    producer_runs_total: Counter = field(init=False)
 
-publish_table_duration_seconds = Histogram(
-    "publish_table_duration_seconds",
-    "Table publication duration in seconds",
-    labelnames=("table",),
-)
-
-seed_runs_total = Counter(
-    "seed_runs_total",
-    "Total seed runs processed",
-    labelnames=("status",),
-)
-
-producer_runs_total = Counter(
-    "producer_runs_total",
-    "Total producer runs processed",
-    labelnames=("status",),
-)
+    def __post_init__(self) -> None:
+        """Initialize all counters and histograms."""
+        self.dump_tasks_total = Counter(
+            "dump_tasks_total",
+            "Total dump tasks processed",
+            labelnames=("table", "status"),
+        )
+        self.dump_task_duration_seconds = Histogram(
+            "dump_task_duration_seconds",
+            "Dump task duration in seconds",
+            labelnames=("table",),
+        )
+        self.publish_tables_total = Counter(
+            "publish_tables_total",
+            "Total tables published",
+            labelnames=("schema", "status"),
+        )
+        self.publish_table_duration_seconds = Histogram(
+            "publish_table_duration_seconds",
+            "Table publication duration in seconds",
+            labelnames=("table",),
+        )
+        self.seed_runs_total = Counter(
+            "seed_runs_total",
+            "Total seed runs processed",
+            labelnames=("status",),
+        )
+        self.producer_runs_total = Counter(
+            "producer_runs_total",
+            "Total producer runs processed",
+            labelnames=("status",),
+        )
 
 
 async def push_to_gateway(url: str, job: str) -> None:
@@ -65,10 +74,7 @@ async def push_to_gateway(url: str, job: str) -> None:
         logger.debug("pushgateway unavailable", exc_info=True)
 
 
-P = ParamSpec("P")
-
-
-def tracker(
+def tracker[**P](
     job: str,
 ) -> Callable[[Callable[P, Awaitable[None]]], Callable[P, Awaitable[None]]]:
     """Decorate an async worker to push metrics to Pushgateway after it completes."""
@@ -82,3 +88,6 @@ def tracker(
         return wrapper
 
     return decorator
+
+
+metrics = Metrics()

@@ -13,7 +13,7 @@ from redis.typing import StreamRangeResponse
 from ..constants import PUBLISH_STREAM, SEED_STREAM, SEEDERS_GROUP
 from ..errors import stop_on_error
 from ..log import logger, runid
-from ..metrics import seed_runs_total, tracker
+from ..metrics import metrics, tracker
 from ..models import PublishTask, SeedTask, SyncConfig
 from ..schema import initialize_schemas
 from ..settings import settings
@@ -94,7 +94,7 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
             )
         await pipe.execute()
 
-    seed_runs_total.labels(status="success").inc()
+    metrics.seed_runs_total.labels(status="success").inc()
 
     logger.info(
         "Seed completed schemas=%s", ",".join(plan.schema_name for plan in plans)

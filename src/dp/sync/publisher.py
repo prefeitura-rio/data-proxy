@@ -15,11 +15,7 @@ from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
 from ..log import elapsed_ms, logger, runid, schemaname
-from ..metrics import (
-    publish_table_duration_seconds,
-    publish_tables_total,
-    tracker,
-)
+from ..metrics import metrics, tracker
 from ..models import PublishTask, SyncConfig, SyncPlan, TableState
 from ..schema import reload_postgrest
 from ..settings import settings
@@ -114,12 +110,12 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
     duration = monotonic() - started
 
     for table_name in result.published_tables:
-        publish_tables_total.labels(schema=task.schema_name, status="success").inc()
-        publish_table_duration_seconds.labels(table=table_name).observe(duration)
+        metrics.publish_tables_total.labels(schema=task.schema_name, status="success").inc()
+        metrics.publish_table_duration_seconds.labels(table=table_name).observe(duration)
 
     for table_name in result.plan.signatures:
         if table_name not in result.published_tables:
-            publish_tables_total.labels(schema=task.schema_name, status="failure").inc()
+            metrics.publish_tables_total.labels(schema=task.schema_name, status="failure").inc()
 
     logger.info(
         "Publish completed tables=%d elapsed_ms=%d",

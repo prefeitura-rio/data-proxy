@@ -7,11 +7,11 @@ from psycopg.sql import Identifier
 from whenever import Instant
 
 from .models import SyncPlan, TableConfig
-from .templates import render_template
+from .templates import SQLParam, execute_sql
 
 
 def upsert_freshness(
-    pg_conn: Connection | Connection,
+    pg_conn: Connection,
     table: TableConfig,
     partitions: Collection[str | None],
     attempted_at: Instant,
@@ -26,12 +26,11 @@ def upsert_freshness(
     updated_at = attempted_datetime if success else None
 
     with pg_conn.cursor() as cursor:
-        cursor.executemany(
-            render_template(
-                path="pg/upsert_freshness",
-                mapping={"schema": Identifier(table.resolved_schema)},
-            ).encode(),
-            [
+        execute_sql(
+            cursor,
+            "postgres/upsert_freshness",
+            mapping={"schema": Identifier(table.resolved_schema)},
+            params=[
                 (
                     table.table_name,
                     table.strategy.value,
@@ -45,41 +44,37 @@ def upsert_freshness(
         )
 
 
-def delete_freshness(
-    pg_conn: Connection | Connection, table: TableConfig, partitions: Collection[str]
+def delete_partition_freshness(
+    pg_conn: Connection, table: TableConfig, partitions: Collection[str]
 ) -> None:
     """Delete freshness for removed partitions."""
     if not partitions:
         return
 
     with pg_conn.cursor() as cursor:
-        cursor.executemany(
-            render_template(
-                path="pg/delete_partition_freshness",
-                mapping={"schema": Identifier(table.resolved_schema)},
-            ).encode(),
-            [
+        execute_sql(
+            cursor,
+            "postgres/delete_partition_freshness",
+            mapping={"schema": Identifier(table.resolved_schema)},
+            params=[
                 (table.table_name, table.strategy.value, partition)
                 for partition in partitions
             ],
         )
 
 
-def delete_table_freshness(
-    pg_conn: Connection | Connection, table: TableConfig
-) -> None:
+def delete_table_freshness(pg_conn: Connection, table: TableConfig) -> None:
     """Delete all freshness rows for one table."""
-    pg_conn.execute(
-        render_template(
-            path="pg/delete_table_freshness",
-            mapping={"schema": Identifier(table.resolved_schema)},
-        ).encode(),
-        (table.table_name,),
+    execute_sql(
+        pg_conn,
+        "postgres/delete_table_freshness",
+        mapping={"schema": Identifier(table.resolved_schema)},
+        params=(table.table_name,),
     )
 
 
 def update_published_freshness(
-    pg_conn: Connection | Connection,
+    pg_conn: Connection,
     table: TableConfig,
     plan: SyncPlan,
     failed_partitions: set[str],
@@ -106,11 +101,13 @@ def update_published_freshness(
         upsert_freshness(pg_conn, table, failed_partitions, attempted_at, success=False)
 
     if partitioned.removed_partitions:
-        delete_freshness(pg_conn, table, partitioned.removed_partitions.keys())
+        delete_partition_freshness(
+            pg_conn, table, partitioned.removed_partitions.keys()
+        )
 
 
 def record_table_failures(
-    pg_conn: Connection | Connection,
+    pg_conn: Connection,
     tables: list[TableConfig],
     plan: SyncPlan,
     attempted_at: Instant,
@@ -121,7 +118,7 @@ def record_table_failures(
         return
 
     attempted_datetime = attempted_at.to_stdlib()
-    rows: list[tuple[object, ...]] = []
+    rows: list[tuple[SQLParam, ...]] = []
 
     for table in tables:
         partitioned = plan.partitioned_tables.get(table.name)
@@ -144,11 +141,11 @@ def record_table_failures(
             )
             for partition in partitions
         )
+
     with pg_conn.transaction(), pg_conn.cursor() as cursor:
-        cursor.executemany(
-            render_template(
-                path="pg/upsert_freshness",
-                mapping={"schema": Identifier(tables[0].resolved_schema)},
-            ).encode(),
-            rows,
+        execute_sql(
+            cursor,
+            "postgres/upsert_freshness",
+            mapping={"schema": Identifier(tables[0].resolved_schema)},
+            params=rows,
         )

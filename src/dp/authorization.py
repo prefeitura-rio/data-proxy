@@ -40,7 +40,7 @@ def table_access_policy_statement(
 ) -> str:
     """Render one access-policy RLS statement."""
     return render_template(
-        path="pg/access_policy_check",
+        path="postgres/access_policy_check",
         mapping={
             "schema": Identifier(schema),
             "table": Identifier(table_name),
@@ -54,7 +54,7 @@ def table_access_policy_statement(
 def schema_scope_statement(schema: str, table_name: str) -> str:
     """Render one schema-scope RLS statement."""
     return render_template(
-        path="pg/schema_scope_check",
+        path="postgres/schema_scope_check",
         mapping={
             "schema": Identifier(schema),
             "table": Identifier(table_name),
@@ -66,7 +66,7 @@ def schema_scope_statement(schema: str, table_name: str) -> str:
 def access_policy_writer_statement(schema: str) -> str:
     """Render one schema policy-writer statement."""
     return render_template(
-        path="pg/access_policy_writer",
+        path="postgres/access_policy_writer",
         mapping={
             "schema": Identifier(schema),
             "policy_writer_role": Identifier(f"policy_writer_{schema}"),
@@ -91,7 +91,7 @@ def bootstrap_table(
     """Apply table grants and optional row-level security."""
     statements = [
         render_template(
-            path="pg/grant_select",
+            path="postgres/grant_select",
             mapping={
                 "schema": Identifier(schema),
                 "table": Identifier(table_name),
