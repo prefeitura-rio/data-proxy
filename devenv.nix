@@ -10,12 +10,13 @@
   };
 
   packages = with pkgs; [
-    k6
-    minikube
-    nushell
-    http-nu
     ast-grep
+    http-nu
+    k6
     kubeconform
+    minikube
+    nu-lint
+    nushell
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -52,6 +53,14 @@
       entry = "${pkgs.uv}/bin/uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
+      pass_filenames = false;
+    };
+    nu-lint = {
+      enable = true;
+      name = "nu-lint";
+      entry = "${pkgs.nu-lint}/bin/nu-lint helm/files";
+      language = "system";
+      types = [ "nu" ];
       pass_filenames = false;
     };
   };

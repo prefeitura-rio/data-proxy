@@ -1,2 +1,0 @@
-# DuckDB SQL templates use ${...} placeholders; skip until placeholder templater is configured.
-src/dp/sql/

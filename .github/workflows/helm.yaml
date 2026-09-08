@@ -36,17 +36,26 @@ jobs:
             --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
           PG_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-postgres/versions \
             --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
+          NU_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-nushell/versions \
+            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
           echo "app=$APP_SHA" >> "$GITHUB_OUTPUT"
           echo "postgres=$PG_SHA" >> "$GITHUB_OUTPUT"
+          echo "nushell=$NU_SHA" >> "$GITHUB_OUTPUT"
           echo "Resolved app image SHA: $APP_SHA"
           echo "Resolved postgres image SHA: $PG_SHA"
+          echo "Resolved nushell image SHA: $NU_SHA"
       - name: Pin image SHAs in values.yaml
         run: |
           yq e ".image.tag = strenv(APP_SHA)" -i helm/values.yaml
           yq e ".pgduckdb.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
+          yq e ".nushell.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".pgduckdb.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
         env:
           APP_SHA: ${{ steps.shas.outputs.app }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
+          NU_SHA: ${{ steps.shas.outputs.nushell }}
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
@@ -102,6 +111,11 @@ jobs:
         uses: hustcer/setup-nu@main
         with:
           version: "0.107.0"
+      - name: Validate Nushell scripts with nu-lint
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          curl -sL https://codeberg.org/wvhulle/nu-lint/releases/download/v1.2.1/nu-lint-x86_64-unknown-linux-musl.tar.gz | tar xz
+          ./nu-lint helm/files/scripts/*.nu
       - name: Render and validate chart
         if: steps.guard.outputs.skip != 'true'
         run: nu scripts/test-charts.nu

@@ -10,6 +10,7 @@ on:
       - uv.lock
       - Dockerfile
       - Dockerfile.postgres
+      - Dockerfile.nushell
       - docker-compose.yaml
       - scripts/**
       - .sqlfluff
@@ -139,6 +140,52 @@ jobs:
         if: steps.guard.outputs.built == 'true'
         with:
           file: Dockerfile.postgres
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+  build-nushell:
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - lint
+      - test
+    runs-on: ubuntu-latest
+    outputs:
+      built: ${{ steps.guard.outputs.built }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Skip if Dockerfile.nushell unchanged
+        id: guard
+        run: |
+          if [ -z "$(git diff --name-only HEAD~1 HEAD -- Dockerfile.nushell)" ]; then
+            echo "No changes to Dockerfile.nushell — skipping build."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: hadolint/hadolint-action@v3.2.0
+        if: steps.guard.outputs.built == 'true'
+        with:
+          dockerfile: Dockerfile.nushell
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: steps.guard.outputs.built == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        if: steps.guard.outputs.built == 'true'
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}-nushell
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        if: steps.guard.outputs.built == 'true'
+        with:
+          file: Dockerfile.nushell
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
