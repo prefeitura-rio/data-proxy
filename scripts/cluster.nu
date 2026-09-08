@@ -1,38 +1,62 @@
+# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration
 use std/log
 
-const PROFILE = "data-proxy"
+const PROFILE = 'data-proxy'
 
 # Path to the repository git-root.
 def git-root []: nothing -> string {
-    ^git rev-parse --show-toplevel | str trim
+    git rev-parse --show-toplevel | str trim
+}
+
+# Format a duration as a human-readable string, dropping sub-second precision.
+def format-age [d: duration]: nothing -> string {
+    let total_sec = $d / 1sec | into int
+    let hr = ($total_sec // 3600)
+    let min = (($total_sec mod 3600) // 60)
+    let sec = (($total_sec mod 3600) mod 60)
+    [
+        [$hr "hr"]
+        [$min "min"]
+        [$sec "sec"]
+    ]
+    | each {|p| if $p.0 > 0 { $"($p.0)($p.1)" } }
+    | flatten
+    | str join " "
 }
 
 # Wrapped kubectl using the isolated kubeconfig.
-def --wrapped kc [kubecfg: path, ...rest]: string -> string, nothing -> string {
-    ^kubectl --kubeconfig=($kubecfg) --context=($PROFILE) ...$rest
+def --wrapped kc [kubecfg: path, ...rest: string]: string -> string, nothing -> string {
+    kubectl --kubeconfig=($kubecfg) --context=($PROFILE) ...$rest
 }
 
 # Wrapped minikube for the data-proxy profile with the isolated kubeconfig.
-def --wrapped mk [kubecfg: path, ...rest]: nothing -> string {
-    with-env { KUBECONFIG: $kubecfg } {
-        ^minikube --profile $PROFILE ...$rest
+def --wrapped mk [kubecfg: path, ...rest: string]: nothing -> string {
+    with-env {KUBECONFIG: $kubecfg} {
+        minikube --profile $PROFILE ...$rest
     }
 }
 
 # Wrapped helm using the isolated kubeconfig.
-def --wrapped hm [kubecfg: path, ...rest]: nothing -> string {
-    with-env { KUBECONFIG: $kubecfg } {
+def --wrapped hm [kubecfg: path, ...rest: string]: nothing -> string {
+    with-env {KUBECONFIG: $kubecfg} {
         ^helm --kube-context $PROFILE ...$rest
     }
 }
 
 # Wait for the given resources to roll out.
-def wait-for [kind: string, kubecfg: path, refs: list<string>]: nothing -> list<string> {
-    $refs
-    | each {|ref|
-        let r = $ref | parse "{namespace}/{name}" | first
-        log info $"  ($kind)/($r.namespace)/($r.name)…"
-        kc $kubecfg -n $r.namespace rollout status $"($kind)/($r.name)" --timeout=15m
+def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
+    for ref in $in {
+        let r = $ref | parse '{namespace}/{name}' | first
+        log info $'  ($kind)/($r.namespace)/($r.name)…'
+        (kc
+            $kubecfg
+            -n
+            $r.namespace
+            rollout
+            status
+            $'($kind)/($r.name)'
+            --timeout=15m
+        )
     }
 }
 
@@ -75,94 +99,92 @@ def start-minikube [kubecfg: path]: nothing -> string {
 # Build the platform container images into Minikube.
 def --env build-images [kubecfg: path]: nothing -> string {
     let repo = git-root
-    cd $repo
+    try { cd $repo } catch {|err|
+        log error $'cd failed: ($err.msg)'
+        return
+    }
 
-    log info "Building data-proxy-postgres:local…"
-    ^docker build -t data-proxy-postgres:local -f Dockerfile.postgres .
-    log info "Loading data-proxy-postgres:local into Minikube…"
-    ^docker save data-proxy-postgres:local | mk $kubecfg image load -
+    log info 'Building data-proxy-postgres:local…'
+    docker build -t data-proxy-postgres:local -f Dockerfile.postgres .
+    log info 'Loading data-proxy-postgres:local into Minikube…'
+    docker save data-proxy-postgres:local | mk $kubecfg image load -
 
-    log info "Building localhost/k6:local…"
-    ^docker build -t localhost/k6:local -f Dockerfile.k6 .
-    log info "Loading localhost/k6:local into Minikube…"
-    ^docker save localhost/k6:local | mk $kubecfg image load -
+    log info 'Building data-proxy-nushell:local…'
+    docker build -t data-proxy-nushell:local -f Dockerfile.nushell .
+    log info 'Loading data-proxy-nushell:local into Minikube…'
+    docker save data-proxy-nushell:local | mk $kubecfg image load -
 
-    log info "Building localhost/oidc:local…"
-    ^docker build -t localhost/oidc:local -f Dockerfile.oidc .
-    log info "Loading localhost/oidc:local into Minikube…"
-    ^docker save localhost/oidc:local | mk $kubecfg image load -
+    log info 'Building localhost/k6:local…'
+    docker build -t localhost/k6:local -f Dockerfile.k6 .
+    log info 'Loading localhost/k6:local into Minikube…'
+    docker save localhost/k6:local | mk $kubecfg image load -
+
+    log info 'Building localhost/oidc:local…'
+    docker build -t localhost/oidc:local -f Dockerfile.oidc .
+    log info 'Loading localhost/oidc:local into Minikube…'
+    docker save localhost/oidc:local | mk $kubecfg image load -
 }
 
 # Install the platform Helm releases.
 def install-platform [kubecfg: path]: nothing -> nothing {
-    let charts = open scripts/charts.nuon
+    let charts = try { open scripts/charts.nuon } catch {|err|
+        log error $'Failed to open charts: ($err.msg)'
+        return
+    }
     | each {|c|
-        if "values_file" in ($c | columns) {
-            $c | reject values_file | merge { values: $"scripts/values/($c.values_file)" }
+        if $c has values_file {
+            $c | reject values_file | merge {values: $'scripts/values/($c.values_file)'}
         } else { $c }
     }
 
     $charts
-    | where {|c| "repo" in ($c | columns)}
+    | where $it has repo
     | select chart repo
     | uniq-by repo
-    | each {|c| try { hm $kubecfg repo add ($c.chart | split row "/" | first) $c.repo } catch { null } }
-    | ignore
+    | each {|c| try { hm $kubecfg repo add ($c.chart | parse '{repo}/{name}' | get repo) $c.repo } catch { null } }
 
     hm $kubecfg repo update
 
-    $charts
-    | each { helm $in $kubecfg }
-    | ignore
+    for chart in $charts {
+        helm $chart $kubecfg
+    }
 }
 
 # Apply the GCP service-account key as a Kubernetes secret.
 def apply-gcp-secret [kubecfg: path]: nothing -> string {
-    let creds = $env.HOME | path join ".config/gcloud/application_default_credentials.json"
+    let creds = $env.HOME | path join .config/gcloud/application_default_credentials.json
 
     if not ($creds | path exists) {
-        log warning "GCP credentials not found, skipping secret"
+        log warning 'GCP credentials not found, skipping secret'
         return
     }
 
     (
-        kc $kubecfg -n data-proxy create secret generic gcp-key $"--from-file=key.json=($creds)" --dry-run=client -o yaml
+        kc $kubecfg -n data-proxy create secret generic gcp-key $'--from-file=key.json=($creds)' --dry-run=client -o yaml
     )
     | kc $kubecfg apply -f -
 }
 
-# Format a duration as a human-readable string, dropping sub-second precision.
-def format-age [d: duration]: nothing -> string {
-    let total_sec = $d / 1sec | into int
-    let hr = ($total_sec // 3600)
-    let min = (($total_sec mod 3600) // 60)
-    let sec = (($total_sec mod 3600) mod 60)
-    [
-        [$hr "hr"]
-        [$min "min"]
-        [$sec "sec"]
-    ]
-    | each {|p| if $p.0 > 0 { $"($p.0)($p.1)" } }
-    | flatten
-    | str join " "
-}
-
 # Run an mc command inside the MinIO pod with credentials pre-configured.
 def mc [kubecfg: path, command: string]: nothing -> nothing {
+    let pod_jp = 'jsonpath={.items[0].metadata.name}'
+    let user_jp = 'jsonpath={.data.root-user}'
+    let pass_jp = 'jsonpath={.data.root-password}'
+
     let minio_pod = (
-        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
+        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=minio -o $pod_jp)
         | str trim
     )
 
     let minio_user = (
-        (kc $kubecfg -n data-proxy get secret minio -o jsonpath='{.data.root-user}')
+        (kc $kubecfg -n data-proxy get secret minio -o $user_jp)
         | decode base64
         | decode utf-8
         | str trim
     )
 
     let minio_pass = (
-        (kc $kubecfg -n data-proxy get secret minio -o jsonpath='{.data.root-password}')
+        (kc $kubecfg -n data-proxy get secret minio -o $pass_jp)
         | decode base64
         | decode utf-8
         | str trim
@@ -178,33 +200,34 @@ def mc [kubecfg: path, command: string]: nothing -> nothing {
             --
             sh
             -c
-            $"mc alias set local http://localhost:9000 ($minio_user) ($minio_pass) >/dev/null 2>&1; ($command) >/dev/null 2>&1; true"
+            $'mc alias set local http://localhost:9000 ($minio_user) ($minio_pass) >/dev/null 2>&1; ($command) >/dev/null 2>&1; true'
         )
     ) | ignore
 }
 
 # Create the MinIO test-bucket via the S3 API.
 def create-bucket [kubecfg: path]: nothing -> nothing {
-    log info "Creating MinIO test-bucket…"
-    mc $kubecfg "mc mb --ignore-existing local/test-bucket"
+    log info 'Creating MinIO test-bucket…'
+    mc $kubecfg 'mc mb --ignore-existing local/test-bucket'
 }
 
 # Delete the MinIO test-bucket via the S3 API.
 def delete-bucket [kubecfg: path]: nothing -> nothing {
-    log info "Deleting MinIO test-bucket…"
-    mc $kubecfg "mc rb --force --ignore-existing local/test-bucket"
+    log info 'Deleting MinIO test-bucket…'
+    mc $kubecfg 'mc rb --force --ignore-existing local/test-bucket'
 }
 
 # Clear MinIO, Redis, and Postgres so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
     create-bucket $kubecfg
 
-    log info "Clearing MinIO test-bucket contents…"
-    mc $kubecfg "mc rm --recursive --force local/test-bucket"
+    log info 'Clearing MinIO test-bucket contents…'
+    mc $kubecfg 'mc rm --recursive --force local/test-bucket'
 
-    log info "Clearing redis streams and consumer groups…"
+    log info 'Clearing redis streams and consumer groups…'
+    let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let valkey = (
-        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o jsonpath='{.items[0].metadata.name}')
+        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $pod_jp)
         | str trim
     )
 
@@ -259,10 +282,10 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         --
         sh
         -c
-        "redis-cli --scan --pattern 'dp:*' | xargs -r redis-cli DEL"
+        'redis-cli --scan --pattern dp:* | xargs -r redis-cli DEL'
     )
 
-    log info "Clearing Postgres tables…"
+    log info 'Clearing Postgres tables…'
     let duckdb = (kc
         $kubecfg
         -n
@@ -274,39 +297,39 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         -l
         app.kubernetes.io/component=duckdb
         -o
-        jsonpath='{.items[0].metadata.name}'
+        $pod_jp
     ) | str trim
 
     let tables = (
-        kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -t -A -c"SELECT tablename FROM pg_tables WHERE schemaname='pic' AND tablename NOT IN ('freshness','access_policy')"
+        kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
     )
 
     if ($tables | str trim | is-not-empty) {
         let drop_stmt = (
             $tables
             | lines
-            | each {|t| $"DROP TABLE IF EXISTS pic.\"($t | str trim)\" CASCADE"}
-            | str join "; "
+            | each {|t| $'DROP TABLE IF EXISTS pic."($t | str trim)" CASCADE' }
+            | str join '; '
         )
         (
-            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c $"($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c $'($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
         )
     } else {
         (
-            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c "DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c 'DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
         )
     }
 }
 
 # Run a k6 load test.
 def "main k6 load-test" [
-    profile: string = "smoke"  # smoke, load, or stress
+    profile: string = 'smoke'  # smoke, load, or stress
 ]: nothing -> string {
-    let kubecfg = git-root | path join ".kubeconfig"
+    let kubecfg = git-root | path join .kubeconfig
 
     clear-test-resources $kubecfg
 
-    log info "Creating k6 configmap…"
+    log info 'Creating k6 configmap…'
     (
         (kc
             $kubecfg
@@ -323,49 +346,55 @@ def "main k6 load-test" [
     )
     | kc $kubecfg apply -f -
 
-    log info "Deleting previous testrun…"
+    log info 'Deleting previous testrun…'
     kc $kubecfg -n data-proxy delete testrun data-proxy-load --ignore-not-found
 
-    log info "Applying testrun…"
-    open k6/run.yaml
+    log info 'Applying testrun…'
+    try { open k6/run.yaml } catch {|err|
+        log error $'Failed to open k6/run.yaml: ($err.msg)'
+        exit 1
+    }
     | update spec.runner.env {
-        $in | each {|e| if $e.name == "K6_PROFILE" { $e | update value $profile } else { $e }}
+        $in | each {|e| if $e.name == K6_PROFILE { $e | update value $profile } else { $e } }
     }
     | to yaml
     | kc $kubecfg apply -f -
 
-    log info "Watching testrun…"
+    log info 'Watching testrun…'
     kc $kubecfg -n data-proxy get testrun data-proxy-load -w
 }
 
 # Run the e2e test (triggers sync, seeds RLS, validates pipeline).
 def "main k6 e2e" []: nothing -> string {
-    let kubecfg = git-root | path join ".kubeconfig"
+    let kubecfg = git-root | path join .kubeconfig
 
     let repo = git-root
-    cd $repo
+    try { cd $repo } catch {|err|
+        log error $'cd failed: ($err.msg)'
+        return
+    }
 
-    log info "Building data-proxy:local…"
-    ^docker build -t data-proxy:local -f Dockerfile .
-    log info "Loading data-proxy:local into Minikube…"
-    ^docker save data-proxy:local | mk $kubecfg image load -
+    log info 'Building data-proxy:local…'
+    docker build -t data-proxy:local -f Dockerfile .
+    log info 'Loading data-proxy:local into Minikube…'
+    docker save data-proxy:local | mk $kubecfg image load -
 
-    log info "Upgrading data-proxy release…"
+    log info 'Upgrading data-proxy release…'
     (hm
         $kubecfg
         upgrade
         data-proxy
-        $"($repo)/helm"
+        $'($repo)/helm'
         --namespace
         data-proxy
         --values
-        $"($repo)/scripts/values/data-proxy.yaml"
+        $'($repo)/scripts/values/data-proxy.yaml'
     )
 
     clear-test-resources $kubecfg
     create-bucket $kubecfg
 
-    log info "Creating e2e configmap…"
+    log info 'Creating e2e configmap…'
     (kc
         $kubecfg
         -n
@@ -379,16 +408,18 @@ def "main k6 e2e" []: nothing -> string {
         yaml
     ) | kc $kubecfg apply -f -
 
-    log info "Applying GCP secret…"
+    log info 'Applying GCP secret…'
     apply-gcp-secret $kubecfg
 
-    log info "Deleting previous e2e testrun…"
+    log info 'Deleting previous e2e testrun…'
     kc $kubecfg -n data-proxy delete testrun data-proxy-e2e --ignore-not-found
 
-    log info "Applying e2e testrun…"
+    log info 'Applying e2e testrun…'
     kc $kubecfg apply -f k6/e2e.yaml
 
-    log info "Waiting for e2e completion…"
+    log info 'Waiting for e2e completion…'
+    let items_jp = 'jsonpath={.items}'
+    let pod_name_jp = 'jsonpath={.items[0].metadata.name}'
     while true {
         let jobs = (
             (kc
@@ -398,15 +429,17 @@ def "main k6 e2e" []: nothing -> string {
                 get
                 jobs
                 -l
-                "k6_cr=data-proxy-e2e,runner=true"
+                k6_cr=data-proxy-e2e,runner=true
                 -o
-                jsonpath='{.items}'
+                $items_jp
             )
             | str trim
         )
-        if ($jobs | is-not-empty) and ($jobs != "[]") { break }
+        if ($jobs | is-not-empty) and ($jobs != '[]') { break }
         sleep 1sec
     }
+
+    let complete_jp = r#'{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'#
 
     while true {
         let phase = (
@@ -417,17 +450,17 @@ def "main k6 e2e" []: nothing -> string {
                 get
                 jobs
                 -l
-                "k6_cr=data-proxy-e2e,runner=true"
+                k6_cr=data-proxy-e2e,runner=true
                 -o
-                jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
+                $'jsonpath=($complete_jp)'
             )
             | str trim
         )
-        if ($phase | str contains "True") { break }
+        if $phase =~ True { break }
         sleep 2sec
     }
 
-    log info "Fetching e2e logs…"
+    log info 'Fetching e2e logs…'
     (kc
         $kubecfg
         -n
@@ -437,51 +470,51 @@ def "main k6 e2e" []: nothing -> string {
         -l
         k6_cr=data-proxy-e2e,runner=true
         -o
-        jsonpath='{.items[0].metadata.name}'
+        $pod_name_jp
     ) | kc $kubecfg -n data-proxy logs $in | tee { delete-bucket $kubecfg }
 }
 
 # Start Minikube and install the complete local stack.
 def "main up" []: nothing -> nothing {
-    let kubecfg = git-root | path join ".kubeconfig"
+    let kubecfg = git-root | path join .kubeconfig
 
     let repo = git-root
 
-    log info "Starting Minikube…"
+    log info 'Starting Minikube…'
     start-minikube $kubecfg
 
     kc $kubecfg wait --for=condition=Ready nodes --all --timeout=5m
 
-    log info "Building container images…"
+    log info 'Building container images…'
     build-images $kubecfg
 
-    log info "Building data-proxy:local…"
-    ^docker build -t data-proxy:local -f ($repo | path join "Dockerfile") $repo
-    log info "Loading data-proxy:local into Minikube…"
-    ^docker save data-proxy:local | mk $kubecfg image load -
+    log info 'Building data-proxy:local…'
+    docker build -t data-proxy:local -f ($repo | path join Dockerfile) $repo
+    log info 'Loading data-proxy:local into Minikube…'
+    docker save data-proxy:local | mk $kubecfg image load -
 
-    log info "Building Helm dependencies…"
-    hm $kubecfg dependency build $"($repo)/helm"
+    log info 'Building Helm dependencies…'
+    hm $kubecfg dependency build $'($repo)/helm'
 
-    log info "Installing platform charts…"
+    log info 'Installing platform charts…'
     install-platform $kubecfg
 
-    log info "Applying GCP secret…"
+    log info 'Applying GCP secret…'
     apply-gcp-secret $kubecfg
 
-    log info "Installing data-proxy…"
+    log info 'Installing data-proxy…'
     (hm
         $kubecfg
         install
         data-proxy
-        $"($repo)/helm"
+        $'($repo)/helm'
         --namespace
         data-proxy
         --values
-        $"($repo)/scripts/values/data-proxy.yaml"
+        $'($repo)/scripts/values/data-proxy.yaml'
     )
 
-    log info "Waiting for deployments…"
+    log info 'Waiting for deployments…'
     [
         keda/keda-operator
         keda/keda-operator-metrics-apiserver
@@ -494,32 +527,36 @@ def "main up" []: nothing -> nothing {
         data-proxy/webdis
         data-proxy/data-proxy-postgrest
         data-proxy/data-proxy-swagger-ui
-    ] | wait-for deployment $kubecfg $in
+    ] | wait-for deployment $kubecfg
 
-    log info "Waiting for statefulsets…"
-    [data-proxy/data-proxy-duckdb data-proxy/data-proxy-valkey] | wait-for statefulset $kubecfg $in
+    log info 'Waiting for statefulsets…'
+    [
+        data-proxy/data-proxy-duckdb
+        data-proxy/data-proxy-valkey
+    ] | wait-for statefulset $kubecfg
 
     show-status $kubecfg
 }
 
 # Remove the Minikube profile.
 def "main down" []: nothing -> nothing {
-    log info "Deleting Minikube profile…"
-    ^minikube --profile $PROFILE delete
+    log info 'Deleting Minikube profile…'
+    minikube --profile $PROFILE delete
 }
 
 # Print cluster status tables for pods, deployments, and scaled objects.
 def show-status [kubecfg: path]: nothing -> nothing {
-    print "\nPods:"
+    print "
+Pods:"
 
     print (kc $kubecfg -n data-proxy get pods -o json
-        | from json
+        | try { from json } catch { {items: []} }
         | get items
         | each {|pod|
             let init = $pod.status.initContainerStatuses? | default []
             let containers = $pod.status.containerStatuses? | default []
             let all = ($init ++ $containers)
-            let ready = $all | where $in.ready? == true | length
+            let ready = $all | where $it.ready? | length
             let total = $all | length
             let restarts = $all | each { $in.restartCount? | default 0 } | math sum
             let age = $pod.metadata.creationTimestamp | into datetime | (date now) - $in
@@ -527,17 +564,18 @@ def show-status [kubecfg: path]: nothing -> nothing {
             {
                 name: $pod.metadata.name,
                 phase: $pod.status.phase,
-                ready: $"($ready)/($total)",
+                ready: $'($ready)/($total)',
                 restarts: $restarts,
                 age: (format-age $age),
             }
         }
         | sort-by name)
 
-    print "\nDeployments:"
+    print "
+Deployments:"
 
     print (kc $kubecfg -n data-proxy get deploy -o json
-        | from json
+        | try { from json } catch { {items: []} }
         | get items
         | each {|d|
             {
@@ -548,27 +586,30 @@ def show-status [kubecfg: path]: nothing -> nothing {
         }
         | sort-by name)
 
-    print "\nScaledObjects:"
+    print "
+ScaledObjects:"
 
     try {
         print (kc $kubecfg -n data-proxy get scaledobject -o json
-            | from json
+            | try { from json } catch { {items: []} }
             | get items
             | each {|s|
                 let cond = $s.status.conditions? | default [] | last | default {}
                 {
                     name: $s.metadata.name,
-                    status: ($cond.type? | default "-"),
-                    ready: ($cond.status? | default "-"),
+                    status: ($cond.type? | default '-'),
+                    ready: ($cond.status? | default '-'),
                 }
             }
             | sort-by name)
-    } catch { print --stderr "no scaledobjects found" }
+    } catch {
+        log warning 'no scaledobjects found'
+    }
 }
 
 # Script to create a testing environment with minikube
 def main []: nothing -> nothing {
-    let kubecfg = git-root | path join ".kubeconfig"
+    let kubecfg = git-root | path join .kubeconfig
 
     mk $kubecfg status
 

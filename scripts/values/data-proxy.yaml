@@ -7,6 +7,8 @@ serviceAccount:
   name: data-proxy
 pgduckdb:
   image: localhost/data-proxy-postgres:local
+  init:
+    image: localhost/data-proxy-nushell:local
   storage:
     size: 2Gi
   db:
@@ -18,6 +20,8 @@ pgduckdb:
 postgrest:
   proxyUri: http://localhost:3111
   jwtSecret: ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq
+  jwksFetch:
+    image: localhost/data-proxy-nushell:local
 gcs:
   bucket: test-bucket
   endpoint: minio.data-proxy.svc.cluster.local:9000

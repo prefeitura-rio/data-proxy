@@ -1,3 +1,4 @@
+# nu-lint-ignore-file: string_may_be_bare
 {
     issuer: "http://oidc.data-proxy.svc.cluster.local:8080"
     secret: "ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq"

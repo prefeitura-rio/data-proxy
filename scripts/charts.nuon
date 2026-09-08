@@ -1,3 +1,4 @@
+# nu-lint-ignore-file: string_may_be_bare
 [
     {
         name: keda
