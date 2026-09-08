@@ -2,51 +2,33 @@ suite: PostgREST
 templates:
   - deployment-postgrest.yaml
 tests:
-  - it: runs database reconciliation before PostgREST starts
-    asserts:
-      - equal:
-          path: spec.template.spec.initContainers[0].name
-          value: db-migrate
-      - equal:
-          path: spec.template.spec.initContainers[0].image
-          value: postgres:17-alpine
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].command[2]
-          pattern: ON_ERROR_STOP=1
-      - contains:
-          path: spec.template.spec.initContainers[0].volumeMounts
-          content:
-            name: db-init
-            mountPath: /scripts
-            readOnly: true
-
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs
-      postgrest.jwksFetch.image: ghcr.io/nushell/nushell:0.115.1-alpine
+      postgrest.jwksFetch.image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
     asserts:
       - equal:
-          path: spec.template.spec.initContainers[1].image
-          value: ghcr.io/nushell/nushell:0.115.1-alpine
+          path: spec.template.spec.initContainers[0].image
+          value: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
       - equal:
-          path: spec.template.spec.initContainers[1].command
+          path: spec.template.spec.initContainers[0].command
           value: [/usr/bin/nu, -c]
       - equal:
-          path: spec.template.spec.initContainers[1].env[0]
+          path: spec.template.spec.initContainers[0].env[0]
           value:
             name: JWKS_URI
             value: https://auth.example.com/certs
       - matchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
+          path: spec.template.spec.initContainers[0].args[0]
           pattern: 'http get'
       - matchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
+          path: spec.template.spec.initContainers[0].args[0]
           pattern: 'to json'
       - matchRegex:
-          path: spec.template.spec.initContainers[1].args[0]
-          pattern: 'save -f'
+          path: spec.template.spec.initContainers[0].args[0]
+          pattern: 'save --force'
       - equal:
-          path: spec.template.spec.initContainers[1].volumeMounts[0].mountPath
+          path: spec.template.spec.initContainers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath

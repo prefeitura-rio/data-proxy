@@ -68,14 +68,8 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
-            - name: db-init
-              mountPath: /docker-entrypoint-initdb.d
       volumes:
         - name: pgdata
           persistentVolumeClaim:
             claimName: {{ include "data-proxy.pgduckdbPvcName" (dict "root" . "ordinal" 0) }}
-        - name: db-init
-          configMap:
-            name: {{ include "data-proxy.fullname" . }}-db-init
-            defaultMode: 0755
 {{- end }}

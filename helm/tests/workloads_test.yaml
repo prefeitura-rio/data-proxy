@@ -167,7 +167,7 @@ tests:
     asserts:
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
-          value: ghcr.io/nushell/nushell:0.115.1-alpine
+          value: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
         documentSelector:
           path: metadata.name
           value: data-proxy-cleanup

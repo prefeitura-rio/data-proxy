@@ -14,7 +14,7 @@ metadata:
     data-proxy.io/schema: {{ $schema | quote }}
 data:
   backup.nu: |
-{{ $root.Files.Get "files/scripts/backup.nu" | nindent 4 }}
+{{ $root.Files.Get "files/backup.nu" | nindent 4 }}
 ---
 apiVersion: batch/v1
 kind: CronJob

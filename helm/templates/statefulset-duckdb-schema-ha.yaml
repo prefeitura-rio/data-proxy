@@ -90,9 +90,6 @@ spec:
             - name: patroni-config
               mountPath: /etc/patroni
               readOnly: true
-            - name: db-init
-              mountPath: /scripts
-              readOnly: true
       volumes:
         - name: pgdata
           persistentVolumeClaim:
@@ -100,10 +97,6 @@ spec:
         - name: patroni-config
           configMap:
             name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-patroni
-        - name: db-init
-          configMap:
-            name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-db-init
-            defaultMode: 0755
 {{- end }}
 {{- end }}
 {{- end }}

@@ -12,6 +12,7 @@ spec:
     kind: Deployment
     apiVersion: apps/v1
   pollingInterval: {{ .Values.publisher.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.publisher.keda.cooldownPeriod }}
   minReplicaCount: 0
   maxReplicaCount: 1
   triggers:

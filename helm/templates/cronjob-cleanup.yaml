@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/component: cleanup
 data:
   cleanup.nu: |
-{{ .Files.Get "files/scripts/cleanup.nu" | nindent 4 }}
+{{ .Files.Get "files/cleanup.nu" | nindent 4 }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -42,14 +42,7 @@ spec:
             - name: cleanup
               image: {{ .Values.backup.image | quote }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              securityContext:
-                runAsUser: 0
-              command:
-                - /bin/sh
-                - -ec
-                - |
-                  apk add --no-cache postgresql17-client redis aws-cli >/dev/null
-                  exec /usr/bin/nu /scripts/cleanup.nu
+              command: [nu, /scripts/cleanup.nu]
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
                 - name: GCS_ENDPOINT_URL

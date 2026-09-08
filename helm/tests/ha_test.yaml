@@ -6,7 +6,6 @@ templates:
   - configmap-schema-patroni.yaml
   - secret-schema-writers.yaml
   - configmap-schema-haproxy.yaml
-  - configmap-schema-db-init.yaml
   - deployment-schema-haproxy.yaml
   - service-schema-haproxy.yaml
   - deployment-schema-postgrest.yaml
@@ -18,14 +17,6 @@ set:
   ingress.enabled: true
   ingress.host: api.example.com
 tests:
-  - it: renders schema database initialization
-    set:
-      syncConfig.schemas.second.tables: []
-    template: configmap-schema-db-init.yaml
-    asserts:
-      - hasDocuments:
-          count: 2
-
   - it: renders retained schema member PVCs
     template: pvc-pgduckdb.yaml
     asserts:
@@ -48,10 +39,6 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env[1].value
           value: data-proxy-app-pequenos-cariocas-patroni
-        documentIndex: 0
-      - equal:
-          path: spec.template.spec.volumes[2].configMap.name
-          value: data-proxy-app-pequenos-cariocas-db-init
         documentIndex: 0
 
   - it: maps every schema to its HAProxy writer
@@ -87,14 +74,6 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env[1].value
           value: postgres://dp_auth:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy
-        documentIndex: 1
-      - equal:
-          path: spec.template.spec.initContainers[0].name
-          value: db-migrate
-        documentIndex: 1
-      - equal:
-          path: spec.template.spec.volumes[0].configMap.name
-          value: data-proxy-app-pequenos-cariocas-db-init
         documentIndex: 1
 
   - it: routes schema reads, writes, and OpenAPI requests
