@@ -35,6 +35,9 @@ pgduckdb:
     name: dataproxy
     ## PostgreSQL superuser name used by the pipeline services to connect.
     user: dataproxy
+  ## Nushell image used by the post-install init-db Job.
+  init:
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
   resources:
     requests:
       memory: 512Mi
@@ -74,7 +77,7 @@ postgrest:
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
-    image: ghcr.io/nushell/nushell:0.115.1-alpine
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -89,6 +92,10 @@ swaggerUi:
     - bcadastro
 ## Google Cloud Platform credentials for BigQuery access.
 ## In GKE, use Workload Identity via serviceAccount.annotations instead.
+## Nushell image with PostgreSQL client, Redis, AWS CLI, and age pre-installed.
+## Used by the init-db Job, PostgREST JWKS init container, backup CronJob, and cleanup CronJob.
+nushell:
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
 ## In minikube, set existingSecret to a Secret containing key.json.
 gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
@@ -149,7 +156,7 @@ backup:
   enabled: false
   ## Alpine-based image with Nushell. PostgreSQL client, age, and aws-cli
   ## are installed at container startup via apk.
-  image: ghcr.io/nushell/nushell:0.115.1-alpine
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
   ## Cron expression that controls when the backup runs.
   ## Default: daily at 03:00 UTC, after the producer.
   schedule: 0 3 * * *
@@ -209,6 +216,8 @@ dumper:
     maxReplicaCount: 15
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
+    ## Cooldown in seconds before scaling down to zero.
+    cooldownPeriod: 60
 ## Publisher — KEDA-scaled Deployment that loops on the dp:publish stream.
 publisher:
   ## Time in milliseconds before a publisher can reclaim a pending message.
@@ -221,6 +230,7 @@ publisher:
     pendingEntriesCount: "1"
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
+    cooldownPeriod: 60
 ## Seeder — KEDA-scaled Deployment that loops on the dp:prepare stream.
 seeder:
   visibilityTimeoutMs: 900000
@@ -229,6 +239,7 @@ seeder:
   keda:
     pendingEntriesCount: "1"
     pollingInterval: 30
+    cooldownPeriod: 60
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
 syncConfig:
@@ -236,7 +247,7 @@ syncConfig:
   ## schema's identity claim and its list of tables. See docs/sync.md.
   schemas: {}
 ## Role names, JWT claim, and schema configuration for row-level security.
-## These values are rendered into the db-init ConfigMap and the PostgREST Deployment.
+## These values are rendered into the init-db ConfigMap and the PostgREST Deployment.
 auth:
   ## PostgreSQL role used for unauthenticated requests. This role has no application table access.
   ## PostgREST uses this role as PGRST_DB_ANON_ROLE.

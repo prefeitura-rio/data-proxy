@@ -1,5 +1,0 @@
-[sqlfluff]
-dialect = postgres
-
-# CREATE INDEX CONCURRENTLY cannot run in init scripts (transaction context).
-exclude_rules = postgres.excessive_locks

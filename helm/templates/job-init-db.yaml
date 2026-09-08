@@ -1,0 +1,117 @@
+{{- if not .Values.ha.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+data:
+  init-db.nu: |
+{{ .Files.Get "files/init-db.nu" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db-sql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+data:
+{{- range $path, $_ := .Files.Glob "files/sql/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init-db
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: init-db
+          image: {{ .Values.pgduckdb.init.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [nu, /scripts/init-db.nu]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PG_DSN
+              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-duckdb:5432/%s" .Values.pgduckdb.db.user (include "data-proxy.fullname" .) .Values.pgduckdb.db.name | quote }}
+            - name: AUTH_ANON_ROLE
+              value: {{ .Values.auth.anonRole | quote }}
+            - name: AUTH_USER_ROLE
+              value: {{ .Values.auth.userRole | quote }}
+            - name: AUTH_AUTHENTICATOR_ROLE
+              value: {{ .Values.auth.authenticatorRole | quote }}
+            - name: BACKUP_ENABLED
+              value: {{ .Values.backup.enabled | quote }}
+            {{- if .Values.backup.enabled }}
+            - name: BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.backupSecretName" . }}
+                  key: BACKUP_PASSWORD
+            {{- end }}
+            - name: GCS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.gcsSecretName" . }}
+                  key: GCS_KEY_ID
+            - name: GCS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.gcsSecretName" . }}
+                  key: GCS_SECRET_KEY
+            - name: GCS_ENDPOINT
+              value: {{ .Values.gcs.endpoint | quote }}
+            - name: GCS_USE_SSL
+              value: {{ .Values.gcs.useSsl | quote }}
+            - name: SYNC_CONFIG_PATH
+              value: /config/sync.json
+          volumeMounts:
+            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
+            - name: init-db-script
+              mountPath: /scripts
+              readOnly: true
+            - name: init-db-sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
+        - name: init-db-script
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-init-db-script
+            defaultMode: 0555
+        - name: init-db-sql
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-init-db-sql
+            defaultMode: 0444
+{{- end }}
