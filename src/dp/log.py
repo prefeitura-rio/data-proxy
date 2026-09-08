@@ -1,13 +1,13 @@
 """Pipeline logger with context auto-injection via contextvars."""
 
-import contextvars
+from contextvars import ContextVar
 from logging import Filter, Formatter, LogRecord, StreamHandler, getLogger
 from time import monotonic
 from typing import override
 
-runid = contextvars.ContextVar("runid", default="-")
-tablename = contextvars.ContextVar("tablename", default="-")
-schemaname = contextvars.ContextVar("schemaname", default="-")
+runid = ContextVar("runid", default="-")
+tablename = ContextVar("tablename", default="-")
+schemaname = ContextVar("schemaname", default="-")
 
 
 class ContextFilter(Filter):
@@ -21,20 +21,41 @@ class ContextFilter(Filter):
         return True
 
 
-handler = StreamHandler()
-handler.setFormatter(
-    Formatter(
-        "%(asctime)s %(levelname)s [run_id=%(runid)s table=%(table)s schema=%(schema)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-)
-logger = getLogger("dp")
-logger.setLevel("INFO")
-logger.addFilter(ContextFilter())
-logger.addHandler(handler)
-logger.propagate = False
+class ContextFormatter(Formatter):
+    """Show [run_id=... table=... schema=...] with only non-default fields."""
+
+    @override
+    def format(self, record: LogRecord) -> str:
+        runid = getattr(record, "runid", "-")
+        table = getattr(record, "table", "-")
+        schema = getattr(record, "schema", "-")
+
+        parts: list[str] = []
+
+        if runid != "-":
+            parts.append(f"run_id={runid}")
+        if table != "-":
+            parts.append(f"table={table}")
+        if schema != "-":
+            parts.append(f"schema={schema}")
+
+        prefix = f"[{' '.join(parts)}] " if parts else ""
+        return (
+            f"{self.formatTime(record, self.datefmt)} {record.levelname} "
+            f"{prefix}{record.getMessage()}"
+        )
 
 
 def elapsed_ms(started: float) -> int:
     """Return elapsed monotonic time in milliseconds."""
     return int((monotonic() - started) * 1000)
+
+
+handler = StreamHandler()
+handler.setFormatter(ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
+
+logger = getLogger("dp")
+logger.setLevel("INFO")
+logger.addFilter(ContextFilter())
+logger.addHandler(handler)
+logger.propagate = False
