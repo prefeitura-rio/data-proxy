@@ -1,5 +1,4 @@
 FROM ghcr.io/nushell/nushell:0.115.1-alpine
-
 USER root
 
 RUN apk add --no-cache \
