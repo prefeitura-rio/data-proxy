@@ -1,6 +1,5 @@
 """Synchronization plan validation and publication orchestration."""
 
-from duckdb import DuckDBPyConnection
 from psycopg import Connection
 from whenever import Instant
 
@@ -72,15 +71,14 @@ def record_preparation_failures(
 
 def publish_eligible_tables(
     pg_conn: Connection,
-    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
     eligible: set[str],
     attempted_at: Instant,
 ) -> set[str]:
-    """Prepare eligible tables and publish each successful result."""
-    prepared = prepare_tables(pg_conn, duckdb_conn, config, decision.plan, eligible)
+    """Prepare eligible tables and publish each successful result"""
+    prepared = prepare_tables(pg_conn, config, decision.plan, eligible)
     logger.info("Prepared %d tables", len(prepared))
 
     record_preparation_failures(
@@ -106,12 +104,11 @@ def publish_eligible_tables(
 
 def apply_sync_plan(
     pg_conn: Connection,
-    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     plan: SyncPlan,
     failed_paths: set[str] | None = None,
 ) -> PublicationResult:
-    """Apply one sync plan and return its exact published state."""
+    """Apply one sync plan and return its exact published state"""
     publication_input = SyncPublicationInput(config=config, plan=plan)
     changed = publication_input.changed_tables
     decision = reduce_sync_plan(plan, failed_paths or set())
@@ -135,7 +132,6 @@ def apply_sync_plan(
 
     published = publish_eligible_tables(
         pg_conn,
-        duckdb_conn,
         config,
         plan,
         decision,

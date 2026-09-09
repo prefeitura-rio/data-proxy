@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from duckdb import connect
 from psycopg import Connection
 from redis.asyncio import Redis
 
@@ -61,13 +60,12 @@ class TestPublisher:
         """
         GIVEN: a writer DSN, config, and plan.
         WHEN: publish_plan is called.
-        THEN: it wraps PostgreSQL and DuckDB connections and delegates to apply_sync_plan.
+        THEN: it wraps a PostgreSQL connection and delegates to apply_sync_plan.
         """
         config = sync_config([FullTable(name="p.app.t")])
         plan = SyncPlan(schema_name="app")
         with (
             patch("dp.sync.publisher.psycopg.connect", return_value=postgres),
-            patch("dp.sync.publisher.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.publisher.apply_sync_plan",
                 return_value=PublicationResult(plan=plan, published_tables=set()),

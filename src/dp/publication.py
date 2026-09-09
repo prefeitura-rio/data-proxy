@@ -3,9 +3,8 @@
 from collections.abc import Sequence
 from typing import LiteralString, assert_never, cast
 
-from duckdb import DuckDBPyConnection
 from psycopg import Connection
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 from whenever import Instant
 
 from dp.log import logger
@@ -32,32 +31,8 @@ from .settings import settings
 from .templates import execute_sql, render_template
 
 
-def load_table(
-    conn: DuckDBPyConnection,
-    schema: str,
-    table_name: str,
-    paths: list[str],
-) -> None:
-    """Load exact Parquet paths into a prepared PostgreSQL table."""
-    for path in paths:
-        execute_sql(
-            conn,
-            "duckdb/load_parquet",
-            mapping={
-                "schema": Identifier(schema),
-                "table_name": Identifier(table_name),
-                "gcs_path": Literal(path),
-            },
-        )
-
-
-def load_partition(
-    pg_conn: Connection,
-    schema: str,
-    table_name: str,
-    path: str,
-) -> None:
-    """Load one Parquet partition into a table via pgduckdb read_parquet."""
+def column_select_list(pg_conn: Connection, schema: str, table_name: str) -> Composable:
+    """Return a SQL select list with explicit casts for one table's columns"""
     rows = cast(
         "list[tuple[str, str]]",
         execute_sql(
@@ -67,7 +42,7 @@ def load_partition(
         ).fetchall(),
     )
 
-    select_list = SQL(", ").join(
+    return SQL(", ").join(
         SQL("r[{}]::{} AS {}").format(
             Literal(col),
             SQL(cast(LiteralString, typ)),
@@ -76,6 +51,15 @@ def load_partition(
         for col, typ in rows
     )
 
+
+def load_partition(
+    pg_conn: Connection,
+    schema: str,
+    table_name: str,
+    path: str,
+    select_list: Composable,
+) -> None:
+    """Load one Parquet partition into a table via pgduckdb read_parquet"""
     execute_sql(
         pg_conn,
         "postgres/load_partition",
@@ -140,20 +124,21 @@ def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> Non
 
 
 def publish_table(conn: Connection, table: TableConfig) -> None:
-    """Atomically swap one prepared shadow table into service."""
+    """Create indexes on shadow then atomically swap into service"""
     table_name = table.table_name
+    shadow_name = f"{table_name}__next"
+    create_indexes(conn, table, shadow_name)
+
     execute_sql(
         conn,
         "postgres/swap_table",
         mapping={
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(table_name),
-            "next_table": Identifier(f"{table_name}__next"),
+            "next_table": Identifier(shadow_name),
             "old_table": Identifier(f"{table_name}__old"),
         },
     )
-
-    create_indexes(conn, table, table_name)
 
 
 def failed_partition_ids(
@@ -259,49 +244,30 @@ def delete_partitions(
 
 
 def create_shadow_from_parquet(
-    duckdb_conn: DuckDBPyConnection,
+    pg_conn: Connection,
     table: TableConfig,
     shadow_name: str,
-    paths: list[str],
+    gcs_path: str,
 ) -> None:
-    """Create an empty shadow table from the first Parquet schema."""
-    if not paths:
-        message = f"Parquet paths missing from sync plan: {table.name}"
-        raise RuntimeError(message)
-
+    """Create and populate a shadow table from Parquet files via pgduckdb"""
     execute_sql(
-        duckdb_conn,
-        "duckdb/create_table_from_parquet",
+        pg_conn,
+        "postgres/create_table_from_parquet",
         mapping={
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(shadow_name),
-            "gcs_path": Literal(paths[0]),
+            "gcs_path": Literal(gcs_path),
         },
     )
 
 
 def prepare_tables(
     pg_conn: Connection,
-    duckdb_conn: DuckDBPyConnection,
     config: SyncConfig,
     plan: SyncPlan,
     changed: set[str],
 ) -> list[TableConfig]:
-    """Prepare, secure, and load each eligible table."""
-    needs_duckdb = any(
-        plan.partitioned_tables.get(table.name) is None
-        or plan.partitioned_tables[table.name].full_rebuild
-        for table in config.tables
-        if table.name in changed
-    )
-
-    if needs_duckdb:
-        execute_sql(
-            duckdb_conn,
-            "duckdb/attach_postgres",
-            mapping={"pg_dsn": Literal(settings.PG_DSN)},
-        )
-
+    """Prepare, secure, and load each eligible table"""
     prepared: list[TableConfig] = []
 
     for table in config.tables:
@@ -324,6 +290,9 @@ def prepare_tables(
                     not table_plan.full_rebuild
                 ):
                     pg_conn.autocommit = True
+                    select_list = column_select_list(
+                        pg_conn, table.resolved_schema, table.table_name
+                    )
                     try:
                         for partition_id, path in table_plan.changed_paths.items():
                             single = table_plan.current_partitions[partition_id]
@@ -335,6 +304,7 @@ def prepare_tables(
                                         table.resolved_schema,
                                         table.table_name,
                                         path,
+                                        select_list,
                                     )
                             except Exception:
                                 logger.exception(
@@ -356,10 +326,18 @@ def prepare_tables(
                     finally:
                         pg_conn.autocommit = False
                 case _:
-                    create_shadow_from_parquet(duckdb_conn, table, shadow_name, paths)
+                    base = f"s3://{settings.GCS_BUCKET}/{table.resolved_schema}/{table.table_name}"
+                    gcs_path = (
+                        f"{base}/partitions/*/data.parquet"
+                        if partitioned is not None
+                        else f"{base}/data.parquet"
+                    )
                     schema_config = config.schemas.get(table.resolved_schema)
 
                     with pg_conn.transaction():
+                        create_shadow_from_parquet(
+                            pg_conn, table, shadow_name, gcs_path
+                        )
                         bootstrap_table(
                             pg_conn,
                             table.resolved_schema,
@@ -367,15 +345,6 @@ def prepare_tables(
                             table.rls,
                             schema_config.claim if schema_config else None,
                         )
-
-                    logger.info(
-                        "Loading table table=%s path_count=%d",
-                        table.name,
-                        len(paths),
-                    )
-                    load_table(duckdb_conn, table.resolved_schema, shadow_name, paths)
-
-                    with pg_conn.transaction():
                         cast_json_columns_to_jsonb(
                             pg_conn, table.resolved_schema, shadow_name
                         )

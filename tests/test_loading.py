@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from unittest.mock import ANY, patch
 
 import pytest
-from duckdb import connect
 from psycopg import Connection
 from whenever import Instant
 
@@ -94,6 +93,23 @@ class TestLoadingPartitionPredicate:
 class TestLoadingPrepareTablesPaths:
     """Tests for planned table paths."""
 
+    def test_prepare_tables_works_without_duckdb_connection(
+        self,
+        postgres: Connection[tuple[object, ...]],
+    ) -> None:
+        """
+        GIVEN: a changed table with no entry in the plan paths.
+        WHEN: prepare_tables runs without a duckdb connection.
+        THEN: it returns no prepared tables.
+        """
+        config = sync_config([FullTable(name="p.app.changed")])
+        plan = SyncPlan(schema_name="app")
+
+        with patch("dp.templates.render_template", return_value="SELECT 1"):
+            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
+
+        assert prepared == []
+
     def test_prepare_tables_skips_table_with_missing_paths(
         self,
         postgres: Connection[tuple[object, ...]],
@@ -105,10 +121,9 @@ class TestLoadingPrepareTablesPaths:
         """
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
-        duckdb = connect(":memory:")
 
         with patch("dp.templates.render_template", return_value="SELECT 1"):
-            prepared = prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
+            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
 
         assert prepared == []
 
@@ -130,15 +145,13 @@ class TestLoadingPrepareTablesPaths:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": [path]},
         )
-        duckdb = connect(":memory:")
 
         with (
             patch("dp.templates.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table") as bootstrap,
             patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.load_table") as load,
         ):
-            prepared = prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
+            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
 
         bootstrap.assert_called_once_with(
             postgres,
@@ -147,7 +160,6 @@ class TestLoadingPrepareTablesPaths:
             None,
             None,
         )
-        load.assert_called_once_with(ANY, "app", "changed__next", [path])
         assert [table.name for table in prepared] == ["p.app.changed"]
 
 
@@ -248,7 +260,6 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        duckdb = connect(":memory:")
 
         postgres.execute("CREATE TABLE app.people (cpf int, name text)")
         postgres.execute(
@@ -258,7 +269,6 @@ class TestLoadingPrepareTablesPartitions:
 
         prepared = prepare_tables(
             postgres,
-            duckdb,
             sync_config([table]),
             plan,
             {table.name},
@@ -315,7 +325,6 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        duckdb = connect(":memory:")
 
         postgres.execute("CREATE TABLE app.people (cpf int, name text)")
         postgres.execute(
@@ -328,7 +337,6 @@ class TestLoadingPrepareTablesPartitions:
 
         prepared = prepare_tables(
             postgres,
-            duckdb,
             sync_config([table]),
             plan,
             {table.name},
@@ -390,7 +398,6 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        duckdb = connect(":memory:")
 
         postgres.execute("CREATE TABLE app.people (cpf int, name text)")
         postgres.execute(
@@ -400,7 +407,6 @@ class TestLoadingPrepareTablesPartitions:
 
         prepared = prepare_tables(
             postgres,
-            duckdb,
             sync_config([table]),
             plan,
             {table.name},
@@ -449,29 +455,30 @@ class TestLoadingPrepareTablesPartitions:
                 )
             },
         )
-        duckdb = connect(":memory:")
         rendered: list[str] = []
+        mappings: list[object] = []
 
         def render(path: str, mapping: object) -> str:
             rendered.append(path)
+            mappings.append(mapping)
             return "SELECT 1"
 
         with (
             patch("dp.templates.render_template", side_effect=render),
             patch("dp.publication.bootstrap_table"),
             patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.load_table") as load,
         ):
             prepared = prepare_tables(
                 postgres,
-                duckdb,
                 sync_config([table]),
                 plan,
                 {table.name},
             )
 
-        assert "duckdb/create_table_from_parquet" in rendered
-        load.assert_called_once_with(duckdb, "app", "people__next", [path])
+        assert "postgres/create_table_from_parquet" in rendered
+        assert "s3://test-bucket/app/people/partitions/*/data.parquet" in str(
+            mappings[0]
+        )
         assert prepared == [table]
 
     def test_prepare_tables_secures_shadow_before_load(
@@ -498,24 +505,22 @@ class TestLoadingPrepareTablesPartitions:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": [path]},
         )
-        duckdb = connect(":memory:")
         calls: list[str] = []
 
         def record_bootstrap(*_: object) -> None:
             calls.append("bootstrap")
 
-        def record_load(*_: object) -> None:
-            calls.append("load")
+        def record_cast(*_: object) -> None:
+            calls.append("cast")
 
         with (
             patch("dp.templates.render_template", return_value="SELECT 1"),
             patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
-            patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.load_table", side_effect=record_load),
+            patch("dp.publication.cast_json_columns_to_jsonb", side_effect=record_cast),
         ):
-            prepare_tables(postgres, duckdb, config, plan, {"p.app.changed"})
+            prepare_tables(postgres, config, plan, {"p.app.changed"})
 
-        assert calls == ["bootstrap", "load"]
+        assert calls == ["bootstrap", "cast"]
 
 
 class TestLoadingPublishPrepared:
@@ -642,7 +647,6 @@ class TestLoadingApplySyncPlan:
             signatures={"p.app.changed": "100"},
             paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
         )
-        duckdb = connect(":memory:")
 
         with (
             patch("dp.loading.initialize_schemas") as initialize,
@@ -653,7 +657,7 @@ class TestLoadingApplySyncPlan:
             ) as publish,
             patch("dp.loading.reload_postgrest") as reload,
         ):
-            result = apply_sync_plan(postgres, duckdb, config, plan)
+            result = apply_sync_plan(postgres, config, plan)
 
         initialize.assert_called_once()
         publish.assert_called_once()
@@ -694,13 +698,12 @@ class TestLoadingApplySyncPlan:
         ):
             result = apply_sync_plan(
                 postgres,
-                connect(":memory:"),
                 sync_config([table]),
                 plan,
                 {path},
             )
 
-        prepare.assert_called_once_with(postgres, ANY, ANY, ANY, set())
+        prepare.assert_called_once_with(postgres, ANY, ANY, set())
         record_failures.assert_called_once_with(
             postgres, [table], plan, ANY, {table.name: {"10"}}
         )
@@ -730,13 +733,12 @@ class TestLoadingApplySyncPlan:
         ):
             result = apply_sync_plan(
                 postgres,
-                connect(":memory:"),
                 config,
                 plan,
                 {"s3://bucket/changed/data.parquet"},
             )
 
-        prepare.assert_called_once_with(postgres, ANY, config, plan, set())
+        prepare.assert_called_once_with(postgres, config, plan, set())
         assert result.plan == plan
         assert result.published_tables == set()
 
@@ -763,8 +765,8 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
         ):
-            result = apply_sync_plan(postgres, connect(":memory:"), config, plan)
+            result = apply_sync_plan(postgres, config, plan)
 
-        prepare.assert_called_once_with(postgres, ANY, ANY, ANY, {"p.app.changed"})
+        prepare.assert_called_once_with(postgres, ANY, ANY, {"p.app.changed"})
         record_failures.assert_called_with(postgres, [config.tables[0]], plan, ANY)
         assert result.published_tables == set()

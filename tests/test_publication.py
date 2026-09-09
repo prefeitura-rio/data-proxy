@@ -4,7 +4,6 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
-from duckdb import connect
 from psycopg import Connection
 
 from dp.models import (
@@ -17,10 +16,11 @@ from dp.models import (
 )
 from dp.publication import (
     cast_json_columns_to_jsonb,
+    column_select_list,
     create_indexes,
+    create_shadow_from_parquet,
     delete_partitions,
     load_partition,
-    load_table,
     partition_predicate,
     planned_paths,
     publish_table,
@@ -95,21 +95,35 @@ class TestPublicationTemplates:
             "postgres/delete_partitions",
         ]
 
-    def test_load_table_loads_only_explicitly_planned_paths(
+    def test_create_shadow_from_parquet_uses_glob_path(
         self,
+        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
-        GIVEN: explicitly planned Parquet paths.
-        WHEN: load_table is called.
-        THEN: only those paths are loaded.
+        GIVEN: a table and a glob path.
+        WHEN: create_shadow_from_parquet is called with a glob path string.
+        THEN: it renders postgres/create_table_from_parquet with the full glob.
         """
-        duckdb = connect(":memory:")
-        paths = ["s3://bucket/table/a.parquet", "s3://bucket/table/b.parquet"]
+        captured: dict[str, object] = {}
 
-        with patch("dp.templates.render_template", return_value="SELECT 1"):
-            load_table(duckdb, "app", "table__next", paths)
+        def render(path: str, mapping: object, **_: object) -> str:
+            captured["template"] = path
+            captured["mapping"] = mapping
+            return "SELECT 1"
 
-        assert duckdb.execute("SELECT 1").fetchone() == (1,)
+        with (
+            patch("dp.publication.render_template", side_effect=render),
+            patch("dp.templates.render_template", side_effect=render),
+        ):
+            create_shadow_from_parquet(
+                postgres,
+                FullTable(name="p.app.table", resolved_schema="app"),
+                "table__next",
+                "s3://bucket/app/table/*/data.parquet",
+            )
+
+        assert captured["template"] == "postgres/create_table_from_parquet"
+        assert "'s3://bucket/app/table/*/data.parquet'" in str(captured["mapping"])
 
     def test_load_partition_inserts_via_read_parquet(
         self,
@@ -123,8 +137,13 @@ class TestPublicationTemplates:
         postgres.execute("CREATE TABLE app.people (cpf int, name text)")
         postgres.commit()
 
+        select_list = column_select_list(postgres, "app", "people")
         load_partition(
-            postgres, "app", "people", "/test-files/people_partition_10.parquet"
+            postgres,
+            "app",
+            "people",
+            "/test-files/people_partition_10.parquet",
+            select_list,
         )
         postgres.commit()
 
@@ -144,34 +163,36 @@ class TestPublicationTemplates:
             (19, "name19"),
         ]
 
-    def test_publish_table_swaps_before_index_creation(
+    def test_publish_table_creates_indexes_before_swap(
         self,
         postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a prepared shadow table with an index configuration.
         WHEN: publish_table is called.
-        THEN: the table is swapped before the index is created.
+        THEN: indexes are created on the shadow before the swap.
         """
-        execute_sql(postgres, "postgres/create_table", mapping={
-                    "schema": "app",
-                    "table": "table__next",
-                    "columns": "id int",
-                })
+        calls: list[str] = []
+
+        def record_indexes(*_: object) -> None:
+            calls.append("indexes")
+
+        def record_swap(*args: object, **kwargs: object) -> None:
+            calls.append("swap")
+
         table = FullTable(
             name="p.app.table",
             resolved_schema="app",
             indexes=[IndexConfig(name="idx_table", columns=["id"])],
         )
 
-        publish_table(postgres, table)
+        with (
+            patch("dp.publication.create_indexes", side_effect=record_indexes),
+            patch("dp.publication.execute_sql", side_effect=record_swap),
+        ):
+            publish_table(postgres, table)
 
-        assert execute_sql(
-            postgres, "postgres/regclass_table_and_shadow"
-        ).fetchone() == ('app."table"', None)
-        assert execute_sql(postgres, "postgres/index_names").fetchall() == [
-            ("idx_table",)
-        ]
+        assert calls == ["indexes", "swap"]
 
     def test_reduce_sync_plan_keeps_plan_without_failures(
         self,

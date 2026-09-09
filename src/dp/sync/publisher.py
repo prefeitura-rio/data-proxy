@@ -11,7 +11,6 @@ from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
-from ..duckdb import connect
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
 from ..log import elapsed_ms, logger, runid, schemaname
@@ -56,11 +55,10 @@ subs = {
 
 
 def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set[str]):
-    """Run blocking schema publication."""
-    with psycopg.connect(dsn) as pg_conn, connect() as duckdb_conn:
+    """Run blocking schema publication"""
+    with psycopg.connect(dsn) as pg_conn:
         return apply_sync_plan(
             pg_conn,
-            duckdb_conn,
             config,
             plan,
             failed_paths,
