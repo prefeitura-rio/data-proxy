@@ -7,9 +7,12 @@ on:
       - helm/**
       - '!helm/tests/**'
   workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
   workflow_dispatch:
 concurrency:
   group: helm-release
@@ -82,20 +85,15 @@ jobs:
         run: |
           LAST_TAG=$(git tag --sort=-v:refname | grep -E "^helm-v" | head -1 || echo "")
           [ -z "$LAST_TAG" ] && exit 0
-          # Check for helm/ file changes (excluding tests)
-          git diff --name-only "$LAST_TAG" HEAD -- helm/ \
-            | grep -v '^helm/tests/' | grep -q . && exit 0
-          # Check if pinned image SHAs changed in the working tree
+          # check for helm/ file changes (excluding tests)
+          git diff --name-only "$LAST_TAG" HEAD -- helm/ | grep -v '^helm/tests/' | grep -q . && exit 0
+          # check if pinned image shas changed in the working tree
           git diff --name-only -- helm/values.yaml | grep -q . && exit 0
           echo "No helm or image changes since $LAST_TAG — nothing to release."
           echo "skip=true" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
         if: steps.guard.outputs.skip != 'true'
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | helm registry login ${{ env.REGISTRY }} \
-                -u ${{ github.actor }} \
-                --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
       - name: Install helm-unittest plugin
         if: steps.guard.outputs.skip != 'true'
         run: helm plugin install https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.2/unittest-1.1.2.tgz --verify=false
@@ -111,7 +109,7 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         uses: hustcer/setup-nu@main
         with:
-          version: "0.107.0"
+          version: 0.107.0
       - name: Validate Nushell scripts with nu-lint
         if: steps.guard.outputs.skip != 'true'
         run: |
@@ -149,8 +147,8 @@ jobs:
           CURRENT: ${{ steps.version.outputs.current }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          PREV_TAG=$(git tag --sort=-v:refname \
-            | grep -E "^helm-v" | sed -n '2p' || true)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E "^helm-v" | sed -n '2p' || true)
+
           gh release create "$TAG" \
             --title "Helm chart $TAG" \
             ${PREV_TAG:+--notes-start-tag "$PREV_TAG"} \

@@ -329,9 +329,9 @@ class TestLoadingPrepareTablesPartitions:
         postgres.execute("CREATE TABLE app.people (cpf int, name text)")
         postgres.execute(
             "INSERT INTO app.people VALUES "
-            + "(10, 'old10'), (11, 'old11'), "
-            + "(20, 'old20'), (21, 'old21'), "
-            + "(30, 'keep30'), (31, 'keep31')"
+             "(10, 'old10'), (11, 'old11'), "
+             "(20, 'old20'), (21, 'old21'), "
+             "(30, 'keep30'), (31, 'keep31')"
         )
         postgres.commit()
 

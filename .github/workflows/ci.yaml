@@ -11,11 +11,6 @@ on:
       - Dockerfile
       - Dockerfile.postgres
       - Dockerfile.nushell
-      - Dockerfile.oidc
-      - docker-compose.yaml
-      - scripts/**
-      - .nu-lint.toml
-      - .env.test
   pull_request:
     paths: *ci_paths
   workflow_dispatch:

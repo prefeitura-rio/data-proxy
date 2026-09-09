@@ -16,8 +16,8 @@ from dp.models import (
     SyncPlan,
 )
 from dp.planning import expand_config
-from dp.sync.publisher import publish_schema, publisher
 from dp.state import dispatch_exists
+from dp.sync.publisher import publish_schema, publisher
 from dp.sync.seeder import cleanup_consumers, seed_sync, seeder
 
 pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")

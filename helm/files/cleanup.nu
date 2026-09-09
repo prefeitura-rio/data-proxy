@@ -54,7 +54,7 @@ for schema in ($config.schemas | columns) {
     | str trim
 
     let stale = $all
-    | where {|t| $t not-in $configured and $t not-in $protected }
+    | where $it not-in $configured and $it not-in $protected
 
     if ($stale | is-empty) {
         log info $'No stale tables in ($schema)'

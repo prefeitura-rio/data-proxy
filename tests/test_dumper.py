@@ -9,8 +9,8 @@ from faststream.exceptions import StopApplication
 from redis.asyncio import Redis
 
 from dp.errors import retry_or_stop
-from dp.models import AllSelection, DumpTask
 from dp.extraction import extract_task
+from dp.models import AllSelection, DumpTask
 from dp.sync.dumper import (
     cleanup_consumers,
     dump_task,

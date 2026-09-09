@@ -8,6 +8,7 @@ import pytest
 from psycopg import Connection
 from redis.asyncio import Redis
 
+from dp.loading import publish_plan
 from dp.models import (
     FullTable,
     PartitionedTable,
@@ -18,7 +19,6 @@ from dp.models import (
     RangeSelection,
     SyncPlan,
 )
-from dp.loading import publish_plan
 from dp.sync.publisher import (
     cleanup_consumers,
     publish_schema,
