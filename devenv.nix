@@ -55,14 +55,6 @@
       types = [ "python" ];
       pass_filenames = false;
     };
-    nu-lint = {
-      enable = true;
-      name = "nu-lint";
-      entry = "${pkgs.nu-lint}/bin/nu-lint helm/files";
-      language = "system";
-      types = [ "nu" ];
-      pass_filenames = false;
-    };
   };
 
   scripts = {
