@@ -34,8 +34,10 @@ class ContextFormatter(Formatter):
 
         if runid != "-":
             parts.append(f"run_id={runid}")
+
         if table != "-":
             parts.append(f"table={table}")
+
         if schema != "-":
             parts.append(f"schema={schema}")
 
