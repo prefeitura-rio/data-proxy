@@ -9,6 +9,7 @@ build/
 .ruff_cache/
 credentials.json
 *.parquet
+!tests/files/*.parquet
 .devenv/
 .kube/
 .kubeconfig
