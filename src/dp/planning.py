@@ -270,6 +270,28 @@ async def plan_partitioned_tables(
     return plans, tasks
 
 
+def group_sync_plans(
+    config: SyncConfig,
+    signatures: dict[str, str],
+    paths: dict[str, list[str]],
+    partitioned: dict[str, PartitionedTablePlan],
+) -> list[SyncPlan]:
+    """Group full and partitioned table plans by resolved schema"""
+    schema_names = {table.name: table.resolved_schema for table in config.tables}
+    grouped: dict[str, SyncPlan] = {}
+    for table, signature in signatures.items():
+        schema_name = schema_names[table]
+        schema_plan = grouped.setdefault(schema_name, SyncPlan(schema_name=schema_name))
+        schema_plan.signatures[table] = signature
+        schema_plan.paths[table] = paths[table]
+    for table, partition_plan in partitioned.items():
+        schema_name = schema_names[table]
+        grouped.setdefault(
+            schema_name, SyncPlan(schema_name=schema_name)
+        ).partitioned_tables[table] = partition_plan
+    return list(grouped.values())
+
+
 async def build_sync_work(
     config: SyncConfig,
     redis: Redis,
@@ -315,19 +337,6 @@ async def build_sync_work(
         len(signatures),
         len(partitioned),
     )
-    schema_names = {table.name: table.resolved_schema for table in config.tables}
-    grouped: dict[str, SyncPlan] = {}
-
-    for table, signature in signatures.items():
-        schema_name = schema_names[table]
-        schema_plan = grouped.setdefault(schema_name, SyncPlan(schema_name=schema_name))
-        schema_plan.signatures[table] = signature
-        schema_plan.paths[table] = paths[table]
-
-    for table, partition_plan in partitioned.items():
-        schema_name = schema_names[table]
-        grouped.setdefault(
-            schema_name, SyncPlan(schema_name=schema_name)
-        ).partitioned_tables[table] = partition_plan
-
-    return SyncWork(plans=list(grouped.values()), tasks=tasks)
+    return SyncWork(
+        plans=group_sync_plans(config, signatures, paths, partitioned), tasks=tasks
+    )

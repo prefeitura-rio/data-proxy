@@ -124,6 +124,68 @@ def time_partition_bounds(
     return start.format(spec.output_pattern), end.format(spec.output_pattern)
 
 
+def normalize_time_partition(
+    partition_id: str,
+    signature: str,
+    table: str,
+    config: TimeConfig,
+) -> PhysicalPartition | None:
+    """Normalize one time partition"""
+    if partition_id == "__NULL__":
+        return None
+
+    lower, upper = time_partition_bounds(partition_id, config.granularity, table)
+
+    return PhysicalPartition(
+        partition_id=partition_id,
+        signature=signature,
+        selection=TimeRangeSelection(column=config.field, lower=lower, upper=upper),
+    )
+
+
+def normalize_range_partition(
+    partition_id: str,
+    signature: str,
+    table: str,
+    config: RangeConfig,
+) -> PhysicalPartition:
+    """Normalize one integer range partition"""
+    if partition_id == "__NULL__":
+        return PhysicalPartition(
+            partition_id=partition_id,
+            signature=signature,
+            selection=RemainderSelection(
+                column=config.field, start=config.start, end=config.end
+            ),
+        )
+
+    try:
+        lower = int(partition_id)
+    except ValueError as error:
+        msg = f"Invalid range partition ID {partition_id}: {table}"
+        raise ValueError(msg) from error
+
+    in_bounds = config.start <= lower < config.end
+    aligned = (lower - config.start) % config.interval == 0
+
+    if not in_bounds or not aligned:
+        msg = f"Invalid range partition ID {partition_id}: {table}"
+        raise ValueError(msg)
+
+    upper = min(lower + config.interval, config.end)
+
+    return PhysicalPartition(
+        partition_id=partition_id,
+        signature=signature,
+        selection=RangeSelection(
+            partition_id=partition_id,
+            column=config.field,
+            lower=lower,
+            upper=upper,
+        ),
+    )
+
+
 def normalize_partition(
     row: TypedRow,
     table: str,
@@ -152,48 +214,10 @@ def normalize_partition(
     ).hexdigest()
 
     match kind_config:
-        case TimeConfig(field=field, granularity=granularity):
-            if partition_id == "__NULL__":
-                return None
-
-            lower, upper = time_partition_bounds(partition_id, granularity, table)
-
-            return PhysicalPartition(
-                partition_id=partition_id,
-                signature=signature,
-                selection=TimeRangeSelection(column=field, lower=lower, upper=upper),
-            )
-        case RangeConfig(field=field, start=start, end=end, interval=interval):
-            if partition_id == "__NULL__":
-                return PhysicalPartition(
-                    partition_id=partition_id,
-                    signature=signature,
-                    selection=RemainderSelection(column=field, start=start, end=end),
-                )
-
-            try:
-                lower = int(partition_id)
-            except ValueError as error:
-                msg = f"Invalid range partition ID {partition_id}: {table}"
-                raise ValueError(msg) from error
-
-            upper = min(lower + interval, end)
-            before_range = lower < start
-            after_range = lower >= end
-            misaligned = (lower - start) % interval != 0
-            empty_range = lower >= upper
-
-            if before_range or after_range or misaligned or empty_range:
-                msg = f"Invalid range partition ID {partition_id}: {table}"
-                raise ValueError(msg)
-
-            return PhysicalPartition(
-                partition_id=partition_id,
-                signature=signature,
-                selection=RangeSelection(
-                    partition_id=partition_id, column=field, lower=lower, upper=upper
-                ),
-            )
+        case TimeConfig() as config:
+            return normalize_time_partition(partition_id, signature, table, config)
+        case RangeConfig() as config:
+            return normalize_range_partition(partition_id, signature, table, config)
         case _:
             assert_never(kind_config)
 
