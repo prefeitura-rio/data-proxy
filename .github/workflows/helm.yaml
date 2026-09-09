@@ -36,12 +36,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          APP_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy/versions \
-            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
-          PG_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-postgres/versions \
-            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
-          NU_SHA=$(gh api orgs/prefeitura-rio/packages/container/data-proxy-nushell/versions \
-            --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || echo "")
+          resolve_sha() {
+            local name="$1"
+            local sha
+            sha=$(gh api "orgs/prefeitura-rio/packages/container/${name}/versions" \
+              --jq '.[0].metadata.container.tags | map(select(. != "latest")) | .[0]' 2>/dev/null || true)
+            if [ -z "$sha" ] || echo "$sha" | grep -q '{'; then
+              echo "latest"
+            else
+              echo "$sha"
+            fi
+          }
+          APP_SHA=$(resolve_sha data-proxy)
+          PG_SHA=$(resolve_sha data-proxy-postgres)
+          NU_SHA=$(resolve_sha data-proxy-nushell)
           echo "app=$APP_SHA" >> "$GITHUB_OUTPUT"
           echo "postgres=$PG_SHA" >> "$GITHUB_OUTPUT"
           echo "nushell=$NU_SHA" >> "$GITHUB_OUTPUT"
