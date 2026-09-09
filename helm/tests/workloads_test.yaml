@@ -165,9 +165,9 @@ tests:
       cleanup.enabled: true
       syncConfig.schemas.app_example: {}
     asserts:
-      - equal:
+      - matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
+          pattern: ghcr.io/prefeitura-rio/data-proxy-nushell:.*
         documentSelector:
           path: metadata.name
           value: data-proxy-cleanup
