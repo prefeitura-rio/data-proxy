@@ -1,5 +1,6 @@
 """Synchronization plan validation and publication orchestration."""
 
+import psycopg
 from psycopg import Connection
 from whenever import Instant
 
@@ -15,6 +16,17 @@ from .models import (
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
+
+
+def publish_plan(
+    dsn: str,
+    config: SyncConfig,
+    plan: SyncPlan,
+    failed_paths: set[str],
+) -> PublicationResult:
+    """Run blocking schema publication with an owned PostgreSQL connection"""
+    with psycopg.connect(dsn) as pg_conn:
+        return apply_sync_plan(pg_conn, config, plan, failed_paths)
 
 
 def empty_incremental_tables(plan: SyncPlan) -> set[str]:

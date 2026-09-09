@@ -1,10 +1,13 @@
 """PostgreSQL schema initialization and PostgREST reload operations."""
 
+from collections.abc import Callable
+
+import psycopg
 from psycopg import Connection
 from psycopg.sql import Identifier
 
 from .authorization import ensure_schema_policy_writer, schema_scope_predicate
-from .models import SyncConfig
+from .models import SchemaConfig, SyncConfig, SyncPlan
 from .settings import settings
 from .templates import execute_sql
 
@@ -44,6 +47,25 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
         ensure_schema_policy_writer(pg_conn, schema)
 
     pg_conn.commit()
+
+
+def initialize_schemas_for_plans(
+    plans: list[SyncPlan],
+    writers_dsn: Callable[[str], str],
+    sync_schemas: dict[str, SchemaConfig],
+) -> None:
+    """Group schemas by writer DSN and initialize each group"""
+    by_dsn: dict[str, list[str]] = {}
+    for plan in plans:
+        by_dsn.setdefault(writers_dsn(plan.schema_name), []).append(plan.schema_name)
+    for dsn, schemas in by_dsn.items():
+        with psycopg.connect(dsn) as conn:
+            initialize_schemas(
+                conn,
+                SyncConfig(
+                    schemas={name: sync_schemas[name] for name in schemas}
+                ),
+            )
 
 
 def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:

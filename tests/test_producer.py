@@ -144,7 +144,7 @@ class TestProducer:
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
             patch("dp.sync.producer.clear_bucket", new_callable=AsyncMock),
-            patch("dp.sync.dumper.extract_task_wrapper"),
+            patch("dp.sync.dumper.extract_task"),
             patch(
                 "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1
             ),

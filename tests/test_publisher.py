@@ -18,9 +18,9 @@ from dp.models import (
     RangeSelection,
     SyncPlan,
 )
+from dp.loading import publish_plan
 from dp.sync.publisher import (
     cleanup_consumers,
-    publish_plan,
     publish_schema,
     publisher,
 )
@@ -44,8 +44,8 @@ class TestPublisher:
         """
         await redis.set("dp:active", "r1")
         with (
-            patch("dp.sync.publisher.psycopg.connect", return_value=MagicMock()),
-            patch("dp.sync.publisher.reload_postgrest"),
+            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
+            patch("dp.utils.reload_postgrest"),
             patch.object(publisher, "exit") as exit_app,
         ):
             await publish_schema(
@@ -65,9 +65,9 @@ class TestPublisher:
         config = sync_config([FullTable(name="p.app.t")])
         plan = SyncPlan(schema_name="app")
         with (
-            patch("dp.sync.publisher.psycopg.connect", return_value=postgres),
+            patch("dp.loading.psycopg.connect", return_value=postgres),
             patch(
-                "dp.sync.publisher.apply_sync_plan",
+                "dp.loading.apply_sync_plan",
                 return_value=PublicationResult(plan=plan, published_tables=set()),
             ) as apply,
         ):
@@ -101,7 +101,7 @@ class TestPublisher:
             patch.object(publisher, "exit"),
             patch("dp.sync.publisher.publish_plan", return_value=result),
             patch(
-                "dp.sync.publisher.complete_schema",
+                "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
@@ -161,12 +161,12 @@ class TestPublisher:
                 return_value=MagicMock(plan=plan, published_tables={"p.app.t"}),
             ),
             patch(
-                "dp.sync.publisher.complete_schema",
+                "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.sync.publisher.psycopg.connect", return_value=MagicMock()),
-            patch("dp.sync.publisher.reload_postgrest"),
+            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
+            patch("dp.utils.reload_postgrest"),
             patch.object(publisher, "exit"),
         ):
             await publish_schema(
@@ -225,12 +225,12 @@ class TestPublisher:
                 return_value=MagicMock(plan=plan, published_tables={"p.app.t"}),
             ),
             patch(
-                "dp.sync.publisher.complete_schema",
+                "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.sync.publisher.psycopg.connect", return_value=MagicMock()),
-            patch("dp.sync.publisher.reload_postgrest"),
+            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
+            patch("dp.utils.reload_postgrest"),
             patch.object(publisher, "exit") as exit_app,
         ):
             await publish_schema(
@@ -267,7 +267,7 @@ class TestPublisher:
             patch.object(publisher, "exit"),
             patch("dp.sync.publisher.publish_plan", return_value=result),
             patch(
-                "dp.sync.publisher.complete_schema",
+                "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=1,
             ),

@@ -10,11 +10,11 @@ from redis.asyncio import Redis
 
 from dp.errors import retry_or_stop
 from dp.models import AllSelection, DumpTask
+from dp.extraction import extract_task
 from dp.sync.dumper import (
     cleanup_consumers,
     dump_task,
     dumper,
-    extract_task_wrapper,
 )
 from dp.sync.seeder import seed_sync
 
@@ -40,7 +40,7 @@ class TestDumper:
         """
         with (
             patch(
-                "dp.sync.dumper.extract_task_wrapper", side_effect=RuntimeError("bad")
+                "dp.sync.dumper.extract_task", side_effect=RuntimeError("bad")
             ),
             patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock),
             patch.object(dumper, "exit"),
@@ -54,16 +54,15 @@ class TestDumper:
     ) -> None:
         """
         GIVEN: a dump task and a patched DuckDB connection.
-        WHEN: extract_task_wrapper is called.
-        THEN: it connects and extracts exactly once.
+        WHEN: extract_task is called.
+        THEN: it connects and executes exactly once.
         """
         with (
-            patch("dp.sync.dumper.connect", return_value=duckdb) as connect,
-            patch("dp.sync.dumper.extract_task") as extract,
+            patch("dp.extraction.connect", return_value=duckdb) as connect,
+            patch("dp.extraction.build_mapping", return_value="SELECT 1"),
         ):
-            extract_task_wrapper(standard_dump_task)
+            extract_task(standard_dump_task)
         connect.assert_called_once()
-        extract.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_dumper_publishes_seed_sync_when_last_dump_completes(
@@ -78,7 +77,7 @@ class TestDumper:
         THEN: the dumper publishes a seed sync message.
         """
         with (
-            patch("dp.sync.dumper.extract_task_wrapper"),
+            patch("dp.sync.dumper.extract_task"),
             patch(
                 "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=0
             ),

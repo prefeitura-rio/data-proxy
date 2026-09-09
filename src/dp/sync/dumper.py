@@ -9,7 +9,6 @@ from faststream import FastStream, Logger
 from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import DUMP_STREAM, DUMPERS_GROUP, SEED_STREAM
-from ..duckdb import connect
 from ..errors import retry_or_stop
 from ..extraction import extract_task
 from ..log import elapsed_ms, logger, runid, tablename
@@ -44,12 +43,6 @@ subs = {
 }
 
 
-def extract_task_wrapper(task: DumpTask) -> None:
-    """Run blocking extraction for one dump task."""
-    with connect() as db:
-        extract_task(task, db)
-
-
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
 @tracker("dumper")
@@ -61,7 +54,7 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
     logger.info("Dump started task_id=%s", task.task_id)
 
     try:
-        await asyncify(extract_task_wrapper)(task)
+        await asyncify(extract_task)(task)
     except Exception as error:
         await retry_or_stop(
             error, task, broker.publish, max_retries=settings.DUMPER_MAX_RETRIES

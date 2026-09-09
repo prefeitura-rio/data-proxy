@@ -27,6 +27,8 @@ from .models import (
     DumpResult,
     DumpTask,
     PartitionManifest,
+    PublicationResult,
+    SyncConfig,
     SyncPlan,
     TableState,
     task_outcome_adapter,
@@ -238,6 +240,39 @@ async def cleanup_consumer(
 
     with contextlib.suppress(ResponseError):
         await redis.xgroup_delconsumer(stream, group, consumer)
+
+
+def dispatch_exists(entries: object, run_id: str) -> bool:
+    """Return whether publication work for one run already exists"""
+    return run_id.encode() in repr(entries).encode()
+
+
+def build_table_states(
+    result: PublicationResult, config: SyncConfig
+) -> dict[str, TableState]:
+    """Build persisted state for successfully published tables"""
+    tables = {table.name: table for table in config.tables}
+    states = {
+        table_name: TableState(
+            strategy=tables[table_name].strategy,
+            signature=signature,
+            partitions=None,
+        )
+        for table_name, signature in result.plan.signatures.items()
+        if table_name in result.published_tables
+    }
+    states.update(
+        {
+            table_name: TableState(
+                strategy=tables[table_name].strategy,
+                signature=table_plan.table_signature,
+                partitions=table_plan.current_partitions,
+            )
+            for table_name, table_plan in result.plan.partitioned_tables.items()
+            if table_name in result.published_tables
+        }
+    )
+    return states
 
 
 async def ensure_groups(redis: Redis) -> None:

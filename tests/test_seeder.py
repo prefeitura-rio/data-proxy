@@ -17,7 +17,8 @@ from dp.models import (
 )
 from dp.planning import expand_config
 from dp.sync.publisher import publish_schema, publisher
-from dp.sync.seeder import cleanup_consumers, dispatch_exists, seed_sync, seeder
+from dp.state import dispatch_exists
+from dp.sync.seeder import cleanup_consumers, seed_sync, seeder
 
 pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
@@ -62,8 +63,8 @@ class TestSeeder:
             },
         )
         with (
-            patch("dp.sync.seeder.psycopg.connect", return_value=MagicMock()),
-            patch("dp.sync.seeder.initialize_schemas"),
+            patch("dp.schema.psycopg.connect", return_value=MagicMock()),
+            patch("dp.schema.initialize_schemas"),
             patch(
                 "dp.sync.publisher.asyncify",
                 return_value=AsyncMock(
@@ -73,7 +74,7 @@ class TestSeeder:
                     )
                 ),
             ),
-            patch("dp.sync.publisher.complete_schema", new_callable=AsyncMock),
+            patch("dp.utils.complete_schema", new_callable=AsyncMock),
             patch.object(publisher, "exit"),
             patch.object(seeder, "exit"),
         ):

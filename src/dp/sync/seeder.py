@@ -3,7 +3,6 @@
 from typing import cast
 from uuid import uuid4
 
-import psycopg
 import uvloop
 from faststream import FastStream, Logger
 from faststream.middlewares import ExceptionMiddleware
@@ -14,23 +13,18 @@ from ..constants import PUBLISH_STREAM, SEED_STREAM, SEEDERS_GROUP
 from ..errors import stop_on_error
 from ..log import logger, runid
 from ..metrics import metrics, tracker
-from ..models import PublishTask, SeedTask, SyncConfig
-from ..schema import initialize_schemas
+from ..models import PublishTask, SeedTask
+from ..schema import initialize_schemas_for_plans
 from ..settings import settings
-from ..state import cleanup_consumer, read_sync_plans
+from ..state import cleanup_consumer, dispatch_exists, read_sync_plans
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
     logger=logger,
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
+
 seeder = FastStream(broker, logger=logger)
-
-
-def dispatch_exists(entries: StreamRangeResponse, run_id: str) -> bool:
-    """Return whether publication work for one run already exists."""
-    return run_id.encode() in repr(entries).encode()
-
 
 subs = {
     "new": StreamSub(
@@ -55,8 +49,9 @@ subs = {
 @broker.subscriber(stream=subs["stale"])
 @tracker("seeder")
 async def seed_sync(task: SeedTask, logger: Logger) -> None:
-    """Run idempotent setup and dispatch one publication task per schema."""
+    """Run idempotent setup and dispatch one publication task per schema"""
     runid.set(task.run_id)
+
     async with settings.redis as redis:
         plans = await read_sync_plans(redis, task.run_id)
         entries = cast(StreamRangeResponse, await redis.xrange(PUBLISH_STREAM))
@@ -67,22 +62,11 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
 
     logger.info("Seed started plans=%d", len(plans))
 
-    writers = settings.schema_writers
-    by_dsn: dict[str, list[str]] = {}
-
-    for plan in plans:
-        by_dsn.setdefault(writers.dsn(plan.schema_name), []).append(plan.schema_name)
-
-    for dsn, schemas in by_dsn.items():
-        with psycopg.connect(dsn) as conn:
-            initialize_schemas(
-                conn,
-                SyncConfig(
-                    schemas={
-                        name: settings.sync_config.schemas[name] for name in schemas
-                    }
-                ),
-            )
+    initialize_schemas_for_plans(
+        plans,
+        settings.schema_writers.dsn,
+        settings.sync_config.schemas,
+    )
 
     stream_publisher = broker.publisher(stream=PUBLISH_STREAM)
 
@@ -103,7 +87,7 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
 
 @seeder.on_shutdown
 async def cleanup_consumers() -> None:
-    """Remove idle seeder consumers."""
+    """Remove idle seeder consumers"""
     async with settings.redis as redis:
         for sub in subs.values():
             assert sub.consumer is not None

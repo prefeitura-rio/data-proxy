@@ -3,7 +3,6 @@
 from time import monotonic
 from uuid import uuid4
 
-import psycopg
 import uvloop
 from asyncer import asyncify
 from faststream import FastStream, Logger
@@ -12,20 +11,18 @@ from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..errors import stop_on_error
-from ..loading import apply_sync_plan
+from ..loading import publish_plan
 from ..log import elapsed_ms, logger, runid, schemaname
-from ..metrics import metrics, tracker
-from ..models import PublishTask, SyncConfig, SyncPlan, TableState
-from ..schema import reload_postgrest
+from ..metrics import record_publication_metrics, tracker
+from ..models import PublishTask, SyncConfig
 from ..settings import settings
 from ..state import (
+    build_table_states,
     cleanup_consumer,
-    cleanup_run,
-    complete_schema,
-    read_active_run,
     read_failed_paths,
     read_sync_plan,
 )
+from ..utils import complete_publication, handle_missing_plan
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -54,40 +51,19 @@ subs = {
 }
 
 
-def publish_plan(dsn: str, config: SyncConfig, plan: SyncPlan, failed_paths: set[str]):
-    """Run blocking schema publication"""
-    with psycopg.connect(dsn) as pg_conn:
-        return apply_sync_plan(
-            pg_conn,
-            config,
-            plan,
-            failed_paths,
-        )
-
-
 @broker.subscriber(stream=subs["new"])
 @broker.subscriber(stream=subs["stale"])
 @tracker("publisher")
 async def publish_schema(task: PublishTask, logger: Logger) -> None:
-    """Publish one schema and complete its immutable plan field."""
+    """Publish one schema and complete its immutable plan field"""
     runid.set(task.run_id)
     schemaname.set(task.schema_name)
+
     async with settings.redis as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
 
         if plan is None:
-            if (
-                await read_active_run(redis) == task.run_id
-                and await redis.hlen(f"dp:plans:{task.run_id}") == 0
-            ):
-                with psycopg.connect(settings.PG_DSN) as conn:
-                    reload_postgrest(
-                        conn,
-                        settings.sync_config,
-                    )
-
-                await cleanup_run(redis, task.run_id)
-
+            await handle_missing_plan(redis, task)
             return
 
         failed_paths = await read_failed_paths(redis, task.run_id)
@@ -99,21 +75,17 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
     logger.info("Publish started")
 
     started = monotonic()
+
     result = await asyncify(publish_plan)(
         settings.schema_writers.dsn(task.schema_name),
         schema_config,
         plan,
         failed_paths,
     )
+
     duration = monotonic() - started
 
-    for table_name in result.published_tables:
-        metrics.publish_tables_total.labels(schema=task.schema_name, status="success").inc()
-        metrics.publish_table_duration_seconds.labels(table=table_name).observe(duration)
-
-    for table_name in result.plan.signatures:
-        if table_name not in result.published_tables:
-            metrics.publish_tables_total.labels(schema=task.schema_name, status="failure").inc()
+    record_publication_metrics(result, task.schema_name, duration)
 
     logger.info(
         "Publish completed tables=%d elapsed_ms=%d",
@@ -121,43 +93,15 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
         elapsed_ms(started),
     )
 
-    states: dict[str, TableState] = {}
-    for table_name, signature in result.plan.signatures.items():
-        if table_name in result.published_tables:
-            table = next(
-                table for table in schema_config.tables if table.name == table_name
-            )
-            states[table_name] = TableState(
-                strategy=table.strategy,
-                signature=signature,
-                partitions=None,
-            )
-
-    for table_name, table_plan in result.plan.partitioned_tables.items():
-        if table_name in result.published_tables:
-            states[table_name] = TableState(
-                strategy=next(
-                    table.strategy
-                    for table in schema_config.tables
-                    if table.name == table_name
-                ),
-                signature=table_plan.table_signature,
-                partitions=table_plan.current_partitions,
-            )
+    states = build_table_states(result, schema_config)
 
     async with settings.redis as redis:
-        remaining = await complete_schema(redis, task.run_id, task.schema_name, states)
-
-        if remaining == 0:
-            with psycopg.connect(settings.PG_DSN) as conn:
-                reload_postgrest(conn, settings.sync_config)
-
-            await cleanup_run(redis, task.run_id)
+        await complete_publication(redis, task, states)
 
 
 @publisher.on_shutdown
 async def cleanup_consumers() -> None:
-    """Remove idle publisher consumers."""
+    """Remove idle publisher consumers"""
     async with settings.redis as redis:
         for sub in subs.values():
             assert sub.consumer is not None

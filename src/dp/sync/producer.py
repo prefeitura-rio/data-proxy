@@ -24,7 +24,7 @@ producer = FastStream(broker, logger=logger)
 @producer.after_startup
 @tracker("producer")
 async def produce() -> None:
-    """Plan one run, persist schema plans, and publish dump tasks."""
+    """Plan one run, persist schema plans, and publish dump tasks"""
     runidval = Instant.now().format_iso()
     started = monotonic()
 
@@ -36,7 +36,6 @@ async def produce() -> None:
             if remaining == 0:
                 await broker.publish(SeedTask(run_id=active_run), stream=SEED_STREAM)
             metrics.producer_runs_total.labels(status="recovered").inc()
-
             producer.exit()
             return
 
@@ -50,14 +49,12 @@ async def produce() -> None:
         if not work.plans:
             logger.info("No table changes")
             metrics.producer_runs_total.labels(status="no_changes").inc()
-
             producer.exit()
             return
 
         if not await create_run(redis, runidval, work.plans, len(work.tasks)):
             logger.warning("An active run already exists")
             metrics.producer_runs_total.labels(status="active_run_conflict").inc()
-
             producer.exit()
             return
 

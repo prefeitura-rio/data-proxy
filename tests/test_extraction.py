@@ -1,5 +1,6 @@
 """Tests for BigQuery-to-Parquet extraction operations."""
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from unittest.mock import patch
 
@@ -134,12 +135,15 @@ class TestExtraction:
         self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
     ) -> None:
         """
-        GIVEN: a dump task and a DuckDB connection.
+        GIVEN: a dump task and a patched DuckDB connection.
         WHEN: extract_task is called.
         THEN: it executes one rendered SQL statement through DuckDB.
         """
-        with patch("dp.extraction.render_template", return_value="SELECT 1"):
-            extract_task(standard_dump_task, duckdb)
+        with (
+            patch("dp.extraction.connect", return_value=nullcontext(duckdb)),
+            patch("dp.extraction.render_template", return_value="SELECT 1"),
+        ):
+            extract_task(standard_dump_task)
 
         assert duckdb.execute("SELECT 1").fetchone() == (1,)
 

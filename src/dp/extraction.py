@@ -2,9 +2,9 @@
 
 from typing import assert_never
 
-from duckdb import DuckDBPyConnection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
+from .duckdb import connect
 from .models import (
     AllSelection,
     DumpTask,
@@ -73,6 +73,7 @@ def build_mapping(task: DumpTask) -> str:
             assert_never(task.selection)
 
 
-def extract_task(task: DumpTask, db: DuckDBPyConnection) -> None:
-    """Write one BigQuery task to GCS Parquet through DuckDB."""
-    db.execute(build_mapping(task))
+def extract_task(task: DumpTask) -> None:
+    """Write one BigQuery task to GCS Parquet through DuckDB"""
+    with connect() as db:
+        db.execute(build_mapping(task))
