@@ -11,10 +11,10 @@ on:
       - Dockerfile
       - Dockerfile.postgres
       - Dockerfile.nushell
+      - Dockerfile.oidc
       - docker-compose.yaml
       - scripts/**
-      - .sqlfluff
-      - .sqlfluffignore
+      - .nu-lint.toml
       - .env.test
   pull_request:
     paths: *ci_paths

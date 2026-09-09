@@ -471,7 +471,6 @@ dev = [
     { name = "pytest-gremlins" },
     { name = "ruff" },
     { name = "testcontainers" },
-    { name = "types-aiobotocore", extra = ["s3"] },
     { name = "types-aiobotocore-lite", extra = ["s3"] },
     { name = "vulture" },
 ]
@@ -507,7 +506,6 @@ dev = [
     { name = "pytest-gremlins", specifier = ">=1.9.0" },
     { name = "ruff", specifier = ">=0.9.3" },
     { name = "testcontainers", specifier = ">=4.15.0" },
-    { name = "types-aiobotocore", extras = ["s3"], specifier = ">=3.9.0" },
     { name = "types-aiobotocore-lite", extras = ["s3"], specifier = ">=3.9.0" },
     { name = "vulture", specifier = ">=2.16" },
 ]
@@ -1517,23 +1515,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ae/40/4a3db7990d1f62a53182aa96eaef57aeb2886a27f90a195bc66713565d31/typer-0.27.1.tar.gz", hash = "sha256:a79bef8469a79c45498e7b814ecf8d603cc7644e9acbd9e19cac0334240b18df", size = 203994, upload-time = "2026-08-03T14:41:03.438Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/43/89/9518bc0c3929bee36b3a4a8e3daddd6e03f92f9961c66d4983b837160543/typer-0.27.1-py3-none-any.whl", hash = "sha256:53150287edd11baeb4e4722c8e394fcdf8181c0ae89485cba8d25c778d5edd56", size = 122874, upload-time = "2026-08-03T14:41:04.391Z" },
-]
-
-[[package]]
-name = "types-aiobotocore"
-version = "3.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "botocore-stubs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b9/a8/a4ad647d7b3473bdc1892a0f7e6872affaf509d18f915f07c51f72b055c7/types_aiobotocore-3.9.0.tar.gz", hash = "sha256:00fc52e98c9d65fe6716f246e6e03ce18f0b6727aa580ab5b274fde6844b6142", size = 88503, upload-time = "2026-08-02T03:05:26.377Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/0e/d8af0ba644968d6183e04e9ab9c3e1c6b5b10f25f5389ec825abf65c11c7/types_aiobotocore-3.9.0-py3-none-any.whl", hash = "sha256:614862ac387098964805325751f8ab3b74d52e3e6ec7f37b7585fd971fabe476", size = 54999, upload-time = "2026-08-02T03:05:22.581Z" },
-]
-
-[package.optional-dependencies]
-s3 = [
-    { name = "types-aiobotocore-s3" },
 ]
 
 [[package]]

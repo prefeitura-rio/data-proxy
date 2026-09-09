@@ -36,7 +36,6 @@ dev = [
   "pytest-gremlins>=1.9.0",
   "hypothesis>=6.165.10",
   "types-aiobotocore-lite[s3]>=3.9.0",
-  "types-aiobotocore[s3]>=3.9.0",
 ]
 
 [tool.uv]
