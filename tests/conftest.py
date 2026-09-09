@@ -199,6 +199,7 @@ async def broker() -> AsyncIterator[tuple[RedisBroker, ...]]:
         dumper_broker,
         seeder_broker,
         publisher_broker,
+        connect_only=False,
     ) as broker:
         yield broker
 
