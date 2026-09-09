@@ -34,13 +34,6 @@ def redis-del [...keys: string]: nothing -> string {
     }
 }
 
-# Recursively delete GCS objects for a table prefix
-def gcs-rm [table: string]: nothing -> nothing {
-    try {
-        aws s3 rm $'s3://($env.GCS_BUCKET)/($table)' --recursive --endpoint-url $env.GCS_ENDPOINT_URL --quiet
-    } catch {|err| log error $'aws s3 rm failed: ($err.msg)' }
-}
-
 log info 'Cleanup started'
 
 for schema in ($config.schemas | columns) {
@@ -78,9 +71,6 @@ for schema in ($config.schemas | columns) {
             )
 
             log info $'Deleted ($deleted) Redis keys for ($full_name)'
-
-            log info $'Deleting GCS objects for ($full_name)'
-            gcs-rm $table
         }
 
         log info $'Truncating access_policy for ($schema)'
