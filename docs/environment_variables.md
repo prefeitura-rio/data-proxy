@@ -1,10 +1,10 @@
 # Environment Variables
 
-All pipeline components (producer, Dumper, Publisher) read these variables.
+All pipeline components (Producer, Dumper, Seeder, Publisher) read these variables.
 
 | Variable                         | Default                                      | Description                                                                                                               |
 | -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `PG_DSN`                         | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, use the leader's address. This keeps the DuckDB libpq session state correct.    |
+| `PG_DSN`                         | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, use the leader's address.                                                                                       |
 | `REDIS_URL`                      | `redis://localhost:6379/0`                   | Valkey (Redis-compatible) connection URL for the task queue.                                                              |
 | `GCS_BUCKET`                     | `test-bucket`                                | Name of the GCS bucket that stores Parquet files.                                                                         |
 | `GCS_ENDPOINT`                   | `localhost:9000`                             | GCS endpoint host and port. Leave empty to use real GCS. Set to `host:port` for MinIO.                                    |
@@ -20,3 +20,4 @@ All pipeline components (producer, Dumper, Publisher) read these variables.
 | `AUTH_USER_ROLE`                 | `user`                                       | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
 | `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |
 | `SCHEMA_WRITERS_FILE`            | `config/schema-writers/writers.json`         | Path to the schema-to-writer DSN mapping file.                                                                            |
+| `PUSHGATEWAY_URL`                | `http://pushgateway.data-proxy.svc.cluster.local:9091` | URL of the Prometheus Pushgateway endpoint for metrics push.                                                              |

@@ -16,12 +16,12 @@ The sync pipeline runs outside the request path.
 
 ## Data sync
 
-The sync pipeline has four components. Each component writes one JSON log record per line. Search logs with `component`, `sync_id`, `table`, or `stage`.
+The sync pipeline has four components. Each component writes structured log records with context fields. Search logs with `run_id`, `table`, or `schema`.
 
-- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
-- **Dumper** — runs as a KEDA ScaledJob. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
-- **Seeder** — runs as a KEDA ScaledJob. KEDA scales on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. The Seeder reads the sync plan, initializes PostgreSQL schemas and roles, and publishes one publication task per schema to `dp:publish`. The pod exits after it dispatches the publication tasks.
-- **Publisher** — runs as a KEDA ScaledJob. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. It loads only the Parquet paths in the schema plan. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
+- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It deletes all objects from the GCS bucket before it publishes the tasks. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
+- **Dumper** — runs as a KEDA ScaledObject. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
+- **Seeder** — runs as a KEDA ScaledObject. KEDA scales on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. The Seeder reads the sync plan, initializes PostgreSQL schemas and roles, and publishes one publication task per schema to `dp:publish`. The pod exits after it dispatches the publication tasks.
+- **Publisher** — runs as a KEDA ScaledObject. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the GCS bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
 
 The producer skips a BigQuery table that has not changed since its last successful sync. The producer checks this with a modification signature. This signature combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
 
@@ -33,9 +33,7 @@ The Dumper records the path of each failed extraction task. The Publisher publis
 
 A full table is atomic. A partitioned full rebuild is also atomic. One extraction failure blocks publication of the complete table. A preparation failure also blocks state commit for that table. A publication failure has the same effect.
 
-Each configured schema has a `freshness` table. This table gives the last publication time. It also gives the result of the latest attempt. The Publisher updates freshness in the same transaction as the data-table swap.
-
-A loss of Valkey state causes a full resync. This is safe.
+Each configured schema has a `freshness` table. This table gives the last publication time. It also gives the result of the latest attempt. For full rebuilds, the Publisher updates freshness in the same transaction as the data-table swap. For incremental syncs, the Publisher updates freshness after it loads the changed partitions.
 
 ## Modes
 
@@ -51,12 +49,13 @@ flowchart TD
     DB[(pgduckdb)]
 
     subgraph pipeline[Sync pipeline]
-        P[Producer\nCronJob] --> R --> W[Dumper\nScaledJob]
-        W --> GCS --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
+        P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
+        P -->|clear| GCS
+        W --> GCS --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
     end
 
     BQ -->|discover partitions| P
-    FIN -->|COPY INTO| DB
+    FIN -->|read_parquet| DB
     DB -->|read| PGRST[PostgREST]
     PGRST -->|write access_policy| DB
     PGRST -->|REST + JWT| Client([API Client])
@@ -77,8 +76,8 @@ flowchart TD
     Client([API Client])
 
     subgraph pipeline[Shared sync pipeline]
-        P[Producer\nCronJob] --> R --> W[Dumper\nScaledJob]
-        W --> GCS --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
+        P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
+        W --> GCS --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
     end
 
     subgraph cadastro[bcadastro schema stack]
