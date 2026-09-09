@@ -13,6 +13,7 @@ from ..log import elapsed_ms, logger, runid
 from ..metrics import metrics, tracker
 from ..models import SeedTask
 from ..planning import build_sync_work
+from ..s3 import clear_bucket
 from ..settings import settings
 from ..state import create_run, ensure_groups, read_active_run, read_remaining
 
@@ -61,6 +62,9 @@ async def produce() -> None:
             return
 
     runid.set(runidval)
+
+    await clear_bucket()
+    logger.info("Bucket cleared")
 
     if work.tasks:
         for task in work.tasks:
