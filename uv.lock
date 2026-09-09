@@ -471,7 +471,7 @@ dev = [
     { name = "pytest-gremlins" },
     { name = "ruff" },
     { name = "testcontainers" },
-    { name = "types-aiobotocore-lite", extra = ["s3"] },
+    { name = "types-aiobotocore", extra = ["s3"] },
     { name = "vulture" },
 ]
 
@@ -506,7 +506,7 @@ dev = [
     { name = "pytest-gremlins", specifier = ">=1.9.0" },
     { name = "ruff", specifier = ">=0.9.3" },
     { name = "testcontainers", specifier = ">=4.15.0" },
-    { name = "types-aiobotocore-lite", extras = ["s3"], specifier = ">=3.9.0" },
+    { name = "types-aiobotocore", extras = ["s3"], specifier = ">=3.9.0" },
     { name = "vulture", specifier = ">=2.16" },
 ]
 
@@ -1518,15 +1518,15 @@ wheels = [
 ]
 
 [[package]]
-name = "types-aiobotocore-lite"
+name = "types-aiobotocore"
 version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore-stubs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/f4/c3b8a468f4ce17dee4e4ab6ba421edee98949026d59031d1e2c71198d0a7/types_aiobotocore_lite-3.9.0.tar.gz", hash = "sha256:804b1b3b7926615bbc12a842a7bddea64886a7b7d161a3f8416f361d8b4ae4a9", size = 73573, upload-time = "2026-08-02T03:05:25.527Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/a8/a4ad647d7b3473bdc1892a0f7e6872affaf509d18f915f07c51f72b055c7/types_aiobotocore-3.9.0.tar.gz", hash = "sha256:00fc52e98c9d65fe6716f246e6e03ce18f0b6727aa580ab5b274fde6844b6142", size = 88503, upload-time = "2026-08-02T03:05:26.377Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/c3/5b090e4d43c66949795b8a1fda0e46f50daac48b2f3fc864fbd24c52199f/types_aiobotocore_lite-3.9.0-py3-none-any.whl", hash = "sha256:6bdb0f400120b692b186e4445da8ba69372f240d38f3197ef587cccde7dc3ca0", size = 41109, upload-time = "2026-08-02T03:05:22.523Z" },
+    { url = "https://files.pythonhosted.org/packages/25/0e/d8af0ba644968d6183e04e9ab9c3e1c6b5b10f25f5389ec825abf65c11c7/types_aiobotocore-3.9.0-py3-none-any.whl", hash = "sha256:614862ac387098964805325751f8ab3b74d52e3e6ec7f37b7585fd971fabe476", size = 54999, upload-time = "2026-08-02T03:05:22.581Z" },
 ]
 
 [package.optional-dependencies]
