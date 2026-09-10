@@ -21,3 +21,14 @@ tests:
       - matchRegex:
           path: data["sync.json"]
           pattern: proj\.dataset\.my_table
+
+  - it: sync.json carries the cache lifetime of a table
+    set:
+      syncConfig.schemas.my_schema.tables:
+        - name: proj.dataset.my_table
+          strategy: full
+          cache_ttl: 600
+    asserts:
+      - matchRegex:
+          path: data["sync.json"]
+          pattern: '"cache_ttl":600'

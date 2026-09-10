@@ -161,7 +161,8 @@ def install-bigquery-extension []: nothing -> nothing {
     }
 }
 
-# Set pg_duckdb GUCs required for BigQuery fallback views
+# Set pg_duckdb GUCs. Every later DuckDB query needs them, and the community
+# bigquery extension needs the unsigned and community extensions enabled.
 def set-pg-duckdb-gucs []: nothing -> nothing {
     if $env.FALLBACK_ENABLED == 'true' {
         postgres (load-sql pg_duckdb_gucs.sql)
@@ -174,13 +175,13 @@ log info 'Database initialization started'
 try {
     wait-for-postgres
     install-extensions
+    set-pg-duckdb-gucs
     create-roles
     create-schemas-and-freshness
     create-pre-request
     create-access-policy
     create-s3-secret
     install-bigquery-extension
-    set-pg-duckdb-gucs
     postgres (load-sql notify_pgrst.sql)
 
     log info 'Database initialization completed'

@@ -15,6 +15,18 @@ from tests.helpers import execute_sql, sync_config
 class TestSchema:
     """Tests for schema lifecycle behavior."""
 
+    def test_table_accepts_a_cache_lifetime(self) -> None:
+        """
+        GIVEN: a table entry with a cache lifetime and one without.
+        WHEN: the sync config is built.
+        THEN: the lifetime is kept and the other table leaves it unset.
+        """
+        table = FullTable(name="p.dev.eventos", cache_ttl=42)
+        other = FullTable(name="p.dev.outro")
+
+        assert table.cache_ttl == 42
+        assert other.cache_ttl is None
+
     def test_initialize_schemas_creates_roles_schemas_and_policies_in_order(
         self,
         postgres: Connection[tuple[object, ...]],

@@ -1,4 +1,5 @@
-# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration
+# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration, remove_hat_not_builtin, unhandled_external_error, where_closure_drop_parameter
+
 use std/log
 
 const PROFILE = 'data-proxy'
@@ -15,9 +16,9 @@ def format-age [d: duration]: nothing -> string {
     let min = (($total_sec mod 3600) // 60)
     let sec = (($total_sec mod 3600) mod 60)
     [
-        [$hr "hr"]
-        [$min "min"]
-        [$sec "sec"]
+        [$hr hr]
+        [$min min]
+        [$sec sec]
     ]
     | each {|p| if $p.0 > 0 { $"($p.0)($p.1)" } }
     | flatten
@@ -110,7 +111,7 @@ def --env build-images [kubecfg: path]: nothing -> string {
     docker save data-proxy-postgres:local | mk $kubecfg image load -
 
     log info 'Compiling the proxy script…'
-    tsc -p nginx/tsconfig.build.json
+    tsc -p nginx --noEmit false --outDir nginx/build
 
     log info 'Building data-proxy-nginx-proxy:local…'
     docker build -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
@@ -215,24 +216,20 @@ def mc [kubecfg: path, command: string]: nothing -> nothing {
 
 # Create the MinIO test-bucket via the S3 API.
 def create-bucket [kubecfg: path]: nothing -> nothing {
-    log info 'Creating MinIO test-bucket…'
     mc $kubecfg 'mc mb --ignore-existing local/test-bucket'
 }
 
 # Delete the MinIO test-bucket via the S3 API.
 def delete-bucket [kubecfg: path]: nothing -> nothing {
-    log info 'Deleting MinIO test-bucket…'
     mc $kubecfg 'mc rb --force --ignore-existing local/test-bucket'
 }
 
 # Clear MinIO, Redis, and Postgres so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
     create-bucket $kubecfg
-
-    log info 'Clearing MinIO test-bucket contents…'
     mc $kubecfg 'mc rm --recursive --force local/test-bucket'
 
-    log info 'Clearing redis streams and consumer groups…'
+    let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let valkey = (
         (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $pod_jp)
@@ -251,7 +248,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:extract
         dumpers
-    )
+    ) | ignore
 
     (kc
         $kubecfg
@@ -265,7 +262,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:prepare
         seeders
-    )
+    ) | ignore
 
     (kc
         $kubecfg
@@ -279,7 +276,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:publish
         publishers
-    )
+    ) | ignore
 
     (kc
         $kubecfg
@@ -291,9 +288,8 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         sh
         -c
         'redis-cli --scan --pattern dp:* | xargs -r redis-cli DEL'
-    )
+    ) | ignore
 
-    log info 'Clearing Postgres tables…'
     let duckdb = (kc
         $kubecfg
         -n
@@ -321,11 +317,11 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         )
         (
             kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c $'($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
-        )
+        ) | ignore
     } else {
         (
             kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c 'DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
-        )
+        ) | ignore
     }
 }
 
@@ -372,81 +368,21 @@ def "main k6 load-test" [
     kc $kubecfg -n data-proxy get testrun data-proxy-load -w
 }
 
-# Run the e2e test (triggers sync, seeds RLS, validates pipeline).
-def "main k6 e2e" []: nothing -> string {
-    let kubecfg = git-root | path join .kubeconfig
-
-    let repo = git-root
-    try { cd $repo } catch {|err|
-        log error $'cd failed: ($err.msg)'
-        return
-    }
-
-    log info 'Building data-proxy:local…'
-    docker build -t data-proxy:local -f Dockerfile .
-    log info 'Loading data-proxy:local into Minikube…'
-    docker save data-proxy:local | mk $kubecfg image load -
-
-    log info 'Upgrading data-proxy release…'
-    (hm
-        $kubecfg
-        upgrade
-        data-proxy
-        $'($repo)/helm'
-        --namespace
-        data-proxy
-        --values
-        $'($repo)/scripts/values/data-proxy.yaml'
-    )
-
-    clear-test-resources $kubecfg
-    create-bucket $kubecfg
-
-    log info 'Creating e2e configmap…'
-    (kc
-        $kubecfg
-        -n
-        data-proxy
-        create
-        configmap
-        data-proxy-e2e
-        --from-file=e2e.ts=k6/e2e.ts
-        --dry-run=client
-        -o
-        yaml
-    ) | kc $kubecfg apply -f -
-
-    log info 'Applying GCP secret…'
-    apply-gcp-secret $kubecfg
-
-    log info 'Deleting previous e2e testrun…'
-    kc $kubecfg -n data-proxy delete testrun data-proxy-e2e --ignore-not-found
-
-    log info 'Applying e2e testrun…'
-    kc $kubecfg apply -f k6/e2e.yaml
-
-    log info 'Waiting for e2e completion…'
+# Wait until the runner job of the e2e testrun reaches a terminal state.
+def wait-for-e2e [kubecfg: path]: nothing -> nothing {
+    let label = 'k6_cr=data-proxy-e2e,runner=true'
     let items_jp = 'jsonpath={.items}'
-    let pod_name_jp = 'jsonpath={.items[0].metadata.name}'
+
+    log info 'Waiting for the runner job to appear…'
     while true {
-        let jobs = (
-            (kc
-                $kubecfg
-                -n
-                data-proxy
-                get
-                jobs
-                -l
-                k6_cr=data-proxy-e2e,runner=true
-                -o
-                $items_jp
-            )
-            | str trim
-        )
+        let jobs = kc $kubecfg -n data-proxy get jobs -l $label -o $items_jp | str trim
+
         if ($jobs | is-not-empty) and ($jobs != '[]') { break }
+
         sleep 1sec
     }
 
+    log info 'Waiting for the test to complete…'
     let complete_jp = r#'{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'#
 
     while true {
@@ -458,28 +394,204 @@ def "main k6 e2e" []: nothing -> string {
                 get
                 jobs
                 -l
-                k6_cr=data-proxy-e2e,runner=true
+                $label
                 -o
                 $'jsonpath=($complete_jp)'
             )
             | str trim
         )
+
         if $phase =~ True { break }
+
         sleep 2sec
     }
+}
 
-    log info 'Fetching e2e logs…'
+# Print the runner log and fail when the test run failed.
+def print-e2e-logs [kubecfg: path]: nothing -> nothing {
+    let label = 'k6_cr=data-proxy-e2e,runner=true'
+    let pod_jp = 'jsonpath={.items[0].metadata.name}'
+    let failed_jp = r#'{range .items[*]}{.status.conditions[?(@.type=="Failed")].status}{end}'#
+    let pod = (kc $kubecfg -n data-proxy get pods -l $label -o $pod_jp)
+
+    (kc $kubecfg -n data-proxy logs $pod) | tee { delete-bucket $kubecfg }
+
+    let failed = (
+        kc $kubecfg -n data-proxy get jobs -l $label -o $'jsonpath=($failed_jp)'
+        | str trim
+    )
+
+    if $failed =~ True {
+        error make {
+            msg: 'the e2e test run failed; read the runner log above'
+            label: {
+                text: 'failed condition'
+                span: (metadata $failed).span
+            }
+        }
+    }
+}
+
+# Fail when the proxy never served an answer from BigQuery.
+def check-fallback-served [kubecfg: path, pod: string]: nothing -> nothing {
+    let logs = (kc $kubecfg -n data-proxy logs $pod -c nginx)
+    let summaries = $logs | lines | where {|line| $line =~ '"event":"request"' }
+    let fallback = $summaries | where {|line| $line =~ '"source":"bigquery"' }
+
+    if ($fallback | is-empty) {
+        error make {
+            msg: 'the proxy never served a request from the fallback'
+            label: {
+                text: 'no fallback line'
+                span: (metadata $fallback).span
+            }
+        }
+    }
+}
+
+# Fail unless the concurrent burst stored exactly one entry.
+def check-burst-stored [kubecfg: path, pod: string]: nothing -> nothing {
+    let lines = kc $kubecfg -n data-proxy logs $pod -c nginx | lines
+    let markers = (
+        $lines
+        | enumerate
+        | where {|row| $row.item =~ '"uri":"/e2e"' }
+        | get index
+    )
+
+    if ($markers | is-empty) {
+        error make {
+            msg: 'the burst marker request is missing from the proxy log'
+            label: {
+                text: 'marker search'
+                span: (metadata $markers).span
+            }
+        }
+    }
+
+    let marker = $markers | last
+    let stored = (
+        $lines
+        | enumerate
+        | where {|row| $row.index > $marker }
+        | where {|row| $row.item =~ '"uri":"/endpoint_participantes"' }
+        | where {|row| $row.item =~ '"cache":"stored"' }
+    )
+
+    log info $"entries stored for the burst: ($stored | length)"
+
+    if ($stored | length) != 1 {
+        error make {
+            msg: 'the concurrent burst did not store exactly one entry'
+            label: {
+                text: 'stored lines'
+                span: (metadata $stored).span
+            }
+        }
+    }
+}
+
+# Run the e2e test (triggers sync, seeds RLS, validates pipeline).
+def "main k6 e2e" []: nothing -> string {
+    let kubecfg = git-root | path join .kubeconfig
+
+    let repo = git-root
+    try { cd $repo } catch {|err|
+        log error $'cd failed: ($err.msg)'
+        return
+    }
+
+    docker build -q -t data-proxy:local -f Dockerfile . | ignore
+    docker save -q data-proxy:local | mk $kubecfg image load - | ignore
+    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile . | ignore
+    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load - | ignore
+
+    (hm
+        $kubecfg
+        upgrade
+        data-proxy
+        $'($repo)/helm'
+        --namespace
+        data-proxy
+        --values
+        $'($repo)/scripts/values/data-proxy.yaml'
+    ) | ignore
+
+    clear-test-resources $kubecfg
+    create-bucket $kubecfg
+
     (kc
         $kubecfg
         -n
         data-proxy
-        get
-        pods
-        -l
-        k6_cr=data-proxy-e2e,runner=true
+        create
+        configmap
+        data-proxy-e2e
+        --from-file=e2e.ts=k6/e2e.ts
+        --dry-run=client
         -o
-        $pod_name_jp
-    ) | kc $kubecfg -n data-proxy logs $in | tee { delete-bucket $kubecfg }
+        yaml
+    ) | kc $kubecfg apply -f - | ignore
+
+    apply-gcp-secret $kubecfg | ignore
+
+    kc $kubecfg -n data-proxy delete testrun data-proxy-e2e --ignore-not-found | ignore
+
+    let now = date now | date to-timezone utc
+    let run_started: string = $now | format date '%Y-%m-%dT%H:%M:%SZ'
+    kc $kubecfg apply -f k6/e2e.yaml | ignore
+
+    wait-for-e2e $kubecfg
+
+    print-e2e-logs $kubecfg
+
+    let proxy_pod = (
+        kc
+            $kubecfg
+            -n
+            data-proxy
+            get
+            pods
+            -l
+            app.kubernetes.io/component=nginx-proxy
+            -o
+            'jsonpath={.items[0].metadata.name}'
+        | str trim
+    )
+
+    check-fallback-served $kubecfg $proxy_pod
+
+    let duckdb_pod = (
+        kc
+            $kubecfg
+            -n
+            data-proxy
+            get
+            pod
+            -l
+            app.kubernetes.io/name=data-proxy
+            -l
+            app.kubernetes.io/component=duckdb
+            -o
+            'jsonpath={.items[0].metadata.name}'
+        | str trim
+    )
+
+    let hook_errors = (
+        kc $kubecfg -n data-proxy logs $duckdb_pod $'--since-time=($run_started)'
+        | lines
+        | where {|line| $line =~ 'permission denied for schema rls' }
+    )
+
+    if ($hook_errors | is-not-empty) {
+        error make {
+            msg: 'anonymous traffic reached PostgREST, so the request hook failed'
+            label: {
+                text: 'hook errors'
+                span: (metadata $hook_errors).span
+            }
+        }
+    }
 }
 
 # Start Minikube and install the complete local stack.
@@ -532,7 +644,7 @@ def "main up" []: nothing -> nothing {
         istio-ingress/istio-ingressgateway
         data-proxy/minio
         data-proxy/oidc
-        data-proxy/webdis
+        data-proxy/data-proxy-nginx-proxy
         data-proxy/data-proxy-postgrest
         data-proxy/data-proxy-swagger-ui
     ] | wait-for deployment $kubecfg

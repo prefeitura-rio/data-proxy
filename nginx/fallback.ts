@@ -8,7 +8,115 @@ import crypto from 'crypto';
 const WEBDIS = 'http://127.0.0.1:7379';
 
 /** Headers forwarded to PostgREST, in this order; absent or empty ones are skipped. */
-const FORWARDED_HEADERS = ['Authorization', 'Accept-Profile', 'Prefer', 'Range', 'Accept'];
+const FORWARDED_HEADERS = [
+    'Authorization', 'Accept-Profile', 'Content-Profile', 'Prefer', 'Range', 'Accept', 'Content-Type',
+];
+
+/** Media type PostgREST answers with when the request names no format. */
+const DEFAULT_MEDIA_TYPE = 'application/json';
+
+/** Headers copied from the upstream answer onto the client answer. */
+const FORWARDED_RESPONSE_HEADERS = [
+    'Content-Type', 'Content-Range', 'Location', 'Preference-Applied', 'WWW-Authenticate',
+];
+
+/** Media type the proxy reports when the upstream names none. */
+const JSON_TYPE = 'application/json; charset=utf-8';
+
+/** Paths that never have a BigQuery view, so the fallback skips them. */
+const NO_FALLBACK_PATHS = ['/freshness', '/access_policy'];
+
+/** One table of the sync configuration, as the preloaded file writes it. */
+interface SyncTable {
+    name: string;
+    fallback?: boolean;
+    cache_ttl?: number;
+}
+
+/** One schema of the sync configuration. */
+interface SyncSchema {
+    tables?: SyncTable[];
+}
+
+/** The sync configuration, preloaded by the nginx configuration. */
+interface SyncConfig {
+    schemas?: Record<string, SyncSchema>;
+}
+
+declare const sync: SyncConfig | undefined;
+
+/** Reports whether a path is one that the views never cover. */
+function skipsFallback(uri: string): boolean {
+    for (var i = 0; i < NO_FALLBACK_PATHS.length; i++) {
+        if (uri === NO_FALLBACK_PATHS[i] || uri.startsWith(NO_FALLBACK_PATHS[i] + '/')) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/** Reports whether one schema holds a table with this name, and returns it. */
+function findTable(schema: SyncSchema, name: string): SyncTable | null {
+    if (!schema.tables) { return null; }
+
+    for (var i = 0; i < schema.tables.length; i++) {
+        var table = schema.tables[i];
+        var parts = table.name.split('.');
+
+        if (parts[parts.length - 1] === name) { return table; }
+    }
+
+    return null;
+}
+
+/**
+ * Returns the configured table of a request, or null when it has none.
+ *
+ * @param uri - Request path, without the query string.
+ * @param profile - Schema named by the Accept-Profile header, empty when absent.
+ * @returns The table entry, or null for an endpoint that the views never cover,
+ *   for a schema that is not configured and for a config that is not mounted.
+ */
+function tableFor(uri: string, profile: string): SyncTable | null {
+    if (skipsFallback(uri)) { return null; }
+
+    if (typeof sync === 'undefined' || !sync.schemas) { return null; }
+
+    var schemas = sync.schemas;
+    var parts = uri.split('?')[0].split('/');
+    var name = parts[1];
+
+    if (profile) {
+        return profile in schemas ? findTable(schemas[profile], name) : null;
+    }
+
+    var keys = Object.keys(schemas);
+
+    for (var i = 0; i < keys.length; i++) {
+        var found = findTable(schemas[keys[i]], name);
+
+        if (found) { return found; }
+    }
+
+    return null;
+}
+
+/**
+ * Reduces an Accept header to the media type that decides the answer format.
+ *
+ * @param value - Raw Accept header, empty when the request carries none.
+ * @returns The first media type without its parameters, or the default type.
+ */
+function normalizeAccept(value: string): string {
+    if (!value) { return DEFAULT_MEDIA_TYPE; }
+
+    var media = value.split(',')[0].split(';')[0].trim().toLowerCase();
+
+    if (media === '' || media === '*/*') { return DEFAULT_MEDIA_TYPE; }
+
+    return media;
+}
 
 /** The values that take part in the cache key of a request. */
 interface CacheKeyParts {
@@ -27,6 +135,7 @@ interface CacheKeyParts {
 interface ProxyResponse {
     status: number;
     body: string;
+    headers: Record<string, string>;
 }
 
 /**
@@ -36,6 +145,9 @@ interface ProxyResponse {
 interface RequestContext extends CacheKeyParts {
     upstream: string;
     cacheTtl: string;
+    fallback: boolean;
+    maxBody: number;
+    body: string;
     started: number;
 }
 
@@ -124,8 +236,8 @@ function isEmpty(body: string): boolean {
 function hashKey(parts: CacheKeyParts): string {
     var input = JSON.stringify([
         parts.method, parts.uri, parts.args, parts.sub, parts.schemas, parts.profile,
-        parts.headers['Authorization'] || '', parts.headers['Range'] || '',
-        parts.headers['Prefer'] || '', parts.headers['Accept'] || '',
+        parts.headers['Range'] || '', parts.headers['Prefer'] || '',
+        normalizeAccept(parts.headers['Accept'] || ''),
     ]);
 
     return crypto.createHash('sha256').update(input).digest('hex');
@@ -158,6 +270,9 @@ function buildHeaders(r: NginxHTTPRequest): Record<string, string> {
  */
 function requestContext(r: NginxHTTPRequest): RequestContext {
     var jwt = decodeJWT(r.headersIn['Authorization'] || '');
+    var profile = r.headersIn['Accept-Profile'] || '';
+    var table = tableFor(r.uri, profile);
+    var lifetime = r.variables.fallback_cache_ttl || '';
 
     return {
         method: r.method,
@@ -165,10 +280,13 @@ function requestContext(r: NginxHTTPRequest): RequestContext {
         args: r.variables.args || '',
         sub: jwt.sub,
         schemas: jwt.schemas,
-        profile: r.headersIn['Accept-Profile'] || '',
+        profile: profile,
         headers: buildHeaders(r),
         upstream: r.variables.fallback_pgrst || '',
-        cacheTtl: r.variables.fallback_cache_ttl || '',
+        cacheTtl: table && table.cache_ttl ? String(table.cache_ttl) : lifetime,
+        fallback: table !== null && table.fallback !== false,
+        maxBody: Number(r.variables.fallback_max_body || '0'),
+        body: r.requestText || '',
         started: Date.now(),
     };
 }
@@ -267,18 +385,74 @@ function upstreamUrl(ctx: RequestContext, path: string): string {
 }
 
 /**
+ * Reads one header from an upstream answer.
+ *
+ * The engine exposes the headers of a fetch answer in more than one shape, so
+ * both a headers object with a getter and a plain object are accepted.
+ *
+ * @param raw - Headers of the upstream answer.
+ * @param name - Header name to read, in its canonical spelling.
+ * @returns The header value, or an empty string when it is absent.
+ */
+function readHeader(raw: unknown, name: string): string {
+    var source = raw as { get?: (key: string) => string | null } & Record<string, string>;
+
+    if (typeof source.get === 'function') { return source.get(name) || ''; }
+
+    return source[name] || source[name.toLowerCase()] || '';
+}
+
+/**
+ * Copies the headers that a client must see from an upstream answer.
+ *
+ * @param res - Upstream answer as returned by the engine.
+ * @returns One entry per header of the allowlist that the answer carries.
+ */
+function responseHeaders(res: unknown): Record<string, string> {
+    var raw = (res as { headers?: unknown }).headers;
+    var out: Record<string, string> = {};
+
+    if (!raw) { return out; }
+
+    FORWARDED_RESPONSE_HEADERS.forEach((name) => {
+        var value = readHeader(raw, name);
+
+        if (value) { out[name] = value; }
+    });
+
+    return out;
+}
+
+/**
+ * Reports whether an answer may be stored.
+ *
+ * An answer that is not json would come back with the wrong media type from the
+ * cache. Range and location responses are excluded by the caller, which checks
+ * the request headers instead of relying on the upstream to echo them back.
+ *
+ * @param response - Answer to inspect.
+ * @returns True when the answer may be stored.
+ */
+function cacheable(response: ProxyResponse): boolean {
+    var type = (response.headers['Content-Type'] || '').toLowerCase();
+
+    return type === '' || type.indexOf('json') !== -1;
+}
+
+/**
  * Queries the local PostgREST upstream.
  *
  * @param r - Current request, used to report a query failure.
  * @param ctx - Request values, with the upstream address, path, query string,
  *   method and forwarded headers.
- * @returns The upstream status and body, or null when the call failed.
+ * @returns The upstream status, body and headers, or null when the call failed.
  */
 async function queryUpstream(r: NginxHTTPRequest, ctx: RequestContext): Promise<ProxyResponse | null> {
     try {
         var res = await ngx.fetch(upstreamUrl(ctx, ctx.uri), {
             method: ctx.method,
             headers: ctx.headers,
+            body: ctx.body || undefined,
         });
 
         var body = await res.text();
@@ -287,7 +461,7 @@ async function queryUpstream(r: NginxHTTPRequest, ctx: RequestContext): Promise<
             log(r, ctx, 'warn', 'upstream-status', { status: res.status });
         }
 
-        return { status: res.status, body: body };
+        return { status: res.status, body: body, headers: responseHeaders(res) };
     } catch (e) {
         log(r, ctx, 'warn', 'upstream-failed', { error: String(e) });
     }
@@ -320,7 +494,7 @@ async function queryFallback(r: NginxHTTPRequest, ctx: RequestContext): Promise<
 
         if (isEmpty(body)) { return null; }
 
-        return { status: 200, body: body };
+        return { status: 200, body: body, headers: responseHeaders(res) };
     } catch (e) {
         log(r, ctx, 'warn', 'fallback-failed', { error: String(e) });
     }
@@ -333,7 +507,9 @@ async function queryFallback(r: NginxHTTPRequest, ctx: RequestContext): Promise<
  *
  * Webdis answers with a success status even when the store is rejected, and
  * reports the outcome in the first element of the answer. The body is read so
- * that a rejected store is reported instead of counted as stored.
+ * that a rejected store is reported instead of counted as stored. The command
+ * travels in the body of the request, because a large response body in the URL
+ * would exceed the request line limit.
  *
  * @param r - Current request, used to report a store failure.
  * @param ctx - Request values, used to report the path and the cache lifetime.
@@ -346,7 +522,10 @@ async function writeCache(
 ): Promise<boolean> {
     try {
         var encoded = encodeURIComponent(body);
-        var res = await ngx.fetch(WEBDIS + '/SETEX/' + key + '/' + ctx.cacheTtl + '/' + encoded);
+        var res = await ngx.fetch(WEBDIS + '/', {
+            method: 'POST',
+            body: 'SETEX/' + key + '/' + ctx.cacheTtl + '/' + encoded,
+        });
         var text = await res.text();
         var answer = JSON.parse(text).SETEX;
 
@@ -360,69 +539,134 @@ async function writeCache(
     return false;
 }
 
+/** One answered request, shared with the requests that wait for the same key. */
+interface SharedAnswer {
+    response: ProxyResponse | null;
+    source: AnswerSource;
+    leading: boolean;
+}
+
+/** Answers being fetched right now, keyed by cache key. */
+var inFlight: Record<string, Promise<SharedAnswer>> = {};
+
+/**
+ * Reads the cache, queries the upstream and escalates to the BigQuery view when
+ * the answer is empty.
+ *
+ * @param r - Current request, used to report failures.
+ * @param ctx - Request values, with the upstream address and the fallback flag.
+ * @param key - Cache key of the request.
+ * @returns The answer and the source it came from.
+ */
+async function fetchAnswer(
+    r: NginxHTTPRequest, ctx: RequestContext, key: string
+): Promise<SharedAnswer> {
+    if (ctx.method === 'GET') {
+        var cached = await readCache(r, ctx, key);
+
+        if (cached !== null) {
+            return { response: { status: 200, body: cached, headers: {} }, source: 'cache', leading: true };
+        }
+    }
+
+    var response = await queryUpstream(r, ctx);
+
+    if (response === null) { return { response: null, source: 'none', leading: true }; }
+
+    if (ctx.method === 'GET' && ctx.fallback && response.status === 200 && isEmpty(response.body)) {
+        var fallback = await queryFallback(r, ctx);
+
+        if (fallback !== null) { return { response: fallback, source: 'bigquery', leading: true }; }
+    }
+
+    return { response: response, source: 'postgrest', leading: true };
+}
+
+/**
+ * Answers one request, sharing the call with the requests that ask for the same
+ * key at the same time, so that a burst reaches the upstream once.
+ *
+ * @param r - Current request, used to report failures.
+ * @param ctx - Request values of the request that asks first.
+ * @param key - Cache key of the request.
+ * @returns The answer and whether this request ran the call.
+ */
+async function answer(r: NginxHTTPRequest, ctx: RequestContext, key: string): Promise<SharedAnswer> {
+    var pending = inFlight[key];
+
+    if (pending) {
+        var joined = await pending;
+
+        return { response: joined.response, source: joined.source, leading: false };
+    }
+
+    var promise = fetchAnswer(r, ctx, key);
+
+    inFlight[key] = promise;
+
+    try {
+        var mine = await promise;
+
+        return { response: mine.response, source: mine.source, leading: true };
+    } finally {
+        delete inFlight[key];
+    }
+}
+
 /**
  * Serves one request: cache lookup, local PostgREST query, BigQuery fallback
  * and cache store.
  *
- * @param r - Current request. The upstream address and the cache lifetime come
- *   from the fallback_pgrst and fallback_cache_ttl nginx variables.
+ * @param r - Current request. The upstream address, the cache lifetime, the
+ *   fallback flag and the largest stored body come from nginx variables.
  * @returns A promise that settles once the response has been sent.
  */
 async function handle(r: NginxHTTPRequest): Promise<void> {
     var ctx = requestContext(r);
     var key = hashKey(ctx);
+    var result = await answer(r, ctx, key);
 
-    var cached = await readCache(r, ctx, key);
-
-    if (cached !== null) {
-        r.headersOut['Content-Type'] = 'application/json; charset=utf-8';
-        r.headersOut['X-Cache'] = 'HIT';
-        log(r, ctx, 'info', 'request', {
-            status: 200, source: 'cache', cache: 'hit', bytes: cached.length,
-        });
-        r.return(200, cached);
-        return;
-    }
-
-    var response = await queryUpstream(r, ctx);
-
-    if (response === null) {
+    if (result.response === null) {
         var unavailable = '{"error":"PostgREST unavailable"}';
 
         log(r, ctx, 'info', 'request', {
             status: 502, source: 'none', cache: 'none', bytes: unavailable.length,
         });
+
         r.return(502, unavailable);
         return;
     }
 
-    var source: AnswerSource = 'postgrest';
+    var reply = result.response;
+    var cache: CacheOutcome = 'none';
 
-    if (ctx.method === 'GET' && response.status === 200 && isEmpty(response.body)) {
-        var fallback = await queryFallback(r, ctx);
+    if (result.source === 'cache') {
+        cache = 'hit';
+    } else if (result.leading && ctx.method === 'GET' && reply.status === 200
+        && !ctx.headers['Range'] && !isEmpty(reply.body) && cacheable(reply)) {
+        if (ctx.maxBody > 0 && reply.body.length > ctx.maxBody) {
+            log(r, ctx, 'warn', 'cache-body-too-large', { bytes: reply.body.length });
+        } else {
+            var stored = await writeCache(r, ctx, key, reply.body);
 
-        if (fallback !== null) {
-            response = fallback;
-            source = 'bigquery';
+            if (stored) { cache = 'stored'; }
         }
     }
 
-    var cache: CacheOutcome = 'none';
-
-    if (response.status === 200 && !isEmpty(response.body)) {
-        var stored = await writeCache(r, ctx, key, response.body);
-
-        if (stored) { cache = 'stored'; }
-    }
-
-    r.headersOut['Content-Type'] = 'application/json; charset=utf-8';
-    r.headersOut['X-Cache'] = 'MISS';
-
-    log(r, ctx, 'info', 'request', {
-        status: response.status, source: source, cache: cache, bytes: response.body.length,
+    Object.keys(reply.headers).forEach((name) => {
+        r.headersOut[name] = reply.headers[name];
     });
 
-    r.return(response.status, response.body);
+    if (!r.headersOut['Content-Type']) { r.headersOut['Content-Type'] = JSON_TYPE; }
+
+    r.headersOut['X-Cache'] = cache === 'hit' ? 'HIT' : 'MISS';
+
+    log(r, ctx, 'info', 'request', {
+        status: reply.status, source: result.source, cache: cache,
+        bytes: reply.body.length,
+    });
+
+    r.return(reply.status, reply.body);
 }
 
 export default { handle };

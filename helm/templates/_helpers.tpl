@@ -146,12 +146,39 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duc
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDatabaseHost" . }}:5432/{{ $db }}
 {{- end }}
 
+{{- define "data-proxy.nginxProxyConfig" -}}
+{{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) }}
+{{- end }}
+
+{{- define "data-proxy.webdisConfig" -}}
+{
+  "redis_host": "{{ include "data-proxy.fullname" . }}-valkey",
+  "redis_port": 6379,
+  "redis_auth": "{{ .Values.valkey.auth.password }}",
+  "database": {{ .Values.fallback.cacheRedisDb }},
+  "http_port": 7379,
+  "daemonize": false,
+  "logfile": "/dev/stdout"
+}
+{{- end }}
+
+{{- define "data-proxy.jwtRules" -}}
+jwtRules:
+  - issuer: {{ .Values.ingress.auth.issuer | quote }}
+    jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
+    {{- with .Values.ingress.auth.audience }}
+    audiences:
+      - {{ . | quote }}
+    {{- end }}
+    forwardOriginalToken: true
+{{- end }}
+
 {{- define "data-proxy.fallbackNginxUpstreams" -}}
 map $http_accept_profile $fallback_pgrst {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest:3000";
+  default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
   {{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
   {{- range $schema, $_ := .Values.ha.schemas }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.schemaStackName" (dict "root" $ "schema" $schema) }}-postgrest-ro:3000";
+  {{ $schema | quote }} "http://{{ include "data-proxy.schemaStackName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
   {{- end }}
   {{- end }}
 }

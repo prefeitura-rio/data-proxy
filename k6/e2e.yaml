@@ -49,8 +49,14 @@ spec:
       - name: API_HOST
         value: data-proxy.local
       - name: WEBDIS_URL
-        value: http://webdis.data-proxy.svc.cluster.local:7379
+        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis
       - name: NAMESPACE
         value: data-proxy
       - name: PRODUCER_CRONJOB
         value: data-proxy-producer
+      - name: POSTGREST_URL
+        value: http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000
+      - name: PG_IMAGE
+        value: localhost/data-proxy-postgres:local
+      - name: CACHE_TTL_SECONDS
+        value: "5"

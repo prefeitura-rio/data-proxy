@@ -9,6 +9,7 @@ RUN tar xzf /tmp/http-nu.tar.gz -C /usr/local/bin/ --strip-components=1 && rm /t
 
 COPY scripts/oidc.nu /scripts/oidc.nu
 COPY scripts/oidc.nuon /config/oidc.nuon
+COPY scripts/oidc.pem /config/oidc.pem
 
 USER nushell
 

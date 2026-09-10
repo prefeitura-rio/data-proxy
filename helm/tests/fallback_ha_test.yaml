@@ -1,8 +1,10 @@
 suite: BigQuery fallback HA routing
 release:
   name: data-proxy
+  namespace: default
 templates:
   - virtualservice.yaml
+  - configmap-nginx-proxy.yaml
 tests:
   - it: routes HA schema reads through the fallback proxy
     values:
@@ -14,9 +16,19 @@ tests:
       - equal:
           path: spec.http[1].name
           value: app_pequenos_cariocas-read
+        template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.host
           value: data-proxy-nginx-proxy
+        template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.port.number
           value: 8080
+        template: virtualservice.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '"app_pequenos_cariocas" "http://data-proxy-app-pequenos-cariocas-postgrest-ro.default.svc.cluster.local:3000";'
+        template: configmap-nginx-proxy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy

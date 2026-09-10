@@ -117,3 +117,28 @@ tests:
           content:
             name: PGRST_OPENAPI_MODE
             value: ignore-privileges
+
+  - it: drops the sidecar when the fallback proxy fronts PostgREST
+    set:
+      fallback.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "false"
+
+  - it: keeps the sidecar when the gateway reaches PostgREST directly
+    set:
+      fallback.enabled: false
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "true"
+
+  - it: does not inject the sidecar when sidecarInject is disabled
+    set:
+      fallback.enabled: false
+      ingress.sidecarInject: false
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "false"

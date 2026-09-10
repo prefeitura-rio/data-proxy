@@ -1,0 +1,71 @@
+suite: Nginx proxy
+templates:
+  - deployment-nginx-proxy.yaml
+  - service-nginx-proxy.yaml
+tests:
+  - it: does not render when the fallback is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: injects the Istio sidecar into the proxy that receives the traffic
+    set:
+      fallback.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "true"
+        template: deployment-nginx-proxy.yaml
+
+  - it: honors sidecarInject for the proxy
+    set:
+      fallback.enabled: true
+      ingress.sidecarInject: false
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "false"
+        template: deployment-nginx-proxy.yaml
+
+  - it: publishes the webdis port of the sidecar
+    set:
+      fallback.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].ports
+          content:
+            name: redis-http
+            containerPort: 7379
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.ports
+          content:
+            name: redis-http
+            port: 7379
+            targetPort: 7379
+        template: service-nginx-proxy.yaml
+
+  - it: rolls the proxy when its configuration changes
+    set:
+      fallback.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/proxy-config"]
+          pattern: "^[0-9a-f]{64}$"
+        template: deployment-nginx-proxy.yaml
+
+  - it: mounts the sync config and rolls on its changes
+    set:
+      fallback.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/sync-config"]
+          pattern: "^[0-9a-f]{64}$"
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sync-config
+            mountPath: /config
+            readOnly: true
+        template: deployment-nginx-proxy.yaml

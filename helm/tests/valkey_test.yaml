@@ -1,0 +1,24 @@
+suite: Cache memory bounds
+templates:
+  - charts/valkey/templates/configmap.yaml
+tests:
+  - it: bounds the instance memory and evicts entries with a lifetime first
+    asserts:
+      - matchRegex:
+          path: data["valkey.conf"]
+          pattern: "maxmemory 512mb"
+      - matchRegex:
+          path: data["valkey.conf"]
+          pattern: "maxmemory-policy volatile-lru"
+
+  - it: honors a configured memory bound
+    set:
+      valkey.config.maxMemory: 1gb
+      valkey.config.maxMemoryPolicy: allkeys-lru
+    asserts:
+      - matchRegex:
+          path: data["valkey.conf"]
+          pattern: "maxmemory 1gb"
+      - matchRegex:
+          path: data["valkey.conf"]
+          pattern: "maxmemory-policy allkeys-lru"

@@ -19,7 +19,7 @@ pgduckdb:
   authenticatorPassword: test-auth-pass
 postgrest:
   proxyUri: http://localhost:3111
-  jwtSecret: ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq
+  jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
   jwksFetch:
     image: localhost/data-proxy-nushell:local
 gcs:
@@ -61,12 +61,14 @@ syncConfig:
         - name: rj-ia-desenvolvimento.dev.protocolo_estado_diario
           strategy: partitioned
           n: 7
+          cache_ttl: 600
           rls:
             - column: id_unidade
               unit_type: unidade
 fallback:
   enabled: true
-  nginxImage: data-proxy-nginx-proxy:local
+  cacheTtl: 5
+  nginxImage: localhost/data-proxy-nginx-proxy:local
 ha:
   enabled: false
   # schemas:
@@ -92,7 +94,7 @@ ingress:
     perTryTimeout: 30s
     retryOn: "503"
   auth:
-    enabled: false
+    enabled: true
     issuer: http://oidc.data-proxy.svc.cluster.local:8080
     jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
     audience: dev

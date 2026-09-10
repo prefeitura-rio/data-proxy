@@ -133,6 +133,8 @@ class Table(BaseModel):
     rls: list[UnitMapping] | None = None
     indexes: list[IndexConfig] = []
     fallback: bool = True
+    cache_ttl: int | None = None
+    """Lifetime of a proxy cache entry for this table, in seconds."""
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 

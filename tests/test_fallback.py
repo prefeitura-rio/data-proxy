@@ -18,7 +18,7 @@ from dp.fallback import (
     column_types_from_duckdb,
     create_bq_views,
     flush_cache,
-    is_struct_or_array,
+    is_nested_or_json,
     postgres_column_cast,
     return_type_for,
     rls_where_clause,
@@ -44,6 +44,7 @@ FALLBACK_COLUMNS = [
     FallbackColumn("data", "STRUCT(x VARCHAR)", True, "::text", '"data" text'),
     FallbackColumn("items", "ARRAY(VARCHAR)", True, "::text", '"items" text'),
     FallbackColumn("values", "LIST(VARCHAR)", True, "::text", '"values" text'),
+    FallbackColumn("payload", "JSON", True, "::text", '"payload" text'),
     FallbackColumn("name", "VARCHAR", False, "::text", '"name" text'),
     FallbackColumn("born", "DATE", False, "::date", '"born" date'),
     FallbackColumn("active", "BOOLEAN", False, "::boolean", '"active" boolean'),
@@ -52,17 +53,21 @@ FALLBACK_COLUMNS = [
 ]
 
 
-class TestIsStructOrArray:
-    """Type detection for DuckDB STRUCT and ARRAY types."""
+class TestIsNestedOrJson:
+    """Type detection for the DuckDB types that carry JSON."""
 
     @pytest.mark.parametrize("column", FALLBACK_COLUMNS)
     def test_type_detection(self, column: FallbackColumn) -> None:
-        """Detects STRUCT, ARRAY, and LIST types correctly."""
-        assert is_struct_or_array(column.duckdb_type) is column.is_nested
+        """Detects STRUCT, ARRAY, LIST, and JSON types correctly."""
+        assert is_nested_or_json(column.duckdb_type) is column.is_nested
 
     def test_lowercase_struct_is_detected(self) -> None:
         """Lowercase struct type is detected."""
-        assert is_struct_or_array("struct(x int)")
+        assert is_nested_or_json("struct(x int)")
+
+    def test_lowercase_json_is_detected(self) -> None:
+        """Lowercase json type is detected."""
+        assert is_nested_or_json("json")
 
 
 class TestBigqueryColumnExpr:

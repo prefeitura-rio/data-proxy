@@ -15,9 +15,13 @@ spec:
       app.kubernetes.io/component: nginx-proxy
   template:
     metadata:
+      annotations:
+        checksum/proxy-config: {{ printf "%s%s" (include "data-proxy.nginxProxyConfig" .) (include "data-proxy.webdisConfig" .) | sha256sum }}
+        checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: nginx-proxy
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       containers:
         - name: nginx
@@ -26,6 +30,7 @@ spec:
             - name: http
               containerPort: 8080
           volumeMounts:
+            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
@@ -42,6 +47,9 @@ spec:
         - name: webdis
           image: {{ .Values.fallback.webdisImage }}
           args: ["/usr/local/bin/webdis", "/etc/webdis/webdis.json"]
+          ports:
+            - name: redis-http
+              containerPort: 7379
           volumeMounts:
             - name: webdis-config
               mountPath: /etc/webdis
@@ -50,6 +58,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
+        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         - name: config
           configMap:
             name: {{ include "data-proxy.fullname" . }}-nginx-proxy

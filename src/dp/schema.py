@@ -62,9 +62,7 @@ def initialize_schemas_for_plans(
         with psycopg.connect(dsn) as conn:
             initialize_schemas(
                 conn,
-                SyncConfig(
-                    schemas={name: sync_schemas[name] for name in schemas}
-                ),
+                SyncConfig(schemas={name: sync_schemas[name] for name in schemas}),
             )
 
 

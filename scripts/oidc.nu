@@ -20,9 +20,9 @@ def b64url-decode [s: string]: nothing -> string {
     $'($s)($pad)' | decode base64 --url | decode utf-8
 }
 
-# Sign a JWT payload with HS256 using the configured secret.
+# Sign a JWT payload with RS256 using the configured key.
 def sign-jwt [payload: record]: nothing -> string {
-    let header = {alg: HS256, typ: JWT} | to json
+    let header = {alg: RS256, typ: JWT, kid: $config.kid} | to json
     let payload_json = $payload | to json
 
     let header_b64 = b64url $header
@@ -31,7 +31,7 @@ def sign-jwt [payload: record]: nothing -> string {
 
     let sig = (
         $signing_input
-        | try { openssl dgst -sha256 -hmac $config.secret -binary } catch {|err|
+        | try { openssl dgst -sha256 -sign $config.key_path -binary } catch {|err|
             log error $'openssl failed: ($err.msg)'
             ''
         }
@@ -146,7 +146,7 @@ def handle-userinfo [req: record]: nothing -> string {
         json-response (discovery-document)
     })
     (route {method: GET, path: '/jwks.json'} {|req ctx|
-        json-response {keys: []}
+        json-response {keys: [$config.jwk]}
     })
     (route {method: POST, path: '/token'} {|req ctx|
         issue-token ($in | from url)

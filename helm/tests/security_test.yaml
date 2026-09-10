@@ -85,3 +85,64 @@ tests:
       - notExists:
           path: spec.rules[0].when
 
+  - it: covers the fallback proxy when it is enabled
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      fallback.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: authorizationpolicy.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: nginx-proxy
+        template: authorizationpolicy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - equal:
+          path: spec.rules[0].from[0].source.requestPrincipals[0]
+          value: "*"
+        template: authorizationpolicy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - equal:
+          path: spec.rules[1].to[0].operation.paths[0]
+          value: /health
+        template: authorizationpolicy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - hasDocuments:
+          count: 2
+        template: requestauthentication.yaml
+      - equal:
+          path: spec.jwtRules[0].issuer
+          value: "https://auth.example.com"
+        template: requestauthentication.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+
+  - it: omits the proxy policy when the fallback is disabled
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: authorizationpolicy.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: postgrest
+        template: authorizationpolicy.yaml
+      - hasDocuments:
+          count: 1
+        template: requestauthentication.yaml
+

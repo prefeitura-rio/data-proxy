@@ -11,12 +11,21 @@ spec:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: postgrest
-  jwtRules:
-    - issuer: {{ .Values.ingress.auth.issuer | quote }}
-      jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
-      {{- with .Values.ingress.auth.audience }}
-      audiences:
-        - {{ . | quote }}
-      {{- end }}
-      forwardOriginalToken: true
+  {{- include "data-proxy.jwtRules" . | nindent 2 }}
+{{- if .Values.fallback.enabled }}
+---
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nginx-proxy
+  {{- include "data-proxy.jwtRules" . | nindent 2 }}
+{{- end }}
 {{- end }}

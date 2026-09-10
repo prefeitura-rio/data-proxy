@@ -16,7 +16,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["webdis.json"]
-          pattern: '"redis_db": 2'
+          pattern: '"database": 2'
         documentSelector:
           path: metadata.name
           value: data-proxy-webdis
@@ -35,6 +35,40 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'js_fetch_timeout 30s;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'default "http://data-proxy-postgrest.default.svc.cluster.local:3000";'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_preload_object /config/sync.json;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://127.0.0.1:7379/;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+
+  - it: trusts the token only when the mesh validates it
+    set:
+      fallback.enabled: true
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: "https://auth.example.com"
+      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      fallback.maxCacheBodyBytes: 512
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$fallback_max_body "512";'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy

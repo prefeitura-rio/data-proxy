@@ -126,6 +126,12 @@ valkey:
   enabled: true
   ## Deployment architecture. Use standalone for a single-node instance.
   architecture: standalone
+  config:
+    ## Upper bound on the memory the instance may use. Zero leaves it unbounded.
+    maxMemory: 512mb
+    ## Evict entries that carry a lifetime first, so the response cache gives way
+    ## before the sync streams and their state.
+    maxMemoryPolicy: volatile-lru
   auth:
     ## Set to true to require password authentication for all Valkey connections.
     enabled: true
@@ -363,6 +369,9 @@ fallback:
   fetchTimeout: 60s
   ## Valkey database number for the response cache (0 is for sync streams).
   cacheRedisDb: 1
+  ## Largest response body that is stored in the cache, in bytes. A larger one is
+  ## served but not stored. Zero stores any size.
+  maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
   nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:1bd9d1a"
   ## webdis image for the Redis HTTP proxy sidecar.

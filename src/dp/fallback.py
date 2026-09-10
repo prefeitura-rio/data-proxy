@@ -56,10 +56,10 @@ class RLS:
         )
 
 
-def is_struct_or_array(duckdb_type: str) -> bool:
-    """Return true when a DuckDB type is STRUCT or ARRAY."""
+def is_nested_or_json(duckdb_type: str) -> bool:
+    """Return true when a DuckDB type carries JSON, alone or nested."""
     upper = duckdb_type.upper()
-    return upper.startswith(("STRUCT", "ARRAY", "LIST"))
+    return upper.startswith(("STRUCT", "ARRAY", "LIST", "JSON"))
 
 
 def quoted_identifier(identifier: str) -> str:
@@ -74,7 +74,7 @@ def bigquery_column_expr(column: str, duckdb_type: str) -> str:
     STRUCT and ARRAY types are wrapped with to_json() for PostgreSQL jsonb casting.
     """
     quoted = quoted_identifier(column)
-    if is_struct_or_array(duckdb_type):
+    if is_nested_or_json(duckdb_type):
         return f"to_json({quoted}) AS {quoted}"
 
     return quoted
@@ -85,7 +85,7 @@ def postgres_column_cast(column: str, duckdb_type: str) -> str:
     quoted = quoted_identifier(column)
     key = Literal(column).as_string(None)
 
-    if is_struct_or_array(duckdb_type):
+    if is_nested_or_json(duckdb_type):
         return f"r[{key}]::text AS {quoted}"
 
     match duckdb_type.upper():
@@ -138,7 +138,7 @@ def column_types_from_duckdb(
 
 def return_type_for(column: str, duckdb_type: str) -> str:
     """Return the PostgreSQL column type declaration for a RETURNS TABLE clause."""
-    if is_struct_or_array(duckdb_type):
+    if is_nested_or_json(duckdb_type):
         return f"{quoted_identifier(column)} text"
 
     upper = duckdb_type.upper()
@@ -187,7 +187,7 @@ def bq_view_sql(schema: str, table: TableConfig, columns: list[tuple[str, str]])
     """Generate the PostgreSQL boundary view with nested jsonb values."""
     select_cols = ", ".join(
         f"{quoted_identifier(column)}::jsonb AS {quoted_identifier(column)}"
-        if is_struct_or_array(duckdb_type)
+        if is_nested_or_json(duckdb_type)
         else quoted_identifier(column)
         for column, duckdb_type in columns
     )

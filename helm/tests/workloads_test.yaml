@@ -62,9 +62,8 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.dumper]
         template: deployment-dumper.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 0
         template: deployment-dumper.yaml
 
   - it: dumper ScaledObject targets the Deployment and scales from zero
@@ -98,9 +97,8 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.seeder]
         template: deployment-seeder.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 0
         template: deployment-seeder.yaml
 
   - it: seeder ScaledObject targets the Deployment and scales from zero
@@ -126,9 +124,8 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.publisher]
         template: deployment-publisher.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 0
         template: deployment-publisher.yaml
 
   - it: publisher ScaledObject targets the Deployment and scales from zero

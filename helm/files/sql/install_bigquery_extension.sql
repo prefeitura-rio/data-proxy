@@ -1,1 +1,1 @@
-SELECT duckdb.install_extension('bigquery')
+SELECT duckdb.install_extension('bigquery', 'community')

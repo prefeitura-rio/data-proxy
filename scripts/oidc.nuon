@@ -1,7 +1,16 @@
 # nu-lint-ignore-file: string_may_be_bare
 {
     issuer: "http://oidc.data-proxy.svc.cluster.local:8080"
-    secret: "ZFhbPPytT6Q17VPs0SolKmKxPW7OWRvq"
+    key_path: "/config/oidc.pem"
+    kid: "oidc-test"
+    jwk: {
+        kty: "RSA"
+        use: "sig"
+        alg: "RS256"
+        kid: "oidc-test"
+        n: "hYh81CHwQ56g8UwNcvpTxJbK3JEBtdbUQipB9abw141NcyjoFSx37tjOhQKU5jvdZO257Enmw2qYXGaxE4RcOWXO8QrvnJRptwLt6ib60glghIZbtHYJrjfR9lil8-w30JS7ZabPrfwbgbf-QGrFatd0UEkMFu_l9p42iCkmInVPJoofTYre3guhAbmqeXq3WDxwVDIsxpEww6jeSRQHESXSBL1L2IBNc01MxOgcN4ygH7t0S9CA2y1e3q5NwbSdjRzCLBMcWcNiobaslKz-Ba-ukLAzDNKs13gVKct93EcBsAtKZ2yENrgPAzvO9HaBdkdQwW2ctGRw2JpK4kmm4w"
+        e: "AQAB"
+    }
     audience: ["dev"]
     token_ttl: 86400
     clients: {

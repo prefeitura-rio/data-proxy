@@ -15,4 +15,7 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
+    - name: redis-http
+      port: 7379
+      targetPort: 7379
 {{- end }}
