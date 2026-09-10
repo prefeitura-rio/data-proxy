@@ -1,4 +1,7 @@
 { pkgs, config, ... }:
+let
+  crdSchema = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json";
+in
 {
   name = "data-proxy";
 
@@ -68,21 +71,28 @@
   };
 
   tasks = {
-    "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
-    "dp:lint".exec = ''
+    "dp:lint:py".exec = ''
+      set -e
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/
       uv run complexipy src/ tests/
       uv run vulture src/ tests/
     '';
-    "dp:fmt".exec = "ruff check --fix && ruff format";
-    "dp:tsc".exec = "${pkgs.typescript}/bin/tsc -p nginx";
-    "dp:build:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx --noEmit false --outDir nginx/build";
+    "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
+    "dp:lint:helm".exec =
+      "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml";
+    "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx --noEmit false --outDir nginx/build";
+    "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
     "dp:test:proxy".exec =
       "${pkgs.nodejs}/bin/node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
-    "charts:lint".exec = "helm lint helm/";
-    "charts:test".exec = "${pkgs.nushell}/bin/nu scripts/test-charts.nu";
+    "dp:test:charts".exec = ''
+      set -e
+      helm unittest helm/
+      helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
+      helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
+    '';
+    "dp:fmt".exec = "ruff check --fix && ruff format";
   };
 
   enterShell = "nginx-ts-types";

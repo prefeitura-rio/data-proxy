@@ -76,13 +76,6 @@ jobs:
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: "1.24"
-      - name: Install kubeconform
-        run: |
-          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - name: Read current version
         id: version
         run: |
@@ -107,30 +100,6 @@ jobs:
       - name: Login to GHCR
         if: steps.guard.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-      - name: Install helm-unittest plugin
-        if: steps.guard.outputs.skip != 'true'
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.2/unittest-1.1.2.tgz --verify=false
-      - name: Lint
-        if: steps.guard.outputs.skip != 'true'
-        run: |
-          helm lint helm/ -f helm/ci/test-values.yaml
-          helm lint helm/ -f helm/ci/test-values-ha.yaml
-      - name: Unit tests
-        if: steps.guard.outputs.skip != 'true'
-        run: helm unittest helm/
-      - name: Install Nushell
-        if: steps.guard.outputs.skip != 'true'
-        uses: hustcer/setup-nu@main
-        with:
-          version: 0.107.0
-      - name: Validate Nushell scripts with nu-lint
-        if: steps.guard.outputs.skip != 'true'
-        run: |
-          curl -sL https://codeberg.org/wvhulle/nu-lint/releases/download/v1.2.1/nu-lint-x86_64-unknown-linux-musl.tar.gz | tar xz
-          ./nu-lint helm/files/scripts/*.nu
-      - name: Render and validate chart
-        if: steps.guard.outputs.skip != 'true'
-        run: nu scripts/test-charts.nu
       - name: Package
         if: steps.guard.outputs.skip != 'true'
         run: helm package helm/ --destination ./packaged/

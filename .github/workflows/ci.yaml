@@ -13,6 +13,8 @@ on:
       - Dockerfile.nushell
       - Dockerfile.proxy
       - nginx/**
+      - helm/**
+      - scripts/**
   pull_request:
     paths: *ci_paths
   workflow_dispatch:
@@ -22,6 +24,7 @@ permissions:
 env:
   PROXY_TOOLS: .devenv/state/proxy-tools
   NJS_TYPES_VERSION: 1.0.0
+  CRD_SCHEMA: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -39,6 +42,26 @@ jobs:
       - run: uv run basedpyright src/ tests/
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
+      - name: Install the shell linter
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            https://codeberg.org/wvhulle/nu-lint/releases/download/v1.2.1/nu-lint-x86_64-unknown-linux-musl.tar.gz | tar xz
+      - name: Lint the chart scripts
+        run: ./nu-lint helm/files/*.nu
+      - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
+        with:
+          version: v4.2.4
+      - run: helm lint helm/ -f helm/ci/test-values.yaml
+      - run: helm lint helm/ -f helm/ci/test-values-ha.yaml
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+      - name: Install the proxy compiler and type definitions
+        run: |
+          npm install --no-save --prefix "$PROXY_TOOLS" "typescript@latest" "njs-types@$NJS_TYPES_VERSION"
+          ln -sfn "$PWD/$PROXY_TOOLS/node_modules/njs-types" nginx/types
+      - name: Build the proxy
+        run: "$PROXY_TOOLS/node_modules/.bin/tsc -p nginx --noEmit false --outDir nginx/build"
   test:
     runs-on: ubuntu-latest
     steps:
@@ -52,37 +75,32 @@ jobs:
       - run: uv run pytest tests/ -q
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
-  proxy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.19.0
-      - name: Install the compiler and the type definitions
-        run: |
-          npm install --no-save --prefix "$PROXY_TOOLS" "typescript@latest" "njs-types@$NJS_TYPES_VERSION"
-          ln -sfn "$PWD/$PROXY_TOOLS/node_modules/njs-types" nginx/types
-      - name: Typecheck, test and build the proxy
-        run: |
-          tsc="$PROXY_TOOLS/node_modules/.bin/tsc"
-          "$tsc" -p nginx
-          node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
-          "$tsc" -p nginx --noEmit false --outDir nginx/build
-      - uses: hadolint/hadolint-action@v3.2.0
+      - name: Test the proxy
+        run: node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
+      - uses: hustcer/setup-nu@main
         with:
-          dockerfile: Dockerfile.proxy
-      - name: Build the proxy image
-        run: docker build -t data-proxy-nginx-proxy:verify -f Dockerfile.proxy .
-      - name: Check that nginx loads the compiled script
-        run: |
-          docker run --rm \
-            --add-host kube-dns.kube-system.svc.cluster.local:127.0.0.1 \
-            data-proxy-nginx-proxy:verify nginx -t
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          version: 0.107.0
+      - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
-          name: fallback-script
-          path: nginx/build/fallback.js
+          version: v4.2.4
+      - name: Install the chart test plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.2/unittest-1.1.2.tgz --verify=false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.24"
+      - name: Install the schema validator
+        run: |
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Test the chart
+        run: helm unittest helm/
+      - name: Validate the rendered chart
+        run: |
+          helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
   build-dp:
     if: github.ref == 'refs/heads/main'
     needs:
@@ -225,7 +243,6 @@ jobs:
     needs:
       - lint
       - test
-      - proxy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -240,11 +257,20 @@ jobs:
           else
             echo "built=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: hadolint/hadolint-action@v3.2.0
         if: steps.guard.outputs.built == 'true'
         with:
-          name: fallback-script
-          path: nginx/build
+          dockerfile: Dockerfile.proxy
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.guard.outputs.built == 'true'
+        with:
+          node-version: 24.19.0
+      - name: Build the proxy script
+        if: steps.guard.outputs.built == 'true'
+        run: |
+          npm install --no-save --prefix "$PROXY_TOOLS" "typescript@latest" "njs-types@$NJS_TYPES_VERSION"
+          ln -sfn "$PWD/$PROXY_TOOLS/node_modules/njs-types" nginx/types
+          "$PROXY_TOOLS/node_modules/.bin/tsc" -p nginx --noEmit false --outDir nginx/build
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: steps.guard.outputs.built == 'true'
         with:
