@@ -52,7 +52,7 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
     """Run idempotent setup and dispatch one publication task per schema"""
     runid.set(task.run_id)
 
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         plans = await read_sync_plans(redis, task.run_id)
         entries = cast(StreamRangeResponse, await redis.xrange(PUBLISH_STREAM))
 
@@ -70,7 +70,7 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
 
     stream_publisher = broker.publisher(stream=PUBLISH_STREAM)
 
-    async with settings.redis as redis, redis.pipeline(transaction=True) as pipe:
+    async with settings.redis() as redis, redis.pipeline(transaction=True) as pipe:
         for plan in plans:
             await stream_publisher.publish(
                 PublishTask(run_id=task.run_id, schema_name=plan.schema_name),
@@ -88,7 +88,7 @@ async def seed_sync(task: SeedTask, logger: Logger) -> None:
 @seeder.on_shutdown
 async def cleanup_consumers() -> None:
     """Remove idle seeder consumers"""
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         for sub in subs.values():
             assert sub.consumer is not None
             await cleanup_consumer(redis, SEED_STREAM, SEEDERS_GROUP, sub.consumer)

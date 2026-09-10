@@ -2,6 +2,7 @@
 
 from unittest.mock import call, patch
 
+import pytest
 from psycopg import Connection
 from whenever import Instant
 
@@ -15,19 +16,32 @@ from dp.models import FullTable, PartitionedTable, PartitionedTablePlan, SyncPla
 from tests.helpers import execute_sql, partition
 
 
+@pytest.fixture
+def full_table(freshness_tables: tuple[FullTable, PartitionedTable, str]) -> FullTable:
+    return freshness_tables[0]
+
+
+@pytest.fixture
+def partitioned_table(
+    freshness_tables: tuple[FullTable, PartitionedTable, str],
+) -> PartitionedTable:
+    return freshness_tables[1]
+
+
 class TestFreshnessPublishedFreshness:
     """Tests for PublishedFreshness behavior."""
 
     def test_update_published_freshness_replaces_full_table_rows(
         self,
         postgres: Connection[tuple[object, ...]],
-        full_table: FullTable,
+        freshness_tables: tuple[FullTable, PartitionedTable, str],
     ) -> None:
         """
         GIVEN: a full table with existing freshness rows.
         WHEN: update_published_freshness is called for a full publication.
         THEN: all existing rows are replaced with a single success row.
         """
+        full_table, _, schema = freshness_tables
         attempted_at = Instant.now()
 
         upsert_freshness(postgres, full_table, {"old"}, attempted_at, success=True)
@@ -36,15 +50,19 @@ class TestFreshnessPublishedFreshness:
             postgres,
             full_table,
             SyncPlan(
-                schema_name="app",
-                signatures={"p.app.t": "signature"},
-                paths={"p.app.t": ["s3://b/t"]},
+                schema_name=schema,
+                signatures={full_table.name: "signature"},
+                paths={full_table.name: ["s3://b/t"]},
             ),
             set(),
             attempted_at,
         )
 
-        assert execute_sql(postgres, "postgres/freshness_partitions_by_table", params=("t",)
+        assert execute_sql(
+            postgres,
+            "postgres/freshness_partitions_by_table",
+            mapping={"schema": schema},
+            params=("full",),
         ).fetchall() == [(None, "success")]
 
     def test_update_published_freshness_records_partition_results(
@@ -61,9 +79,9 @@ class TestFreshnessPublishedFreshness:
         second = partition("2", "signature-2", column="id", width=1)
         removed = partition("3", "signature-3", column="id", width=1)
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=partitioned_table.resolved_schema,
             partitioned_tables={
-                "p.app.t": PartitionedTablePlan(
+                partitioned_table.name: PartitionedTablePlan(
                     table_signature="table",
                     full_rebuild=False,
                     current_partitions={"1": first, "2": second},
@@ -79,7 +97,11 @@ class TestFreshnessPublishedFreshness:
             postgres, partitioned_table, plan, {"2"}, attempted_at
         )
 
-        assert execute_sql(postgres, "postgres/freshness_partitions_by_table_ordered", params=("t",)
+        assert execute_sql(
+            postgres,
+            "postgres/freshness_partitions_by_table_ordered",
+            mapping={"schema": partitioned_table.resolved_schema},
+            params=("partitioned",),
         ).fetchall() == [("1", "success"), ("2", "failure")]
 
 
@@ -106,18 +128,18 @@ class TestFreshness:
     def test_record_table_failures_uses_explicit_or_changed_partitions(
         self,
         postgres: Connection[tuple[object, ...]],
+        freshness_tables: tuple[FullTable, PartitionedTable, str],
     ) -> None:
         """
         GIVEN: a full table and a partitioned table with explicit and plan-derived failures.
         WHEN: record_table_failures is called.
         THEN: failure records use the explicit partitions or the plan's changed partitions.
         """
-        full = FullTable(name="p.app.full", resolved_schema="app")
-        partitioned = PartitionedTable(name="p.app.partitioned", resolved_schema="app")
+        full, partitioned, schema = freshness_tables
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=schema,
             partitioned_tables={
-                "p.app.partitioned": PartitionedTablePlan(
+                partitioned.name: PartitionedTablePlan(
                     table_signature="table",
                     full_rebuild=False,
                     current_partitions={
@@ -134,11 +156,11 @@ class TestFreshness:
             [full, partitioned],
             plan,
             Instant.now(),
-            {"p.app.full": {"override"}},
+            {full.name: {"override"}},
         )
 
         assert execute_sql(
-            postgres, "postgres/freshness_table_partitions"
+            postgres, "postgres/freshness_table_partitions", mapping={"schema": schema}
         ).fetchall() == [
             ("full", "override", "failure"),
             ("partitioned", "1", "failure"),
@@ -160,7 +182,11 @@ class TestFreshnessTemplates:
         """
         delete_partition_freshness(postgres, partitioned_table, {"10"})
 
-        assert execute_sql(postgres, "postgres/freshness_count").fetchone() == (0,)
+        assert execute_sql(
+            postgres,
+            "postgres/freshness_count",
+            mapping={"schema": partitioned_table.resolved_schema},
+        ).fetchone() == (0,)
 
     def test_upsert_freshness_writes_failure_status_using_enum_template(
         self,
@@ -178,9 +204,11 @@ class TestFreshnessTemplates:
             postgres, partitioned_table, {"10"}, attempted_at, success=False
         )
 
-        assert execute_sql(postgres, "postgres/freshness_status").fetchone() == (
-            "failure",
-        )
+        assert execute_sql(
+            postgres,
+            "postgres/freshness_status",
+            mapping={"schema": partitioned_table.resolved_schema},
+        ).fetchone() == ("failure",)
 
     def test_full_rebuild_freshness_resets_to_current_manifest(
         self,
@@ -193,7 +221,7 @@ class TestFreshnessTemplates:
         THEN: freshness is reset to the complete current manifest.
         """
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=partitioned_table.resolved_schema,
             partitioned_tables={
                 partitioned_table.name: PartitionedTablePlan(
                     table_signature="table",
@@ -210,9 +238,11 @@ class TestFreshnessTemplates:
             postgres, partitioned_table, plan, set(), attempted_at
         )
 
-        assert execute_sql(postgres, "postgres/freshness_partitions").fetchall() == [
-            ("10", "success")
-        ]
+        assert execute_sql(
+            postgres,
+            "postgres/freshness_partitions",
+            mapping={"schema": partitioned_table.resolved_schema},
+        ).fetchall() == [("10", "success")]
 
     def test_incremental_freshness_records_success_failure_and_removal(
         self,
@@ -225,7 +255,7 @@ class TestFreshnessTemplates:
         THEN: freshness matches each result with its correct status.
         """
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=partitioned_table.resolved_schema,
             partitioned_tables={
                 partitioned_table.name: PartitionedTablePlan(
                     table_signature="table",

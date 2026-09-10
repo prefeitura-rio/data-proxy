@@ -89,7 +89,7 @@ class TestPlanningPlanPartitioned:
             plan, tasks = await plan_partitioned_table(
                 table,
                 bigquery,
-                (settings.redis),
+                (settings.redis()),
                 "r",
                 "b",
                 connect(":memory:"),
@@ -128,7 +128,7 @@ class TestPlanningPlanPartitioned:
             ),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis), "r", "b", connect(":memory:")
+                config, (settings.redis()), "r", "b", connect(":memory:")
             )
         assert plans == {"p.d.t": table_plan}
         assert tasks == []
@@ -158,7 +158,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await build_sync_work(
-                config, (settings.redis), "r1", "b", connect(":memory:")
+                config, (settings.redis()), "r1", "b", connect(":memory:")
             )
         assert result == SyncWork(plans=[], tasks=[])
 
@@ -187,7 +187,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await build_sync_work(
-                config, (settings.redis), "r1", "b", connect(":memory:")
+                config, (settings.redis()), "r1", "b", connect(":memory:")
             )
         assert len(result.plans) == 1
         assert result.plans[0].schema_name == "app"
@@ -225,7 +225,7 @@ class TestPlanning:
             ),
         ):
             work = await build_sync_work(
-                config, (settings.redis), "r", "b", connect(":memory:")
+                config, (settings.redis()), "r", "b", connect(":memory:")
             )
         assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
@@ -367,7 +367,7 @@ class TestPlanning:
                 return_value=None,
             ),
         ):
-            result = await detect_changes(config, (settings.redis))
+            result = await detect_changes(config, (settings.redis()))
         assert set(result) == {"p.d.t"}
 
     @pytest.mark.asyncio
@@ -398,7 +398,7 @@ class TestPlanning:
             plan, tasks = await plan_partitioned_table(
                 table,
                 bigquery,
-                (settings.redis),
+                (settings.redis()),
                 "run",
                 "bucket",
                 connect(":memory:"),
@@ -419,7 +419,7 @@ class TestPlanning:
             return_value=nullcontext(MagicMock(return_value=bigquery)),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis), "run", "bucket", connect(":memory:")
+                config, (settings.redis()), "run", "bucket", connect(":memory:")
             )
         assert plans == {}
         assert tasks == []

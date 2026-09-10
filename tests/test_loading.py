@@ -1,7 +1,7 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
 from dataclasses import dataclass
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from psycopg import Connection
@@ -25,7 +25,9 @@ from dp.publication import (
     publish_prepared_tables,
     reduce_sync_plan,
 )
-from tests.helpers import partition, sync_config
+from dp.settings import settings
+from tests.conftest import PostgresTestNamespace
+from tests.helpers import execute_sql, partition, sync_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +97,6 @@ class TestLoadingPrepareTablesPaths:
 
     def test_prepare_tables_works_without_duckdb_connection(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a changed table with no entry in the plan paths.
@@ -105,14 +106,14 @@ class TestLoadingPrepareTablesPaths:
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
 
-        with patch("dp.templates.render_template", return_value="SELECT 1"):
-            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
+        postgres = MagicMock(spec=Connection)
+        postgres.execute.side_effect = RuntimeError("DuckDB is unavailable")
+        prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
 
         assert prepared == []
 
     def test_prepare_tables_skips_table_with_missing_paths(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a changed table with no entry in the plan paths.
@@ -122,14 +123,14 @@ class TestLoadingPrepareTablesPaths:
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
 
-        with patch("dp.templates.render_template", return_value="SELECT 1"):
-            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
+        postgres = MagicMock(spec=Connection)
+        postgres.execute.side_effect = RuntimeError("DuckDB is unavailable")
+        prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
 
         assert prepared == []
 
     def test_prepare_tables_uses_exact_planned_paths(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a plan with exact paths for one changed table.
@@ -151,10 +152,12 @@ class TestLoadingPrepareTablesPaths:
             patch("dp.publication.bootstrap_table") as bootstrap,
             patch("dp.publication.cast_json_columns_to_jsonb"),
         ):
-            prepared = prepare_tables(postgres, config, plan, {"p.app.changed"})
+            prepared = prepare_tables(
+                MagicMock(spec=Connection), config, plan, {"p.app.changed"}
+            )
 
         bootstrap.assert_called_once_with(
-            postgres,
+            ANY,
             "app",
             "changed__next",
             None,
@@ -237,19 +240,22 @@ class TestLoadingPrepareTablesPartitions:
     def test_prepare_tables_incrementally_replaces_affected_partitions(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: an existing partitioned table with data in partitions 10, 20, and 30.
         WHEN: prepare_tables runs incrementally with changed partition 10 and removed partition 20.
         THEN: partition 10 is replaced, partition 20 is deleted, partition 30 is unchanged.
         """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        table = PartitionedTable(
+            name=f"p.{namespace.schema}.people", resolved_schema=namespace.schema
+        )
         changed = partition("10")
         removed = partition("20")
         kept = partition("30")
         path = "/test-files/people_partition_10.parquet"
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=namespace.schema,
             partitioned_tables={
                 table.name: PartitionedTablePlan(
                     table_signature="table",
@@ -261,21 +267,32 @@ class TestLoadingPrepareTablesPartitions:
             },
         )
 
-        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
-        postgres.execute(
-            "INSERT INTO app.people VALUES (10, 'old10'), (11, 'old11'), (20, 'old20'), (21, 'old21'), (30, 'keep30'), (31, 'keep31')"
+        execute_sql(
+            postgres,
+            "postgres/create_people_table",
+            mapping={"schema": namespace.schema},
+        )
+        execute_sql(
+            postgres,
+            "postgres/insert_people_rows",
+            mapping={
+                "schema": namespace.schema,
+                "rows": "(10, 'old10'), (11, 'old11'), (20, 'old20'), (21, 'old21'), (30, 'keep30'), (31, 'keep31')",
+            },
         )
         postgres.commit()
 
         prepared = prepare_tables(
             postgres,
-            sync_config([table]),
+            sync_config([table], schema_name=namespace.schema),
             plan,
             {table.name},
         )
 
-        remaining = postgres.execute(
-            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        remaining = execute_sql(
+            postgres,
+            "postgres/select_people_rows",
+            mapping={"schema": namespace.schema},
         ).fetchall()
 
         assert prepared == [table]
@@ -297,20 +314,23 @@ class TestLoadingPrepareTablesPartitions:
     def test_prepare_tables_incremental_failure_rolls_back_only_failed_partition(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: an existing partitioned table with data in partitions 10, 20, and 30.
         WHEN: prepare_tables runs incrementally but partition 20's Parquet path does not exist.
         THEN: partitions 10 and 30 are updated, partition 20 retains its original data.
         """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        table = PartitionedTable(
+            name=f"p.{namespace.schema}.people", resolved_schema=namespace.schema
+        )
         changed_10 = partition("10")
         changed_20 = partition("20")
         kept = partition("30")
         path_10 = "/test-files/people_partition_10.parquet"
         path_20_missing = "/test-files/nonexistent.parquet"
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=namespace.schema,
             partitioned_tables={
                 table.name: PartitionedTablePlan(
                     table_signature="table",
@@ -326,28 +346,32 @@ class TestLoadingPrepareTablesPartitions:
             },
         )
 
-        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
-        postgres.execute(
-            "INSERT INTO app.people VALUES "
-            + ", ".join(
-                [
-                    "(10, 'old10'), (11, 'old11')",
-                    "(20, 'old20'), (21, 'old21')",
-                    "(30, 'keep30'), (31, 'keep31')",
-                ]
-            )
+        execute_sql(
+            postgres,
+            "postgres/create_people_table",
+            mapping={"schema": namespace.schema},
+        )
+        execute_sql(
+            postgres,
+            "postgres/insert_people_rows",
+            mapping={
+                "schema": namespace.schema,
+                "rows": "(10, 'old10'), (11, 'old11'), (20, 'old20'), (21, 'old21'), (30, 'keep30'), (31, 'keep31')",
+            },
         )
         postgres.commit()
 
         prepared = prepare_tables(
             postgres,
-            sync_config([table]),
+            sync_config([table], schema_name=namespace.schema),
             plan,
             {table.name},
         )
 
-        remaining = postgres.execute(
-            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        remaining = execute_sql(
+            postgres,
+            "postgres/select_people_rows",
+            mapping={"schema": namespace.schema},
         ).fetchall()
 
         assert prepared == [table]
@@ -371,13 +395,16 @@ class TestLoadingPrepareTablesPartitions:
     def test_prepare_tables_incremental_skips_failed_removed_partition(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: an existing table with a removed partition that references a non-existent column.
         WHEN: prepare_tables runs incrementally.
         THEN: the failed delete is rolled back and changed partitions still succeed.
         """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        table = PartitionedTable(
+            name=f"p.{namespace.schema}.people", resolved_schema=namespace.schema
+        )
         changed_10 = partition("10")
         bad_removed = PhysicalPartition(
             partition_id="99",
@@ -391,7 +418,7 @@ class TestLoadingPrepareTablesPartitions:
         )
         path_10 = "/test-files/people_partition_10.parquet"
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=namespace.schema,
             partitioned_tables={
                 table.name: PartitionedTablePlan(
                     table_signature="table",
@@ -403,21 +430,32 @@ class TestLoadingPrepareTablesPartitions:
             },
         )
 
-        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
-        postgres.execute(
-            "INSERT INTO app.people VALUES (10, 'old10'), (11, 'old11'), (20, 'keep20')"
+        execute_sql(
+            postgres,
+            "postgres/create_people_table",
+            mapping={"schema": namespace.schema},
+        )
+        execute_sql(
+            postgres,
+            "postgres/insert_people_rows",
+            mapping={
+                "schema": namespace.schema,
+                "rows": "(10, 'old10'), (11, 'old11'), (20, 'keep20')",
+            },
         )
         postgres.commit()
 
         prepared = prepare_tables(
             postgres,
-            sync_config([table]),
+            sync_config([table], schema_name=namespace.schema),
             plan,
             {table.name},
         )
 
-        remaining = postgres.execute(
-            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        remaining = execute_sql(
+            postgres,
+            "postgres/select_people_rows",
+            mapping={"schema": namespace.schema},
         ).fetchall()
 
         assert prepared == [table]
@@ -438,17 +476,20 @@ class TestLoadingPrepareTablesPartitions:
     def test_prepare_tables_full_rebuilds_partitioned_from_parquet(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: a full-rebuild partitioned table.
         WHEN: prepare_tables runs.
         THEN: the table starts from Parquet instead of a live copy.
         """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
+        table = PartitionedTable(
+            name=f"p.{namespace.schema}.people", resolved_schema=namespace.schema
+        )
         current_partition = partition("10")
         path = "s3://bucket/app/people/partitions/10/data.parquet"
         plan = SyncPlan(
-            schema_name="app",
+            schema_name=namespace.schema,
             partitioned_tables={
                 table.name: PartitionedTablePlan(
                     table_signature="table",
@@ -487,7 +528,6 @@ class TestLoadingPrepareTablesPartitions:
 
     def test_prepare_tables_secures_shadow_before_load(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a table with RLS configuration.
@@ -522,7 +562,7 @@ class TestLoadingPrepareTablesPartitions:
             patch("dp.publication.bootstrap_table", side_effect=record_bootstrap),
             patch("dp.publication.cast_json_columns_to_jsonb", side_effect=record_cast),
         ):
-            prepare_tables(postgres, config, plan, {"p.app.changed"})
+            prepare_tables(MagicMock(spec=Connection), config, plan, {"p.app.changed"})
 
         assert calls == ["bootstrap", "cast"]
 
@@ -532,7 +572,6 @@ class TestLoadingPublishPrepared:
 
     def test_publish_prepared_tables_swaps_each_table(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: multiple prepared shadow tables.
@@ -551,7 +590,7 @@ class TestLoadingPublishPrepared:
         )
         with patch("dp.publication.publish_table") as publish:
             result = publish_prepared_tables(
-                (postgres),
+                (MagicMock(spec=Connection)),
                 tables,
                 plan,
                 {},
@@ -563,7 +602,6 @@ class TestLoadingPublishPrepared:
 
     def test_publish_prepared_tables_skips_swap_for_incremental(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: an incremental partitioned table that was prepared.
@@ -589,7 +627,7 @@ class TestLoadingPublishPrepared:
             patch("dp.publication.update_published_freshness") as freshness,
         ):
             result = publish_prepared_tables(
-                postgres,
+                MagicMock(spec=Connection),
                 [table],
                 plan,
                 {},
@@ -602,7 +640,6 @@ class TestLoadingPublishPrepared:
 
     def test_publish_prepared_tables_excludes_failed_publication(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: one table swap raises RuntimeError.
@@ -623,7 +660,7 @@ class TestLoadingPublishPrepared:
             "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
         ):
             result = publish_prepared_tables(
-                (postgres),
+                (MagicMock(spec=Connection)),
                 tables,
                 plan,
                 {"p.app.one": {"10"}},
@@ -638,7 +675,6 @@ class TestLoadingApplySyncPlan:
 
     def test_apply_sync_plan_delegates_all_steps(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a sync config and plan with changes.
@@ -654,14 +690,16 @@ class TestLoadingApplySyncPlan:
 
         with (
             patch("dp.loading.initialize_schemas") as initialize,
+            patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[config.tables[0]]),
             patch(
                 "dp.loading.publish_prepared_tables",
                 return_value={"p.app.changed"},
             ) as publish,
             patch("dp.loading.reload_postgrest") as reload,
+            patch("dp.loading.create_bq_views"),
         ):
-            result = apply_sync_plan(postgres, config, plan)
+            result = apply_sync_plan(MagicMock(spec=Connection), config, plan)
 
         initialize.assert_called_once()
         publish.assert_called_once()
@@ -669,9 +707,54 @@ class TestLoadingApplySyncPlan:
         assert result.plan == plan
         assert result.published_tables == {"p.app.changed"}
 
+    def test_apply_sync_plan_publishes_silo_parquet(
+        self,
+        postgres_silo: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
+    ) -> None:
+        """The real orchestration publishes the Silo-backed Parquet fixture."""
+        table = FullTable(
+            name=f"p.{namespace.schema}.people", resolved_schema=namespace.schema
+        )
+        plan = SyncPlan(
+            schema_name=namespace.schema,
+            signatures={table.name: "sig"},
+            paths={
+                table.name: [f"s3://test-bucket/{namespace.schema}/people/data.parquet"]
+            },
+        )
+        result = apply_sync_plan(
+            postgres_silo, sync_config([table], schema_name=namespace.schema), plan
+        )
+        assert result.published_tables == {table.name}
+        assert execute_sql(
+            postgres_silo,
+            "postgres/select_people_rows",
+            mapping={"schema": namespace.schema},
+        ).fetchone() == (10, "name10")
+
+    def test_apply_sync_plan_creates_fallback_views_when_enabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Enabled fallback creates BigQuery views after publication."""
+        config = sync_config([FullTable(name="p.app.changed")])
+        plan = SyncPlan(schema_name="app")
+        monkeypatch.setattr(settings, "FALLBACK_ENABLED", True)
+        with (
+            patch("dp.loading.initialize_schemas"),
+            patch("dp.loading.prepare_tables", return_value=[]),
+            patch("dp.loading.publish_prepared_tables", return_value=set()),
+            patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.create_bq_views") as create_views,
+        ):
+            conn = MagicMock(spec=Connection)
+            apply_sync_plan(conn, config, plan)
+
+        create_views.assert_called_once_with(conn, config)
+
     def test_apply_sync_plan_records_failure_without_incremental_publication(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a fully failed incremental change.
@@ -699,23 +782,23 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.record_table_failures") as record_failures,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.create_bq_views"),
         ):
             result = apply_sync_plan(
-                postgres,
+                MagicMock(spec=Connection),
                 sync_config([table]),
                 plan,
                 {path},
             )
 
-        prepare.assert_called_once_with(postgres, ANY, ANY, set())
+        prepare.assert_called_once_with(ANY, ANY, ANY, set())
         record_failures.assert_called_once_with(
-            postgres, [table], plan, ANY, {table.name: {"10"}}
+            ANY, [table], plan, ANY, {table.name: {"10"}}
         )
         assert result.published_tables == set()
 
     def test_apply_sync_plan_excludes_extraction_failures(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a table with a failed extraction path.
@@ -731,24 +814,25 @@ class TestLoadingApplySyncPlan:
 
         with (
             patch("dp.loading.initialize_schemas"),
+            patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.create_bq_views"),
         ):
             result = apply_sync_plan(
-                postgres,
+                MagicMock(spec=Connection),
                 config,
                 plan,
                 {"s3://bucket/changed/data.parquet"},
             )
 
-        prepare.assert_called_once_with(postgres, config, plan, set())
+        prepare.assert_called_once_with(ANY, config, plan, set())
         assert result.plan == plan
         assert result.published_tables == set()
 
     def test_apply_sync_plan_records_preparation_failure_for_eligible_table(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: an eligible table that fails to prepare.
@@ -764,13 +848,15 @@ class TestLoadingApplySyncPlan:
 
         with (
             patch("dp.loading.initialize_schemas"),
+            patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.record_table_failures") as record_failures,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.create_bq_views"),
         ):
-            result = apply_sync_plan(postgres, config, plan)
+            result = apply_sync_plan(MagicMock(spec=Connection), config, plan)
 
-        prepare.assert_called_once_with(postgres, ANY, ANY, {"p.app.changed"})
-        record_failures.assert_called_with(postgres, [config.tables[0]], plan, ANY)
+        prepare.assert_called_once_with(ANY, ANY, ANY, {"p.app.changed"})
+        record_failures.assert_called_with(ANY, [config.tables[0]], plan, ANY)
         assert result.published_tables == set()

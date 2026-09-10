@@ -11,6 +11,7 @@ from faststream.redis import RedisBroker, StreamSub
 
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..errors import stop_on_error
+from ..fallback import flush_cache
 from ..loading import publish_plan
 from ..log import elapsed_ms, logger, runid, schemaname
 from ..metrics import record_publication_metrics, tracker
@@ -59,7 +60,7 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
     runid.set(task.run_id)
     schemaname.set(task.schema_name)
 
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
 
         if plan is None:
@@ -95,14 +96,18 @@ async def publish_schema(task: PublishTask, logger: Logger) -> None:
 
     states = build_table_states(result, schema_config)
 
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         await complete_publication(redis, task, states)
+
+    if settings.FALLBACK_ENABLED:
+        await flush_cache(settings.FALLBACK_CACHE_REDIS_DB)
+        logger.info("Flushed response cache")
 
 
 @publisher.on_shutdown
 async def cleanup_consumers() -> None:
     """Remove idle publisher consumers"""
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         for sub in subs.values():
             assert sub.consumer is not None
             await cleanup_consumer(

@@ -1,1 +1,1 @@
-SELECT status::text FROM app.freshness;
+SELECT status::text FROM ${schema}.freshness;

@@ -1,1 +1,1 @@
-SELECT partition, status::text FROM app.freshness WHERE "table" = %s ORDER BY partition;
+SELECT partition, status::text FROM ${schema}.freshness WHERE "table" = %s ORDER BY partition;

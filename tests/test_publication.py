@@ -1,7 +1,7 @@
 """Tests for publication input validation and SQL behavior."""
 
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from psycopg import Connection
@@ -26,6 +26,7 @@ from dp.publication import (
     publish_table,
     reduce_sync_plan,
 )
+from tests.conftest import PostgresTestNamespace
 from tests.helpers import execute_sql, partition
 
 
@@ -66,7 +67,6 @@ class TestPublicationTemplates:
 
     def test_delete_partitions_renders_predicate_and_delete(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a table with changed physical partitions.
@@ -84,7 +84,7 @@ class TestPublicationTemplates:
             patch("dp.templates.render_template", side_effect=render),
         ):
             delete_partitions(
-                postgres,
+                MagicMock(spec=Connection),
                 PartitionedTable(name="p.app.people"),
                 [partition("10"), partition("20")],
             )
@@ -97,7 +97,6 @@ class TestPublicationTemplates:
 
     def test_create_shadow_from_parquet_uses_glob_path(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a table and a glob path.
@@ -116,7 +115,7 @@ class TestPublicationTemplates:
             patch("dp.templates.render_template", side_effect=render),
         ):
             create_shadow_from_parquet(
-                postgres,
+                MagicMock(spec=Connection),
                 FullTable(name="p.app.table", resolved_schema="app"),
                 "table__next",
                 "s3://bucket/app/table/*/data.parquet",
@@ -128,27 +127,34 @@ class TestPublicationTemplates:
     def test_load_partition_inserts_via_read_parquet(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: a table and a Parquet file with matching columns.
         WHEN: load_partition is called.
         THEN: the Parquet data is inserted into the table.
         """
-        postgres.execute("CREATE TABLE app.people (cpf int, name text)")
+        execute_sql(
+            postgres,
+            "postgres/create_people_table",
+            mapping={"schema": namespace.schema},
+        )
         postgres.commit()
 
-        select_list = column_select_list(postgres, "app", "people")
+        select_list = column_select_list(postgres, namespace.schema, "people")
         load_partition(
             postgres,
-            "app",
+            namespace.schema,
             "people",
             "/test-files/people_partition_10.parquet",
             select_list,
         )
         postgres.commit()
 
-        rows = postgres.execute(
-            "SELECT cpf, name FROM app.people ORDER BY cpf"
+        rows = execute_sql(
+            postgres,
+            "postgres/select_people_rows",
+            mapping={"schema": namespace.schema},
         ).fetchall()
         assert rows == [
             (10, "name10"),
@@ -165,7 +171,6 @@ class TestPublicationTemplates:
 
     def test_publish_table_creates_indexes_before_swap(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a prepared shadow table with an index configuration.
@@ -190,7 +195,7 @@ class TestPublicationTemplates:
             patch("dp.publication.create_indexes", side_effect=record_indexes),
             patch("dp.publication.execute_sql", side_effect=record_swap),
         ):
-            publish_table(postgres, table)
+            publish_table(MagicMock(spec=Connection), table)
 
         assert calls == ["indexes", "swap"]
 
@@ -249,45 +254,59 @@ class TestPublicationTemplates:
     def test_create_indexes_creates_btree_index_for_columns(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: a table with an index config using only columns.
         WHEN: create_indexes is called.
         THEN: a plain B-tree index is created on those columns.
         """
-        execute_sql(postgres, "postgres/create_table", mapping={
-                    "schema": "app",
-                    "table": "table",
-                    "columns": "id int",
-                })
+        execute_sql(
+            postgres,
+            "postgres/create_table",
+            mapping={
+                "schema": namespace.schema,
+                "table": "table",
+                "columns": "id int",
+            },
+        )
 
         table = FullTable(
-            name="p.app.table",
-            resolved_schema="app",
+            name=f"p.{namespace.schema}.table",
+            resolved_schema=namespace.schema,
             indexes=[IndexConfig(name="idx_id", columns=["id"])],
         )
 
         create_indexes(postgres, table, "table")
 
-        assert execute_sql(postgres, "postgres/index_names").fetchall() == [("idx_id",)]
+        assert execute_sql(
+            postgres,
+            "postgres/index_names",
+            mapping={"schema": namespace.schema, "table": "table"},
+        ).fetchall() == [("idx_id",)]
 
     def test_create_indexes_creates_gin_index_for_expressions(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
     ) -> None:
         """
         GIVEN: a table with a jsonb column and a gin index config using expressions.
         WHEN: create_indexes is called.
         THEN: a GIN index is created on the JSON path expression.
         """
-        execute_sql(postgres, "postgres/create_table", mapping={
-                    "schema": "app",
-                    "table": "table",
-                    "columns": "data jsonb",
-                })
+        execute_sql(
+            postgres,
+            "postgres/create_table",
+            mapping={
+                "schema": namespace.schema,
+                "table": "table",
+                "columns": "data jsonb",
+            },
+        )
         table = FullTable(
-            name="p.app.table",
-            resolved_schema="app",
+            name=f"p.{namespace.schema}.table",
+            resolved_schema=namespace.schema,
             indexes=[
                 IndexConfig(
                     name="idx_data_status",
@@ -300,14 +319,18 @@ class TestPublicationTemplates:
 
         create_indexes(postgres, table, "table")
 
-        result = postgres.execute(
-            "SELECT indexname FROM pg_indexes WHERE schemaname = 'app' AND tablename = 'table'"
+        result = execute_sql(
+            postgres,
+            "postgres/index_names",
+            mapping={"schema": namespace.schema, "table": "table"},
         ).fetchall()
 
         assert result == [("idx_data_status",)]
 
-        indexdef = postgres.execute(
-            "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_data_status'"
+        indexdef = execute_sql(
+            postgres,
+            "postgres/index_definition",
+            mapping={"schema": namespace.schema},
         ).fetchone()
         assert indexdef is not None
         assert cast(str, indexdef[0]).endswith("USING gin (((data -> 'status'::text)))")
@@ -326,6 +349,7 @@ class TestPublicationTemplates:
     def test_cast_json_columns_to_jsonb(
         self,
         postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
         columns: str,
         expected: list[tuple[str, str]],
     ) -> None:
@@ -334,15 +358,21 @@ class TestPublicationTemplates:
         WHEN: cast_json_columns_to_jsonb is called.
         THEN: json columns become jsonb and other columns are unchanged.
         """
-        execute_sql(postgres, "postgres/create_table", mapping={
-                    "schema": "app",
-                    "table": "table",
-                    "columns": columns,
-                })
+        execute_sql(
+            postgres,
+            "postgres/create_table",
+            mapping={
+                "schema": namespace.schema,
+                "table": "table",
+                "columns": columns,
+            },
+        )
 
-        cast_json_columns_to_jsonb(postgres, "app", "table")
+        cast_json_columns_to_jsonb(postgres, namespace.schema, "table")
 
-        result = postgres.execute(
-            "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'app' AND table_name = 'table' ORDER BY column_name"
+        result = execute_sql(
+            postgres,
+            "postgres/table_column_types",
+            mapping={"schema": namespace.schema, "table": "table"},
         ).fetchall()
         assert result == expected

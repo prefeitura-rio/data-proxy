@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from duckdb import connect
+from psycopg import Connection
 from redis.asyncio import Redis
 
 from dp.models import (
@@ -16,15 +17,44 @@ from dp.models import (
     SyncPlan,
 )
 from dp.planning import expand_config
+from dp.schema import initialize_schemas_for_plans
 from dp.state import dispatch_exists
 from dp.sync.publisher import publish_schema, publisher
 from dp.sync.seeder import cleanup_consumers, seed_sync, seeder
+from tests.conftest import PostgresTestNamespace
 
 pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
 
 class TestSeeder:
     """Tests for seeder dispatch behavior."""
+
+    def test_initialize_schemas_for_shared_writer_dsn(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        postgres_dsn: str,
+        namespace: PostgresTestNamespace,
+    ) -> None:
+        """Schemas sharing one writer DSN are initialized in the session database."""
+        other_schema = f"{namespace.schema}_two"
+        plans = [
+            SyncPlan(schema_name=namespace.schema),
+            SyncPlan(schema_name=other_schema),
+        ]
+        initialize_schemas_for_plans(
+            plans,
+            lambda _: postgres_dsn,
+            {
+                namespace.schema: SchemaConfig(tables=[]),
+                other_schema: SchemaConfig(tables=[]),
+            },
+        )
+        assert postgres.execute(
+            "SELECT nspname FROM pg_namespace WHERE nspname IN (%s, %s) ORDER BY nspname",
+            (namespace.schema, other_schema),
+        ).fetchall() == [(namespace.schema,), (other_schema,)]
+        postgres.execute(f'DROP SCHEMA "{other_schema}" CASCADE'.encode())
+        postgres.commit()
 
     def test_dispatch_exists_matches_run_id_in_payload(
         self,

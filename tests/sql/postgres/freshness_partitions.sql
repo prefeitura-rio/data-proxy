@@ -1,1 +1,1 @@
-SELECT partition, status::text FROM app.freshness;
+SELECT partition, status::text FROM ${schema}.freshness;

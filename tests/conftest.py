@@ -2,12 +2,15 @@
 
 import secrets
 from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlsplit, urlunsplit
+from urllib.request import urlopen
 
 import duckdb
 import psycopg
@@ -19,9 +22,11 @@ from google.cloud.bigquery import (
     Row,
     Table,
 )
+from minio import Minio
 from psycopg.sql import SQL, Identifier
 from redis.asyncio import Redis
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.core.container import DockerContainer
 
 from dp.bigquery.config import PartitionKindConfig
 from dp.models import (
@@ -45,6 +50,27 @@ from tests.constants import FILES
 from tests.helpers import execute_sql
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresTestNamespace:
+    """One per-test PostgreSQL schema and its related identifiers."""
+
+    schema: str
+
+    @property
+    def identifier(self) -> Identifier:
+        """Return the safely quoted schema identifier."""
+        return Identifier(self.schema)
+
+    def table(self, name: str) -> Identifier:
+        """Return a safely quoted table identifier in this namespace."""
+        return Identifier(self.schema, name)
+
+    def policy(self, name: str) -> Identifier:
+        """Return a safely quoted policy identifier."""
+        return Identifier(name)
+
 
 Tracker = Callable[[Callable[..., object]], Callable[..., object]]
 
@@ -79,8 +105,24 @@ def sync_config_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def redis() -> Redis:
-    """Return isolated in-memory Redis state."""
+    """Return fakeredis state for deterministic Redis API and state tests.
+
+    This fixture is not a Valkey stream-compatibility integration boundary.
+    """
     return cast(Redis, FakeAsyncRedis())
+
+
+@pytest.fixture
+def redis_factory() -> Callable[[Redis], Callable[[Settings, int | None], Redis]]:
+    """Return a factory for typed Settings.redis method replacements."""
+
+    def factory(redis_client: Redis) -> Callable[[Settings, int | None], Redis]:
+        def method(settings_instance: Settings, db: int | None = None) -> Redis:
+            return redis_client
+
+        return method
+
+    return factory
 
 
 @pytest.fixture
@@ -186,7 +228,7 @@ def test_settings(
 ) -> Settings:
     """Provide settings configured with test dependency objects."""
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
-    monkeypatch.setattr(Settings, "redis", property(lambda _: redis))
+    monkeypatch.setattr(Settings, "redis", lambda self, db=None: redis)  # pyright: ignore[reportUnknownLambdaType,reportUnknownArgumentType]
     monkeypatch.setattr(Settings, "schema_writers", property(lambda _: schema_writers))
     return settings
 
@@ -206,7 +248,10 @@ async def broker() -> AsyncIterator[tuple[RedisBroker, ...]]:
 
 @pytest.fixture
 def bigquery() -> Iterator[Client]:
-    """Provide an isolated DuckDB-backed BigQuery client mock."""
+    """Provide a deterministic DuckDB-backed BigQuery API mock.
+
+    This fixture does not call GCP and does not validate the Google API service.
+    """
     database = duckdb.connect(":memory:")
     database.read_csv(FILES / "partitions.csv", all_varchar=True).create_view(
         "partition_metadata"
@@ -273,8 +318,55 @@ def bigquery() -> Iterator[Client]:
 
 
 @pytest.fixture(scope="session")
+def silo_container(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[tuple[str, int]]:
+    """Provide Silo object storage populated with the Parquet test fixtures."""
+    credentials = tmp_path_factory.mktemp("silo")
+    (credentials / "access_key").write_text("minioadmin")
+    (credentials / "secret_key").write_text("minioadmin")
+    container = (
+        DockerContainer("docker.io/pgsty/silo")
+        .with_command("server /data")
+        .with_volume_mapping(str(credentials / "access_key"), "/access_key", "ro")
+        .with_volume_mapping(str(credentials / "secret_key"), "/secret_key", "ro")
+        .with_env("MINIO_ROOT_USER_FILE", "/access_key")
+        .with_env("MINIO_ROOT_PASSWORD_FILE", "/secret_key")
+        .with_exposed_ports(9000)
+    )
+    container.start()
+    endpoint = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(9000)}/minio/health/live"
+    deadline = monotonic() + 10
+    while monotonic() < deadline:
+        try:
+            with urlopen(endpoint, timeout=1) as response:
+                if response.status == 200:
+                    break
+        except OSError:
+            sleep(0.1)
+    else:
+        container.stop()
+        raise RuntimeError("Silo did not become ready within 10 seconds")
+    client = Minio(
+        f"{container.get_container_host_ip()}:{container.get_exposed_port(9000)}",
+        access_key="minioadmin",
+        secret_key="minioadmin",  # noqa: S106
+        secure=False,
+    )
+    client.make_bucket("test-bucket")
+    for fixture in FILES.glob("*.parquet"):
+        client.fput_object("test-bucket", f"app/people/{fixture.name}", str(fixture))
+        if fixture.name == "people_partition_10.parquet":
+            client.fput_object("test-bucket", "app/people/data.parquet", str(fixture))
+    try:
+        yield container.get_container_host_ip(), container.get_exposed_port(9000)
+    finally:
+        container.stop()
+
+
+@pytest.fixture(scope="session")
 def postgres_container() -> Iterator[PostgresContainer]:
-    """Provide one PostgreSQL container and an initialized template database."""
+    """Provide the real PostgreSQL and pg_duckdb integration boundary."""
     files_dir = str((Path(__file__).parent / "files").absolute())
 
     container = PostgresContainer(
@@ -300,38 +392,128 @@ def postgres_container() -> Iterator[PostgresContainer]:
         container.stop()
 
 
+@pytest.fixture
+def namespace(
+    postgres: psycopg.Connection[tuple[object, ...]],
+) -> Iterator[PostgresTestNamespace]:
+    """Provide and clean one isolated schema in the cloned test database."""
+    namespace = PostgresTestNamespace(f"test_{secrets.token_hex(8)}")
+    postgres.execute(SQL("CREATE SCHEMA {}").format(namespace.identifier))
+    postgres.commit()
+    try:
+        yield namespace
+    finally:
+        if not postgres.autocommit:
+            postgres.rollback()
+        postgres.execute("RESET ROLE")
+        postgres.commit()
+        postgres.execute(SQL("DROP SCHEMA {} CASCADE").format(namespace.identifier))
+        postgres.commit()
+
+
 @pytest.fixture(name="postgres")
 def postgres_connection(
     postgres_container: PostgresContainer,
 ) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
-    """Provide an isolated PostgreSQL database cloned from the template."""
+    """Provide a reset session database for each PostgreSQL test connection."""
     admin_url = postgres_container.get_connection_url()
-    database = f"test_{secrets.randbelow(10**16):016d}"
-
-    with psycopg.connect(admin_url, autocommit=True) as admin:
-        admin.execute(
-            SQL("CREATE DATABASE {} TEMPLATE test_template").format(
-                Identifier(database)
-            )
-        )
-
     connection = psycopg.connect(
-        urlunsplit(urlsplit(admin_url)._replace(path=f"/{database}"))
+        urlunsplit(urlsplit(admin_url)._replace(path="/test_template"))
     )
     try:
         yield connection
     finally:
+        connection.rollback()
+        connection.execute("RESET ROLE")
+        connection.commit()
         connection.close()
-        with psycopg.connect(admin_url, autocommit=True) as admin:
-            execute_sql(
-                admin,
-                "postgres/terminate_connections",
-                params=(database,),
-            )
 
-            admin.execute(
-                SQL("DROP DATABASE IF EXISTS {}").format(Identifier(database))
-            )
+
+@pytest.fixture
+def duckdb_raw_query_stub(
+    postgres: psycopg.Connection[tuple[object, ...]],
+) -> Iterator[None]:
+    """Restore the extension raw-query function after a fallback test stub."""
+    row = postgres.execute(
+        "SELECT pg_get_functiondef('duckdb.raw_query(text)'::regprocedure)"
+    ).fetchone()
+    assert row is not None
+    definition = cast(str, row[0])
+    try:
+        yield
+    finally:
+        postgres.rollback()
+        postgres.execute(definition.encode())
+        postgres.commit()
+        postgres.execute(
+            "SELECT duckdb.raw_query('CREATE OR REPLACE VIEW restore_check AS SELECT 1 AS id')"
+        )
+        postgres.commit()
+        assert postgres.execute(
+            "SELECT * FROM duckdb.query('SELECT id FROM restore_check')"
+        ).fetchall() == [(1,)]
+        postgres.commit()
+
+
+@pytest.fixture
+def postgres_silo(
+    postgres: psycopg.Connection[tuple[object, ...]],
+    silo_container: tuple[str, int],
+    namespace: PostgresTestNamespace,
+) -> psycopg.Connection[tuple[object, ...]]:
+    """Configure the cloned pg_duckdb database for the Silo test bucket."""
+    host, port = silo_container
+    client = Minio(
+        f"{host}:{port}",
+        access_key="minioadmin",
+        secret_key="minioadmin",  # noqa: S106
+        secure=False,
+    )
+    fixture = FILES / "people_partition_10.parquet"
+    client.fput_object(
+        "test-bucket", f"{namespace.schema}/people/data.parquet", str(fixture)
+    )
+    execute_sql(
+        postgres,
+        "postgres/create_silo_s3_secret",
+        mapping={"endpoint": f"host.containers.internal:{port}"},
+    )
+    postgres.commit()
+    return postgres
+
+
+@pytest.fixture
+def freshness_tables(
+    postgres: psycopg.Connection[tuple[object, ...]],
+    namespace: PostgresTestNamespace,
+) -> tuple[FullTable, PartitionedTable, str]:
+    """Create freshness metadata in one isolated test schema."""
+    execute_sql(
+        postgres,
+        "postgres/create_freshness_table",
+        mapping={"schema": namespace.schema},
+    )
+    postgres.commit()
+    return (
+        FullTable(name=f"p.{namespace.schema}.full", resolved_schema=namespace.schema),
+        PartitionedTable(
+            name=f"p.{namespace.schema}.partitioned", resolved_schema=namespace.schema
+        ),
+        namespace.schema,
+    )
+
+
+@pytest.fixture
+def postgres_dsn(
+    postgres: psycopg.Connection[tuple[object, ...]],
+    postgres_container: PostgresContainer,
+) -> str:
+    """Return the writer DSN for the isolated cloned PostgreSQL database."""
+    return urlunsplit(
+        urlsplit(postgres_container.get_connection_url())._replace(
+            path=f"/{postgres.info.dbname}"
+        )
+    )
 
 
 @pytest.fixture(name="duckdb")

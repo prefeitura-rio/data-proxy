@@ -19,18 +19,20 @@ from dp.models import (
     RangeSelection,
     SyncPlan,
 )
+from dp.settings import settings
 from dp.sync.publisher import (
     cleanup_consumers,
     publish_schema,
     publisher,
 )
 from dp.sync.seeder import broker as seeder_broker
+from tests.conftest import PostgresTestNamespace
 from tests.helpers import sync_config
 
 pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 
 
-class TestPublisher:
+class TestPublisherSubscriber:
     """Tests for publisher subscriber behavior."""
 
     @pytest.mark.asyncio
@@ -53,9 +55,12 @@ class TestPublisher:
             )
         exit_app.assert_not_called()
 
+
+class TestPublishPlan:
+    """Tests for direct publication service behavior."""
+
     def test_publish_plan_wraps_connections(
         self,
-        postgres: Connection[tuple[object, ...]],
     ) -> None:
         """
         GIVEN: a writer DSN, config, and plan.
@@ -65,7 +70,9 @@ class TestPublisher:
         config = sync_config([FullTable(name="p.app.t")])
         plan = SyncPlan(schema_name="app")
         with (
-            patch("dp.loading.psycopg.connect", return_value=postgres),
+            patch(
+                "dp.loading.psycopg.connect", return_value=MagicMock(spec=Connection)
+            ),
             patch(
                 "dp.loading.apply_sync_plan",
                 return_value=PublicationResult(plan=plan, published_tables=set()),
@@ -74,6 +81,29 @@ class TestPublisher:
             result = publish_plan("postgresql://writer", config, plan, set())
         assert result.published_tables == set()
         apply.assert_called_once()
+
+    def test_publish_plan_uses_real_writer_connection(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        postgres_dsn: str,
+        namespace: PostgresTestNamespace,
+    ) -> None:
+        """A writer DSN opens the cloned database and initializes its schema."""
+        config = sync_config(
+            [FullTable(name=f"p.{namespace.schema}.t")],
+            schema_name=namespace.schema,
+        )
+        result = publish_plan(
+            postgres_dsn, config, SyncPlan(schema_name=namespace.schema), set()
+        )
+        assert result.published_tables == set()
+        assert postgres.execute(
+            "SELECT to_regnamespace(%s)", (namespace.schema,)
+        ).fetchone() == (namespace.schema,)
+
+
+class TestPublishSchema:
+    """Tests for publish-schema subscriber behavior."""
 
     @pytest.mark.asyncio
     async def test_publish_schema_publishes_and_keeps_remaining_plan(
@@ -99,6 +129,7 @@ class TestPublisher:
         result = PublicationResult(plan=plan, published_tables={"p.app.t"})
         with (
             patch.object(publisher, "exit"),
+            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
             patch("dp.sync.publisher.publish_plan", return_value=result),
             patch(
                 "dp.utils.complete_schema",
@@ -110,6 +141,45 @@ class TestPublisher:
                 PublishTask(run_id="r1", schema_name="app"), stream="dp:publish"
             )
         assert publish_schema.mock.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_publish_schema_flushes_configured_fallback_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        sync_config_path: Path,
+    ) -> None:
+        """Enabled fallback flushes the configured response cache database."""
+        sync_config_path.write_text(
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
+        )
+        plan = SyncPlan(schema_name="app")
+        monkeypatch.setattr(settings, "FALLBACK_ENABLED", True)
+        monkeypatch.setattr(settings, "FALLBACK_CACHE_REDIS_DB", 7)
+        with (
+            patch(
+                "dp.sync.publisher.read_sync_plan",
+                new_callable=AsyncMock,
+                return_value=plan,
+            ),
+            patch(
+                "dp.sync.publisher.read_failed_paths",
+                new_callable=AsyncMock,
+                return_value=set(),
+            ),
+            patch(
+                "dp.sync.publisher.publish_plan",
+                return_value=PublicationResult(plan=plan, published_tables=set()),
+            ),
+            patch("dp.utils.complete_schema", new_callable=AsyncMock, return_value=1),
+            patch(
+                "dp.sync.publisher.flush_cache", new_callable=AsyncMock
+            ) as flush_cache,
+        ):
+            await publish_schema(
+                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            )
+
+        flush_cache.assert_awaited_once_with(7)
 
     @pytest.mark.asyncio
     async def test_publisher_commits_partition_state_and_cleans_last_plan(
@@ -168,6 +238,7 @@ class TestPublisher:
             patch("dp.utils.psycopg.connect", return_value=MagicMock()),
             patch("dp.utils.reload_postgrest"),
             patch.object(publisher, "exit"),
+            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
         ):
             await publish_schema(
                 PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
@@ -265,6 +336,7 @@ class TestPublisher:
 
         with (
             patch.object(publisher, "exit"),
+            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
             patch("dp.sync.publisher.publish_plan", return_value=result),
             patch(
                 "dp.utils.complete_schema",
@@ -275,6 +347,10 @@ class TestPublisher:
             await publish_schema(
                 PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
             )
+
+
+class TestPublisherCleanup:
+    """Tests for publisher consumer cleanup."""
 
     @pytest.mark.asyncio
     async def test_publisher_cleanup_removes_each_consumer_once(

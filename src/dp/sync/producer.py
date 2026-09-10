@@ -28,7 +28,7 @@ async def produce() -> None:
     runidval = Instant.now().format_iso()
     started = monotonic()
 
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         active_run = await read_active_run(redis)
 
         if active_run is not None:

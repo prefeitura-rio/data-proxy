@@ -19,6 +19,7 @@ dependencies = [
   "httpx2>=2.12.0",
   "prometheus-client>=0.26.0",
   "aiobotocore>=3.9.0",
+  "minio>=7.2.20",
 ]
 
 [dependency-groups]

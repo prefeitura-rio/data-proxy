@@ -31,7 +31,7 @@ async def retry_or_stop(
         )
         raise StopApplication(1) from error
 
-    async with settings.redis as redis:
+    async with settings.redis() as redis:
         await complete_dump(redis, task, DumpFailure(failed_path=task.bucket_path))
 
     raise StopApplication(1) from error

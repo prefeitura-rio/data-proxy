@@ -23,8 +23,8 @@ pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
 test_logger = logging.getLogger("test")
 
 
-class TestDumper:
-    """Tests for dump subscriber behavior."""
+class TestDumpTask:
+    """Tests for dump-task subscriber behavior."""
 
     @pytest.mark.asyncio
     async def test_dumper_exits_when_extraction_fails(
@@ -39,15 +39,17 @@ class TestDumper:
         THEN: retry_or_stop re-publishes the task and raises StopApplication.
         """
         with (
-            patch(
-                "dp.sync.dumper.extract_task", side_effect=RuntimeError("bad")
-            ),
+            patch("dp.sync.dumper.extract_task", side_effect=RuntimeError("bad")),
             patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock),
             patch.object(dumper, "exit"),
             patch("dp.sync.dumper.broker.publish", new_callable=AsyncMock),
             pytest.raises(StopApplication),
         ):
             await dump_task(standard_dump_task, test_logger)
+
+
+class TestExtractionWrapper:
+    """Tests for the extraction wrapper boundary."""
 
     def test_extract_wrapper_uses_duckdb_fixture(
         self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
@@ -63,6 +65,10 @@ class TestDumper:
         ):
             extract_task(standard_dump_task)
         connect.assert_called_once()
+
+
+class TestDumperSeedDispatch:
+    """Tests for seed dispatch after dump completion."""
 
     @pytest.mark.asyncio
     async def test_dumper_publishes_seed_sync_when_last_dump_completes(
@@ -86,6 +92,10 @@ class TestDumper:
             await dump_task(standard_dump_task, test_logger)
         assert seed_sync.mock.call_count == 2
         seed_sync.mock.assert_called_with({"run_id": "r1"})
+
+
+class TestDumperCleanup:
+    """Tests for dumper consumer cleanup."""
 
     @pytest.mark.asyncio
     async def test_dumper_cleanup_removes_idle_consumers(self, redis: Redis) -> None:

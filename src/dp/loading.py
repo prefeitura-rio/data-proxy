@@ -6,6 +6,7 @@ from whenever import Instant
 
 from dp.log import logger
 
+from .fallback import create_bq_views
 from .freshness import record_table_failures
 from .models import (
     PublicationDecision,
@@ -16,6 +17,7 @@ from .models import (
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
+from .settings import settings
 
 
 def publish_plan(
@@ -150,6 +152,10 @@ def apply_sync_plan(
         eligible,
         attempted_at,
     )
+
+    if settings.FALLBACK_ENABLED:
+        create_bq_views(pg_conn, config)
+        logger.info("Created BigQuery fallback views")
 
     reload_postgrest(pg_conn, config)
     logger.info("PostgREST schema reload requested")

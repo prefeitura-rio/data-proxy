@@ -1,1 +1,1 @@
-SELECT count(*) FROM app.freshness;
+SELECT count(*) FROM ${schema}.freshness;

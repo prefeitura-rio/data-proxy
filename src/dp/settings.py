@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     SCHEMA_WRITERS_FILE: Path = Path("config/schema-writers/writers.json")
     PUSHGATEWAY_URL: str = "http://pushgateway.data-proxy.svc.cluster.local:9091"
+    FALLBACK_ENABLED: bool = False
+    FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
 
     @property
     def schema_writers(self) -> SchemaWriters:
@@ -57,15 +59,14 @@ class Settings(BaseSettings):
         """Return the synchronization configuration from the config file."""
         return SyncConfig.model_validate_json(self.SYNC_CONFIG_PATH.read_text())
 
-    @property
-    def redis(self) -> Redis:
-        """Return a Redis client built from the configured URL's parsed fields."""
-        db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
+    def redis(self, db: int | None = None) -> Redis:
+        """Return a Redis client for the configured URL and an optional database number."""
+        default_db = int((self.REDIS_URL.path or "/0").lstrip("/") or 0)
 
         return Redis(
             host=self.REDIS_URL.host or "localhost",
             port=self.REDIS_URL.port or 6379,
-            db=db,
+            db=db if db is not None else default_db,
             username=self.REDIS_URL.username,
             password=self.REDIS_URL.password,
             ssl=self.REDIS_URL.scheme == "rediss",

@@ -132,6 +132,7 @@ class Table(BaseModel):
     name: BigQueryTableName
     rls: list[UnitMapping] | None = None
     indexes: list[IndexConfig] = []
+    fallback: bool = True
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 
