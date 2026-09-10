@@ -27,6 +27,7 @@ from psycopg.sql import SQL, Identifier
 from redis.asyncio import Redis
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
+from testcontainers.core.network import Network
 
 from dp.bigquery.config import PartitionKindConfig
 from dp.models import (
@@ -318,7 +319,15 @@ def bigquery() -> Iterator[Client]:
 
 
 @pytest.fixture(scope="session")
+def container_network() -> Iterator[Network]:
+    """Provide a network on which the containers reach each other by name."""
+    with Network() as network:
+        yield network
+
+
+@pytest.fixture(scope="session")
 def silo_container(
+    container_network: Network,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[tuple[str, int]]:
     """Provide Silo object storage populated with the Parquet test fixtures."""
@@ -332,6 +341,8 @@ def silo_container(
         .with_volume_mapping(str(credentials / "secret_key"), "/secret_key", "ro")
         .with_env("MINIO_ROOT_USER_FILE", "/access_key")
         .with_env("MINIO_ROOT_PASSWORD_FILE", "/secret_key")
+        .with_network(container_network)
+        .with_network_aliases("silo")
         .with_exposed_ports(9000)
     )
     container.start()
@@ -365,7 +376,7 @@ def silo_container(
 
 
 @pytest.fixture(scope="session")
-def postgres_container() -> Iterator[PostgresContainer]:
+def postgres_container(container_network: Network) -> Iterator[PostgresContainer]:
     """Provide the real PostgreSQL and pg_duckdb integration boundary."""
     files_dir = str((Path(__file__).parent / "files").absolute())
 
@@ -373,7 +384,7 @@ def postgres_container() -> Iterator[PostgresContainer]:
         "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
         driver=None,
         volumes=[(files_dir, "/test-files", "ro")],
-    )
+    ).with_network(container_network)
 
     container.start()
     admin_url = container.get_connection_url()
@@ -476,7 +487,7 @@ def postgres_silo(
     execute_sql(
         postgres,
         "postgres/create_silo_s3_secret",
-        mapping={"endpoint": f"host.containers.internal:{port}"},
+        mapping={"endpoint": "silo:9000"},
     )
     postgres.commit()
     return postgres
