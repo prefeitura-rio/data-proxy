@@ -18,6 +18,11 @@ on:
   pull_request:
     paths: *ci_paths
   workflow_dispatch:
+    inputs:
+      force_proxy:
+        description: Build and push the proxy image even when its sources are unchanged
+        type: boolean
+        default: false
 permissions:
   contents: read
   packages: write
@@ -251,7 +256,7 @@ jobs:
       - name: Skip if the proxy sources unchanged
         id: guard
         run: |
-          if [ -z "$(git diff --name-only HEAD~1 HEAD -- nginx/ Dockerfile.proxy)" ]; then
+          if [ -z "$(git diff --name-only HEAD~1 HEAD -- nginx/ Dockerfile.proxy)" ] && [ "${{ inputs.force_proxy }}" != "true" ]; then
             echo "No changes to the proxy — skipping build."
             echo "built=false" >> "$GITHUB_OUTPUT"
           else
@@ -288,6 +293,7 @@ jobs:
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         if: steps.guard.outputs.built == 'true'
         with:
+          context: .
           file: Dockerfile.proxy
           push: true
           tags: ${{ steps.meta.outputs.tags }}
