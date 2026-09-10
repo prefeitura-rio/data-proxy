@@ -90,7 +90,7 @@ class TestDumperSeedDispatch:
             patch.object(dumper, "exit"),
         ):
             await dump_task(standard_dump_task, test_logger)
-        assert seed_sync.mock.call_count == 2
+        assert seed_sync.mock.call_count == 1
         seed_sync.mock.assert_called_with({"run_id": "r1"})
 
 

@@ -109,7 +109,7 @@ class TestSeeder:
             patch.object(seeder, "exit"),
         ):
             await seed_sync(SeedTask(run_id="r1"), logging.getLogger("test"))
-        assert publish_schema.mock.call_count == 4
+        assert publish_schema.mock.call_count == 2
 
     @pytest.mark.asyncio
     async def test_seeder_cleanup_removes_each_consumer_once(

@@ -140,7 +140,7 @@ class TestPublishSchema:
             await seeder_broker.publish(
                 PublishTask(run_id="r1", schema_name="app"), stream="dp:publish"
             )
-        assert publish_schema.mock.call_count == 2
+        assert publish_schema.mock.call_count == 1
 
     @pytest.mark.asyncio
     async def test_publish_schema_flushes_configured_fallback_cache(

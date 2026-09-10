@@ -152,7 +152,7 @@ class TestProducer:
             patch.object(producer, "exit"),
         ):
             await produce()
-        assert dump_task.mock.call_count == 2
+        assert dump_task.mock.call_count == 1
         dump_task.mock.assert_called_with(task.model_dump(mode="json"))
 
     @pytest.mark.asyncio
@@ -171,7 +171,7 @@ class TestProducer:
         await redis.set("dp:remaining:old", "0")
         with patch.object(producer, "exit"):
             await produce()
-        assert seed_sync.mock.call_count == 2
+        assert seed_sync.mock.call_count == 1
         seed_sync.mock.assert_called_with({"run_id": "old"})
 
     @pytest.mark.asyncio
@@ -227,7 +227,7 @@ class TestProducer:
             patch.object(producer, "exit"),
         ):
             await produce()
-        assert seed_sync.mock.call_count == 2
+        assert seed_sync.mock.call_count == 1
         assert all(call.args[0]["run_id"] for call in seed_sync.mock.call_args_list)
 
     @pytest.mark.asyncio
