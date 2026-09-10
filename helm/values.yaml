@@ -364,7 +364,7 @@ fallback:
   ## Valkey database number for the response cache (0 is for sync streams).
   cacheRedisDb: 1
   ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:latest"
+  nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:1bd9d1a"
   ## webdis image for the Redis HTTP proxy sidecar.
   webdisImage: "nicolas/webdis:latest"
   ## Resource requests and limits for the nginx proxy deployment.
