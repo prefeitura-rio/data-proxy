@@ -55,6 +55,10 @@ spec:
                   name: {{ include "data-proxy.backupSecretName" . }}
                   key: BACKUP_PASSWORD
             {{- end }}
+            {{- if and .Values.fallback.enabled .Values.gcp.existingSecret }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /gcp/key.json
+            {{- end }}
           readinessProbe:
             exec:
               command:
@@ -68,8 +72,18 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+            {{- if and .Values.fallback.enabled .Values.gcp.existingSecret }}
+            - name: gcp-key
+              mountPath: /gcp
+              readOnly: true
+            {{- end }}
       volumes:
         - name: pgdata
           persistentVolumeClaim:
             claimName: {{ include "data-proxy.pgduckdbPvcName" (dict "root" . "ordinal" 0) }}
+        {{- if and .Values.fallback.enabled .Values.gcp.existingSecret }}
+        - name: gcp-key
+          secret:
+            secretName: {{ .Values.gcp.existingSecret }}
+        {{- end }}
 {{- end }}

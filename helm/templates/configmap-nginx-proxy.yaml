@@ -1,0 +1,33 @@
+{{- if .Values.fallback.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+data:
+  nginx.conf: |
+{{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-webdis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webdis
+data:
+  webdis.json: |
+    {
+      "redis_host": "{{ include "data-proxy.fullname" . }}-valkey",
+      "redis_port": 6379,
+      "redis_auth": "{{ .Values.valkey.auth.password }}",
+      "redis_db": {{ .Values.fallback.cacheRedisDb }},
+      "http_port": 7379,
+      "daemonize": false,
+      "logfile": "/dev/stdout"
+    }
+{{- end }}

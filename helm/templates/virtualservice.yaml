@@ -66,9 +66,15 @@ spec:
               exact: {{ $schema | quote }}
       route:
         - destination:
+            {{- if $root.Values.fallback.enabled }}
+            host: {{ include "data-proxy.fullname" $root }}-nginx-proxy
+            port:
+              number: 8080
+            {{- else }}
             host: {{ $name }}-postgrest-ro
             port:
               number: 3000
+            {{- end }}
     - name: {{ $schema }}-write
       match:
         - method:
@@ -105,9 +111,15 @@ spec:
     {{- else }}
     - route:
         - destination:
+            {{- if .Values.fallback.enabled }}
+            host: {{ include "data-proxy.fullname" . }}-nginx-proxy
+            port:
+              number: 8080
+            {{- else }}
             host: {{ include "data-proxy.fullname" . }}-postgrest
             port:
               number: 3000
+            {{- end }}
       {{- with .Values.ingress.timeout }}
       timeout: {{ . }}
       {{- end }}

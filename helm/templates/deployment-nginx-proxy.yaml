@@ -1,0 +1,59 @@
+{{- if .Values.fallback.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nginx-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nginx-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: {{ required "fallback.nginxImage must reference an image built from Dockerfile.proxy" .Values.fallback.nginxImage | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          {{- with .Values.fallback.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: webdis
+          image: {{ .Values.fallback.webdisImage }}
+          args: ["/usr/local/bin/webdis", "/etc/webdis/webdis.json"]
+          volumeMounts:
+            - name: webdis-config
+              mountPath: /etc/webdis
+          {{- with .Values.fallback.webdisResources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+        - name: webdis-config
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-webdis
+{{- end }}

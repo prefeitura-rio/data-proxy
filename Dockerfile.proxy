@@ -1,0 +1,10 @@
+FROM docker.io/library/alpine:3.20
+
+RUN apk add --no-cache nginx nginx-mod-http-js \
+ && mkdir -p /run/nginx
+
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/build/fallback.js /etc/nginx/fallback.js
+
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]

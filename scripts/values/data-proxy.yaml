@@ -64,6 +64,9 @@ syncConfig:
           rls:
             - column: id_unidade
               unit_type: unidade
+fallback:
+  enabled: true
+  nginxImage: data-proxy-nginx-proxy:local
 ha:
   enabled: false
   # schemas:

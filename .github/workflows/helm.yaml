@@ -50,12 +50,15 @@ jobs:
           APP_SHA=$(resolve_sha data-proxy)
           PG_SHA=$(resolve_sha data-proxy-postgres)
           NU_SHA=$(resolve_sha data-proxy-nushell)
+          PROXY_SHA=$(resolve_sha data-proxy-nginx-proxy)
           echo "app=$APP_SHA" >> "$GITHUB_OUTPUT"
           echo "postgres=$PG_SHA" >> "$GITHUB_OUTPUT"
           echo "nushell=$NU_SHA" >> "$GITHUB_OUTPUT"
+          echo "proxy=$PROXY_SHA" >> "$GITHUB_OUTPUT"
           echo "Resolved app image SHA: $APP_SHA"
           echo "Resolved postgres image SHA: $PG_SHA"
           echo "Resolved nushell image SHA: $NU_SHA"
+          echo "Resolved proxy image SHA: $PROXY_SHA"
       - name: Pin image SHAs in values.yaml
         run: |
           yq e ".image.tag = strenv(APP_SHA)" -i helm/values.yaml
@@ -64,10 +67,12 @@ jobs:
           yq e ".pgduckdb.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(PROXY_SHA)" -i helm/values.yaml
         env:
           APP_SHA: ${{ steps.shas.outputs.app }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
+          PROXY_SHA: ${{ steps.shas.outputs.proxy }}
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4

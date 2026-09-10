@@ -1,0 +1,22 @@
+suite: BigQuery fallback HA routing
+release:
+  name: data-proxy
+templates:
+  - virtualservice.yaml
+tests:
+  - it: routes HA schema reads through the fallback proxy
+    values:
+      - ../ci/test-values-ha.yaml
+    set:
+      fallback.enabled: true
+      fallback.nginxImage: example.invalid/data-proxy-fallback:test
+    asserts:
+      - equal:
+          path: spec.http[1].name
+          value: app_pequenos_cariocas-read
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: data-proxy-nginx-proxy
+      - equal:
+          path: spec.http[1].route[0].destination.port.number
+          value: 8080

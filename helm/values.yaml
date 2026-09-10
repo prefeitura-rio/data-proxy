@@ -346,3 +346,28 @@ ingress:
     ## audience, typically via a shared identity-provider client scope — see docs/security.md.
     ## Leave empty to accept any valid JWT principal regardless of audience.
     audience: ""
+## BigQuery fallback with nginx proxy caching and pg_duckdb views.
+## When enabled, the Publisher creates _bq views per table that query BigQuery
+## through pg_duckdb. An nginx proxy with webdis sidecar caches responses in
+## Valkey and falls back to _bq views when the local table returns empty.
+fallback:
+  ## Set to true to enable BigQuery fallback.
+  enabled: false
+  ## Cache TTL in seconds for non-empty responses.
+  cacheTtl: 300
+  ## Maximum size of a response fetched with ngx.fetch, which is the fallback
+  ## answer, held in memory per request.
+  fetchBufferSize: 32m
+  ## Timeout of a fetch. Keep it below the ingress timeout, so that this proxy
+  ## logs the failure instead of the route timing out first.
+  fetchTimeout: 60s
+  ## Valkey database number for the response cache (0 is for sync streams).
+  cacheRedisDb: 1
+  ## nginx proxy image (built from Dockerfile.proxy).
+  nginxImage: ""
+  ## webdis image for the Redis HTTP proxy sidecar.
+  webdisImage: "nicolas/webdis:latest"
+  ## Resource requests and limits for the nginx proxy deployment.
+  resources: {}
+  ## Resource requests and limits for the webdis sidecar.
+  webdisResources: {}

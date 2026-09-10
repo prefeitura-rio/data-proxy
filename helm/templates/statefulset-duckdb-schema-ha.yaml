@@ -78,6 +78,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
+            {{- if and $root.Values.fallback.enabled $root.Values.gcp.existingSecret }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /gcp/key.json
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /readiness
@@ -90,6 +94,11 @@ spec:
             - name: patroni-config
               mountPath: /etc/patroni
               readOnly: true
+            {{- if and $root.Values.fallback.enabled $root.Values.gcp.existingSecret }}
+            - name: gcp-key
+              mountPath: /gcp
+              readOnly: true
+            {{- end }}
       volumes:
         - name: pgdata
           persistentVolumeClaim:
@@ -97,6 +106,11 @@ spec:
         - name: patroni-config
           configMap:
             name: {{ include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}-patroni
+        {{- if and $root.Values.fallback.enabled $root.Values.gcp.existingSecret }}
+        - name: gcp-key
+          secret:
+            secretName: {{ $root.Values.gcp.existingSecret }}
+        {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -1,0 +1,40 @@
+suite: BigQuery fallback
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - configmap-nginx-proxy.yaml
+tests:
+  - it: renders a configured proxy and cache
+    set:
+      fallback.enabled: true
+      fallback.nginxImage: example.invalid/data-proxy-fallback:test
+      fallback.cacheTtl: 123
+      fallback.cacheRedisDb: 2
+      fallback.fetchBufferSize: 8m
+      fallback.fetchTimeout: 30s
+    asserts:
+      - matchRegex:
+          path: data["webdis.json"]
+          pattern: '"redis_db": 2'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-webdis
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$fallback_cache_ttl "123";'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_fetch_max_response_buffer_size 8m;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_fetch_timeout 30s;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy

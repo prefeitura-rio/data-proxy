@@ -146,6 +146,17 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duc
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDatabaseHost" . }}:5432/{{ $db }}
 {{- end }}
 
+{{- define "data-proxy.fallbackNginxUpstreams" -}}
+map $http_accept_profile $fallback_pgrst {
+  default "http://{{ include "data-proxy.fullname" . }}-postgrest:3000";
+  {{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
+  {{- range $schema, $_ := .Values.ha.schemas }}
+  {{ $schema | quote }} "http://{{ include "data-proxy.schemaStackName" (dict "root" $ "schema" $schema) }}-postgrest-ro:3000";
+  {{- end }}
+  {{- end }}
+}
+{{- end }}
+
 {{- define "data-proxy.appEnv" -}}
 - name: POSTGRES_PASSWORD
   valueFrom:
@@ -179,6 +190,10 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
       key: GCS_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
+- name: FALLBACK_ENABLED
+  value: {{ .Values.fallback.enabled | quote }}
+- name: FALLBACK_CACHE_REDIS_DB
+  value: {{ .Values.fallback.cacheRedisDb | quote }}
 - name: DUMPER_VISIBILITY_TIMEOUT_MS
   value: {{ .Values.dumper.visibilityTimeoutMs | quote }}
 - name: SEEDER_VISIBILITY_TIMEOUT_MS

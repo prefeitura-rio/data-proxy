@@ -109,6 +109,14 @@ def --env build-images [kubecfg: path]: nothing -> string {
     log info 'Loading data-proxy-postgres:local into Minikube…'
     docker save data-proxy-postgres:local | mk $kubecfg image load -
 
+    log info 'Compiling the proxy script…'
+    tsc -p nginx/tsconfig.build.json
+
+    log info 'Building data-proxy-nginx-proxy:local…'
+    docker build -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
+    log info 'Loading data-proxy-nginx-proxy:local into Minikube…'
+    docker save data-proxy-nginx-proxy:local | mk $kubecfg image load -
+
     log info 'Building data-proxy-nushell:local…'
     docker build -t data-proxy-nushell:local -f Dockerfile.nushell .
     log info 'Loading data-proxy-nushell:local into Minikube…'

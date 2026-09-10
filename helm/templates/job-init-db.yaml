@@ -73,6 +73,8 @@ spec:
               value: {{ .Values.auth.authenticatorRole | quote }}
             - name: BACKUP_ENABLED
               value: {{ .Values.backup.enabled | quote }}
+            - name: FALLBACK_ENABLED
+              value: {{ .Values.fallback.enabled | quote }}
             {{- if .Values.backup.enabled }}
             - name: BACKUP_PASSWORD
               valueFrom:

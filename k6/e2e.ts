@@ -362,6 +362,55 @@ export function setup(): void {
     waitForSyncJob(k8s, jobName);
 }
 
+function verifyFallbackCache(metrics: MetricRequest[]): void {
+    const token = fetchToken();
+    const headers = authHeaders(token);
+
+    // 1. Cache miss — first query to the proxy
+    const res1 = http.get(
+        `${API_URL}/endpoint_participante_listagem?select=id,nome,id_unidade&limit=3`,
+        { headers, tags: { name: "fallback_cache_miss" } },
+    ) as K6Response;
+    const cacheHeader1 = res1.headers["X-Cache"] || res1.headers["x-cache"] || "";
+    const body1 = safeJson(res1);
+    log("verify", "proxy", "cache_miss_status", res1.status);
+    log("verify", "proxy", "cache_miss_header", cacheHeader1);
+    check(null, {
+        "cache miss returns 200": () => res1.status === 200,
+        "cache miss returns rows": () => Array.isArray(body1) && body1.length > 0,
+        "cache miss header is MISS": () => cacheHeader1 === "MISS",
+    });
+
+    // 2. Cache hit — same query again
+    sleep(1);
+    const res2 = http.get(
+        `${API_URL}/endpoint_participante_listagem?select=id,nome,id_unidade&limit=3`,
+        { headers, tags: { name: "fallback_cache_hit" } },
+    ) as K6Response;
+    const cacheHeader2 = res2.headers["X-Cache"] || res2.headers["x-cache"] || "";
+    const body2 = safeJson(res2);
+    log("verify", "proxy", "cache_hit_status", res2.status);
+    log("verify", "proxy", "cache_hit_header", cacheHeader2);
+    check(null, {
+        "cache hit returns 200": () => res2.status === 200,
+        "cache hit returns rows": () => Array.isArray(body2) && body2.length > 0,
+        "cache hit header is HIT": () => cacheHeader2 === "HIT",
+        "cache hit same data": () => JSON.stringify(body1) === JSON.stringify(body2),
+    });
+
+    // 3. RLS-blocked query — empty from both local and _bq
+    const res3 = http.get(
+        `${API_URL}/endpoint_participante_listagem?id_unidade=eq.cras_99&select=id&limit=3`,
+        { headers, tags: { name: "fallback_rls_blocked" } },
+    ) as K6Response;
+    const body3 = safeJson(res3);
+    log("verify", "proxy", "rls_blocked_status", res3.status);
+    check(null, {
+        "rls blocked returns 200": () => res3.status === 200,
+        "rls blocked returns empty": () => Array.isArray(body3) && body3.length === 0,
+    });
+}
+
 export default function(): void {
     const token = fetchToken();
     const metrics = buildMetrics(token);
@@ -376,6 +425,7 @@ export default function(): void {
             verifyMetrics(metrics);
             verifyNoAccess();
             verifyJsonbColumn();
+            verifyFallbackCache(metrics);
             break;
         }
         sleep(POLL_INTERVAL);

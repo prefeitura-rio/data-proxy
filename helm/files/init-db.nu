@@ -153,6 +153,22 @@ def create-s3-secret []: nothing -> nothing {
     log info 'Created DuckDB S3 secret'
 }
 
+# Install the DuckDB bigquery community extension for BigQuery fallback views
+def install-bigquery-extension []: nothing -> nothing {
+    if $env.FALLBACK_ENABLED == 'true' {
+        postgres (load-sql install_bigquery_extension.sql)
+        log info 'Installed bigquery extension'
+    }
+}
+
+# Set pg_duckdb GUCs required for BigQuery fallback views
+def set-pg-duckdb-gucs []: nothing -> nothing {
+    if $env.FALLBACK_ENABLED == 'true' {
+        postgres (load-sql pg_duckdb_gucs.sql)
+        log info 'Set pg_duckdb GUCs'
+    }
+}
+
 log info 'Database initialization started'
 
 try {
@@ -163,6 +179,8 @@ try {
     create-pre-request
     create-access-policy
     create-s3-secret
+    install-bigquery-extension
+    set-pg-duckdb-gucs
     postgres (load-sql notify_pgrst.sql)
 
     log info 'Database initialization completed'

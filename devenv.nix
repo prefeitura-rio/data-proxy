@@ -17,6 +17,8 @@
     minikube
     nu-lint
     nushell
+    typescript
+    nodejs
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -41,8 +43,6 @@
     };
   };
 
-  treefmt.config.programs.sqlfluff.enable = true;
-
   git-hooks.hooks = {
     ruff.enable = true;
     ruff-format.enable = true;
@@ -61,6 +61,10 @@
     seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
     token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
     cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
+    nginx-ts-types.exec = ''
+      rm -rf nginx/types nginx/njs.d.ts
+      ln -s ${pkgs.nginxModules.njs}/ts nginx/types
+    '';
   };
 
   tasks = {
@@ -73,7 +77,13 @@
       uv run vulture src/ tests/
     '';
     "dp:fmt".exec = "ruff check --fix && ruff format";
+    "dp:tsc".exec = "${pkgs.typescript}/bin/tsc -p nginx";
+    "dp:build:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx --noEmit false --outDir nginx/build";
+    "dp:test:proxy".exec =
+      "${pkgs.nodejs}/bin/node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
     "charts:lint".exec = "helm lint helm/";
     "charts:test".exec = "${pkgs.nushell}/bin/nu scripts/test-charts.nu";
   };
+
+  enterShell = "nginx-ts-types";
 }
