@@ -38,9 +38,9 @@ The init-db Job creates all PostgreSQL objects before the first sync run. The ob
 
 Called before every PostgREST request. Mirrors JWT claims into session variables. See [Security](security.md) for details.
 
-### `<schema>.set_access_policy_metadata_timestamps()`
+### `<schema>.<table>_bq`
 
-Trigger function on `<schema>.access_policy`. Sets `metadata.created_at` and `metadata.updated_at` on insert and update.
+When fallback is enabled for a table, the Publisher creates this view. The view reads the BigQuery source through pg_duckdb. It has the same schema policy and RLS behavior as the local table. The nginx proxy queries the view only after an empty local `GET` response.
 
 ## Tables
 

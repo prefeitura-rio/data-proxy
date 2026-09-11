@@ -464,7 +464,7 @@ def refresh-proxy [kubecfg: path]: nothing -> nothing {
     kc $kubecfg -n data-proxy rollout status deployment/data-proxy-nginx-proxy --timeout=180s out> /dev/null
 }
 
-# Run the standard k6 load profile (must run after the e2e test).
+# Run the standard k6 load profile.
 def "main k6 load" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
     refresh-proxy $kubecfg

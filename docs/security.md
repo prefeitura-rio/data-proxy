@@ -11,6 +11,12 @@ Every request goes through the same four stages:
 
 Data Proxy never computes access decisions. Data Proxy has no concept of a customer, a permission, or a business rule. Data Proxy checks one generic table before it returns any row.
 
+## Proxy and mesh authentication
+
+Istio validates the client JWT before it sends a request to the nginx proxy. The proxy forwards the JWT to PostgREST for local and fallback reads. PostgREST validates the JWT again and applies RLS.
+
+The proxy cache key includes identity claims and schema profile data. A cached response for one identity is not returned to an identity with different claims. The proxy does not cache unauthenticated failures.
+
 ## Row-Level Security (RLS)
 
 Every protected table checks its rows against its local policy table:

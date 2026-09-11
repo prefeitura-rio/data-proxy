@@ -20,4 +20,22 @@ All pipeline components (Producer, Dumper, Seeder, Publisher) read these variabl
 | `AUTH_USER_ROLE`                 | `user`                                       | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
 | `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |
 | `SCHEMA_WRITERS_FILE`            | `config/schema-writers/writers.json`         | Path to the schema-to-writer DSN mapping file.                                                                            |
-| `PUSHGATEWAY_URL`                | `http://pushgateway.data-proxy.svc.cluster.local:9091` | URL of the Prometheus Pushgateway endpoint for metrics push.                                                              |
+| `PUSHGATEWAY_URL`                | `http://pushgateway.data-proxy.svc.cluster.local:9091` | URL of the Prometheus Pushgateway endpoint for worker metrics.                                                              |
+
+## Fallback configuration
+
+The nginx fallback proxy does not use pipeline environment variables for its main settings. Configure it with Helm values under `fallback`.
+
+Important values are:
+
+```yaml
+fallback:
+  enabled: true
+  cacheTtl: 300
+  fetchBufferSize: 32m
+  fetchTimeout: 60s
+  cacheRedisDb: 1
+  maxCacheBodyBytes: 262144
+```
+
+See [BigQuery Fallback](fallback.md) for the read path and cache behavior.

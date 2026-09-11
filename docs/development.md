@@ -96,34 +96,44 @@ See [Using the API](using.md) for request examples.
 
 ## Run the k6 load test
 
-The k6 load test uses the OIDC provider and the Istio ingress gateway.
-The test accesses the `pic` schema and all three synced tables.
-
-Run one profile:
-
-```bash
-cluster k6 load-test smoke
-cluster k6 load-test load
-cluster k6 load-test stress
-```
-
-The profiles use these default loads:
-
-- `smoke`: 1 VU for 30 seconds
-- `load`: 10 VUs for 5 minutes
-- `stress`: 50 VUs for 10 minutes
-
-## Run the k6 e2e test
-
-The e2e test triggers a full sync pipeline, seeds access policy rows, and
-validates that all tables publish with fresh data and correct RLS filtering.
+Run the e2e test first when you change local images, sync configuration, or fallback behavior:
 
 ```bash
 cluster k6 e2e
 ```
 
-The command clears MinIO, Redis, and Postgres state before the test runs.
-The command waits for the pipeline to complete and prints the k6 summary.
+Run the normal load profile:
+
+```bash
+cluster k6 load
+```
+
+Run the stepped stress profile:
+
+```bash
+cluster k6 stress
+```
+
+The load and stress commands clear local test state, run a full sync, and wait for local tables before VUs start. The normal load profile runs for at least five minutes. It reports separate source metrics in milliseconds:
+
+```text
+cache_duration_ms
+postgrest_duration_ms
+bigquery_duration_ms
+load_request_failed
+```
+
+The load profile uses valid RLS routes for each test user. It also sends paired requests to BigQuery-only protocol partitions.
+
+## Run the k6 e2e test
+
+The e2e test triggers a full sync pipeline, seeds access policy rows, and validates local data, fallback, cache, and RLS behavior.
+
+```bash
+cluster k6 e2e
+```
+
+The command clears MinIO, Valkey, and PostgreSQL state before the test. It waits for the pipeline and prints the k6 summary.
 
 ## Stop the cluster
 

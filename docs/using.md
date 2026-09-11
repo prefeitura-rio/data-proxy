@@ -81,6 +81,17 @@ curl --include --header "Authorization: Bearer ${TOKEN}" \
 
 The total appears in the response's `Content-Range` header, not in the JSON body.
 
+## Response source and cache
+
+When fallback is enabled, read responses include source headers:
+
+| Header     | Values                                   | Description      |
+| ---------- | ---------------------------------------- | ---------------- |
+| `X-Source` | `cache`, `postgrest`, `bigquery`, `none` | Response source. |
+| `X-Cache`  | `HIT`, `MISS`                            | Cache result.    |
+
+Use these headers for troubleshooting. Do not use them as an access-control decision.
+
 ## Data Freshness
 
 Each configured schema has a `freshness` endpoint. Use the schema profile of the data table:

@@ -25,12 +25,12 @@ See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration
 Run the complete local chart check with:
 
 ```bash
-devenv tasks charts:test
+devenv tasks run dp:test:charts
 ```
 
 The check runs Helm lint, Helm unit tests, and Kubeconform against standalone and HA values. Kubeconform uses strict Kubernetes schemas and the Datree CRD catalog for KEDA and Istio resources. Missing schemas are allowed only for CRDs that are not in the catalog. Standard Kubernetes resources must always have a valid schema.
 
-CI runs the same `scripts/test-charts.nu` check before chart packaging.
+CI runs equivalent Helm lint, unit-test, and Kubeconform jobs before chart packaging.
 
 The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:latest`. Standalone and HA members use this image. It contains PostgreSQL 17, pg_duckdb, PostGIS, Patroni with Kubernetes support, and the required runtime tools.
 
@@ -57,6 +57,31 @@ Set `ingress.enabled` to `true` to create an Istio `VirtualService`. Install Ist
 Set `ingress.auth.enabled` to `true` to create JWT authentication and authorization resources. These resources need an Istio control plane.
 
 Keep `ingress.sidecarInject` set to `true` when the cluster kernel supports the Istio iptables setup. Set it to `false` only when the kernel does not support this setup. In this mode, Istio still routes ingress traffic, but Data Proxy pods do not have Istio sidecars.
+
+## BigQuery fallback
+
+Enable the fallback proxy with:
+
+```yaml
+fallback:
+  enabled: true
+```
+
+The chart deploys an nginx proxy with a Webdis sidecar. The proxy becomes the public read endpoint. It reads local PostgREST first and queries `<table>_bq` only when the local response has no rows.
+
+Use these values to control proxy behavior:
+
+```yaml
+fallback:
+  cacheTtl: 300
+  fetchBufferSize: 32m
+  fetchTimeout: 60s
+  cacheRedisDb: 1
+  maxCacheBodyBytes: 262144
+  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:<image-sha>
+```
+
+The proxy writes structured request logs. See [BigQuery Fallback](fallback.md) for cache and response-header behavior.
 
 ## Enable HA
 

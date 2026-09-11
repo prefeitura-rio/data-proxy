@@ -2,9 +2,11 @@
 
 ## Serving Layer
 
-The product is a PostgreSQL database that uses the pg_duckdb extension. This database mirrors a set of BigQuery tables. PostgREST serves this data as a REST API.
+The product uses PostgreSQL with the pg_duckdb extension. This database mirrors selected BigQuery tables. PostgREST serves local data. An nginx proxy is the public read endpoint.
 
-BigQuery is the source of truth. pg_duckdb is a read cache. Clients query pg_duckdb over HTTP. Clients never query BigQuery directly.
+BigQuery is the source of truth. PostgreSQL is the normal read source. The proxy reads local PostgREST first. When an enabled fallback table returns no rows locally, the proxy queries its BigQuery-backed `_bq` view through PostgREST. Clients never call BigQuery directly.
+
+Webdis stores non-empty JSON fallback and local responses. The proxy uses identity-aware cache keys. PostgREST validates JWTs and applies row-level security to both local tables and `_bq` views. See [BigQuery Fallback](fallback.md) for the request flow and cache rules.
 
 pg_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from GCS. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
 
@@ -56,9 +58,11 @@ flowchart TD
 
     BQ -->|discover partitions| P
     FIN -->|read_parquet| DB
-    DB -->|read| PGRST[PostgREST]
+    DB -->|local read| PGRST[PostgREST]
+    PGRST -->|local or _bq read| Proxy[nginx proxy]
+    Cache[(Webdis)] <--> Proxy
     PGRST -->|write access_policy| DB
-    PGRST -->|REST + JWT| Client([API Client])
+    Proxy -->|REST + JWT| Client([API Client])
 ```
 
 ### High Availability

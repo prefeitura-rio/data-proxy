@@ -2,6 +2,19 @@
 
 Data Proxy pushes Prometheus metrics to a Pushgateway endpoint after each worker invocation. Set `PUSHGATEWAY_URL` to the Pushgateway address. The push is fire-and-forget: connection or HTTP errors are logged at debug level and swallowed.
 
+## Proxy request logs
+
+The nginx fallback proxy does not push request metrics to Pushgateway. It writes one structured JSON request log for each handled request.
+
+| Field | Unit | Description |
+| --- | --- | --- |
+| `source` | — | `cache`, `postgrest`, `bigquery`, or `none`. |
+| `status` | HTTP status | Response status. |
+| `wait_ms` | milliseconds | Proxy request duration. |
+| `bytes` | bytes | Response body size. |
+
+The proxy returns `X-Source` and `X-Cache` response headers. Use the headers in a client or load test. Use structured logs for proxy request analysis.
+
 ## Available metrics
 
 | Metric                           | Type      | Labels             | Description                                                                                                |
