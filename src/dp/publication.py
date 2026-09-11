@@ -78,24 +78,38 @@ def cast_json_columns_to_jsonb(
     schema: str,
     table_name: str,
 ) -> None:
-    """Alter every json column on a table to jsonb before loading data."""
+    """Alter every json column on a table to jsonb before loading data.
+
+    PostgreSQL rewrites the whole table for each type change, so every column
+    travels in one statement. That costs one rewrite instead of one per column.
+    """
     rows = execute_sql(
         conn,
         "postgres/json_columns",
         params=(schema, table_name),
     ).fetchall()
 
-    for row in rows:
-        column = cast(str, row[0])
-        execute_sql(
-            conn,
-            "postgres/cast_json_to_jsonb",
-            mapping={
-                "schema": Identifier(schema),
-                "table": Identifier(table_name),
-                "column": Identifier(column),
-            },
+    columns = [cast(str, row[0]) for row in rows]
+
+    if not columns:
+        return
+
+    clauses = SQL(", ").join(
+        SQL("ALTER COLUMN {column} SET DATA TYPE jsonb USING {column}::jsonb").format(
+            column=Identifier(column),
         )
+        for column in columns
+    )
+
+    execute_sql(
+        conn,
+        "postgres/cast_json_to_jsonb",
+        mapping={
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
+            "clauses": clauses,
+        },
+    )
 
 
 def create_indexes(conn: Connection, table: TableConfig, table_name: str) -> None:

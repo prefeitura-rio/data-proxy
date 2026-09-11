@@ -4,7 +4,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from psycopg import Connection
+from psycopg import Connection, Cursor
 from psycopg.sql import SQL
 
 from dp.models import (
@@ -411,3 +411,39 @@ class TestPublicationTemplates:
             mapping={"schema": namespace.schema, "table": "table"},
         ).fetchall()
         assert result == expected
+
+    def test_cast_json_columns_to_jsonb_uses_one_statement(
+        self,
+    ) -> None:
+        """
+        GIVEN: a table with two json columns.
+        WHEN: cast_json_columns_to_jsonb is called.
+        THEN: one statement carries both columns, because each one costs a rewrite.
+        """
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def record(
+            _: object,
+            path: str,
+            mapping: dict[str, object] | None = None,
+            **__: object,
+        ) -> Cursor[tuple[object, ...]]:
+            calls.append((path, mapping or {}))
+            cursor = MagicMock(spec=Cursor)
+            cursor.fetchall.return_value = [("first",), ("second",)]
+            return cast(Cursor[tuple[object, ...]], cursor)
+
+        with patch("dp.publication.execute_sql", side_effect=record):
+            cast_json_columns_to_jsonb(MagicMock(spec=Connection), "app", "table")
+
+        assert [path for path, _ in calls] == [
+            "postgres/json_columns",
+            "postgres/cast_json_to_jsonb",
+        ]
+
+        clauses = str(calls[1][1]["clauses"])
+
+        assert clauses.count("ALTER COLUMN") == 2
+        assert clauses.count("::jsonb") == 2
+        assert "first" in clauses
+        assert "second" in clauses
