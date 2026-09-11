@@ -1,12 +1,15 @@
 import http from "k6/http";
 import { Kubernetes } from "k6/x/kubernetes";
 import { check, sleep } from "k6";
+import { triggerSync, waitForJob, NAMESPACE, PRODUCER_CRONJOB } from "./lib.ts";
 
 type K6Response = {
     status: number;
     body: string;
+    headers: Record<string, string>;
     json: (path?: string) => unknown;
 };
+
 type FreshnessRow = {
     table: string;
     strategy: string;
@@ -38,11 +41,10 @@ const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest.data-p
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:local";
 const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
+const SYNCED_PARTITIONS = 5;
 const PARTITION_COLUMN = "protocolo_data_referencia_particicao";
 const BURST_REQUESTS = 5;
 const SCHEMA = "pic";
-const NAMESPACE = __ENV.NAMESPACE || "data-proxy";
-const PRODUCER_CRONJOB = __ENV.PRODUCER_CRONJOB || "data-proxy-producer";
 const POLL_INTERVAL = 2;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
 
@@ -72,13 +74,7 @@ export const options = {
     },
 };
 
-function now(): string {
-    return new Date().toISOString();
-}
 
-function log(stage: string, source: string, metric: string, value: unknown): void {
-    console.log(JSON.stringify({ time: now(), stage, source, metric, value }));
-}
 
 function safeJson(r: K6Response): unknown {
     if (r.status === 0 || !r.body) return null;
@@ -89,6 +85,7 @@ function safeJson(r: K6Response): unknown {
     }
 }
 
+/** Fetches an OIDC access token, retrying up to five times. */
 function fetchToken(clientId: string = OIDC_CLIENT_ID): string {
     for (let attempt = 0; attempt < 5; attempt++) {
         const response = http.post(OIDC_TOKEN_URL, {
@@ -105,6 +102,7 @@ function fetchToken(clientId: string = OIDC_CLIENT_ID): string {
     throw new Error(`Token request failed for client: ${clientId}`);
 }
 
+/** Builds the authentication headers for a request through the proxy. */
 function authHeaders(token: string): Record<string, string> {
     return {
         Authorization: `Bearer ${token}`,
@@ -113,46 +111,7 @@ function authHeaders(token: string): Record<string, string> {
     };
 }
 
-function triggerSync(k8s: Kubernetes): string {
-    const cronJob = k8s.get("CronJob.batch", PRODUCER_CRONJOB, NAMESPACE) as {
-        spec: { jobTemplate: { spec: object } };
-    };
-
-    const jobName = `data-proxy-producer-e2e-${Date.now()}`;
-    const job = {
-        apiVersion: "batch/v1",
-        kind: "Job",
-        metadata: { name: jobName, namespace: NAMESPACE },
-        spec: cronJob.spec.jobTemplate.spec,
-    };
-
-    k8s.create(job);
-    log("sync", "k8s", "job_created", jobName);
-    return jobName;
-}
-
-function waitForSyncJob(k8s: Kubernetes, jobName: string): void {
-    waitForJob(k8s, jobName);
-}
-
-function waitForJob(k8s: Kubernetes, jobName: string): void {
-    const deadline = Date.now() + 300_000;
-    while (Date.now() < deadline) {
-        const job = k8s.get("Job.batch", jobName, NAMESPACE) as {
-            status?: { succeeded?: number; failed?: number };
-        };
-        if (job.status?.succeeded && job.status.succeeded > 0) {
-            log("setup", "k8s", "job_completed", jobName);
-            return;
-        }
-        if (job.status?.failed && job.status.failed > 0) {
-            throw new Error(`Job ${jobName} failed`);
-        }
-        sleep(1);
-    }
-    throw new Error(`Job ${jobName} timed out`);
-}
-
+/** Seeds the access policy table so RLS grants the test user its units. */
 function seedAccessPolicy(): void {
     const token = fetchToken("policy-writer");
     const headers = {
@@ -173,19 +132,19 @@ function seedAccessPolicy(): void {
         if (status === 201 || status === 409) break;
         sleep(1);
     }
-    log("setup", "postgrest", "seed_access_policy_status", status);
     check(null, {
         "access_policy seeded": () => status === 201 || status === 409,
     });
 }
 
+/** Verifies that a user without a policy gets a 200 with zero rows. */
 function verifyNoAccess(): void {
     const token = fetchToken("user-no-access");
     let status = 0;
     let body: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
         const response = http.get(
-            `${API_URL}/endpoint_participante_listagem?limit=1`,
+            `${API_URL}/${FULL_TABLE}?limit=1`,
             { headers: authHeaders(token), tags: { name: "no_access_check" } },
         ) as K6Response;
         status = response.status;
@@ -199,6 +158,7 @@ function verifyNoAccess(): void {
     });
 }
 
+/** Verifies that jsonb columns and json path filters work through the proxy. */
 function verifyJsonbColumn(): void {
     const token = fetchToken();
 
@@ -206,7 +166,7 @@ function verifyJsonbColumn(): void {
     let filterBody: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
         const response = http.get(
-            `${API_URL}/endpoint_participante_listagem?indicadores->>status=not.is.null&limit=1`,
+            `${API_URL}/${FULL_TABLE}?indicadores->>status=not.is.null&limit=1`,
             { headers: authHeaders(token), tags: { name: "json_path_filter" } },
         ) as K6Response;
         filterStatus = response.status;
@@ -215,13 +175,13 @@ function verifyJsonbColumn(): void {
         sleep(1);
     }
 
-    log("verify", "postgrest", "json_path_filter_status", filterStatus);
     check(null, {
         "json path filter returns 200": () => filterStatus === 200,
         "json path filter returns rows": () => Array.isArray(filterBody) && filterBody.length > 0,
     });
 }
 
+/** Builds a Redis metric request that reads a command through webdis. */
 function redisMetric(metric: string, label: string, command: string, token: string, extract: (r: K6Response) => unknown): MetricRequest {
     return {
         stage: "sync",
@@ -235,6 +195,7 @@ function redisMetric(metric: string, label: string, command: string, token: stri
     };
 }
 
+/** Builds a PostgREST metric request that reads a path through the proxy. */
 function postgrestMetric(stage: string, source: string, metric: string, label: string, path: string, token: string, extract: (r: K6Response) => unknown): MetricRequest {
     return {
         stage,
@@ -248,6 +209,7 @@ function postgrestMetric(stage: string, source: string, metric: string, label: s
     };
 }
 
+/** Builds the set of pipeline metrics that verify the sync completed. */
 function buildMetrics(token: string): MetricRequest[] {
     const metrics: MetricRequest[] = [];
 
@@ -257,7 +219,7 @@ function buildMetrics(token: string): MetricRequest[] {
         "dp:publish": "publishers",
     };
 
-    for (const stream of STREAMS) {
+    STREAMS.forEach((stream) => {
         metrics.push(redisMetric(
             `stream_length:${stream}`,
             `the ${groups[stream].replace(/s$/, "")} stream is drained`,
@@ -269,7 +231,7 @@ function buildMetrics(token: string): MetricRequest[] {
                 return Number(body?.XPENDING?.msgs ?? -1);
             },
         ));
-    }
+    });
 
     metrics.push(redisMetric("db_size", "the pipeline database is small", "DBSIZE", token, (r) => {
         if (r.status !== 200) return -1;
@@ -283,15 +245,15 @@ function buildMetrics(token: string): MetricRequest[] {
         return body?.GET ?? null;
     }));
 
-    for (const table of TABLES) {
+    TABLES.forEach((table) => {
         metrics.push(postgrestMetric("extract", "postgrest", `table_status:${table}`, `${table} is reachable`, `/${table}?limit=1`, token, (r) => r.status));
         metrics.push(postgrestMetric("publish", "postgrest", `table_row_count:${table}`, `${table} has rows after publishing`, `/${table}?limit=1000`, token, (r) => {
             const body = safeJson(r);
             return Array.isArray(body) ? body.length : 0;
         }));
-    }
+    });
 
-    for (const table of TABLES) {
+    TABLES.forEach((table) => {
         metrics.push(postgrestMetric("publish", "postgrest", `freshness_count:${table}`, `${table} has a freshness row`, `/freshness?table=eq.${table}`, token, (r) => {
             const rows = safeJson(r) as FreshnessRow[] | null;
             return Array.isArray(rows) ? rows.length : 0;
@@ -300,9 +262,9 @@ function buildMetrics(token: string): MetricRequest[] {
             const rows = safeJson(r) as FreshnessRow[] | null;
             return Array.isArray(rows) && rows.length > 0 && rows.every((row) => row.status === "success");
         }));
-    }
+    });
 
-    metrics.push(postgrestMetric("publish", "postgrest", `partition_count:${PARTITIONED_TABLE}`, `${PARTITIONED_TABLE} has seven partitions`, `/freshness?table=eq.${PARTITIONED_TABLE}`, token, (r) => {
+    metrics.push(postgrestMetric("publish", "postgrest", `partition_count:${PARTITIONED_TABLE}`, `${PARTITIONED_TABLE} has ${SYNCED_PARTITIONS} partitions`, `/freshness?table=eq.${PARTITIONED_TABLE}`, token, (r) => {
         const rows = safeJson(r) as FreshnessRow[] | null;
         if (!Array.isArray(rows)) return 0;
         return rows.filter((row) => row.partition !== null).length;
@@ -311,24 +273,29 @@ function buildMetrics(token: string): MetricRequest[] {
     return metrics;
 }
 
-function pollOnce(metrics: MetricRequest[]): boolean {
+/** Fires every metric request and returns the responses in order. */
+function executeMetrics(metrics: MetricRequest[]): K6Response[] {
     const responses: K6Response[] = [];
-    for (const m of metrics) {
+    metrics.forEach((m) => {
         if (m.method === "GET") {
             responses.push(http.get(m.url, m.params) as K6Response);
         } else {
             responses.push(http.post(m.url, JSON.stringify(m.params), { headers: { "Content-Type": "application/json" } }) as K6Response);
         }
-    }
+    });
+    return responses;
+}
+
+/** Polls the pipeline metrics once and reports whether the sync is complete. */
+function pollOnce(metrics: MetricRequest[]): boolean {
+    const responses = executeMetrics(metrics);
 
     let allStreamsDrained = true;
     let activeRunGone = true;
     let published = true;
 
-    for (let i = 0; i < metrics.length; i++) {
-        const m = metrics[i];
+    metrics.forEach((m, i) => {
         const value = m.extract(responses[i]);
-        log(m.stage, m.source, m.metric, value);
 
         if (m.metric.startsWith("stream_length:") && typeof value === "number" && value !== 0) {
             allStreamsDrained = false;
@@ -339,25 +306,17 @@ function pollOnce(metrics: MetricRequest[]): boolean {
         if (m.metric.startsWith("freshness_all_success:") && value !== true) {
             published = false;
         }
-    }
+    });
 
     return allStreamsDrained && activeRunGone && published;
 }
 
+/** Verifies every pipeline metric with a k6 check. */
 function verifyMetrics(metrics: MetricRequest[]): void {
-    const responses: K6Response[] = [];
-    for (const m of metrics) {
-        if (m.method === "GET") {
-            responses.push(http.get(m.url, m.params) as K6Response);
-        } else {
-            responses.push(http.post(m.url, JSON.stringify(m.params), { headers: { "Content-Type": "application/json" } }) as K6Response);
-        }
-    }
+    const responses = executeMetrics(metrics);
 
-    for (let i = 0; i < metrics.length; i++) {
-        const m = metrics[i];
+    metrics.forEach((m, i) => {
         const value = m.extract(responses[i]);
-        log(m.stage, m.source, m.metric, value);
         check(null, {
             [m.label]: () => {
                 if (typeof value === "boolean") return value;
@@ -366,32 +325,24 @@ function verifyMetrics(metrics: MetricRequest[]): void {
                     if (m.metric === "db_size") return value < 10;
                     if (m.metric.startsWith("table_row_count:")) return value > 0;
                     if (m.metric.startsWith("freshness_count:")) return value > 0;
-                    if (m.metric === "partition_count:" + PARTITIONED_TABLE) return value === 7;
+                    if (m.metric === "partition_count:" + PARTITIONED_TABLE) return value === SYNCED_PARTITIONS;
                     return true;
                 }
                 if (m.metric === "active_run") return value === null;
                 return true;
             },
         });
-    }
+    });
 }
 
+/** Triggers a sync and waits for the producer Job to complete. */
 export function setup(): void {
     const k8s = new Kubernetes();
     const jobName = triggerSync(k8s);
-    waitForSyncJob(k8s, jobName);
+    waitForJob(k8s, jobName);
 }
 
-// ---------------------------------------------------------------------------
-// Fallback verification.
-//
-// The fallback runs only when a GET answers with an empty array, so every check
-// below first makes the local answer empty: either by asking for a partition
-// that the sync does not keep, or by truncating the local table, which leaves
-// BigQuery untouched. Each check states its precondition and fails the run when
-// the precondition cannot be met, so a check that proves nothing cannot pass.
-// ---------------------------------------------------------------------------
-
+/** Sends a GET through the proxy with auth headers and optional extras. */
 function proxyGet(path: string, token: string, extra: Record<string, string> = {}): K6Response {
     return http.get(`${API_URL}${path}`, {
         headers: { ...authHeaders(token), ...extra },
@@ -399,6 +350,7 @@ function proxyGet(path: string, token: string, extra: Record<string, string> = {
     }) as K6Response;
 }
 
+/** Sends a GET directly to PostgREST, bypassing the proxy. */
 function directPostgrest(path: string, token: string): K6Response {
     return http.get(`${POSTGREST_URL}${path}`, {
         headers: { Authorization: `Bearer ${token}`, "Accept-Profile": SCHEMA },
@@ -406,29 +358,31 @@ function directPostgrest(path: string, token: string): K6Response {
     }) as K6Response;
 }
 
+/** Reads the X-Cache header from a response, handling case variants. */
 function cacheHeader(r: K6Response): string {
     return r.headers["X-Cache"] || r.headers["x-cache"] || "";
 }
 
+/** Extracts the rows from a JSON array response, or an empty array. */
 function rowsOf(r: K6Response): unknown[] {
     const body = safeJson(r);
     return Array.isArray(body) ? body : [];
 }
 
+/** Asserts a named condition and logs it as a fallback verification step. */
 function expect(name: string, ok: boolean): void {
     check(null, { [name]: () => ok });
-    log("verify", "fallback", name, ok);
 }
 
+/** Asserts a named precondition, logs it, and throws when it fails. */
 function requirePrecondition(name: string, ok: boolean, detail: unknown): void {
     check(null, { [name]: () => ok });
-    log("verify", "fallback", name, ok);
     if (!ok) {
         throw new Error(`fallback precondition failed: ${name}: ${JSON.stringify(detail)}`);
     }
 }
 
-/** Runs one statement in the application database from a short lived job. */
+/** Runs one SQL statement in the application database from a short lived Job. */
 function runSqlJob(k8s: Kubernetes, label: string, statement: string): void {
     const cronJob = k8s.get("CronJob.batch", PRODUCER_CRONJOB, NAMESPACE) as {
         spec: { jobTemplate: { spec: { template: { spec: { containers: Record<string, unknown>[] } } } } };
@@ -462,34 +416,37 @@ function runSqlJob(k8s: Kubernetes, label: string, statement: string): void {
             },
         },
     });
-    log("fallback", "k8s", "job_created", jobName);
     waitForJob(k8s, jobName);
 }
 
+/** Truncates a local table so only BigQuery holds its rows. */
 function truncateLocal(k8s: Kubernetes, table: string): void {
     runSqlJob(k8s, `truncate-${table}`, `TRUNCATE ${SCHEMA}.${table}`);
 }
 
+/** Revokes the client role's SELECT on a fallback view. */
 function revokeFallbackAccess(k8s: Kubernetes, table: string): void {
     runSqlJob(k8s, `revoke-${table}`, `REVOKE SELECT ON ${SCHEMA}.${table}_bq FROM "user"`);
 }
 
+/** Grants the client role's SELECT on a fallback view. */
 function grantFallbackAccess(k8s: Kubernetes, table: string): void {
     runSqlJob(k8s, `grant-${table}`, `GRANT SELECT ON ${SCHEMA}.${table}_bq TO "user"`);
 }
 
+/** Verifies that every configured table has a fallback view that returns rows. */
 function verifyFallbackPreconditions(token: string): void {
-    for (const table of TABLES) {
+    TABLES.forEach((table) => {
         const view = directPostgrest(`/${table}_bq?limit=1`, token);
         requirePrecondition(
             `fallback view answers for ${table}`,
             view.status === 200 && rowsOf(view).length > 0,
             { status: view.status },
         );
-    }
+    });
 }
 
-/** Drops the local rows of one partition, so only BigQuery still holds them. */
+/** Drops the local rows of one partition so only BigQuery still holds them. */
 function dropLocalPartition(k8s: Kubernetes, table: string, partition: string): void {
     runSqlJob(
         k8s,
@@ -498,6 +455,7 @@ function dropLocalPartition(k8s: Kubernetes, table: string, partition: string): 
     );
 }
 
+/** Verifies the fallback serves a partition whose local rows were dropped. */
 function verifyPartitionedFallback(k8s: Kubernetes, token: string): void {
     const oldest = directPostgrest(
         `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
@@ -533,6 +491,7 @@ function verifyPartitionedFallback(k8s: Kubernetes, token: string): void {
     expect("a dropped partition answers with a success", response.status === 200);
 }
 
+/** Verifies the fallback serves a truncated table with all columns and filters. */
 function verifyFullTableFallback(k8s: Kubernetes, token: string): void {
     truncateLocal(k8s, FULL_TABLE);
     requirePrecondition(
@@ -568,6 +527,7 @@ function verifyFullTableFallback(k8s: Kubernetes, token: string): void {
     expect("json values survive the fallback as objects", typeof jsonbRow?.indicadores === "object" && jsonbRow.indicadores !== null);
 }
 
+/** Verifies RLS narrows the fallback answer to the granted units. */
 function verifyFallbackRls(k8s: Kubernetes, token: string, noAccessToken: string): void {
     truncateLocal(k8s, MULTI_RLS_TABLE);
     requirePrecondition(
@@ -593,6 +553,7 @@ function verifyFallbackRls(k8s: Kubernetes, token: string, noAccessToken: string
     expect("a subject without a policy gets nothing from the fallback", rowsOf(anonymous).length === 0);
 }
 
+/** Verifies cache hits, token refresh, forged token refusal, and TTL expiry. */
 function verifyFallbackCache(token: string, otherToken: string): void {
     const path = `/${FULL_TABLE}?select=id&limit=4`;
 
@@ -642,6 +603,7 @@ function verifyFallbackCache(token: string, otherToken: string): void {
     expect("an entry expires after the configured lifetime", cacheHeader(proxyGet(path, token)) === "MISS");
 }
 
+/** Verifies the proxy falls back to the local table when the view is unreadable. */
 function verifyFallbackFailure(k8s: Kubernetes, token: string): void {
     const path = `/${FULL_TABLE}?select=id&order=id&limit=2`;
 
@@ -665,9 +627,9 @@ function verifyFallbackFailure(k8s: Kubernetes, token: string): void {
     expect("the fallback answers again", rowsOf(proxyGet(path, token)).length > 0);
 }
 
+/** Verifies that a table without a fallback view is served from the local path. */
 function verifyExcludedTable(token: string): void {
     if (!EXCLUDED_TABLE) {
-        log("verify", "fallback", "excluded_table", "skipped: EXCLUDED_TABLE is not set");
         return;
     }
 
@@ -679,15 +641,7 @@ function verifyExcludedTable(token: string): void {
     expect("the excluded table is served by the local path", JSON.stringify(rowsOf(proxiedResult)) === JSON.stringify(rowsOf(local)));
 }
 
-/** Reads one command from the pipeline database through the proxy. */
-function redisCommand(command: string, token: string): K6Response {
-    return http.get(`${WEBDIS_URL}/${PIPELINE_REDIS_DB}/${command}`, {
-        headers: authHeaders(token),
-        tags: { name: "redis:command" },
-    }) as K6Response;
-}
-
-/** Deletes every committed table signature, which forces a full sync. */
+/** Verifies that a per-table cache TTL outlives the global one. */
 function verifyFallbackLifetimes(token: string): void {
     const longPath = `/${PARTITIONED_TABLE}?select=protocolo_id&limit=2`;
     const shortPath = `/${FULL_TABLE}?select=id&limit=2`;
@@ -701,9 +655,10 @@ function verifyFallbackLifetimes(token: string): void {
     expect("the global lifetime still applies", cacheHeader(proxyGet(shortPath, token)) === "MISS");
 }
 
+/** Verifies that a concurrent burst shares one upstream call. */
 function verifyCoalescing(token: string): void {
     const path = `/${MULTI_RLS_TABLE}?select=id&limit=5`;
-    const burst: object[] = [];
+    const burst: { method: string; url: string; params: { headers: Record<string, string>; tags: Record<string, string> } }[] = [];
 
     for (let i = 0; i < BURST_REQUESTS; i++) {
         burst.push({
@@ -723,6 +678,15 @@ function verifyCoalescing(token: string): void {
     expect("a burst is served the same answer", JSON.stringify(rowsOf(responses[0])) === JSON.stringify(rowsOf(responses[BURST_REQUESTS - 1])));
 }
 
+/**
+ * Verifies the BigQuery fallback end to end.
+ *
+ * The fallback runs only when a GET answers with an empty array, so every check
+ * below first makes the local answer empty: either by asking for a partition
+ * that the sync does not keep, or by truncating the local table, which leaves
+ * BigQuery untouched. Each check states its precondition and fails the run when
+ * the precondition cannot be met, so a check that proves nothing cannot pass.
+ */
 function verifyFallback(k8s: Kubernetes): void {
     const token = fetchToken();
     const noAccessToken = fetchToken("user-no-access");
@@ -738,6 +702,7 @@ function verifyFallback(k8s: Kubernetes): void {
     verifyCoalescing(token);
 }
 
+/** Polls the pipeline until it completes, then runs every verification. */
 export default function(): void {
     const k8s = new Kubernetes();
     const token = fetchToken();
@@ -750,7 +715,6 @@ export default function(): void {
         const pipelineDone = pollOnce(metrics);
         if (pipelineDone) {
             completed = true;
-            log("done", "redis", "pipeline_complete", true);
             seedAccessPolicy();
             sleep(2);
             verifyMetrics(metrics);

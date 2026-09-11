@@ -60,7 +60,7 @@ syncConfig:
               unit_type: escola
         - name: rj-ia-desenvolvimento.dev.protocolo_estado_diario
           strategy: partitioned
-          n: 7
+          "n": 5
           cache_ttl: 600
           rls:
             - column: id_unidade

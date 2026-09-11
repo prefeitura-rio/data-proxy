@@ -1,4 +1,4 @@
-# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration, remove_hat_not_builtin, unhandled_external_error, where_closure_drop_parameter
+# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration, remove_hat_not_builtin, unhandled_external_error, print_and_return_data
 
 use std/log
 
@@ -110,9 +110,6 @@ def --env build-images [kubecfg: path]: nothing -> string {
     log info 'Loading data-proxy-postgres:local into Minikube…'
     docker save data-proxy-postgres:local | mk $kubecfg image load -
 
-    log info 'Compiling the proxy script…'
-    tsc -p nginx --noEmit false --outDir nginx/build
-
     log info 'Building data-proxy-nginx-proxy:local…'
     docker build -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
     log info 'Loading data-proxy-nginx-proxy:local into Minikube…'
@@ -219,17 +216,11 @@ def create-bucket [kubecfg: path]: nothing -> nothing {
     mc $kubecfg 'mc mb --ignore-existing local/test-bucket'
 }
 
-# Delete the MinIO test-bucket via the S3 API.
-def delete-bucket [kubecfg: path]: nothing -> nothing {
-    mc $kubecfg 'mc rb --force --ignore-existing local/test-bucket'
-}
-
 # Clear MinIO, Redis, and Postgres so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
     create-bucket $kubecfg
     mc $kubecfg 'mc rm --recursive --force local/test-bucket'
 
-    let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let valkey = (
         (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $pod_jp)
@@ -248,7 +239,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:extract
         dumpers
-    ) | ignore
+    )
 
     (kc
         $kubecfg
@@ -262,7 +253,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:prepare
         seeders
-    ) | ignore
+    )
 
     (kc
         $kubecfg
@@ -276,7 +267,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         DESTROY
         dp:publish
         publishers
-    ) | ignore
+    )
 
     (kc
         $kubecfg
@@ -288,7 +279,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         sh
         -c
         'redis-cli --scan --pattern dp:* | xargs -r redis-cli DEL'
-    ) | ignore
+    )
 
     let duckdb = (kc
         $kubecfg
@@ -317,182 +308,180 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         )
         (
             kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c $'($drop_stmt); DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
-        ) | ignore
+        )
     } else {
         (
             kc $kubecfg -n data-proxy exec $duckdb -- psql -U dataproxy -d dataproxy -c 'DELETE FROM pic.freshness; DELETE FROM pic.access_policy;'
-        ) | ignore
-    }
-}
-
-# Run a k6 load test.
-def "main k6 load-test" [
-    profile: string = 'smoke'  # smoke, load, or stress
-]: nothing -> string {
-    let kubecfg = git-root | path join .kubeconfig
-
-    clear-test-resources $kubecfg
-
-    log info 'Creating k6 configmap…'
-    (
-        (kc
-            $kubecfg
-            -n
-            data-proxy
-            create
-            configmap
-            data-proxy-k6
-            --from-file=run.ts=k6/run.ts
-            --dry-run=client
-            -o
-            yaml
         )
-    )
-    | kc $kubecfg apply -f -
-
-    log info 'Deleting previous testrun…'
-    kc $kubecfg -n data-proxy delete testrun data-proxy-load --ignore-not-found
-
-    log info 'Applying testrun…'
-    try { open k6/run.yaml } catch {|err|
-        log error $'Failed to open k6/run.yaml: ($err.msg)'
-        exit 1
     }
-    | update spec.runner.env {
-        $in | each {|e| if $e.name == K6_PROFILE { $e | update value $profile } else { $e } }
-    }
-    | to yaml
-    | kc $kubecfg apply -f -
-
-    log info 'Watching testrun…'
-    kc $kubecfg -n data-proxy get testrun data-proxy-load -w
 }
 
-# Wait until the runner job of the e2e testrun reaches a terminal state.
-def wait-for-e2e [kubecfg: path]: nothing -> nothing {
-    let label = 'k6_cr=data-proxy-e2e,runner=true'
+# Create a configmap, apply a testrun yaml, wait for completion, and print the runner log.
+def k6-run [
+    kubecfg: path
+    configmap: string
+    script_key: string
+    script_path: string
+    testrun: string
+    yaml_path: path
+    --profile: string = ''
+]: nothing -> nothing {
+    log info $'Creating configmap ($configmap)…'
+    (kc
+        $kubecfg
+        -n
+        data-proxy
+        create
+        configmap
+        $configmap
+        --from-file=($script_key + '=' + $script_path)
+        --from-file=lib.ts=k6/lib.ts
+        --dry-run=client
+        -o
+        yaml
+    ) | kc $kubecfg apply -f -
+
+    log info $'Deleting previous testrun ($testrun)…'
+    kc $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
+
+    log info $'Applying testrun ($testrun)…'
+    if $profile != '' {
+        let yaml = try { open --raw $yaml_path } catch {|err| error make {
+            msg: $'Failed to open ($yaml_path): ($err.msg)'
+            label: {
+                text: $yaml_path
+                span: (metadata $yaml_path).span
+            }
+        } }
+
+        $yaml
+        | str replace --all 'value: load' $'value: ($profile)'
+        | kc $kubecfg apply -f -
+    } else {
+        kc $kubecfg apply -f $yaml_path
+    }
+
+    let label = $'k6_cr=($testrun),runner=true'
     let items_jp = 'jsonpath={.items}'
+    let complete_jp = '{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
+    let pod_jp = 'jsonpath={.items[0].metadata.name}'
 
     log info 'Waiting for the runner job to appear…'
     while true {
         let jobs = kc $kubecfg -n data-proxy get jobs -l $label -o $items_jp | str trim
-
         if ($jobs | is-not-empty) and ($jobs != '[]') { break }
-
         sleep 1sec
     }
 
     log info 'Waiting for the test to complete…'
-    let complete_jp = r#'{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'#
-
     while true {
         let phase = (
-            (kc
-                $kubecfg
-                -n
-                data-proxy
-                get
-                jobs
-                -l
-                $label
-                -o
-                $'jsonpath=($complete_jp)'
-            )
+            (kc $kubecfg -n data-proxy get jobs -l $label -o $'jsonpath=($complete_jp)')
             | str trim
         )
-
         if $phase =~ True { break }
-
         sleep 2sec
     }
-}
 
-# Print the runner log and fail when the test run failed.
-def print-e2e-logs [kubecfg: path]: nothing -> nothing {
-    let label = 'k6_cr=data-proxy-e2e,runner=true'
-    let pod_jp = 'jsonpath={.items[0].metadata.name}'
-    let failed_jp = r#'{range .items[*]}{.status.conditions[?(@.type=="Failed")].status}{end}'#
     let pod = (kc $kubecfg -n data-proxy get pods -l $label -o $pod_jp)
-
-    (kc $kubecfg -n data-proxy logs $pod) | tee { delete-bucket $kubecfg }
-
-    let failed = (
-        kc $kubecfg -n data-proxy get jobs -l $label -o $'jsonpath=($failed_jp)'
-        | str trim
+    let runner_log = (
+        kc $kubecfg -n data-proxy logs $pod
+        | tee { mc $kubecfg 'mc rb --force --ignore-existing local/test-bucket' }
     )
 
-    if $failed =~ True {
-        error make {
-            msg: 'the e2e test run failed; read the runner log above'
-            label: {
-                text: 'failed condition'
-                span: (metadata $failed).span
+    print ($runner_log | to text)
+}
+
+# Print cluster status tables for pods, deployments, and scaled objects.
+def show-status [kubecfg: path]: nothing -> nothing {
+    print "
+Pods:"
+
+    print (kc $kubecfg -n data-proxy get pods -o json
+        | try { from json } catch { {items: []} }
+        | get items
+        | each {|pod|
+            let init = $pod.status.initContainerStatuses? | default []
+            let containers = $pod.status.containerStatuses? | default []
+            let all = ($init ++ $containers)
+            let ready = $all | where $it.ready? | length
+            let total = $all | length
+            let restarts = $all | each { $in.restartCount? | default 0 } | math sum
+            let age = $pod.metadata.creationTimestamp | into datetime | (date now) - $in
+
+            {
+                name: $pod.metadata.name,
+                phase: $pod.status.phase,
+                ready: $'($ready)/($total)',
+                restarts: $restarts,
+                age: (format-age $age),
             }
         }
+        | sort-by name)
+
+    print "
+Deployments:"
+
+    print (kc $kubecfg -n data-proxy get deploy -o json
+        | try { from json } catch { {items: []} }
+        | get items
+        | each {|d|
+            {
+                name: $d.metadata.name,
+                ready: ($d.status.readyReplicas? | default 0 | into int),
+                replicas: ($d.status.replicas? | default 0 | into int),
+            }
+        }
+        | sort-by name)
+
+    print "
+ScaledObjects:"
+
+    try {
+        print (kc $kubecfg -n data-proxy get scaledobject -o json
+            | try { from json } catch { {items: []} }
+            | get items
+            | each {|s|
+                let cond = $s.status.conditions? | default [] | last | default {}
+                {
+                    name: $s.metadata.name,
+                    status: ($cond.type? | default '-'),
+                    ready: ($cond.status? | default '-'),
+                }
+            }
+            | sort-by name)
+    } catch {
+        log warning 'no scaledobjects found'
     }
 }
 
-# Fail when the proxy never served an answer from BigQuery.
-def check-fallback-served [kubecfg: path, pod: string]: nothing -> nothing {
-    let logs = (kc $kubecfg -n data-proxy logs $pod -c nginx)
-    let summaries = $logs | lines | where {|line| $line =~ '"event":"request"' }
-    let fallback = $summaries | where {|line| $line =~ '"source":"bigquery"' }
-
-    if ($fallback | is-empty) {
-        error make {
-            msg: 'the proxy never served a request from the fallback'
-            label: {
-                text: 'no fallback line'
-                span: (metadata $fallback).span
-            }
-        }
-    }
+# Rebuild and roll out the local nginx proxy image.
+def refresh-proxy [kubecfg: path]: nothing -> nothing {
+    log info 'Building data-proxy-nginx-proxy:local…'
+    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
+    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
+    kc $kubecfg -n data-proxy rollout restart deployment/data-proxy-nginx-proxy out> /dev/null
+    kc $kubecfg -n data-proxy rollout status deployment/data-proxy-nginx-proxy --timeout=180s out> /dev/null
 }
 
-# Fail unless the concurrent burst stored exactly one entry.
-def check-burst-stored [kubecfg: path, pod: string]: nothing -> nothing {
-    let lines = kc $kubecfg -n data-proxy logs $pod -c nginx | lines
-    let markers = (
-        $lines
-        | enumerate
-        | where {|row| $row.item =~ '"uri":"/e2e"' }
-        | get index
-    )
+# Run the standard k6 load profile (must run after the e2e test).
+def "main k6 load" []: nothing -> nothing {
+    let kubecfg = git-root | path join .kubeconfig
+    refresh-proxy $kubecfg
+    clear-test-resources $kubecfg
+    k6-run $kubecfg 'data-proxy-k6' 'load.ts' 'k6/load.ts' 'data-proxy-load' 'k6/load.yaml' --profile 'load'
+}
 
-    if ($markers | is-empty) {
-        error make {
-            msg: 'the burst marker request is missing from the proxy log'
-            label: {
-                text: 'marker search'
-                span: (metadata $markers).span
-            }
-        }
-    }
-
-    let marker = $markers | last
-    let stored = (
-        $lines
-        | enumerate
-        | where {|row| $row.index > $marker }
-        | where {|row| $row.item =~ '"uri":"/endpoint_participantes"' }
-        | where {|row| $row.item =~ '"cache":"stored"' }
-    )
-
-    log info $"entries stored for the burst: ($stored | length)"
-
-    if ($stored | length) != 1 {
-        error make {
-            msg: 'the concurrent burst did not store exactly one entry'
-            label: {
-                text: 'stored lines'
-                span: (metadata $stored).span
-            }
-        }
-    }
+# Run the k6 stress profile.
+def "main k6 stress" []: nothing -> nothing {
+    let kubecfg = git-root | path join .kubeconfig
+    refresh-proxy $kubecfg
+    clear-test-resources $kubecfg
+    k6-run $kubecfg 'data-proxy-k6' 'load.ts' 'k6/load.ts' 'data-proxy-load' 'k6/load.yaml' --profile 'stress'
 }
 
 # Run the e2e test (triggers sync, seeds RLS, validates pipeline).
-def "main k6 e2e" []: nothing -> string {
+def "main k6 e2e" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
 
     let repo = git-root
@@ -501,11 +490,15 @@ def "main k6 e2e" []: nothing -> string {
         return
     }
 
-    docker build -q -t data-proxy:local -f Dockerfile . | ignore
-    docker save -q data-proxy:local | mk $kubecfg image load - | ignore
-    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile . | ignore
-    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load - | ignore
+    log info 'Building data-proxy:local…'
+    docker build -q -t data-proxy:local -f Dockerfile .
+    docker save -q data-proxy:local | mk $kubecfg image load -
 
+    log info 'Building data-proxy-nginx-proxy:local…'
+    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
+    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
+
+    log info 'Upgrading data-proxy release…'
     (hm
         $kubecfg
         upgrade
@@ -515,83 +508,24 @@ def "main k6 e2e" []: nothing -> string {
         data-proxy
         --values
         $'($repo)/scripts/values/data-proxy.yaml'
-    ) | ignore
+    )
 
+    log info 'Clearing test resources…'
     clear-test-resources $kubecfg
     create-bucket $kubecfg
 
-    (kc
+    log info 'Applying GCP secret…'
+    apply-gcp-secret $kubecfg
+
+    log info 'Running e2e test…'
+    (k6-run
         $kubecfg
-        -n
-        data-proxy
-        create
-        configmap
-        data-proxy-e2e
-        --from-file=e2e.ts=k6/e2e.ts
-        --dry-run=client
-        -o
-        yaml
-    ) | kc $kubecfg apply -f - | ignore
-
-    apply-gcp-secret $kubecfg | ignore
-
-    kc $kubecfg -n data-proxy delete testrun data-proxy-e2e --ignore-not-found | ignore
-
-    let now = date now | date to-timezone utc
-    let run_started: string = $now | format date '%Y-%m-%dT%H:%M:%SZ'
-    kc $kubecfg apply -f k6/e2e.yaml | ignore
-
-    wait-for-e2e $kubecfg
-
-    print-e2e-logs $kubecfg
-
-    let proxy_pod = (
-        kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pods
-            -l
-            app.kubernetes.io/component=nginx-proxy
-            -o
-            'jsonpath={.items[0].metadata.name}'
-        | str trim
+        'data-proxy-e2e'
+        'e2e.ts'
+        'k6/e2e.ts'
+        'data-proxy-e2e'
+        'k6/e2e.yaml'
     )
-
-    check-fallback-served $kubecfg $proxy_pod
-
-    let duckdb_pod = (
-        kc
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            app.kubernetes.io/name=data-proxy
-            -l
-            app.kubernetes.io/component=duckdb
-            -o
-            'jsonpath={.items[0].metadata.name}'
-        | str trim
-    )
-
-    let hook_errors = (
-        kc $kubecfg -n data-proxy logs $duckdb_pod $'--since-time=($run_started)'
-        | lines
-        | where {|line| $line =~ 'permission denied for schema rls' }
-    )
-
-    if ($hook_errors | is-not-empty) {
-        error make {
-            msg: 'anonymous traffic reached PostgREST, so the request hook failed'
-            label: {
-                text: 'hook errors'
-                span: (metadata $hook_errors).span
-            }
-        }
-    }
 }
 
 # Start Minikube and install the complete local stack.
@@ -662,69 +596,6 @@ def "main up" []: nothing -> nothing {
 def "main down" []: nothing -> nothing {
     log info 'Deleting Minikube profile…'
     minikube --profile $PROFILE delete
-}
-
-# Print cluster status tables for pods, deployments, and scaled objects.
-def show-status [kubecfg: path]: nothing -> nothing {
-    print "
-Pods:"
-
-    print (kc $kubecfg -n data-proxy get pods -o json
-        | try { from json } catch { {items: []} }
-        | get items
-        | each {|pod|
-            let init = $pod.status.initContainerStatuses? | default []
-            let containers = $pod.status.containerStatuses? | default []
-            let all = ($init ++ $containers)
-            let ready = $all | where $it.ready? | length
-            let total = $all | length
-            let restarts = $all | each { $in.restartCount? | default 0 } | math sum
-            let age = $pod.metadata.creationTimestamp | into datetime | (date now) - $in
-
-            {
-                name: $pod.metadata.name,
-                phase: $pod.status.phase,
-                ready: $'($ready)/($total)',
-                restarts: $restarts,
-                age: (format-age $age),
-            }
-        }
-        | sort-by name)
-
-    print "
-Deployments:"
-
-    print (kc $kubecfg -n data-proxy get deploy -o json
-        | try { from json } catch { {items: []} }
-        | get items
-        | each {|d|
-            {
-                name: $d.metadata.name,
-                ready: ($d.status.readyReplicas? | default 0 | into int),
-                replicas: ($d.status.replicas? | default 0 | into int),
-            }
-        }
-        | sort-by name)
-
-    print "
-ScaledObjects:"
-
-    try {
-        print (kc $kubecfg -n data-proxy get scaledobject -o json
-            | try { from json } catch { {items: []} }
-            | get items
-            | each {|s|
-                let cond = $s.status.conditions? | default [] | last | default {}
-                {
-                    name: $s.metadata.name,
-                    status: ($cond.type? | default '-'),
-                    ready: ($cond.status? | default '-'),
-                }
-            }
-            | sort-by name)
-    } catch {
-        log warning 'no scaledobjects found'
-    }
 }
 
 # Script to create a testing environment with minikube

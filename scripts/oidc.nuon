@@ -34,6 +34,26 @@
                 schemas: ["pic"]
             }
         }
+        user-cras-2: {
+            client_secret: "test-secret"
+            grant_types: ["client_credentials"]
+            claims: {
+                sub: "user-cras-2"
+                role: "user"
+                preferred_username: "user-cras-2"
+                schemas: ["pic"]
+            }
+        }
+        user-escola-3: {
+            client_secret: "test-secret"
+            grant_types: ["client_credentials"]
+            claims: {
+                sub: "user-escola-3"
+                role: "user"
+                preferred_username: "user-escola-3"
+                schemas: ["pic"]
+            }
+        }
         policy-writer: {
             client_secret: "test-secret"
             grant_types: ["client_credentials"]
