@@ -1,6 +1,7 @@
 suite: Workloads
 templates:
   - cronjob-producer.yaml
+  - job-init-db.yaml
   - cronjob-backup.yaml
   - cronjob-cleanup.yaml
   - deployment-publisher.yaml
@@ -10,6 +11,21 @@ templates:
   - deployment-seeder.yaml
   - scaledobject-seeder.yaml
 tests:
+  - it: creates init-db as a normal Job
+    asserts:
+      - isKind:
+          of: Job
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db
+        template: job-init-db.yaml
+      - notExists:
+          path: metadata.annotations["helm.sh/hook"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db
+        template: job-init-db.yaml
+
   - it: backup runs the Nushell script and mounts required files
     set:
       backup.enabled: true
@@ -62,8 +78,9 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.dumper]
         template: deployment-dumper.yaml
-      - notExists:
+      - equal:
           path: spec.replicas
+          value: 0
         template: deployment-dumper.yaml
 
   - it: dumper ScaledObject targets the Deployment and scales from zero
@@ -97,8 +114,9 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.seeder]
         template: deployment-seeder.yaml
-      - notExists:
+      - equal:
           path: spec.replicas
+          value: 0
         template: deployment-seeder.yaml
 
   - it: seeder ScaledObject targets the Deployment and scales from zero
@@ -124,8 +142,9 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.publisher]
         template: deployment-publisher.yaml
-      - notExists:
+      - equal:
           path: spec.replicas
+          value: 0
         template: deployment-publisher.yaml
 
   - it: publisher ScaledObject targets the Deployment and scales from zero
