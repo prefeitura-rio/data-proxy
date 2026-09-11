@@ -46,13 +46,29 @@ spec:
           {{- end }}
         - name: webdis
           image: {{ .Values.fallback.webdisImage }}
-          args: ["/usr/local/bin/webdis", "/etc/webdis/webdis.json"]
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              escaped_password="$(printf '%s' "${VALKEY_PASSWORD:-}" | sed 's/[\\/&]/\\\\&/g')"
+              sed "s/__VALKEY_PASSWORD__/${escaped_password}/g" /etc/webdis-template/webdis.json > /run/webdis/webdis.json
+              exec /usr/local/bin/webdis /run/webdis/webdis.json
+          {{- if .Values.valkey.auth.enabled }}
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.valkeySecretName" . }}
+                  key: {{ include "data-proxy.valkeySecretKey" . }}
+          {{- end }}
           ports:
             - name: redis-http
               containerPort: 7379
           volumeMounts:
             - name: webdis-config
-              mountPath: /etc/webdis
+              mountPath: /etc/webdis-template
+              readOnly: true
+            - name: webdis-runtime-config
+              mountPath: /run/webdis
           {{- with .Values.fallback.webdisResources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -65,4 +81,6 @@ spec:
         - name: webdis-config
           configMap:
             name: {{ include "data-proxy.fullname" . }}-webdis
+        - name: webdis-runtime-config
+          emptyDir: {}
 {{- end }}

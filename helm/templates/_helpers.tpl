@@ -154,7 +154,7 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
 {
   "redis_host": "{{ include "data-proxy.fullname" . }}-valkey",
   "redis_port": 6379,
-  "redis_auth": "{{ .Values.valkey.auth.password }}",
+  "redis_auth": "__VALKEY_PASSWORD__",
   "database": {{ .Values.fallback.cacheRedisDb }},
   "http_port": 7379,
   "daemonize": false,

@@ -1,5 +1,6 @@
 suite: Nginx proxy
 templates:
+  - configmap-nginx-proxy.yaml
   - deployment-nginx-proxy.yaml
   - service-nginx-proxy.yaml
 tests:
@@ -25,6 +26,44 @@ tests:
       - equal:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
           value: "false"
+        template: deployment-nginx-proxy.yaml
+
+  - it: configures Webdis with a runtime Valkey password
+    set:
+      fallback.enabled: true
+      valkey.auth.enabled: true
+      valkey.auth.existingSecret: valkey-credentials
+      valkey.auth.existingSecretKey: redis-password
+      valkey.auth.password: rendered-password-must-not-appear
+    asserts:
+      - notMatchRegex:
+          path: data["webdis.json"]
+          pattern: rendered-password-must-not-appear
+        template: configmap-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: VALKEY_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: valkey-credentials
+                key: redis-password
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: /bin/sh
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: webdis-runtime-config
+            mountPath: /run/webdis
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: webdis-runtime-config
+            emptyDir: {}
         template: deployment-nginx-proxy.yaml
 
   - it: publishes the webdis port of the sidecar
