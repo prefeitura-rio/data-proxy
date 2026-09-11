@@ -202,30 +202,12 @@ async def complete_schema(
 
 async def cleanup_run(redis: Redis, run_id: str) -> None:
     """Delete temporary state after final PostgREST reload."""
-    await trim_publish_stream(redis, run_id)
     await redis.delete(
         ACTIVE_KEY,
         PLANS_KEY.format(run_id=run_id),
         REMAINING_KEY.format(run_id=run_id),
         RESULTS_KEY.format(run_id=run_id),
     )
-
-
-async def trim_publish_stream(redis: Redis, run_id: str) -> None:
-    """Remove publish stream entries for one completed run."""
-    run_id_bytes = run_id.encode()
-    entries = await redis.xrange(PUBLISH_STREAM) or []
-
-    entry_ids = [
-        entry_id
-        for entry_id, fields in entries
-        if entry_id is not None
-        and fields is not None
-        and fields.get(b"run_id") == run_id_bytes
-    ]
-
-    if entry_ids:
-        await redis.xdel(PUBLISH_STREAM, *entry_ids)
 
 
 async def cleanup_consumer(

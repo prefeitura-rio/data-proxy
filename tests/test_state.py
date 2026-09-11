@@ -238,13 +238,13 @@ class TestRunCleanup:
         )
 
     @pytest.mark.asyncio
-    async def test_cleanup_run_trims_publish_stream_entries_for_run(
+    async def test_cleanup_run_preserves_publish_stream_entries(
         self,
     ) -> None:
         """
         GIVEN: publish stream entries for run r1 and run r2.
         WHEN: cleanup_run is called for run r1.
-        THEN: only run r2 entries remain in the publish stream.
+        THEN: all entries remain to preserve consumer-group positions.
         """
         await settings.redis().mset({"dp:active": "r1", "dp:remaining:r1": "0"})
         await settings.redis().xadd(
@@ -266,7 +266,7 @@ class TestRunCleanup:
             fields.get(b"run_id") for _, fields in remaining if fields is not None
         ]
 
-        assert remaining_run_ids == [b"r2"]
+        assert remaining_run_ids == [b"r1", b"r2", b"r1"]
 
     @pytest.mark.asyncio
     async def test_cleanup_run_with_no_matching_publish_entries_is_noop(
