@@ -19,6 +19,7 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
         "postgres/init_roles",
         mapping={
             "user_role": Identifier(settings.AUTH_USER_ROLE),
+            "anon_role": Identifier(settings.AUTH_ANON_ROLE),
             "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
             "rls_schema": Identifier("rls"),
         },

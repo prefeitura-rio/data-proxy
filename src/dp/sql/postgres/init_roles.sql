@@ -7,6 +7,7 @@ END
 $$$$;
 GRANT ${user_role} TO ${authenticator_role};
 GRANT USAGE ON SCHEMA ${rls_schema} TO ${user_role};
+GRANT USAGE ON SCHEMA ${rls_schema} TO ${anon_role};
 DO $$$$
 BEGIN
     CREATE TYPE ${rls_schema}.sync_status AS ENUM ('success', 'failure');

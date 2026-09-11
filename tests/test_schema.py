@@ -59,6 +59,26 @@ class TestSchema:
         postgres.execute(f'DROP SCHEMA "{other_schema}" CASCADE'.encode())
         postgres.commit()
 
+    def test_initialize_schemas_grants_anonymous_access_to_rls(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
+    ) -> None:
+        """
+        GIVEN: a sync config.
+        WHEN: initialize_schemas is called.
+        THEN: the anonymous role may use the rls schema, which holds the pre-request function.
+        """
+        config = sync_config(
+            [FullTable(name=f"p.{namespace.schema}.one")], schema_name=namespace.schema
+        )
+
+        initialize_schemas(postgres, config)
+
+        assert execute_sql(
+            postgres, "postgres/has_schema_usage", mapping={"schema": "rls"}
+        ).fetchone() == (True,)
+
     def test_reload_postgrest_revokes_anonymous_then_notifies(
         self,
         postgres: Connection[tuple[object, ...]],
