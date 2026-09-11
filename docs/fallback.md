@@ -69,8 +69,8 @@ The local load profile uses these p95 limits:
 
 | Source     | Metric                  | Limit   |
 | ---------- | ----------------------- | ------- |
-| Cache      | `cache_duration_ms`     | 100 ms  |
-| PostgreSQL | `postgrest_duration_ms` | 1000 ms |
+| Cache      | `cache_duration_ms`     | 50 ms   |
+| PostgreSQL | `postgrest_duration_ms` | 300 ms  |
 | BigQuery   | `bigquery_duration_ms`  | 4000 ms |
 
 The load test keeps five local daily partitions for `protocolo_estado_diario`. It sends paired requests to older BigQuery-only partitions. The first request measures BigQuery or a warm cache entry. The second request measures a cache hit.

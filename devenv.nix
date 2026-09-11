@@ -65,7 +65,7 @@ in
     seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
     token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
     cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
-    ts-types.exec = "${pkgs.nodejs}/bin/npm install --no-save @types/node @types/k6 njs-types >/dev/null";
+    types.exec = "${pkgs.nodejs}/bin/npm install --no-save @types/node @types/k6 njs-types >/dev/null";
   };
 
   tasks = {
@@ -93,6 +93,4 @@ in
     '';
     "dp:fmt".exec = "ruff check --fix && ruff format";
   };
-
-  enterShell = "ts-types";
 }
