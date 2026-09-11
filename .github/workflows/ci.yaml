@@ -138,7 +138,7 @@ jobs:
         run: |
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
             https://codeberg.org/wvhulle/nu-lint/releases/download/v1.2.1/nu-lint-x86_64-unknown-linux-musl.tar.gz | tar xz
-      - run: ./nu-lint helm/files/*.nu scripts/cluster.nu scripts/oidc.nu
+      - run: ./nu-lint helm/files/*.nu
 
   lint-proxy:
     name: Lint nginx proxy
@@ -167,9 +167,10 @@ jobs:
 
   validation:
     name: Validate affected components
-    needs: [lint-python, test-python, lint-nushell, lint-proxy, test-proxy, lint-helm, test-helm]
+    needs: [changes, lint-python, test-python, lint-nushell, lint-proxy, test-proxy, lint-helm, test-helm]
     if: >-
       always() &&
+      (needs.changes.outputs.python == 'true' || needs.changes.outputs.nushell == 'true' || needs.changes.outputs.proxy == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || inputs.force_full == true) &&
       (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
       (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') &&
       (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') &&

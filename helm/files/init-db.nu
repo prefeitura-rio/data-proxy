@@ -60,6 +60,19 @@ def install-extensions []: nothing -> nothing {
     log info 'Installed extensions'
 }
 
+# Create the optional backup role.
+def create-backup-role []: nothing -> nothing {
+    if $env.BACKUP_ENABLED != 'true' {
+        return
+    }
+
+    (postgres
+        (load-sql create_backup_role.sql)
+        $'backup_password=($env.BACKUP_PASSWORD)'
+    )
+    log info 'Created backup role'
+}
+
 # Create anon, user, authenticator, and backup roles with grants
 def create-roles []: nothing -> nothing {
     (postgres
@@ -92,14 +105,7 @@ def create-roles []: nothing -> nothing {
         $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
     )
 
-    if $env.BACKUP_ENABLED == 'true' {
-        (postgres
-            (load-sql create_backup_role.sql)
-            $'backup_password=($env.BACKUP_PASSWORD)'
-        )
-        log info 'Created backup role'
-    }
-
+    create-backup-role
     log info 'Created roles'
 }
 
