@@ -45,6 +45,41 @@ tests:
           path: spec.volumeClaimTemplates
         template: statefulset-duckdb.yaml
 
+  - it: injects the BigQuery credential into pgduckdb
+    set:
+      fallback.enabled: true
+      gcp.existingSecret: data-proxy-gcp-credentials
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+        template: statefulset-duckdb.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: gcp-key
+            mountPath: /gcp
+            readOnly: true
+        template: statefulset-duckdb.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gcp-key
+            secret:
+              secretName: data-proxy-gcp-credentials
+        template: statefulset-duckdb.yaml
+
+  - it: omits the BigQuery credential without an existing secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+        template: statefulset-duckdb.yaml
+
   - it: does not render HA RBAC resources
     asserts:
       - hasDocuments:
