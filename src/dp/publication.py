@@ -261,6 +261,77 @@ def create_shadow_from_parquet(
     )
 
 
+def prepare_incremental_partitions(
+    pg_conn: Connection,
+    table: TableConfig,
+    table_plan: PartitionedTablePlan,
+) -> None:
+    """Apply changed and removed partitions directly to an existing table."""
+    pg_conn.autocommit = True
+    select_list = column_select_list(pg_conn, table.resolved_schema, table.table_name)
+
+    try:
+        for partition_id, path in table_plan.changed_paths.items():
+            single = table_plan.current_partitions[partition_id]
+            try:
+                with pg_conn.transaction():
+                    delete_partitions(pg_conn, table, [single])
+                    load_partition(
+                        pg_conn,
+                        table.resolved_schema,
+                        table.table_name,
+                        path,
+                        select_list,
+                    )
+            except Exception:
+                logger.exception(
+                    "Partition load failed table=%s partition=%s",
+                    table.name,
+                    partition_id,
+                )
+
+        for single in table_plan.removed_partitions.values():
+            try:
+                with pg_conn.transaction():
+                    delete_partitions(pg_conn, table, [single])
+            except Exception:
+                logger.exception(
+                    "Partition delete failed table=%s partition=%s",
+                    table.name,
+                    single.partition_id,
+                )
+    finally:
+        pg_conn.autocommit = False
+
+
+def prepare_full_table(
+    pg_conn: Connection,
+    config: SyncConfig,
+    table: TableConfig,
+    partitioned: PartitionedTablePlan | None,
+    shadow_name: str,
+) -> None:
+    """Load a full table or partitioned full rebuild into a secured shadow table."""
+    base = f"s3://{settings.GCS_BUCKET}/{table.resolved_schema}/{table.table_name}"
+    gcs_path = (
+        f"{base}/partitions/*/data.parquet"
+        if partitioned is not None
+        else f"{base}/data.parquet"
+    )
+    schema_config = config.schemas.get(table.resolved_schema)
+
+    with pg_conn.transaction():
+        create_shadow_from_parquet(pg_conn, table, shadow_name, gcs_path)
+        bootstrap_table(
+            pg_conn,
+            table.resolved_schema,
+            shadow_name,
+            table.rls,
+            schema_config.claim if schema_config else None,
+        )
+        cast_json_columns_to_jsonb(pg_conn, table.resolved_schema, shadow_name)
+
+
 def prepare_tables(
     pg_conn: Connection,
     config: SyncConfig,
@@ -285,69 +356,12 @@ def prepare_tables(
         )
 
         try:
-            match partitioned:
-                case PartitionedTablePlan() as table_plan if (
-                    not table_plan.full_rebuild
-                ):
-                    pg_conn.autocommit = True
-                    select_list = column_select_list(
-                        pg_conn, table.resolved_schema, table.table_name
-                    )
-                    try:
-                        for partition_id, path in table_plan.changed_paths.items():
-                            single = table_plan.current_partitions[partition_id]
-                            try:
-                                with pg_conn.transaction():
-                                    delete_partitions(pg_conn, table, [single])
-                                    load_partition(
-                                        pg_conn,
-                                        table.resolved_schema,
-                                        table.table_name,
-                                        path,
-                                        select_list,
-                                    )
-                            except Exception:
-                                logger.exception(
-                                    "Partition load failed table=%s partition=%s",
-                                    table.name,
-                                    partition_id,
-                                )
-
-                        for single in table_plan.removed_partitions.values():
-                            try:
-                                with pg_conn.transaction():
-                                    delete_partitions(pg_conn, table, [single])
-                            except Exception:
-                                logger.exception(
-                                    "Partition delete failed table=%s partition=%s",
-                                    table.name,
-                                    single.partition_id,
-                                )
-                    finally:
-                        pg_conn.autocommit = False
-                case _:
-                    base = f"s3://{settings.GCS_BUCKET}/{table.resolved_schema}/{table.table_name}"
-                    gcs_path = (
-                        f"{base}/partitions/*/data.parquet"
-                        if partitioned is not None
-                        else f"{base}/data.parquet"
-                    )
-                    schema_config = config.schemas.get(table.resolved_schema)
-
-                    with pg_conn.transaction():
-                        create_shadow_from_parquet(
-                            pg_conn, table, shadow_name, gcs_path
-                        )
-                        bootstrap_table(
-                            pg_conn,
-                            table.resolved_schema,
-                            shadow_name,
-                            table.rls,
-                            schema_config.claim if schema_config else None,
-                        )
-                        cast_json_columns_to_jsonb(
-                            pg_conn, table.resolved_schema, shadow_name
-                        )
+            if isinstance(partitioned, PartitionedTablePlan) and not (
+                partitioned.full_rebuild
+            ):
+                prepare_incremental_partitions(pg_conn, table, partitioned)
+            else:
+                prepare_full_table(pg_conn, config, table, partitioned, shadow_name)
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
             continue

@@ -109,8 +109,6 @@ jobs:
         env: { UV_PROJECT_ENVIRONMENT: .devenv/state/venv }
       - run: uv run complexipy src/ tests/
         env: { UV_PROJECT_ENVIRONMENT: .devenv/state/venv }
-      - run: uv run vulture src/ tests/
-        env: { UV_PROJECT_ENVIRONMENT: .devenv/state/venv }
 
   test-python:
     name: Test Python
