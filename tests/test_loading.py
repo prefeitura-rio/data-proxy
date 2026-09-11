@@ -147,8 +147,14 @@ class TestLoadingPrepareTablesPaths:
             paths={"p.app.changed": [path]},
         )
 
+        rendered: list[tuple[str, str]] = []
+
+        def render(template: str, mapping: object, **_: object) -> str:
+            rendered.append((template, str(mapping)))
+            return "SELECT 1"
+
         with (
-            patch("dp.templates.render_template", return_value="SELECT 1"),
+            patch("dp.templates.render_template", side_effect=render),
             patch("dp.publication.bootstrap_table") as bootstrap,
             patch("dp.publication.cast_json_columns_to_jsonb"),
         ):
@@ -164,6 +170,7 @@ class TestLoadingPrepareTablesPaths:
             None,
         )
         assert [table.name for table in prepared] == ["p.app.changed"]
+        assert f"'{path}'" in dict(rendered)["postgres/create_table_from_parquet"]
 
 
 class TestLoadingReduceIncremental:
@@ -521,9 +528,8 @@ class TestLoadingPrepareTablesPartitions:
             )
 
         assert "postgres/create_table_from_parquet" in rendered
-        assert "s3://test-bucket/app/people/partitions/*/data.parquet" in str(
-            mappings[0]
-        )
+        assert "s3://bucket/app/people/partitions/10/data.parquet" in str(mappings[0])
+        assert "*" not in str(mappings[0])
         assert prepared == [table]
 
     def test_prepare_tables_secures_shadow_before_load(
