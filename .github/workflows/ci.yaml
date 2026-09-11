@@ -165,10 +165,26 @@ jobs:
           node-version: 24.19.0
       - run: node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
 
+  validation:
+    name: Validate affected components
+    needs: [lint-python, test-python, lint-nushell, lint-proxy, test-proxy, lint-helm, test-helm]
+    if: >-
+      always() &&
+      (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
+      (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') &&
+      (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') &&
+      (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') &&
+      (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') &&
+      (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') &&
+      (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All affected validation jobs passed"
+
   build-dp:
     name: Build application image
-    needs: [changes, lint-python, test-python]
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.dp_image == 'true' && needs.lint-python.result == 'success' && needs.test-python.result == 'success'
+    needs: [changes, validation]
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.dp_image == 'true' && needs.validation.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -194,8 +210,8 @@ jobs:
 
   build-pg:
     name: Build PostgreSQL image
-    needs: changes
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.pg_image == 'true'
+    needs: [changes, validation]
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.pg_image == 'true' && needs.validation.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -222,8 +238,8 @@ jobs:
 
   build-nushell:
     name: Build Nushell image
-    needs: [changes, lint-nushell]
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.nushell_image == 'true' && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped')
+    needs: [changes, validation]
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.nushell_image == 'true' && needs.validation.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -250,8 +266,8 @@ jobs:
 
   build-proxy:
     name: Build nginx proxy image
-    needs: [changes, lint-proxy, test-proxy]
-    if: always() && github.ref == 'refs/heads/main' && (needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true) && needs.lint-proxy.result == 'success' && needs.test-proxy.result == 'success'
+    needs: [changes, validation]
+    if: always() && github.ref == 'refs/heads/main' && (needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true) && needs.validation.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -317,17 +333,11 @@ jobs:
 
   helm:
     name: Release Helm chart
-    needs: [changes, lint-python, test-python, lint-nushell, lint-proxy, test-proxy, lint-helm, test-helm, build-dp, build-pg, build-nushell, build-proxy]
+    needs: [changes, validation, build-dp, build-pg, build-nushell, build-proxy]
     if: >-
       always() && !cancelled() &&
       (needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true || inputs.force_full == true) &&
-      (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
-      (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') &&
-      (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') &&
-      (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') &&
-      (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') &&
-      (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') &&
-      (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped') &&
+      needs.validation.result == 'success' &&
       (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') &&
       (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') &&
       (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') &&
