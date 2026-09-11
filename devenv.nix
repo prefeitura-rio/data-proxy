@@ -13,6 +13,7 @@ in
   };
 
   packages = with pkgs; [
+    actionlint
     ast-grep
     http-nu
     k6
@@ -68,6 +69,7 @@ in
   };
 
   tasks = {
+    "dp:lint:ci".exec = "actionlint .github/workflows/*.yaml";
     "dp:lint:py".exec = ''
       set -e
       uv run ruff check src/ tests/
