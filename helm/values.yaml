@@ -229,7 +229,7 @@ dumper:
 ## Publisher — KEDA-scaled Deployment that loops on the dp:publish stream.
 publisher:
   ## Time in milliseconds before a publisher can reclaim a pending message.
-  visibilityTimeoutMs: 900000
+  visibilityTimeoutMs: "7200000"
   ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
   terminationGracePeriodSeconds: 1800
   keda:

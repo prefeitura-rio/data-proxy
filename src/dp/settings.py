@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     GCS_USE_SSL: bool = False
     DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
-    PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
+    PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=7_200_000, gt=0)
     PRODUCER_POLL_INTERVAL_SECONDS: int = Field(default=60, gt=0)
     DUMPER_MAX_RETRIES: int = 3
     AUTH_ANON_ROLE: str = "anon"

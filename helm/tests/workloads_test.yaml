@@ -147,6 +147,15 @@ tests:
           value: 0
         template: deployment-publisher.yaml
 
+  - it: configures a two-hour Publisher visibility timeout
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PUBLISHER_VISIBILITY_TIMEOUT_MS
+            value: "7200000"
+        template: deployment-publisher.yaml
+
   - it: publisher ScaledObject targets the Deployment and scales from zero
     asserts:
       - isKind:
