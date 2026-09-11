@@ -25,7 +25,7 @@ on:
         type: boolean
         default: false
       force_full:
-        description: Run all non-k6 lint, test, image build, and Helm stages
+        description: Run all lint, test, image build, and Helm stages
         type: boolean
         default: false
 
@@ -40,6 +40,7 @@ env:
 
 jobs:
   changes:
+    name: Detect changed components
     runs-on: ubuntu-latest
     outputs:
       ci: ${{ steps.filter.outputs.ci }}
@@ -81,6 +82,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   lint-ci:
+    name: Lint GitHub Actions workflows
     needs: changes
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
@@ -90,6 +92,7 @@ jobs:
       - run: nix run nixpkgs#actionlint -- .github/workflows/*.yaml
 
   lint-python:
+    name: Lint Python
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -110,6 +113,7 @@ jobs:
         env: { UV_PROJECT_ENVIRONMENT: .devenv/state/venv }
 
   test-python:
+    name: Test Python
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -124,6 +128,7 @@ jobs:
         env: { UV_PROJECT_ENVIRONMENT: .devenv/state/venv }
 
   lint-nushell:
+    name: Lint Nushell scripts
     needs: changes
     if: needs.changes.outputs.nushell == 'true'
     runs-on: ubuntu-latest
@@ -136,6 +141,7 @@ jobs:
       - run: ./nu-lint helm/files/*.nu scripts/cluster.nu scripts/oidc.nu
 
   lint-proxy:
+    name: Lint nginx proxy
     needs: changes
     if: needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true
     runs-on: ubuntu-latest
@@ -148,6 +154,7 @@ jobs:
       - run: ./node_modules/.bin/tsc -p nginx
 
   test-proxy:
+    name: Test nginx proxy
     needs: changes
     if: needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true
     runs-on: ubuntu-latest
@@ -159,6 +166,7 @@ jobs:
       - run: node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
 
   build-dp:
+    name: Build application image
     needs: [changes, lint-ci, lint-python, test-python]
     if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.dp_image == 'true' && (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped') && needs.lint-python.result == 'success' && needs.test-python.result == 'success'
     runs-on: ubuntu-latest
@@ -185,6 +193,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   build-pg:
+    name: Build PostgreSQL image
     needs: [changes, lint-ci]
     if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.pg_image == 'true' && (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped')
     runs-on: ubuntu-latest
@@ -212,8 +221,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   build-nushell:
-    needs: [changes, lint-ci]
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.nushell_image == 'true' && (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped')
+    name: Build Nushell image
+    needs: [changes, lint-ci, lint-nushell]
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.nushell_image == 'true' && (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped') && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -239,6 +249,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   build-proxy:
+    name: Build nginx proxy image
     needs: [changes, lint-ci, lint-proxy, test-proxy]
     if: always() && github.ref == 'refs/heads/main' && (needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true) && (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped') && needs.lint-proxy.result == 'success' && needs.test-proxy.result == 'success'
     runs-on: ubuntu-latest
@@ -266,26 +277,27 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  helm:
-    needs: [changes, lint-ci, lint-python, test-python, lint-nushell, lint-proxy, test-proxy, build-dp, build-pg, build-nushell, build-proxy]
-    if: >-
-      always() && !cancelled() &&
-      (needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true || inputs.force_full == true) &&
-      (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped') &&
-      (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
-      (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') &&
-      (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') &&
-      (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') &&
-      (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') &&
-      (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') &&
-      (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') &&
-      (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') &&
-      (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
+  lint-helm:
+    name: Lint Helm chart
+    needs: changes
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_full == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
-          fetch-depth: 0
+          version: v4.2.4
+      - run: |
+          helm lint helm/ -f helm/ci/test-values.yaml
+          helm lint helm/ -f helm/ci/test-values-ha.yaml
+
+  test-helm:
+    name: Test Helm chart
+    needs: changes
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_full == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
@@ -298,6 +310,37 @@ jobs:
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - run: |
+          helm unittest helm/
+          helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+
+  helm:
+    name: Release Helm chart
+    needs: [changes, lint-ci, lint-python, test-python, lint-nushell, lint-proxy, test-proxy, lint-helm, test-helm, build-dp, build-pg, build-nushell, build-proxy]
+    if: >-
+      always() && !cancelled() &&
+      (needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true || inputs.force_full == true) &&
+      (needs.lint-ci.result == 'success' || needs.lint-ci.result == 'skipped') &&
+      (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') &&
+      (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') &&
+      (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') &&
+      (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') &&
+      (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') &&
+      (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') &&
+      (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped') &&
+      (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') &&
+      (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') &&
+      (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') &&
+      (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
+        with:
+          version: v4.2.4
       - name: Resolve latest image SHAs from GHCR
         if: github.ref == 'refs/heads/main'
         id: shas
@@ -331,13 +374,6 @@ jobs:
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
-      - name: Lint and test chart
-        run: |
-          helm lint helm/ -f helm/ci/test-values.yaml
-          helm lint helm/ -f helm/ci/test-values-ha.yaml
-          helm unittest helm/
-          helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
-          helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
       - name: Read current version
         if: github.ref == 'refs/heads/main'
         id: version
