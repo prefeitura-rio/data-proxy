@@ -6,7 +6,7 @@ image:
   ## Registry path for the data-proxy image, without the tag.
   repository: ghcr.io/prefeitura-rio/data-proxy
   ## Immutable application image version.
-  tag: "f2b0d55"
+  tag: "030de55"
   ## Image pull policy. Use Always when the tag is mutable (for example, latest).
   pullPolicy: IfNotPresent
 ## Kubernetes ServiceAccount for the pipeline pods.
@@ -23,7 +23,7 @@ serviceAccount:
 ## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
 pgduckdb:
   ## Database image used by standalone and HA members.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:66e4e89
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
   storage:
     ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
     size: 100Gi
@@ -37,7 +37,7 @@ pgduckdb:
     user: dataproxy
   ## Nushell image used by the post-install init-db Job.
   init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:82ef930
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
   resources:
     requests:
       memory: 512Mi
@@ -77,7 +77,7 @@ postgrest:
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:82ef930
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -95,7 +95,7 @@ swaggerUi:
 ## Nushell image with PostgreSQL client, Redis, AWS CLI, and age pre-installed.
 ## Used by the init-db Job, PostgREST JWKS init container, backup CronJob, and cleanup CronJob.
 nushell:
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:82ef930
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
 ## In minikube, set existingSecret to a Secret containing key.json.
 gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
@@ -162,7 +162,7 @@ backup:
   enabled: false
   ## Alpine-based image with Nushell. PostgreSQL client, age, and aws-cli
   ## are installed at container startup via apk.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:82ef930
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
   ## Cron expression that controls when the backup runs.
   ## Default: daily at 03:00 UTC, after the producer.
   schedule: 0 3 * * *
@@ -373,7 +373,7 @@ fallback:
   ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:1bd9d1a"
+  nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:030de55"
   ## webdis image for the Redis HTTP proxy sidecar.
   webdisImage: "nicolas/webdis:latest"
   ## Resource requests and limits for the nginx proxy deployment.
