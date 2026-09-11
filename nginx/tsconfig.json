@@ -6,7 +6,10 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
   },
-  "include": ["fallback.ts"]
+  "include": ["fallback.ts", "fallback.test.ts"]
 }

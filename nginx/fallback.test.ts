@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import proxy from './fallback.ts';
 
@@ -29,11 +30,12 @@ interface Scenario {
     requestContentType?: string;
     requestContentProfile?: string;
     range?: string;
+    accept?: string;
+    maxBody?: number;
     status: number;
     body: string;
     contentType: string | null;
     xCache: string | null;
-    cache: string;
     source: string;
     events: string[];
     calls: (string | RegExp)[];
@@ -101,15 +103,11 @@ const BIG_ROWS = '[{"value":"' + 'a'.repeat(1_100_000) + '"}]';
 
 const CALL = UPSTREAM + PATH + '?' + QUERY;
 const BQ_CALL = UPSTREAM + PATH + '_bq?' + QUERY;
+const JSON_CT = 'application/json; charset=utf-8';
 
 /** Builds a bearer token whose payload holds the given claims. */
-function tokenFor(claims: Record<string, unknown>): string {
-    return 'Bearer header.' + Buffer.from(JSON.stringify(claims)).toString('base64url');
-}
-
-/** Builds a second token that carries the same claims as tokenFor. */
-function otherTokenFor(claims: Record<string, unknown>): string {
-    return 'Bearer other.' + Buffer.from(JSON.stringify(claims)).toString('base64url');
+function tokenFor(claims: Record<string, unknown>, header: string = 'header'): string {
+    return 'Bearer ' + header + '.' + Buffer.from(JSON.stringify(claims)).toString('base64url');
 }
 
 const SCENARIOS: Scenario[] = [
@@ -118,9 +116,8 @@ const SCENARIOS: Scenario[] = [
         answers: [{ match: '/GET/', status: 200, body: HIT }],
         status: 200,
         body: '{"cached":true}',
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'HIT',
-        cache: 'hit',
         source: 'cache',
         events: [],
         calls: [CACHE_READ],
@@ -134,9 +131,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -151,9 +147,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: BQ_ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'bigquery',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL, CACHE_WRITE],
@@ -167,9 +162,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL],
@@ -184,7 +178,6 @@ const SCENARIOS: Scenario[] = [
         body: '{"error":"PostgREST unavailable"}',
         contentType: null,
         xCache: null,
-        cache: 'none',
         source: 'none',
         events: ['upstream-failed'],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -197,9 +190,8 @@ const SCENARIOS: Scenario[] = [
         method: 'POST',
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: ['POST ' + CALL],
@@ -213,9 +205,8 @@ const SCENARIOS: Scenario[] = [
         uri: '/freshness',
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + UPSTREAM + '/freshness?' + QUERY],
@@ -229,9 +220,8 @@ const SCENARIOS: Scenario[] = [
         sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', fallback: false }] } } },
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -245,9 +235,8 @@ const SCENARIOS: Scenario[] = [
         sync: { schemas: { other: { tables: [{ name: 'proj.dev.protocolo_estado_diario' }] } } },
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -261,9 +250,8 @@ const SCENARIOS: Scenario[] = [
         sync: { schemas: { pic: {} } },
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -277,9 +265,8 @@ const SCENARIOS: Scenario[] = [
         sync: null,
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -293,9 +280,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: BIG_ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -310,9 +296,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -327,7 +312,6 @@ const SCENARIOS: Scenario[] = [
         body: ROWS,
         contentType: 'text/csv',
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -342,9 +326,8 @@ const SCENARIOS: Scenario[] = [
         headerShape: 'plain',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -359,9 +342,8 @@ const SCENARIOS: Scenario[] = [
         args: '',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + UPSTREAM + PATH, CACHE_WRITE],
@@ -376,9 +358,8 @@ const SCENARIOS: Scenario[] = [
         uri: '/desconhecido',
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + UPSTREAM + '/desconhecido?' + QUERY],
@@ -393,9 +374,8 @@ const SCENARIOS: Scenario[] = [
         sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', cache_ttl: 42 }] } } },
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE_WITH_TABLE_TTL],
@@ -410,9 +390,8 @@ const SCENARIOS: Scenario[] = [
         maxBody: 10,
         status: 200,
         body: BIG_ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['cache-body-too-large'],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -426,9 +405,8 @@ const SCENARIOS: Scenario[] = [
         requestContentProfile: 'pic',
         status: 201,
         body: CREATED,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: ['POST ' + CALL],
@@ -445,9 +423,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['fallback-failed'],
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL],
@@ -461,9 +438,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['fallback-status'],
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL],
@@ -476,9 +452,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 503,
         body: '{"message":"down"}',
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['upstream-status'],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -492,9 +467,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['cache-write-failed'],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -508,9 +482,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['cache-write-rejected'],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -526,9 +499,8 @@ const SCENARIOS: Scenario[] = [
         args: '',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + UPSTREAM + '/endpoint_participantes%3Fx', CACHE_WRITE],
@@ -545,9 +517,8 @@ const SCENARIOS: Scenario[] = [
         args: '',
         status: 200,
         body: BQ_ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'bigquery',
         events: [],
         calls: [CACHE_READ, 'GET ' + UPSTREAM + '/t%3Fx', 'GET ' + UPSTREAM + '/t%3Fx_bq', CACHE_WRITE],
@@ -562,9 +533,8 @@ const SCENARIOS: Scenario[] = [
         token: tokenFor({ sub: 'alice', schemas: 'pic' }),
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -579,9 +549,8 @@ const SCENARIOS: Scenario[] = [
         token: tokenFor({ preferred_username: 'bob', schemas: ['pic', 'other'] }),
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -596,9 +565,8 @@ const SCENARIOS: Scenario[] = [
         token: '',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -613,9 +581,8 @@ const SCENARIOS: Scenario[] = [
         token: 'Bearer not-a-token',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -629,9 +596,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: ['cache-read-failed'],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -645,9 +611,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -662,9 +627,8 @@ const SCENARIOS: Scenario[] = [
         token: tokenFor({}),
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -679,9 +643,8 @@ const SCENARIOS: Scenario[] = [
         token: 'Basic abc',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -696,9 +659,8 @@ const SCENARIOS: Scenario[] = [
         token: 'Bearer header.!!!',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -712,9 +674,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -728,9 +689,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: ['cache-write-rejected'],
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
@@ -744,9 +704,8 @@ const SCENARIOS: Scenario[] = [
         ],
         status: 200,
         body: EMPTY,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL],
@@ -763,9 +722,8 @@ const SCENARIOS: Scenario[] = [
         cacheTtl: '',
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + PATH + '?' + QUERY, CACHE_WRITE_WITHOUT_TTL],
@@ -773,11 +731,11 @@ const SCENARIOS: Scenario[] = [
     },
 ];
 
-const BASE_FIELDS = ['event', 'method', 'uri', 'wait'];
+const BASE_FIELDS = ['event', 'method', 'uri', 'wait_ms'];
 
 /** Builds the fake upstream that the module under test calls. */
 function fakeUpstream(scenario: Scenario): {
-    fetch: (url: string, options?: { method?: string, headers?: Record<string, string>, body?: string }) => Promise<{ status: number, text: () => Promise<string> }>,
+    fetch: (url: string, options?: { method?: string, headers?: Record<string, string>, body?: string }) => Promise<{ status: number, text: () => Promise<string>, headers: unknown }>,
     calls: string[],
     sent: { body: string | null, contentType: string | null, contentProfile: string | null },
 } {
@@ -788,7 +746,7 @@ function fakeUpstream(scenario: Scenario): {
 
     const fetch = async (
         url: string, options?: { method?: string, headers?: Record<string, string>, body?: string }
-    ): Promise<{ status: number, text: () => Promise<string> }> => {
+    ): Promise<{ status: number, text: () => Promise<string>, headers: unknown }> => {
         const method = options && options.method ? options.method : 'GET';
         const sentBody = options && options.body !== undefined ? options.body : null;
         const command = url === CACHE_ROOT && typeof sentBody === 'string' ? sentBody : '';
@@ -940,6 +898,7 @@ SCENARIOS.forEach((scenario) => {
         assert.equal(outcome.body, scenario.body, 'body differs');
         assert.equal(outcome.contentType, scenario.contentType, 'content type differs');
         assert.equal(outcome.xCache, scenario.xCache, 'cache header differs');
+        assert.equal(outcome.headers['X-Source'], scenario.source, 'source header differs');
         assertCalls(outcome.calls, scenario.calls);
         if (scenario.sentBody !== undefined) {
             assert.equal(outcome.sentBody, scenario.sentBody, 'the body sent to the upstream differs');
@@ -967,7 +926,6 @@ SCENARIOS.forEach((scenario) => {
         const summary = parseLine(outcome.logs[0], 'summary');
         assertBaseFields(summary, 'summary');
         assert.equal(summary.status, scenario.status, 'the summary status differs');
-        assert.equal(summary.cache, scenario.cache, 'the summary cache outcome differs');
         assert.equal(summary.source, scenario.source, 'the summary source differs');
         assert.equal(summary.bytes, scenario.body.length, 'the summary byte size differs');
 
@@ -989,10 +947,10 @@ SCENARIOS.forEach((scenario) => {
 
 test('proxy: keys a media type the same with and without parameters', async () => {
     const answers = [{ match: '/GET/', status: 200, body: HIT }];
-    const result = { status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8', xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ] };
+    const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
 
     const bare = await run({ name: 'bare', accept: 'application/json', answers: answers, ...result });
-    const parameters = await run({ name: 'parameters', accept: 'application/json; charset=utf-8', answers: answers, ...result });
+    const parameters = await run({ name: 'parameters', accept: JSON_CT, answers: answers, ...result });
     const wildcard = await run({ name: 'wildcard', accept: '*/*', answers: answers, ...result });
     const empty = await run({ name: 'empty', accept: ', text/html', answers: answers, ...result });
 
@@ -1003,7 +961,7 @@ test('proxy: keys a media type the same with and without parameters', async () =
 
 test('proxy: keeps a media type that asks for another format apart', async () => {
     const answers = [{ match: '/GET/', status: 200, body: HIT }];
-    const result = { status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8', xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ] };
+    const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
 
     const json = await run({ name: 'json', accept: 'application/json', answers: answers, ...result });
     const csv = await run({ name: 'csv', accept: 'text/csv', answers: answers, ...result });
@@ -1013,10 +971,10 @@ test('proxy: keeps a media type that asks for another format apart', async () =>
 
 test('proxy: shares an entry between tokens with the same claims', async () => {
     const answers = [{ match: '/GET/', status: 200, body: HIT }];
-    const result = { status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8', xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ] };
+    const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
 
     const first = await run({ name: 'first', token: tokenFor({ sub: 'alice' }), answers: answers, ...result });
-    const refreshed = await run({ name: 'refreshed', token: otherTokenFor({ sub: 'alice' }), answers: answers, ...result });
+    const refreshed = await run({ name: 'refreshed', token: tokenFor({ sub: 'alice' }, 'other'), answers: answers, ...result });
 
     assert.equal(first.calls[0], refreshed.calls[0], 'a refreshed token must reuse the entry');
 });
@@ -1031,9 +989,8 @@ test('proxy: shares one call between concurrent requests for the same key', asyn
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'stored',
         source: 'postgrest',
         events: [],
         calls: [],
@@ -1055,7 +1012,7 @@ test('proxy: shares one call between concurrent requests for the same key', asyn
 });
 
 test('proxy: avoids the globals and methods that the engine does not provide', async () => {
-    const source = readFileSync(new URL('./fallback.ts', import.meta.url), 'utf8');
+    const source = readFileSync(fileURLToPath(new URL('./fallback.ts', import.meta.url)), 'utf8');
     const unsupported = [
         'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect', 'Symbol',
         'filter', 'find', 'findIndex', 'flat', 'flatMap', 'reduce', 'reduceRight', 'includes',
@@ -1078,9 +1035,8 @@ test('proxy: carries the range and preference headers to the client', async () =
         ],
         status: 200,
         body: ROWS,
-        contentType: 'application/json; charset=utf-8',
+        contentType: JSON_CT,
         xCache: 'MISS',
-        cache: 'none',
         source: 'postgrest',
         events: [],
         calls: [CACHE_READ, 'GET ' + CALL],
@@ -1095,8 +1051,8 @@ test('proxy: serves a stored answer without the headers of the live answer', asy
     const outcome = await run({
         name: 'stored answer',
         answers: [{ match: '/GET/', status: 200, body: HIT }],
-        status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8',
-        xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ],
+        status: 200, body: '{"cached":true}', contentType: JSON_CT,
+        xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ],
     });
 
     assert.equal(outcome.headers['Content-Range'], undefined, 'a cached answer carries no range header');
@@ -1106,15 +1062,15 @@ test('proxy: separates the cache by the token claims', async () => {
     const alice = await run({
         name: 'alice', token: tokenFor({ sub: 'alice' }),
         answers: [{ match: '/GET/', status: 200, body: HIT }],
-        status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8',
-        xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ],
+        status: 200, body: '{"cached":true}', contentType: JSON_CT,
+        xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ],
     });
 
     const bob = await run({
         name: 'bob', token: tokenFor({ sub: 'bob' }),
         answers: [{ match: '/GET/', status: 200, body: HIT }],
-        status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8',
-        xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ],
+        status: 200, body: '{"cached":true}', contentType: JSON_CT,
+        xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ],
     });
 
     assert.notEqual(alice.calls[0], bob.calls[0], 'two subjects must not share a cache key');
@@ -1123,14 +1079,14 @@ test('proxy: separates the cache by the token claims', async () => {
 test('proxy: separates the cache by the profile', async () => {
     const withProfile = await run({
         name: 'with profile', answers: [{ match: '/GET/', status: 200, body: HIT }],
-        status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8',
-        xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ],
+        status: 200, body: '{"cached":true}', contentType: JSON_CT,
+        xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ],
     });
 
     const withoutProfile = await run({
         name: 'without profile', profile: '', answers: [{ match: '/GET/', status: 200, body: HIT }],
-        status: 200, body: '{"cached":true}', contentType: 'application/json; charset=utf-8',
-        xCache: 'HIT', cache: 'hit', source: 'cache', events: [], calls: [CACHE_READ],
+        status: 200, body: '{"cached":true}', contentType: JSON_CT,
+        xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ],
     });
 
     assert.notEqual(withProfile.calls[0], withoutProfile.calls[0], 'the profile must be part of the key');
@@ -1141,7 +1097,7 @@ test('proxy: reports a failure when no fake answer matches the call', async () =
         name: 'no matching answer',
         answers: [{ match: '/GET/', status: 200, body: MISS }],
         status: 502, body: '', contentType: null, xCache: null,
-        cache: 'none', source: 'none', events: [], calls: [],
+        source: 'none', events: ['upstream-failed'], calls: [CACHE_READ, 'GET ' + CALL],
     });
 
     assert.equal(outcome.status, 502, 'an unmatched call must not look like a success');
@@ -1150,4 +1106,31 @@ test('proxy: reports a failure when no fake answer matches the call', async () =
     const failure = parseLine(outcome.warnings[0], 'failure');
 
     assert.equal(failure.event, 'upstream-failed', 'the failure event differs');
+});
+
+test('proxy: reports an unexpected handler exception as a structured warning', async () => {
+    const scenario = SCENARIOS[0];
+    const upstream = fakeUpstream(scenario);
+    setGlobals(scenario, upstream.fetch);
+
+    const warnings: string[] = [];
+    const response: { status: number | null, body: string | null } = { status: null, body: null };
+    const request = {
+        uri: PATH,
+        method: 'GET',
+        headersIn: { Authorization: {} },
+        requestText: '',
+        headersOut: {},
+        variables: { args: QUERY, fallback_pgrst: UPSTREAM, fallback_cache_ttl: '300', fallback_max_body: '' },
+        log: () => {},
+        warn: (message: string) => { warnings.push(message); },
+        return: (status: number, body: string) => { response.status = status; response.body = body; },
+    };
+
+    await proxy.handle(request as unknown as NginxHTTPRequest);
+
+    assert.equal(response.status, 502);
+    assert.equal(response.body, '{"error":"proxy exception"}');
+    assert.equal(warnings.length, 1);
+    assert.equal(parseLine(warnings[0], 'exception').event, 'exception');
 });

@@ -64,10 +64,7 @@ in
     seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
     token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
     cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
-    nginx-ts-types.exec = ''
-      rm -rf nginx/types nginx/njs.d.ts
-      ln -s ${pkgs.nginxModules.njs}/ts nginx/types
-    '';
+    ts-types.exec = "${pkgs.nodejs}/bin/npm install --no-save @types/node @types/k6 njs-types >/dev/null";
   };
 
   tasks = {
@@ -81,7 +78,8 @@ in
     "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
     "dp:lint:helm".exec =
       "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml";
-    "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx --noEmit false --outDir nginx/build";
+    "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx";
+    "dp:lint:k6".exec = "${pkgs.typescript}/bin/tsc -p k6 --noEmit";
     "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
     "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
     "dp:test:proxy".exec =
@@ -95,5 +93,5 @@ in
     "dp:fmt".exec = "ruff check --fix && ruff format";
   };
 
-  enterShell = "nginx-ts-types";
+  enterShell = "ts-types";
 }
