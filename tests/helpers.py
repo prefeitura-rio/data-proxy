@@ -122,6 +122,6 @@ def execute_sql(
 ) -> Cursor[tuple[object, ...]]:
     """Execute a SQL fixture template and return the cursor."""
     return connection.execute(
-        render_template(path, mapping or {}, as_literal=True, root=TEST_SQL_DIR),
+        render_template(path, mapping or {}, root=TEST_SQL_DIR),
         params,
     )

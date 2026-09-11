@@ -235,7 +235,7 @@ def partition_predicate(partition: PhysicalPartition) -> SQL:
         case _:  # pragma: no cover
             assert_never(partition.selection)
 
-    return SQL(render_template(path, mapping, as_literal=True))
+    return SQL(render_template(path, mapping))
 
 
 def delete_partitions(

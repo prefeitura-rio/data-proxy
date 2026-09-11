@@ -6,7 +6,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from string import Template
-from typing import Literal, LiteralString, overload
+from typing import LiteralString, cast, overload
 
 from duckdb import DuckDBPyConnection
 from psycopg import Connection
@@ -53,35 +53,22 @@ def load_template(spec: TemplateSpec, root: Path) -> str:
     return Template(read_template(spec.path, root)).substitute(rendered)
 
 
-@overload
 def render_template(
     path: str,
     mapping: Mapping[str, str | Composable],
     *,
-    as_literal: Literal[True],
     root: Path = SQL_DIR,
-) -> LiteralString: ...
+) -> LiteralString:
+    """Load and substitute a SQL template in one call.
 
-
-@overload
-def render_template(
-    path: str,
-    mapping: Mapping[str, str | Composable],
-    *,
-    as_literal: Literal[False] = False,
-    root: Path = SQL_DIR,
-) -> str: ...
-
-
-def render_template(
-    path: str,
-    mapping: Mapping[str, str | Composable],
-    *,
-    as_literal: bool = False,
-    root: Path = SQL_DIR,
-) -> str:
-    """Load and substitute a SQL template in one call."""
-    return load_template(TemplateSpec(path=path, mapping=mapping), root)
+    The result is safe by construction: every substituted value is either a
+    `Composable` that psycopg escapes, or a plain string that the caller has
+    already validated.
+    """
+    return cast(
+        "LiteralString",
+        load_template(TemplateSpec(path=path, mapping=mapping), root),
+    )
 
 
 @overload
@@ -126,15 +113,11 @@ def execute_sql(
 
     match conn, params:
         case Cursor(), list():
-            return conn.executemany(
-                render_template(path, resolved, as_literal=True), params
-            )
+            return conn.executemany(render_template(path, resolved), params)
         case Connection(), list():
             raise TypeError("executemany requires a Cursor, not a Connection")
         case Connection() | Cursor(), tuple():
-            return conn.execute(
-                render_template(path, resolved, as_literal=True), params
-            )
+            return conn.execute(render_template(path, resolved), params)
         case Connection() | Cursor(), None:
             return conn.execute(render_template(path, resolved).encode())
         case DuckDBPyConnection(), _:
