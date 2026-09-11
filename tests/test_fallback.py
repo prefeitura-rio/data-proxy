@@ -149,9 +149,8 @@ class TestRlsWhereClause:
         ):
             assert rls_where_clause("app", table) == ""
 
-    def test_with_rls_and_claim_renders_template(
-        self, test_settings: Settings, sync_config_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("test_settings")
+    def test_with_rls_and_claim_renders_template(self, sync_config_path: Path) -> None:
         """Table with RLS and a claim renders the WHERE clause template."""
         table = FullTable(
             name="p.app.t",
@@ -193,12 +192,11 @@ class TestFallbackPostgresIntegration:
             "SELECT * FROM duckdb.query('SELECT 1 AS id')"
         ).fetchall() == [(1,)]
 
+    @pytest.mark.usefixtures("duckdb_raw_query_stub", "test_settings")
     def test_generated_function_returns_mocked_duckdb_rows(
         self,
         postgres: Connection[tuple[object, ...]],
         namespace: PostgresTestNamespace,
-        duckdb_raw_query_stub: None,
-        test_settings: Settings,
         sync_config_path: Path,
     ) -> None:
         """A generated no-RLS function executes against a controlled DuckDB view."""
@@ -252,12 +250,11 @@ class TestFallbackPostgresIntegration:
             mapping={"schema": namespace.schema},
         ).fetchall() == [(7, date(2024, 1, 2), True, {"x": 1}, 9)]
 
+    @pytest.mark.usefixtures("duckdb_raw_query_stub", "test_settings")
     def test_generated_function_keeps_overlapping_unit_ids_on_their_mapping_column(
         self,
         postgres: Connection[tuple[object, ...]],
         namespace: PostgresTestNamespace,
-        duckdb_raw_query_stub: None,
-        test_settings: Settings,
         sync_config_path: Path,
     ) -> None:
         """The real function sends a cras grant only to the cras filter column."""
@@ -307,11 +304,11 @@ class TestFallbackPostgresIntegration:
             mapping={"schema": namespace.schema},
         ).fetchall() == [(7,)]
 
+    @pytest.mark.usefixtures("test_settings")
     def test_generated_function_executes_and_denies_out_of_scope_user(
         self,
         postgres: Connection[tuple[object, ...]],
         namespace: PostgresTestNamespace,
-        test_settings: Settings,
         sync_config_path: Path,
     ) -> None:
         """A real PostgreSQL function returns no rows before DuckDB when out of scope."""
@@ -337,9 +334,8 @@ class TestFallbackPostgresIntegration:
 class TestFallbackSqlRendering:
     """Pure fallback SQL rendering behavior."""
 
-    def test_generates_function_with_rls(
-        self, test_settings: Settings, sync_config_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("test_settings")
+    def test_generates_function_with_rls(self, sync_config_path: Path) -> None:
         """Function SQL contains the table name, columns, and RLS logic."""
         table = FullTable(
             name="p.app.t",
@@ -355,8 +351,9 @@ class TestFallbackSqlRendering:
         assert "duckdb.raw_query" in result
         assert "duckdb.query" in result
 
+    @pytest.mark.usefixtures("test_settings")
     def test_multi_unit_sql_keeps_each_unit_type_on_its_mapping_column(
-        self, test_settings: Settings, sync_config_path: Path
+        self, sync_config_path: Path
     ) -> None:
         """Overlapping identifiers remain scoped to their configured column."""
         table = FullTable(
@@ -374,9 +371,8 @@ class TestFallbackSqlRendering:
         assert 'JOIN "app".access_policy p ON p.unit_type = t.ut' in result
         assert "GROUP BY t.col" in result
 
-    def test_generates_function_without_rls(
-        self, test_settings: Settings, sync_config_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("test_settings")
+    def test_generates_function_without_rls(self, sync_config_path: Path) -> None:
         """Function SQL for a table without RLS still generates correctly."""
         table = FullTable(name="p.app.t", resolved_schema="app")
         sync_config_path.write_text(sync_config([table]).model_dump_json())
@@ -400,9 +396,8 @@ class TestFallbackSqlViewRendering:
 class TestFallbackMockedServices:
     """Fallback orchestration against mocked PostgreSQL and Redis services."""
 
-    def test_creates_views_for_fallback_tables(
-        self, test_settings: Settings, sync_config_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("test_settings")
+    def test_creates_views_for_fallback_tables(self, sync_config_path: Path) -> None:
         """Views are created for tables with fallback enabled."""
         table = FullTable(name="p.app.t", resolved_schema="app", fallback=True)
         config = sync_config([table])
