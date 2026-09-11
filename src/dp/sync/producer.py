@@ -1,5 +1,6 @@
 """FastStream producer application for one synchronization run."""
 
+from asyncio import sleep
 from time import monotonic
 
 import uvloop
@@ -29,15 +30,14 @@ async def produce() -> None:
     started = monotonic()
 
     async with settings.redis() as redis:
-        active_run = await read_active_run(redis)
-
-        if active_run is not None:
+        recovered_run: str | None = None
+        while (active_run := await read_active_run(redis)) is not None:
             remaining = await read_remaining(redis, active_run)
-            if remaining == 0:
+            if remaining == 0 and recovered_run != active_run:
                 await broker.publish(SeedTask(run_id=active_run), stream=SEED_STREAM)
-            metrics.producer_runs_total.labels(status="recovered").inc()
-            producer.exit()
-            return
+                recovered_run = active_run
+            logger.info("Waiting for pipeline run=%s to complete", active_run)
+            await sleep(settings.PRODUCER_POLL_INTERVAL_SECONDS)
 
         await ensure_groups(redis)
 

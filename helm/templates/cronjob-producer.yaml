@@ -32,6 +32,8 @@ spec:
               command: ["python", "-m", "dp.sync.producer"]
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
+                - name: PRODUCER_POLL_INTERVAL_SECONDS
+                  value: {{ .Values.producer.pollIntervalSeconds | quote }}
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
                 {{- include "data-proxy.gcpVolumeMount" . | nindent 16 }}

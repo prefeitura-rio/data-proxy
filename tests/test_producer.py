@@ -167,30 +167,86 @@ class TestProducer:
         WHEN: produce runs.
         THEN: the producer recovers the run and publishes a seed sync.
         """
-        await redis.set("dp:active", "old")
-        await redis.set("dp:remaining:old", "0")
-        with patch.object(producer, "exit"):
+        with (
+            patch(
+                "dp.sync.producer.read_active_run",
+                new_callable=AsyncMock,
+                side_effect=["old", "old", None],
+            ),
+            patch(
+                "dp.sync.producer.read_remaining",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=SyncWork([], []),
+            ),
+            patch.object(producer, "exit"),
+        ):
             await produce()
+
+        sleep.assert_awaited_with(60)
         assert seed_sync.mock.call_count == 1
         seed_sync.mock.assert_called_with({"run_id": "old"})
 
     @pytest.mark.asyncio
-    async def test_producer_refuses_active_run_with_remaining_tasks(
+    async def test_producer_waits_for_active_pipeline_before_dispatch(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
         """
-        GIVEN: an active run with remaining tasks.
-        WHEN: produce runs.
-        THEN: the producer refuses to start a new run and does not publish a seed.
+        GIVEN: an active pipeline that later completes.
+        WHEN: the next Producer runs.
+        THEN: it waits before it clears artifacts and dispatches work.
         """
-        await redis.set("dp:active", "old")
-        await redis.set("dp:remaining:old", "2")
-        with patch.object(producer, "exit"):
+        task = make_dump()
+        work = SyncWork(
+            [
+                sync_plan(
+                    signatures={"p.d.t": "sig"},
+                    paths={"p.d.t": ["s3://b/t/data.parquet"]},
+                )
+            ],
+            [task],
+        )
+        with (
+            patch(
+                "dp.sync.producer.read_active_run",
+                new_callable=AsyncMock,
+                side_effect=["old", None],
+            ),
+            patch(
+                "dp.sync.producer.read_remaining",
+                new_callable=AsyncMock,
+                return_value=2,
+            ),
+            patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
+            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
+            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
+            patch(
+                "dp.sync.producer.build_sync_work",
+                new_callable=AsyncMock,
+                return_value=work,
+            ),
+            patch(
+                "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
+            ),
+            patch("dp.sync.producer.clear_bucket", new_callable=AsyncMock) as clear,
+            patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
+            patch.object(producer, "exit"),
+        ):
             await produce()
-        assert not seed_sync.mock.called
+
+        sleep.assert_awaited_once_with(60)
+        clear.assert_awaited_once()
+        publish.assert_awaited_once_with(task, stream="dp:extract")
 
     @pytest.mark.asyncio
     async def test_producer_publishes_seed_sync_when_no_dumps(

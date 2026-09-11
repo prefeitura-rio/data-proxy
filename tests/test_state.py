@@ -2,6 +2,7 @@
 
 import pytest
 
+from dp.constants import ACTIVE_KEY, REMAINING_KEY, RESULTS_KEY
 from dp.models import (
     AllSelection,
     DumpFailure,
@@ -52,6 +53,33 @@ class TestRunState:
         )
         assert await create_run(settings.redis(), "r1", [plan], 1)
         assert await read_sync_plan(settings.redis(), "r1", "app") == plan
+
+    @pytest.mark.asyncio
+    async def test_create_run_state_has_no_expiry(self) -> None:
+        """
+        GIVEN: a new synchronization run.
+        WHEN: its state is stored.
+        THEN: it persists until explicit pipeline cleanup.
+        """
+        plan = SyncPlan(
+            schema_name="app", signatures={"p.d.t": "s"}, paths={"p.d.t": ["s3://b/t"]}
+        )
+
+        assert await create_run(settings.redis(), "r1", [plan], 1)
+        await complete_dump(
+            settings.redis(),
+            DumpTask(
+                run_id="r1",
+                table="p.d.t",
+                bucket_path="s3://b/t",
+                selection=AllSelection(),
+            ),
+            DumpSuccess(),
+        )
+
+        assert await settings.redis().ttl(ACTIVE_KEY) == -1
+        assert await settings.redis().ttl(REMAINING_KEY.format(run_id="r1")) == -1
+        assert await settings.redis().ttl(RESULTS_KEY.format(run_id="r1")) == -1
 
 
 class TestDumpCompletion:

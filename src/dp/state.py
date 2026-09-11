@@ -19,7 +19,6 @@ from .constants import (
     SEED_STREAM,
     SEEDERS_GROUP,
     STATE_KEY,
-    SYNC_RUN_TTL_SECONDS,
     SYNC_TRANSACTION_RETRIES,
 )
 from .models import (
@@ -87,12 +86,12 @@ async def create_run(
             return False
 
         pipe.multi()
-        pipe.set(ACTIVE_KEY, run_id, ex=SYNC_RUN_TTL_SECONDS)
+        pipe.set(ACTIVE_KEY, run_id)
 
         for plan in plans:
             pipe.hset(plans_key, plan.schema_name, plan.model_dump_json())
 
-        pipe.set(remaining_key, task_count, ex=SYNC_RUN_TTL_SECONDS)
+        pipe.set(remaining_key, task_count)
         await pipe.execute()
 
     return True
@@ -155,9 +154,7 @@ async def complete_dump(redis: Redis, task: DumpTask, result: DumpResult) -> int
         next_remaining = remaining - 1
         pipe.multi()
         pipe.hset(results_key, task.task_id, result.model_dump_json())
-        pipe.set(remaining_key, next_remaining, ex=SYNC_RUN_TTL_SECONDS)
-        pipe.expire(results_key, SYNC_RUN_TTL_SECONDS)
-        pipe.expire(ACTIVE_KEY, SYNC_RUN_TTL_SECONDS)
+        pipe.set(remaining_key, next_remaining)
         await pipe.execute()
 
     return next_remaining

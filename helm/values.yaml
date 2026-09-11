@@ -152,6 +152,8 @@ producer:
   startingDeadlineSeconds: 600
   ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
   activeDeadlineSeconds: 3600
+  ## Time in seconds between checks for the prior pipeline to complete.
+  pollIntervalSeconds: 60
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
 ## Backup CronJob — exports each <schema>.access_policy table, encrypts it

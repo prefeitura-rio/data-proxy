@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from psycopg import Connection
+from psycopg.sql import SQL
 
 from dp.models import (
     FullTable,
@@ -168,6 +169,40 @@ class TestPublicationTemplates:
             (18, "name18"),
             (19, "name19"),
         ]
+
+    def test_load_partition_converts_json_to_jsonb(
+        self,
+        postgres: Connection[tuple[object, ...]],
+        namespace: PostgresTestNamespace,
+    ) -> None:
+        """
+        GIVEN: an existing partitioned table with a JSONB column.
+        WHEN: one Parquet partition is loaded incrementally.
+        THEN: PostgreSQL stores the JSON content as JSONB.
+        """
+        postgres.execute(
+            SQL("CREATE TABLE {}.people (cpf integer, data jsonb)").format(
+                namespace.identifier
+            )
+        )
+        postgres.commit()
+
+        select_list = column_select_list(postgres, namespace.schema, "people")
+        load_partition(
+            postgres,
+            namespace.schema,
+            "people",
+            "/test-files/json_partition_10.parquet",
+            select_list,
+        )
+        postgres.commit()
+
+        rows = postgres.execute(
+            SQL("SELECT cpf, data::text, pg_typeof(data)::text FROM {}.people").format(
+                namespace.identifier
+            )
+        ).fetchall()
+        assert rows == [(10, '{"source": "fixture"}', "jsonb")]
 
     def test_publish_table_creates_indexes_before_swap(
         self,

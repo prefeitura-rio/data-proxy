@@ -45,7 +45,7 @@ def column_select_list(pg_conn: Connection, schema: str, table_name: str) -> Com
     return SQL(", ").join(
         SQL("r[{}]::{} AS {}").format(
             Literal(col),
-            SQL(cast(LiteralString, typ)),
+            SQL(cast(LiteralString, "json" if typ == "jsonb" else typ)),
             Identifier(col),
         )
         for col, typ in rows
