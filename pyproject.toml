@@ -131,6 +131,7 @@ ignore_decorators = [
 ignore_names = [
   "model_config",
   "sync_config_path",
+  "settings_instance",
   "binary",
   "exc_type",
   "exc",

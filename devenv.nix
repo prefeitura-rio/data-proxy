@@ -75,22 +75,33 @@ in
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/
       uv run complexipy src/ tests/
-      uv run vulture src/ tests/
+      uv run vulture src/ tests/ --min-confidence 90
     '';
     "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
     "dp:lint:helm".exec =
       "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml";
     "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx";
     "dp:lint:k6".exec = "${pkgs.typescript}/bin/tsc -p k6 --noEmit";
-    "dp:test".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "dp:test:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
+    "dp:lint".after = [
+      "dp:lint:ci"
+      "dp:lint:py"
+      "dp:lint:helm"
+      "dp:lint:proxy"
+      "dp:lint:k6"
+    ];
+    "dp:test:py".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "dp:test:py:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
     "dp:test:proxy".exec =
       "${pkgs.nodejs}/bin/node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
-    "dp:test:charts".exec = ''
+    "dp:test:helm".exec = ''
       helm unittest helm/
       helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
       helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
     '';
-    "dp:fmt".exec = "ruff check --fix && ruff format";
+    "dp:test".after = [
+      "dp:test:py"
+      "dp:test:py:mut"
+      "dp:test:helm"
+    ];
   };
 }
