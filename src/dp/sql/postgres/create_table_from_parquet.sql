@@ -1,3 +1,3 @@
 DROP TABLE IF EXISTS ${schema}.${table};
 CREATE TABLE ${schema}.${table}
-AS SELECT * FROM read_parquet(ARRAY[${paths}])
+AS SELECT * FROM read_parquet(${s3_path})

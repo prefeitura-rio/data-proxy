@@ -19,14 +19,14 @@ class Settings(BaseSettings):
         "env_file": ".env",
     }
 
-    GCS_BUCKET: str = "test-bucket"
+    S3_BUCKET: str = "test-bucket"
     PG_DSN: str = "postgresql://test:test@localhost:5432/test"
     REDIS_URL: RedisDsn = RedisDsn("redis://localhost:6379/0")
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
-    GCS_KEY_ID: str = "minioadmin"
-    GCS_SECRET_KEY: str = "minioadmin"  # noqa: S105
-    GCS_ENDPOINT: str = "localhost:9000"
-    GCS_USE_SSL: bool = False
+    S3_ACCESS_KEY: str = "seaweedfs"
+    S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
+    S3_ENDPOINT: str = "localhost:8333"
+    S3_USE_SSL: bool = False
     DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
     PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=7_200_000, gt=0)

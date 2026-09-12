@@ -68,7 +68,7 @@ def discover_json_columns(db: DuckDBPyConnection, bq_table: str) -> list[str]:
 
 def expand_config(
     tables: list[TableConfig],
-    gcs_bucket: str,
+    s3_bucket: str,
     sync_id: str,
     db: DuckDBPyConnection,
 ) -> list[DumpTask]:
@@ -84,7 +84,7 @@ def expand_config(
         tasks.append(
             table.to_task(
                 sync_id,
-                gcs_bucket,
+                s3_bucket,
                 AllSelection(),
                 json_columns=json_columns,
             )
@@ -160,7 +160,7 @@ def build_partition_tasks(
     current: dict[str, PhysicalPartition],
     changed: set[str],
     sync_id: str,
-    gcs_bucket: str,
+    s3_bucket: str,
     json_columns: list[str],
 ) -> PartitionTaskBatch:
     """Create one task and path per changed physical partition.
@@ -178,7 +178,7 @@ def build_partition_tasks(
     tasks = [
         table.to_task(
             sync_id,
-            gcs_bucket,
+            s3_bucket,
             current[partition_id].selection,
             f"partitions/{partition_id}",
             json_columns,
@@ -198,7 +198,7 @@ async def plan_partitioned_table(
     client: Client,
     redis: Redis,
     sync_id: str,
-    gcs_bucket: str,
+    s3_bucket: str,
     db: DuckDBPyConnection,
 ) -> tuple[PartitionedTablePlan | None, list[DumpTask]]:
     """Plan one physically partitioned table."""
@@ -217,7 +217,7 @@ async def plan_partitioned_table(
         current,
         changes.changed,
         sync_id,
-        gcs_bucket,
+        s3_bucket,
         json_columns,
     )
 
@@ -244,7 +244,7 @@ async def plan_partitioned_tables(
     config: SyncConfig,
     redis: Redis,
     sync_id: str,
-    gcs_bucket: str,
+    s3_bucket: str,
     db: DuckDBPyConnection,
 ) -> tuple[dict[str, PartitionedTablePlan], list[DumpTask]]:
     """Plan changed physical partitions for all partitioned tables."""
@@ -260,7 +260,7 @@ async def plan_partitioned_tables(
             client = get_client(project)
 
             plan, table_tasks = await plan_partitioned_table(
-                table, client, redis, sync_id, gcs_bucket, db
+                table, client, redis, sync_id, s3_bucket, db
             )
 
             if plan is not None:

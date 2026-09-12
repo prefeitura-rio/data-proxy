@@ -40,6 +40,7 @@ class TestProducer:
         THEN: the producer application exits.
         """
         with (
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
@@ -52,59 +53,6 @@ class TestProducer:
             await produce()
 
         exit_app.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_producer_clears_bucket_before_publishing_tasks(
-        self,
-        sync_config_path: Path,
-        redis: Redis,
-        broker: object,
-    ) -> None:
-        """
-        GIVEN: a sync work with dump tasks.
-        WHEN: produce runs.
-        THEN: clear_bucket is called before tasks are published.
-        """
-        task = DumpTask(
-            run_id="run",
-            table="p.d.t",
-            bucket_path="s3://b/t",
-            selection=AllSelection(),
-        )
-        call_order: list[str] = []
-
-        async def record_clear() -> None:
-            call_order.append("clear")
-
-        async def record_publish(*args: object, **kwargs: object) -> None:
-            call_order.append("publish")
-
-        with (
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
-            patch(
-                "dp.sync.producer.build_sync_work",
-                new_callable=AsyncMock,
-                return_value=SyncWork(
-                    [
-                        sync_plan(
-                            signatures={"p.d.t": "sig"},
-                            paths={"p.d.t": ["s3://b/t/data.parquet"]},
-                        )
-                    ],
-                    [task],
-                ),
-            ),
-            patch(
-                "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
-            ),
-            patch("dp.sync.producer.clear_bucket", side_effect=record_clear),
-            patch("dp.sync.producer.broker.publish", side_effect=record_publish),
-            patch.object(producer, "exit"),
-        ):
-            await produce()
-
-        assert call_order[0] == "clear"
 
     @pytest.mark.asyncio
     async def test_producer_publishes_each_dump_task(
@@ -125,6 +73,7 @@ class TestProducer:
             selection=AllSelection(),
         )
         with (
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
@@ -143,7 +92,6 @@ class TestProducer:
             patch(
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
-            patch("dp.sync.producer.clear_bucket", new_callable=AsyncMock),
             patch("dp.sync.dumper.extract_task"),
             patch(
                 "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1
@@ -179,6 +127,7 @@ class TestProducer:
                 return_value=0,
             ),
             patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
@@ -204,7 +153,7 @@ class TestProducer:
         """
         GIVEN: an active pipeline that later completes.
         WHEN: the next Producer runs.
-        THEN: it waits before it clears artifacts and dispatches work.
+        THEN: it waits before it dispatches work.
         """
         task = make_dump()
         work = SyncWork(
@@ -228,6 +177,7 @@ class TestProducer:
                 return_value=2,
             ),
             patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
@@ -238,14 +188,12 @@ class TestProducer:
             patch(
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
-            patch("dp.sync.producer.clear_bucket", new_callable=AsyncMock) as clear,
             patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
             patch.object(producer, "exit"),
         ):
             await produce()
 
         sleep.assert_awaited_once_with(60)
-        clear.assert_awaited_once()
         publish.assert_awaited_once_with(task, stream="dp:extract")
 
     @pytest.mark.asyncio
@@ -261,6 +209,7 @@ class TestProducer:
         THEN: the producer publishes a seed sync for the run.
         """
         with (
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
@@ -279,7 +228,6 @@ class TestProducer:
             patch(
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
-            patch("dp.sync.producer.clear_bucket", new_callable=AsyncMock),
             patch.object(producer, "exit"),
         ):
             await produce()
@@ -298,6 +246,7 @@ class TestProducer:
         THEN: the producer rejects the new run without publishing dumps.
         """
         with (
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
             patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(

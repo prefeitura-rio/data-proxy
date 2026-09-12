@@ -115,7 +115,7 @@ class TestPublishSchema:
         """
         GIVEN: a stored plan with remaining schemas after publication.
         WHEN: publish_schema is called.
-        THEN: it publishes the schema and keeps the remaining plan.
+        THEN: it publishes the schema, keeps the remaining plan, and keeps the bucket.
         """
         sync_config_path.write_text(
             sync_config([FullTable(name="p.app.t")]).model_dump_json()
@@ -136,11 +136,13 @@ class TestPublishSchema:
                 new_callable=AsyncMock,
                 return_value=1,
             ),
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock) as empty,
         ):
             await seeder_broker.publish(
                 PublishTask(run_id="r1", schema_name="app"), stream="dp:publish"
             )
         assert publish_schema.mock.call_count == 1
+        empty.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_publish_schema_flushes_configured_fallback_cache(
@@ -190,7 +192,7 @@ class TestPublishSchema:
         """
         GIVEN: a published partitioned table with zero remaining schemas.
         WHEN: publish_schema is called.
-        THEN: it commits the partition state and cleans the last plan.
+        THEN: it commits the partition state, cleans the last plan, and empties the bucket.
         """
         sync_config_path.write_text(
             sync_config([PartitionedTable(name="p.app.t")]).model_dump_json()
@@ -239,10 +241,13 @@ class TestPublishSchema:
             patch("dp.utils.reload_postgrest"),
             patch.object(publisher, "exit"),
             patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock) as empty,
         ):
             await publish_schema(
                 PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
             )
+
+        empty.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_publish_schema_continues_after_successful_publish(
@@ -302,6 +307,7 @@ class TestPublishSchema:
             ),
             patch("dp.utils.psycopg.connect", return_value=MagicMock()),
             patch("dp.utils.reload_postgrest"),
+            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
             patch.object(publisher, "exit") as exit_app,
         ):
             await publish_schema(

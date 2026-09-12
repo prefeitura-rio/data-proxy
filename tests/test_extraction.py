@@ -81,7 +81,7 @@ class TestExtraction:
                 "all",
                 AllSelection(),
                 "duckdb/write_all",
-                "gcs_path",
+                "s3_path",
                 "'s3://b/t/data.parquet'",
             ),
             BuildMappingCase(

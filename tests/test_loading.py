@@ -129,13 +129,13 @@ class TestLoadingPrepareTablesPaths:
 
         assert prepared == []
 
-    def test_prepare_tables_uses_exact_planned_paths(
+    def test_prepare_tables_loads_the_glob_path(
         self,
     ) -> None:
         """
-        GIVEN: a plan with exact paths for one changed table.
+        GIVEN: a plan with one changed full table.
         WHEN: prepare_tables runs.
-        THEN: it loads only the planned table and its exact paths.
+        THEN: it loads only that table, from its bucket path.
         """
         config = sync_config(
             [FullTable(name="p.app.changed"), FullTable(name="p.app.unchanged")]
@@ -170,7 +170,10 @@ class TestLoadingPrepareTablesPaths:
             None,
         )
         assert [table.name for table in prepared] == ["p.app.changed"]
-        assert f"'{path}'" in dict(rendered)["postgres/create_table_from_parquet"]
+        assert (
+            "'s3://test-bucket/app/changed/data.parquet'"
+            in dict(rendered)["postgres/create_table_from_parquet"]
+        )
 
 
 class TestLoadingReduceIncremental:
@@ -528,8 +531,9 @@ class TestLoadingPrepareTablesPartitions:
             )
 
         assert "postgres/create_table_from_parquet" in rendered
-        assert "s3://bucket/app/people/partitions/10/data.parquet" in str(mappings[0])
-        assert "*" not in str(mappings[0])
+        assert "'s3://test-bucket/app/people/partitions/*/data.parquet'" in str(
+            mappings[0]
+        )
         assert prepared == [table]
 
     def test_prepare_tables_secures_shadow_before_load(

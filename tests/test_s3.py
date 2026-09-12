@@ -6,17 +6,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from dp.s3 import clear_bucket
+from dp.s3 import empty_bucket
 
 if TYPE_CHECKING:  # pragma: no cover
     from types_aiobotocore_s3.type_defs import ObjectTypeDef
 
 
 @pytest.mark.asyncio
-async def test_clear_bucket_skips_objects_without_keys() -> None:
+async def test_empty_bucket_skips_objects_without_keys() -> None:
     """
     GIVEN: an S3 listing with valid objects and an entry without a key.
-    WHEN: clear_bucket runs.
+    WHEN: empty_bucket runs.
     THEN: it deletes only objects that have keys.
     """
     paginator = MagicMock()
@@ -43,7 +43,7 @@ async def test_clear_bucket_skips_objects_without_keys() -> None:
     session.create_client.return_value = context
 
     with patch("dp.s3.get_session", return_value=session):
-        await clear_bucket()
+        await empty_bucket()
 
     client.delete_objects.assert_awaited_once_with(
         Bucket="test-bucket",

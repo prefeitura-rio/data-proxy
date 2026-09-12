@@ -27,6 +27,7 @@ from .models import (
     TableConfig,
     TimeRangeSelection,
 )
+from .settings import settings
 from .templates import execute_sql, render_template
 
 
@@ -260,16 +261,16 @@ def create_shadow_from_parquet(
     pg_conn: Connection,
     table: TableConfig,
     shadow_name: str,
-    paths: Sequence[str],
+    s3_path: str,
 ) -> None:
-    """Create and populate a shadow table from the planned Parquet files"""
+    """Create and populate a shadow table from Parquet files via pgduckdb"""
     execute_sql(
         pg_conn,
         "postgres/create_table_from_parquet",
         mapping={
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(shadow_name),
-            "paths": SQL(", ").join(Literal(path) for path in paths),
+            "s3_path": Literal(s3_path),
         },
     )
 
@@ -321,14 +322,20 @@ def prepare_full_table(
     pg_conn: Connection,
     config: SyncConfig,
     table: TableConfig,
+    partitioned: PartitionedTablePlan | None,
     shadow_name: str,
-    paths: Sequence[str],
 ) -> None:
     """Load a full table or partitioned full rebuild into a secured shadow table."""
+    base = f"s3://{settings.S3_BUCKET}/{table.resolved_schema}/{table.table_name}"
+    s3_path = (
+        f"{base}/partitions/*/data.parquet"
+        if partitioned is not None
+        else f"{base}/data.parquet"
+    )
     schema_config = config.schemas.get(table.resolved_schema)
 
     with pg_conn.transaction():
-        create_shadow_from_parquet(pg_conn, table, shadow_name, paths)
+        create_shadow_from_parquet(pg_conn, table, shadow_name, s3_path)
         bootstrap_table(
             pg_conn,
             table.resolved_schema,
@@ -368,7 +375,7 @@ def prepare_tables(
             ):
                 prepare_incremental_partitions(pg_conn, table, partitioned)
             else:
-                prepare_full_table(pg_conn, config, table, shadow_name, paths)
+                prepare_full_table(pg_conn, config, table, partitioned, shadow_name)
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
             continue

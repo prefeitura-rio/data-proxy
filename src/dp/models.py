@@ -146,7 +146,7 @@ class Table(BaseModel):
     def to_task(
         self,
         run_id: str,
-        gcs_bucket: str,
+        s3_bucket: str,
         selection: TaskSelection,
         path_suffix: str | None = None,
         json_columns: list[str] | None = None,
@@ -158,7 +158,7 @@ class Table(BaseModel):
             run_id=run_id,
             table=self.name,
             bucket_path=(
-                f"s3://{gcs_bucket}/{self.resolved_schema}/"
+                f"s3://{s3_bucket}/{self.resolved_schema}/"
                 f"{self.table_name}{suffix}/data.parquet"
             ),
             selection=selection,
@@ -268,7 +268,7 @@ class SyncConfig(BaseModel):
 
 
 class DumpTask(BaseModel):
-    """One extraction unit: a source table (or partition) and its GCS destination."""
+    """One extraction unit: a source table (or partition) and its S3 destination."""
 
     run_id: str
     table: str

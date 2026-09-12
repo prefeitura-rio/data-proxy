@@ -56,7 +56,7 @@ def build_mapping(task: DumpTask) -> str:
     """Return the DuckDB SQL for one extraction task."""
     mapping: dict[str, str | Composable] = {
         "bq_table": Literal(task.table),
-        "gcs_path": Literal(task.bucket_path),
+        "s3_path": Literal(task.bucket_path),
         "columns": build_columns(task.json_columns),
     }
 
@@ -74,6 +74,6 @@ def build_mapping(task: DumpTask) -> str:
 
 
 def extract_task(task: DumpTask) -> None:
-    """Write one BigQuery task to GCS Parquet through DuckDB"""
+    """Write one BigQuery task to the S3 Parquet through DuckDB"""
     with connect() as db:
         db.execute(build_mapping(task))

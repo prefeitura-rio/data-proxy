@@ -96,13 +96,13 @@ class TestPublicationTemplates:
             "postgres/delete_partitions",
         ]
 
-    def test_create_shadow_from_parquet_lists_every_file(
+    def test_create_shadow_from_parquet_uses_the_glob_path(
         self,
     ) -> None:
         """
-        GIVEN: a table and a list of Parquet files.
-        WHEN: create_shadow_from_parquet is called with that list.
-        THEN: it renders postgres/create_table_from_parquet with every file and no glob.
+        GIVEN: a table and a glob path.
+        WHEN: create_shadow_from_parquet is called with that path.
+        THEN: it renders postgres/create_table_from_parquet with the glob.
         """
         captured: dict[str, object] = {}
 
@@ -119,18 +119,13 @@ class TestPublicationTemplates:
                 MagicMock(spec=Connection),
                 FullTable(name="p.app.table", resolved_schema="app"),
                 "table__next",
-                [
-                    "s3://bucket/app/table/partitions/10/data.parquet",
-                    "s3://bucket/app/table/partitions/20/data.parquet",
-                ],
+                "s3://bucket/app/table/partitions/*/data.parquet",
             )
 
         rendered = str(captured["mapping"])
 
         assert captured["template"] == "postgres/create_table_from_parquet"
-        assert "'s3://bucket/app/table/partitions/10/data.parquet'" in rendered
-        assert "'s3://bucket/app/table/partitions/20/data.parquet'" in rendered
-        assert "*" not in rendered
+        assert "'s3://bucket/app/table/partitions/*/data.parquet'" in rendered
 
     def test_load_partition_inserts_via_read_parquet(
         self,

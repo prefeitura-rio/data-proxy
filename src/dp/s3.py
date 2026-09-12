@@ -24,20 +24,20 @@ def create_s3_client(
     return create_client(
         "s3",
         endpoint_url=endpoint,
-        aws_access_key_id=settings.GCS_KEY_ID,
-        aws_secret_access_key=settings.GCS_SECRET_KEY,
+        aws_access_key_id=settings.S3_ACCESS_KEY,
+        aws_secret_access_key=settings.S3_SECRET_KEY,
         region_name="us-east-1",
     )
 
 
-async def clear_bucket() -> None:
-    """Delete all objects from the configured GCS bucket"""
-    endpoint = f"http{'s' if settings.GCS_USE_SSL else ''}://{settings.GCS_ENDPOINT}"
+async def empty_bucket() -> None:
+    """Delete every object from the configured bucket, keeping the bucket itself"""
+    endpoint = f"http{'s' if settings.S3_USE_SSL else ''}://{settings.S3_ENDPOINT}"
 
     async with create_s3_client(get_session(), endpoint) as client:
         paginator = client.get_paginator("list_objects_v2")
 
-        async for page in paginator.paginate(Bucket=settings.GCS_BUCKET):
+        async for page in paginator.paginate(Bucket=settings.S3_BUCKET):
             objects = page.get("Contents", [])
 
             keys: list[ObjectIdentifierTypeDef] = [
@@ -48,6 +48,6 @@ async def clear_bucket() -> None:
                 continue
 
             await client.delete_objects(
-                Bucket=settings.GCS_BUCKET,
+                Bucket=settings.S3_BUCKET,
                 Delete={"Objects": keys},
             )
