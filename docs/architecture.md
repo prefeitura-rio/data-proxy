@@ -8,7 +8,7 @@ BigQuery is the source of truth. PostgreSQL is the normal read source. The proxy
 
 Webdis stores non-empty JSON fallback and local responses. The proxy uses identity-aware cache keys. PostgREST validates JWTs and applies row-level security to both local tables and `_bq` views. See [BigQuery Fallback](fallback.md) for the request flow and cache rules.
 
-pg_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from GCS. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
+pg_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from the S3 bucket. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
 
 The read path does not enable DuckDB execution (`duckdb.force_execution`). PostgREST's read workload is small: filtered, index-driven lookups. DuckDB's columnar engine accelerates large scans and aggregations instead. Routing reads through DuckDB gives no benefit here.
 
@@ -20,10 +20,10 @@ The sync pipeline runs outside the request path.
 
 The sync pipeline has four components. Each component writes structured log records with context fields. Search logs with `run_id`, `table`, or `schema`.
 
-- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It deletes all objects from the GCS bucket before it publishes the tasks. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
+- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
 - **Dumper** — runs as a KEDA ScaledObject. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
 - **Seeder** — runs as a KEDA ScaledObject. KEDA scales on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. The Seeder reads the sync plan, initializes PostgreSQL schemas and roles, and publishes one publication task per schema to `dp:publish`. The pod exits after it dispatches the publication tasks.
-- **Publisher** — runs as a KEDA ScaledObject. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the GCS bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
+- **Publisher** — runs as a KEDA ScaledObject. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the S3 bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
 
 The producer skips a BigQuery table that has not changed since its last successful sync. The producer checks this with a modification signature. This signature combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
 
@@ -47,13 +47,13 @@ Use standalone mode for development. Use standalone mode for single-region deplo
 flowchart TD
     BQ[(BigQuery)]
     R[(Valkey\nStreams)]
-    GCS[(GCS\nParquet)]
+    S3[(SeaweedFS\nParquet)]
     DB[(pgduckdb)]
 
     subgraph pipeline[Sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
-        P -->|clear| GCS
-        W --> GCS --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
+        W --> S3 --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
+        FIN -->|empty bucket| S3
     end
 
     BQ -->|discover partitions| P
@@ -75,13 +75,13 @@ Publication is atomic inside one schema database. It is not atomic across indepe
 flowchart TD
     BQ[(BigQuery)]
     R[(Valkey\nStreams)]
-    GCS[(GCS\nParquet)]
+    S3[(SeaweedFS\nParquet)]
     API[Istio\nVirtualService]
     Client([API Client])
 
     subgraph pipeline[Shared sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
-        W --> GCS --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
+        W --> S3 --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
     end
 
     subgraph cadastro[bcadastro schema stack]

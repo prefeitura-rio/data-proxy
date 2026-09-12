@@ -33,7 +33,7 @@ The script installs:
 - KEDA
 - k6 operator
 - Istio
-- MinIO
+- SeaweedFS
 - OIDC provider
 - PostgreSQL with pg_duckdb
 - Valkey
@@ -133,7 +133,7 @@ The e2e test triggers a full sync pipeline, seeds access policy rows, and valida
 cluster k6 e2e
 ```
 
-The command clears MinIO, Valkey, and PostgreSQL state before the test. It waits for the pipeline and prints the k6 summary.
+The command clears SeaweedFS, Valkey, and PostgreSQL state before the test. It waits for the pipeline and prints the k6 summary.
 
 ## Stop the cluster
 

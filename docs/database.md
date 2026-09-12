@@ -7,7 +7,7 @@ The init-db Job creates all PostgreSQL objects before the first sync run. The ob
 | Extension   | Purpose                                                                                              |
 | ----------- | ---------------------------------------------------------------------------------------------------- |
 | `postgis`   | Geometry column support for BigQuery `GEOGRAPHY` types.                                              |
-| `pg_duckdb` | Embeds DuckDB inside PostgreSQL. The Publisher uses `read_parquet()` to load Parquet files from GCS. |
+| `pg_duckdb` | Embeds DuckDB inside PostgreSQL. The Publisher uses `read_parquet()` to load Parquet files from the S3 bucket. |
 
 ## Roles
 
@@ -93,4 +93,4 @@ All RLS policies are described in [Security](security.md). The list below is a s
 
 ## S3 secret
 
-The init-db Job creates a DuckDB secret for S3 access inside pg_duckdb. The secret uses the configured `GCS_KEY_ID` and `GCS_SECRET_KEY` credentials. This lets the Publisher call `read_parquet()` on GCS paths without per-query authentication.
+The init-db Job creates a DuckDB secret for S3 access inside pg_duckdb. The secret uses the configured `S3_ACCESS_KEY` and `S3_SECRET_KEY` credentials. This lets the Publisher call `read_parquet()` on S3 paths without per-query authentication.
