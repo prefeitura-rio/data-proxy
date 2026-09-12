@@ -171,55 +171,35 @@ def apply-gcp-secret [kubecfg: path]: nothing -> string {
     | kc $kubecfg apply -f -
 }
 
-# Run an mc command inside the MinIO pod with credentials pre-configured.
-def mc [kubecfg: path, command: string]: nothing -> nothing {
+# Run weed shell commands inside the SeaweedFS all-in-one pod.
+def weed [kubecfg: path, ...commands: string]: nothing -> nothing {
     let pod_jp = 'jsonpath={.items[0].metadata.name}'
-    let user_jp = 'jsonpath={.data.root-user}'
-    let pass_jp = 'jsonpath={.data.root-password}'
 
-    let minio_pod = (
-        (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=minio -o $pod_jp)
-        | str trim
-    )
-
-    let minio_user = (
-        (kc $kubecfg -n data-proxy get secret minio -o $user_jp)
-        | decode base64
-        | decode utf-8
-        | str trim
-    )
-
-    let minio_pass = (
-        (kc $kubecfg -n data-proxy get secret minio -o $pass_jp)
-        | decode base64
-        | decode utf-8
-        | str trim
-    )
-
-    (
+    let pod = (
         (kc
             $kubecfg
             -n
             data-proxy
-            exec
-            $minio_pod
-            --
-            sh
-            -c
-            $'mc alias set local http://localhost:9000 ($minio_user) ($minio_pass) >/dev/null 2>&1; ($command) >/dev/null 2>&1; true'
+            get
+            pod
+            -l
+            app.kubernetes.io/component=seaweedfs-all-in-one
+            -o
+            $pod_jp
         )
+        | str trim
+    )
+
+    ($commands
+        | str join (char nl)
+        | kubectl --kubeconfig=($kubecfg) --context=($PROFILE) -n data-proxy exec -i $pod -- weed shell -master=localhost:9333
     ) | ignore
 }
 
-# Create the MinIO test-bucket via the S3 API.
-def create-bucket [kubecfg: path]: nothing -> nothing {
-    mc $kubecfg 'mc mb --ignore-existing local/test-bucket'
-}
-
-# Clear MinIO, Redis, and Postgres so the next k6 test starts from a clean baseline.
+# Empty the SeaweedFS bucket and clear Redis and Postgres so the next k6 test
+# starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
-    create-bucket $kubecfg
-    mc $kubecfg 'mc rm --recursive --force local/test-bucket'
+    weed $kubecfg 's3.bucket.delete -name test-bucket' 's3.bucket.create -name test-bucket'
 
     let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let valkey = (
@@ -384,10 +364,7 @@ def k6-run [
     }
 
     let pod = (kc $kubecfg -n data-proxy get pods -l $label -o $pod_jp)
-    let runner_log = (
-        kc $kubecfg -n data-proxy logs $pod
-        | tee { mc $kubecfg 'mc rb --force --ignore-existing local/test-bucket' }
-    )
+    let runner_log = (kc $kubecfg -n data-proxy logs $pod)
 
     print ($runner_log | to text)
 }
@@ -498,6 +475,9 @@ def "main k6 e2e" []: nothing -> nothing {
     docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
     docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
 
+    log info 'Deleting the init-db Job so it recreates the pgduckdb S3 secret…'
+    kc $kubecfg -n data-proxy delete job data-proxy-init-db --ignore-not-found
+
     log info 'Upgrading data-proxy release…'
     (hm
         $kubecfg
@@ -510,9 +490,11 @@ def "main k6 e2e" []: nothing -> nothing {
         $'($repo)/scripts/values/data-proxy.yaml'
     )
 
+    log info 'Waiting for the init-db Job…'
+    kc $kubecfg -n data-proxy wait --for=condition=complete job/data-proxy-init-db --timeout=180s out> /dev/null
+
     log info 'Clearing test resources…'
     clear-test-resources $kubecfg
-    create-bucket $kubecfg
 
     log info 'Applying GCP secret…'
     apply-gcp-secret $kubecfg
@@ -576,7 +558,7 @@ def "main up" []: nothing -> nothing {
         k6-operator-system/k6-operator-controller-manager
         istio-system/istiod
         istio-ingress/istio-ingressgateway
-        data-proxy/minio
+        data-proxy/data-proxy-seaweedfs-all-in-one
         data-proxy/oidc
         data-proxy/data-proxy-nginx-proxy
         data-proxy/data-proxy-postgrest
@@ -588,6 +570,9 @@ def "main up" []: nothing -> nothing {
         data-proxy/data-proxy-duckdb
         data-proxy/data-proxy-valkey
     ] | wait-for statefulset $kubecfg
+
+    log info 'Creating the SeaweedFS test bucket…'
+    weed $kubecfg 's3.bucket.delete -name test-bucket' 's3.bucket.create -name test-bucket'
 
     show-status $kubecfg
 }

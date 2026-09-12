@@ -48,17 +48,10 @@
         repo: "https://bedag.github.io/helm-charts/"
     }
     {
-        name: minio
-        chart: "oci://registry-1.docker.io/cloudpirates/minio"
-        namespace: data-proxy
-        create_namespace: true
-        version: 0.13.3
-        values_file: minio.yaml
-    }
-    {
         name: oidc
         chart: bedag/raw
         namespace: data-proxy
+        create_namespace: true
         values_file: oidc.yaml
         repo: "https://bedag.github.io/helm-charts/"
     }
