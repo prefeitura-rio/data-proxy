@@ -50,11 +50,25 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.gcsSecretName" -}}
-{{- if .Values.gcs.existingSecret }}
-{{- .Values.gcs.existingSecret }}
+{{- define "data-proxy.s3SecretName" -}}
+{{- if .Values.s3.existingSecret }}
+{{- .Values.s3.existingSecret }}
 {{- else }}
-{{- include "data-proxy.fullname" . }}-gcs
+{{- include "data-proxy.fullname" . }}-s3
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.s3Endpoint" -}}
+{{- if .Values.s3.endpoint }}
+{{- .Values.s3.endpoint }}
+{{- else if .Values.seaweedfs.enabled }}
+{{- if .Values.seaweedfs.allInOne.enabled }}
+{{- printf "%s-seaweedfs-all-in-one:8333" .Release.Name }}
+{{- else }}
+{{- printf "%s-seaweedfs-s3:8333" .Release.Name }}
+{{- end }}
+{{- else }}
+{{- fail "s3.endpoint is required when the SeaweedFS subchart is disabled" }}
 {{- end }}
 {{- end }}
 
@@ -199,22 +213,22 @@ map $http_accept_profile $fallback_pgrst {
       key: {{ include "data-proxy.valkeySecretKey" . }}
 - name: REDIS_URL
   value: "redis://:$(REDIS_PASSWORD)@{{ .Release.Name }}-valkey:6379/0"
-- name: GCS_BUCKET
-  value: {{ .Values.gcs.bucket | quote }}
-- name: GCS_ENDPOINT
-  value: {{ .Values.gcs.endpoint | quote }}
-- name: GCS_USE_SSL
-  value: {{ .Values.gcs.useSsl | quote }}
-- name: GCS_KEY_ID
+- name: S3_BUCKET
+  value: {{ .Values.s3.bucket | quote }}
+- name: S3_ENDPOINT
+  value: {{ include "data-proxy.s3Endpoint" . | quote }}
+- name: S3_USE_SSL
+  value: {{ .Values.s3.useSsl | quote }}
+- name: S3_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ include "data-proxy.gcsSecretName" . }}
-      key: GCS_KEY_ID
-- name: GCS_SECRET_KEY
+      name: {{ include "data-proxy.s3SecretName" . }}
+      key: S3_ACCESS_KEY
+- name: S3_SECRET_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ include "data-proxy.gcsSecretName" . }}
-      key: GCS_SECRET_KEY
+      name: {{ include "data-proxy.s3SecretName" . }}
+      key: S3_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
 - name: FALLBACK_ENABLED

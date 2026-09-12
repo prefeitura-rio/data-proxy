@@ -19,10 +19,10 @@ let pgdb = $dsn_parts.db
 
 $env.PGPASSWORD = $env.BACKUP_PASSWORD
 
-let scheme = if $env.GCS_USE_SSL == 'true' { 'https' } else { 'http' }
+let scheme = if $env.S3_USE_SSL == 'true' { 'https' } else { 'http' }
 let object_date = date now | format date '%Y-%m-%d'
-let gcs_object = $'s3://($env.GCS_BUCKET)/($env.BACKUP_PREFIX)/($env.SCHEMA)/($object_date).csv.age'
-let endpoint_url = $'($scheme)://($env.GCS_ENDPOINT)'
+let s3_object = $'s3://($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($env.SCHEMA)/($object_date).csv.age'
+let endpoint_url = $'($scheme)://($env.S3_ENDPOINT)'
 
 log info $'Backup started schema=($env.SCHEMA)'
 
@@ -51,8 +51,8 @@ if ($csv | is-empty) {
 try {
     $csv
     | age --encrypt --recipient $env.AGE_RECIPIENT
-    | aws s3 cp - $gcs_object --endpoint-url $endpoint_url
-    log info $'Backup completed schema=($env.SCHEMA) object=($gcs_object)'
+    | aws s3 cp - $s3_object --endpoint-url $endpoint_url
+    log info $'Backup completed schema=($env.SCHEMA) object=($s3_object)'
 } catch {|err|
     log error $'Backup failed schema=($env.SCHEMA): ($err.msg)'
     exit 1

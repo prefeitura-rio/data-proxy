@@ -45,8 +45,8 @@ spec:
               command: [nu, /scripts/cleanup.nu]
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
-                - name: GCS_ENDPOINT_URL
-                  value: {{ printf "%s://%s" (ternary "https" "http" (eq .Values.gcs.useSsl "true")) (.Values.gcs.endpoint | default "storage.googleapis.com") | quote }}
+                - name: S3_ENDPOINT_URL
+                  value: {{ printf "%s://%s" (ternary "https" "http" (eq .Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" .) | quote }}
                 - name: REDIS_HOST
                   value: {{ printf "%s-valkey" (include "data-proxy.fullname" .) | quote }}
               volumeMounts:

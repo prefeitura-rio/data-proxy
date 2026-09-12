@@ -1,0 +1,57 @@
+suite: S3 secret
+templates:
+  - secret.yaml
+tests:
+  - it: renders the S3 secret with the configured keys
+    set:
+      s3.accessKey: access-key
+      s3.secretKey: secret-key
+    asserts:
+      - isKind:
+          of: Secret
+        documentIndex: 1
+      - equal:
+          path: stringData.S3_ACCESS_KEY
+          value: access-key
+        documentIndex: 1
+      - equal:
+          path: stringData.S3_SECRET_KEY
+          value: secret-key
+        documentIndex: 1
+
+  - it: omits the S3 secret when an existing secret is set
+    set:
+      s3.existingSecret: my-s3-secret
+    asserts:
+      - hasDocuments:
+          count: 1
+---
+suite: S3 wiring
+templates:
+  - deployment-dumper.yaml
+tests:
+  - it: points the dumper at the in-chart SeaweedFS gateway
+    set:
+      s3.bucket: data-proxy
+      seaweedfs.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_BUCKET
+            value: data-proxy
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ENDPOINT
+            value: RELEASE-NAME-seaweedfs-s3:8333
+
+  - it: points the dumper at an explicit endpoint when one is set
+    set:
+      s3.endpoint: minio.example.com:9000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ENDPOINT
+            value: minio.example.com:9000

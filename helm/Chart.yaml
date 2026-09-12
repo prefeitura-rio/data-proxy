@@ -1,6 +1,6 @@
 apiVersion: v2
 name: data-proxy
-description: Data proxy — BigQuery → GCS → pg_duckdb sync pipeline with PostgREST and row-level security.
+description: Data proxy — BigQuery → SeaweedFS → pg_duckdb sync pipeline with PostgREST and row-level security.
 type: application
 version: 1.92.0
 appVersion: "1.0.0"
@@ -15,3 +15,8 @@ dependencies:
     repository: "https://prometheus-community.github.io/helm-charts"
     condition: pushgateway.enabled
     alias: pushgateway
+  - name: seaweedfs
+    version: "4.46.0"
+    repository: "https://seaweedfs.github.io/seaweedfs/helm"
+    condition: seaweedfs.enabled
+    alias: seaweedfs

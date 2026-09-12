@@ -6,10 +6,10 @@ pgduckdb:
   password: pgpass
   authenticatorPassword: authrole
 
-gcs:
+s3:
   bucket: prod-bucket
-  keyId: hmac-key-id
-  secretKey: hmac-secret
+  accessKey: s3-access-key
+  secretKey: s3-secret
 
 postgrest:
   proxyUri: https://api.example.com
@@ -47,3 +47,12 @@ ingress:
   enabled: true
   gateway: "istio-system/istio-gateway"
   host: "data-proxy.example.com"
+
+seaweedfs:
+  s3:
+    credentials:
+      admin:
+        accessKey: s3-access-key
+        secretKey: s3-secret
+    createBuckets:
+      - name: prod-bucket

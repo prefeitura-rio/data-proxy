@@ -61,22 +61,22 @@ spec:
                   value: {{ required "backup.ageRecipient is required when backup.enabled is true" $root.Values.backup.ageRecipient | quote }}
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.backup.prefix | quote }}
-                - name: GCS_BUCKET
-                  value: {{ $root.Values.gcs.bucket | quote }}
-                - name: GCS_ENDPOINT
-                  value: {{ $root.Values.gcs.endpoint | default "storage.googleapis.com" | quote }}
-                - name: GCS_USE_SSL
-                  value: {{ $root.Values.gcs.useSsl | quote }}
+                - name: S3_BUCKET
+                  value: {{ $root.Values.s3.bucket | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+                - name: S3_USE_SSL
+                  value: {{ $root.Values.s3.useSsl | quote }}
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.gcsSecretName" $root }}
-                      key: GCS_KEY_ID
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_ACCESS_KEY
                 - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.gcsSecretName" $root }}
-                      key: GCS_SECRET_KEY
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_SECRET_KEY
                 - name: SCHEMA_WRITERS_FILE
                   value: /config/schema-writers/writers.json
               volumeMounts:

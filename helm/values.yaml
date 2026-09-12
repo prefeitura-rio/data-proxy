@@ -101,24 +101,87 @@ gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
   ## Leave empty to use Workload Identity (no key file mounted).
   existingSecret: ""
-## Google Cloud Storage credentials for DuckDB S3-compatible access.
-## The pipeline uses HMAC keys (not a service account) for GCS access.
-## Use Workload Identity (via the ServiceAccount annotation) for BigQuery access.
-gcs:
-  ## Name of the GCS bucket that stores Parquet files.
-  bucket: ""
-  ## GCS endpoint host and port. Leave empty to use real GCS (storage.googleapis.com).
-  ## Set to host:port for a local S3-compatible server such as MinIO.
-  endpoint: ""
-  ## Set to true when you connect to real GCS. Set to false for local MinIO.
-  useSsl: "true"
-  ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain GCS_KEY_ID and GCS_SECRET_KEY.
+gcp:
+  ## Name of an existing Secret with a key.json file for BigQuery access.
+  ## Leave empty to use Workload Identity (no key file mounted).
   existingSecret: ""
-  ## HMAC key ID for GCS access. Required when existingSecret is empty.
-  keyId: ""
-  ## HMAC secret key for GCS access. Required when existingSecret is empty.
+## S3-compatible object store that holds the Parquet files of one sync run.
+## The default configuration points at the SeaweedFS S3 gateway deployed by this
+## chart. Set endpoint, bucket and credentials to use an external server instead.
+s3:
+  ## Name of the bucket that stores Parquet files.
+  bucket: data-proxy
+  ## S3 endpoint host and port. Leave empty to use the in-chart SeaweedFS gateway.
+  endpoint: ""
+  ## Set to true when the endpoint answers over HTTPS.
+  useSsl: "false"
+  ## Name of an existing Secret to use instead of creating one.
+  ## The Secret must contain S3_ACCESS_KEY and S3_SECRET_KEY.
+  existingSecret: ""
+  ## Access key for S3 access. Required when existingSecret is empty.
+  accessKey: ""
+  ## Secret key for S3 access. Required when existingSecret is empty.
   secretKey: ""
+## SeaweedFS object store, deployed as a subchart.
+## Master, volume, filer and the S3 gateway run as separate workloads. The
+## all-in-one process is not used, so each part can be sized and restarted alone.
+seaweedfs:
+  ## Set to true to deploy SeaweedFS inside the cluster.
+  enabled: true
+  ## Run every component in a single process. Kept off on purpose.
+  allInOne:
+    enabled: false
+  ## Metadata and topology service.
+  master:
+    enabled: true
+    replicas: 1
+    data:
+      type: persistentVolumeClaim
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  ## Stores the Parquet file data.
+  volume:
+    enabled: true
+    replicas: 1
+    dataDirs:
+      - name: data
+        type: persistentVolumeClaim
+        size: 10Gi
+        maxVolumes: 0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  ## Directory tree and metadata for the S3 API.
+  filer:
+    enabled: true
+    replicas: 1
+    enablePVC: true
+    storage: 1Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  ## S3 gateway that speaks the S3 API to the pipeline.
+  s3:
+    enabled: true
+    replicas: 1
+    ## Require credentials on every request.
+    enableAuth: true
+    credentials:
+      admin:
+        accessKey: ""
+        secretKey: ""
+    ## Buckets the subchart creates after installation. The name must match s3.bucket.
+    createBuckets:
+      - name: data-proxy
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
 ## Valkey (Redis-compatible) in-cluster message broker for the sync task queue.
 ## Valkey is deployed as a subchart. The pipeline reads from and writes to Valkey streams.
 valkey:
@@ -157,7 +220,7 @@ producer:
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
 ## Backup CronJob — exports each <schema>.access_policy table, encrypts it
-## client-side before it leaves the pod, then uploads it to the GCS bucket above.
+## client-side before it leaves the pod, then uploads it to the S3 bucket above.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
 backup:
   ## Set to true to deploy the backup CronJob.
@@ -178,7 +241,7 @@ backup:
   ## Generate a keypair with `age-keygen`; only the public key belongs here. Keep the
   ## private key outside the cluster — it is the only way to decrypt a backup.
   ageRecipient: ""
-  ## GCS object key prefix for uploaded backups, under the bucket configured in gcs.bucket.
+  ## S3 object key prefix for uploaded backups, under the bucket configured in s3.bucket.
   prefix: backups/access_policy
   ## Name of an existing Secret to use instead of creating one.
   ## The Secret must contain BACKUP_PASSWORD.

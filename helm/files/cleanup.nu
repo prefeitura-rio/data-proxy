@@ -8,8 +8,8 @@ let dsn = $env.PG_DSN
 let protected = [freshness access_policy]
 
 load-env {
-    AWS_ACCESS_KEY_ID: $env.GCS_KEY_ID
-    AWS_SECRET_ACCESS_KEY: $env.GCS_SECRET_KEY
+    AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
 }
 
 # Execute a SQL statement against PostgreSQL

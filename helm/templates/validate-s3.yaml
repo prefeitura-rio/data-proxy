@@ -1,0 +1,13 @@
+{{- if .Values.seaweedfs.enabled }}
+{{- $names := list }}
+{{- $bucketList := .Values.seaweedfs.s3.createBuckets }}
+{{- if .Values.seaweedfs.allInOne.enabled }}
+{{- $bucketList = .Values.seaweedfs.allInOne.s3.createBuckets }}
+{{- end }}
+{{- range $bucketList }}
+{{- $names = append $names (get . "name") }}
+{{- end }}
+{{- if not (has .Values.s3.bucket $names) }}
+{{- fail (printf "the SeaweedFS bucket list must contain %q, because s3.bucket names the bucket the pipeline uses" .Values.s3.bucket) }}
+{{- end }}
+{{- end }}

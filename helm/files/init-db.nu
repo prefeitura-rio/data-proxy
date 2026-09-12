@@ -147,14 +147,14 @@ def create-access-policy []: nothing -> nothing {
     log info 'Created access policy tables'
 }
 
-# Create the DuckDB S3 secret for pgduckdb read_parquet access to GCS
+# Create the DuckDB S3 secret for pgduckdb read_parquet access to the bucket
 def create-s3-secret []: nothing -> nothing {
     (postgres
         (load-sql create_s3_secret.sql)
-        $'gcs_key_id=($env.GCS_KEY_ID)'
-        $'gcs_secret_key=($env.GCS_SECRET_KEY)'
-        $'gcs_endpoint=($env.GCS_ENDPOINT)'
-        $'gcs_use_ssl=($env.GCS_USE_SSL)'
+        $'s3_key_id=($env.S3_ACCESS_KEY)'
+        $'s3_secret_key=($env.S3_SECRET_KEY)'
+        $'s3_endpoint=($env.S3_ENDPOINT)'
+        $'s3_use_ssl=($env.S3_USE_SSL)'
     )
     log info 'Created DuckDB S3 secret'
 }

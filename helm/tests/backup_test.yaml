@@ -22,7 +22,7 @@ tests:
       backup.image: postgres:17-alpine
       backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
       backup.prefix: backups/access_policy
-      gcs.bucket: my-bucket
+      s3.bucket: my-bucket
       syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:

@@ -5,5 +5,8 @@ dependencies:
 - name: prometheus-pushgateway
   repository: https://prometheus-community.github.io/helm-charts
   version: 2.17.0
-digest: sha256:ffa6da2c3f390566e6617551ab75b39a6a3e04fe728077d9b7e4d64c39f30e53
-generated: "2026-09-05T19:39:51.04295588-03:00"
+- name: seaweedfs
+  repository: https://seaweedfs.github.io/seaweedfs/helm
+  version: 4.46.0
+digest: sha256:d7fe78f95f5189b8204abc0f0e7f9e19fae191175a23fc8e81fa7b99524a1684
+generated: "2026-09-11T23:20:31.07908233-03:00"
