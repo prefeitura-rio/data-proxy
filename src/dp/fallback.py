@@ -1,7 +1,7 @@
 """BigQuery fallback view generation and cache invalidation."""
 
 from dataclasses import dataclass
-from typing import LiteralString, cast
+from typing import cast
 
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Composable, Identifier, Literal
@@ -74,13 +74,13 @@ def pg_scalar_type(duckdb_type: str) -> str:
             return "text"
 
 
-def duckdb_type_for(pg_type: str) -> LiteralString:
+def duckdb_type_for(pg_type: str) -> str:
     """Return the DuckDB read_parquet type for one PostgreSQL column type.
 
     PostgreSQL jsonb is read as DuckDB json, because pgduckdb cannot cast a
     Parquet jsonb column directly.
     """
-    return cast("LiteralString", "json" if pg_type == "jsonb" else pg_type)
+    return "json" if pg_type == "jsonb" else pg_type
 
 
 def quoted_identifier(identifier: str) -> str:

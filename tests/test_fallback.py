@@ -11,6 +11,7 @@ from psycopg import AsyncConnection
 from psycopg.sql import Composable
 from redis.asyncio import Redis
 
+from dp.cache import clear_response_cache
 from dp.fallback import (
     RLS,
     bigquery_column_expr,
@@ -23,7 +24,6 @@ from dp.fallback import (
 )
 from dp.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
 from dp.settings import Settings
-from dp.state import clear_response_cache
 from tests.helpers import sync_config
 
 

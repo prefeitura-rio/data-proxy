@@ -93,8 +93,12 @@ def test_settings(
     sync_config_path: Path,
 ) -> Settings:
     """Provide settings configured with test dependency objects."""
+
+    def redis_client(_settings: Settings, db: int | None = None) -> Redis:
+        return redis
+
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
-    monkeypatch.setattr(Settings, "redis", lambda self, db=None: redis)  # pyright: ignore[reportUnknownLambdaType,reportUnknownArgumentType]
+    monkeypatch.setattr(Settings, "redis", redis_client)
     monkeypatch.setattr(Settings, "schema_writers", property(lambda _: schema_writers))
     return settings
 

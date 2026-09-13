@@ -104,6 +104,7 @@ in
       "dp:test:py"
       "dp:test:py:mut"
       "dp:test:helm"
+      "dp:test:proxy"
     ];
   };
 }

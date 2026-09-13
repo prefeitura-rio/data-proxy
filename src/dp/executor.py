@@ -23,14 +23,6 @@ class BigQueryJob(Protocol):
     def result(self) -> object: ...
 
 
-class BigQueryPort(Protocol):
-    """Minimal BigQuery client port."""
-
-    def query(
-        self, query: str, *, job_config: QueryJobConfig | None
-    ) -> BigQueryJob: ...
-
-
 @singledispatch
 async def execute(
     connection: object,
@@ -137,7 +129,7 @@ async def execute_sql(
 
 @overload
 async def execute_sql(
-    connection: BigQueryPort,
+    connection: Client,
     path: str,
     mapping: Mapping[str, str | Composable] | None = None,
     *,

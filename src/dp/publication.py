@@ -58,7 +58,7 @@ async def column_select_list(
     return SQL(", ").join(
         SQL("r[{}]::{} AS {}").format(
             Literal(col),
-            SQL(duckdb_type_for(typ)),
+            SQL(cast(LiteralString, duckdb_type_for(typ))),
             Identifier(col),
         )
         for col, typ in rows

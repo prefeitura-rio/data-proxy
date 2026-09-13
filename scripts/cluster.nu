@@ -440,6 +440,28 @@ ScaledObjects:"
     } catch {
         log warning 'no scaledobjects found'
     }
+
+    print "
+ScaledJobs:"
+
+    try {
+        print (kc $kubecfg -n data-proxy get scaledjob -o json
+            | try { from json } catch { {items: []} }
+            | get items
+            | each {|s|
+                let cond = $s.status.conditions? | default [] | last | default {}
+                {
+                    name: $s.metadata.name,
+                    status: ($cond.type? | default '-'),
+                    ready: ($cond.status? | default '-'),
+                    active: ($s.status.active? | default 0 | into int),
+                    running: ($s.status.runningJobCount? | default 0 | into int),
+                }
+            }
+            | sort-by name)
+    } catch {
+        log warning 'no scaledjobs found'
+    }
 }
 
 # Rebuild and roll out the local nginx proxy image.

@@ -16,6 +16,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects", "scaledjobs"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -67,5 +70,7 @@ spec:
         value: "25m"
       - name: PARTITIONED_SOURCE
         value: rj-ia-desenvolvimento.dev.protocolo_estado_diario
+      - name: K8S_SA_TOKEN_PATH
+        value: /var/run/secrets/kubernetes.io/serviceaccount/token
       - name: FULL_SOURCE
         value: rj-ia-desenvolvimento.dev.endpoint_participante_listagem

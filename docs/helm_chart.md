@@ -2,14 +2,9 @@
 
 ## Prerequisites
 
-Install these components before you deploy the chart:
-
-- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses a KEDA ScaledObject for the Dumper and KEDA ScaledJobs for the Seeder and the Publisher.
-- Istio, when `ingress.enabled` is `true`. The chart uses Istio `VirtualService`, `RequestAuthentication`, and `AuthorizationPolicy` resources.
+Install [KEDA](https://keda.sh/docs/latest/deploy/). Install Istio when `ingress.enabled` is `true`.
 
 ## Install
-
-The chart publishes to `oci://ghcr.io/prefeitura-rio/charts`.
 
 ```bash
 helm install data-proxy \
@@ -18,70 +13,44 @@ helm install data-proxy \
   --values my-values.yaml
 ```
 
-See [`helm/values.yaml`](../helm/values.yaml) for the full list of configuration options and their descriptions.
+See [`helm/values.yaml`](../helm/values.yaml) for all values.
 
 ## Chart tests
-
-Run the complete local chart check with:
 
 ```bash
 devenv tasks run dp:test:charts
 ```
 
-The check runs Helm lint, Helm unit tests, and Kubeconform against standalone and HA values. Kubeconform uses strict Kubernetes schemas and the Datree CRD catalog for KEDA and Istio resources. Missing schemas are allowed only for CRDs that are not in the catalog. Standard Kubernetes resources must always have a valid schema.
+The task runs Helm lint, Helm unit tests, and Kubeconform for standalone and HA values.
 
-CI runs equivalent Helm lint, unit-test, and Kubeconform jobs before chart packaging.
+## Images
 
-The default database image is `ghcr.io/prefeitura-rio/data-proxy-postgres:latest`. Standalone and HA members use this image. It contains PostgreSQL 17, pg_duckdb, PostGIS, Patroni with Kubernetes support, and the required runtime tools.
+The chart pins repository images in `helm/values.yaml`. Released chart values do not use `latest` for Data Proxy images.
 
 ## Database storage
 
-A fresh installation creates one explicit PVC for each pgduckdb member. It creates one single-replica StatefulSet for each member. Standalone mode creates one member. HA mode creates the number of members configured by `ha.schemas.<schema>.members`. Each member mounts its matching PVC.
+A fresh installation creates one retained PVC per pgduckdb member. Increase `pgduckdb.storage.size` when needed; Kubernetes does not support PVC size reduction. Remove retained PVCs only as a separate destructive operation.
 
-Set `pgduckdb.storage.size` to the required capacity. A later increase updates the PVC. It does not change a StatefulSet claim template. Kubernetes does not support PVC size reduction.
-
-The chart adds `helm.sh/resource-policy: keep` to each pgduckdb PVC. Helm keeps the database data during uninstall. Helm also keeps the data during HA scale-down. Remove a retained PVC only as a separate destructive operation.
-
-This storage layout applies to fresh installations. The chart does not migrate installations that use StatefulSet `volumeClaimTemplates`. Migrate those installations separately before using this layout.
+Existing installations that use StatefulSet `volumeClaimTemplates` need a manual migration before using this storage layout.
 
 ## Database upgrades
 
-Before PostgREST RW starts, an init container waits for the PostgreSQL writer. It then runs idempotent database reconciliation. In HA mode, the init container uses the schema HAProxy writer endpoint. It reconciles only that schema. In standalone mode, it uses the DuckDB Service and reconciles all configured schemas.
-
-The init container runs the scripts with `ON_ERROR_STOP=1`. PostgREST starts only when the scripts succeed. A sync configuration checksum change also starts the init container. PostgreSQL runs the initial setup for a new empty volume before the init container continues.
+Before PostgREST starts, the init container waits for its writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. A configuration checksum change also reruns reconciliation.
 
 ## Istio ingress
 
-Set `ingress.enabled` to `true` to create an Istio `VirtualService`. Install Istio before you install the chart. Create the Gateway named by `ingress.gateway` before you install the chart.
-
-Set `ingress.auth.enabled` to `true` to create JWT authentication and authorization resources. These resources need an Istio control plane.
-
-Keep `ingress.sidecarInject` set to `true` when the cluster kernel supports the Istio iptables setup. Set it to `false` only when the kernel does not support this setup. In this mode, Istio still routes ingress traffic, but Data Proxy pods do not have Istio sidecars.
+Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` to create JWT authentication and authorization resources. Create the configured Gateway before installing the chart.
 
 ## BigQuery fallback
 
-Enable the fallback proxy with:
+Enable fallback with:
 
 ```yaml
 fallback:
   enabled: true
 ```
 
-The chart deploys an nginx proxy with a Webdis sidecar. The proxy becomes the public read endpoint. It reads local PostgREST first and queries `<table>_bq` only when the local response has no rows.
-
-Use these values to control proxy behavior:
-
-```yaml
-fallback:
-  cacheTtl: 300
-  fetchBufferSize: 32m
-  fetchTimeout: 60s
-  cacheRedisDb: 1
-  maxCacheBodyBytes: 262144
-  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:<image-sha>
-```
-
-The proxy writes structured request logs. See [BigQuery Fallback](fallback.md) for cache and response-header behavior.
+Configure proxy values under `fallback`, including `cacheTtl`, `fetchBufferSize`, `fetchTimeout`, `cacheRedisDb`, and `maxCacheBodyBytes`. See [Fallback](fallback.md) for request flow and cache behavior.
 
 ## Enable HA
 
@@ -109,3 +78,7 @@ Each repository image has an independent semantic version. Component Git tags st
 The chart pins each image version in `helm/values.yaml`. A released chart does not use `latest` for a repository image.
 
 The Helm pipeline increments the minor version on each release. Do not change `helm/Chart.yaml` by hand. A major version change means a breaking change.
+
+---
+
+[← Previous](environment_variables.md) · [Home](../README.md) · [Next →](metrics.md)

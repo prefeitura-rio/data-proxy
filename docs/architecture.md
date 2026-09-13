@@ -1,68 +1,99 @@
 # Architecture
 
-## Serving Layer
+## Serving layer
 
-The product uses PostgreSQL with the pg_duckdb extension. This database mirrors selected BigQuery tables. PostgREST serves local data. An nginx proxy is the public read endpoint.
+BigQuery is the source of truth. PostgreSQL is the normal read store. PostgREST exposes synced tables. When fallback is enabled, nginx reads local PostgREST first and then reads the BigQuery-backed `_bq` view only for an empty local `GET` response.
 
-BigQuery is the source of truth. PostgreSQL is the normal read source. The proxy reads local PostgREST first. When an enabled fallback table returns no rows locally, the proxy queries its BigQuery-backed `_bq` view through PostgREST. Clients never call BigQuery directly.
+Parquet files live in an S3-compatible object store. The chart default is SeaweedFS. pg_duckdb reads the files during publication. Clients never call BigQuery directly.
 
-Webdis stores non-empty JSON fallback and local responses. The proxy uses identity-aware cache keys. PostgREST validates JWTs and applies row-level security to both local tables and `_bq` views. See [BigQuery Fallback](fallback.md) for the request flow and cache rules.
+Webdis caches non-empty JSON responses with identity-aware keys. PostgREST validates JWTs and applies the same row-level security to local tables and `_bq` views. See [Fallback](fallback.md) and [Security](security.md).
 
-pg_duckdb embeds DuckDB's columnar engine inside PostgreSQL. This lets the Publisher read Parquet files straight from the S3 bucket. The Publisher loads these files into native PostgreSQL tables in one process. Data Proxy needs no separate ETL engine for this step. Everything downstream of the load stays ordinary PostgreSQL. PostgREST, row-level security, and roles all work as they would against any other PostgreSQL database.
+## Sync pipeline
 
-The read path does not enable DuckDB execution (`duckdb.force_execution`). PostgREST's read workload is small: filtered, index-driven lookups. DuckDB's columnar engine accelerates large scans and aggregations instead. Routing reads through DuckDB gives no benefit here.
+| Component | Work                                              | Result                                                              |
+| --------- | ------------------------------------------------- | ------------------------------------------------------------------- |
+| Producer  | Detect changed tables and partitions.             | Stores plans and publishes tasks to Valkey.                         |
+| Dumper    | Extract one full table or one partition batch.    | Writes one Parquet file and records the result.                     |
+| Seeder    | Initialize configured schemas and policy objects. | Publishes one schema task per plan.                                 |
+| Publisher | Load, prepare, and publish one schema.            | Commits table state and refreshes PostgREST after the final schema. |
 
-The `pre_request` function mirrors every JWT claim into a PostgreSQL session variable. Row-level security policies compare the configured identity claim against grants in the local `<schema>.access_policy` table. See [Security](security.md) for details.
+The Producer includes configuration in a table signature. A configuration change therefore causes a resync.
 
-The sync pipeline runs outside the request path.
+A partition batch contains changed partitions up to the configured size and count limits. One batch produces one Parquet file. See [Sync](sync.md).
 
-## Data sync
-
-The sync pipeline has four components. Each component writes structured log records with context fields. Search logs with `run_id`, `table`, or `schema`.
-
-- **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
-- **Dumper** — runs as a KEDA ScaledObject. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
-- **Seeder** — runs as a KEDA ScaledJob on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. One seed task creates one Job. The Job reads the sync plan, initializes PostgreSQL schemas and roles, publishes one publication task per schema to `dp:publish`, acknowledges its message, and completes.
-- **Publisher** — runs as a KEDA ScaledJob with one Job for each schema in the plan. Each Job reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the S3 bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The Job acknowledges its message and completes after it publishes its schema. The last Job tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
-
-The producer skips a BigQuery table that has not changed since its last successful sync. The producer checks this with a modification signature. This signature combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
-
-A table's strategy sets how many tasks the producer publishes for it. The `full` strategy publishes one task for the whole table. The `partitioned` strategy publishes one task per changed physical partition. See [Sync Configuration](sync.md) for the full reference.
-
-A Publisher Job that crashes leaves its message pending. The pending trigger starts a new Publisher Job, which reclaims the message after the visibility timeout. It then completes the run. The producer re-publishes the seed task when all tasks are complete and no publication has finished. These two paths recover a message that no worker received.
-
-The Dumper records the path of each failed extraction task. The Publisher publishes the successful parts of an incremental partition update. It keeps old data for a failed existing partition. It does not add data for a failed new partition. The committed manifest describes the data that PostgreSQL serves. As a result, the next producer run schedules each failed partition again.
-
-A full table is atomic. A partitioned full rebuild is also atomic. One extraction failure blocks publication of the complete table. A preparation failure also blocks state commit for that table. A publication failure has the same effect.
-
-Each configured schema has a `freshness` table. This table gives the last publication time. It also gives the result of the latest attempt. For full rebuilds, the Publisher updates freshness in the same transaction as the data-table swap. For incremental syncs, the Publisher updates freshness after it loads the changed partitions.
+Full tables and partitioned full rebuilds publish atomically. An incremental update keeps old data for a failed existing partition and omits a failed new partition. The next run schedules failed partitions again.
 
 ## Modes
 
 ### Standalone
 
-Use standalone mode for development. Use standalone mode for single-region deployments.
+Use standalone mode for development and single-region deployments.
 
 ```mermaid
-flowchart TD
-    BQ[(BigQuery)]
-    R[(Valkey\nStreams)]
-    S3[(SeaweedFS\nParquet)]
-    DB[(pgduckdb)]
+sequenceDiagram
+    participant BQ as BigQuery
+    participant P as Producer
+    participant R as Valkey
+    participant W as Dumper
+    participant S3 as SeaweedFS
+    participant S as Seeder
+    participant FIN as Publisher
+    participant DB as pg_duckdb
+    participant PGRST as PostgREST
 
-    subgraph pipeline[Sync pipeline]
-        P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
-        W --> S3 --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
-        FIN -->|empty bucket| S3
+    Note over P: CronJob trigger
+    P->>BQ: discover changed tables & partitions
+    P->>R: publish extract tasks
+
+    Note over W: ScaledObject scales on stream length
+    W->>R: consume extract task
+    W->>BQ: extract rows
+    W->>S3: write Parquet
+    W->>R: publish seed task
+
+    Note over S: ScaledJob scales on stream length
+    S->>R: consume seed task
+    S->>R: publish publish task
+
+    Note over FIN: ScaledJob scales on stream length
+    FIN->>R: consume publish task
+    FIN->>S3: read Parquet
+    FIN->>DB: load into local table
+    FIN->>S3: cleanup consumed files
+    FIN->>PGRST: refresh schema
+```
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant N as nginx
+    participant R as Valkey
+    participant P as PostgREST
+    participant DB as pg_duckdb
+    participant BQ as BigQuery
+
+    C->>N: GET /table (JWT)
+    N->>R: cache lookup
+    alt cache hit
+        R-->>N: cached rows
+        N-->>C: 200 (from cache)
+    else cache miss
+        R-->>N: miss
+        N->>P: GET /table (JWT)
+        P->>DB: SELECT … FROM table
+        alt local rows present
+            DB-->>P: rows
+            P-->>N: 200 (local)
+        else local table empty
+            P->>DB: SELECT … FROM table_bq
+            DB->>BQ: _bq view query
+            BQ-->>DB: fallback rows
+            DB-->>P: rows
+            P-->>N: 200 (fallback)
+        end
+        N->>R: cache store
+        N-->>C: 200
     end
-
-    BQ -->|discover partitions| P
-    FIN -->|read_parquet| DB
-    DB -->|local read| PGRST[PostgREST]
-    PGRST -->|local or _bq read| Proxy[nginx proxy]
-    Cache[(Webdis)] <--> Proxy
-    PGRST -->|write access_policy| DB
-    Proxy -->|REST + JWT| Client([API Client])
 ```
 
 ### High Availability
@@ -100,3 +131,7 @@ flowchart TD
     API -->|write methods| PRW1
     PRW1 -->|local access_policy| PG1
 ```
+
+---
+
+[Home](../README.md) · [Next →](sync.md)

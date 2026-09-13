@@ -16,7 +16,7 @@ credentials.json
 gke_gcloud_auth_plugin_cache
 .pre-commit-config.yaml
 todo.txt
-.coverage
+.coverage*
 .testmondata*
 /nginx/build
 node_modules

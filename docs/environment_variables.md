@@ -1,41 +1,49 @@
 # Environment Variables
 
-All pipeline components (Producer, Dumper, Seeder, Publisher) read these variables.
+Application defaults below apply outside Helm. Helm can override them.
 
-| Variable                         | Default                                      | Description                                                                                                               |
-| -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `PG_DSN`                         | `postgresql://test:test@localhost:5432/test` | PostgreSQL connection string. In HA mode, use the leader's address.                                                                                       |
-| `REDIS_URL`                      | `redis://localhost:6379/0`                   | Valkey (Redis-compatible) connection URL for the task queue.                                                              |
-| `S3_BUCKET`                     | `test-bucket`                                | Name of the bucket that stores Parquet files.                                                                            |
-| `S3_ENDPOINT`                   | `localhost:8333`                             | S3 endpoint host and port. Leave empty to use the SeaweedFS gateway of the chart. Set to `host:port` for another server. |
-| `S3_USE_SSL`                    | `false`                                      | Set to `true` when the endpoint answers over HTTPS.                                                                       |
-| `S3_ACCESS_KEY`                 | `seaweedfs`                                  | Access key for S3 access.                                                                                                 |
-| `S3_SECRET_KEY`                 | `seaweedfs-local`                            | Secret key for S3 access.                                                                                                 |
-| `SYNC_CONFIG_PATH`               | `config/sync.json`                           | Path to the sync configuration file.                                                                                      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | —                                            | Path to a GCP service account JSON file for BigQuery access. Skip this variable on GKE with Workload Identity.            |
-| `DUMPER_VISIBILITY_TIMEOUT_MS`    | `900000`                                     | Time a dump task must stay pending before a new Dumper can reclaim it. Set a value longer than normal dump duration. |
-| `SEEDER_VISIBILITY_TIMEOUT_MS`    | `900000`                                     | Time a seed task must stay pending before a new Seeder can reclaim it. |
-| `PUBLISHER_VISIBILITY_TIMEOUT_MS` | `900000`                                     | Time a publish task must stay pending before a new Publisher can reclaim it. Set a value longer than normal publication duration. |
-| `AUTH_ANON_ROLE`                 | `anon`                                       | PostgreSQL role PostgREST uses for unauthenticated requests.                                                              |
-| `AUTH_USER_ROLE`                 | `user`                                       | PostgreSQL role PostgREST switches to for authenticated requests.                                                         |
-| `AUTH_AUTHENTICATOR_ROLE`        | `authenticator`                              | PostgreSQL login role PostgREST connects as.                                                                              |
-| `SCHEMA_WRITERS_FILE`            | `config/schema-writers/writers.json`         | Path to the schema-to-writer DSN mapping file.                                                                            |
-| `PUSHGATEWAY_URL`                | `http://pushgateway.data-proxy.svc.cluster.local:9091` | URL of the Prometheus Pushgateway endpoint for worker metrics.                                                              |
+| Variable                          | Application default                                               | Meaning                                                     |
+| --------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| `PG_DSN`                          | `postgresql://test:test@localhost:5432/test`                      | PostgreSQL DSN.                                             |
+| `REDIS_URL`                       | `redis://localhost:6379/0`                                        | Valkey stream and state URL.                                |
+| `S3_BUCKET`                       | `test-bucket`                                                     | Parquet bucket.                                             |
+| `S3_ENDPOINT`                     | `localhost:8333`                                                  | S3 endpoint host and port.                                  |
+| `S3_USE_SSL`                      | `false`                                                           | Use TLS for S3.                                             |
+| `S3_ACCESS_KEY`                   | `seaweedfs`                                                       | S3 access key.                                              |
+| `S3_SECRET_KEY`                   | `seaweedfs-local`                                                 | S3 secret key.                                              |
+| `SYNC_CONFIG_PATH`                | `config/sync.json`                                                | Sync configuration path.                                    |
+| `GOOGLE_APPLICATION_CREDENTIALS`  | —                                                                 | BigQuery service-account file. Omit with Workload Identity. |
+| `PRODUCER_POLL_INTERVAL_SECONDS`  | `60`                                                              | Active-run poll interval.                                   |
+| `DUMPER_MAX_RETRIES`              | `3`                                                               | Dumper retry limit.                                         |
+| `DUMPER_VISIBILITY_TIMEOUT_MS`    | `900000`                                                          | Application dump reclaim timeout.                           |
+| `SEEDER_VISIBILITY_TIMEOUT_MS`    | `900000`                                                          | Seed reclaim timeout.                                       |
+| `PUBLISHER_VISIBILITY_TIMEOUT_MS` | `7200000`                                                         | Publish reclaim timeout.                                    |
+| `DUMPER_BATCH_BYTES`              | `629145600`                                                       | Uncompressed batch target in bytes.                         |
+| `DUMPER_BATCH_MAX_PARTITIONS`     | `256`                                                             | Maximum partitions in one dump task.                        |
+| `DUMPER_SCRATCH_DIR`              | System temporary directory                                        | Local Parquet merge directory.                              |
+| `FALLBACK_ENABLED`                | `false`                                                           | Enable fallback views and proxy behavior.                   |
+| `FALLBACK_CACHE_REDIS_DB`         | `1`                                                               | Valkey database for fallback cache.                         |
+| `AUTH_ANON_ROLE`                  | `anon`                                                            | Unauthenticated PostgreSQL role.                            |
+| `AUTH_USER_ROLE`                  | `user`                                                            | Authenticated PostgreSQL role.                              |
+| `AUTH_AUTHENTICATOR_ROLE`         | `authenticator`                                                   | PostgREST login role.                                       |
+| `SCHEMA_WRITERS_FILE`             | `config/schema-writers/writers.json`                              | Schema writer DSN mapping.                                  |
+| `PUSHGATEWAY_URL`                 | `http://data-proxy-pushgateway.data-proxy.svc.cluster.local:9091` | Pushgateway URL.                                            |
 
-## Fallback configuration
+## Helm conversion
 
-The nginx fallback proxy does not use pipeline environment variables for its main settings. Configure it with Helm values under `fallback`.
-
-Important values are:
+Helm accepts the batch target as MiB:
 
 ```yaml
-fallback:
-  enabled: true
-  cacheTtl: 300
-  fetchBufferSize: 32m
-  fetchTimeout: 60s
-  cacheRedisDb: 1
-  maxCacheBodyBytes: 262144
+dumper:
+  batchMegaBytes: 600
 ```
 
-See [BigQuery Fallback](fallback.md) for the read path and cache behavior.
+The chart converts this value to `DUMPER_BATCH_BYTES` by multiplying it by `1048576`. The Helm Dumper timeout default is `3600000` ms, which overrides the application default.
+
+## Fallback
+
+Configure nginx fallback behavior with Helm values under `fallback`. See [Fallback](fallback.md) for request and cache behavior.
+
+---
+
+[← Previous](database.md) · [Home](../README.md) · [Next →](helm_chart.md)

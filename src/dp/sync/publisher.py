@@ -9,6 +9,7 @@ from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, RedisStreamMessage
 from psycopg import AsyncConnection
 
+from ..cache import clear_response_cache
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..errors import stop_on_error
 from ..loading import apply_sync_plan
@@ -18,7 +19,6 @@ from ..models import PublishTask, SyncConfig, SyncPlan
 from ..settings import settings
 from ..state import (
     build_table_states,
-    clear_response_cache,
     read_failed_paths,
     read_sync_plan,
 )

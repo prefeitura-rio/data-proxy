@@ -33,7 +33,6 @@ from .models import (
     TableState,
     task_outcome_adapter,
 )
-from .settings import settings
 
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
@@ -275,9 +274,3 @@ async def ensure_groups(redis: Redis) -> None:
     await create_consumer_group(redis, DUMP_STREAM, DUMPERS_GROUP)
     await create_consumer_group(redis, SEED_STREAM, SEEDERS_GROUP)
     await create_consumer_group(redis, PUBLISH_STREAM, PUBLISHERS_GROUP)
-
-
-async def clear_response_cache(db: int = 1) -> None:
-    """Flush the response cache database after a successful sync."""
-    async with settings.redis(db=db) as r:
-        await r.flushdb()  # pyright: ignore[reportUnknownMemberType]

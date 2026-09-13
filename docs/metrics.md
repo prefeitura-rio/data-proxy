@@ -1,70 +1,59 @@
 # Metrics
 
-Data Proxy pushes Prometheus metrics to a Pushgateway endpoint after each worker invocation. Set `PUSHGATEWAY_URL` to the Pushgateway address. The push is fire-and-forget: connection or HTTP errors are logged at debug level and swallowed.
+Workers push the current metric registry to Pushgateway after execution. Push failures are logged and ignored.
 
-## Proxy request logs
+## Worker metrics
 
-The nginx fallback proxy does not push request metrics to Pushgateway. It writes one structured JSON request log for each handled request.
+| Metric                           | Labels             | Meaning                                                                   |
+| -------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| `dump_tasks_total`               | `table`, `status`  | Dump tasks. Status: `success` or `failure`.                               |
+| `dump_task_duration_seconds`     | `table`            | Dump duration.                                                            |
+| `publish_tables_total`           | `schema`, `status` | Published tables. Status: `success` or `failure`.                         |
+| `publish_table_duration_seconds` | `table`            | Schema publication duration recorded for each published table.            |
+| `seed_runs_total`                | `status`           | Seed runs. Current status: `success`.                                     |
+| `producer_runs_total`            | `status`           | Producer runs. Status: `success`, `no_changes`, or `active_run_conflict`. |
 
-| Field | Unit | Description |
-| --- | --- | --- |
-| `source` | — | `cache`, `postgrest`, `bigquery`, or `none`. |
-| `status` | HTTP status | Response status. |
-| `wait_ms` | milliseconds | Proxy request duration. |
-| `bytes` | bytes | Response body size. |
+## Proxy logs
 
-The proxy returns `X-Source` and `X-Cache` response headers. Use the headers in a client or load test. Use structured logs for proxy request analysis.
+The fallback proxy writes one JSON request log per request.
 
-## Available metrics
+| Field     | Meaning                                      |
+| --------- | -------------------------------------------- |
+| `source`  | `cache`, `postgrest`, `bigquery`, or `none`. |
+| `status`  | HTTP status.                                 |
+| `wait_ms` | Request duration in milliseconds.            |
+| `bytes`   | Response size.                               |
 
-| Metric                           | Type      | Labels             | Description                                                                                                |
-| -------------------------------- | --------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `dump_tasks_total`               | Counter   | `table`, `status`  | Total dump tasks processed. `status` is `success` or `failure`.                                            |
-| `dump_task_duration_seconds`     | Histogram | `table`            | Dump task duration in seconds.                                                                             |
-| `publish_tables_total`           | Counter   | `schema`, `status` | Total tables published. `status` is `success` or `failure`.                                                |
-| `publish_table_duration_seconds` | Histogram | `table`            | Table publication duration in seconds.                                                                     |
-| `seed_runs_total`                | Counter   | `status`           | Total seed runs processed. `status` is `success`, `recovered`, `no_changes`, or `active_run_conflict`.     |
-| `producer_runs_total`            | Counter   | `status`           | Total producer runs processed. `status` is `success`, `recovered`, `no_changes`, or `active_run_conflict`. |
+Use API response headers for client troubleshooting. Use logs for request analysis. See [Using the API](using.md#response-source-and-cache).
 
-## Push pattern
+## Load profile limits
 
-Each worker decorator (`@tracker("dumper")`, `@tracker("publisher")`, etc.) pushes all registered metrics to the Pushgateway after the worker function completes. The Pushgateway holds metrics between scrapes. Prometheus scrapes the Pushgateway on its configured interval.
-
-The push uses the worker name as the Prometheus job label. This separates metrics by worker type in the Pushgateway.
+| Source            | p95 limit |
+| ----------------- | --------- |
+| Cache             | 50 ms     |
+| Local PostgREST   | 300 ms    |
+| BigQuery fallback | 4000 ms   |
 
 ## Scraping
-
-Configure Prometheus to scrape the Pushgateway:
 
 ```yaml
 scrape_configs:
   - job_name: pushgateway
     static_configs:
-      - targets: ["pushgateway.data-proxy.svc.cluster.local:9091"]
+      - targets: ["<release>-pushgateway.<namespace>.svc.cluster.local:9091"]
 ```
 
-## Example queries
-
-Total dump tasks by table and status:
+## Queries
 
 ```promql
 sum by (table, status) (dump_tasks_total)
 ```
 
-Average dump duration by table:
-
 ```promql
-rate(dump_task_duration_seconds_sum[5m]) / rate(dump_task_duration_seconds_count[5m])
+sum by (schema) (publish_tables_total{status="success"})
+  / sum by (schema) (publish_tables_total)
 ```
 
-Publication success rate:
+---
 
-```promql
-sum by (schema) (publish_tables_total{status="success"}) / sum by (schema) (publish_tables_total)
-```
-
-Producer run outcomes:
-
-```promql
-sum by (status) (producer_runs_total)
-```
+[← Previous](helm_chart.md) · [Home](../README.md) · [Next →](backups.md)
