@@ -2,71 +2,20 @@
 
 from typing import assert_never
 
-from psycopg import Connection
-from psycopg.sql import SQL, Composable, Identifier, Literal
+from psycopg import AsyncConnection
+from psycopg.sql import Identifier, Literal
 
+from .conditions import schema_scope_condition, unit_access_condition
+from .executor import execute_sql
 from .models import UnitMapping
 from .settings import settings
-from .templates import render_template
 
 
-def claim_session_var(claim: str) -> Literal:
-    """Return the session variable for one mirrored JWT claim."""
-    return Literal(f"app.claim_{claim}")
-
-
-def schema_scope_predicate(schema: str) -> Composable:
-    """Return the predicate that requires one schema claim."""
-    return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
-        Literal(schema), claim_session_var("schemas")
-    )
-
-
-def unit_predicate(mappings: list[UnitMapping]) -> Composable:
-    """Return the predicate that matches any configured unit column."""
-    return SQL(" OR ").join(
-        SQL("(p.unit_type = {} AND p.unit_id = {}::text)").format(
-            Literal(mapping.unit_type), Identifier(mapping.column)
-        )
-        for mapping in mappings
-    )
-
-
-def table_access_policy_statement(
-    schema: str,
-    table_name: str,
-    rls: list[UnitMapping],
-    claim: str,
-) -> str:
-    """Render one access-policy RLS statement."""
-    return render_template(
-        path="postgres/access_policy_check",
-        mapping={
-            "schema": Identifier(schema),
-            "table": Identifier(table_name),
-            "session_var": claim_session_var(claim),
-            "predicate": unit_predicate(rls),
-            "scope": schema_scope_predicate(schema),
-        },
-    )
-
-
-def schema_scope_statement(schema: str, table_name: str) -> str:
-    """Render one schema-scope RLS statement."""
-    return render_template(
-        path="postgres/schema_scope_check",
-        mapping={
-            "schema": Identifier(schema),
-            "table": Identifier(table_name),
-            "scope": schema_scope_predicate(schema),
-        },
-    )
-
-
-def access_policy_writer_statement(schema: str) -> str:
-    """Render one schema policy-writer statement."""
-    return render_template(
-        path="postgres/access_policy_writer",
+async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> None:
+    """Create one schema policy-writer role when it is missing."""
+    await execute_sql(
+        pg_conn,
+        "postgres/access_policy_writer",
         mapping={
             "schema": Identifier(schema),
             "policy_writer_role": Identifier(f"policy_writer_{schema}"),
@@ -76,41 +25,49 @@ def access_policy_writer_statement(schema: str) -> str:
     )
 
 
-def ensure_schema_policy_writer(pg_conn: Connection, schema: str) -> None:
-    """Create one schema policy-writer role when it is missing."""
-    pg_conn.execute(access_policy_writer_statement(schema).encode())
-
-
-def bootstrap_table(
-    pg_conn: Connection,
+async def bootstrap_table(
+    pg_conn: AsyncConnection,
     schema: str,
     table_name: str,
     rls: list[UnitMapping] | None,
     claim: str | None,
 ) -> None:
     """Apply table grants and optional row-level security."""
-    statements = [
-        render_template(
-            path="postgres/grant_select",
-            mapping={
-                "schema": Identifier(schema),
-                "table": Identifier(table_name),
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-            },
-        )
-    ]
+    await execute_sql(
+        pg_conn,
+        "postgres/grant_select",
+        mapping={
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
+            "user_role": Identifier(settings.AUTH_USER_ROLE),
+        },
+    )
 
     match rls:
         case list():
             if claim is None:
                 message = f"Schema {schema} has no configured identity claim for RLS"
                 raise RuntimeError(message)
-            statements.append(
-                table_access_policy_statement(schema, table_name, rls, claim)
+            await execute_sql(
+                pg_conn,
+                "postgres/access_policy_check",
+                mapping={
+                    "schema": Identifier(schema),
+                    "table": Identifier(table_name),
+                    "session_var": Literal(f"app.claim_{claim}"),
+                    "predicate": unit_access_condition(rls),
+                    "scope": schema_scope_condition(schema),
+                },
             )
         case None:
-            statements.append(schema_scope_statement(schema, table_name))
+            await execute_sql(
+                pg_conn,
+                "postgres/schema_scope_statement",
+                mapping={
+                    "schema": Identifier(schema),
+                    "table": Identifier(table_name),
+                    "scope": schema_scope_condition(schema),
+                },
+            )
         case _:
             assert_never(rls)
-
-    pg_conn.execute(";".join(statements).encode())

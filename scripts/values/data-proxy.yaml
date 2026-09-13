@@ -63,6 +63,11 @@ swaggerUi:
 worker:
   keda:
     lagCount: "7"
+## Each dev partition is about 30 KB, so this target puts several of them in one
+## Parquet file. That keeps the batch path that carries many partitions exercised
+## by every end to end run instead of by none of them.
+dumper:
+  batchMegaBytes: 60000
 syncConfig:
   schemas:
     pic:

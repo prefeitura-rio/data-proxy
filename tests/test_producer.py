@@ -4,17 +4,27 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from duckdb import connect
+from duckdb import connect as connect_duckdb
 from redis.asyncio import Redis
 
-from dp.models import AllSelection, DumpTask, SyncWork
-from dp.sync.dumper import dump_task, dumper
-from dp.sync.producer import produce, producer
-from dp.sync.seeder import seed_sync
+from dp.constants import DUMP_STREAM, SEED_STREAM
+from dp.models import AllSelection, DumpTask, SeedTask, SyncWork
+from dp.sync.producer import produce_tasks, producer
 from tests.helpers import dump as make_dump
 from tests.helpers import sync_plan
 
-pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
+
+@pytest.fixture(autouse=True)
+def producer_services(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("dp.utils.clear_s3_bucket", AsyncMock())
+    monkeypatch.setattr("dp.sync.producer.ensure_groups", AsyncMock())
+    monkeypatch.setattr(
+        "dp.sync.producer.connect_duckdb",
+        AsyncMock(return_value=connect_duckdb(":memory:")),
+    )
+
+
+pytestmark = pytest.mark.usefixtures("test_settings", "metrics_disabled")
 
 
 class TestProducer:
@@ -36,13 +46,10 @@ class TestProducer:
     ) -> None:
         """
         GIVEN: no changes detected by build_sync_work.
-        WHEN: produce runs.
+        WHEN: produce_tasks runs.
         THEN: the producer application exits.
         """
         with (
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -50,7 +57,7 @@ class TestProducer:
             ),
             patch.object(producer, "exit") as exit_app,
         ):
-            await produce()
+            await produce_tasks()
 
         exit_app.assert_called_once()
 
@@ -63,19 +70,16 @@ class TestProducer:
     ) -> None:
         """
         GIVEN: a sync work with dump tasks.
-        WHEN: produce runs.
+        WHEN: produce_tasks runs.
         THEN: each dump task is published.
         """
         task = DumpTask(
             run_id="run",
             table="p.d.t",
             bucket_path="s3://b/t",
-            selection=AllSelection(),
+            selections=[AllSelection()],
         )
         with (
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -92,16 +96,14 @@ class TestProducer:
             patch(
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
-            patch("dp.sync.dumper.extract_task"),
-            patch(
-                "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(dumper, "exit"),
+            patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
             patch.object(producer, "exit"),
         ):
-            await produce()
-        assert dump_task.mock.call_count == 1
-        dump_task.mock.assert_called_with(task.model_dump(mode="json"))
+            await produce_tasks()
+
+        published = publish.call_args.args[0]
+        assert published == task
+        assert publish.call_args.kwargs["stream"] == DUMP_STREAM
 
     @pytest.mark.asyncio
     async def test_producer_recovers_run_with_zero_remaining_tasks(
@@ -112,7 +114,7 @@ class TestProducer:
     ) -> None:
         """
         GIVEN: an active run with zero remaining tasks.
-        WHEN: produce runs.
+        WHEN: produce_tasks runs.
         THEN: the producer recovers the run and publishes a seed sync.
         """
         with (
@@ -127,21 +129,18 @@ class TestProducer:
                 return_value=0,
             ),
             patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
                 return_value=SyncWork([], []),
             ),
+            patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
             patch.object(producer, "exit"),
         ):
-            await produce()
+            await produce_tasks()
 
         sleep.assert_awaited_with(60)
-        assert seed_sync.mock.call_count == 1
-        seed_sync.mock.assert_called_with({"run_id": "old"})
+        publish.assert_awaited_once_with(SeedTask(run_id="old"), stream=SEED_STREAM)
 
     @pytest.mark.asyncio
     async def test_producer_waits_for_active_pipeline_before_dispatch(
@@ -177,9 +176,6 @@ class TestProducer:
                 return_value=2,
             ),
             patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -191,13 +187,13 @@ class TestProducer:
             patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
             patch.object(producer, "exit"),
         ):
-            await produce()
+            await produce_tasks()
 
         sleep.assert_awaited_once_with(60)
         publish.assert_awaited_once_with(task, stream="dp:extract")
 
     @pytest.mark.asyncio
-    async def test_producer_publishes_seed_sync_when_no_dumps(
+    async def test_producer_publishes_seed_publication_when_no_dumps(
         self,
         sync_config_path: Path,
         redis: Redis,
@@ -205,13 +201,10 @@ class TestProducer:
     ) -> None:
         """
         GIVEN: a sync work with plans but zero dump tasks.
-        WHEN: produce runs.
+        WHEN: produce_tasks runs.
         THEN: the producer publishes a seed sync for the run.
         """
         with (
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -228,11 +221,15 @@ class TestProducer:
             patch(
                 "dp.sync.producer.create_run", new_callable=AsyncMock, return_value=True
             ),
+            patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
             patch.object(producer, "exit"),
         ):
-            await produce()
-        assert seed_sync.mock.call_count == 1
-        assert all(call.args[0]["run_id"] for call in seed_sync.mock.call_args_list)
+            await produce_tasks()
+
+        publish.assert_awaited_once()
+        message = publish.call_args.args[0]
+        assert isinstance(message, SeedTask)
+        assert message.run_id
 
     @pytest.mark.asyncio
     async def test_producer_rejects_run_creation_conflict(
@@ -242,13 +239,10 @@ class TestProducer:
     ) -> None:
         """
         GIVEN: a run creation conflict where create_run returns False.
-        WHEN: produce runs.
+        WHEN: produce_tasks runs.
         THEN: the producer rejects the new run without publishing dumps.
         """
         with (
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch("dp.sync.producer.ensure_groups", new_callable=AsyncMock),
-            patch("dp.sync.producer.connect", return_value=connect(":memory:")),
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -269,4 +263,4 @@ class TestProducer:
             ),
             patch.object(producer, "exit"),
         ):
-            await produce()
+            await produce_tasks()

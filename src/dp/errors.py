@@ -10,6 +10,7 @@ from dp.log import logger
 from dp.models import DumpFailure, DumpTask
 from dp.settings import settings
 from dp.state import complete_dump
+from dp.state_machines import worker_state
 
 type Publish = Callable[..., Awaitable[object]]
 
@@ -38,6 +39,7 @@ async def retry_or_stop(
 
 
 async def stop_on_error(error: Exception) -> NoReturn:
-    """Log a subscriber failure, then stop the process."""
+    """Log a subscriber failure, record it, and stop the process."""
     logger.exception("Subscriber failed")
+    worker_state.send("fail")
     raise StopApplication(1) from error

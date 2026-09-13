@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import hypothesis
 import pytest
-from duckdb import DuckDBPyConnection, connect
+from duckdb import DuckDBPyConnection
+from duckdb import connect as connect_duckdb
 from google.cloud.bigquery import Client
 from hypothesis import strategies as st
 
@@ -30,7 +31,8 @@ from dp.planning import (
     detect_changes,
     discover_json_columns,
     expand_config,
-    partition_changes,
+    find_partition_changes,
+    group_partitions,
     plan_partitioned_table,
     plan_partitioned_tables,
     table_signature,
@@ -92,7 +94,7 @@ class TestPlanningPlanPartitioned:
                 (settings.redis()),
                 "r",
                 "b",
-                connect(":memory:"),
+                connect_duckdb(":memory:"),
             )
 
         assert plan is not None
@@ -128,7 +130,7 @@ class TestPlanningPlanPartitioned:
             ),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis()), "r", "b", connect(":memory:")
+                config, (settings.redis()), "r", "b", connect_duckdb(":memory:")
             )
         assert plans == {"p.d.t": table_plan}
         assert tasks == []
@@ -158,7 +160,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await build_sync_work(
-                config, (settings.redis()), "r1", "b", connect(":memory:")
+                config, (settings.redis()), "r1", "b", connect_duckdb(":memory:")
             )
         assert result == SyncWork(plans=[], tasks=[])
 
@@ -172,7 +174,7 @@ class TestPlanningBuildSync:
         THEN: it groups the full table task by schema.
         """
         config = sync_config([FullTable(name="p.app.t")])
-        task = config.tables[0].to_task("r1", "b", AllSelection())
+        task = config.tables[0].to_task("r1", "b", [AllSelection()])
         with (
             patch(
                 "dp.planning.detect_changes",
@@ -187,7 +189,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await build_sync_work(
-                config, (settings.redis()), "r1", "b", connect(":memory:")
+                config, (settings.redis()), "r1", "b", connect_duckdb(":memory:")
             )
         assert len(result.plans) == 1
         assert result.plans[0].schema_name == "app"
@@ -225,7 +227,7 @@ class TestPlanning:
             ),
         ):
             work = await build_sync_work(
-                config, (settings.redis()), "r", "b", connect(":memory:")
+                config, (settings.redis()), "r", "b", connect_duckdb(":memory:")
             )
         assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
@@ -284,10 +286,10 @@ class TestPlanning:
     ) -> None:
         """
         GIVEN: current partitions and a stored manifest with various change scenarios.
-        WHEN: partition_changes is called.
+        WHEN: find_partition_changes is called.
         THEN: it returns the correct rebuild, changed, and removed sets.
         """
-        result = partition_changes(
+        result = find_partition_changes(
             {"1": planning_partition("1", "new")},
             case.stored,
             case.signature,
@@ -298,7 +300,8 @@ class TestPlanning:
             case.removed,
         )
 
-    def test_expand_config_discovers_json_columns_for_full_tables(
+    @pytest.mark.asyncio
+    async def test_expand_config_discovers_json_columns_for_full_tables(
         self, duckdb: DuckDBPyConnection
     ) -> None:
         """
@@ -307,8 +310,12 @@ class TestPlanning:
         THEN: tasks have empty json_columns and the table signature is derived from the modified column.
         """
         config: list[TableConfig] = [FullTable(name="p.d.t")]
-        with patch("dp.planning.discover_json_columns", return_value=[]):
-            tasks = expand_config(config, "bucket", "run", duckdb)
+        with patch(
+            "dp.planning.discover_json_columns",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            tasks = await expand_config(config, "bucket", "run", duckdb)
         assert tasks[0].json_columns == []
         assert table_signature(config[0], None, "modified").startswith("modified:")
 
@@ -329,7 +336,34 @@ class TestPlanning:
         batch = build_partition_tasks(table, current, set(current), "run", "bucket", [])
         assert list(batch.paths) == ["2", "10", "__NULL__"]
 
-    def test_discover_json_columns_returns_only_struct_columns(
+    def test_build_partition_tasks_groups_partitions_into_batches(
+        self,
+    ) -> None:
+        """
+        GIVEN: four partitions of 300 MB each and a 500 MB target.
+        WHEN: build_partition_tasks is called.
+        THEN: it returns one task for each pair and maps both ids to that batch.
+        """
+        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        current = {
+            partition_id: planning_partition(partition_id, logical_bytes=300)
+            for partition_id in ("1", "2", "3", "4")
+        }
+        with patch.object(settings, "DUMPER_BATCH_BYTES", 500):
+            batch = build_partition_tasks(
+                table, current, set(current), "run", "bucket", []
+            )
+
+        assert batch.paths == {
+            "1": "s3://bucket/app/t/batches/0/data.parquet",
+            "2": "s3://bucket/app/t/batches/1/data.parquet",
+            "3": "s3://bucket/app/t/batches/2/data.parquet",
+            "4": "s3://bucket/app/t/batches/3/data.parquet",
+        }
+        assert [len(task.selections) for task in batch.tasks] == [1, 1, 1, 1]
+
+    @pytest.mark.asyncio
+    async def test_discover_json_columns_returns_only_struct_columns(
         self, duckdb: DuckDBPyConnection
     ) -> None:
         """
@@ -337,9 +371,104 @@ class TestPlanning:
         WHEN: discover_json_columns is called.
         THEN: it returns only the STRUCT column name.
         """
-        duckdb.execute("CREATE TABLE source (a STRUCT(x INTEGER), b VARCHAR)")
-        with patch("dp.planning.render_template", return_value="DESCRIBE source"):
-            assert discover_json_columns(duckdb, "p.d.t") == ["a"]
+        rows = MagicMock()
+        rows.fetchall.return_value = [
+            ("a", "STRUCT(x INTEGER)"),
+            ("b", "VARCHAR"),
+        ]
+        with patch(
+            "dp.planning.execute_sql",
+            new_callable=AsyncMock,
+            return_value=rows,
+        ):
+            assert await discover_json_columns(duckdb, "p.d.t") == ["a"]
+
+    def test_partition_changes_ignores_new_partition_metadata(
+        self,
+    ) -> None:
+        """
+        GIVEN: a stored partition without the byte metadata of the current one.
+        WHEN: find_partition_changes is called.
+        THEN: the signature decides the change, so the partition is unchanged.
+        """
+        stored = PartitionManifest(
+            table_signature="s", partitions={"1": planning_partition("1", "sig")}
+        )
+        result = find_partition_changes(
+            {"1": planning_partition("1", "sig", logical_bytes=999)}, stored, "s"
+        )
+        assert (result.full_rebuild, result.changed) == (False, set())
+
+    def test_batch_partitions_closes_after_the_target(
+        self,
+    ) -> None:
+        """
+        GIVEN: partition sizes and a byte target.
+        WHEN: group_partitions is called.
+        THEN: it closes each batch after the partition that reaches the target.
+        """
+        sizes = {"1": 300, "2": 300, "3": 300, "4": 100}
+        current = {
+            partition_id: planning_partition(partition_id, logical_bytes=size)
+            for partition_id, size in sizes.items()
+        }
+        assert group_partitions(list(sizes), current, 500, 10) == [
+            ["1"],
+            ["2"],
+            ["3", "4"],
+        ]
+
+    def test_batch_partitions_keeps_a_single_oversized_partition(
+        self,
+    ) -> None:
+        """
+        GIVEN: one partition larger than the byte target.
+        WHEN: group_partitions is called.
+        THEN: the partition forms one batch of its own when strict mode is disabled.
+        """
+        current = {"1": planning_partition("1", logical_bytes=900)}
+        assert group_partitions(["1"], current, 500, 10) == [["1"]]
+
+    def test_batch_partitions_keeps_the_remainder_in_the_last_batch(
+        self,
+    ) -> None:
+        """
+        GIVEN: partitions that never reach the byte target.
+        WHEN: group_partitions is called.
+        THEN: one batch holds all of them and the last one is below the target.
+        """
+        current = {
+            partition_id: planning_partition(partition_id, logical_bytes=10)
+            for partition_id in ("1", "2", "3")
+        }
+        assert group_partitions(["1", "2", "3"], current, 500, 10) == [["1", "2", "3"]]
+
+    def test_batch_partitions_caps_a_partition_set_below_the_target(
+        self,
+    ) -> None:
+        """
+        GIVEN: empty partitions that never reach the byte target.
+        WHEN: group_partitions is called with a partition cap.
+        THEN: the cap closes each batch.
+        """
+        current = {
+            partition_id: planning_partition(partition_id, logical_bytes=0)
+            for partition_id in ("1", "2", "3")
+        }
+        assert group_partitions(["1", "2", "3"], current, 500, 2) == [
+            ["1", "2"],
+            ["3"],
+        ]
+
+    def test_batch_partitions_returns_nothing_for_no_partitions(
+        self,
+    ) -> None:
+        """
+        GIVEN: no changed partitions.
+        WHEN: group_partitions is called.
+        THEN: it returns no batches.
+        """
+        assert group_partitions([], {}, 500, 10) == []
 
     @pytest.mark.asyncio
     async def test_detect_changes_filters_unchanged_and_partitioned(
@@ -401,7 +530,7 @@ class TestPlanning:
                 (settings.redis()),
                 "run",
                 "bucket",
-                connect(":memory:"),
+                connect_duckdb(":memory:"),
             )
         assert plan is None
         assert tasks == []
@@ -419,7 +548,7 @@ class TestPlanning:
             return_value=nullcontext(MagicMock(return_value=bigquery)),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis()), "run", "bucket", connect(":memory:")
+                config, (settings.redis()), "run", "bucket", connect_duckdb(":memory:")
             )
         assert plans == {}
         assert tasks == []

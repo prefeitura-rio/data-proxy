@@ -2,19 +2,19 @@
 
 from collections.abc import Callable
 
-import psycopg
-from psycopg import Connection
+from psycopg import AsyncConnection
 from psycopg.sql import Identifier
 
-from .authorization import ensure_schema_policy_writer, schema_scope_predicate
+from .authorization import ensure_schema_policy_writer
+from .conditions import schema_scope_condition
+from .executor import execute_sql
 from .models import SchemaConfig, SyncConfig, SyncPlan
 from .settings import settings
-from .templates import execute_sql
 
 
-def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
+async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> None:
     """Create roles and application schemas before publication."""
-    execute_sql(
+    await execute_sql(
         pg_conn,
         "postgres/init_roles",
         mapping={
@@ -26,51 +26,55 @@ def initialize_schemas(pg_conn: Connection, config: SyncConfig) -> None:
     )
 
     for schema in config.schemas:
-        execute_sql(
+        await execute_sql(
             pg_conn,
             "postgres/init_schema",
             mapping={
                 "rls_schema": Identifier("rls"),
                 "schema": Identifier(schema),
                 "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "scope": schema_scope_predicate(schema),
+                "scope": schema_scope_condition(schema),
             },
         )
-        execute_sql(
+
+        await execute_sql(
             pg_conn,
             "postgres/init_access_policy",
             mapping={
                 "schema": Identifier(schema),
                 "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "scope": schema_scope_predicate(schema),
+                "scope": schema_scope_condition(schema),
             },
         )
-        ensure_schema_policy_writer(pg_conn, schema)
 
-    pg_conn.commit()
+        await ensure_schema_policy_writer(pg_conn, schema)
+
+    await pg_conn.commit()
 
 
-def initialize_schemas_for_plans(
+async def initialize_schemas_for_plans(
     plans: list[SyncPlan],
     writers_dsn: Callable[[str], str],
     sync_schemas: dict[str, SchemaConfig],
 ) -> None:
-    """Group schemas by writer DSN and initialize each group"""
+    """Group schemas by writer DSN and initialize each group."""
     by_dsn: dict[str, list[str]] = {}
+
     for plan in plans:
         by_dsn.setdefault(writers_dsn(plan.schema_name), []).append(plan.schema_name)
+
     for dsn, schemas in by_dsn.items():
-        with psycopg.connect(dsn) as conn:
-            initialize_schemas(
+        async with await AsyncConnection.connect(dsn) as conn:
+            await initialize_schemas(
                 conn,
                 SyncConfig(schemas={name: sync_schemas[name] for name in schemas}),
             )
 
 
-def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:
+async def reload_postgrest(pg_conn: AsyncConnection, config: SyncConfig) -> None:
     """Revoke anonymous access and request a schema reload."""
     for schema in config.schemas:
-        execute_sql(
+        await execute_sql(
             pg_conn,
             "postgres/revoke_anon",
             mapping={
@@ -79,4 +83,4 @@ def reload_postgrest(pg_conn: Connection, config: SyncConfig) -> None:
             },
         )
 
-    pg_conn.execute(b"NOTIFY pgrst, 'reload schema'")
+    await execute_sql(pg_conn, "postgres/reload_schema")

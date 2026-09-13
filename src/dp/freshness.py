@@ -2,16 +2,17 @@
 
 from collections.abc import Collection, Mapping
 
-from psycopg import Connection
+from psycopg import AsyncConnection
 from psycopg.sql import Identifier
 from whenever import Instant
 
-from .models import SyncPlan, TableConfig
-from .templates import SQLParam, execute_sql
+from .executor import SQLParam, execute_sql
+from .models import PartitionedTablePlan, SyncPlan, TableConfig
+from .utils import atomic
 
 
-def upsert_freshness(
-    pg_conn: Connection,
+async def upsert_freshness(
+    pg_conn: AsyncConnection,
     table: TableConfig,
     partitions: Collection[str | None],
     attempted_at: Instant,
@@ -25,8 +26,8 @@ def upsert_freshness(
     attempted_datetime = attempted_at.to_stdlib()
     updated_at = attempted_datetime if success else None
 
-    with pg_conn.cursor() as cursor:
-        execute_sql(
+    async with pg_conn.cursor() as cursor:
+        await execute_sql(
             cursor,
             "postgres/upsert_freshness",
             mapping={"schema": Identifier(table.resolved_schema)},
@@ -44,15 +45,15 @@ def upsert_freshness(
         )
 
 
-def delete_partition_freshness(
-    pg_conn: Connection, table: TableConfig, partitions: Collection[str]
+async def delete_partition_freshness(
+    pg_conn: AsyncConnection, table: TableConfig, partitions: Collection[str]
 ) -> None:
     """Delete freshness for removed partitions."""
     if not partitions:
         return
 
-    with pg_conn.cursor() as cursor:
-        execute_sql(
+    async with pg_conn.cursor() as cursor:
+        await execute_sql(
             cursor,
             "postgres/delete_partition_freshness",
             mapping={"schema": Identifier(table.resolved_schema)},
@@ -63,9 +64,9 @@ def delete_partition_freshness(
         )
 
 
-def delete_table_freshness(pg_conn: Connection, table: TableConfig) -> None:
+async def delete_table_freshness(pg_conn: AsyncConnection, table: TableConfig) -> None:
     """Delete all freshness rows for one table."""
-    execute_sql(
+    await execute_sql(
         pg_conn,
         "postgres/delete_table_freshness",
         mapping={"schema": Identifier(table.resolved_schema)},
@@ -73,8 +74,8 @@ def delete_table_freshness(pg_conn: Connection, table: TableConfig) -> None:
     )
 
 
-def update_published_freshness(
-    pg_conn: Connection,
+async def update_published_freshness(
+    pg_conn: AsyncConnection,
     table: TableConfig,
     plan: SyncPlan,
     failed_partitions: set[str],
@@ -84,30 +85,47 @@ def update_published_freshness(
     partitioned = plan.partitioned_tables.get(table.name)
 
     if partitioned is None:
-        delete_table_freshness(pg_conn, table)
-        upsert_freshness(pg_conn, table, {None}, attempted_at, success=True)
+        await delete_table_freshness(pg_conn, table)
+        await upsert_freshness(pg_conn, table, {None}, attempted_at, success=True)
         return
 
     if partitioned.full_rebuild:
-        delete_table_freshness(pg_conn, table)
+        await delete_table_freshness(pg_conn, table)
         successful = partitioned.current_partitions.keys()
     else:
         successful = partitioned.changed_paths.keys()
 
     if successful:
-        upsert_freshness(pg_conn, table, successful, attempted_at, success=True)
+        await upsert_freshness(pg_conn, table, successful, attempted_at, success=True)
 
     if failed_partitions:
-        upsert_freshness(pg_conn, table, failed_partitions, attempted_at, success=False)
+        await upsert_freshness(
+            pg_conn, table, failed_partitions, attempted_at, success=False
+        )
 
     if partitioned.removed_partitions:
-        delete_partition_freshness(
+        await delete_partition_freshness(
             pg_conn, table, partitioned.removed_partitions.keys()
         )
 
 
-def record_table_failures(
-    pg_conn: Connection,
+def failure_partitions(
+    table: TableConfig,
+    partitioned: PartitionedTablePlan | None,
+    partitions_by_table: Mapping[str, Collection[str | None]] | None,
+) -> Collection[str | None]:
+    """Return the partitions to mark failed for one table."""
+    if partitions_by_table and table.name in partitions_by_table:
+        return partitions_by_table[table.name]
+
+    if partitioned is not None:
+        return partitioned.changed_paths.keys()
+
+    return {None}
+
+
+async def record_table_failures(
+    pg_conn: AsyncConnection,
     tables: list[TableConfig],
     plan: SyncPlan,
     attempted_at: Instant,
@@ -122,13 +140,7 @@ def record_table_failures(
 
     for table in tables:
         partitioned = plan.partitioned_tables.get(table.name)
-        partitions = (
-            partitions_by_table[table.name]
-            if partitions_by_table and table.name in partitions_by_table
-            else partitioned.changed_paths.keys()
-            if partitioned
-            else {None}
-        )
+        partitions = failure_partitions(table, partitioned, partitions_by_table)
 
         rows.extend(
             (
@@ -142,8 +154,8 @@ def record_table_failures(
             for partition in partitions
         )
 
-    with pg_conn.transaction(), pg_conn.cursor() as cursor:
-        execute_sql(
+    async with atomic(pg_conn), pg_conn.cursor() as cursor:
+        await execute_sql(
             cursor,
             "postgres/upsert_freshness",
             mapping={"schema": Identifier(tables[0].resolved_schema)},

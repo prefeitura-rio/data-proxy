@@ -81,7 +81,7 @@ async def push_to_gateway(url: str, job: str) -> None:
 def record_publication_metrics(
     result: PublicationResult, schema_name: str, duration: float
 ) -> None:
-    """Record publication success, failure, and duration metrics"""
+    """Record publication success, failure, and duration metrics."""
     for table_name in result.published_tables:
         metrics.publish_tables_total.labels(schema=schema_name, status="success").inc()
         metrics.publish_table_duration_seconds.labels(table=table_name).observe(

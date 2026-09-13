@@ -42,10 +42,15 @@ class ContextFormatter(Formatter):
             parts.append(f"schema={schema}")
 
         prefix = f"[{' '.join(parts)}] " if parts else ""
-        return (
+        message = (
             f"{self.formatTime(record, self.datefmt)} {record.levelname} "
             f"{prefix}{record.getMessage()}"
         )
+
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+
+        return message
 
 
 def elapsed_ms(started: float) -> int:

@@ -20,6 +20,8 @@ dependencies = [
   "prometheus-client>=0.26.0",
   "aiobotocore>=3.9.0",
   "minio>=7.2.20",
+  "python-statemachine>=3.2.1",
+  "more-itertools>=11.1.0",
 ]
 
 [dependency-groups]

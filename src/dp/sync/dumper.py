@@ -1,12 +1,10 @@
 """FastStream dumper application for BigQuery extraction."""
 
 from time import monotonic
-from uuid import uuid4
 
 import uvloop
-from asyncer import asyncify
 from faststream import FastStream, Logger
-from faststream.redis import RedisBroker, StreamSub
+from faststream.redis import RedisBroker
 
 from ..constants import DUMP_STREAM, DUMPERS_GROUP, SEED_STREAM
 from ..errors import retry_or_stop
@@ -15,7 +13,9 @@ from ..log import elapsed_ms, logger, runid, tablename
 from ..metrics import metrics, tracker
 from ..models import DumpSuccess, DumpTask, SeedTask
 from ..settings import settings
-from ..state import cleanup_consumer, complete_dump
+from ..state import complete_dump
+from ..state_machines import worker_state
+from ..utils import remove_idle_consumers, stream_subscriptions
 
 broker = RedisBroker(
     str(settings.REDIS_URL),
@@ -24,23 +24,9 @@ broker = RedisBroker(
 
 dumper = FastStream(broker, logger=logger)
 
-subs = {
-    "new": StreamSub(
-        DUMP_STREAM,
-        group=DUMPERS_GROUP,
-        consumer=str(uuid4()),
-        max_records=1,
-        polling_interval=30,
-    ),
-    "stale": StreamSub(
-        DUMP_STREAM,
-        group=DUMPERS_GROUP,
-        consumer=str(uuid4()),
-        max_records=1,
-        polling_interval=30,
-        min_idle_time=settings.DUMPER_VISIBILITY_TIMEOUT_MS,
-    ),
-}
+subs = stream_subscriptions(
+    DUMP_STREAM, DUMPERS_GROUP, settings.DUMPER_VISIBILITY_TIMEOUT_MS
+)
 
 
 @broker.subscriber(stream=subs["new"])
@@ -54,7 +40,7 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
     logger.info("Dump started task_id=%s", task.task_id)
 
     try:
-        await asyncify(extract_task)(task)
+        await extract_task(task)
     except Exception as error:
         await retry_or_stop(
             error, task, broker.publish, max_retries=settings.DUMPER_MAX_RETRIES
@@ -86,10 +72,9 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
 async def cleanup_consumers() -> None:
     """Remove idle dumper consumers."""
     async with settings.redis() as redis:
-        for sub in subs.values():
-            assert sub.consumer is not None
-            await cleanup_consumer(redis, DUMP_STREAM, DUMPERS_GROUP, sub.consumer)
+        await remove_idle_consumers(redis, DUMP_STREAM, DUMPERS_GROUP, subs)
 
 
 if __name__ == "__main__":
     uvloop.run(dumper.run())
+    raise SystemExit(worker_state.exit_code)

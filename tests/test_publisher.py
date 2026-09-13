@@ -5,10 +5,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from psycopg import Connection
+from faststream.exceptions import StopApplication
+from faststream.redis import StreamSub
+from psycopg import AsyncConnection
 from redis.asyncio import Redis
 
-from dp.loading import publish_plan
 from dp.models import (
     FullTable,
     PartitionedTable,
@@ -20,93 +21,69 @@ from dp.models import (
     SyncPlan,
 )
 from dp.settings import settings
+from dp.state_machines import publisher_claim
 from dp.sync.publisher import (
-    cleanup_consumers,
-    publish_schema,
-    publisher,
+    handle_publish_task,
+    remove_idle_consumers,
 )
 from dp.sync.seeder import broker as seeder_broker
-from tests.conftest import PostgresTestNamespace
+from dp.utils import remove_idle_consumers as remove_idle_consumers_utils
 from tests.helpers import sync_config
 
-pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
+pytestmark = pytest.mark.usefixtures("test_settings", "metrics_disabled")
+
+
+def stream_message() -> AsyncMock:
+    """Return a stream message double that records acknowledgements."""
+    return AsyncMock()
+
+
+@pytest.fixture(autouse=True)
+def allow_one_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let each test claim the publisher pod once."""
+    publisher_claim.model.state = "unclaimed"
+    publisher_claim.__init__(model=publisher_claim.model)
+    monkeypatch.setattr(
+        AsyncConnection,
+        "connect",
+        AsyncMock(return_value=AsyncMock()),
+    )
 
 
 class TestPublisherSubscriber:
     """Tests for publisher subscriber behavior."""
 
     @pytest.mark.asyncio
-    async def test_missing_publish_plan_does_not_exit_application(
+    async def test_missing_apply_sync_plan_acks_and_stops_the_application(
         self, sync_config_path: Path, redis: Redis
     ) -> None:
         """
         GIVEN: an active run with no remaining publish plan.
-        WHEN: publish_schema is called.
-        THEN: the publisher application does not exit so it can process the next message.
+        WHEN: handle_publish_task is called.
+        THEN: the message is acknowledged and the application stops.
         """
         await redis.set("dp:active", "r1")
+        message = stream_message()
         with (
-            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
             patch("dp.utils.reload_postgrest"),
-            patch.object(publisher, "exit") as exit_app,
+            pytest.raises(StopApplication),
         ):
-            await publish_schema(
-                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                message,
             )
-        exit_app.assert_not_called()
 
-
-class TestPublishPlan:
-    """Tests for direct publication service behavior."""
-
-    def test_publish_plan_wraps_connections(
-        self,
-    ) -> None:
-        """
-        GIVEN: a writer DSN, config, and plan.
-        WHEN: publish_plan is called.
-        THEN: it wraps a PostgreSQL connection and delegates to apply_sync_plan.
-        """
-        config = sync_config([FullTable(name="p.app.t")])
-        plan = SyncPlan(schema_name="app")
-        with (
-            patch(
-                "dp.loading.psycopg.connect", return_value=MagicMock(spec=Connection)
-            ),
-            patch(
-                "dp.loading.apply_sync_plan",
-                return_value=PublicationResult(plan=plan, published_tables=set()),
-            ) as apply,
-        ):
-            result = publish_plan("postgresql://writer", config, plan, set())
-        assert result.published_tables == set()
-        apply.assert_called_once()
-
-    def test_publish_plan_uses_real_writer_connection(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        postgres_dsn: str,
-        namespace: PostgresTestNamespace,
-    ) -> None:
-        """A writer DSN opens the cloned database and initializes its schema."""
-        config = sync_config(
-            [FullTable(name=f"p.{namespace.schema}.t")],
-            schema_name=namespace.schema,
-        )
-        result = publish_plan(
-            postgres_dsn, config, SyncPlan(schema_name=namespace.schema), set()
-        )
-        assert result.published_tables == set()
-        assert postgres.execute(
-            "SELECT to_regnamespace(%s)", (namespace.schema,)
-        ).fetchone() == (namespace.schema,)
+        message.ack.assert_awaited_once()
+        assert message.ack.await_args is not None
+        assert message.ack.await_args.kwargs["group"] == "publishers"
 
 
 class TestPublishSchema:
     """Tests for publish-schema subscriber behavior."""
 
     @pytest.mark.asyncio
-    async def test_publish_schema_publishes_and_keeps_remaining_plan(
+    async def test_handle_task_publishes_and_keeps_remaining_plan(
         self,
         sync_config_path: Path,
         redis: Redis,
@@ -114,7 +91,7 @@ class TestPublishSchema:
     ) -> None:
         """
         GIVEN: a stored plan with remaining schemas after publication.
-        WHEN: publish_schema is called.
+        WHEN: handle_publish_task is called.
         THEN: it publishes the schema, keeps the remaining plan, and keeps the bucket.
         """
         sync_config_path.write_text(
@@ -128,24 +105,32 @@ class TestPublishSchema:
         await redis.hset("dp:plans:r1", "app", plan.model_dump_json())
         result = PublicationResult(plan=plan, published_tables={"p.app.t"})
         with (
-            patch.object(publisher, "exit"),
-            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
-            patch("dp.sync.publisher.publish_plan", return_value=result),
+            patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
+            patch(
+                "dp.sync.publisher.apply_sync_plan",
+                new_callable=AsyncMock,
+                return_value=result,
+            ) as apply,
             patch(
                 "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock) as empty,
+            patch(
+                "faststream.redis.message.RedisStreamMessage.ack",
+                new_callable=AsyncMock,
+            ),
+            patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock) as empty,
+            pytest.raises(StopApplication),
         ):
             await seeder_broker.publish(
                 PublishTask(run_id="r1", schema_name="app"), stream="dp:publish"
             )
-        assert publish_schema.mock.call_count == 1
+        apply.assert_awaited_once()
         empty.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_publish_schema_flushes_configured_fallback_cache(
+    async def test_handle_task_flushes_configured_fallback_cache(
         self,
         monkeypatch: pytest.MonkeyPatch,
         sync_config_path: Path,
@@ -169,19 +154,22 @@ class TestPublishSchema:
                 return_value=set(),
             ),
             patch(
-                "dp.sync.publisher.publish_plan",
+                "dp.sync.publisher.apply_sync_plan",
                 return_value=PublicationResult(plan=plan, published_tables=set()),
             ),
             patch("dp.utils.complete_schema", new_callable=AsyncMock, return_value=1),
             patch(
-                "dp.sync.publisher.flush_cache", new_callable=AsyncMock
-            ) as flush_cache,
+                "dp.sync.publisher.clear_response_cache", new_callable=AsyncMock
+            ) as clear_response_cache,
+            pytest.raises(StopApplication),
         ):
-            await publish_schema(
-                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                stream_message(),
             )
 
-        flush_cache.assert_awaited_once_with(7)
+        clear_response_cache.assert_awaited_once_with(7)
 
     @pytest.mark.asyncio
     async def test_publisher_commits_partition_state_and_cleans_last_plan(
@@ -191,7 +179,7 @@ class TestPublishSchema:
     ) -> None:
         """
         GIVEN: a published partitioned table with zero remaining schemas.
-        WHEN: publish_schema is called.
+        WHEN: handle_publish_task is called.
         THEN: it commits the partition state, cleans the last plan, and empties the bucket.
         """
         sync_config_path.write_text(
@@ -229,7 +217,7 @@ class TestPublishSchema:
                 return_value=set(),
             ),
             patch(
-                "dp.sync.publisher.publish_plan",
+                "dp.sync.publisher.apply_sync_plan",
                 return_value=MagicMock(plan=plan, published_tables={"p.app.t"}),
             ),
             patch(
@@ -237,28 +225,29 @@ class TestPublishSchema:
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
             patch("dp.utils.reload_postgrest"),
-            patch.object(publisher, "exit"),
-            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock) as empty,
+            patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
+            patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock) as empty,
+            pytest.raises(StopApplication),
         ):
-            await publish_schema(
-                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                stream_message(),
             )
 
         empty.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_publish_schema_continues_after_successful_publish(
+    async def test_handle_task_stops_after_successful_publish(
         self,
         sync_config_path: Path,
         redis: Redis,
     ) -> None:
         """
         GIVEN: a stored plan with remaining schemas after publication.
-        WHEN: publish_schema is called.
-        THEN: the publisher application does not exit so it can process the next message.
+        WHEN: handle_publish_task is called.
+        THEN: it acknowledges the message and stops the application.
         """
         sync_config_path.write_text(
             sync_config([PartitionedTable(name="p.app.t")]).model_dump_json()
@@ -285,6 +274,7 @@ class TestPublishSchema:
             },
         )
 
+        message = stream_message()
         with (
             patch(
                 "dp.sync.publisher.read_sync_plan",
@@ -297,7 +287,7 @@ class TestPublishSchema:
                 return_value=set(),
             ),
             patch(
-                "dp.sync.publisher.publish_plan",
+                "dp.sync.publisher.apply_sync_plan",
                 return_value=MagicMock(plan=plan, published_tables={"p.app.t"}),
             ),
             patch(
@@ -305,26 +295,101 @@ class TestPublishSchema:
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.utils.psycopg.connect", return_value=MagicMock()),
             patch("dp.utils.reload_postgrest"),
-            patch("dp.utils.empty_bucket", new_callable=AsyncMock),
-            patch.object(publisher, "exit") as exit_app,
+            patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock),
+            patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
+            pytest.raises(StopApplication),
         ):
-            await publish_schema(
-                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                message,
             )
 
-        exit_app.assert_not_called()
+        message.ack.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_publish_schema_increments_failure_counter_for_unpublished_tables(
+    async def test_second_message_stays_pending_without_publication(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+    ) -> None:
+        """
+        GIVEN: a pod that already claimed one schema.
+        WHEN: handle_publish_task is called again.
+        THEN: it publishes nothing, acknowledges nothing, and stops.
+        """
+        sync_config_path.write_text(
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
+        )
+        message = stream_message()
+        publisher_claim.send("claim")
+        with (
+            patch(
+                "dp.sync.publisher.apply_sync_plan", new_callable=AsyncMock
+            ) as publish,
+            pytest.raises(StopApplication),
+        ):
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                message,
+            )
+
+        publish.assert_not_called()
+        message.ack.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_publication_is_not_acknowledged(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+    ) -> None:
+        """
+        GIVEN: a publication that raises.
+        WHEN: handle_publish_task is called.
+        THEN: the message stays pending for the reclaim subscription.
+        """
+        sync_config_path.write_text(
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
+        )
+        plan = SyncPlan(schema_name="app")
+        message = stream_message()
+        with (
+            patch(
+                "dp.sync.publisher.read_sync_plan",
+                new_callable=AsyncMock,
+                return_value=plan,
+            ),
+            patch(
+                "dp.sync.publisher.read_failed_paths",
+                new_callable=AsyncMock,
+                return_value=set(),
+            ),
+            patch(
+                "dp.sync.publisher.apply_sync_plan",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                message,
+            )
+
+        message.ack.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_task_increments_failure_counter_for_unpublished_tables(
         self,
         sync_config_path: Path,
         redis: Redis,
     ) -> None:
         """
         GIVEN: a stored plan where no tables were published.
-        WHEN: publish_schema is called.
+        WHEN: handle_publish_task is called.
         THEN: the failure counter is incremented for unpublished tables.
         """
         sync_config_path.write_text(
@@ -341,17 +406,23 @@ class TestPublishSchema:
         result = PublicationResult(plan=plan, published_tables=set())
 
         with (
-            patch.object(publisher, "exit"),
-            patch("dp.sync.publisher.flush_cache", new_callable=AsyncMock),
-            patch("dp.sync.publisher.publish_plan", return_value=result),
+            patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
+            patch(
+                "dp.sync.publisher.apply_sync_plan",
+                new_callable=AsyncMock,
+                return_value=result,
+            ),
             patch(
                 "dp.utils.complete_schema",
                 new_callable=AsyncMock,
                 return_value=1,
             ),
+            pytest.raises(StopApplication),
         ):
-            await publish_schema(
-                PublishTask(run_id="r1", schema_name="app"), logging.getLogger("test")
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                stream_message(),
             )
 
 
@@ -359,19 +430,32 @@ class TestPublisherCleanup:
     """Tests for publisher consumer cleanup."""
 
     @pytest.mark.asyncio
+    async def test_remove_idle_consumers_skips_consumerless_subscriptions(
+        self, redis: Redis
+    ) -> None:
+        """
+        GIVEN: a subscription without a consumer.
+        WHEN: remove_idle_consumers runs.
+        THEN: it does not call cleanup for that subscription.
+        """
+        subs = {"new": StreamSub("s")}
+        with patch("dp.utils.cleanup_consumer", new_callable=AsyncMock) as cleanup:
+            await remove_idle_consumers_utils(redis, "stream", "group", subs)
+
+        cleanup.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_publisher_cleanup_removes_each_consumer_once(
         self, redis: Redis
     ) -> None:
         """
         GIVEN: two publisher consumers.
-        WHEN: cleanup_consumers runs.
+        WHEN: remove_idle_consumers runs.
         THEN: each consumer is cleaned up exactly once.
         """
         with (
-            patch(
-                "dp.sync.publisher.cleanup_consumer", new_callable=AsyncMock
-            ) as cleanup,
+            patch("dp.utils.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):
-            await cleanup_consumers()
+            await remove_idle_consumers()
 
         assert cleanup.await_count == 2

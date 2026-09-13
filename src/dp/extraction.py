@@ -1,10 +1,12 @@
 """BigQuery-to-Parquet extraction operations."""
 
+from tempfile import TemporaryDirectory
 from typing import assert_never
 
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from .duckdb import connect
+from .duckdb import connect_duckdb
+from .executor import execute_sql
 from .models import (
     AllSelection,
     DumpTask,
@@ -13,7 +15,9 @@ from .models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from .templates import render_template
+from .settings import settings
+
+type StatementMapping = tuple[str, dict[str, str | Composable]]
 
 
 def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
@@ -52,28 +56,57 @@ def build_columns(json_columns: list[str]) -> Composable:
     return SQL("* REPLACE ({replacements})").format(replacements=replacements)
 
 
-def build_mapping(task: DumpTask) -> str:
-    """Return the DuckDB SQL for one extraction task."""
+def extraction_statement(
+    task: DumpTask, selection: TaskSelection, path: str
+) -> StatementMapping:
+    """Return one extraction template and its values."""
     mapping: dict[str, str | Composable] = {
         "bq_table": Literal(task.table),
-        "s3_path": Literal(task.bucket_path),
+        "path": Literal(path),
         "columns": build_columns(task.json_columns),
     }
 
-    mapping |= selection_fields(task.selection)
+    mapping |= selection_fields(selection)
 
-    match task.selection:
+    match selection:
         case AllSelection():
-            return render_template("duckdb/write_all", mapping)
+            return "duckdb/write_all", mapping
         case RangeSelection() | TimeRangeSelection():
-            return render_template("duckdb/write_partition", mapping)
+            return "duckdb/write_partition", mapping
         case RemainderSelection():
-            return render_template("duckdb/write_remainder", mapping)
+            return "duckdb/write_remainder", mapping
         case _:  # pragma: no cover
-            assert_never(task.selection)
+            assert_never(selection)
 
 
-def extract_task(task: DumpTask) -> None:
-    """Write one BigQuery task to the S3 Parquet through DuckDB"""
-    with connect() as db:
-        db.execute(build_mapping(task))
+def merge_statement(scratch: str, path: str) -> StatementMapping:
+    """Return the merge template and its values."""
+    return "duckdb/merge_batch", {
+        "scratch": Literal(f"{scratch}/*.parquet"),
+        "path": Literal(path),
+    }
+
+
+async def extract_task(task: DumpTask) -> None:
+    """Write one extraction task to Parquet."""
+    db = await connect_duckdb()
+
+    try:
+        if len(task.selections) == 1:
+            template, mapping = extraction_statement(
+                task, task.selections[0], task.bucket_path
+            )
+            await execute_sql(db, template, mapping)
+            return
+
+        with TemporaryDirectory(dir=settings.DUMPER_SCRATCH_DIR) as scratch:
+            for index, selection in enumerate(task.selections):
+                template, mapping = extraction_statement(
+                    task, selection, f"{scratch}/{index}.parquet"
+                )
+                await execute_sql(db, template, mapping)
+
+            template, mapping = merge_statement(scratch, task.bucket_path)
+            await execute_sql(db, template, mapping)
+    finally:
+        db.close()

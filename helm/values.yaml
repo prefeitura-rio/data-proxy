@@ -271,8 +271,21 @@ dumper:
           app.kubernetes.io/component: dumper
           app.kubernetes.io/instance: data-proxy
           app.kubernetes.io/name: data-proxy
-  ## Time in milliseconds before a Dumper can reclaim a pending task.
-  visibilityTimeoutMs: 900000
+  ## Time in milliseconds before a Dumper can reclaim a pending task. One task
+  ## extracts a whole batch, so this must exceed the duration of a batch.
+  visibilityTimeoutMs: 3600000
+  ## Size in megabytes of uncompressed source data that one extraction batch collects before it
+  ## closes. A batch becomes one Parquet file in the bucket.
+  batchMegaBytes: 600
+  ## Maximum number of partitions in one batch, which bounds a partition set
+  ## that never reaches batchMegaBytes (in MB).
+  batchMaxPartitions: 256
+  ## Local scratch space that a Dumper uses to merge the partitions of a batch.
+  scratch:
+    ## Directory inside the container that holds the scratch files.
+    mountPath: /scratch
+    ## Size limit of the emptyDir volume that backs the scratch directory.
+    sizeLimit: 4Gi
   ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
   terminationGracePeriodSeconds: 900
   keda:
@@ -289,20 +302,25 @@ dumper:
     pollingInterval: 30
     ## Cooldown in seconds before scaling down to zero.
     cooldownPeriod: 60
-## Publisher — KEDA-scaled Deployment that loops on the dp:publish stream.
+## Publisher — KEDA ScaledJob with one Job for each schema plan.
 publisher:
   ## Time in milliseconds before a publisher can reclaim a pending message.
   visibilityTimeoutMs: "7200000"
   ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
   terminationGracePeriodSeconds: 1800
   keda:
-    ## Number of delivered-but-unacknowledged messages that keeps the
-    ## Publisher pod alive while it processes a message.
+    ## Maximum publisher Jobs. Leave unset for one Job for each configured schema.
+    ## maxReplicaCount: 2
+    ## Number of delivered-but-unacknowledged messages that asks KEDA for a Job,
+    ## which then reclaims the message after the visibility timeout.
     pendingEntriesCount: "1"
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
-    cooldownPeriod: 60
-## Seeder — KEDA-scaled Deployment that loops on the dp:prepare stream.
+    ## Number of completed publisher Jobs that KEDA keeps. Zero removes them.
+    successfulJobsHistoryLimit: 0
+    ## Number of failed publisher Jobs that KEDA keeps for inspection.
+    failedJobsHistoryLimit: 1
+## Seeder — KEDA ScaledJob with one Job for each seed task.
 seeder:
   visibilityTimeoutMs: 900000
   ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
@@ -310,7 +328,8 @@ seeder:
   keda:
     pendingEntriesCount: "1"
     pollingInterval: 30
-    cooldownPeriod: 60
+    successfulJobsHistoryLimit: 0
+    failedJobsHistoryLimit: 1
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
 syncConfig:
@@ -432,6 +451,12 @@ fallback:
   ## Timeout of a fetch. Keep it below the ingress timeout, so that this proxy
   ## logs the failure instead of the route timing out first.
   fetchTimeout: 60s
+  ## Connections that ngx.fetch holds open for reuse. Zero opens and closes one
+  ## connection for each fetch, which makes webdis free its client while a
+  ## command is still in flight and corrupts the reply path.
+  fetchKeepalive: 32
+  ## Idle lifetime of a connection held open by ngx.fetch.
+  fetchKeepaliveTimeout: 60s
   ## Valkey database number for the response cache (0 is for sync streams).
   cacheRedisDb: 1
   ## Largest response body that is stored in the cache, in bytes. A larger one is
@@ -439,8 +464,9 @@ fallback:
   maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
   nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:030de55"
-  ## webdis image for the Redis HTTP proxy sidecar.
-  webdisImage: "nicolas/webdis:latest"
+  ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
+  ## every webdis release up to this one still frees an in-flight command.
+  webdisImage: "docker.io/nicolas/webdis:0.1.25"
   ## Resource requests and limits for the nginx proxy deployment.
   resources: {}
   ## Resource requests and limits for the webdis sidecar.

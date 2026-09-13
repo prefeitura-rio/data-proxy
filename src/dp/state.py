@@ -1,10 +1,11 @@
-"""Valkey state operations for synchronization orchestration."""
+"""Redis state operations for synchronization orchestration."""
 
 import contextlib
 from typing import cast
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError, WatchError
+from redis.typing import StreamRangeResponse
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from .constants import (
@@ -32,10 +33,11 @@ from .models import (
     TableState,
     task_outcome_adapter,
 )
+from .settings import settings
 
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
-    """Decode a Valkey value while preserving strings and None."""
+    """Decode a Redis value while preserving strings and None."""
     return value.decode() if isinstance(value, bytes) else value
 
 
@@ -48,8 +50,10 @@ async def read_table_signature(redis: Redis, table: str) -> str | None:
 async def read_partition_manifest(redis: Redis, table: str) -> PartitionManifest | None:
     """Read a partition manifest from unified table state."""
     state = await read_table_state(redis, table)
+
     if state is None or state.partitions is None:
         return None
+
     return PartitionManifest(
         table_signature=state.signature, partitions=state.partitions
     )
@@ -152,6 +156,7 @@ async def complete_dump(redis: Redis, task: DumpTask, result: DumpResult) -> int
             raise RuntimeError(f"Invalid remaining task count: {task.run_id}")
 
         next_remaining = remaining - 1
+
         pipe.multi()
         pipe.hset(results_key, task.task_id, result.model_dump_json())
         pipe.set(remaining_key, next_remaining)
@@ -185,6 +190,7 @@ async def complete_schema(
 
     async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(plans_key)
+
         if not await pipe.hexists(plans_key, schema_name):
             return None
 
@@ -221,15 +227,25 @@ async def cleanup_consumer(
         await redis.xgroup_delconsumer(stream, group, consumer)
 
 
-def dispatch_exists(entries: object, run_id: str) -> bool:
-    """Return whether publication work for one run already exists"""
-    return run_id.encode() in repr(entries).encode()
+def publication_exists(entries: StreamRangeResponse, run_id: str) -> bool:
+    """Return whether publication work for one run already exists."""
+    needle = run_id.encode()
+
+    for _, data in entries:
+        if not isinstance(data, dict):
+            continue
+
+        raw = data.get(b"__data__", b"")
+        if isinstance(raw, bytes) and needle in raw:
+            return True
+
+    return False
 
 
 def build_table_states(
     result: PublicationResult, config: SyncConfig
 ) -> dict[str, TableState]:
-    """Build persisted state for successfully published tables"""
+    """Build persisted state for successfully published tables."""
     tables = {table.name: table for table in config.tables}
     states = {
         table_name: TableState(
@@ -259,3 +275,9 @@ async def ensure_groups(redis: Redis) -> None:
     await create_consumer_group(redis, DUMP_STREAM, DUMPERS_GROUP)
     await create_consumer_group(redis, SEED_STREAM, SEEDERS_GROUP)
     await create_consumer_group(redis, PUBLISH_STREAM, PUBLISHERS_GROUP)
+
+
+async def clear_response_cache(db: int = 1) -> None:
+    """Flush the response cache database after a successful sync."""
+    async with settings.redis(db=db) as r:
+        await r.flushdb()  # pyright: ignore[reportUnknownMemberType]

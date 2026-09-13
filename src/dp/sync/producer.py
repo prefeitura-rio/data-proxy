@@ -9,7 +9,7 @@ from faststream.redis import RedisBroker
 from whenever import Instant
 
 from ..constants import DUMP_STREAM, SEED_STREAM
-from ..duckdb import connect
+from ..duckdb import connect_duckdb
 from ..log import elapsed_ms, logger, runid
 from ..metrics import metrics, tracker
 from ..models import SeedTask
@@ -23,8 +23,8 @@ producer = FastStream(broker, logger=logger)
 
 @producer.after_startup
 @tracker("producer")
-async def produce() -> None:
-    """Plan one run, persist schema plans, and publish dump tasks"""
+async def produce_tasks() -> None:
+    """Plan one run, persist schema plans, and publish dump tasks."""
     runidval = Instant.now().format_iso()
     started = monotonic()
 
@@ -40,10 +40,14 @@ async def produce() -> None:
 
         await ensure_groups(redis)
 
-        with connect() as db:
+        db = await connect_duckdb()
+
+        try:
             work = await build_sync_work(
                 settings.sync_config, redis, runidval, settings.S3_BUCKET, db
             )
+        finally:
+            db.close()
 
         if not work.plans:
             logger.info("No table changes")

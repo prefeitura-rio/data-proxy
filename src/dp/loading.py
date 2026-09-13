@@ -1,13 +1,11 @@
 """Synchronization plan validation and publication orchestration."""
 
-import psycopg
-from psycopg import Connection
+from psycopg import AsyncConnection
 from whenever import Instant
-
-from dp.log import logger
 
 from .fallback import create_bq_views
 from .freshness import record_table_failures
+from .log import logger
 from .models import (
     PublicationDecision,
     PublicationResult,
@@ -18,17 +16,6 @@ from .models import (
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
 from .settings import settings
-
-
-def publish_plan(
-    dsn: str,
-    config: SyncConfig,
-    plan: SyncPlan,
-    failed_paths: set[str],
-) -> PublicationResult:
-    """Run blocking schema publication with an owned PostgreSQL connection"""
-    with psycopg.connect(dsn) as pg_conn:
-        return apply_sync_plan(pg_conn, config, plan, failed_paths)
 
 
 def empty_incremental_tables(plan: SyncPlan) -> set[str]:
@@ -42,8 +29,8 @@ def empty_incremental_tables(plan: SyncPlan) -> set[str]:
     }
 
 
-def record_extraction_failures(
-    pg_conn: Connection,
+async def record_extraction_failures(
+    pg_conn: AsyncConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
@@ -54,21 +41,23 @@ def record_extraction_failures(
     tables = {table.name: table for table in config.tables}
 
     failed_tables = decision.blocked_tables | empty_incremental
+
     partitions_by_table = {
         table_name: decision.failed_partitions.get(table_name, set())
         for table_name in empty_incremental
     }
-    record_table_failures(
+
+    await record_table_failures(
         pg_conn,
-        [tables[table_name] for table_name in failed_tables],
+        [tables[name] for name in failed_tables],
         source_plan,
         attempted_at,
         partitions_by_table,
     )
 
 
-def record_preparation_failures(
-    pg_conn: Connection,
+async def record_preparation_failures(
+    pg_conn: AsyncConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     eligible: set[str],
@@ -77,34 +66,34 @@ def record_preparation_failures(
 ) -> None:
     """Record each eligible table that did not prepare successfully."""
     tables = {table.name: table for table in config.tables}
-    failed = [tables[table_name] for table_name in eligible - prepared_names]
+    failed = [tables[name] for name in eligible - prepared_names]
 
     if failed:
-        record_table_failures(pg_conn, failed, source_plan, attempted_at)
+        await record_table_failures(pg_conn, failed, source_plan, attempted_at)
 
 
-def publish_eligible_tables(
-    pg_conn: Connection,
+async def publish_eligible_tables(
+    pg_conn: AsyncConnection,
     config: SyncConfig,
     source_plan: SyncPlan,
     decision: PublicationDecision,
     eligible: set[str],
     attempted_at: Instant,
 ) -> set[str]:
-    """Prepare eligible tables and publish each successful result"""
-    prepared = prepare_tables(pg_conn, config, decision.plan, eligible)
+    """Prepare eligible tables and publish each successful result."""
+    prepared = await prepare_tables(pg_conn, config, decision.plan, eligible)
     logger.info("Prepared %d tables", len(prepared))
 
-    record_preparation_failures(
+    await record_preparation_failures(
         pg_conn,
         config,
         source_plan,
         eligible,
-        {table.name for table in prepared},
+        {prepared_table.table.name for prepared_table in prepared},
         attempted_at,
     )
 
-    published = publish_prepared_tables(
+    published = await publish_prepared_tables(
         pg_conn,
         prepared,
         decision.plan,
@@ -116,18 +105,15 @@ def publish_eligible_tables(
     return published
 
 
-def apply_sync_plan(
-    pg_conn: Connection,
-    config: SyncConfig,
+def validate_and_select(
     plan: SyncPlan,
-    failed_paths: set[str] | None = None,
-) -> PublicationResult:
-    """Apply one sync plan and return its exact published state"""
-    publication_input = SyncPublicationInput(config=config, plan=plan)
-    changed = publication_input.changed_tables
-    decision = reduce_sync_plan(plan, failed_paths or set())
-    publication_plan = decision.plan
-    empty_incremental = empty_incremental_tables(publication_plan)
+    config: SyncConfig,
+    failed_paths: set[str],
+) -> tuple[PublicationDecision, set[str], set[str]]:
+    """Return the publication decision, the empty incremental tables, and the eligible set."""
+    changed = SyncPublicationInput(config=config, plan=plan).changed_tables
+    decision = reduce_sync_plan(plan, failed_paths)
+    empty_incremental = empty_incremental_tables(decision.plan)
     eligible = changed - decision.blocked_tables - empty_incremental
 
     logger.info(
@@ -137,14 +123,55 @@ def apply_sync_plan(
         len(eligible),
     )
 
-    initialize_schemas(pg_conn, config)
+    return decision, empty_incremental, eligible
+
+
+async def record_publication_failures(
+    pg_conn: AsyncConnection,
+    config: SyncConfig,
+    source_plan: SyncPlan,
+    decision: PublicationDecision,
+    empty_incremental: set[str],
+) -> Instant:
+    """Initialize schemas and record extraction and empty-incremental failures."""
+    await initialize_schemas(pg_conn, config)
+
     logger.info("Initialized database schemas")
     attempted_at = Instant.now()
-    record_extraction_failures(
-        pg_conn, config, plan, decision, empty_incremental, attempted_at
+
+    await record_extraction_failures(
+        pg_conn, config, source_plan, decision, empty_incremental, attempted_at
     )
 
-    published = publish_eligible_tables(
+    return attempted_at
+
+
+async def finalize_publication(pg_conn: AsyncConnection, config: SyncConfig) -> None:
+    """Create fallback views and reload PostgREST after publication."""
+    if settings.FALLBACK_ENABLED:
+        await create_bq_views(pg_conn, config)
+        logger.info("Created BigQuery fallback views")
+
+    await reload_postgrest(pg_conn, config)
+    logger.info("PostgREST schema reload requested")
+
+
+async def apply_sync_plan(
+    pg_conn: AsyncConnection,
+    config: SyncConfig,
+    plan: SyncPlan,
+    failed_paths: set[str] | None = None,
+) -> PublicationResult:
+    """Apply one sync plan and return its exact published state."""
+    decision, empty_incremental, eligible = validate_and_select(
+        plan, config, failed_paths or set()
+    )
+
+    attempted_at = await record_publication_failures(
+        pg_conn, config, plan, decision, empty_incremental
+    )
+
+    published = await publish_eligible_tables(
         pg_conn,
         config,
         plan,
@@ -153,10 +180,5 @@ def apply_sync_plan(
         attempted_at,
     )
 
-    if settings.FALLBACK_ENABLED:
-        create_bq_views(pg_conn, config)
-        logger.info("Created BigQuery fallback views")
-
-    reload_postgrest(pg_conn, config)
-    logger.info("PostgREST schema reload requested")
-    return PublicationResult(plan=publication_plan, published_tables=published)
+    await finalize_publication(pg_conn, config)
+    return PublicationResult(plan=decision.plan, published_tables=published)

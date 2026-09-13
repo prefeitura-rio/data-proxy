@@ -1,6 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from pathlib import Path
+from tempfile import gettempdir
 from typing import ClassVar
 
 from pydantic import Field
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=7_200_000, gt=0)
     PRODUCER_POLL_INTERVAL_SECONDS: int = Field(default=60, gt=0)
     DUMPER_MAX_RETRIES: int = 3
+    DUMPER_BATCH_BYTES: int = Field(default=629_145_600, gt=0)
+    DUMPER_BATCH_MAX_PARTITIONS: int = Field(default=256, gt=0)
+    DUMPER_SCRATCH_DIR: Path = Path(gettempdir())
     AUTH_ANON_ROLE: str = "anon"
     AUTH_USER_ROLE: str = "user"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"

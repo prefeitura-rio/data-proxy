@@ -72,7 +72,7 @@ class TestRunState:
                 run_id="r1",
                 table="p.d.t",
                 bucket_path="s3://b/t",
-                selection=AllSelection(),
+                selections=[AllSelection()],
             ),
             DumpSuccess(),
         )
@@ -96,7 +96,10 @@ class TestDumpCompletion:
         """
         await settings.redis().set("dp:remaining:r1", "1")
         task = DumpTask(
-            run_id="r1", table="p.d.t", bucket_path="s3://b/t", selection=AllSelection()
+            run_id="r1",
+            table="p.d.t",
+            bucket_path="s3://b/t",
+            selections=[AllSelection()],
         )
         assert (
             await complete_dump(
@@ -175,7 +178,7 @@ class TestDumpCompletionValidation:
         THEN: it raises RuntimeError for both the missing and invalid counter.
         """
         task = DumpTask(
-            run_id="r", table="p.d.t", bucket_path="s3://b", selection=AllSelection()
+            run_id="r", table="p.d.t", bucket_path="s3://b", selections=[AllSelection()]
         )
         with pytest.raises(RuntimeError, match="Remaining task count"):
             await complete_dump((settings.redis()), task, DumpSuccess())
@@ -361,7 +364,7 @@ class TestRunStateValidation:
             run_id="r1",
             table="p.app.t",
             bucket_path="s3://b/t",
-            selection=AllSelection(),
+            selections=[AllSelection()],
         )
 
         await settings.redis().hset(

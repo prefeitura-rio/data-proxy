@@ -3,19 +3,20 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Protocol, assert_never
+from typing import Protocol, assert_never, cast
 
+from asyncer import asyncify
 from google.cloud.bigquery import Client, QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row
 from whenever import PlainDateTime
 
+from ..executor import BigQueryJob, execute_sql
 from ..models import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
 )
-from ..templates import render_template
 from .config import (
     PartitionKindConfig,
     RangeConfig,
@@ -49,27 +50,32 @@ def row_modified(row: TypedRow) -> datetime | None:
     return None
 
 
-def partition_rows(
+def row_logical_bytes(row: TypedRow) -> int:
+    """Extract logical_bytes from a BigQuery row as an integer."""
+    value = row["logical_bytes"]
+
+    if isinstance(value, int):
+        return value
+
+    return 0
+
+
+async def partition_rows(
     client: Client,
     project: str,
     dataset: str,
     table_name: str,
 ) -> Iterable[Row]:
     """Return grouped physical partition metadata rows."""
-    query = render_template(
-        path="bigquery/partitions", mapping={"project": project, "dataset": dataset}
-    )
-
-    return client.query(
-        query,
-        job_config=(
-            QueryJobConfig(
-                query_parameters=[
-                    ScalarQueryParameter("table_name", "STRING", table_name)
-                ]
-            )
+    job: BigQueryJob = await execute_sql(
+        client,
+        "bigquery/partitions",
+        {"project": project, "dataset": dataset},
+        job_config=QueryJobConfig(
+            query_parameters=[ScalarQueryParameter("table_name", "STRING", table_name)]
         ),
-    ).result()
+    )
+    return cast(Iterable[Row], await asyncify(job.result)())
 
 
 def add_hour(dt: PlainDateTime) -> PlainDateTime:
@@ -129,8 +135,9 @@ def normalize_time_partition(
     signature: str,
     table: str,
     config: TimeConfig,
+    logical_bytes: int,
 ) -> PhysicalPartition | None:
-    """Normalize one time partition"""
+    """Normalize one time partition."""
     if partition_id == "__NULL__":
         return None
 
@@ -140,6 +147,7 @@ def normalize_time_partition(
         partition_id=partition_id,
         signature=signature,
         selection=TimeRangeSelection(column=config.field, lower=lower, upper=upper),
+        logical_bytes=logical_bytes,
     )
 
 
@@ -148,8 +156,9 @@ def normalize_range_partition(
     signature: str,
     table: str,
     config: RangeConfig,
+    logical_bytes: int,
 ) -> PhysicalPartition:
-    """Normalize one integer range partition"""
+    """Normalize one integer range partition."""
     if partition_id == "__NULL__":
         return PhysicalPartition(
             partition_id=partition_id,
@@ -157,6 +166,7 @@ def normalize_range_partition(
             selection=RemainderSelection(
                 column=config.field, start=config.start, end=config.end
             ),
+            logical_bytes=logical_bytes,
         )
 
     try:
@@ -183,6 +193,7 @@ def normalize_range_partition(
             lower=lower,
             upper=upper,
         ),
+        logical_bytes=logical_bytes,
     )
 
 
@@ -213,16 +224,22 @@ def normalize_partition(
         f"{partition_id}:{modified.isoformat()}:{table_signature}".encode()
     ).hexdigest()
 
+    logical_bytes = row_logical_bytes(row)
+
     match kind_config:
         case TimeConfig() as config:
-            return normalize_time_partition(partition_id, signature, table, config)
+            return normalize_time_partition(
+                partition_id, signature, table, config, logical_bytes
+            )
         case RangeConfig() as config:
-            return normalize_range_partition(partition_id, signature, table, config)
+            return normalize_range_partition(
+                partition_id, signature, table, config, logical_bytes
+            )
         case _:
             assert_never(kind_config)
 
 
-def physical_partitions(
+async def physical_partitions(
     client: Client,
     table: str,
     config_json: str,
@@ -248,7 +265,7 @@ def physical_partitions(
 
     partitions: dict[str, PhysicalPartition] = {}
 
-    for row in partition_rows(
+    for row in await partition_rows(
         client, reference.project, reference.dataset, reference.table
     ):
         partition = normalize_partition(row, table, kind_cfg, signature)

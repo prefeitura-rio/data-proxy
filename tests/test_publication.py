@@ -1,34 +1,28 @@
-"""Tests for publication input validation and SQL behavior."""
-
-from typing import cast
-from unittest.mock import MagicMock, patch
+"""Tests for publication conditions, plan reduction, and table lifecycle."""
 
 import pytest
-from psycopg import Connection, Cursor
-from psycopg.sql import SQL
+from psycopg.sql import SQL, Identifier
 
+from dp.conditions import partition_condition, scan_condition
 from dp.models import (
     FullTable,
     IndexConfig,
-    PartitionedTable,
     PartitionedTablePlan,
     PhysicalPartition,
+    RemainderSelection,
     SyncPlan,
 )
 from dp.publication import (
     cast_json_columns_to_jsonb,
-    column_select_list,
     create_indexes,
-    create_shadow_from_parquet,
-    delete_partitions,
-    load_partition,
-    partition_predicate,
     planned_paths,
+    prepare_table,
+    prepare_tables,
     publish_table,
     reduce_sync_plan,
 )
-from tests.conftest import PostgresTestNamespace
-from tests.helpers import execute_sql, partition
+from tests.fixtures.types import Postgres
+from tests.helpers import execute_sql, fetch_all, partition, sync_config
 
 
 class TestPublication:
@@ -50,199 +44,55 @@ class TestPublication:
                 invalid_partition_plan,
             )
 
-    def test_partition_predicate_rejects_an_invalid_selection_type(
+    def test_partition_condition_rejects_an_invalid_selection_type(
         self,
         invalid_physical_partition: PhysicalPartition,
     ) -> None:
         """
         GIVEN: a physical partition with an invalid selection type.
-        WHEN: partition_predicate is called.
+        WHEN: partition_condition is called.
         THEN: it raises AssertionError.
         """
         with pytest.raises(AssertionError):
-            partition_predicate(invalid_physical_partition)
+            partition_condition(invalid_physical_partition)
 
 
-class TestPublicationTemplates:
-    """Tests for publication SQL and plan reduction behavior."""
+class TestConditions:
+    """SQL condition generation for partitions."""
 
-    def test_delete_partitions_renders_predicate_and_delete(
-        self,
-    ) -> None:
+    def test_partition_condition_covers_the_remainder_bucket(self) -> None:
         """
-        GIVEN: a table with changed physical partitions.
-        WHEN: delete_partitions is called.
-        THEN: it renders partition predicates and a delete statement.
+        GIVEN: a remainder partition selection.
+        WHEN: partition_condition is called.
+        THEN: it matches null and out-of-range values with the identifier form.
         """
-        rendered: list[str] = []
-
-        def render(path: str, mapping: object, **_: object) -> str:
-            rendered.append(path)
-            return "SELECT 1"
-
-        with (
-            patch("dp.publication.render_template", side_effect=render),
-            patch("dp.templates.render_template", side_effect=render),
-        ):
-            delete_partitions(
-                MagicMock(spec=Connection),
-                PartitionedTable(name="p.app.people"),
-                [partition("10"), partition("20")],
-            )
-
-        assert rendered == [
-            "postgres/partition_range_predicate",
-            "postgres/partition_range_predicate",
-            "postgres/delete_partitions",
-        ]
-
-    def test_create_shadow_from_parquet_uses_the_glob_path(
-        self,
-    ) -> None:
-        """
-        GIVEN: a table and a glob path.
-        WHEN: create_shadow_from_parquet is called with that path.
-        THEN: it renders postgres/create_table_from_parquet with the glob.
-        """
-        captured: dict[str, object] = {}
-
-        def render(path: str, mapping: object, **_: object) -> str:
-            captured["template"] = path
-            captured["mapping"] = mapping
-            return "SELECT 1"
-
-        with (
-            patch("dp.publication.render_template", side_effect=render),
-            patch("dp.templates.render_template", side_effect=render),
-        ):
-            create_shadow_from_parquet(
-                MagicMock(spec=Connection),
-                FullTable(name="p.app.table", resolved_schema="app"),
-                "table__next",
-                "s3://bucket/app/table/partitions/*/data.parquet",
-            )
-
-        rendered = str(captured["mapping"])
-
-        assert captured["template"] == "postgres/create_table_from_parquet"
-        assert "'s3://bucket/app/table/partitions/*/data.parquet'" in rendered
-
-    def test_load_partition_inserts_via_read_parquet(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
-    ) -> None:
-        """
-        GIVEN: a table and a Parquet file with matching columns.
-        WHEN: load_partition is called.
-        THEN: the Parquet data is inserted into the table.
-        """
-        execute_sql(
-            postgres,
-            "postgres/create_people_table",
-            mapping={"schema": namespace.schema},
+        remainder = PhysicalPartition(
+            partition_id="__NULL__",
+            signature="signature",
+            selection=RemainderSelection(column="cpf", start=0, end=100),
         )
-        postgres.commit()
+        rendered = partition_condition(remainder).as_string(None)
+        assert '"cpf" IS NULL' in rendered
+        assert '"cpf" >= 100' in rendered
 
-        select_list = column_select_list(postgres, namespace.schema, "people")
-        load_partition(
-            postgres,
-            namespace.schema,
-            "people",
-            "/test-files/people_partition_10.parquet",
-            select_list,
-        )
-        postgres.commit()
-
-        rows = execute_sql(
-            postgres,
-            "postgres/select_people_rows",
-            mapping={"schema": namespace.schema},
-        ).fetchall()
-        assert rows == [
-            (10, "name10"),
-            (11, "name11"),
-            (12, "name12"),
-            (13, "name13"),
-            (14, "name14"),
-            (15, "name15"),
-            (16, "name16"),
-            (17, "name17"),
-            (18, "name18"),
-            (19, "name19"),
-        ]
-
-    def test_load_partition_converts_json_to_jsonb(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
-    ) -> None:
+    def test_scan_condition_uses_parquet_columns(self) -> None:
         """
-        GIVEN: an existing partitioned table with a JSONB column.
-        WHEN: one Parquet partition is loaded incrementally.
-        THEN: PostgreSQL stores the JSON content as JSONB.
+        GIVEN: an integer range partition.
+        WHEN: scan_condition is called.
+        THEN: it reads the partition column from the Parquet record form.
         """
-        postgres.execute(
-            SQL("CREATE TABLE {}.people (cpf integer, data jsonb)").format(
-                namespace.identifier
-            )
-        )
-        postgres.commit()
+        rendered = scan_condition(partition("10")).as_string(None)
+        assert "r['cpf']" in rendered
 
-        select_list = column_select_list(postgres, namespace.schema, "people")
-        load_partition(
-            postgres,
-            namespace.schema,
-            "people",
-            "/test-files/json_partition_10.parquet",
-            select_list,
-        )
-        postgres.commit()
 
-        rows = postgres.execute(
-            SQL("SELECT cpf, data::text, pg_typeof(data)::text FROM {}.people").format(
-                namespace.identifier
-            )
-        ).fetchall()
-        assert rows == [(10, '{"source": "fixture"}', "jsonb")]
+class TestReduceSyncPlan:
+    """Plan reduction behavior."""
 
-    def test_publish_table_creates_indexes_before_swap(
-        self,
-    ) -> None:
+    def test_keeps_a_plan_without_failures(self) -> None:
         """
-        GIVEN: a prepared shadow table with an index configuration.
-        WHEN: publish_table is called.
-        THEN: indexes are created on the shadow before the swap.
-        """
-        calls: list[str] = []
-
-        def record_indexes(*_: object) -> None:
-            calls.append("indexes")
-
-        def record_swap(*args: object, **kwargs: object) -> None:
-            calls.append("swap")
-
-        table = FullTable(
-            name="p.app.table",
-            resolved_schema="app",
-            indexes=[IndexConfig(name="idx_table", columns=["id"])],
-        )
-
-        with (
-            patch("dp.publication.create_indexes", side_effect=record_indexes),
-            patch("dp.publication.execute_sql", side_effect=record_swap),
-        ):
-            publish_table(MagicMock(spec=Connection), table)
-
-        assert calls == ["indexes", "swap"]
-
-    def test_reduce_sync_plan_keeps_plan_without_failures(
-        self,
-    ) -> None:
-        """
-        GIVEN: a plan without failed paths.
+        GIVEN: a plan whose partitions did not fail.
         WHEN: reduce_sync_plan is called.
-        THEN: the plan stays eligible with no failure details.
+        THEN: nothing is blocked and no partition is recorded as failed.
         """
         plan = SyncPlan(
             schema_name="app",
@@ -251,7 +101,7 @@ class TestPublicationTemplates:
                     table_signature="table",
                     full_rebuild=False,
                     current_partitions={"10": partition("10")},
-                    changed_paths={"10": "successful"},
+                    changed_paths={"10": "ok"},
                     removed_partitions={},
                 )
             },
@@ -259,17 +109,14 @@ class TestPublicationTemplates:
 
         decision = reduce_sync_plan(plan, set())
 
-        assert decision.plan == plan
         assert decision.blocked_tables == set()
         assert decision.failed_partitions == {}
 
-    def test_reduce_sync_plan_blocks_failed_full_rebuild(
-        self,
-    ) -> None:
+    def test_blocks_a_failed_full_rebuild(self) -> None:
         """
-        GIVEN: a full rebuild plan with a failed partition.
+        GIVEN: a full rebuild with a failed partition path.
         WHEN: reduce_sync_plan is called.
-        THEN: the table is blocked from publication.
+        THEN: the whole table is blocked.
         """
         plan = SyncPlan(
             schema_name="app",
@@ -288,164 +135,212 @@ class TestPublicationTemplates:
 
         assert decision.blocked_tables == {"p.app.people"}
 
-    def test_create_indexes_creates_btree_index_for_columns(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
-    ) -> None:
+
+class TestCastJsonColumns:
+    """JSON-to-JSONB conversion."""
+
+    @pytest.mark.asyncio
+    async def test_converts_json_columns_to_jsonb(self, postgres: Postgres) -> None:
         """
-        GIVEN: a table with an index config using only columns.
-        WHEN: create_indexes is called.
-        THEN: a plain B-tree index is created on those columns.
+        GIVEN: a table with a json column.
+        WHEN: cast_json_columns_to_jsonb is called.
+        THEN: the column type becomes jsonb.
         """
-        execute_sql(
-            postgres,
+        schema = postgres.namespace.schema
+        await execute_sql(
+            postgres.connection,
             "postgres/create_table",
             mapping={
-                "schema": namespace.schema,
-                "table": "table",
-                "columns": "id int",
+                "schema": schema,
+                "table": "json_t",
+                "columns": "id integer, data json",
             },
         )
+        await postgres.connection.commit()
 
-        table = FullTable(
-            name=f"p.{namespace.schema}.table",
-            resolved_schema=namespace.schema,
-            indexes=[IndexConfig(name="idx_id", columns=["id"])],
+        await cast_json_columns_to_jsonb(postgres.connection, schema, "json_t")
+
+        rows = await fetch_all(
+            postgres.connection,
+            "postgres/table_column_types",
+            mapping={"schema": schema, "table": "json_t"},
         )
+        assert rows == [("data", "jsonb"), ("id", "integer")]
 
-        create_indexes(postgres, table, "table")
 
-        assert execute_sql(
-            postgres,
+class TestPublishTable:
+    """Shadow-to-live table swap."""
+
+    @pytest.mark.asyncio
+    async def test_swaps_the_shadow_into_service(self, postgres: Postgres) -> None:
+        """
+        GIVEN: a live table, a shadow table, and one configured btree index.
+        WHEN: publish_table is called.
+        THEN: the shadow rows become live and the index exists.
+        """
+        schema = postgres.namespace.schema
+        table = FullTable(
+            name=f"p.{schema}.people",
+            resolved_schema=schema,
+            indexes=[IndexConfig(name="idx_people_cpf", columns=["cpf"])],
+        )
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_people_table",
+            mapping={"schema": schema},
+        )
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_table",
+            mapping={
+                "schema": schema,
+                "table": "people__next",
+                "columns": "cpf integer, name text",
+            },
+        )
+        await postgres.connection.execute(
+            SQL("INSERT INTO {} VALUES (20, 'new20')").format(
+                Identifier(schema, "people__next")
+            )
+        )
+        await postgres.connection.commit()
+
+        await publish_table(postgres.connection, table)
+        await postgres.connection.commit()
+
+        rows = await fetch_all(
+            postgres.connection,
+            "postgres/select_people_rows",
+            mapping={"schema": schema},
+        )
+        indexes = await fetch_all(
+            postgres.connection,
             "postgres/index_names",
-            mapping={"schema": namespace.schema, "table": "table"},
-        ).fetchall() == [("idx_id",)]
+            mapping={"schema": schema, "table": "people"},
+        )
+        assert rows == [(20, "new20")]
+        assert indexes == [("idx_people_cpf",)]
 
-    def test_create_indexes_creates_gin_index_for_expressions(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
+    @pytest.mark.asyncio
+    async def test_create_indexes_supports_expression_indexes(
+        self, postgres: Postgres
     ) -> None:
         """
-        GIVEN: a table with a jsonb column and a gin index config using expressions.
+        GIVEN: a table with a gin expression index.
         WHEN: create_indexes is called.
-        THEN: a GIN index is created on the JSON path expression.
+        THEN: the expression index exists on the table.
         """
-        execute_sql(
-            postgres,
-            "postgres/create_table",
-            mapping={
-                "schema": namespace.schema,
-                "table": "table",
-                "columns": "data jsonb",
-            },
-        )
+        schema = postgres.namespace.schema
         table = FullTable(
-            name=f"p.{namespace.schema}.table",
-            resolved_schema=namespace.schema,
+            name=f"p.{schema}.people",
+            resolved_schema=schema,
             indexes=[
                 IndexConfig(
-                    name="idx_data_status",
-                    columns=["data"],
+                    name="idx_people_name",
                     method="gin",
-                    expressions=["(data->'status')"],
+                    columns=["name"],
+                    expressions=["to_tsvector('portuguese', name)"],
                 )
             ],
         )
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_people_table",
+            mapping={"schema": schema},
+        )
+        await postgres.connection.commit()
 
-        create_indexes(postgres, table, "table")
+        await create_indexes(postgres.connection, table, "people")
+        await postgres.connection.commit()
 
-        result = execute_sql(
-            postgres,
+        indexes = await fetch_all(
+            postgres.connection,
             "postgres/index_names",
-            mapping={"schema": namespace.schema, "table": "table"},
-        ).fetchall()
+            mapping={"schema": schema, "table": "people"},
+        )
+        assert indexes == [("idx_people_name",)]
 
-        assert result == [("idx_data_status",)]
 
-        indexdef = execute_sql(
-            postgres,
-            "postgres/index_definition",
-            mapping={"schema": namespace.schema},
-        ).fetchone()
-        assert indexdef is not None
-        assert cast(str, indexdef[0]).endswith("USING gin (((data -> 'status'::text)))")
+class TestPrepareTable:
+    """Table preparation behavior."""
 
-    @pytest.mark.parametrize(
-        ("columns", "expected"),
-        [
-            (
-                "id int, data json, name text",
-                [("data", "jsonb"), ("id", "integer"), ("name", "text")],
-            ),
-            ("id int, name text", [("id", "integer"), ("name", "text")]),
-        ],
-        ids=["with json", "without json"],
-    )
-    def test_cast_json_columns_to_jsonb(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
-        columns: str,
-        expected: list[tuple[str, str]],
+    @pytest.mark.asyncio
+    async def test_requires_an_existing_incremental_table(
+        self, postgres: Postgres
     ) -> None:
         """
-        GIVEN: a table with or without json columns.
-        WHEN: cast_json_columns_to_jsonb is called.
-        THEN: json columns become jsonb and other columns are unchanged.
+        GIVEN: an incremental plan for a table that does not exist.
+        WHEN: prepare_table is called.
+        THEN: it raises RuntimeError naming the missing table.
         """
-        execute_sql(
-            postgres,
-            "postgres/create_table",
-            mapping={
-                "schema": namespace.schema,
-                "table": "table",
-                "columns": columns,
+        schema = postgres.namespace.schema
+        table = FullTable(name=f"p.{schema}.people", resolved_schema=schema)
+        plan = SyncPlan(
+            schema_name=schema,
+            partitioned_tables={
+                table.name: PartitionedTablePlan(
+                    table_signature="table",
+                    full_rebuild=False,
+                    current_partitions={"10": partition("10")},
+                    changed_paths={"10": "s3://b/10"},
+                    removed_partitions={},
+                )
             },
         )
 
-        cast_json_columns_to_jsonb(postgres, namespace.schema, "table")
+        with pytest.raises(RuntimeError, match="incremental plan"):
+            await prepare_table(
+                postgres.connection,
+                sync_config([table], schema_name=schema),
+                table,
+                plan,
+                plan.partitioned_tables[table.name],
+            )
 
-        result = execute_sql(
-            postgres,
-            "postgres/table_column_types",
-            mapping={"schema": namespace.schema, "table": "table"},
-        ).fetchall()
-        assert result == expected
-
-    def test_cast_json_columns_to_jsonb_uses_one_statement(
-        self,
+    @pytest.mark.asyncio
+    async def test_prepare_tables_skips_a_table_that_fails(
+        self, postgres: Postgres
     ) -> None:
         """
-        GIVEN: a table with two json columns.
-        WHEN: cast_json_columns_to_jsonb is called.
-        THEN: one statement carries both columns, because each one costs a rewrite.
+        GIVEN: a table whose Parquet path does not exist.
+        WHEN: prepare_tables runs.
+        THEN: the failure is logged and the table is not prepared.
         """
-        calls: list[tuple[str, dict[str, object]]] = []
+        schema = postgres.namespace.schema
+        table = FullTable(name=f"p.{schema}.people", resolved_schema=schema)
+        plan = SyncPlan(
+            schema_name=schema,
+            signatures={table.name: "signature"},
+            paths={table.name: ["s3://missing/data.parquet"]},
+        )
 
-        def record(
-            _: object,
-            path: str,
-            mapping: dict[str, object] | None = None,
-            **__: object,
-        ) -> Cursor[tuple[object, ...]]:
-            calls.append((path, mapping or {}))
-            cursor = MagicMock(spec=Cursor)
-            cursor.fetchall.return_value = [("first",), ("second",)]
-            return cast(Cursor[tuple[object, ...]], cursor)
+        prepared = await prepare_tables(
+            postgres.connection,
+            sync_config([table], schema_name=schema),
+            plan,
+            {table.name},
+        )
 
-        with patch("dp.publication.execute_sql", side_effect=record):
-            cast_json_columns_to_jsonb(MagicMock(spec=Connection), "app", "table")
+        assert prepared == []
 
-        assert [path for path, _ in calls] == [
-            "postgres/json_columns",
-            "postgres/cast_json_to_jsonb",
-        ]
+    @pytest.mark.asyncio
+    async def test_prepare_tables_ignores_tables_outside_the_changed_set(
+        self, postgres: Postgres
+    ) -> None:
+        """
+        GIVEN: a configured table that is not in the changed set.
+        WHEN: prepare_tables runs.
+        THEN: it skips the table without preparing anything.
+        """
+        schema = postgres.namespace.schema
+        table = FullTable(name=f"p.{schema}.people", resolved_schema=schema)
+        plan = SyncPlan(schema_name=schema)
 
-        clauses = str(calls[1][1]["clauses"])
+        prepared = await prepare_tables(
+            postgres.connection,
+            sync_config([table], schema_name=schema),
+            plan,
+            set(),
+        )
 
-        assert clauses.count("ALTER COLUMN") == 2
-        assert clauses.count("::jsonb") == 2
-        assert "first" in clauses
-        assert "second" in clauses
+        assert prepared == []

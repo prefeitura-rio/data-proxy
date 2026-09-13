@@ -84,6 +84,46 @@ tests:
             targetPort: 7379
         template: service-nginx-proxy.yaml
 
+  - it: keeps the fetch connections to webdis alive
+    set:
+      fallback.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "js_fetch_keepalive 32;"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+        template: configmap-nginx-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "js_fetch_keepalive_timeout 60s;"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+        template: configmap-nginx-proxy.yaml
+
+  - it: wires the fetch keepalive settings to the chart values
+    set:
+      fallback.enabled: true
+      fallback.fetchKeepalive: 8
+      fallback.fetchKeepaliveTimeout: 30s
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "js_fetch_keepalive 8;"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+        template: configmap-nginx-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "js_fetch_keepalive_timeout 30s;"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+        template: configmap-nginx-proxy.yaml
+
   - it: rolls the proxy when its configuration changes
     set:
       fallback.enabled: true
@@ -107,4 +147,13 @@ tests:
             name: sync-config
             mountPath: /config
             readOnly: true
+        template: deployment-nginx-proxy.yaml
+
+  - it: pins the webdis sidecar image to a fixed tag
+    set:
+      fallback.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[1].image
+          pattern: ^docker\.io/nicolas/webdis:[0-9]+\.[0-9]+\.[0-9]+$
         template: deployment-nginx-proxy.yaml

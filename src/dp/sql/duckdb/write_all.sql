@@ -1,3 +1,3 @@
-COPY (SELECT ${columns} FROM bigquery_scan(${bq_table})) TO ${s3_path} (
+COPY (SELECT ${columns} FROM bigquery_scan(${bq_table})) TO ${path} (
     FORMAT PARQUET
 )

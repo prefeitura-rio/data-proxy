@@ -33,6 +33,11 @@ spec:
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
+            - name: scratch
+              mountPath: {{ .Values.dumper.scratch.mountPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ .Values.dumper.scratch.sizeLimit }}

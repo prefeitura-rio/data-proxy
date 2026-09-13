@@ -3,4 +3,4 @@ COPY (
     WHERE ${column} IS NULL
        OR ${column} < ${lower}
        OR ${column} >= ${upper}
-) TO ${s3_path} (FORMAT PARQUET)
+) TO ${path} (FORMAT PARQUET)

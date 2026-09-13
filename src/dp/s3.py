@@ -15,13 +15,13 @@ if TYPE_CHECKING:  # pragma: no cover
 def create_s3_client(
     session: AioSession, endpoint: str
 ) -> ClientCreatorContext[S3Client]:
-    """Create a typed S3 client context"""
-    create_client = cast(
+    """Create a typed S3 client context."""
+    create = cast(
         "Callable[..., ClientCreatorContext[S3Client]]",
         session.create_client,
     )
 
-    return create_client(
+    return create(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=settings.S3_ACCESS_KEY,
@@ -30,8 +30,8 @@ def create_s3_client(
     )
 
 
-async def empty_bucket() -> None:
-    """Delete every object from the configured bucket, keeping the bucket itself"""
+async def clear_s3_bucket() -> None:
+    """Delete every object from the configured bucket, keeping the bucket itself."""
     endpoint = f"http{'s' if settings.S3_USE_SSL else ''}://{settings.S3_ENDPOINT}"
 
     async with create_s3_client(get_session(), endpoint) as client:

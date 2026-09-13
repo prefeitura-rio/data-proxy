@@ -1,22 +1,19 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-from psycopg import Connection
+from psycopg import AsyncConnection
 
-from dp.authorization import (
-    bootstrap_table,
-    claim_session_var,
-    schema_scope_predicate,
-)
+from dp.authorization import bootstrap_table
 from dp.models import UnitMapping
-from tests.conftest import PostgresTestNamespace
+from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql
 
 
 class TestAuthorization:
     """Tests for authorization validation and bootstrap safety."""
 
-    def test_bootstrap_rejects_an_invalid_runtime_rls_value(
+    @pytest.mark.asyncio
+    async def test_bootstrap_rejects_an_invalid_runtime_rls_value(
         self,
         invalid_rls: list[UnitMapping],
     ) -> None:
@@ -26,173 +23,186 @@ class TestAuthorization:
         THEN: it raises AssertionError.
         """
         with pytest.raises(AssertionError):
-            bootstrap_table(
-                MagicMock(spec=Connection), "app", "table", invalid_rls, None
+            await bootstrap_table(
+                AsyncMock(spec=AsyncConnection), "app", "table", invalid_rls, None
             )
 
-    def test_bootstrap_grants_access_without_rls(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
+    @pytest.mark.asyncio
+    async def test_bootstrap_grants_access_without_rls(
+        self, postgres: Postgres
     ) -> None:
         """
         GIVEN: a non-RLS table.
         WHEN: bootstrap_table is called.
         THEN: it receives a read grant and a schema-scope policy.
         """
-        schema = namespace.schema
-        execute_sql(
-            postgres,
+        schema = postgres.namespace.schema
+        await execute_sql(
+            postgres.connection,
             "postgres/create_table",
-            mapping={
-                "schema": schema,
-                "table": "table",
-                "columns": "id_cras text",
-            },
+            mapping={"schema": schema, "table": "table", "columns": "id_cras text"},
         )
 
-        bootstrap_table(
-            postgres,
+        await bootstrap_table(
+            postgres.connection,
             schema=schema,
             table_name="table",
             rls=None,
             claim=None,
         )
+        await postgres.connection.commit()
 
         mapping = {"schema": schema, "table": "table"}
-        assert execute_sql(
-            postgres, "postgres/relrowsecurity", mapping=mapping
-        ).fetchone() == (True,)
-        assert execute_sql(
-            postgres, "postgres/policy_names", mapping=mapping
-        ).fetchall() == [("schema_scoped",)]
-        assert execute_sql(
-            postgres, "postgres/select_grants", mapping=mapping
-        ).fetchall() == [("user",)]
+        row = await (
+            await execute_sql(
+                postgres.connection, "postgres/relrowsecurity", mapping=mapping
+            )
+        ).fetchone()
+        assert row == (True,)
+        policies = await (
+            await execute_sql(
+                postgres.connection, "postgres/policy_names", mapping=mapping
+            )
+        ).fetchall()
+        assert policies == [("schema_scoped",)]
+        grants = await (
+            await execute_sql(
+                postgres.connection, "postgres/select_grants", mapping=mapping
+            )
+        ).fetchall()
+        assert grants == [("user",)]
 
-    def test_bootstrap_installs_access_policy_check(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
+    @pytest.mark.asyncio
+    async def test_bootstrap_installs_access_policy_check(
+        self, postgres: Postgres
     ) -> None:
         """
         GIVEN: a protected table with RLS and an access_policy table.
         WHEN: bootstrap_table is called.
         THEN: it renders grants and the access_policy check together.
         """
-        schema = namespace.schema
-        execute_sql(
-            postgres,
+        schema = postgres.namespace.schema
+        await execute_sql(
+            postgres.connection,
             "postgres/create_table",
-            mapping={
-                "schema": schema,
-                "table": "table",
-                "columns": "id_cras text",
-            },
+            mapping={"schema": schema, "table": "table", "columns": "id_cras text"},
         )
-        execute_sql(
-            postgres, "postgres/create_access_policy", mapping={"schema": schema}
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_access_policy",
+            mapping={"schema": schema},
         )
 
-        bootstrap_table(
-            postgres,
+        await bootstrap_table(
+            postgres.connection,
             schema=schema,
             table_name="table",
             rls=[UnitMapping(column="id_cras", unit_type="cras")],
             claim="preferred_username",
         )
+        await postgres.connection.commit()
 
-        assert execute_sql(
-            postgres,
-            "postgres/policy_names",
-            mapping={"schema": schema, "table": "table"},
-        ).fetchall() == [("access_policy_scoped",)]
+        policies = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/policy_names",
+                mapping={"schema": schema, "table": "table"},
+            )
+        ).fetchall()
+        assert policies == [("access_policy_scoped",)]
 
-    def test_rls_hides_disabled_and_ungranted_rows(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
+    @pytest.mark.asyncio
+    async def test_rls_hides_disabled_and_ungranted_rows(
+        self, postgres: Postgres
     ) -> None:
         """The user role sees only rows covered by an enabled unit grant."""
-        schema = namespace.schema
-        execute_sql(
-            postgres,
+        schema = postgres.namespace.schema
+        await execute_sql(
+            postgres.connection,
             "postgres/create_table",
             mapping={"schema": schema, "table": "visible", "columns": "id_cras text"},
         )
-        execute_sql(
-            postgres,
+        await execute_sql(
+            postgres.connection,
             "postgres/create_production_access_policy",
             mapping={"schema": schema},
         )
-        execute_sql(
-            postgres, "postgres/setup_unit_rls_visibility", mapping={"schema": schema}
+        await execute_sql(
+            postgres.connection,
+            "postgres/setup_unit_rls_visibility",
+            mapping={"schema": schema},
         )
-        bootstrap_table(
-            postgres,
+        await bootstrap_table(
+            postgres.connection,
             schema,
             "visible",
             [UnitMapping(column="id_cras", unit_type="cras")],
             "preferred_username",
         )
-        postgres.commit()
-        postgres.execute('SET ROLE "user"')
-        postgres.execute(f"SET app.claim_schemas = '{schema}'".encode())
-        postgres.execute("SET app.claim_preferred_username = 'alice'")
-        assert execute_sql(
-            postgres, "postgres/select_visible_id_cras", mapping={"schema": schema}
-        ).fetchall() == [("allowed",)]
+        await postgres.connection.commit()
+        await postgres.connection.execute('SET ROLE "user"')
+        await postgres.connection.execute(
+            f"SET app.claim_schemas = '{schema}'".encode()
+        )
+        await postgres.connection.execute("SET app.claim_preferred_username = 'alice'")
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/select_visible_id_cras",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert rows == [("allowed",)]
 
-    def test_schema_scope_rls_hides_rows_outside_claimed_schema(
-        self,
-        postgres: Connection[tuple[object, ...]],
-        namespace: PostgresTestNamespace,
+    @pytest.mark.asyncio
+    async def test_schema_scope_rls_hides_rows_outside_claimed_schema(
+        self, postgres: Postgres
     ) -> None:
         """A schema-scoped table is visible only when the schema claim matches."""
-        execute_sql(
-            postgres,
+        schema = postgres.namespace.schema
+        await execute_sql(
+            postgres.connection,
             "postgres/create_table",
-            mapping={
-                "schema": namespace.schema,
-                "table": "scoped",
-                "columns": "id text",
-            },
+            mapping={"schema": schema, "table": "scoped", "columns": "id text"},
         )
-        schema = namespace.schema
-        execute_sql(postgres, "postgres/insert_scoped_row", mapping={"schema": schema})
-        bootstrap_table(postgres, schema, "scoped", None, None)
-        execute_sql(
-            postgres, "postgres/grant_user_schema_usage", mapping={"schema": schema}
+        await execute_sql(
+            postgres.connection,
+            "postgres/insert_scoped_row",
+            mapping={"schema": schema},
         )
-        postgres.commit()
-        postgres.execute('SET ROLE "user"')
-        postgres.execute(f"SET app.claim_schemas = '{schema}'".encode())
-        assert execute_sql(
-            postgres, "postgres/select_scoped_ids", mapping={"schema": schema}
-        ).fetchall() == [("visible",)]
-        postgres.execute("SET app.claim_schemas = 'other'")
-        assert (
-            execute_sql(
-                postgres, "postgres/select_scoped_ids", mapping={"schema": schema}
-            ).fetchall()
-            == []
+        await postgres.connection.commit()
+        await bootstrap_table(postgres.connection, schema, "scoped", None, None)
+        await postgres.connection.commit()
+        await execute_sql(
+            postgres.connection,
+            "postgres/grant_user_schema_usage",
+            mapping={"schema": schema},
         )
+        await postgres.connection.commit()
+        await postgres.connection.execute('SET ROLE "user"')
+        await postgres.connection.execute(
+            f"SET app.claim_schemas = '{schema}'".encode()
+        )
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/select_scoped_ids",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert rows == [("visible",)]
+        await postgres.connection.execute("SET app.claim_schemas = 'other'")
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/select_scoped_ids",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert rows == []
 
-    def test_schema_scope_predicate_checks_the_mirrored_schemas_claim(
-        self,
-    ) -> None:
-        """
-        GIVEN: a schema name.
-        WHEN: schema_scope_predicate is rendered.
-        THEN: it checks the schema against the mirrored schemas claim.
-        """
-        rendered = schema_scope_predicate("app").as_string(None)
-
-        assert "'app'" in rendered
-        assert "'app.claim_schemas'" in rendered
-        assert "string_to_array" in rendered
-
-    def test_bootstrap_requires_a_configured_claim_for_protected_tables(
+    @pytest.mark.asyncio
+    async def test_bootstrap_requires_a_configured_claim_for_protected_tables(
         self,
     ) -> None:
         """
@@ -201,23 +211,10 @@ class TestAuthorization:
         THEN: it raises RuntimeError.
         """
         with pytest.raises(RuntimeError, match="identity claim"):
-            bootstrap_table(
-                MagicMock(spec=Connection),
+            await bootstrap_table(
+                AsyncMock(spec=AsyncConnection),
                 schema="app",
                 table_name="table",
                 rls=[UnitMapping(column="id_cras", unit_type="cras")],
                 claim=None,
             )
-
-    def test_claim_session_var_maps_to_generic_session_variable_name(
-        self,
-    ) -> None:
-        """
-        GIVEN: a claim name.
-        WHEN: claim_session_var is rendered.
-        THEN: it maps to the generic `app.claim_<name>` session variable.
-        """
-        assert (
-            claim_session_var("preferred_username").as_string(None)
-            == "'app.claim_preferred_username'"
-        )

@@ -201,6 +201,16 @@ def weed [kubecfg: path, ...commands: string]: nothing -> nothing {
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
     weed $kubecfg 's3.bucket.delete -name test-bucket' 's3.bucket.create -name test-bucket'
 
+    let stale_jobs = (
+        kc $kubecfg -n data-proxy get jobs -o name
+        | lines
+        | where $it =~ 'seeder|publisher'
+    )
+
+    if ($stale_jobs | is-not-empty) {
+        kc $kubecfg -n data-proxy delete $stale_jobs --ignore-not-found
+    }
+
     let pod_jp = 'jsonpath={.items[0].metadata.name}'
     let valkey = (
         (kc $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $pod_jp)

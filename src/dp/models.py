@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
-from typing import Annotated, ClassVar, Literal, Self
+from typing import Annotated, ClassVar, Literal, Self, override
 
 from pydantic import (
     BaseModel,
@@ -113,6 +113,8 @@ class PhysicalPartition(BaseModel):
     partition_id: NonEmptyString
     signature: NonEmptyString
     selection: TimeRangeSelection | RangeSelection | RemainderSelection
+    logical_bytes: int = 0
+    """Uncompressed source size, used to group partitions into extraction batches."""
 
     @model_validator(mode="after")
     def validate_range_partition_id(self) -> Self:
@@ -143,11 +145,19 @@ class Table(BaseModel):
         """Return the unqualified source table name."""
         return self.name.split(".")[-1]
 
+    def config_signature_fields(self) -> dict[str, object]:
+        """Return the configuration fields that identify this table for a sync."""
+        return {
+            "name": self.name,
+            "rls": [r.model_dump() for r in self.rls] if self.rls else None,
+            "indexes": [i.model_dump() for i in self.indexes] if self.indexes else None,
+        }
+
     def to_task(
         self,
         run_id: str,
         s3_bucket: str,
-        selection: TaskSelection,
+        selections: list[TaskSelection],
         path_suffix: str | None = None,
         json_columns: list[str] | None = None,
     ) -> DumpTask:
@@ -161,7 +171,7 @@ class Table(BaseModel):
                 f"s3://{s3_bucket}/{self.resolved_schema}/"
                 f"{self.table_name}{suffix}/data.parquet"
             ),
-            selection=selection,
+            selections=selections,
             json_columns=json_columns or [],
         )
 
@@ -171,6 +181,14 @@ class FullTable(Table):
 
     strategy: Literal[Strategy.FULL] = Strategy.FULL
 
+    @override
+    def config_signature_fields(self) -> dict[str, object]:
+        """Include the strategy and a null partition window for a full table."""
+        fields = super().config_signature_fields()
+        fields["strategy"] = self.strategy
+        fields["n"] = None
+        return fields
+
 
 class PartitionedTable(Table):
     """A table synced by diffing and reloading only its changed physical partitions."""
@@ -178,6 +196,14 @@ class PartitionedTable(Table):
     strategy: Literal[Strategy.PARTITIONED] = Strategy.PARTITIONED
     n: PositiveInt | None = None
     """Keep only the last N time partitions. Time-partitioned tables only."""
+
+    @override
+    def config_signature_fields(self) -> dict[str, object]:
+        """Include the strategy and the partition retention window."""
+        fields = super().config_signature_fields()
+        fields["strategy"] = self.strategy
+        fields["n"] = self.n
+        return fields
 
 
 TableConfig = Annotated[
@@ -268,12 +294,12 @@ class SyncConfig(BaseModel):
 
 
 class DumpTask(BaseModel):
-    """One extraction unit: a source table (or partition) and its S3 destination."""
+    """One extraction unit: a source table or a batch of partitions, and its S3 destination."""
 
     run_id: str
     table: str
     bucket_path: str
-    selection: TaskSelection
+    selections: Annotated[list[TaskSelection], Field(min_length=1)]
     json_columns: list[str] = []
     retry_count: int = 0
 

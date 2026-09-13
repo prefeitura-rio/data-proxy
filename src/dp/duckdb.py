@@ -4,15 +4,15 @@ import duckdb
 from duckdb import DuckDBPyConnection
 from psycopg.sql import Literal
 
+from .executor import execute_sql
 from .settings import settings
-from .templates import execute_sql
 
 
-def connect() -> DuckDBPyConnection:
+async def connect_duckdb() -> DuckDBPyConnection:
     """Create an in-memory DuckDB connection with all extensions and secrets loaded."""
     conn = duckdb.connect()
 
-    execute_sql(
+    await execute_sql(
         conn,
         "duckdb/setup",
         mapping={

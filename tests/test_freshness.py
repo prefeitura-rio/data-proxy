@@ -1,9 +1,8 @@
 """Freshness edge coverage."""
 
-from unittest.mock import call, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
-from psycopg import Connection
 from whenever import Instant
 
 from dp.freshness import (
@@ -13,7 +12,8 @@ from dp.freshness import (
     upsert_freshness,
 )
 from dp.models import FullTable, PartitionedTable, PartitionedTablePlan, SyncPlan
-from tests.helpers import execute_sql, partition
+from tests.fixtures.types import Postgres
+from tests.helpers import fetch_all, fetch_one, partition
 
 
 @pytest.fixture
@@ -31,9 +31,10 @@ def partitioned_table(
 class TestFreshnessPublishedFreshness:
     """Tests for PublishedFreshness behavior."""
 
-    def test_update_published_freshness_replaces_full_table_rows(
+    @pytest.mark.asyncio
+    async def test_update_published_freshness_replaces_full_table_rows(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         freshness_tables: tuple[FullTable, PartitionedTable, str],
     ) -> None:
         """
@@ -44,10 +45,12 @@ class TestFreshnessPublishedFreshness:
         full_table, _, schema = freshness_tables
         attempted_at = Instant.now()
 
-        upsert_freshness(postgres, full_table, {"old"}, attempted_at, success=True)
+        await upsert_freshness(
+            postgres.connection, full_table, {"old"}, attempted_at, success=True
+        )
 
-        update_published_freshness(
-            postgres,
+        await update_published_freshness(
+            postgres.connection,
             full_table,
             SyncPlan(
                 schema_name=schema,
@@ -57,17 +60,20 @@ class TestFreshnessPublishedFreshness:
             set(),
             attempted_at,
         )
+        await postgres.connection.commit()
 
-        assert execute_sql(
-            postgres,
+        rows = await fetch_all(
+            postgres.connection,
             "postgres/freshness_partitions_by_table",
             mapping={"schema": schema},
             params=("full",),
-        ).fetchall() == [(None, "success")]
+        )
+        assert rows == [(None, "success")]
 
-    def test_update_published_freshness_records_partition_results(
+    @pytest.mark.asyncio
+    async def test_update_published_freshness_records_partition_results(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         partitioned_table: PartitionedTable,
     ) -> None:
         """
@@ -91,26 +97,32 @@ class TestFreshnessPublishedFreshness:
             },
         )
         attempted_at = Instant.now()
-        upsert_freshness(postgres, partitioned_table, {"3"}, attempted_at, success=True)
-
-        update_published_freshness(
-            postgres, partitioned_table, plan, {"2"}, attempted_at
+        await upsert_freshness(
+            postgres.connection, partitioned_table, {"3"}, attempted_at, success=True
         )
 
-        assert execute_sql(
-            postgres,
+        await update_published_freshness(
+            postgres.connection, partitioned_table, plan, {"2"}, attempted_at
+        )
+
+        await postgres.connection.commit()
+
+        rows = await fetch_all(
+            postgres.connection,
             "postgres/freshness_partitions_by_table_ordered",
             mapping={"schema": partitioned_table.resolved_schema},
             params=("partitioned",),
-        ).fetchall() == [("1", "success"), ("2", "failure")]
+        )
+        assert rows == [("1", "success"), ("2", "failure")]
 
 
 class TestFreshness:
     """Tests for freshness module behavior."""
 
-    def test_empty_freshness_batches_leave_no_rows_modified(
+    @pytest.mark.asyncio
+    async def test_empty_freshness_batches_leave_no_rows_modified(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         full_table: FullTable,
     ) -> None:
         """
@@ -120,14 +132,19 @@ class TestFreshness:
         """
         attempted_at = Instant.now()
 
-        upsert_freshness(postgres, full_table, set(), attempted_at, success=True)
-        delete_partition_freshness(postgres, full_table, set())
+        await upsert_freshness(
+            postgres.connection, full_table, set(), attempted_at, success=True
+        )
+        await delete_partition_freshness(postgres.connection, full_table, set())
 
-        assert execute_sql(postgres, "postgres/select_one").fetchone() == (1,)
+        await postgres.connection.commit()
 
-    def test_record_table_failures_uses_explicit_or_changed_partitions(
+        assert await fetch_one(postgres.connection, "postgres/select_one") == (1,)
+
+    @pytest.mark.asyncio
+    async def test_record_table_failures_uses_explicit_or_changed_partitions(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         freshness_tables: tuple[FullTable, PartitionedTable, str],
     ) -> None:
         """
@@ -151,17 +168,22 @@ class TestFreshness:
             },
         )
 
-        record_table_failures(
-            postgres,
+        await record_table_failures(
+            postgres.connection,
             [full, partitioned],
             plan,
             Instant.now(),
             {full.name: {"override"}},
         )
 
-        assert execute_sql(
-            postgres, "postgres/freshness_table_partitions", mapping={"schema": schema}
-        ).fetchall() == [
+        await postgres.connection.commit()
+
+        rows = await fetch_all(
+            postgres.connection,
+            "postgres/freshness_table_partitions",
+            mapping={"schema": schema},
+        )
+        assert rows == [
             ("full", "override", "failure"),
             ("partitioned", "1", "failure"),
         ]
@@ -170,9 +192,10 @@ class TestFreshness:
 class TestFreshnessTemplates:
     """Tests for freshness SQL template usage."""
 
-    def test_delete_freshness_removes_specified_partitions(
+    @pytest.mark.asyncio
+    async def test_delete_freshness_removes_specified_partitions(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         partitioned_table: PartitionedTable,
     ) -> None:
         """
@@ -180,17 +203,21 @@ class TestFreshnessTemplates:
         WHEN: delete_freshness is called.
         THEN: the partition is removed using the freshness SQL template.
         """
-        delete_partition_freshness(postgres, partitioned_table, {"10"})
+        await delete_partition_freshness(postgres.connection, partitioned_table, {"10"})
 
-        assert execute_sql(
-            postgres,
+        await postgres.connection.commit()
+
+        row = await fetch_one(
+            postgres.connection,
             "postgres/freshness_count",
             mapping={"schema": partitioned_table.resolved_schema},
-        ).fetchone() == (0,)
+        )
+        assert row == (0,)
 
-    def test_upsert_freshness_writes_failure_status_using_enum_template(
+    @pytest.mark.asyncio
+    async def test_upsert_freshness_writes_failure_status_using_enum_template(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         partitioned_table: PartitionedTable,
     ) -> None:
         """
@@ -200,19 +227,27 @@ class TestFreshnessTemplates:
         """
         attempted_at = Instant.now()
 
-        upsert_freshness(
-            postgres, partitioned_table, {"10"}, attempted_at, success=False
+        await upsert_freshness(
+            postgres.connection,
+            partitioned_table,
+            {"10"},
+            attempted_at,
+            success=False,
         )
 
-        assert execute_sql(
-            postgres,
+        await postgres.connection.commit()
+
+        row = await fetch_one(
+            postgres.connection,
             "postgres/freshness_status",
             mapping={"schema": partitioned_table.resolved_schema},
-        ).fetchone() == ("failure",)
+        )
+        assert row == ("failure",)
 
-    def test_full_rebuild_freshness_resets_to_current_manifest(
+    @pytest.mark.asyncio
+    async def test_full_rebuild_freshness_resets_to_current_manifest(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         partitioned_table: PartitionedTable,
     ) -> None:
         """
@@ -234,19 +269,23 @@ class TestFreshnessTemplates:
         )
         attempted_at = Instant.now()
 
-        update_published_freshness(
-            postgres, partitioned_table, plan, set(), attempted_at
+        await update_published_freshness(
+            postgres.connection, partitioned_table, plan, set(), attempted_at
         )
 
-        assert execute_sql(
-            postgres,
+        await postgres.connection.commit()
+
+        rows = await fetch_all(
+            postgres.connection,
             "postgres/freshness_partitions",
             mapping={"schema": partitioned_table.resolved_schema},
-        ).fetchall() == [("10", "success")]
+        )
+        assert rows == [("10", "success")]
 
-    def test_incremental_freshness_records_success_failure_and_removal(
+    @pytest.mark.asyncio
+    async def test_incremental_freshness_records_success_failure_and_removal(
         self,
-        postgres: Connection[tuple[object, ...]],
+        postgres: Postgres,
         partitioned_table: PartitionedTable,
     ) -> None:
         """
@@ -269,15 +308,29 @@ class TestFreshnessTemplates:
         attempted_at = Instant.now()
 
         with (
-            patch("dp.freshness.upsert_freshness") as upsert,
-            patch("dp.freshness.delete_partition_freshness") as delete,
+            patch("dp.freshness.upsert_freshness", new_callable=AsyncMock) as upsert,
+            patch(
+                "dp.freshness.delete_partition_freshness", new_callable=AsyncMock
+            ) as delete,
         ):
-            update_published_freshness(
-                postgres, partitioned_table, plan, {"20"}, attempted_at
+            await update_published_freshness(
+                postgres.connection, partitioned_table, plan, {"20"}, attempted_at
             )
 
-        assert upsert.call_args_list == [
-            call(postgres, partitioned_table, {"10"}, attempted_at, success=True),
-            call(postgres, partitioned_table, {"20"}, attempted_at, success=False),
+        assert upsert.await_args_list == [
+            call(
+                postgres.connection,
+                partitioned_table,
+                {"10"},
+                attempted_at,
+                success=True,
+            ),
+            call(
+                postgres.connection,
+                partitioned_table,
+                {"20"},
+                attempted_at,
+                success=False,
+            ),
         ]
-        delete.assert_called_once_with(postgres, partitioned_table, {"30"})
+        delete.assert_awaited_once_with(postgres.connection, partitioned_table, {"30"})

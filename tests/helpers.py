@@ -3,8 +3,7 @@
 from collections.abc import Mapping
 from typing import cast
 
-from psycopg import Connection
-from psycopg.cursor import Cursor
+from psycopg import AsyncConnection, AsyncCursor
 from psycopg.sql import Composable
 
 from dp.models import (
@@ -19,6 +18,7 @@ from dp.models import (
     SyncConfig,
     SyncPlan,
     TableConfig,
+    TaskSelection,
 )
 from dp.templates import render_template
 from tests.constants import FILES
@@ -57,13 +57,14 @@ def dump(
     run_id: str = "r1",
     table: str = "p.d.t",
     bucket_path: str = "s3://b/t",
+    selections: list[TaskSelection] | None = None,
 ) -> DumpTask:
     """Build one common dump task for tests."""
     return DumpTask(
         run_id=run_id,
         table=table,
         bucket_path=bucket_path,
-        selection=AllSelection(),
+        selections=selections or [AllSelection()],
     )
 
 
@@ -73,6 +74,7 @@ def partition(
     *,
     column: str = "cpf",
     width: int = 10,
+    logical_bytes: int = 0,
 ) -> PhysicalPartition:
     """Build one normalized integer range partition for tests."""
     lower = int(partition_id)
@@ -85,10 +87,16 @@ def partition(
             lower=lower,
             upper=lower + width,
         ),
+        logical_bytes=logical_bytes,
     )
 
 
-def planning_partition(partition_id: str, signature: str = "s") -> PhysicalPartition:
+def planning_partition(
+    partition_id: str,
+    signature: str = "s",
+    *,
+    logical_bytes: int = 0,
+) -> PhysicalPartition:
     """Build one planning partition, including the null remainder bucket."""
     selection = (
         RemainderSelection(column="id", start=0, end=1)
@@ -105,6 +113,7 @@ def planning_partition(partition_id: str, signature: str = "s") -> PhysicalParti
         partition_id=partition_id,
         signature=signature,
         selection=selection,
+        logical_bytes=logical_bytes,
     )
 
 
@@ -113,15 +122,41 @@ def render(value: object) -> str:
     return cast(Composable, value).as_string(None)
 
 
-def execute_sql(
-    connection: Connection[tuple[object, ...]],
+async def execute_sql(
+    connection: AsyncConnection,
     path: str,
     *,
     mapping: Mapping[str, str | Composable] | None = None,
     params: tuple[object, ...] = (),
-) -> Cursor[tuple[object, ...]]:
-    """Execute a SQL fixture template and return the cursor."""
-    return connection.execute(
+) -> AsyncCursor[tuple[object, ...]]:
+    """Execute a SQL fixture template, commit it, and return the cursor."""
+    cursor = await connection.execute(
         render_template(path, mapping or {}, root=TEST_SQL_DIR),
         params,
     )
+    await connection.commit()
+    return cursor
+
+
+async def fetch_all(
+    connection: AsyncConnection,
+    path: str,
+    *,
+    mapping: Mapping[str, str | Composable] | None = None,
+    params: tuple[object, ...] = (),
+) -> list[tuple[object, ...]]:
+    """Execute a SQL fixture template and return every row."""
+    cursor = await execute_sql(connection, path, mapping=mapping, params=params)
+    return await cursor.fetchall()
+
+
+async def fetch_one(
+    connection: AsyncConnection,
+    path: str,
+    *,
+    mapping: Mapping[str, str | Composable] | None = None,
+    params: tuple[object, ...] = (),
+) -> tuple[object, ...] | None:
+    """Execute a SQL fixture template and return one row."""
+    cursor = await execute_sql(connection, path, mapping=mapping, params=params)
+    return await cursor.fetchone()

@@ -1,24 +1,23 @@
 """Tests for Dumper subscriptions."""
 
 import logging
+from typing import NamedTuple
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from duckdb import DuckDBPyConnection
 from faststream.exceptions import StopApplication
 from redis.asyncio import Redis
 
+from dp.constants import SEED_STREAM
 from dp.errors import retry_or_stop
-from dp.extraction import extract_task
-from dp.models import AllSelection, DumpTask
+from dp.models import AllSelection, DumpTask, SeedTask
 from dp.sync.dumper import (
     cleanup_consumers,
     dump_task,
     dumper,
 )
-from dp.sync.seeder import seed_sync
 
-pytestmark = pytest.mark.usefixtures("test_settings", "mock_push_to_gateway")
+pytestmark = pytest.mark.usefixtures("test_settings", "metrics_disabled")
 
 test_logger = logging.getLogger("test")
 
@@ -39,7 +38,11 @@ class TestDumpTask:
         THEN: retry_or_stop re-publishes the task and raises StopApplication.
         """
         with (
-            patch("dp.sync.dumper.extract_task", side_effect=RuntimeError("bad")),
+            patch(
+                "dp.sync.dumper.extract_task",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("bad"),
+            ),
             patch("dp.sync.dumper.complete_dump", new_callable=AsyncMock),
             patch.object(dumper, "exit"),
             patch("dp.sync.dumper.broker.publish", new_callable=AsyncMock),
@@ -48,30 +51,11 @@ class TestDumpTask:
             await dump_task(standard_dump_task, test_logger)
 
 
-class TestExtractionWrapper:
-    """Tests for the extraction wrapper boundary."""
-
-    def test_extract_wrapper_uses_duckdb_fixture(
-        self, duckdb: DuckDBPyConnection, standard_dump_task: DumpTask
-    ) -> None:
-        """
-        GIVEN: a dump task and a patched DuckDB connection.
-        WHEN: extract_task is called.
-        THEN: it connects and executes exactly once.
-        """
-        with (
-            patch("dp.extraction.connect", return_value=duckdb) as connect,
-            patch("dp.extraction.build_mapping", return_value="SELECT 1"),
-        ):
-            extract_task(standard_dump_task)
-        connect.assert_called_once()
-
-
 class TestDumperSeedDispatch:
     """Tests for seed dispatch after dump completion."""
 
     @pytest.mark.asyncio
-    async def test_dumper_publishes_seed_sync_when_last_dump_completes(
+    async def test_dumper_publishes_seed_publication_when_last_dump_completes(
         self,
         redis: Redis,
         broker: object,
@@ -80,18 +64,22 @@ class TestDumperSeedDispatch:
         """
         GIVEN: the last dump completes with zero remaining.
         WHEN: dump_task runs.
-        THEN: the dumper publishes a seed sync message.
+        THEN: the dumper publishes a seed task for the run.
         """
         with (
-            patch("dp.sync.dumper.extract_task"),
+            patch("dp.sync.dumper.extract_task", new_callable=AsyncMock),
             patch(
-                "dp.sync.dumper.complete_dump", new_callable=AsyncMock, return_value=0
+                "dp.sync.dumper.complete_dump",
+                new_callable=AsyncMock,
+                return_value=0,
             ),
-            patch.object(dumper, "exit"),
+            patch("dp.sync.dumper.broker.publish", new_callable=AsyncMock) as publish,
         ):
             await dump_task(standard_dump_task, test_logger)
-        assert seed_sync.mock.call_count == 1
-        seed_sync.mock.assert_called_with({"run_id": "r1"})
+
+        message = publish.call_args.args[0]
+        assert message == SeedTask(run_id="r1")
+        assert publish.call_args.kwargs["stream"] == SEED_STREAM
 
 
 class TestDumperCleanup:
@@ -105,61 +93,65 @@ class TestDumperCleanup:
         THEN: it asks cleanup_consumer to remove each configured consumer.
         """
         with (
-            patch("dp.sync.dumper.cleanup_consumer", new_callable=AsyncMock) as cleanup,
+            patch("dp.utils.cleanup_consumer", new_callable=AsyncMock) as cleanup,
         ):
             await cleanup_consumers()
         assert cleanup.await_count == 2
 
 
+class RetryCase(NamedTuple):
+    """One retry_or_stop scenario and its observable outcome."""
+
+    name: str
+    retry_count: int
+    max_retries: int
+    republished: bool
+
+
+RETRY_CASES = [
+    RetryCase("below the limit", 0, 3, republished=True),
+    RetryCase("at the limit", 3, 3, republished=False),
+]
+
+
 class TestRetryOrStop:
     """Tests for retry_or_stop error handling."""
 
+    @pytest.mark.parametrize("case", RETRY_CASES, ids=lambda case: case.name)
     @pytest.mark.asyncio
-    async def test_retry_republishes_with_incremented_count(self) -> None:
+    async def test_retry_or_stop_republishes_or_records_failure(
+        self, case: RetryCase
+    ) -> None:
         """
-        GIVEN: a failed task with retry_count=0 and max_retries=3.
+        GIVEN: a failed task below or at the retry limit.
         WHEN: retry_or_stop is called.
-        THEN: the task is re-published with retry_count=1 and StopApplication is raised.
+        THEN: below the limit it re-publishes, at the limit it records the failure.
         """
         task = DumpTask(
             run_id="r1",
             table="p.d.t",
             bucket_path="s3://b/t",
-            selection=AllSelection(),
+            selections=[AllSelection()],
+            retry_count=case.retry_count,
         )
-        broker = AsyncMock()
+        publisher = AsyncMock()
         with (
             patch("dp.errors.DUMP_STREAM", "dp:extract"),
-            pytest.raises(StopApplication),
-        ):
-            await retry_or_stop(
-                RuntimeError("bad"), task, broker.publish, max_retries=3
-            )
-        broker.publish.assert_called_once()
-        republished = broker.publish.call_args.args[0]
-        assert republished.retry_count == 1
-
-    @pytest.mark.asyncio
-    async def test_retry_at_limit_records_failure_and_stops(self) -> None:
-        """
-        GIVEN: a failed task with retry_count=3 and max_retries=3.
-        WHEN: retry_or_stop is called.
-        THEN: the task is not re-published and StopApplication is raised.
-        """
-        task = DumpTask(
-            run_id="r1",
-            table="p.d.t",
-            bucket_path="s3://b/t",
-            selection=AllSelection(),
-            retry_count=3,
-        )
-        broker = AsyncMock()
-        with (
             patch("dp.errors.complete_dump", new_callable=AsyncMock) as complete,
             pytest.raises(StopApplication),
         ):
             await retry_or_stop(
-                RuntimeError("bad"), task, broker.publish, max_retries=3
+                RuntimeError("bad"),
+                task,
+                publisher.publish,
+                max_retries=case.max_retries,
             )
-        broker.publish.assert_not_called()
+
+        if case.republished:
+            publisher.publish.assert_called_once()
+            republished = publisher.publish.call_args.args[0]
+            assert republished.retry_count == case.retry_count + 1
+            return
+
+        publisher.publish.assert_not_called()
         complete.assert_awaited_once()

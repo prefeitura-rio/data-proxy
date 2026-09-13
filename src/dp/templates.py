@@ -2,21 +2,14 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from string import Template
-from typing import LiteralString, cast, overload
+from typing import LiteralString, cast
 
-from duckdb import DuckDBPyConnection
-from psycopg import Connection
-from psycopg.cursor import Cursor
-from psycopg.sql import Composable
-from whenever import Instant
+from psycopg.sql import SQL, Composable
 
 SQL_DIR = Path(__file__).parent / "sql"
-
-type SQLParam = str | datetime | Instant | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,54 +64,9 @@ def render_template(
     )
 
 
-@overload
-def execute_sql(
-    conn: Cursor,
+def render_fragment(
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
-    *,
-    params: list[tuple[SQLParam, ...]],
-) -> None: ...
-
-
-@overload
-def execute_sql(
-    conn: Connection | Cursor,
-    path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
-    *,
-    params: tuple[SQLParam, ...] | None = None,
-) -> Cursor: ...
-
-
-@overload
-def execute_sql(
-    conn: DuckDBPyConnection,
-    path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
-    *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
-) -> DuckDBPyConnection: ...
-
-
-def execute_sql(
-    conn: Connection | Cursor | DuckDBPyConnection,
-    path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
-    *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
-) -> Cursor | DuckDBPyConnection | None:
-    """Render a SQL template and execute it against a psycopg or DuckDB connection."""
-    resolved = mapping or {}
-
-    match conn, params:
-        case Cursor(), list():
-            return conn.executemany(render_template(path, resolved), params)
-        case Connection(), list():
-            raise TypeError("executemany requires a Cursor, not a Connection")
-        case Connection() | Cursor(), tuple():
-            return conn.execute(render_template(path, resolved), params)
-        case Connection() | Cursor(), None:
-            return conn.execute(render_template(path, resolved).encode())
-        case DuckDBPyConnection(), _:
-            return conn.execute(render_template(path, resolved))
+    mapping: Mapping[str, str | Composable],
+) -> Composable:
+    """Render one composable SQL fragment for use in another template."""
+    return SQL(render_template(path, mapping))

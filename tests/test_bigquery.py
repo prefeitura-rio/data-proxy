@@ -1,6 +1,7 @@
 """Tests for BigQuery table metadata helpers."""
 
 from dataclasses import dataclass
+from typing import cast
 
 import pytest
 from google.cloud.bigquery import Client, Row
@@ -11,7 +12,12 @@ from dp.bigquery.config import (
     TimeConfig,
     TimeGranularity,
 )
-from dp.bigquery.partitions import normalize_partition, physical_partitions
+from dp.bigquery.partitions import (
+    TypedRow,
+    normalize_partition,
+    physical_partitions,
+    row_logical_bytes,
+)
 from dp.bigquery.tables import parse_table_reference, table_modified
 from dp.models import RangeSelection
 
@@ -48,6 +54,15 @@ class InvalidMetadataCase:
 class TestBigQueryTableModified:
     """Tests for TableModified behavior."""
 
+    def test_row_logical_bytes_defaults_to_zero_for_non_integers(self) -> None:
+        """
+        GIVEN: a BigQuery row whose logical_bytes is not an integer.
+        WHEN: row_logical_bytes is called.
+        THEN: it returns zero instead of the raw value.
+        """
+        row = cast(TypedRow, cast(object, {"logical_bytes": None}))
+        assert row_logical_bytes(row) == 0
+
     def test_table_modified_returns_epoch_milliseconds(self, bigquery: Client) -> None:
         """
         GIVEN: a table with a real metadata timestamp.
@@ -76,7 +91,8 @@ class TestBigQueryTableModified:
 class TestBigQueryPhysicalPartitions:
     """Tests for PhysicalPartitions behavior."""
 
-    def test_physical_partitions_normalizes_existing_range_buckets(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_normalizes_existing_range_buckets(
         self, bigquery: Client
     ) -> None:
         """
@@ -84,7 +100,7 @@ class TestBigQueryPhysicalPartitions:
         WHEN: physical_partitions is called.
         THEN: range metadata becomes generic lower and upper bounds.
         """
-        table_signature, partitions = physical_partitions(
+        table_signature, partitions = await physical_partitions(
             bigquery, "test.dataset.range_buckets", '{"strategy":"partitioned"}'
         )
 
@@ -98,12 +114,14 @@ class TestBigQueryPhysicalPartitions:
                 "lower": 0,
                 "upper": 10,
             },
+            "logical_bytes": 1000000,
         }
         upper_selection = partitions["20"].selection
         assert isinstance(upper_selection, RangeSelection)
         assert upper_selection.upper == 25
 
-    def test_physical_partitions_accepts_nonzero_range_start(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_accepts_nonzero_range_start(
         self,
         bigquery: Client,
     ) -> None:
@@ -112,7 +130,7 @@ class TestBigQueryPhysicalPartitions:
         WHEN: physical_partitions is called.
         THEN: the start remains unchanged.
         """
-        _, partitions = physical_partitions(
+        _, partitions = await physical_partitions(
             bigquery, "test.dataset.range_start_five", "{}"
         )
 
@@ -120,7 +138,8 @@ class TestBigQueryPhysicalPartitions:
         assert isinstance(selection, RangeSelection)
         assert selection.lower == 5
 
-    def test_physical_partitions_normalizes_null_bucket_into_remainder(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_normalizes_null_bucket_into_remainder(
         self,
         bigquery: Client,
     ) -> None:
@@ -129,7 +148,9 @@ class TestBigQueryPhysicalPartitions:
         WHEN: physical_partitions is called.
         THEN: the null bucket becomes a remainder partition.
         """
-        _, partitions = physical_partitions(bigquery, "test.dataset.range_null", "{}")
+        _, partitions = await physical_partitions(
+            bigquery, "test.dataset.range_null", "{}"
+        )
 
         remainder = partitions["__NULL__"].selection
         assert remainder.type == "remainder"
@@ -137,7 +158,8 @@ class TestBigQueryPhysicalPartitions:
         assert remainder.start == 0
         assert remainder.end == 25
 
-    def test_physical_partitions_normalizes_time_partitions_into_ranges(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_normalizes_time_partitions_into_ranges(
         self,
         bigquery: Client,
     ) -> None:
@@ -146,7 +168,9 @@ class TestBigQueryPhysicalPartitions:
         WHEN: physical_partitions is called.
         THEN: raw partition ids normalize into [start, end) date ranges.
         """
-        _, partitions = physical_partitions(bigquery, "test.dataset.time_day", "{}")
+        _, partitions = await physical_partitions(
+            bigquery, "test.dataset.time_day", "{}"
+        )
 
         assert partitions["20250101"].selection.model_dump() == {
             "type": "time_range",
@@ -167,7 +191,8 @@ class TestBigQueryPhysicalPartitions:
         ],
         ids=lambda case: case.type,
     )
-    def test_physical_partitions_normalizes_every_time_granularity(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_normalizes_every_time_granularity(
         self, bigquery: Client, case: TimeGranularityCase
     ) -> None:
         """
@@ -182,7 +207,7 @@ class TestBigQueryPhysicalPartitions:
             "YEAR": "time_year",
         }[case.type]
 
-        _, partitions = physical_partitions(
+        _, partitions = await physical_partitions(
             bigquery, f"test.dataset.{table_name}", "{}"
         )
 
@@ -194,19 +219,23 @@ class TestBigQueryPhysicalPartitions:
             "upper": case.upper,
         }
 
-    def test_physical_partitions_skips_time_null_bucket(self, bigquery: Client) -> None:
+    @pytest.mark.asyncio
+    async def test_physical_partitions_skips_time_null_bucket(
+        self, bigquery: Client
+    ) -> None:
         """
         GIVEN: a time-partitioned table with a __NULL__ bucket.
         WHEN: physical_partitions is called.
         THEN: the null bucket is skipped.
         """
-        _, partitions = physical_partitions(
+        _, partitions = await physical_partitions(
             bigquery, "test.dataset.time_day_skip", "{}"
         )
 
         assert set(partitions) == {"20250101"}
 
-    def test_physical_partitions_keeps_last_n_time_partitions(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_keeps_last_n_time_partitions(
         self, bigquery: Client
     ) -> None:
         """
@@ -214,13 +243,14 @@ class TestBigQueryPhysicalPartitions:
         WHEN: physical_partitions is called with n=2.
         THEN: only the highest n partition ids are kept.
         """
-        _, partitions = physical_partitions(
+        _, partitions = await physical_partitions(
             bigquery, "test.dataset.time_day", "{}", n=2
         )
 
         assert set(partitions) == {"20250102", "20250103"}
 
-    def test_physical_partitions_rejects_n_for_range_partitioned_tables(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_rejects_n_for_range_partitioned_tables(
         self,
         bigquery: Client,
     ) -> None:
@@ -232,9 +262,10 @@ class TestBigQueryPhysicalPartitions:
         with pytest.raises(
             ValueError, match="n is only supported for time-partitioned"
         ):
-            physical_partitions(bigquery, "test.dataset.range_buckets", "{}", n=2)
+            await physical_partitions(bigquery, "test.dataset.range_buckets", "{}", n=2)
 
-    def test_physical_partitions_rejects_unsupported_time_granularity(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_rejects_unsupported_time_granularity(
         self,
         bigquery: Client,
     ) -> None:
@@ -244,9 +275,10 @@ class TestBigQueryPhysicalPartitions:
         THEN: it raises ValueError.
         """
         with pytest.raises(ValueError, match="Unsupported time partition granularity"):
-            physical_partitions(bigquery, "test.dataset.time_week", "{}")
+            await physical_partitions(bigquery, "test.dataset.time_week", "{}")
 
-    def test_physical_partitions_rejects_ingestion_time_partitioning(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_rejects_ingestion_time_partitioning(
         self,
         bigquery: Client,
     ) -> None:
@@ -256,7 +288,7 @@ class TestBigQueryPhysicalPartitions:
         THEN: it raises ValueError.
         """
         with pytest.raises(ValueError, match="Ingestion-time partitioning"):
-            physical_partitions(bigquery, "test.dataset.time_ingestion", "{}")
+            await physical_partitions(bigquery, "test.dataset.time_ingestion", "{}")
 
 
 class TestBigQuery:
@@ -339,7 +371,8 @@ class TestBigQuery:
         ],
         ids=lambda case: case.table,
     )
-    def test_physical_partitions_rejects_invalid_metadata_cases(
+    @pytest.mark.asyncio
+    async def test_physical_partitions_rejects_invalid_metadata_cases(
         self, bigquery: Client, case: InvalidMetadataCase
     ) -> None:
         """
@@ -351,7 +384,7 @@ class TestBigQuery:
             TypeError if "modification" in case.message else ValueError,
             match=case.message,
         ):
-            physical_partitions(bigquery, f"test.dataset.{case.table}", "{}")
+            await physical_partitions(bigquery, f"test.dataset.{case.table}", "{}")
 
     def test_normalize_partition_rejects_invalid_kind_config(
         self,

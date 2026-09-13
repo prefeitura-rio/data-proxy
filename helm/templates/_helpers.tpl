@@ -161,7 +161,7 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDa
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}
-{{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) }}
+{{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString .Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString .Values.fallback.fetchKeepaliveTimeout) }}
 {{- end }}
 
 {{- define "data-proxy.webdisConfig" -}}
@@ -236,11 +236,17 @@ map $http_accept_profile $fallback_pgrst {
 - name: FALLBACK_CACHE_REDIS_DB
   value: {{ .Values.fallback.cacheRedisDb | quote }}
 - name: DUMPER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.dumper.visibilityTimeoutMs | quote }}
+  value: {{ .Values.dumper.visibilityTimeoutMs | int64 | quote }}
+- name: DUMPER_BATCH_BYTES
+  value: {{ .Values.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
+- name: DUMPER_BATCH_MAX_PARTITIONS
+  value: {{ .Values.dumper.batchMaxPartitions | quote }}
+- name: DUMPER_SCRATCH_DIR
+  value: {{ .Values.dumper.scratch.mountPath | quote }}
 - name: SEEDER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.seeder.visibilityTimeoutMs | quote }}
+  value: {{ .Values.seeder.visibilityTimeoutMs | int64 | quote }}
 - name: PUBLISHER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.publisher.visibilityTimeoutMs | quote }}
+  value: {{ .Values.publisher.visibilityTimeoutMs | int64 | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE

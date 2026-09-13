@@ -7,6 +7,7 @@ in
 
   env = {
     UV_PYTHON = config.languages.python.package.outPath;
+    UV_LINK_MODE = "copy";
     KUBECONFIG = ".kubeconfig";
     DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
     NU_LIB_DIRS = "vendor";
@@ -19,10 +20,11 @@ in
     k6
     kubeconform
     minikube
+    nodejs
     nu-lint
     nushell
+    seaweedfs
     typescript
-    nodejs
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))

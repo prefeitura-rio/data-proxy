@@ -73,3 +73,4 @@ class BigQueryPartitionRow(BaseModel):
 
     partition_id: str
     last_modified_time: datetime | None
+    logical_bytes: int = 0
