@@ -6,6 +6,7 @@
 declare module 'k6/x/kubernetes' {
     export class Kubernetes {
         get(kind: string, name: string, namespace: string): unknown;
+        list(kind: string, namespace: string): unknown[];
         create(resource: unknown): void;
     }
 }

@@ -15,6 +15,34 @@ type FreshnessRow = {
     strategy: string;
     partition: string | null;
     status: string;
+    updated_at?: string;
+};
+
+type Selection = {
+    column: string;
+    lower: string;
+    upper: string;
+};
+
+type StoredPartition = {
+    signature: string;
+    selection: Selection;
+};
+
+type StoredState = {
+    strategy: string;
+    signature: string;
+    partitions: Record<string, StoredPartition> | null;
+};
+
+type ContainerStatus = {
+    name: string;
+    restartCount: number;
+};
+
+type PodObject = {
+    metadata: { name: string; labels?: Record<string, string> };
+    status?: { containerStatuses?: ContainerStatus[] };
 };
 
 interface MetricRequest {
@@ -53,6 +81,11 @@ const MULTI_RLS_TABLE = "endpoint_participantes";
 const PARTITIONED_TABLE = "protocolo_estado_diario";
 const TABLES = [FULL_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE];
 const STREAMS = ["dp:extract", "dp:prepare", "dp:publish"];
+
+const PARTITIONED_SOURCE = __ENV.PARTITIONED_SOURCE || "rj-ia-desenvolvimento.dev.protocolo_estado_diario";
+const FULL_SOURCE = __ENV.FULL_SOURCE || "rj-ia-desenvolvimento.dev.endpoint_participante_listagem";
+const OID_PROBE_TABLE = "e2e_oid_probe";
+const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
 
 const ACCESS_POLICY_ROWS = [
     { subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
@@ -678,6 +711,201 @@ function verifyCoalescing(token: string): void {
     expect("a burst is served the same answer", JSON.stringify(rowsOf(responses[0])) === JSON.stringify(rowsOf(responses[BURST_REQUESTS - 1])));
 }
 
+/** Waits until the pipeline reports no active run and no pending stream entry. */
+function waitForPipeline(metrics: MetricRequest[], timeoutSeconds: number): boolean {
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    while (Date.now() < deadline) {
+        if (pollOnce(metrics)) {
+            return true;
+        }
+        sleep(POLL_INTERVAL);
+    }
+    return false;
+}
+
+/** Sends one Valkey command through the proxy and returns the parsed answer. */
+function redisCommand(token: string, command: string): Record<string, unknown> | null {
+    const response = http.get(
+        `${WEBDIS_URL}/${PIPELINE_REDIS_DB}/${command}`,
+        { headers: authHeaders(token), tags: { name: `redis:${command.split("/")[0]}` } },
+    ) as K6Response;
+    const body = response.status === 200 ? safeJson(response) : null;
+    return body !== null && typeof body === "object" ? (body as Record<string, unknown>) : null;
+}
+
+/** Reads one stored table state, or null when it is absent or unreadable. */
+function readState(token: string, source: string): StoredState | null {
+    const answer = redisCommand(token, `GET/dp:state:${source}`);
+    const value = answer?.["GET"];
+    if (typeof value !== "string") {
+        return null;
+    }
+    try {
+        return JSON.parse(value) as StoredState;
+    } catch {
+        return null;
+    }
+}
+
+/** Writes one stored table state, with the value percent-encoded in the path. */
+function writeState(token: string, source: string, state: StoredState): boolean {
+    const answer = redisCommand(token, `SET/dp:state:${source}/${encodeURIComponent(JSON.stringify(state))}`);
+    return answer !== null && answer["SET"] !== undefined;
+}
+
+/** Deletes one Valkey key through the proxy. */
+function deleteKey(token: string, key: string): boolean {
+    const answer = redisCommand(token, `DEL/${key}`);
+    return Number(answer?.["DEL"] ?? 0) > 0;
+}
+
+/** Reads the freshness rows of one table, optionally for one partition. */
+function freshnessRows(token: string, table: string, partition?: string): FreshnessRow[] {
+    const filter = partition === undefined ? "" : `&partition=eq.${partition}`;
+    const response = directPostgrest(
+        `/freshness?table=eq.${table}${filter}&select=table,strategy,partition,status,updated_at`,
+        token,
+    );
+    return rowsOf(response) as FreshnessRow[];
+}
+
+/** Records the current OID of one table, so a later phase can compare it. */
+function recordOid(k8s: Kubernetes, name: string, table: string): void {
+    runSqlJob(
+        k8s,
+        `oid-record-${name}`,
+        `CREATE TABLE IF NOT EXISTS ${SCHEMA}.${OID_PROBE_TABLE} (name text PRIMARY KEY, oid oid); ` +
+        `INSERT INTO ${SCHEMA}.${OID_PROBE_TABLE} VALUES ('${name}', '${SCHEMA}.${table}'::regclass::oid) ` +
+        `ON CONFLICT (name) DO UPDATE SET oid = EXCLUDED.oid`,
+    );
+}
+
+/**
+ * Fails the run when the OID of one table changed, which only a swap can do.
+ *
+ * The comparison runs inside a Job, because a Job that fails is how this test
+ * reports a failed assertion. A division by zero is the failure, and the CASE
+ * keeps the planner from folding it away.
+ */
+function requireOidUnchanged(k8s: Kubernetes, name: string, table: string): void {
+    runSqlJob(
+        k8s,
+        `oid-keep-${name}`,
+        `SELECT 1 / (CASE WHEN (SELECT oid FROM ${SCHEMA}.${OID_PROBE_TABLE} WHERE name = '${name}') ` +
+        `<> '${SCHEMA}.${table}'::regclass::oid THEN 0 ELSE 1 END) FROM (SELECT 1) AS probe`,
+    );
+}
+
+/** Fails the run when the OID of one table did not change, which only a swap can do. */
+function requireOidChanged(k8s: Kubernetes, name: string, table: string): void {
+    runSqlJob(
+        k8s,
+        `oid-change-${name}`,
+        `SELECT 1 / (CASE WHEN (SELECT oid FROM ${SCHEMA}.${OID_PROBE_TABLE} WHERE name = '${name}') ` +
+        `= '${SCHEMA}.${table}'::regclass::oid THEN 0 ELSE 1 END) FROM (SELECT 1) AS probe`,
+    );
+}
+
+/**
+ * Verifies an incremental sync replaces one changed partition in place.
+ *
+ * One partition is removed from the stored manifest and its rows are deleted
+ * locally, so the next sync has to fetch that partition again. The OID check
+ * proves the table was not replaced, because a swap changes the OID.
+ */
+function verifyIncrementalRestore(k8s: Kubernetes, token: string, metrics: MetricRequest[]): void {
+    const state = readState(token, PARTITIONED_SOURCE);
+    requirePrecondition("the partitioned table has a stored manifest", state !== null && state.partitions !== null, { state: state });
+
+    const partitions = (state as StoredState).partitions as Record<string, StoredPartition>;
+    const target = Object.keys(partitions).sort()[0];
+    const selection = partitions[target].selection;
+    const range = `${selection.column}=gte.${selection.lower}&${selection.column}=lt.${selection.upper}`;
+
+    const before = freshnessRows(token, PARTITIONED_TABLE, target);
+    requirePrecondition("the changed partition has one freshness row", before.length === 1, { rows: before.length });
+
+    runSqlJob(
+        k8s,
+        "incremental-drop",
+        `DELETE FROM ${SCHEMA}.${PARTITIONED_TABLE} WHERE ${selection.column} >= '${selection.lower}' ` +
+        `AND ${selection.column} < '${selection.upper}'`,
+    );
+    expect(
+        "the changed partition is empty locally",
+        rowsOf(directPostgrest(`/${PARTITIONED_TABLE}?${range}&select=${PARTITION_COLUMN}&limit=5`, token)).length === 0,
+    );
+
+    recordOid(k8s, PARTITIONED_TABLE, PARTITIONED_TABLE);
+
+    const reduced: StoredState = { ...(state as StoredState), partitions: { ...partitions } };
+    delete (reduced.partitions as Record<string, StoredPartition>)[target];
+    requirePrecondition("the partition is removed from the stored manifest", writeState(token, PARTITIONED_SOURCE, reduced), {});
+
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    const done = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    check(null, { "the incremental sync completed": () => done });
+
+    requireOidUnchanged(k8s, PARTITIONED_TABLE, PARTITIONED_TABLE);
+    expect(
+        "the changed partition holds rows again",
+        rowsOf(directPostgrest(`/${PARTITIONED_TABLE}?${range}&select=${PARTITION_COLUMN}&limit=5`, token)).length > 0,
+    );
+
+    const after = freshnessRows(token, PARTITIONED_TABLE, target);
+    expect("the partition freshness is a success", after.length === 1 && after[0].status === "success");
+    expect("the partition freshness moved forward", (after[0]?.updated_at ?? "") > (before[0]?.updated_at ?? ""));
+    expect("the stored manifest holds the partition again", readState(token, PARTITIONED_SOURCE)?.partitions?.[target] !== undefined);
+}
+
+/**
+ * Verifies a rebuild of an existing full table goes through a shadow and a swap.
+ *
+ * Only the state key is removed, so the table exists and its signature is
+ * unknown, which is the shadow route. The OID check proves the swap happened.
+ */
+function verifyShadowRebuild(k8s: Kubernetes, token: string, metrics: MetricRequest[]): void {
+    const before = freshnessRows(token, FULL_TABLE);
+    requirePrecondition("the full table has one freshness row", before.length === 1, { rows: before.length });
+    const rowsBefore = rowsOf(directPostgrest(`/${FULL_TABLE}?select=id&limit=1000`, token)).length;
+
+    recordOid(k8s, FULL_TABLE, FULL_TABLE);
+    requirePrecondition("the full table state key is deleted", deleteKey(token, `dp:state:${FULL_SOURCE}`), {});
+
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    const done = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    check(null, { "the shadow sync completed": () => done });
+
+    requireOidChanged(k8s, FULL_TABLE, FULL_TABLE);
+    expect(
+        "the rebuilt table holds rows",
+        rowsOf(directPostgrest(`/${FULL_TABLE}?select=id&limit=1000`, token)).length === rowsBefore,
+    );
+
+    const after = freshnessRows(token, FULL_TABLE);
+    expect("the rebuilt table has one freshness row", after.length === 1 && after[0].status === "success");
+    expect("the rebuilt table freshness moved forward", (after[0]?.updated_at ?? "") > (before[0]?.updated_at ?? ""));
+}
+
+/**
+ * Verifies the webdis sidecar has not restarted.
+ *
+ * webdis frees a client while a command is in flight when a request asks it to
+ * close the connection, which crashes it. The proxy keeps its connections alive
+ * so that cannot happen, and this check fails the run when it happens anyway.
+ */
+function verifyWebdisStable(k8s: Kubernetes): void {
+    const pods = k8s.list("Pod", NAMESPACE) as PodObject[];
+    const proxyPods = pods.filter((pod) => (pod.metadata.labels?.["app.kubernetes.io/component"] || "") === "nginx-proxy");
+    const webdis = proxyPods.flatMap((pod) => pod.status?.containerStatuses || []).filter((status) => status.name === "webdis");
+
+    expect("the proxy pod is present", proxyPods.length > 0);
+    expect("webdis reports one container status", webdis.length === proxyPods.length);
+    expect("webdis has not restarted", webdis.every((status) => status.restartCount === 0));
+}
+
 /**
  * Verifies the BigQuery fallback end to end.
  *
@@ -702,29 +930,26 @@ function verifyFallback(k8s: Kubernetes): void {
     verifyCoalescing(token);
 }
 
-/** Polls the pipeline until it completes, then runs every verification. */
+/** Waits for the pipeline, then verifies every route it can reach. */
 export default function(): void {
     const k8s = new Kubernetes();
     const token = fetchToken();
     const metrics = buildMetrics(token);
 
-    const deadline = Date.now() + 600_000;
-    let completed = false;
+    const completed = waitForPipeline(metrics, 600);
+    check(null, { "the pipeline completed before the deadline": () => completed });
 
-    while (Date.now() < deadline) {
-        const pipelineDone = pollOnce(metrics);
-        if (pipelineDone) {
-            completed = true;
-            seedAccessPolicy();
-            sleep(2);
-            verifyMetrics(metrics);
-            verifyNoAccess();
-            verifyJsonbColumn();
-            verifyFallback(k8s);
-            break;
-        }
-        sleep(POLL_INTERVAL);
+    if (!completed) {
+        return;
     }
 
-    check(null, { "the pipeline completed before the deadline": () => completed });
+    seedAccessPolicy();
+    sleep(2);
+    verifyMetrics(metrics);
+    verifyNoAccess();
+    verifyJsonbColumn();
+    verifyIncrementalRestore(k8s, token, metrics);
+    verifyShadowRebuild(k8s, token, metrics);
+    verifyWebdisStable(k8s);
+    verifyFallback(k8s);
 }

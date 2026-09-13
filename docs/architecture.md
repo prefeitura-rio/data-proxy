@@ -22,14 +22,14 @@ The sync pipeline has four components. Each component writes structured log reco
 
 - **Producer** — runs as a Kubernetes CronJob. It creates the Dumper, Seeder, and Publisher consumer groups. It reads the sync configuration. It compares each BigQuery table signature with the last successful signature. It publishes tasks only for changed tables. It writes one sync plan to Valkey. The plan contains a list of publication plans, one for each affected PostgreSQL schema. The pod exits after it publishes the plan and tasks.
 - **Dumper** — runs as a KEDA ScaledObject. KEDA uses two triggers on the `dp:extract` stream. `lagCount` counts unread messages. `pendingEntriesCount` counts messages that a Dumper received but did not acknowledge. KEDA runs a maximum of `maxReplicaCount` pods. Each pod processes one table or partition task. It writes one Parquet file to Google Cloud Storage, records the result in Valkey, and exits. The number of pods decreases to zero between sync runs.
-- **Seeder** — runs as a KEDA ScaledObject. KEDA scales on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. The Seeder reads the sync plan, initializes PostgreSQL schemas and roles, and publishes one publication task per schema to `dp:publish`. The pod exits after it dispatches the publication tasks.
-- **Publisher** — runs as a KEDA ScaledObject. It reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the S3 bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The last Publisher tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
+- **Seeder** — runs as a KEDA ScaledJob on the `dp:prepare` stream. The last Dumper publishes one seed task to `dp:prepare` when all extraction tasks complete. One seed task creates one Job. The Job reads the sync plan, initializes PostgreSQL schemas and roles, publishes one publication task per schema to `dp:publish`, acknowledges its message, and completes.
+- **Publisher** — runs as a KEDA ScaledJob with one Job for each schema in the plan. Each Job reads one schema plan from the run plan hash. It uses the configured writer for that schema. For full rebuilds, it creates a shadow table from all Parquet files in the S3 bucket with a glob pattern. For incremental syncs, it deletes and loads only the changed partitions. It publishes changed tables and commits successful `TableState` values. The Job acknowledges its message and completes after it publishes its schema. The last Job tells PostgREST to reload its schema cache. A second subscription reclaims pending messages after `PUBLISHER_VISIBILITY_TIMEOUT_MS`.
 
 The producer skips a BigQuery table that has not changed since its last successful sync. The producer checks this with a modification signature. This signature combines the BigQuery modification time with the table's synchronization configuration. A configuration change therefore also forces a resync.
 
 A table's strategy sets how many tasks the producer publishes for it. The `full` strategy publishes one task for the whole table. The `partitioned` strategy publishes one task per changed physical partition. See [Sync Configuration](sync.md) for the full reference.
 
-A Publisher crash leaves its message pending. A new Publisher pod reclaims the message after the visibility timeout. It then completes the run. The producer re-publishes a Publisher message when all tasks are complete and no Publisher message is pending. This recovers a message that no Publisher received.
+A Publisher Job that crashes leaves its message pending. The pending trigger starts a new Publisher Job, which reclaims the message after the visibility timeout. It then completes the run. The producer re-publishes the seed task when all tasks are complete and no publication has finished. These two paths recover a message that no worker received.
 
 The Dumper records the path of each failed extraction task. The Publisher publishes the successful parts of an incremental partition update. It keeps old data for a failed existing partition. It does not add data for a failed new partition. The committed manifest describes the data that PostgreSQL serves. As a result, the next producer run schedules each failed partition again.
 
@@ -52,7 +52,7 @@ flowchart TD
 
     subgraph pipeline[Sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
-        W --> S3 --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
+        W --> S3 --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
         FIN -->|empty bucket| S3
     end
 
@@ -81,7 +81,7 @@ flowchart TD
 
     subgraph pipeline[Shared sync pipeline]
         P[Producer\nCronJob] --> R --> W[Dumper\nScaledObject]
-        W --> S3 --> S[Seeder\nScaledObject] --> FIN[Publisher\nScaledObject]
+        W --> S3 --> S[Seeder\nScaledJob] --> FIN[Publisher\nScaledJob]
     end
 
     subgraph cadastro[bcadastro schema stack]

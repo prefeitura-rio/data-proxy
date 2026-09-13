@@ -13,6 +13,9 @@ rules:
   - apiGroups: ["batch"]
     resources: ["cronjobs", "jobs"]
     verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -60,3 +63,9 @@ spec:
         value: localhost/data-proxy-postgres:local
       - name: CACHE_TTL_SECONDS
         value: "5"
+      - name: MAX_DURATION
+        value: "25m"
+      - name: PARTITIONED_SOURCE
+        value: rj-ia-desenvolvimento.dev.protocolo_estado_diario
+      - name: FULL_SOURCE
+        value: rj-ia-desenvolvimento.dev.endpoint_participante_listagem

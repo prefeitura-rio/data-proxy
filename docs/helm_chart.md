@@ -4,7 +4,7 @@
 
 Install these components before you deploy the chart:
 
-- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses KEDA ScaledObject resources for the Dumper, Seeder, and Publisher.
+- [KEDA](https://keda.sh/docs/latest/deploy/). The chart uses a KEDA ScaledObject for the Dumper and KEDA ScaledJobs for the Seeder and the Publisher.
 - Istio, when `ingress.enabled` is `true`. The chart uses Istio `VirtualService`, `RequestAuthentication`, and `AuthorizationPolicy` resources.
 
 ## Install
