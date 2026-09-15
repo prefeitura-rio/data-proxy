@@ -5,7 +5,7 @@ image:
 serviceAccount:
   create: true
   name: data-proxy
-pgduckdb:
+postgres:
   image: localhost/data-proxy-postgres:17.0.0-local
   init:
     image: localhost/data-proxy-nushell:local
@@ -53,7 +53,10 @@ seaweedfs:
 redis:
   existingSecret: data-proxy-redis
   writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
-  webdisConfigMap: data-proxy-webdis
+  webdisHost: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
+  webdisPort: 6379
+  webdisReadHost: data-proxy-valkey.data-proxy.svc.cluster.local
+  webdisReadPort: 6379
 gcp:
   existingSecret: gcp-key
 swaggerUi:

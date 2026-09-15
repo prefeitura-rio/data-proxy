@@ -232,7 +232,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         'redis-cli --scan --pattern "dp:state:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:plans:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:results:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:remaining:*" | xargs -r redis-cli DEL; redis-cli DEL dp:active'
     )
 
-    let duckdb = (k
+    let pg = (k
         $kubecfg
         -n
         data-proxy
@@ -247,7 +247,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
     ) | str trim
 
     let tables = (
-        k $kubecfg -n data-proxy exec $duckdb -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
+        k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
     )
 
     if ($tables | str trim | is-not-empty) {
@@ -258,11 +258,11 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             | str join '; '
         )
         (
-            k $kubecfg -n data-proxy exec $duckdb -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -c $"($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -c $"($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     } else {
         (
-            k $kubecfg -n data-proxy exec $duckdb -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -c "DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/dataproxy -c "DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     }
 }
@@ -412,7 +412,7 @@ def "main k6 e2e" []: nothing -> nothing {
     log info 'Applying GCP secret…'
     apply-gcp-secret $kubecfg
 
-    log info 'Deleting the init-db Job so it recreates the pgduckdb S3 secret…'
+    log info 'Deleting the init-db Job so it recreates the postgres S3 secret…'
     k $kubecfg -n data-proxy delete job data-proxy-init-db --ignore-not-found
 
     log info 'Upgrading data-proxy release…'
@@ -485,14 +485,6 @@ def "main up" []: nothing -> nothing {
             '--from-literal=REDIS_PASSWORD=valkey-local'
             '--from-literal=password=valkey-local'
             '--from-literal=REDIS={"read":"redis://:valkey-local@data-proxy-valkey:6379/1","write":"redis://:valkey-local@data-proxy-valkey:6379/0"}'
-            --dry-run=client -o yaml
-    ) | k $kubecfg apply -f -
-
-    log info 'Applying local webdis ConfigMap…'
-    (
-        k $kubecfg -n data-proxy create configmap data-proxy-webdis
-            '--from-literal=webdis-write.json={"redis_host":"data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local","redis_port":6379,"redis_auth":"__VALKEY_PASSWORD__","database":1,"http_port":7379,"daemonize":false,"logfile":"/dev/stdout"}'
-            '--from-literal=webdis-read.json={"redis_host":"data-proxy-valkey.data-proxy.svc.cluster.local","redis_port":6379,"redis_auth":"__VALKEY_PASSWORD__","database":1,"http_port":7380,"daemonize":false,"logfile":"/dev/stdout"}'
             --dry-run=client -o yaml
     ) | k $kubecfg apply -f -
 

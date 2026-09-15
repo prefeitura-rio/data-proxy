@@ -147,7 +147,7 @@ def create-access-policy []: nothing -> nothing {
     log info 'Created access policy tables'
 }
 
-# Create the DuckDB S3 secret for pgduckdb read_parquet access to the bucket
+# Create the PostgreSQL S3 secret for postgres read_parquet access to the bucket
 def create-s3-secret []: nothing -> nothing {
     (postgres
         (load-sql create_s3_secret.sql)
@@ -156,10 +156,10 @@ def create-s3-secret []: nothing -> nothing {
         $'s3_endpoint=($env.S3_ENDPOINT)'
         $'s3_use_ssl=($env.S3_USE_SSL)'
     )
-    log info 'Created DuckDB S3 secret'
+    log info 'Created PostgreSQL S3 secret'
 }
 
-# Install the DuckDB bigquery community extension for BigQuery fallback views
+# Install the PostgreSQL bigquery community extension for BigQuery fallback views
 def install-bigquery-extension []: nothing -> nothing {
     postgres (load-sql install_bigquery_extension.sql)
     log info 'Installed bigquery extension'

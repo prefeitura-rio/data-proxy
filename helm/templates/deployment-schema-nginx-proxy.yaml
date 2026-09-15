@@ -13,6 +13,11 @@ metadata:
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
@@ -26,6 +31,16 @@ spec:
         data-proxy.io/schema: {{ $schema | quote }}
         sidecar.istio.io/inject: {{ $root.Values.ingress.sidecarInject | quote }}
     spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "data-proxy.selectorLabels" $root | nindent 14 }}
+              app.kubernetes.io/component: nginx-proxy
+              data-proxy.io/schema: {{ $schema | quote }}
       containers:
         - name: nginx
           image: {{ required "fallback.nginxImage must reference an image built from Dockerfile.proxy" $root.Values.fallback.nginxImage | quote }}
@@ -101,7 +116,7 @@ spec:
             name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
         - name: webdis-config
           configMap:
-            name: {{ $root.Values.redis.webdisConfigMap }}
+            name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-webdis
         - name: webdis-write-runtime
           emptyDir: {}
         - name: webdis-read-runtime

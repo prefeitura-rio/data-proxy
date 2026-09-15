@@ -10,4 +10,18 @@ metadata:
 data:
   nginx.conf: |
 {{ include "data-proxy.nginxProxyConfig" . | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-webdis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webdis
+data:
+  webdis-write.json: |
+{{ include "data-proxy.webdisWriteConfig" . | indent 4 }}
+  webdis-read.json: |
+{{ include "data-proxy.webdisReadConfig" . | indent 4 }}
 {{- end }}

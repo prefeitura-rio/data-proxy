@@ -1,0 +1,45 @@
+{{- $root := . }}
+{{- if eq $root.Values.cnpg.mode "shared" }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ include "data-proxy.fullname" $root }}-pooler
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  cluster:
+    name: {{ include "data-proxy.fullname" $root }}
+  instances: {{ $root.Values.postgrest.pgBouncer.instances }}
+  type: ro
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: {{ $root.Values.postgrest.pgBouncer.maxClientConns | quote }}
+      default_pool_size: {{ $root.Values.postgrest.pgBouncer.poolSize | quote }}
+{{- else if eq $root.Values.cnpg.mode "per-schema" }}
+{{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-pooler
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  cluster:
+    name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+  instances: {{ $root.Values.postgrest.pgBouncer.instances }}
+  type: ro
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: {{ $root.Values.postgrest.pgBouncer.maxClientConns | quote }}
+      default_pool_size: {{ $root.Values.postgrest.pgBouncer.poolSize | quote }}
+{{- end }}
+{{- end }}

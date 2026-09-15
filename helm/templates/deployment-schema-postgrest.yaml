@@ -5,7 +5,7 @@
 {{- $readReplicas := default $root.Values.cnpg.postgrestReadReplicas (dig "postgrestReadReplicas" 1 $stack) | int }}
 {{- $writeReplicas := default $root.Values.cnpg.postgrestWriteReplicas (dig "postgrestWriteReplicas" 1 $stack) | int }}
 {{- range $mode := list "rw" }}
-{{- $databaseService := printf "%s-%s" $cluster (ternary "r" "rw" (eq $mode "ro")) }}
+{{- $databaseService := printf "%s-pooler-ro" $cluster }}
 {{- $replicas := ternary $readReplicas $writeReplicas (eq $mode "ro") }}
 ---
 apiVersion: apps/v1
@@ -19,6 +19,11 @@ metadata:
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
   replicas: {{ $replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
@@ -32,6 +37,16 @@ spec:
         data-proxy.io/schema: {{ $schema | quote }}
         sidecar.istio.io/inject: {{ $root.Values.ingress.sidecarInject | quote }}
     spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "data-proxy.selectorLabels" $root | nindent 14 }}
+              app.kubernetes.io/component: postgrest
+              data-proxy.io/schema: {{ $schema | quote }}
       initContainers:
         - name: fetch-jwks
           image: {{ $root.Values.postgrest.jwksFetch.image }}
@@ -58,7 +73,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PGRST_DB_URI
-              value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.pgduckdb.db.name | quote }}
+              value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.postgres.db.name | quote }}
             - name: PGRST_DB_SCHEMAS
               value: {{ $schema | quote }}
             - name: PGRST_DB_ANON_ROLE

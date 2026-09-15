@@ -4,10 +4,10 @@ templates:
   - deployment-nginx-proxy.yaml
   - service-nginx-proxy.yaml
 tests:
-  - it: renders the proxy configmap with nginx config only
+  - it: renders the proxy configmap with nginx and webdis configs
     asserts:
       - hasDocuments:
-          count: 1
+          count: 2
         template: configmap-nginx-proxy.yaml
 
   - it: injects the Istio sidecar into the proxy that receives the traffic
@@ -72,17 +72,26 @@ tests:
             containerPort: 7380
         template: deployment-nginx-proxy.yaml
 
-  - it: mounts the external webdis ConfigMap
+  - it: templates the webdis write and read config
     set:
-      redis.webdisConfigMap: my-webdis-config
+      redis.webdisHost: redis-primary
+      redis.webdisPort: 6379
+      redis.webdisReadHost: redis-replica
     asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: webdis-config
-            configMap:
-              name: my-webdis-config
-        template: deployment-nginx-proxy.yaml
+      - matchRegex:
+          path: data["webdis-write.json"]
+          pattern: '"redis_host": "redis-primary"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-webdis
+        template: configmap-nginx-proxy.yaml
+      - matchRegex:
+          path: data["webdis-read.json"]
+          pattern: '"redis_host": "redis-replica"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-webdis
+        template: configmap-nginx-proxy.yaml
 
   - it: publishes the webdis write port of the sidecar
     set:

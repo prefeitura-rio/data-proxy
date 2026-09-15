@@ -23,7 +23,7 @@ serviceAccount:
 ## Configuration for the PostgreSQL database with pg_duckdb, PostGIS, and pg_partman.
 ## CNPG manages the PostgreSQL clusters. This section configures the database
 ## name, credentials, and init image used by the chart.
-pgduckdb:
+postgres:
   ## Database image used by standalone and HA members.
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
   storage:
@@ -80,6 +80,15 @@ postgrest:
   jwksFetch:
     ## Alpine image used by the JWKS init container.
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+  ## PgBouncer connection pooler deployed between PostgREST and CNPG.
+  pgBouncer:
+    ## PgBouncer container image.
+    image: pgbouncer/pgbouncer:1.23.1
+    ## Number of PgBouncer instances in the CNPG Pooler.
+    instances: 2
+    ## Transaction pooling mode: each client transaction gets a server connection.
+    poolSize: 20
+    maxClientConns: 100
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -190,9 +199,12 @@ redis:
   passwordKey: REDIS_PASSWORD
   ## Host and port used by KEDA Redis Streams triggers.
   writerAddress: redis-writer:6379
-  ## Existing ConfigMap containing webdis-write.json and webdis-read.json.
-  ## Created by the platform; the chart mounts it directly.
-  webdisConfigMap: data-proxy-webdis
+  ## Webdis write endpoint (Redis primary).
+  webdisHost: redis-writer
+  webdisPort: 6379
+  ## Webdis read endpoint (Redis replica). Defaults to webdisHost when unset.
+  webdisReadHost: ""
+  webdisReadPort: 6379
 ## Producer CronJob — runs once per schedule, publishes sync tasks to Valkey, then exits.
 producer:
   ## Cron expression that controls when the producer runs.
@@ -350,11 +362,11 @@ ha:
     maxReplicaCount: 5
     triggers: []
   postgrest:
-    minReplicaCount: 1
+    minReplicaCount: 2
     maxReplicaCount: 5
     triggers: []
   fallback:
-    minReplicaCount: 1
+    minReplicaCount: 2
     maxReplicaCount: 5
     triggers: []
   redis:
@@ -391,14 +403,20 @@ cnpg:
   ##       size: 200Gi
   ##     postgrestReadReplicas: 2
   schemas: {}
-  ## Barman backup configuration. Backups go to the S3-compatible object store.
+  ## Barman backup configuration. Backups go to a separate S3-compatible service.
   backup:
     ## Set to true to enable continuous WAL archiving and scheduled backups.
     enabled: false
-    ## S3 endpoint URL for Barman. Leave empty to use the in-chart SeaweedFS.
+    ## S3-compatible endpoint URL for Barman. Use a separate service from s3.bucket.
+    ## For GCS, set to https://storage.googleapis.com.
     endpointURL: ""
-    ## S3 bucket path for backup data.
+    ## Bucket name for backup data. Use a separate bucket from s3.bucket.
+    bucket: ""
+    ## Object key prefix for backup data within the bucket.
     destinationPath: ""
+    ## Existing Secret with S3_ACCESS_KEY and S3_SECRET_KEY for the backup service.
+    ## Must be separate from the main S3 secret when backup uses a different service.
+    existingSecret: ""
     ## Cron expression for scheduled full backups.
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.

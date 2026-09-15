@@ -73,8 +73,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.dbSecretName" -}}
-{{- if .Values.pgduckdb.existingSecret }}
-{{- .Values.pgduckdb.existingSecret }}
+{{- if .Values.postgres.existingSecret }}
+{{- .Values.postgres.existingSecret }}
 {{- else }}
 {{- include "data-proxy.fullname" . }}-db
 {{- end }}
@@ -127,8 +127,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.schemaWritersSecretName" -}}
-{{- if .Values.pgduckdb.existingSecret }}
-{{- .Values.pgduckdb.existingSecret }}-schema-writers
+{{- if .Values.postgres.existingSecret }}
+{{- .Values.postgres.existingSecret }}-schema-writers
 {{- else }}
 {{- include "data-proxy.fullname" . }}-schema-writers
 {{- end }}
@@ -154,18 +154,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.schemaWriterDsn" -}}
 {{- $root := .root -}}
 {{- $cluster := include "data-proxy.cnpgClusterName" . -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.pgduckdb.db.name }}
+postgresql://{{ $root.Values.postgres.db.user }}:{{ $root.Values.postgres.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.postgres.db.name }}
 {{- end }}
 
 {{- define "data-proxy.postgresDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
-{{- $db := .Values.pgduckdb.db.name -}}
+{{- $db := .Values.postgres.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-r:5432/{{ $db }}
+postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.backupPgDsn" -}}
-{{- $db := .Values.pgduckdb.db.name -}}
+{{- $db := .Values.postgres.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
@@ -175,14 +175,38 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.appPgDsn" -}}
-{{- $user := .Values.pgduckdb.db.user -}}
-{{- $db   := .Values.pgduckdb.db.name -}}
+{{- $user := .Values.postgres.db.user -}}
+{{- $db   := .Values.postgres.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}
 {{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString .Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString .Values.fallback.fetchKeepaliveTimeout) }}
+{{- end }}
+
+{{- define "data-proxy.webdisWriteConfig" -}}
+{
+  "redis_host": "{{ .Values.redis.webdisHost }}",
+  "redis_port": {{ .Values.redis.webdisPort }},
+  "redis_auth": "__VALKEY_PASSWORD__",
+  "database": {{ .Values.fallback.cacheRedisDb }},
+  "http_port": 7379,
+  "daemonize": false,
+  "logfile": "/dev/stdout"
+}
+{{- end }}
+
+{{- define "data-proxy.webdisReadConfig" -}}
+{
+  "redis_host": "{{ .Values.redis.webdisReadHost | default .Values.redis.webdisHost }}",
+  "redis_port": {{ .Values.redis.webdisReadPort | default .Values.redis.webdisPort }},
+  "redis_auth": "__VALKEY_PASSWORD__",
+  "database": {{ .Values.fallback.cacheRedisDb }},
+  "http_port": 7380,
+  "daemonize": false,
+  "logfile": "/dev/stdout"
+}
 {{- end }}
 
 {{- define "data-proxy.jwtRules" -}}

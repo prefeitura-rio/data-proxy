@@ -16,7 +16,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/proxy-config: {{ include "data-proxy.nginxProxyConfig" . | sha256sum }}
+        checksum/proxy-config: {{ printf "%s%s" (include "data-proxy.nginxProxyConfig" .) (include "data-proxy.webdisWriteConfig" .) | sha256sum }}
         checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
@@ -105,7 +105,7 @@ spec:
             name: {{ include "data-proxy.fullname" . }}-nginx-proxy
         - name: webdis-config
           configMap:
-            name: {{ .Values.redis.webdisConfigMap }}
+            name: {{ include "data-proxy.fullname" . }}-webdis
         - name: webdis-write-runtime
           emptyDir: {}
         - name: webdis-read-runtime

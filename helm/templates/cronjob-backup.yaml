@@ -90,7 +90,7 @@ spec:
           volumes:
             - name: schema-writers
               secret:
-                secretName: {{ include "data-proxy.fullname" $root }}-duckdb-schema-writers
+                secretName: {{ include "data-proxy.fullname" $root }}-postgres-schema-writers
                 defaultMode: 0440
             - name: backup-script
               configMap:
