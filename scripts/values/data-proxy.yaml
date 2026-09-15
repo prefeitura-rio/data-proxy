@@ -6,7 +6,7 @@ serviceAccount:
   create: true
   name: data-proxy
 pgduckdb:
-  image: localhost/data-proxy-postgres:local
+  image: localhost/data-proxy-postgres:17.0.0-local
   init:
     image: localhost/data-proxy-nushell:local
   storage:
@@ -50,12 +50,10 @@ seaweedfs:
       admin:
         accessKey: seaweedfs
         secretKey: seaweedfs-local
-valkey:
-  enabled: true
-  architecture: standalone
-  auth:
-    enabled: true
-    password: valkey-local
+redis:
+  existingSecret: data-proxy-redis
+  writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
+  webdisConfigMap: data-proxy-webdis
 gcp:
   existingSecret: gcp-key
 swaggerUi:
@@ -63,9 +61,6 @@ swaggerUi:
 worker:
   keda:
     lagCount: "7"
-## Each dev partition is about 30 KB, so this target puts several of them in one
-## Parquet file. That keeps the batch path that carries many partitions exercised
-## by every end to end run instead of by none of them.
 dumper:
   batchMegaBytes: 60000
 syncConfig:
@@ -88,28 +83,25 @@ syncConfig:
         - name: rj-ia-desenvolvimento.dev.protocolo_estado_diario
           strategy: partitioned
           "n": 5
+          partitioning:
+            column: protocolo_data_referencia_particicao
+            interval: daily
+            retention: 365 days
           cache_ttl: 600
           rls:
             - column: id_unidade
               unit_type: unidade
 fallback:
-  enabled: true
   cacheTtl: 5
   nginxImage: localhost/data-proxy-nginx-proxy:local
-ha:
-  enabled: false
-  # schemas:
-  #   pic:
-  #     members: 3
-  #     storage:
-  #       size: 2Gi
-  #     postgrest:
-  #       readReplicas: 2
-  #       writeReplicas: 1
-  #     haproxy:
-  #       replicas: 2
-  # patroni:
-  #   replicationPassword: patroni-local
+cnpg:
+  mode: shared
+  instances: 1
+  image: localhost/data-proxy-postgres:17.0.0-local
+  storage:
+    size: 2Gi
+partman:
+  schedule: '*/30 * * * *'
 ingress:
   sidecarInject: true
   enabled: true

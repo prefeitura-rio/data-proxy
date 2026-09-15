@@ -1,0 +1,102 @@
+helmDefaults:
+  wait: true
+  timeout: 900
+  syncArgs:
+    - --force-conflicts
+
+repositories:
+  - name: cnpg
+    url: https://cloudnative-pg.io/charts/
+  - name: keda
+    url: https://kedacore.github.io/charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  - name: istio
+    url: https://istio-release.storage.googleapis.com/charts
+  - name: bedag
+    url: https://bedag.github.io/helm-charts/
+
+releases:
+  - name: cnpg
+    namespace: cnpg-system
+    createNamespace: true
+    chart: cnpg/cloudnative-pg
+    version: 0.23.2
+    wait: true
+    timeout: 900
+
+  - name: valkey
+    namespace: data-proxy
+    createNamespace: true
+    chart: oci://registry-1.docker.io/cloudpirates/valkey
+    version: 0.17.0
+    values:
+      - scripts/values/valkey.yaml
+    wait: true
+    timeout: 900
+
+  - name: keda
+    namespace: keda
+    createNamespace: true
+    chart: keda/keda
+    version: 2.18.0
+    wait: true
+    timeout: 900
+
+  - name: k6-operator
+    namespace: k6-operator-system
+    createNamespace: true
+    chart: grafana/k6-operator
+    version: 4.6.0
+    wait: true
+    timeout: 900
+
+  - name: istio-base
+    namespace: istio-system
+    createNamespace: true
+    chart: istio/base
+    version: 1.27.1
+    wait: true
+    timeout: 900
+
+  - name: istiod
+    namespace: istio-system
+    chart: istio/istiod
+    version: 1.27.1
+    needs:
+      - istio-system/istio-base
+    wait: true
+    timeout: 900
+
+  - name: istio-ingressgateway
+    namespace: istio-ingress
+    createNamespace: true
+    chart: istio/gateway
+    version: 1.27.1
+    needs:
+      - istio-system/istio-base
+      - istio-system/istiod
+    values:
+      - service:
+          type: NodePort
+    wait: true
+    timeout: 900
+
+  - name: data-proxy-gateway
+    namespace: istio-system
+    chart: bedag/raw
+    values:
+      - scripts/values/gateway.yaml
+    needs:
+      - istio-ingress/istio-ingressgateway
+    wait: true
+    timeout: 900
+
+  - name: oidc
+    namespace: data-proxy
+    createNamespace: true
+    chart: bedag/raw
+    values:
+      - scripts/values/oidc.yaml
+    wait: true
+    timeout: 900

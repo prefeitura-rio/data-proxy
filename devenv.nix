@@ -25,6 +25,8 @@ in
     nushell
     seaweedfs
     typescript
+    helmfile
+    kubecolor
     (google-cloud-sdk.withExtraComponents (
       with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
     ))
@@ -81,7 +83,7 @@ in
     '';
     "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
     "dp:lint:helm".exec =
-      "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml";
+      "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml && helmfile -f helmfile.yaml lint";
     "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx";
     "dp:lint:k6".exec = "${pkgs.typescript}/bin/tsc -p k6 --noEmit";
     "dp:lint".after = [

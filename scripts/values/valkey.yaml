@@ -1,0 +1,9 @@
+fullnameOverride: data-proxy-valkey
+architecture: standalone
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+auth:
+  enabled: true
+  existingSecret: data-proxy-redis
