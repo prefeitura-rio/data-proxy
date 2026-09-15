@@ -7,22 +7,16 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: fails to render when enabled without an ageRecipient
-    set:
-      backup.enabled: true
-      syncConfig.schemas.bcadastro.tables: []
-    asserts:
-      - failedTemplate:
-          errorMessage: "backup.ageRecipient is required when backup.enabled is true"
-
   - it: renders one schema backup with the configured schedule and image
     set:
       backup.enabled: true
       backup.schedule: "30 4 * * *"
       backup.image: postgres:17-alpine
-      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
+      backup.password: test-backup-pass
       backup.prefix: backups/access_policy
-      s3.bucket: my-bucket
+      cnpg.backup.bucket: backup-bucket
+      cnpg.backup.endpointURL: https://storage.googleapis.com
+      cnpg.backup.existingSecret: backup-s3-creds
       syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
@@ -64,14 +58,16 @@ tests:
           path: kind
           value: CronJob
         equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[0].secret.secretName
-          value: data-proxy-postgres-schema-writers
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
+          value: data-proxy-bcadastro-backup-script
 
-  - it: uses an existing secret when configured
+  - it: uses backup S3 credentials from cnpg.backup.existingSecret
     set:
       backup.enabled: true
-      backup.ageRecipient: age1exampleexampleexampleexampleexampleexampleexampleexamplexxx
-      backup.existingSecret: my-backup-secret
+      backup.password: test-backup-pass
+      cnpg.backup.bucket: backup-bucket
+      cnpg.backup.endpointURL: https://storage.googleapis.com
+      cnpg.backup.existingSecret: backup-s3-creds
       syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
@@ -80,8 +76,8 @@ tests:
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
-            name: BACKUP_PASSWORD
+            name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
-                name: my-backup-secret
-                key: BACKUP_PASSWORD
+                name: backup-s3-creds
+                key: S3_ACCESS_KEY

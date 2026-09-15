@@ -1,0 +1,243 @@
+#!/usr/bin/env nu
+
+# nu-lint-ignore-file: dont_mix_different_effects, unhandled_external_error
+
+use std/log
+
+# Wrapped kubectl with optional context selection.
+def --wrapped k [...rest: string]: nothing -> string {
+    let ctx = $env.KUBE_CONTEXT?
+    if $ctx == null or ($ctx | is-empty) {
+        try { kubectl ...$rest } catch {|err| error make {
+            msg: $'kubectl failed: ($err.msg)'
+            label: {
+                text: k
+                span: (metadata $rest).span
+            }
+        } }
+    } else {
+        try { kubectl --context=($ctx) ...$rest } catch {|err| error make {
+            msg: $'kubectl failed: ($err.msg)'
+            label: {
+                text: k
+                span: (metadata $rest).span
+            }
+        } }
+    }
+}
+
+# Return the Kubernetes namespace from the environment, defaulting to data-proxy.
+def namespace []: nothing -> string {
+    $env.NAMESPACE? | default data-proxy
+}
+
+# Return the producer CronJob name from the environment, defaulting to data-proxy-producer.
+def producer-name []: nothing -> string {
+    $env.PRODUCER? | default data-proxy-producer
+}
+
+# Return the release name from the environment, defaulting to data-proxy.
+def release-name []: nothing -> string {
+    $env.RELEASE_NAME? | default data-proxy
+}
+
+# Suspend the producer CronJob so no new syncs start.
+def block-syncs []: nothing -> string {
+    let ns = namespace
+    let producer = producer-name
+    log info $'Suspending producer CronJob ($producer)…'
+    k -n $ns patch cronjob $producer -p '{"spec":{"suspend":true}}' --type=merge
+}
+
+# Resume the producer CronJob so syncs can start again.
+def unblock-syncs []: nothing -> string {
+    let ns = namespace
+    let producer = producer-name
+    log info $'Unsuspending producer CronJob ($producer)…'
+    (k
+        -n
+        $ns
+        patch
+        cronjob
+        $producer
+        -p
+        '{"spec":{"suspend":false}}'
+        --type=merge
+    )
+}
+
+# Check whether a CNPG cluster exists in the namespace.
+def cluster-exists [name: string]: nothing -> bool {
+    let ns = namespace
+    let result = kubectl -n $ns get cluster $name --ignore-not-found -o name | complete
+    $result.exit_code == 0 and ($result.stdout | str trim | is-not-empty)
+}
+
+# Detect migration direction from TARGET_MODE and existing clusters.
+def detect-direction []: nothing -> string {
+    let rel = release-name
+    let shared_exists = cluster-exists $rel
+    let schemas = $env.SCHEMAS | split row ' '
+    let per_schema_exists = $schemas | any {|schema| cluster-exists $'($rel)-($schema)' }
+
+    match $env.TARGET_MODE {
+        'per-schema' if $shared_exists => 'to-ha'
+        'shared' if $per_schema_exists => 'to-single'
+        _ => 'none'
+    }
+}
+
+# Wait for init-db to complete by checking access_policy table exists in target.
+def wait-for-schema [schema: string, dsn: string]: any -> error {
+    log info $'Waiting for ($schema).access_policy in target cluster…'
+    let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\)"
+    for _ in 1..60 {
+        let exists = try {
+            psql $dsn --tuples-only --no-psqlrc --quiet -c $query | str trim
+        } catch {|_| 'f' }
+        if $exists == t {
+            log info $'Schema ($schema) ready.'
+            return
+        }
+        sleep 5sec
+    }
+    error make {
+        msg: $'Schema ($schema) not ready after 300s — init-db may have failed'
+        label: {
+            text: wait-for-schema
+            span: (metadata $schema).span
+        }
+    }
+}
+
+# Dump one schema from source, restore into target, reload PostgREST. Idempotent.
+def migrate-schema [m: record]: nothing -> nothing {
+    let dump_file = $'/tmp/($m.schema).dump'
+
+    log info $'Dumping schema ($m.schema) from ($m.source)…'
+    try {
+        pg_dump $m.source --format=custom --no-owner --no-acl --schema=($m.schema) --data-only --file=$dump_file
+    } catch {|err| error make {
+        msg: $'pg_dump failed for schema ($m.schema): ($err.msg)'
+        label: {
+            text: pg_dump
+            span: (metadata $m).span
+        }
+    } }
+
+    log info $'Restoring schema ($m.schema) into ($m.target)…'
+    try {
+        pg_restore $m.target --data-only --clean --if-exists --no-owner --no-acl --dbname=($m.target) $dump_file
+    } catch {|err| error make {
+        msg: $'pg_restore failed for schema ($m.schema): ($err.msg)'
+        label: {
+            text: pg_restore
+            span: (metadata $m).span
+        }
+    } }
+
+    log info $'Reloading PostgREST schema cache for ($m.schema)…'
+    try {
+        "NOTIFY pgrst, 'reload schema'" | psql $m.target --no-psqlrc --quiet
+    } catch {|err| error make {
+        msg: $'psql NOTIFY failed for schema ($m.schema): ($err.msg)'
+        label: {
+            text: psql
+            span: (metadata $m).span
+        }
+    } }
+
+    try { rm --force $dump_file } catch {|_|
+
+    }
+    log info $'Schema ($m.schema) migrated.'
+}
+
+# Build the source and target DSNs for one schema based on migration direction.
+def save-mode-state [mode: string]: nothing -> nothing {
+    let ns = namespace
+    let rel = release-name
+    let cm = $'($rel)-mode-state'
+    log info $'Recording mode ($mode) in ConfigMap ($cm)…'
+    let yaml = (
+        (k
+            -n
+            $ns
+            create
+            configmap
+            $cm
+            $'--from-literal=mode=($mode)'
+            --dry-run=client
+            -o
+            yaml
+        )
+    )
+    $yaml | kubectl -n $ns apply -f -
+}
+
+# Run the migration in the given direction.
+def run-migration [direction: string]: nothing -> nothing {
+    let schemas = $env.SCHEMAS | split row ' '
+
+    if ($schemas | is-empty) {
+        error make {
+            msg: 'SCHEMAS environment variable must list at least one schema'
+            label: {
+                text: main
+                span: (metadata $env.SCHEMAS).span
+            }
+        }
+    }
+
+    block-syncs
+
+    try {
+        for schema in $schemas {
+            let m = match $direction {
+                'to-ha' => {
+                    {
+                        schema: $schema
+                        source: $env.SOURCE_DSN
+                        target: ($env.TARGET_DSN | str replace '{schema}' $schema)
+                    }
+                }
+                _ => {
+                    {
+                        schema: $schema
+                        source: ($env.TARGET_DSN | str replace '{schema}' $schema)
+                        target: $env.SOURCE_DSN
+                    }
+                }
+            }
+            wait-for-schema $m.schema $m.target
+            migrate-schema $m
+        }
+    } catch {|err|
+        unblock-syncs
+        error make {
+            msg: $'Migration failed: ($err.msg)'
+            label: {
+                text: main
+                span: (metadata $err).span
+            }
+        }
+    }
+
+    unblock-syncs
+    save-mode-state $env.TARGET_MODE
+    log info 'All schemas migrated. Producer resumed.'
+}
+
+def main []: nothing -> nothing {
+    let direction = detect-direction
+
+    match $direction {
+        'none' => {
+            log info 'No migration needed — target mode already matches cluster state.'
+        }
+        _ => {
+            log info $'Starting migration ($direction)…'
+            run-migration $direction
+        }
+    }
+}

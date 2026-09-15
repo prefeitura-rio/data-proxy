@@ -27,21 +27,15 @@ tests:
   - it: backup runs the Nushell script and mounts required files
     set:
       backup.enabled: true
-      backup.ageRecipient: age1example
+      backup.password: test-pass
+      cnpg.backup.bucket: backup-bucket
+      cnpg.backup.endpointURL: https://storage.googleapis.com
+      cnpg.backup.existingSecret: backup-creds
       syncConfig.schemas.app_example: {}
     asserts:
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].command
           value: [nu, /scripts/backup.nu]
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-example-backup
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
-          content:
-            name: schema-writers
-            mountPath: /config/schema-writers
-            readOnly: true
         documentSelector:
           path: metadata.name
           value: data-proxy-app-example-backup
@@ -56,12 +50,6 @@ tests:
           value: data-proxy-app-example-backup
       - equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].name
-          value: schema-writers
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-example-backup
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[1].name
           value: backup-script
         documentSelector:
           path: metadata.name

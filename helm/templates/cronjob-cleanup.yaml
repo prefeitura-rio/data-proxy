@@ -11,6 +11,7 @@ metadata:
 data:
   cleanup.nu: |
 {{ .Files.Get "files/cleanup.nu" | nindent 4 }}
+{{- if not .Values.ha.enabled }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -60,4 +61,62 @@ spec:
               configMap:
                 name: {{ include "data-proxy.fullname" . }}-cleanup-script
                 defaultMode: 0555
+{{- else }}
+{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $cluster }}-cleanup
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: cleanup
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  schedule: {{ $root.Values.cleanup.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.cleanup.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: cleanup
+            data-proxy.io/schema: {{ $schema | quote }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
+          containers:
+            - name: cleanup
+              image: {{ $root.Values.backup.image | quote }}
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              command: [nu, /scripts/cleanup.nu]
+              env:
+                {{- include "data-proxy.appEnv" $root | nindent 16 }}
+                - name: S3_ENDPOINT_URL
+                  value: {{ printf "%s://%s" (ternary "https" "http" (eq $root.Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" $root) | quote }}
+                - name: SCHEMA
+                  value: {{ $schema | quote }}
+              volumeMounts:
+                {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 16 }}
+                {{- include "data-proxy.schemaWritersVolumeMount" $root | nindent 16 }}
+                - name: cleanup-script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            {{- include "data-proxy.syncConfigVolume" $root | nindent 12 }}
+            {{- include "data-proxy.schemaWritersVolume" $root | nindent 12 }}
+            - name: cleanup-script
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-cleanup-script
+                defaultMode: 0555
+{{- end }}
+{{- end }}
 {{- end }}

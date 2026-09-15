@@ -12,6 +12,15 @@ let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
 
 let sql_dir = '/sql'
 
+# Return the list of schemas to process, filtered by SCHEMA env var when set.
+def schema-list []: nothing -> list<string> {
+    let all = $config.schemas | columns
+    let target = $env.SCHEMA?
+    if $target == null or ($target | is-empty) { $all } else {
+        $all | where $it == $target
+    }
+}
+
 # Load a SQL template file from the mounted sql directory
 def load-sql [name: path]: nothing -> string {
     try {
@@ -111,7 +120,7 @@ def create-roles []: nothing -> nothing {
 
 # Create per-schema freshness tables with RLS policies
 def create-schemas-and-freshness []: nothing -> nothing {
-    for schema in ($config.schemas | columns) {
+    for schema in (schema-list) {
         let schema_var = $'schema=($schema)'
         let user_var = $'user_role=($env.AUTH_USER_ROLE)'
 
@@ -133,7 +142,7 @@ def create-pre-request []: nothing -> nothing {
 
 # Create per-schema access_policy tables with triggers and RLS policies
 def create-access-policy []: nothing -> nothing {
-    for schema in ($config.schemas | columns) {
+    for schema in (schema-list) {
         let schema_var = $'schema=($schema)'
         let user_var = $'user_role=($env.AUTH_USER_ROLE)'
 

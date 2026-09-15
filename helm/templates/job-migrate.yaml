@@ -1,0 +1,51 @@
+{{- $state := lookup "v1" "ConfigMap" .Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" .)) }}
+{{- $previous := "" }}
+{{- if $state }}
+{{- $previous = $state.data.mode | default "" }}
+{{- end }}
+{{- if ne $previous .Values.cnpg.mode }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "data-proxy.fullname" . }}-migrate
+      containers:
+        - name: migrate
+          image: {{ .Values.nushell.image | quote }}
+          command: ["/usr/bin/nu", "/scripts/migrate.nu"]
+          env:
+            - name: TARGET_MODE
+              value: {{ .Values.cnpg.mode | quote }}
+            - name: SOURCE_DSN
+              value: {{ printf "postgresql://%s:%s@%s-rw:5432/%s" .Values.postgres.db.user .Values.postgres.password (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+            - name: TARGET_DSN
+              value: {{ printf "postgresql://%s:%s@%s-{schema}-rw:5432/%s" .Values.postgres.db.user .Values.postgres.password (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+            - name: SCHEMAS
+              value: {{ keys (.Values.syncConfig.schemas | default dict) | join " " | quote }}
+            - name: NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: PRODUCER
+              value: {{ include "data-proxy.fullname" . }}-producer
+            - name: RELEASE_NAME
+              value: {{ include "data-proxy.fullname" . }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-migrate
+{{- end }}

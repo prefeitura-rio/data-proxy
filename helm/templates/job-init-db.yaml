@@ -1,4 +1,4 @@
-{{- if not (eq .Values.cnpg.mode "per-schema") }}
+{{- $root := . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,6 +24,7 @@ data:
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
+{{- if not .Values.ha.enabled }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -110,4 +111,98 @@ spec:
           configMap:
             name: {{ include "data-proxy.fullname" . }}-init-db-sql
             defaultMode: 0444
+{{- else }}
+{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $cluster }}-init-db
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: init-db
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: init-db
+        data-proxy.io/schema: {{ $schema | quote }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: init-db
+          image: {{ $root.Values.postgres.init.image | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command: [nu, /scripts/init-db.nu]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: POSTGRES_PASSWORD
+            - name: PGRST_AUTHENTICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PG_DSN
+              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.postgres.db.user $cluster $root.Values.postgres.db.name | quote }}
+            - name: AUTH_ANON_ROLE
+              value: {{ $root.Values.auth.anonRole | quote }}
+            - name: AUTH_USER_ROLE
+              value: {{ $root.Values.auth.userRole | quote }}
+            - name: AUTH_AUTHENTICATOR_ROLE
+              value: {{ $root.Values.auth.authenticatorRole | quote }}
+            - name: BACKUP_ENABLED
+              value: {{ $root.Values.backup.enabled | quote }}
+            {{- if $root.Values.backup.enabled }}
+            - name: BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.backupSecretName" $root }}
+                  key: BACKUP_PASSWORD
+            {{- end }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" $root }}
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" $root }}
+                  key: S3_SECRET_KEY
+            - name: S3_ENDPOINT
+              value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+            - name: S3_USE_SSL
+              value: {{ $root.Values.s3.useSsl | quote }}
+            - name: SYNC_CONFIG_PATH
+              value: /config/sync.json
+            - name: SCHEMA
+              value: {{ $schema | quote }}
+          volumeMounts:
+            {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 12 }}
+            - name: init-db-script
+              mountPath: /scripts
+              readOnly: true
+            - name: init-db-sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}
+        - name: init-db-script
+          configMap:
+            name: {{ include "data-proxy.fullname" $root }}-init-db-script
+            defaultMode: 0555
+        - name: init-db-sql
+          configMap:
+            name: {{ include "data-proxy.fullname" $root }}-init-db-sql
+            defaultMode: 0444
+{{- end }}
 {{- end }}

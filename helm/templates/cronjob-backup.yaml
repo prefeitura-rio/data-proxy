@@ -1,7 +1,6 @@
 {{- if .Values.backup.enabled }}
 {{- $root := . }}
 {{- range $schema, $_ := .Values.syncConfig.schemas }}
-{{- $name := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
 {{- $backupName := printf "%s-%s-backup" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") }}
 ---
 apiVersion: v1
@@ -45,53 +44,42 @@ spec:
             data-proxy.io/schema: {{ $schema | quote }}
         spec:
           restartPolicy: Never
-          serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
           containers:
             - name: backup
               image: {{ $root.Values.backup.image | quote }}
               command: [nu, /scripts/backup.nu]
               env:
-                - name: BACKUP_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "data-proxy.backupSecretName" $root }}
-                      key: BACKUP_PASSWORD
                 - name: SCHEMA
                   value: {{ $schema | quote }}
-                - name: AGE_RECIPIENT
-                  value: {{ required "backup.ageRecipient is required when backup.enabled is true" $root.Values.backup.ageRecipient | quote }}
+                - name: PG_DSN
+                  {{- if $root.Values.ha.enabled }}
+                  value: {{ printf "postgresql://backup:%s@%s-%s-rw:5432/%s" $root.Values.backup.password (include "data-proxy.fullname" $root) ($schema | replace "_" "-") $root.Values.postgres.db.name | quote }}
+                  {{- else }}
+                  value: {{ printf "postgresql://backup:%s@%s-rw:5432/%s" $root.Values.backup.password (include "data-proxy.fullname" $root) $root.Values.postgres.db.name | quote }}
+                  {{- end }}
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.backup.prefix | quote }}
                 - name: S3_BUCKET
-                  value: {{ $root.Values.s3.bucket | quote }}
+                  value: {{ $root.Values.cnpg.backup.bucket | quote }}
                 - name: S3_ENDPOINT
-                  value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+                  value: {{ $root.Values.cnpg.backup.endpointURL | quote }}
                 - name: S3_USE_SSL
-                  value: {{ $root.Values.s3.useSsl | quote }}
+                  value: "true"
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      name: {{ $root.Values.cnpg.backup.existingSecret }}
                       key: S3_ACCESS_KEY
                 - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      name: {{ $root.Values.cnpg.backup.existingSecret }}
                       key: S3_SECRET_KEY
-                - name: SCHEMA_WRITERS_FILE
-                  value: /config/schema-writers/writers.json
               volumeMounts:
-                - name: schema-writers
-                  mountPath: /config/schema-writers
-                  readOnly: true
                 - name: backup-script
                   mountPath: /scripts
                   readOnly: true
           volumes:
-            - name: schema-writers
-              secret:
-                secretName: {{ include "data-proxy.fullname" $root }}-postgres-schema-writers
-                defaultMode: 0440
             - name: backup-script
               configMap:
                 name: {{ $backupName }}-script

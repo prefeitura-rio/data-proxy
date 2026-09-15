@@ -7,6 +7,13 @@ let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'
 let dsn = $env.PG_DSN
 let protected = [freshness access_policy]
 
+# Return the list of schemas to process, filtered by SCHEMA env var when set.
+def schema-list []: nothing -> list<string> {
+    let all = $config.schemas | columns
+    let target = $env.SCHEMA?
+    if $target == null or ($target | is-empty) { $all } else { $all | where $it == $target }
+}
+
 load-env {
     AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
     AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
@@ -36,7 +43,7 @@ def redis-del [...keys: string]: nothing -> string {
 
 log info 'Cleanup started'
 
-for schema in ($config.schemas | columns) {
+for schema in (schema-list) {
     let configured = $config.schemas
     | get --optional $schema
     | get tables
