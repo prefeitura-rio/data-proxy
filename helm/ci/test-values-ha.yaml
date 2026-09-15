@@ -7,6 +7,43 @@ postgres:
   password: pgpass
   authenticatorPassword: authrole
 
+cnpg:
+  mode: per-schema
+  instances: 2
+  autoscaling:
+    minReplicaCount: 2
+    maxReplicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 500Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+  storage:
+    size: 80Gi
+  schemas:
+    app_pequenos_cariocas:
+      instances: 2
+
+ha:
+  enabled: true
+  postgres:
+    minReplicaCount: 2
+    maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
+  postgrest:
+    minReplicaCount: 2
+    maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
+  fallback:
+    minReplicaCount: 2
+    maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
+
 s3:
   bucket: prod-bucket
   accessKey: s3-access-key
@@ -15,10 +52,22 @@ s3:
 postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
+  maxReplicaCount: 5
+  pgBouncer:
+    instances: 2
+    poolSize: 20
+    maxClientConns: 100
+    autoscaling:
+      minReplicaCount: 2
+      maxReplicaCount: 4
+      pollingInterval: 30
+      cooldownPeriod: 300
 
 redis:
   existingSecret: data-proxy-redis
   writerAddress: redis-writer:6379
+  webdisHost: redis-writer
+  webdisPort: 6379
 
 producer:
   schedule: "0 2 * * *"

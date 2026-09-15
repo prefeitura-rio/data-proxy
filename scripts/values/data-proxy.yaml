@@ -22,6 +22,14 @@ postgrest:
   jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
   jwksFetch:
     image: localhost/data-proxy-nushell:local
+  maxReplicaCount: 3
+  pgBouncer:
+    instances: 1
+    poolSize: 20
+    maxClientConns: 100
+    autoscaling:
+      minReplicaCount: 1
+      maxReplicaCount: 3
 s3:
   bucket: test-bucket
   useSsl: "false"
@@ -99,10 +107,20 @@ fallback:
   nginxImage: localhost/data-proxy-nginx-proxy:local
 cnpg:
   mode: shared
-  instances: 1
+  instances: 2
   image: localhost/data-proxy-postgres:17.0.0-local
   storage:
     size: 2Gi
+  autoscaling:
+    minReplicaCount: 2
+    maxReplicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 500Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
 partman:
   schedule: '*/30 * * * *'
 ingress:

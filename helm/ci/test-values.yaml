@@ -6,6 +6,19 @@ postgres:
   password: pgpass
   authenticatorPassword: authrole
 
+cnpg:
+  instances: 2
+  autoscaling:
+    minReplicaCount: 2
+    maxReplicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 500Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
 s3:
   bucket: prod-bucket
   accessKey: s3-access-key
@@ -14,10 +27,20 @@ s3:
 postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
+  maxReplicaCount: 3
+  pgBouncer:
+    instances: 1
+    poolSize: 20
+    maxClientConns: 100
+    autoscaling:
+      minReplicaCount: 1
+      maxReplicaCount: 3
 
 redis:
   existingSecret: data-proxy-redis
   writerAddress: redis-writer:6379
+  webdisHost: redis-writer
+  webdisPort: 6379
 
 producer:
   schedule: "0 2 * * *"
