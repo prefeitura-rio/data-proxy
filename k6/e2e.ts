@@ -61,7 +61,8 @@ declare const __ENV: Record<string, string | undefined>;
 const API_URL =
   __ENV.BASE_URL ||
   "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
-const WEBDIS_URL = __ENV.WEBDIS_URL || `${API_URL}/webdis`;
+const WEBDIS_WRITE_URL = __ENV.WEBDIS_WRITE_URL || `${API_URL}/webdis/write`;
+const WEBDIS_READ_URL = __ENV.WEBDIS_READ_URL || `${API_URL}/webdis/read`;
 const PIPELINE_REDIS_DB = "0";
 const OIDC_TOKEN_URL =
   __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
@@ -71,7 +72,7 @@ const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
   __ENV.POSTGREST_URL ||
   "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
-const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:local";
+const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
 const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
 const SYNCED_PARTITIONS = 5;
@@ -237,7 +238,7 @@ function redisMetric(
     metric,
     label,
     method: "GET",
-    url: `${WEBDIS_URL}/${PIPELINE_REDIS_DB}/${command}`,
+    url: `${WEBDIS_READ_URL}/${PIPELINE_REDIS_DB}/${command}`,
     params: { headers: authHeaders(token), tags: { name: `redis:${metric}` } },
     extract,
   };
@@ -1014,9 +1015,10 @@ function waitForPipeline(
 /** Sends one Valkey command through the proxy and returns the parsed answer. */
 function redisCommand(
   token: string,
+  url: string,
   command: string,
 ): Record<string, unknown> | null {
-  const response = http.get(`${WEBDIS_URL}/${PIPELINE_REDIS_DB}/${command}`, {
+  const response = http.get(`${url}/${PIPELINE_REDIS_DB}/${command}`, {
     headers: authHeaders(token),
     tags: { name: `redis:${command.split("/")[0]}` },
   }) as K6Response;
@@ -1028,7 +1030,7 @@ function redisCommand(
 
 /** Reads one stored table state, or null when it is absent or unreadable. */
 function readState(token: string, source: string): StoredState | null {
-  const answer = redisCommand(token, `GET/dp:state:${source}`);
+  const answer = redisCommand(token, WEBDIS_READ_URL, `GET/dp:state:${source}`);
   const value = answer?.["GET"];
   if (typeof value !== "string") {
     return null;
@@ -1048,6 +1050,7 @@ function writeState(
 ): boolean {
   const answer = redisCommand(
     token,
+    WEBDIS_WRITE_URL,
     `SET/dp:state:${source}/${encodeURIComponent(JSON.stringify(state))}`,
   );
   return answer !== null && answer["SET"] !== undefined;
@@ -1055,7 +1058,7 @@ function writeState(
 
 /** Deletes one Valkey key through the proxy. */
 function deleteKey(token: string, key: string): boolean {
-  const answer = redisCommand(token, `DEL/${key}`);
+  const answer = redisCommand(token, WEBDIS_WRITE_URL, `DEL/${key}`);
   return Number(answer?.["DEL"] ?? 0) > 0;
 }
 
@@ -1275,7 +1278,7 @@ function verifyWebdisStable(k8s: Kubernetes): void {
   );
   const webdis = proxyPods
     .flatMap((pod) => pod.status?.containerStatuses || [])
-    .filter((status) => status.name === "webdis");
+    .filter((status) => status.name === "webdis-write");
 
   expect("the proxy pod is present", proxyPods.length > 0);
   expect(

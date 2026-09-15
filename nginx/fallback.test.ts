@@ -65,12 +65,13 @@ const UPSTREAM = 'http://pgrst:3000';
 const PATH = '/protocolo_estado_diario';
 const QUERY = 'id_unidade=eq.cras_1';
 
-const CACHE_READ = /^GET http:\/\/127\.0\.0\.1:7379\/GET\/[0-9a-f]{64}$/;
+const CACHE_READ = /^GET http:\/\/127\.0\.0\.1:7380\/GET\/[0-9a-f]{64}$/;
 const CACHE_WRITE = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/300\//;
 const CACHE_WRITE_WITHOUT_TTL = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/\//;
 const CACHE_WRITE_WITH_TABLE_TTL = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/42\//;
 
-const CACHE_ROOT = 'http://127.0.0.1:7379/';
+const CACHE_READ_ROOT = 'http://127.0.0.1:7380/';
+const CACHE_WRITE_ROOT = 'http://127.0.0.1:7379/';
 
 /** The sync configuration the harness preloads; it lists the paths these tests use. */
 const DEFAULT_SYNC = {
@@ -232,7 +233,7 @@ const SCENARIOS: Scenario[] = [
             { match: '/GET/', status: 200, body: MISS },
             { match: UPSTREAM, status: 200, body: EMPTY },
         ],
-        sync: { schemas: { other: { tables: [{ name: 'proj.dev.protocolo_estado_diario' }] } } },
+        sync: { schemas: { other: { tables: [{ name: 'proj.dev.unrelated_table' }] } } },
         status: 200,
         body: EMPTY,
         contentType: JSON_CT,
@@ -749,7 +750,7 @@ function fakeUpstream(scenario: Scenario): {
     ): Promise<{ status: number, text: () => Promise<string>, headers: unknown }> => {
         const method = options && options.method ? options.method : 'GET';
         const sentBody = options && options.body !== undefined ? options.body : null;
-        const command = url === CACHE_ROOT && typeof sentBody === 'string' ? sentBody : '';
+        const command = (url === CACHE_READ_ROOT || url === CACHE_WRITE_ROOT) && typeof sentBody === 'string' ? sentBody : '';
         const call = method + ' ' + url + command;
 
         calls.push(call);
@@ -1006,7 +1007,7 @@ test('proxy: shares one call between concurrent requests for the same key', asyn
         proxy.handle(second as unknown as NginxHTTPRequest),
     ]);
 
-    const backend = upstream.calls.filter((call) => call.indexOf(CACHE_ROOT) === -1);
+    const backend = upstream.calls.filter((call) => call.indexOf(CACHE_READ_ROOT) === -1 && call.indexOf(CACHE_WRITE_ROOT) === -1);
 
     assert.equal(backend.length, 1, 'two concurrent requests must reach the upstream once');
 });
