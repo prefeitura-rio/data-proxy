@@ -14,6 +14,8 @@ spec:
     apiVersion: apps/v1
   minReplicaCount: {{ $root.Values.ha.postgrest.minReplicaCount }}
   maxReplicaCount: {{ $root.Values.ha.postgrest.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.ha.postgrest.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.ha.postgrest.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgrest") | nindent 4 }}
 {{- end }}

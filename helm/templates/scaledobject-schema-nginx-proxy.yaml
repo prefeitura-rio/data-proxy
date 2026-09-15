@@ -14,6 +14,8 @@ spec:
     apiVersion: apps/v1
   minReplicaCount: {{ $root.Values.ha.fallback.minReplicaCount }}
   maxReplicaCount: {{ $root.Values.ha.fallback.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.ha.fallback.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.ha.fallback.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "fallback") | nindent 4 }}
 {{- end }}

@@ -58,8 +58,10 @@ postgres:
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
-  ## Number of PostgREST Deployment replicas.
+  ## Number of PostgREST Deployment replicas. Managed by KEDA when autoscaling is enabled.
   replicas: 1
+  ## Maximum replicas for the KEDA ScaledObject (single mode).
+  maxReplicaCount: 3
   ## External URL that PostgREST uses in the OpenAPI specification.
   ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
@@ -84,11 +86,23 @@ postgrest:
   pgBouncer:
     ## PgBouncer container image.
     image: pgbouncer/pgbouncer:1.23.1
-    ## Number of PgBouncer instances in the CNPG Pooler.
-    instances: 2
+    ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
+    instances: 1
     ## Transaction pooling mode: each client transaction gets a server connection.
     poolSize: 20
     maxClientConns: 100
+    ## Autoscaling for the CNPG Pooler via KEDA. The Pooler CRD exposes a scale subresource.
+    autoscaling:
+      ## Minimum PgBouncer instances. Single mode: 1, HA: 2.
+      minReplicaCount: 1
+      ## Maximum PgBouncer instances.
+      maxReplicaCount: 3
+      ## How often KEDA checks triggers, in seconds.
+      pollingInterval: 30
+      ## How long KEDA waits before scaling down, in seconds.
+      cooldownPeriod: 300
+      ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
+      triggers: []
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -218,14 +232,13 @@ producer:
   pollIntervalSeconds: 60
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
-## Backup CronJob — exports each <schema>.access_policy table, encrypts it
-## client-side before it leaves the pod, then uploads it to the S3 bucket above.
+## Backup CronJob — exports each <schema>.access_policy table with pg_dump
+## and uploads it to the backup S3 service configured under cnpg.backup.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
 backup:
   ## Set to true to deploy the backup CronJob.
   enabled: false
-  ## Alpine-based image with Nushell. PostgreSQL client, age, and aws-cli
-  ## are installed at container startup via apk.
+  ## Nushell image with PostgreSQL client, Redis, AWS CLI, and kubectl.
   image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
   ## Cron expression that controls when the backup runs.
   ## Default: daily at 03:00 UTC, after the producer.
@@ -236,11 +249,7 @@ backup:
   activeDeadlineSeconds: 1800
   ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
-  ## age public key (recipient) used to encrypt the dump. Required when backup.enabled is true.
-  ## Generate a keypair with `age-keygen`; only the public key belongs here. Keep the
-  ## private key outside the cluster — it is the only way to decrypt a backup.
-  ageRecipient: ""
-  ## S3 object key prefix for uploaded backups, under the bucket configured in s3.bucket.
+  ## S3 object key prefix for uploaded backups, under the bucket configured in cnpg.backup.bucket.
   prefix: backups/access_policy
   ## Name of an existing Secret to use instead of creating one.
   ## The Secret must contain BACKUP_PASSWORD.
@@ -360,14 +369,20 @@ ha:
   postgres:
     minReplicaCount: 2
     maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
     triggers: []
   postgrest:
     minReplicaCount: 2
     maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
     triggers: []
   fallback:
     minReplicaCount: 2
     maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
     triggers: []
   redis:
     triggers: []
@@ -381,7 +396,28 @@ cnpg:
   ## Deployment mode: "shared" or "per-schema".
   mode: shared
   ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).
-  instances: 3
+  instances: 2
+  ## Autoscaling for the shared cluster (single mode only).
+  autoscaling:
+    ## Minimum instances — KEDA never scales below this. Must be >= 2 for failover.
+    minReplicaCount: 2
+    ## Maximum instances — KEDA never scales above this.
+    maxReplicaCount: 3
+    ## How often KEDA checks triggers, in seconds.
+    pollingInterval: 30
+    ## How long KEDA waits before scaling down, in seconds.
+    cooldownPeriod: 300
+    ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
+    triggers: []
+  ## Resource requests and limits for each PostgreSQL instance pod.
+  ## Required for KEDA CPU-based autoscaling.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 500Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
   ## Container image with pg_duckdb, PostGIS, and pg_partman.
   ## Must be based on the official postgres image for CNPG compatibility.
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55

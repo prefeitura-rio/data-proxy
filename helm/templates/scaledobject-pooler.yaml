@@ -1,0 +1,62 @@
+{{- if not .Values.ha.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-pooler-autoscaler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  scaleTargetRef:
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Pooler
+    name: {{ include "data-proxy.fullname" . }}-pooler
+  minReplicaCount: {{ .Values.postgrest.pgBouncer.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.postgrest.pgBouncer.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.postgrest.pgBouncer.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.postgrest.pgBouncer.autoscaling.cooldownPeriod }}
+  triggers:
+{{- if gt (len (.Values.postgrest.pgBouncer.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.postgrest.pgBouncer.autoscaling.triggers | nindent 4 }}
+{{- else }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "80"
+{{- end }}
+{{- else }}
+{{- $root := . }}
+{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+{{- $pooler := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $pooler }}-pooler-autoscaler
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Pooler
+    name: {{ $pooler }}-pooler
+  minReplicaCount: {{ max (int $root.Values.postgrest.pgBouncer.autoscaling.minReplicaCount) 2 }}
+  maxReplicaCount: {{ max (int $root.Values.postgrest.pgBouncer.autoscaling.maxReplicaCount) 2 }}
+  pollingInterval: {{ $root.Values.postgrest.pgBouncer.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.postgrest.pgBouncer.autoscaling.cooldownPeriod }}
+  triggers:
+{{- if gt (len ($root.Values.postgrest.pgBouncer.autoscaling.triggers | default list)) 0 }}
+{{ toYaml $root.Values.postgrest.pgBouncer.autoscaling.triggers | nindent 4 }}
+{{- else }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "80"
+{{- end }}
+{{- end }}
+{{- end }}

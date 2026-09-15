@@ -4,6 +4,7 @@ templates:
   - scaledobject-cnpg.yaml
   - scaledobject-postgrest.yaml
   - scaledobject-nginx-proxy.yaml
+  - scaledobject-pooler.yaml
 tests:
   - it: accepts optional HA overrides
     set:
@@ -53,3 +54,22 @@ tests:
           path: spec.triggers[0].type
           value: cpu
         template: scaledobject-cnpg.yaml
+
+  - it: renders per-schema Pooler ScaledObjects with min 2
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      syncConfig.schemas.pic.tables: []
+      syncConfig.schemas.other.tables: []
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: scaledobject-pooler.yaml
+      - equal:
+          path: spec.scaleTargetRef.kind
+          value: Pooler
+        template: scaledobject-pooler.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 2
+        template: scaledobject-pooler.yaml

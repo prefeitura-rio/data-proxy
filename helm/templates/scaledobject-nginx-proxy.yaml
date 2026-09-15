@@ -11,6 +11,8 @@ spec:
     apiVersion: apps/v1
   minReplicaCount: 1
   maxReplicaCount: {{ .Values.ha.fallback.maxReplicaCount }}
+  pollingInterval: {{ .Values.ha.fallback.pollingInterval }}
+  cooldownPeriod: {{ .Values.ha.fallback.cooldownPeriod }}
   triggers:
 {{- if gt (len (.Values.ha.fallback.triggers | default list)) 0 }}
 {{ toYaml .Values.ha.fallback.triggers | nindent 4 }}

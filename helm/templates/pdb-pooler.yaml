@@ -1,0 +1,22 @@
+{{- if .Values.ha.enabled }}
+{{- $root := . }}
+{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-pooler
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: pgbouncer
+      data-proxy.io/schema: {{ $schema | quote }}
+{{- end }}
+{{- end }}

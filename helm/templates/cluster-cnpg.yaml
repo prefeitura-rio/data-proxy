@@ -23,6 +23,13 @@ spec:
       encoding: UTF8
       dataChecksums: true
   instances: {{ $root.Values.cnpg.instances | int }}
+  resources:
+    requests:
+      cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}
+      memory: {{ $root.Values.cnpg.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ $root.Values.cnpg.resources.limits.cpu | quote }}
+      memory: {{ $root.Values.cnpg.resources.limits.memory | quote }}
   postgresql:
     shared_preload_libraries:
       - pg_duckdb
@@ -91,6 +98,13 @@ spec:
       encoding: UTF8
       dataChecksums: true
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
+  resources:
+    requests:
+      cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}
+      memory: {{ $root.Values.cnpg.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ $root.Values.cnpg.resources.limits.cpu | quote }}
+      memory: {{ $root.Values.cnpg.resources.limits.memory | quote }}
   postgresql:
     shared_preload_libraries:
       - pg_duckdb

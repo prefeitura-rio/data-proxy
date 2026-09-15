@@ -34,8 +34,22 @@ metadata:
 spec:
   cluster:
     name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-  instances: {{ $root.Values.postgrest.pgBouncer.instances }}
+  instances: {{ if $root.Values.ha.enabled }}{{ max (int $root.Values.postgrest.pgBouncer.instances) 2 }}{{ else }}{{ $root.Values.postgrest.pgBouncer.instances }}{{ end }}
   type: ro
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: pgbouncer
+        data-proxy.io/schema: {{ $schema | quote }}
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: pgbouncer
+              data-proxy.io/schema: {{ $schema | quote }}
   pgbouncer:
     poolMode: transaction
     parameters:
