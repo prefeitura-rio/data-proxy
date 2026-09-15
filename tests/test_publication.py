@@ -7,14 +7,20 @@ from dp.conditions import partition_condition, scan_condition
 from dp.models import (
     FullTable,
     IndexConfig,
+    PartitionedTable,
     PartitionedTablePlan,
+    PartitioningConfig,
     PhysicalPartition,
     RemainderSelection,
     SyncPlan,
 )
 from dp.publication import (
+    CreateRoute,
+    ReplacePartitionsRoute,
+    ShadowSwapRoute,
     cast_json_columns_to_jsonb,
     create_indexes,
+    decide_route,
     planned_paths,
     prepare_table,
     prepare_tables,
@@ -344,3 +350,107 @@ class TestPrepareTable:
         )
 
         assert prepared == []
+
+
+class TestDecideRoute:
+    """Tests for the publication route decision."""
+
+    def test_full_table_existing_uses_shadow_swap(self) -> None:
+        """
+        GIVEN: an existing full table.
+        WHEN: decide_route runs.
+        THEN: it returns SHADOW_SWAP.
+        """
+        table = FullTable(name="p.d.t")
+        assert decide_route(True, table, None) == ShadowSwapRoute()
+
+    def test_full_table_new_uses_create(self) -> None:
+        """
+        GIVEN: a new full table.
+        WHEN: decide_route runs.
+        THEN: it returns CREATE.
+        """
+        table = FullTable(name="p.d.t")
+        assert decide_route(False, table, None) == CreateRoute(partitioning=None)
+
+    def test_partitioned_incremental_uses_replace_partitions(self) -> None:
+        """
+        GIVEN: an existing partitioned table with an incremental plan.
+        WHEN: decide_route runs.
+        THEN: it returns REPLACE_PARTITIONS.
+        """
+        table = PartitionedTable(name="p.d.t")
+        plan = PartitionedTablePlan(
+            table_signature="s",
+            full_rebuild=False,
+            current_partitions={},
+            changed_paths={},
+            removed_partitions={},
+        )
+        assert decide_route(True, table, plan) == ReplacePartitionsRoute(
+            plan=plan, partman=False
+        )
+
+    def test_partitioned_full_rebuild_without_partitioning_uses_shadow_swap(
+        self,
+    ) -> None:
+        """
+        GIVEN: an existing partitioned table without pg_partman config and a full rebuild.
+        WHEN: decide_route runs.
+        THEN: it returns SHADOW_SWAP.
+        """
+        table = PartitionedTable(name="p.d.t")
+        plan = PartitionedTablePlan(
+            table_signature="s",
+            full_rebuild=True,
+            current_partitions={},
+            changed_paths={},
+            removed_partitions={},
+        )
+        assert decide_route(True, table, plan) == ShadowSwapRoute()
+
+    def test_partitioned_full_rebuild_with_partitioning_uses_replace_partitions(
+        self,
+    ) -> None:
+        """
+        GIVEN: an existing partitioned table with pg_partman config and a full rebuild.
+        WHEN: decide_route runs.
+        THEN: it returns REPLACE_PARTITIONS because partitioned parents cannot be swapped.
+        """
+        table = PartitionedTable(
+            name="p.d.t",
+            n=7,
+            partitioning=PartitioningConfig(column="created_at"),
+        )
+        plan = PartitionedTablePlan(
+            table_signature="s",
+            full_rebuild=True,
+            current_partitions={},
+            changed_paths={},
+            removed_partitions={},
+        )
+        assert decide_route(True, table, plan) == ReplacePartitionsRoute(
+            plan=plan, partman=True
+        )
+
+    def test_partitioned_first_creation_with_partitioning_uses_create(self) -> None:
+        """
+        GIVEN: a new partitioned table with pg_partman config that does not exist yet.
+        WHEN: decide_route runs.
+        THEN: it returns CREATE so the Publisher builds the partitioned parent from Parquet.
+        """
+        table = PartitionedTable(
+            name="p.d.t",
+            n=7,
+            partitioning=PartitioningConfig(column="created_at"),
+        )
+        plan = PartitionedTablePlan(
+            table_signature="s",
+            full_rebuild=True,
+            current_partitions={},
+            changed_paths={},
+            removed_partitions={},
+        )
+        assert decide_route(False, table, plan) == CreateRoute(
+            partitioning=PartitioningConfig(column="created_at")
+        )

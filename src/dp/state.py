@@ -23,7 +23,6 @@ from .constants import (
     SYNC_TRANSACTION_RETRIES,
 )
 from .models import (
-    DumpFailure,
     DumpResult,
     DumpTask,
     PartitionManifest,
@@ -37,7 +36,11 @@ from .models import (
 
 def decode_redis_value(value: bytes | str | None) -> str | None:
     """Decode a Redis value while preserving strings and None."""
-    return value.decode() if isinstance(value, bytes) else value
+    match value:
+        case bytes():
+            return value.decode()
+        case _:
+            return value
 
 
 async def read_table_signature(redis: Redis, table: str) -> str | None:
@@ -170,7 +173,9 @@ async def read_failed_paths(redis: Redis, run_id: str) -> set[str]:
         task_outcome_adapter.validate_json(value)
         for value in await redis.hvals(RESULTS_KEY.format(run_id=run_id))
     ]
-    return {result.failed_path for result in results if isinstance(result, DumpFailure)}
+    return {
+        path for result in results if (path := result.maybe_failed_path) is not None
+    }
 
 
 @retry(
@@ -231,12 +236,17 @@ def publication_exists(entries: StreamRangeResponse, run_id: str) -> bool:
     needle = run_id.encode()
 
     for _, data in entries:
-        if not isinstance(data, dict):
-            continue
+        match data:
+            case dict():
+                raw = data.get(b"__data__", b"")
+            case _:
+                continue
 
-        raw = data.get(b"__data__", b"")
-        if isinstance(raw, bytes) and needle in raw:
-            return True
+        match raw:
+            case bytes() if needle in raw:
+                return True
+            case _:
+                pass
 
     return False
 

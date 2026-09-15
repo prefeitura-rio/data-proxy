@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import LiteralString, assert_never, cast
 
 from psycopg import AsyncConnection
@@ -20,15 +19,38 @@ from .freshness import (
 )
 from .log import logger
 from .models import (
+    PartitionedTable,
     PartitionedTablePlan,
+    PartitioningConfig,
     PhysicalPartition,
     PublicationDecision,
     SyncConfig,
     SyncPlan,
     TableConfig,
 )
+from .settings import settings
 from .templates import render_fragment
 from .utils import atomic
+
+
+@dataclass(frozen=True, slots=True)
+class ReplacePartitionsRoute:
+    """Replace changed partitions in an existing table."""
+
+    plan: PartitionedTablePlan
+    partman: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowSwapRoute:
+    """Load a shadow table and atomically swap it into service."""
+
+
+@dataclass(frozen=True, slots=True)
+class CreateRoute:
+    """Create a new table. When partitioning is set, use pg_partman."""
+
+    partitioning: PartitioningConfig | None
 
 
 async def table_exists(pg_conn: AsyncConnection, schema: str, table_name: str) -> bool:
@@ -65,7 +87,7 @@ async def column_select_list(
     )
 
 
-async def load_partition(
+async def insert_partition(
     pg_conn: AsyncConnection,
     schema: str,
     table_name: str,
@@ -73,17 +95,22 @@ async def load_partition(
     select_list: Composable,
     predicate: Composable,
 ) -> None:
-    """Load one Parquet partition into a table."""
+    """Insert one Parquet partition into a pg_partman partitioned parent table.
+
+    pg_partman has already created the child partition. This statement inserts
+    rows from the Parquet file into the parent, and PostgreSQL routes them to
+    the correct child. ON CONFLICT DO NOTHING makes the load idempotent.
+    """
     await execute_sql(
         pg_conn,
-        "postgres/load_partition",
+        "postgres/insert_partition",
         mapping={
-            "temp": Identifier("_load_partition"),
+            "temp": Identifier("_insert_partition"),
+            "schema": Identifier(schema),
+            "table": Identifier(table_name),
             "cols": select_list,
             "path": Literal(path),
             "predicate": predicate,
-            "schema": Identifier(schema),
-            "table": Identifier(table_name),
         },
     )
 
@@ -134,7 +161,11 @@ async def create_indexes(
 ) -> None:
     """Create every configured index on a table."""
     for index in table.indexes:
-        method = "" if index.method == "btree" else f" USING {index.method}"
+        match index.method:
+            case "btree":
+                method = ""
+            case "gin":
+                method = " USING gin"
 
         if index.expressions is not None:
             columns = SQL(", ").join(
@@ -279,6 +310,84 @@ async def rebuild_table(
         await create_indexes(pg_conn, table, table.table_name)
 
 
+async def create_partitioned_table(
+    pg_conn: AsyncConnection,
+    config: SyncConfig,
+    table: TableConfig,
+    partitioning: PartitioningConfig,
+    paths: Sequence[str],
+) -> None:
+    """Create a pg_partman partitioned parent from Parquet and load data.
+
+    On first creation, the Publisher builds a temporary flat table from the
+    first Parquet file to discover column types, then creates the partitioned
+    parent with LIKE, registers it with pg_partman, bootstraps RLS, and loads
+    all Parquet data into the parent.
+    """
+    schema_config = config.schemas.get(table.resolved_schema)
+    intervals = {
+        "daily": "1 day",
+        "weekly": "1 week",
+        "monthly": "1 month",
+        "yearly": "1 year",
+    }
+    temp_name = f"{table.table_name}__schema"
+
+    await create_table_from_parquet(pg_conn, table, temp_name, paths[0])
+    await pg_conn.commit()
+
+    mapping = {
+        "schema": Identifier(table.resolved_schema),
+        "table": Identifier(table.table_name),
+        "temp": Identifier(table.resolved_schema, temp_name),
+        "parent_table": Literal(f"{table.resolved_schema}.{table.table_name}"),
+        "column_identifier": Identifier(partitioning.column),
+        "column": Literal(partitioning.column),
+        "interval": Literal(intervals[partitioning.interval]),
+        "retention": Literal(partitioning.retention or "365 days"),
+    }
+
+    async with await AsyncConnection.connect(
+        settings.PG_DSN, autocommit=True
+    ) as partman_conn:
+        await execute_sql(
+            partman_conn,
+            "postgres/create_partitioned_parent",
+            mapping=mapping,
+        )
+        await execute_sql(partman_conn, "postgres/run_partman_maintenance")
+
+    async with atomic(pg_conn):
+        await bootstrap_table(
+            pg_conn,
+            table.resolved_schema,
+            table.table_name,
+            table.rls,
+            schema_config.claim if schema_config else None,
+        )
+
+        select_list = await column_select_list(
+            pg_conn, table.resolved_schema, table.table_name
+        )
+
+        for path in paths:
+            await insert_partition(
+                pg_conn,
+                table.resolved_schema,
+                table.table_name,
+                path,
+                select_list,
+                SQL("true"),
+            )
+
+        await cast_json_columns_to_jsonb(
+            pg_conn, table.resolved_schema, table.table_name
+        )
+
+    async with atomic(pg_conn):
+        await create_indexes(pg_conn, table, table.table_name)
+
+
 async def replace_partitions(
     pg_conn: AsyncConnection,
     table: TableConfig,
@@ -286,26 +395,44 @@ async def replace_partitions(
 ) -> None:
     """Replace every changed partition and drop every removed one in one transaction.
 
-    The order of the partitions does not matter. One transaction moves the whole
-    table from the old state to the new state at once.
+    For pg_partman partitioned tables, the Publisher deletes rows in changed
+    and removed partitions, then inserts each changed partition's Parquet into
+    the parent table with ON CONFLICT DO NOTHING. pg_partman has already created
+    the child partitions. The delete clears old data; ON CONFLICT DO NOTHING
+    makes a retry idempotent. One transaction moves the whole table from the
+    old state to the new state.
+
+    On a full rebuild, the Publisher deletes all rows from the parent before
+    inserting. This replaces the shadow + swap path, which does not work for
+    partitioned parents.
     """
     select_list = await column_select_list(
         pg_conn, table.resolved_schema, table.table_name
     )
 
-    affected = [
-        table_plan.current_partitions[partition_id]
-        for partition_id in table_plan.changed_paths
-    ]
-    affected.extend(table_plan.removed_partitions.values())
-
     async with atomic(pg_conn):
-        if affected:
-            await delete_partitions(pg_conn, table, affected)
+        if table_plan.full_rebuild:
+            await execute_sql(
+                pg_conn,
+                "postgres/delete_all_rows",
+                mapping={
+                    "schema": Identifier(table.resolved_schema),
+                    "table": Identifier(table.table_name),
+                },
+            )
+        else:
+            affected = [
+                table_plan.current_partitions[partition_id]
+                for partition_id in table_plan.changed_paths
+            ]
+            affected.extend(table_plan.removed_partitions.values())
+
+            if affected:
+                await delete_partitions(pg_conn, table, affected)
 
         for partition_id, path in table_plan.changed_paths.items():
             partition = table_plan.current_partitions[partition_id]
-            await load_partition(
+            await insert_partition(
                 pg_conn,
                 table.resolved_schema,
                 table.table_name,
@@ -331,26 +458,34 @@ async def prepare_table(
     """
     paths = planned_paths(plan, table.name, partitioned)
     exists = await table_exists(pg_conn, table.resolved_schema, table.table_name)
-    route = decide_route(exists, partitioned)
+    route = decide_route(exists, table, partitioned)
 
-    if route is PublicationRoute.REPLACE_PARTITIONS:
-        if not exists:
-            message = (
-                f"Missing table {table.resolved_schema}.{table.table_name} "
-                "for an incremental plan"
-            )
-            raise RuntimeError(message)
+    match route:
+        case ReplacePartitionsRoute(plan=table_plan, partman=partman):
+            if not exists:
+                message = (
+                    f"Missing table {table.resolved_schema}.{table.table_name} "
+                    "for an incremental plan"
+                )
+                raise RuntimeError(message)
 
-        assert partitioned is not None
-        await replace_partitions(pg_conn, table, partitioned)
-        return PreparedTable(table=table, swap=False)
+            if partman:
+                async with await AsyncConnection.connect(
+                    settings.PG_DSN, autocommit=True
+                ) as partman_conn:
+                    await execute_sql(partman_conn, "postgres/run_partman_maintenance")
 
-    if route is PublicationRoute.SHADOW_SWAP:
-        await load_table(pg_conn, config, table, f"{table.table_name}__next", paths)
-        return PreparedTable(table=table, swap=True)
-
-    await rebuild_table(pg_conn, config, table, paths)
-    return PreparedTable(table=table, swap=False)
+            await replace_partitions(pg_conn, table, table_plan)
+            return PreparedTable(table=table, swap=False)
+        case ShadowSwapRoute():
+            await load_table(pg_conn, config, table, f"{table.table_name}__next", paths)
+            return PreparedTable(table=table, swap=True)
+        case CreateRoute(partitioning=PartitioningConfig() as partman):
+            await create_partitioned_table(pg_conn, config, table, partman, paths)
+            return PreparedTable(table=table, swap=False)
+        case CreateRoute():
+            await rebuild_table(pg_conn, config, table, paths)
+            return PreparedTable(table=table, swap=False)
 
 
 async def prepare_tables(
@@ -442,14 +577,6 @@ async def publish_prepared_tables(
     return published
 
 
-class PublicationRoute(StrEnum):
-    """How one table reaches its published state."""
-
-    CREATE = "create"
-    REPLACE_PARTITIONS = "replace_partitions"
-    SHADOW_SWAP = "shadow_swap"
-
-
 @dataclass(frozen=True, slots=True)
 class PreparedTable:
     """One prepared table and whether a shadow table waits for the swap."""
@@ -532,13 +659,35 @@ def planned_paths(
 
 
 def decide_route(
-    exists: bool, partitioned: PartitionedTablePlan | None
-) -> PublicationRoute:
-    """Choose the publication route for one table."""
-    if isinstance(partitioned, PartitionedTablePlan) and not partitioned.full_rebuild:
-        return PublicationRoute.REPLACE_PARTITIONS
+    exists: bool,
+    table: TableConfig,
+    partitioned: PartitionedTablePlan | None,
+) -> ReplacePartitionsRoute | ShadowSwapRoute | CreateRoute:
+    """Choose the publication route for one table.
 
-    if exists:
-        return PublicationRoute.SHADOW_SWAP
-
-    return PublicationRoute.CREATE
+    A partitioned table managed by pg_partman always replaces partitions in
+    place, even on a full rebuild, because a partitioned parent cannot be
+    shadow-swapped. On first creation it uses CREATE so the Publisher can
+    build the partitioned parent from the Parquet schema. A partitioned table
+    without pg_partman keeps the old logic: incremental updates replace
+    partitions, full rebuilds shadow-swap.
+    """
+    match (exists, table, partitioned):
+        case (
+            False,
+            PartitionedTable(partitioning=PartitioningConfig() as partman),
+            _,
+        ):
+            return CreateRoute(partitioning=partman)
+        case (
+            _,
+            PartitionedTable(partitioning=PartitioningConfig()),
+            PartitionedTablePlan() as plan,
+        ):
+            return ReplacePartitionsRoute(plan=plan, partman=True)
+        case (_, _, PartitionedTablePlan(full_rebuild=False) as plan):
+            return ReplacePartitionsRoute(plan=plan, partman=False)
+        case (True, _, _):
+            return ShadowSwapRoute()
+        case _:
+            return CreateRoute(partitioning=None)

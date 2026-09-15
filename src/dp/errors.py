@@ -5,12 +5,12 @@ from typing import NoReturn
 
 from faststream.exceptions import StopApplication
 
-from dp.constants import DUMP_STREAM
-from dp.log import logger
-from dp.models import DumpFailure, DumpTask
-from dp.settings import settings
-from dp.state import complete_dump
-from dp.state_machines import worker_state
+from .constants import DUMP_STREAM
+from .log import logger
+from .models import DumpFailure, DumpTask
+from .settings import settings
+from .state import complete_dump
+from .state_machines import worker_state
 
 type Publish = Callable[..., Awaitable[object]]
 

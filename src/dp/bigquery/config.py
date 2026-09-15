@@ -89,10 +89,9 @@ def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
         raise ValueError(
             f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
         )
-    assert isinstance(field, str)
     raw = partitioning.type_ or TimeGranularity.DAY
     try:
-        return TimeConfig(field, TimeGranularity(raw))
+        return TimeConfig(cast(str, field), TimeGranularity(raw))
     except ValueError as error:
         raise ValueError(
             f"Unsupported time partition granularity {raw}: {table}"

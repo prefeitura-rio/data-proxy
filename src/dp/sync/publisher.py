@@ -34,7 +34,7 @@ from ..utils import (
 )
 
 broker = RedisBroker(
-    str(settings.REDIS_URL),
+    str(settings.REDIS.write),
     logger=logger,
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
@@ -65,7 +65,7 @@ async def publish_schema_task(
     started = monotonic()
 
     pg_conn = await AsyncConnection.connect(
-        settings.schema_writers.dsn(task.schema_name)
+        settings.SCHEMA_WRITERS.dsn(task.schema_name)
     )
 
     result = await apply_sync_plan(
@@ -90,9 +90,8 @@ async def publish_schema_task(
     async with settings.redis() as redis:
         await complete_publication(redis, task, states, pg_conn)
 
-    if settings.FALLBACK_ENABLED:
-        await clear_response_cache(settings.FALLBACK_CACHE_REDIS_DB)
-        logger.info("Flushed response cache")
+    await clear_response_cache(settings.FALLBACK_CACHE_REDIS_DB)
+    logger.info("Flushed response cache")
 
     async with settings.redis() as redis:
         await ack_and_stop(message, redis, PUBLISHERS_GROUP)

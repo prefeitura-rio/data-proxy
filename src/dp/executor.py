@@ -44,8 +44,11 @@ async def execute_postgres_connection(
     job_config: QueryJobConfig | None = None,
 ) -> AsyncCursor:
     """Execute one statement through an async PostgreSQL connection."""
-    if isinstance(params, list):
-        raise TypeError("executemany requires a cursor, not a connection")
+    match params:
+        case list():
+            raise TypeError("executemany requires a cursor, not a connection")
+        case _:
+            pass
     if job_config is not None:
         raise TypeError("PostgreSQL execution does not accept job_config")
     return await connection.execute(cast(LiteralString, sql), params=params)
@@ -62,9 +65,11 @@ async def execute_postgres_cursor(
     """Execute one or many statements through an async PostgreSQL cursor."""
     if job_config is not None:
         raise TypeError("PostgreSQL execution does not accept job_config")
-    if isinstance(params, list):
-        return await connection.executemany(cast(LiteralString, sql), params)
-    return await connection.execute(cast(LiteralString, sql), params=params)
+    match params:
+        case list():
+            return await connection.executemany(cast(LiteralString, sql), params)
+        case _:
+            return await connection.execute(cast(LiteralString, sql), params=params)
 
 
 @execute.register

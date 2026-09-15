@@ -18,7 +18,7 @@ from ..state_machines import worker_state
 from ..utils import remove_idle_consumers, stream_subscriptions
 
 broker = RedisBroker(
-    str(settings.REDIS_URL),
+    str(settings.REDIS.write),
     logger=logger,
 )
 

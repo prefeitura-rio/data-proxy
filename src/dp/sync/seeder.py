@@ -25,7 +25,7 @@ from ..utils import (
 )
 
 broker = RedisBroker(
-    str(settings.REDIS_URL),
+    str(settings.REDIS.write),
     logger=logger,
     middlewares=(ExceptionMiddleware({Exception: stop_on_error}),),
 )
@@ -81,7 +81,7 @@ async def seed_publication(
 
     await initialize_schemas_for_plans(
         plans,
-        settings.schema_writers.dsn,
+        settings.SCHEMA_WRITERS.dsn,
         settings.sync_config.schemas,
     )
 

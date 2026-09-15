@@ -15,7 +15,6 @@ from .models import (
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
-from .settings import settings
 
 
 def empty_incremental_tables(plan: SyncPlan) -> set[str]:
@@ -148,9 +147,8 @@ async def record_publication_failures(
 
 async def finalize_publication(pg_conn: AsyncConnection, config: SyncConfig) -> None:
     """Create fallback views and reload PostgREST after publication."""
-    if settings.FALLBACK_ENABLED:
-        await create_bq_views(pg_conn, config)
-        logger.info("Created BigQuery fallback views")
+    await create_bq_views(pg_conn, config)
+    logger.info("Created BigQuery fallback views")
 
     await reload_postgrest(pg_conn, config)
     logger.info("PostgREST schema reload requested")

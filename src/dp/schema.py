@@ -84,3 +84,4 @@ async def reload_postgrest(pg_conn: AsyncConnection, config: SyncConfig) -> None
         )
 
     await execute_sql(pg_conn, "postgres/reload_schema")
+    await pg_conn.commit()

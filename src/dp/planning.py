@@ -12,12 +12,11 @@ from more_itertools import constrained_batches
 from psycopg.sql import Literal
 from redis.asyncio import Redis
 
-from dp.log import logger
-
 from .bigquery.clients import bigquery_clients
 from .bigquery.partitions import physical_partitions
 from .bigquery.tables import table_modified
 from .executor import execute_sql
+from .log import logger
 from .models import (
     AllSelection,
     DumpTask,

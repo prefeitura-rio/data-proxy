@@ -99,7 +99,7 @@ def test_settings(
 
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
     monkeypatch.setattr(Settings, "redis", redis_client)
-    monkeypatch.setattr(Settings, "schema_writers", property(lambda _: schema_writers))
+    monkeypatch.setattr(settings, "SCHEMA_WRITERS", schema_writers)
     return settings
 
 

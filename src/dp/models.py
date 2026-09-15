@@ -14,6 +14,7 @@ from pydantic import (
     computed_field,
     model_validator,
 )
+from pydantic.networks import RedisDsn
 
 from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
 
@@ -51,6 +52,9 @@ class AllSelection(BaseModel):
 
     type: Literal["all"] = "all"
 
+    def check_id(self, partition_id: str) -> None:
+        """No partition ID validation for a full-table selection."""
+
 
 class TimeRangeSelection(BaseModel):
     """Select rows within one time partition's [lower, upper) date/timestamp bounds."""
@@ -66,6 +70,9 @@ class TimeRangeSelection(BaseModel):
         if self.lower >= self.upper:
             raise ValueError("Time selection lower bound must precede upper bound")
         return self
+
+    def check_id(self, partition_id: str) -> None:
+        """No partition ID validation for a time-range selection."""
 
 
 class RangeSelection(BaseModel):
@@ -84,6 +91,13 @@ class RangeSelection(BaseModel):
             raise ValueError("Range selection lower bound must precede upper bound")
         return self
 
+    def check_id(self, partition_id: str) -> None:
+        """Require the selection ID to match the physical partition."""
+        if self.partition_id != partition_id:
+            raise ValueError(
+                "Range selection partition ID must match physical partition"
+            )
+
 
 class RemainderSelection(BaseModel):
     """Select rows in BigQuery's ``__NULL__`` bucket: null or out-of-range values."""
@@ -99,6 +113,9 @@ class RemainderSelection(BaseModel):
         if self.start >= self.end:
             raise ValueError("Remainder selection start must precede end")
         return self
+
+    def check_id(self, partition_id: str) -> None:
+        """No partition ID validation for a remainder selection."""
 
 
 TaskSelection = Annotated[
@@ -119,12 +136,7 @@ class PhysicalPartition(BaseModel):
     @model_validator(mode="after")
     def validate_range_partition_id(self) -> Self:
         """Require range selection IDs to match their physical partition."""
-        if isinstance(self.selection, RangeSelection) and (
-            self.partition_id != self.selection.partition_id
-        ):
-            raise ValueError(
-                "Range selection partition ID must match physical partition"
-            )
+        self.selection.check_id(self.partition_id)
         return self
 
 
@@ -190,6 +202,26 @@ class FullTable(Table):
         return fields
 
 
+class RedisConfig(BaseModel):
+    """Redis URLs for read and write operations."""
+
+    read: RedisDsn
+    write: RedisDsn
+
+
+class PartitioningConfig(BaseModel):
+    """pg_partman configuration for a partitioned table."""
+
+    column: NonEmptyString
+    """The column to partition by."""
+
+    interval: Literal["daily", "weekly", "monthly", "yearly"] = "daily"
+    """Partition interval for pg_partman."""
+
+    retention: NonEmptyString | None = None
+    """Retention period, e.g. "365 days". Partitions older than this are dropped."""
+
+
 class PartitionedTable(Table):
     """A table synced by diffing and reloading only its changed physical partitions."""
 
@@ -197,13 +229,37 @@ class PartitionedTable(Table):
     n: PositiveInt | None = None
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
+    partitioning: PartitioningConfig | None = None
+    """pg_partman configuration. When set, the table is natively partitioned."""
+
     @override
     def config_signature_fields(self) -> dict[str, object]:
-        """Include the strategy and the partition retention window."""
+        """Include the strategy, partition window, and pg_partman config."""
         fields = super().config_signature_fields()
         fields["strategy"] = self.strategy
         fields["n"] = self.n
+        fields["partitioning"] = (
+            self.partitioning.model_dump() if self.partitioning else None
+        )
         return fields
+
+    @model_validator(mode="after")
+    def validate_partitioning_implies_time_partitioned(self) -> Self:
+        """Require pg_partman partitioning only on time-partitioned tables.
+
+        ``n`` (keep last N time partitions) is the config-level indicator that
+        a table uses time-based partitioning. pg_partman only supports
+        time-based intervals, so ``partitioning`` without ``n`` is rejected.
+        The runtime check in ``physical_partitions`` enforces that ``n`` is
+        only used with BigQuery time partitions.
+        """
+        if self.partitioning is not None and self.n is None:
+            msg = (
+                "partitioning requires n (time-based partitioning)."
+                " Integer-range partitions are not supported by pg_partman."
+            )
+            raise ValueError(msg)
+        return self
 
 
 TableConfig = Annotated[
@@ -215,7 +271,7 @@ TableConfig = Annotated[
 class SchemaWriters(BaseModel):
     """Mapping from PostgreSQL schema names to writer DSNs."""
 
-    writers: dict[str, str]
+    writers: dict[NonEmptyString, NonEmptyString] = Field(min_length=1)
 
     def dsn(self, schema: str) -> str:
         """Return the required writer DSN for a configured schema."""
@@ -324,6 +380,11 @@ class DumpSuccess(BaseModel):
 
     status: Literal[DumpStatus.SUCCESS] = DumpStatus.SUCCESS
 
+    @property
+    def maybe_failed_path(self) -> str | None:
+        """No failed path for a successful result."""
+        return None
+
 
 class DumpFailure(BaseModel):
     """Failed extraction task result."""
@@ -332,6 +393,11 @@ class DumpFailure(BaseModel):
 
     status: Literal[DumpStatus.FAILURE] = DumpStatus.FAILURE
     failed_path: str
+
+    @property
+    def maybe_failed_path(self) -> str | None:
+        """The failed Parquet path for this result."""
+        return self.failed_path
 
 
 DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]

@@ -140,7 +140,6 @@ class TestPublishSchema:
             sync_config([FullTable(name="p.app.t")]).model_dump_json()
         )
         plan = SyncPlan(schema_name="app")
-        monkeypatch.setattr(settings, "FALLBACK_ENABLED", True)
         monkeypatch.setattr(settings, "FALLBACK_CACHE_REDIS_DB", 7)
         with (
             patch(

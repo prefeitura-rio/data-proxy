@@ -17,6 +17,7 @@ from dp.models import (
     IndexConfig,
     PartitionedTable,
     PartitionedTablePlan,
+    PartitioningConfig,
     PartitionManifest,
     PhysicalPartition,
     RangeSelection,
@@ -648,3 +649,46 @@ class TestTableSignature:
         assert table_signature(table_x, None, "m") == table_signature(
             table_y, None, "m"
         )
+
+
+class TestPartitioningConfigValidation:
+    """Tests for pg_partman partitioning config validation."""
+
+    def test_partitioning_without_n_raises(self) -> None:
+        """
+        GIVEN: a PartitionedTable with partitioning config but no n.
+        WHEN: the table is constructed.
+        THEN: ValueError is raised.
+        """
+        with pytest.raises(
+            ValueError,
+            match="partitioning requires n",
+        ):
+            PartitionedTable(
+                name="p.d.t",
+                partitioning=PartitioningConfig(column="created_at"),
+            )
+
+    def test_partitioning_with_n_succeeds(self) -> None:
+        """
+        GIVEN: a PartitionedTable with partitioning config and n.
+        WHEN: the table is constructed.
+        THEN: the table is created successfully.
+        """
+        table = PartitionedTable(
+            name="p.d.t",
+            n=7,
+            partitioning=PartitioningConfig(column="created_at"),
+        )
+        assert table.partitioning is not None
+        assert table.n == 7
+
+    def test_no_partitioning_succeeds_without_n(self) -> None:
+        """
+        GIVEN: a PartitionedTable without partitioning config and without n.
+        WHEN: the table is constructed.
+        THEN: the table is created successfully.
+        """
+        table = PartitionedTable(name="p.d.t")
+        assert table.partitioning is None
+        assert table.n is None

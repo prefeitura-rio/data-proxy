@@ -20,7 +20,6 @@ from dp.publication import (
     prepare_tables,
     publish_prepared_tables,
 )
-from dp.settings import settings
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, fetch_one, partition, sync_config
 
@@ -207,11 +206,12 @@ class TestLoadingApplySyncPlan:
                 ]
             },
         )
-        result = await apply_sync_plan(
-            postgres.connection,
-            sync_config([table], schema_name=postgres.namespace.schema),
-            plan,
-        )
+        with patch("dp.loading.create_bq_views"):
+            result = await apply_sync_plan(
+                postgres.connection,
+                sync_config([table], schema_name=postgres.namespace.schema),
+                plan,
+            )
         assert result.published_tables == {table.name}
         assert await fetch_one(
             postgres.connection,
@@ -347,12 +347,10 @@ class TestLoadingApplySyncPlan:
     @pytest.mark.asyncio
     async def test_apply_sync_plan_creates_fallback_views_when_enabled(
         self,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Enabled fallback creates BigQuery views after publication."""
+        """Fallback creates BigQuery views after publication."""
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
-        monkeypatch.setattr(settings, "FALLBACK_ENABLED", True)
         with (
             patch("dp.loading.initialize_schemas"),
             patch("dp.loading.prepare_tables", return_value=[]),

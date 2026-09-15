@@ -17,7 +17,7 @@ from ..planning import build_sync_work
 from ..settings import settings
 from ..state import create_run, ensure_groups, read_active_run, read_remaining
 
-broker = RedisBroker(str(settings.REDIS_URL), logger=logger)
+broker = RedisBroker(str(settings.REDIS.write), logger=logger)
 producer = FastStream(broker, logger=logger)
 
 

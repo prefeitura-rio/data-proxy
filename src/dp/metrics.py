@@ -7,9 +7,9 @@ from functools import wraps
 from httpx2 import AsyncClient
 from prometheus_client import Counter, Histogram, generate_latest
 
-from dp.log import logger
-from dp.models import PublicationResult
-from dp.settings import settings
+from .log import logger
+from .models import PublicationResult
+from .settings import settings
 
 
 @dataclass(slots=True)

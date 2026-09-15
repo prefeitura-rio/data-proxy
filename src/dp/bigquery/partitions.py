@@ -42,22 +42,20 @@ def row_partition_id(row: TypedRow) -> str:
 
 def row_modified(row: TypedRow) -> datetime | None:
     """Extract last_modified_time from a BigQuery row as a datetime."""
-    value = row["last_modified_time"]
-
-    if isinstance(value, datetime):
-        return value
-
-    return None
+    match row["last_modified_time"]:
+        case datetime() as value:
+            return value
+        case _:
+            return None
 
 
 def row_logical_bytes(row: TypedRow) -> int:
     """Extract logical_bytes from a BigQuery row as an integer."""
-    value = row["logical_bytes"]
-
-    if isinstance(value, int):
-        return value
-
-    return 0
+    match row["logical_bytes"]:
+        case int() as value:
+            return value
+        case _:
+            return 0
 
 
 async def partition_rows(

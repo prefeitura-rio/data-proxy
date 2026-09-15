@@ -104,7 +104,6 @@ class TestSchema:
         try:
             await listener.execute("LISTEN pgrst")
             await reload_postgrest(postgres.connection, config)
-            await postgres.connection.commit()
             notification = await anext(listener.notifies(timeout=1))
         finally:
             await listener.close()
