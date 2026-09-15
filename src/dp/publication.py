@@ -10,6 +10,7 @@ from whenever import Instant
 
 from .authorization import bootstrap_table
 from .conditions import partition_condition, scan_condition
+from .constants import PARTMAN_INTERVALS
 from .executor import execute_sql
 from .fallback import duckdb_type_for
 from .freshness import (
@@ -325,12 +326,6 @@ async def create_partitioned_table(
     all Parquet data into the parent.
     """
     schema_config = config.schemas.get(table.resolved_schema)
-    intervals = {
-        "daily": "1 day",
-        "weekly": "1 week",
-        "monthly": "1 month",
-        "yearly": "1 year",
-    }
     temp_name = f"{table.table_name}__schema"
 
     await create_table_from_parquet(pg_conn, table, temp_name, paths[0])
@@ -343,7 +338,7 @@ async def create_partitioned_table(
         "parent_table": Literal(f"{table.resolved_schema}.{table.table_name}"),
         "column_identifier": Identifier(partitioning.column),
         "column": Literal(partitioning.column),
-        "interval": Literal(intervals[partitioning.interval]),
+        "interval": Literal(PARTMAN_INTERVALS[partitioning.interval]),
         "retention": Literal(partitioning.retention or "365 days"),
     }
 

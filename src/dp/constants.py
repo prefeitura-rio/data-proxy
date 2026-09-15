@@ -17,3 +17,10 @@ BIGQUERY_TABLE_REFERENCE_PATTERN = (
     r"\.(?P<dataset>[A-Za-z0-9_]+)"
     r"\.(?P<table>[A-Za-z0-9_$-]+)$"
 )
+
+PARTMAN_INTERVALS = {
+    "daily": "1 day",
+    "weekly": "1 week",
+    "monthly": "1 month",
+    "yearly": "1 year",
+}
