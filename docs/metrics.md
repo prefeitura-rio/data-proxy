@@ -36,6 +36,12 @@ Use API response headers for client troubleshooting. Use logs for request analys
 
 ## Scraping
 
+CNPG exposes metrics on port 9187. SigNoz should scrape the CNPG pod metrics endpoint through its OpenTelemetry Collector. Select CNPG pods by their cluster labels and scrape the named `metrics` port.
+
+The external Redis platform owns the Redis exporter and its metrics endpoint. The data-proxy chart does not deploy Redis metrics resources or Prometheus Operator resources.
+
+PostgREST and nginx use Metrics Server for their default CPU and memory autoscalers. Istio exposes their traffic metrics for custom Prometheus-based KEDA triggers.
+
 ```yaml
 scrape_configs:
   - job_name: pushgateway

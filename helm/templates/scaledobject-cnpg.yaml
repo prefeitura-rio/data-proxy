@@ -1,0 +1,24 @@
+{{- if .Values.ha.enabled }}
+{{- $root := . }}
+{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $cluster }}-autoscaler
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: {{ $cluster }}
+  minReplicaCount: {{ $root.Values.ha.postgres.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.ha.postgres.maxReplicaCount }}
+  triggers:
+{{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgres") | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -1,4 +1,4 @@
-suite: BigQuery fallback HA routing
+suite: BigQuery fallback CNPG per-schema routing
 release:
   name: data-proxy
   namespace: default
@@ -6,12 +6,20 @@ templates:
   - virtualservice.yaml
   - configmap-nginx-proxy.yaml
 tests:
-  - it: routes HA schema reads through the fallback proxy
-    values:
-      - ../ci/test-values-ha.yaml
+  - it: routes per-schema reads through the fallback proxy
     set:
-      fallback.enabled: true
+      cnpg.mode: per-schema
+      cnpg.schemas:
+        app_pequenos_cariocas:
+          instances: 3
       fallback.nginxImage: example.invalid/data-proxy-fallback:test
+      ingress.enabled: true
+      ingress.gateway: istio-system/istio-gateway
+      ingress.host: data-proxy.example.com
+      syncConfig.schemas:
+        app_pequenos_cariocas:
+          claim: preferred_username
+          tables: []
     asserts:
       - equal:
           path: spec.http[1].name

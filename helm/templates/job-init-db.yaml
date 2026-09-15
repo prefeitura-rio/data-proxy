@@ -1,4 +1,4 @@
-{{- if not .Values.ha.enabled }}
+{{- if not (eq .Values.cnpg.mode "per-schema") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -60,7 +60,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
-              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-duckdb:5432/%s" .Values.pgduckdb.db.user (include "data-proxy.fullname" .) .Values.pgduckdb.db.name | quote }}
+              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.pgduckdb.db.user (include "data-proxy.fullname" .) .Values.pgduckdb.db.name | quote }}
             - name: AUTH_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE
@@ -69,8 +69,6 @@ spec:
               value: {{ .Values.auth.authenticatorRole | quote }}
             - name: BACKUP_ENABLED
               value: {{ .Values.backup.enabled | quote }}
-            - name: FALLBACK_ENABLED
-              value: {{ .Values.fallback.enabled | quote }}
             {{- if .Values.backup.enabled }}
             - name: BACKUP_PASSWORD
               valueFrom:

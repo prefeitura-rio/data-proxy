@@ -95,7 +95,7 @@ tests:
           value: data-proxy-swagger-ui
       - equal:
           path: spec.http[2].route[0].destination.host
-          value: data-proxy-postgrest
+          value: data-proxy-nginx-proxy
 
   - it: does not add a /docs route when swagger-ui is disabled
     set:
@@ -105,7 +105,7 @@ tests:
     asserts:
       - equal:
           path: spec.http[0].route[0].destination.host
-          value: data-proxy-postgrest
+          value: data-proxy-nginx-proxy
       - notExists:
           path: spec.http[0].match
 
@@ -137,7 +137,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.rules
-          count: 1
+          count: 2
 
   - it: does not gate the docs page behind JWT auth, even when auth is enabled for postgrest
     set:
@@ -156,9 +156,9 @@ tests:
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: postgrest
+          value: nginx-proxy
         template: requestauthentication.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: postgrest
+          value: nginx-proxy
         template: authorizationpolicy.yaml

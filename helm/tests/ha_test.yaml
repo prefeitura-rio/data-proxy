@@ -1,95 +1,55 @@
-suite: Schema HA mode
-
+suite: HA topology
 templates:
-  - pvc-pgduckdb.yaml
-  - statefulset-duckdb-schema-ha.yaml
-  - configmap-schema-patroni.yaml
-  - secret-schema-writers.yaml
-  - configmap-schema-haproxy.yaml
-  - deployment-schema-haproxy.yaml
-  - service-schema-haproxy.yaml
-  - deployment-schema-postgrest.yaml
-  - service-schema-postgrest.yaml
-  - virtualservice.yaml
-values:
-  - ../ci/test-values-ha.yaml
-set:
-  ingress.enabled: true
-  ingress.host: api.example.com
+  - validate-ha.yaml
+  - scaledobject-cnpg.yaml
+  - scaledobject-postgrest.yaml
+  - scaledobject-nginx-proxy.yaml
 tests:
-  - it: renders retained schema member PVCs
-    template: pvc-pgduckdb.yaml
+  - it: accepts optional HA overrides
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      valkey.architecture: replication
+      valkey.replicaCount: 3
+      valkey.sentinel.enabled: true
+      syncConfig.schemas.foo.tables: []
+      ha.schemas:
+        - name: foo
     asserts:
       - hasDocuments:
-          count: 2
-      - equal:
-          path: metadata.name
-          value: pgdata-data-proxy-app-pequenos-cariocas-0
-        documentIndex: 0
-      - equal:
-          path: metadata.labels["data-proxy.io/schema"]
-          value: app_pequenos_cariocas
-        documentIndex: 0
-
-  - it: renders an isolated Patroni cluster
-    template: statefulset-duckdb-schema-ha.yaml
+          count: 0
+        template: validate-ha.yaml
+  - it: rejects an unknown HA schema override
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      valkey.architecture: replication
+      valkey.replicaCount: 3
+      valkey.sentinel.enabled: true
+      syncConfig.schemas.foo.tables: []
+      ha.schemas:
+        - name: missing
     asserts:
-      - hasDocuments:
-          count: 2
-      - equal:
-          path: spec.template.spec.containers[0].env[1].value
-          value: data-proxy-app-pequenos-cariocas-patroni
-        documentIndex: 0
-
-  - it: maps every schema to its HAProxy writer
-    template: secret-schema-writers.yaml
-    asserts:
-      - matchRegex:
-          path: stringData["writers.json"]
-          pattern: '"app_pequenos_cariocas": "postgresql://dataproxy:pgpass@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy"'
-
-  - it: routes PostgreSQL connections through HAProxy
-    template: configmap-schema-haproxy.yaml
-    asserts:
-      - hasDocuments:
-          count: 1
-      - matchRegex:
-          path: data["haproxy.cfg"]
-          pattern: "GET /primary"
-        documentIndex: 0
-      - matchRegex:
-          path: data["haproxy.cfg"]
-          pattern: "GET /replica"
-        documentIndex: 0
-
-  - it: renders schema PostgREST read and write workloads
-    template: deployment-schema-postgrest.yaml
-    asserts:
-      - hasDocuments:
-          count: 2
-      - equal:
-          path: spec.template.spec.containers[0].env[1].value
-          value: postgres://dp_auth:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-app-pequenos-cariocas-haproxy:5001/dataproxy
-        documentIndex: 0
-      - equal:
-          path: spec.template.spec.containers[0].env[1].value
-          value: postgres://dp_auth:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-app-pequenos-cariocas-haproxy:5000/dataproxy
-        documentIndex: 1
-
-  - it: routes schema reads, writes, and OpenAPI requests
-    template: virtualservice.yaml
+      - failedTemplate:
+          errorMessage: ha.schemas[missing] is not present in syncConfig.schemas
+        template: validate-ha.yaml
+  - it: creates CNPG autoscaling with CPU by default
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      valkey.architecture: replication
+      valkey.replicaCount: 3
+      valkey.sentinel.enabled: true
+      syncConfig.schemas.foo.tables: []
     asserts:
       - hasDocuments:
           count: 1
+        template: scaledobject-cnpg.yaml
       - equal:
-          path: spec.http[0].route[0].destination.host
-          value: data-proxy-app-pequenos-cariocas-postgrest-rw
+          path: spec.minReplicaCount
+          value: 2
+        template: scaledobject-cnpg.yaml
       - equal:
-          path: spec.http[1].route[0].destination.host
-          value: data-proxy-app-pequenos-cariocas-postgrest-ro
-      - equal:
-          path: spec.http[2].route[0].destination.host
-          value: data-proxy-app-pequenos-cariocas-postgrest-rw
-      - equal:
-          path: spec.http[3].directResponse.status
-          value: 404
+          path: spec.triggers[0].type
+          value: cpu
+        template: scaledobject-cnpg.yaml

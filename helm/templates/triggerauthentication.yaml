@@ -8,5 +8,5 @@ metadata:
 spec:
   secretTargetRef:
     - parameter: password
-      name: {{ include "data-proxy.valkeySecretName" . }}
-      key: {{ include "data-proxy.valkeySecretKey" . }}
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ include "data-proxy.redisPasswordKey" . }}

@@ -4,7 +4,7 @@ templates:
 values:
   - ../ci/test-values.yaml
 tests:
-  - it: references the Valkey password secret
+  - it: references the Redis password secret
     asserts:
       - equal:
           path: apiVersion
@@ -17,14 +17,14 @@ tests:
           value: password
       - equal:
           path: spec.secretTargetRef[0].name
-          value: RELEASE-NAME-valkey
+          value: data-proxy-redis
       - equal:
           path: spec.secretTargetRef[0].key
-          value: password
-  - it: uses an existing Valkey secret
+          value: REDIS_PASSWORD
+  - it: uses an existing Redis secret
     set:
-      valkey.auth.existingSecret: external-valkey
-      valkey.auth.existingSecretKey: redis-password
+      redis.existingSecret: external-valkey
+      redis.passwordKey: redis-password
     asserts:
       - equal:
           path: spec.secretTargetRef[0].name

@@ -1,0 +1,42 @@
+{{- $root := . }}
+{{- $clusterName := include "data-proxy.fullname" $root }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-partman
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: partman
+spec:
+  schedule: {{ .Values.partman.schedule | quote }}
+  startingDeadlineSeconds: 600
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: partman
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          containers:
+            - name: partman
+              image: {{ .Values.pgduckdb.init.image | quote }}
+              command: [nu, -c]
+              args:
+                - |
+                  let dsn = $env.PG_DSN
+                  psql $dsn --no-psqlrc --quiet -c 'CALL partman.run_maintenance_proc()'
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.dbSecretName" . }}
+                      key: POSTGRES_PASSWORD
+                - name: PG_DSN
+                  value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.pgduckdb.db.user $clusterName .Values.pgduckdb.db.name | quote }}

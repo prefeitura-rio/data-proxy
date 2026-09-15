@@ -1,9 +1,8 @@
 suite: Always-on services
 templates:
   - service-postgrest.yaml
-  - service-duckdb.yaml
 tests:
-  - it: postgrest service is always rendered as ClusterIP on port 3000
+  - it: postgrest service is rendered as ClusterIP on port 3000 in shared mode
     asserts:
       - hasDocuments:
           count: 1
@@ -24,19 +23,12 @@ tests:
           value: postgrest
         template: service-postgrest.yaml
 
-  - it: duckdb headless service is always rendered
+  - it: postgrest service is not rendered in per-schema mode
+    set:
+      cnpg.mode: per-schema
+      cnpg.schemas:
+        app_example: {}
     asserts:
       - hasDocuments:
-          count: 1
-        template: service-duckdb.yaml
-      - equal:
-          path: spec.clusterIP
-          value: None
-        template: service-duckdb.yaml
-      - equal:
-          path: spec.selector["app.kubernetes.io/component"]
-          value: duckdb
-        template: service-duckdb.yaml
-      - notExists:
-          path: spec.selector["data-proxy.io/member"]
-        template: service-duckdb.yaml
+          count: 0
+        template: service-postgrest.yaml

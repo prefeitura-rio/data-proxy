@@ -54,19 +54,29 @@ Configure proxy values under `fallback`, including `cacheTtl`, `fetchBufferSize`
 
 ## Enable HA
 
-Add the following to your values file. HA members use the same `pgduckdb.image` as standalone members.
+HA creates one CNPG Cluster, one PostgREST Deployment, and one nginx Deployment for each schema in `syncConfig.schemas`. The `ha.schemas` list contains optional overrides only.
 
 ```yaml
+redis:
+  existingSecret: data-proxy-redis
+
 ha:
   enabled: true
   schemas:
-    bcadastro:
-      members: 3
-      storage:
-        size: 80Gi
-  patroni:
-    replicationPassword: "<strong-password>"
+    - name: bcadastro
+      postgrest:
+        triggers: []
+      fallback:
+        triggers: []
 ```
+
+The Redis Secret contains a JSON value under `REDIS`:
+
+```json
+{"read":"redis://reader:6379/1","write":"redis://writer:6379/0"}
+```
+
+An empty PostgreSQL trigger list uses CPU. Empty PostgREST and nginx trigger lists use CPU and memory. Redis has no autoscaler unless custom triggers are supplied.
 
 ## Versioning
 

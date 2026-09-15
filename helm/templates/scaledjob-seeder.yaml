@@ -48,7 +48,7 @@ spec:
       authenticationRef:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
       metadata:
-        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        address: {{ include "data-proxy.redisWriterAddress" . }}
         stream: dp:prepare
         consumerGroup: seeders
         lagCount: "1"
@@ -56,7 +56,7 @@ spec:
       authenticationRef:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
       metadata:
-        address: {{ .Release.Name }}-valkey.{{ .Release.Namespace }}.svc.cluster.local:6379
+        address: {{ include "data-proxy.redisWriterAddress" . }}
         stream: dp:prepare
         consumerGroup: seeders
         pendingEntriesCount: {{ .Values.seeder.keda.pendingEntriesCount | quote }}

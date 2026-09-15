@@ -33,9 +33,9 @@ spec:
             port:
               number: 8080
     {{- end }}
-    {{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
-    {{- range $schema, $_ := .Values.ha.schemas }}
-    {{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+    {{- if eq .Values.cnpg.mode "per-schema" }}
+    {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
+    {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
     - name: {{ $schema }}-openapi
       match:
         - uri:
@@ -44,7 +44,7 @@ spec:
         uri: /
       route:
         - destination:
-            host: {{ $name }}-postgrest-rw
+            host: {{ $cluster }}-postgrest-rw
             port:
               number: 3000
     - name: {{ $schema }}-read
@@ -66,15 +66,9 @@ spec:
               exact: {{ $schema | quote }}
       route:
         - destination:
-            {{- if $root.Values.fallback.enabled }}
             host: {{ include "data-proxy.fullname" $root }}-nginx-proxy
             port:
               number: 8080
-            {{- else }}
-            host: {{ $name }}-postgrest-ro
-            port:
-              number: 3000
-            {{- end }}
     - name: {{ $schema }}-write
       match:
         - method:
@@ -99,7 +93,7 @@ spec:
               exact: {{ $schema | quote }}
       route:
         - destination:
-            host: {{ $name }}-postgrest-rw
+            host: {{ $cluster }}-postgrest-rw
             port:
               number: 3000
     {{- end }}
@@ -111,15 +105,9 @@ spec:
     {{- else }}
     - route:
         - destination:
-            {{- if .Values.fallback.enabled }}
             host: {{ include "data-proxy.fullname" . }}-nginx-proxy
             port:
               number: 8080
-            {{- else }}
-            host: {{ include "data-proxy.fullname" . }}-postgrest
-            port:
-              number: 3000
-            {{- end }}
       {{- with .Values.ingress.timeout }}
       timeout: {{ . }}
       {{- end }}

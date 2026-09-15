@@ -1,0 +1,17 @@
+{{- if eq .Values.cnpg.mode "per-schema" }}
+{{- if and (not $.Values.ha.enabled) (empty .Values.cnpg.schemas) }}
+{{- fail "cnpg.schemas must define at least one schema when cnpg.mode is per-schema" }}
+{{- end }}
+{{- if not $.Values.ha.enabled }}
+{{- range $schema, $_ := .Values.syncConfig.schemas }}
+{{- if not (hasKey $.Values.cnpg.schemas $schema) }}
+{{- fail (printf "cnpg.schemas must configure %q" $schema) }}
+{{- end }}
+{{- end }}
+{{- range $schema, $_ := .Values.cnpg.schemas }}
+{{- if not (hasKey $.Values.syncConfig.schemas $schema) }}
+{{- fail (printf "syncConfig.schemas must configure %q" $schema) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

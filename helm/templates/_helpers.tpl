@@ -1,6 +1,44 @@
 {{/*
 This file defines shared Helm template helpers for names, labels, secrets, and connection strings.
 */}}
+{{- define "data-proxy.defaultCpuTrigger" -}}
+- type: cpu
+  metricType: Utilization
+  metadata:
+    value: "60"
+{{- end }}
+
+{{- define "data-proxy.defaultResourceTriggers" -}}
+- type: cpu
+  metricType: Utilization
+  metadata:
+    value: "60"
+- type: memory
+  metricType: Utilization
+  metadata:
+    value: "60"
+{{- end }}
+
+{{- define "data-proxy.haTriggers" -}}
+{{- $root := .root -}}
+{{- $schema := .schema -}}
+{{- $component := .component -}}
+{{- $override := dict -}}
+{{- range $entry := $root.Values.ha.schemas }}
+  {{- if eq $entry.name $schema }}
+    {{- $override = $entry -}}
+  {{- end }}
+{{- end }}
+{{- $triggers := dig $component "triggers" list $override }}
+{{- if gt (len $triggers) 0 }}
+{{ toYaml $triggers }}
+{{- else if eq $component "postgres" }}
+{{ include "data-proxy.defaultCpuTrigger" $root }}
+{{- else }}
+{{ include "data-proxy.defaultResourceTriggers" $root }}
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -72,12 +110,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.valkeySecretName" -}}
-{{- if .Values.valkey.auth.existingSecret }}
-{{- .Values.valkey.auth.existingSecret }}
-{{- else }}
-{{- .Release.Name }}-valkey
+{{- define "data-proxy.redisSecretName" -}}
+{{- required "redis.existingSecret is required" .Values.redis.existingSecret }}
 {{- end }}
+
+{{- define "data-proxy.redisConfigKey" -}}
+{{- .Values.redis.configKey | default "REDIS" }}
+{{- end }}
+
+{{- define "data-proxy.redisPasswordKey" -}}
+{{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
+{{- end }}
+
+{{- define "data-proxy.redisWriterAddress" -}}
+{{- required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
 {{- end }}
 
 {{- define "data-proxy.schemaWritersSecretName" -}}
@@ -88,92 +134,55 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.valkeySecretKey" -}}
-{{- if .Values.valkey.auth.existingSecret }}
-{{- .Values.valkey.auth.existingSecretKey }}
-{{- else }}
-{{- "password" }}
-{{- end }}
-{{- end }}
-
-{{- define "data-proxy.pgduckdbMemberCount" -}}
-1
+{{- define "data-proxy.redisConfigEnv" -}}
+- name: REDIS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ include "data-proxy.redisConfigKey" . }}
 {{- end }}
 
-{{- define "data-proxy.pgduckdbStatefulSetName" -}}
+{{- define "data-proxy.cnpgClusterName" -}}
 {{- $root := .root -}}
-{{- if $root.Values.ha.enabled -}}
-{{- printf "%s-duckdb-%d" (include "data-proxy.fullname" $root) (.ordinal | int) -}}
+{{- if eq $root.Values.cnpg.mode "shared" -}}
+{{- include "data-proxy.fullname" $root -}}
 {{- else -}}
-{{- printf "%s-duckdb" (include "data-proxy.fullname" $root) -}}
+{{- printf "%s-%s" (include "data-proxy.fullname" $root) (.schema | replace "_" "-") -}}
 {{- end -}}
-{{- end }}
-
-{{- define "data-proxy.schemaStackName" -}}
-{{- printf "%s-%s" (include "data-proxy.fullname" .root) (.schema | replace "_" "-") -}}
-{{- end }}
-
-{{- define "data-proxy.schemaPvcName" -}}
-{{- printf "pgdata-%s-%s-%d" (include "data-proxy.fullname" .root) (.schema | replace "_" "-") (.ordinal | int) -}}
 {{- end }}
 
 {{- define "data-proxy.schemaWriterDsn" -}}
 {{- $root := .root -}}
-{{- if $root.Values.ha.enabled -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.schemaStackName" . }}-haproxy:5000/{{ $root.Values.pgduckdb.db.name }}
-{{- else -}}
-postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ include "data-proxy.fullname" $root }}-duckdb:5432/{{ $root.Values.pgduckdb.db.name }}
-{{- end -}}
-{{- end }}
-
-{{- define "data-proxy.schemaPatroniScope" -}}
-{{- printf "%s-patroni" (include "data-proxy.schemaStackName" .) -}}
-{{- end }}
-
-{{- define "data-proxy.schemaMemberName" -}}
-{{- printf "%s-%d" (include "data-proxy.schemaStackName" .) (.ordinal | int) -}}
-{{- end }}
-
-{{- define "data-proxy.pgduckdbPvcName" -}}
-{{- $prefix := default (printf "pgdata-%s-duckdb" (include "data-proxy.fullname" .root)) .root.Values.pgduckdb.storage.claimNamePrefix -}}
-{{- printf "%s-%d" $prefix (.ordinal | int) -}}
+{{- $cluster := include "data-proxy.cnpgClusterName" . -}}
+postgresql://{{ $root.Values.pgduckdb.db.user }}:{{ $root.Values.pgduckdb.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.pgduckdb.db.name }}
 {{- end }}
 
 {{- define "data-proxy.postgresDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.pgduckdb.db.name -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-r:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.backupPgDsn" -}}
 {{- $db := .Values.pgduckdb.db.name -}}
-postgresql://backup:$(BACKUP_PASSWORD)@{{ include "data-proxy.fullname" . }}-duckdb:5432/{{ $db }}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.migrationDatabaseHost" -}}
-{{- include "data-proxy.fullname" . }}-duckdb
+{{- include "data-proxy.fullname" . }}-rw
 {{- end }}
 
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.pgduckdb.db.user -}}
 {{- $db   := .Values.pgduckdb.db.name -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ include "data-proxy.migrationDatabaseHost" . }}:5432/{{ $db }}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}
 {{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString .Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString .Values.fallback.fetchKeepaliveTimeout) }}
-{{- end }}
-
-{{- define "data-proxy.webdisConfig" -}}
-{
-  "redis_host": "{{ include "data-proxy.fullname" . }}-valkey",
-  "redis_port": 6379,
-  "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.fallback.cacheRedisDb }},
-  "http_port": 7379,
-  "daemonize": false,
-  "logfile": "/dev/stdout"
-}
 {{- end }}
 
 {{- define "data-proxy.jwtRules" -}}
@@ -190,9 +199,11 @@ jwtRules:
 {{- define "data-proxy.fallbackNginxUpstreams" -}}
 map $http_accept_profile $fallback_pgrst {
   default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
-  {{- if and .Values.ha.enabled (not (empty .Values.ha.schemas)) }}
-  {{- range $schema, $_ := .Values.ha.schemas }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.schemaStackName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
+  {{- if eq .Values.cnpg.mode "per-schema" }}
+  {{- $schemas := .Values.cnpg.schemas }}
+  {{- if .Values.ha.enabled }}{{ $schemas = .Values.syncConfig.schemas }}{{ end }}
+  {{- range $schema, $_ := $schemas }}
+  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
   {{- end }}
   {{- end }}
 }
@@ -206,13 +217,7 @@ map $http_accept_profile $fallback_pgrst {
       key: POSTGRES_PASSWORD
 - name: PG_DSN
   value: {{ include "data-proxy.appPgDsn" . | quote }}
-- name: REDIS_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.valkeySecretName" . }}
-      key: {{ include "data-proxy.valkeySecretKey" . }}
-- name: REDIS_URL
-  value: "redis://:$(REDIS_PASSWORD)@{{ .Release.Name }}-valkey:6379/0"
+{{ include "data-proxy.redisConfigEnv" . }}
 - name: S3_BUCKET
   value: {{ .Values.s3.bucket | quote }}
 - name: S3_ENDPOINT
@@ -231,8 +236,6 @@ map $http_accept_profile $fallback_pgrst {
       key: S3_SECRET_KEY
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
-- name: FALLBACK_ENABLED
-  value: {{ .Values.fallback.enabled | quote }}
 - name: FALLBACK_CACHE_REDIS_DB
   value: {{ .Values.fallback.cacheRedisDb | quote }}
 - name: DUMPER_VISIBILITY_TIMEOUT_MS
@@ -253,8 +256,11 @@ map $http_accept_profile $fallback_pgrst {
   value: {{ .Values.auth.userRole | quote }}
 - name: AUTH_AUTHENTICATOR_ROLE
   value: {{ .Values.auth.authenticatorRole | quote }}
-- name: SCHEMA_WRITERS_FILE
-  value: /config/schema-writers/writers.json
+- name: SCHEMA_WRITERS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.schemaWritersSecretName" . }}
+      key: writers.json
 - name: PUSHGATEWAY_URL
   value: {{ .Values.pushgateway.url | default (printf "http://%s-pushgateway.%s.svc.cluster.local:9091" .Release.Name .Release.Namespace) | quote }}
 {{- if .Values.gcp.existingSecret }}

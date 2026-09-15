@@ -16,9 +16,9 @@ postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
 
-valkey:
-  auth:
-    password: testpass
+redis:
+  existingSecret: data-proxy-redis
+  writerAddress: redis-writer:6379
 
 producer:
   schedule: "0 2 * * *"
@@ -30,18 +30,14 @@ auth:
   jwtRoleClaim: $.role
   rlsSchema: rls
 
-ha:
-  enabled: true
+cnpg:
+  mode: per-schema
+  instances: 2
+  storage:
+    size: 80Gi
   schemas:
     app_pequenos_cariocas:
-      members: 2
-      storage:
-        size: 80Gi
-  patroni:
-    maxWalSenders: 10
-    walKeepSize: 1GB
-    replicationUsername: replicator
-    replicationPassword: replpass
+      instances: 2
 
 syncConfig:
   schemas:

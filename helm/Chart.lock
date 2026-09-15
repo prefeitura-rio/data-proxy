@@ -1,12 +1,9 @@
 dependencies:
-- name: valkey
-  repository: oci://registry-1.docker.io/cloudpirates
-  version: 0.17.0
 - name: prometheus-pushgateway
   repository: https://prometheus-community.github.io/helm-charts
   version: 2.17.0
 - name: seaweedfs
   repository: https://seaweedfs.github.io/seaweedfs/helm
   version: 4.46.0
-digest: sha256:d7fe78f95f5189b8204abc0f0e7f9e19fae191175a23fc8e81fa7b99524a1684
-generated: "2026-09-11T23:20:31.07908233-03:00"
+digest: sha256:baecc758bf201d062468439ee674617b1b9f82e5a7a4722331cadcd975d1063c
+generated: "2026-09-14T23:07:52.391822871-03:00"

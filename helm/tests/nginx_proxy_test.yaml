@@ -4,14 +4,14 @@ templates:
   - deployment-nginx-proxy.yaml
   - service-nginx-proxy.yaml
 tests:
-  - it: does not render when the fallback is disabled
+  - it: renders the proxy configmap with nginx config only
     asserts:
       - hasDocuments:
-          count: 0
+          count: 1
+        template: configmap-nginx-proxy.yaml
 
   - it: injects the Istio sidecar into the proxy that receives the traffic
     set:
-      fallback.enabled: true
     asserts:
       - equal:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
@@ -20,7 +20,6 @@ tests:
 
   - it: honors sidecarInject for the proxy
     set:
-      fallback.enabled: true
       ingress.sidecarInject: false
     asserts:
       - equal:
@@ -28,18 +27,11 @@ tests:
           value: "false"
         template: deployment-nginx-proxy.yaml
 
-  - it: configures Webdis with a runtime Valkey password
+  - it: configures the webdis-write sidecar with a runtime Valkey password
     set:
-      fallback.enabled: true
-      valkey.auth.enabled: true
-      valkey.auth.existingSecret: valkey-credentials
-      valkey.auth.existingSecretKey: redis-password
-      valkey.auth.password: rendered-password-must-not-appear
+      redis.existingSecret: valkey-credentials
+      redis.passwordKey: redis-password
     asserts:
-      - notMatchRegex:
-          path: data["webdis.json"]
-          pattern: rendered-password-must-not-appear
-        template: configmap-nginx-proxy.yaml
       - contains:
           path: spec.template.spec.containers[1].env
           content:
@@ -56,19 +48,44 @@ tests:
       - contains:
           path: spec.template.spec.containers[1].volumeMounts
           content:
-            name: webdis-runtime-config
-            mountPath: /run/webdis
+            name: webdis-write-runtime
+            mountPath: /run/webdis-write
         template: deployment-nginx-proxy.yaml
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: webdis-runtime-config
+            name: webdis-write-runtime
             emptyDir: {}
         template: deployment-nginx-proxy.yaml
 
-  - it: publishes the webdis port of the sidecar
+  - it: configures the webdis-read sidecar on port 7380
     set:
-      fallback.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[2].name
+          value: webdis-read
+        template: deployment-nginx-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[2].ports
+          content:
+            name: redis-http-read
+            containerPort: 7380
+        template: deployment-nginx-proxy.yaml
+
+  - it: mounts the external webdis ConfigMap
+    set:
+      redis.webdisConfigMap: my-webdis-config
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: webdis-config
+            configMap:
+              name: my-webdis-config
+        template: deployment-nginx-proxy.yaml
+
+  - it: publishes the webdis write port of the sidecar
+    set:
     asserts:
       - contains:
           path: spec.template.spec.containers[1].ports
@@ -86,7 +103,6 @@ tests:
 
   - it: keeps the fetch connections to webdis alive
     set:
-      fallback.enabled: true
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
@@ -105,7 +121,6 @@ tests:
 
   - it: wires the fetch keepalive settings to the chart values
     set:
-      fallback.enabled: true
       fallback.fetchKeepalive: 8
       fallback.fetchKeepaliveTimeout: 30s
     asserts:
@@ -126,7 +141,6 @@ tests:
 
   - it: rolls the proxy when its configuration changes
     set:
-      fallback.enabled: true
     asserts:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/proxy-config"]
@@ -135,7 +149,6 @@ tests:
 
   - it: mounts the sync config and rolls on its changes
     set:
-      fallback.enabled: true
     asserts:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/sync-config"]
@@ -151,7 +164,6 @@ tests:
 
   - it: pins the webdis sidecar image to a fixed tag
     set:
-      fallback.enabled: true
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[1].image

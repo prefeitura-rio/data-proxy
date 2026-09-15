@@ -26,7 +26,7 @@ def postgres [query: string, --tuples-only]: nothing -> string {
 # Delete Redis keys and return the count removed
 def redis-del [...keys: string]: nothing -> string {
     try {
-        redis-cli -a $env.REDIS_PASSWORD --no-auth-warning -h $env.REDIS_HOST DEL ...$keys
+        redis-cli -u $env.REDIS_WRITE_URL --no-auth-warning DEL ...$keys
         | str trim
     } catch {|err|
         log error $'redis-cli failed: ($err.msg)'

@@ -1,0 +1,20 @@
+{{- if not .Values.ha.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-postgrest
+    kind: Deployment
+    apiVersion: apps/v1
+  minReplicaCount: 1
+  maxReplicaCount: {{ .Values.postgrest.replicas }}
+  triggers:
+{{- if gt (len (.Values.ha.postgrest.triggers | default list)) 0 }}
+{{ toYaml .Values.ha.postgrest.triggers | nindent 4 }}
+{{- else }}
+{{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
+{{- end }}
+{{- end }}

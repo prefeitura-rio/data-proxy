@@ -91,11 +91,10 @@ tests:
       ingress.auth.enabled: true
       ingress.auth.issuer: "https://auth.example.com"
       ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      fallback.enabled: true
       swaggerUi.enabled: true
     asserts:
       - hasDocuments:
-          count: 2
+          count: 1
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
@@ -133,7 +132,7 @@ tests:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - hasDocuments:
-          count: 2
+          count: 1
         template: requestauthentication.yaml
       - equal:
           path: spec.jwtRules[0].issuer
@@ -149,7 +148,6 @@ tests:
       ingress.auth.enabled: true
       ingress.auth.issuer: "https://auth.example.com"
       ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      fallback.enabled: true
       swaggerUi.enabled: false
     asserts:
       - equal:
@@ -179,7 +177,7 @@ tests:
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: postgrest
+          value: nginx-proxy
         template: authorizationpolicy.yaml
       - hasDocuments:
           count: 1

@@ -33,17 +33,17 @@ tests:
           path: spec.gateways[0]
           value: istio-system/istio-gateway
 
-  - it: destination points to postgrest service on port 3000
+  - it: destination points to nginx proxy on port 8080
     set:
       ingress.enabled: true
       ingress.host: api.example.com
     asserts:
       - equal:
           path: spec.http[0].route[0].destination.host
-          value: data-proxy-postgrest
+          value: data-proxy-nginx-proxy
       - equal:
           path: spec.http[0].route[0].destination.port.number
-          value: 3000
+          value: 8080
 
   - it: renders timeout when set
     set:

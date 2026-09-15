@@ -1,15 +1,22 @@
 {{- if .Values.ha.enabled }}
-{{- if empty .Values.ha.schemas }}
-{{- fail "ha.schemas must define at least one schema when ha.enabled is true" }}
+{{- if not (eq .Values.cnpg.mode "per-schema") }}
+{{- fail "ha.enabled requires cnpg.mode=per-schema" }}
 {{- end }}
-{{- range $schema, $_ := .Values.syncConfig.schemas }}
-{{- if not (hasKey $.Values.ha.schemas $schema) }}
-{{- fail (printf "ha.schemas must configure %q" $schema) }}
+{{- if empty .Values.redis.existingSecret }}
+{{- fail "redis.existingSecret is required" }}
 {{- end }}
+{{- if not (.Values.syncConfig.schemas | default dict) }}
+{{- fail "ha.enabled requires at least one syncConfig schema" }}
 {{- end }}
-{{- range $schema, $_ := .Values.ha.schemas }}
-{{- if not (hasKey $.Values.syncConfig.schemas $schema) }}
-{{- fail (printf "syncConfig.schemas must configure %q" $schema) }}
+{{- $names := list }}
+{{- range .Values.ha.schemas }}
+{{- $name := required "ha.schemas entries require name" .name }}
+{{- if not (hasKey $.Values.syncConfig.schemas $name) }}
+{{- fail (printf "ha.schemas[%s] is not present in syncConfig.schemas" $name) }}
 {{- end }}
+{{- if has $name $names }}
+{{- fail (printf "ha.schemas contains duplicate schema %s" $name) }}
+{{- end }}
+{{- $names = append $names $name }}
 {{- end }}
 {{- end }}

@@ -63,7 +63,7 @@ data:
 
       var apiUrl = {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }};
       var openapiUrl = apiUrl;
-      {{- if .Values.ha.enabled }}
+      {{- if eq .Values.cnpg.mode "per-schema" }}
       if (selectedSchema) {
         openapiUrl = apiUrl + 'openapi/' + encodeURIComponent(selectedSchema);
       }

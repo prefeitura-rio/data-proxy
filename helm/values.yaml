@@ -20,7 +20,9 @@ serviceAccount:
   ## Annotations to add to the ServiceAccount. Use this field for Workload Identity.
   ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
   annotations: {}
-## Configuration for the PostgreSQL StatefulSet with pg_duckdb, PostGIS, and Patroni.
+## Configuration for the PostgreSQL database with pg_duckdb, PostGIS, and pg_partman.
+## CNPG manages the PostgreSQL clusters. This section configures the database
+## name, credentials, and init image used by the chart.
 pgduckdb:
   ## Database image used by standalone and HA members.
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
@@ -97,10 +99,6 @@ swaggerUi:
 nushell:
   image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
 ## In minikube, set existingSecret to a Secret containing key.json.
-gcp:
-  ## Name of an existing Secret with a key.json file for BigQuery access.
-  ## Leave empty to use Workload Identity (no key file mounted).
-  existingSecret: ""
 gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
   ## Leave empty to use Workload Identity (no key file mounted).
@@ -182,30 +180,19 @@ seaweedfs:
       requests:
         cpu: 50m
         memory: 128Mi
-## Valkey (Redis-compatible) in-cluster message broker for the sync task queue.
-## Valkey is deployed as a subchart. The pipeline reads from and writes to Valkey streams.
-valkey:
-  ## Set to true to deploy Valkey inside the cluster. Required for KEDA stream triggers.
-  enabled: true
-  ## Deployment architecture. Use standalone for a single-node instance.
-  architecture: standalone
-  config:
-    ## Upper bound on the memory the instance may use. Zero leaves it unbounded.
-    maxMemory: 512mb
-    ## Evict entries that carry a lifetime first, so the response cache gives way
-    ## before the sync streams and their state.
-    maxMemoryPolicy: volatile-lru
-  auth:
-    ## Set to true to require password authentication for all Valkey connections.
-    enabled: true
-    ## Name of an existing Secret to use instead of creating one.
-    ## The Secret must contain REDIS_PASSWORD and REDIS_URL.
-    ## Leave empty to let the chart create the Secret from the password field.
-    existingSecret: ""
-    ## Key in the existing Secret that holds the Valkey password.
-    existingSecretKey: password
-    ## Password for Valkey authentication. Required when existingSecret is empty.
-    password: ""
+## External Redis-compatible broker and cache.
+## The platform chart owns Redis and metrics.
+redis:
+  ## Existing Secret containing the stable writer and reader URLs.
+  ## Required by every deployment.
+  existingSecret: data-proxy-redis
+  configKey: REDIS
+  passwordKey: REDIS_PASSWORD
+  ## Host and port used by KEDA Redis Streams triggers.
+  writerAddress: redis-writer:6379
+  ## Existing ConfigMap containing webdis-write.json and webdis-read.json.
+  ## Created by the platform; the chart mounts it directly.
+  webdisConfigMap: data-proxy-webdis
 ## Producer CronJob — runs once per schedule, publishes sync tasks to Valkey, then exits.
 producer:
   ## Cron expression that controls when the producer runs.
@@ -255,7 +242,7 @@ cleanup:
   enabled: false
   ## Cron expression that controls when the cleanup runs.
   ## Default: daily at 04:00 UTC, after the backup.
-  schedule: "0 4 * * *"
+  schedule: 0 4 * * *
   ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
 ## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
@@ -353,39 +340,78 @@ auth:
   jwtRoleClaim: $.role
   ## PostgreSQL schema that contains the shared pre_request function and sync status type.
   rlsSchema: rls
-## High-availability configuration for schema-specific Patroni and HAProxy stacks.
-## When ha.enabled is false, the chart deploys a single-node pgduckdb StatefulSet.
+## High availability configuration.
+## In HA mode, workload resources are created for every schema in syncConfig.schemas.
+## Entries in schemas are optional per-schema overrides.
 ha:
-  ## Set to true to enable one Patroni and HAProxy stack per configured schema.
   enabled: false
-  ## Schema-specific HA stacks. Set at least one schema when HA is enabled.
+  postgres:
+    minReplicaCount: 2
+    maxReplicaCount: 5
+    triggers: []
+  postgrest:
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    triggers: []
+  fallback:
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    triggers: []
+  redis:
+    triggers: []
+  schemas: []
+## CloudNativePG manages PostgreSQL clusters with native streaming replication,
+## automatic failover, and Barman backups. No Patroni or HAProxy needed.
+##
+## mode: shared   — one Cluster for all schemas (staging)
+## mode: per-schema — one Cluster per schema (prod, publication isolation)
+cnpg:
+  ## Deployment mode: "shared" or "per-schema".
+  mode: shared
+  ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).
+  instances: 3
+  ## Container image with pg_duckdb, PostGIS, and pg_partman.
+  ## Must be based on the official postgres image for CNPG compatibility.
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
+  storage:
+    ## Size of the PersistentVolumeClaim for each PostgreSQL instance.
+    size: 100Gi
+    ## StorageClass for the PVCs. Leave empty to use the cluster default.
+    storageClass: ""
+  ## PostgREST read replica count for each schema (per-schema mode only).
+  postgrestReadReplicas: 1
+  ## PostgREST write replica count for each schema (per-schema mode only).
+  postgrestWriteReplicas: 1
+  ## Per-schema overrides. Only used when mode is per-schema.
   ## Each key must also exist in syncConfig.schemas.
   ## Example:
   ##   bcadastro:
-  ##     members: 3
+  ##     instances: 3
   ##     storage:
   ##       size: 200Gi
-  ##     postgrest:
-  ##       readReplicas: 2
-  ##       writeReplicas: 1
-  ##     haproxy:
-  ##       replicas: 2
+  ##     postgrestReadReplicas: 2
   schemas: {}
-  patroni:
-    ## HAProxy image used for primary and replica routing.
-    haproxyImage: haproxy:3.2
-    ## Number of HAProxy replicas.
-    haproxyReplicas: 2
-    ## Maximum number of WAL sender processes on the leader.
-    ## Increase this value if you add more replicas.
-    maxWalSenders: 10
-    ## Amount of WAL data the leader retains for streaming replication.
-    ## Increase this value if replicas have slow or intermittent connectivity.
-    walKeepSize: 1GB
-    ## Name of the PostgreSQL role used for streaming replication.
-    replicationUsername: replicator
-    ## Password for the replication role. Required when ha.enabled is true.
-    replicationPassword: ""
+  ## Barman backup configuration. Backups go to the S3-compatible object store.
+  backup:
+    ## Set to true to enable continuous WAL archiving and scheduled backups.
+    enabled: false
+    ## S3 endpoint URL for Barman. Leave empty to use the in-chart SeaweedFS.
+    endpointURL: ""
+    ## S3 bucket path for backup data.
+    destinationPath: ""
+    ## Cron expression for scheduled full backups.
+    schedule: 0 5 * * *
+    ## Number of retries for a failed backup.
+    backupRetention: 7
+## pg_partman configuration for native PostgreSQL partition management.
+## Creates future partitions and drops expired ones automatically.
+## The Publisher INSERTs into the partitioned parent instead of delete+reload.
+partman:
+  ## Cron expression for the partition maintenance CronJob.
+  ## Runs partman.run_maintenance_proc() against the CNPG primary.
+  schedule: 0 6 * * *
+  ## Default retention for time-partitioned tables. Override per table in syncConfig.
+  retention: 365 days
 ## Pushgateway for metrics push from short-lived worker pods.
 ## When enabled, deploys prometheus-pushgateway as a subchart.
 ## When disabled, set pushgateway.url to point to an external service.
@@ -395,6 +421,7 @@ pushgateway:
 ## Resource requests and limits applied to PostgREST containers.
 resources:
   requests:
+    cpu: 100m
     memory: 64Mi
     ephemeral-storage: 128Mi
   limits:
@@ -437,12 +464,11 @@ ingress:
     ## Leave empty to accept any valid JWT principal regardless of audience.
     audience: ""
 ## BigQuery fallback with nginx proxy caching and pg_duckdb views.
-## When enabled, the Publisher creates _bq views per table that query BigQuery
-## through pg_duckdb. An nginx proxy with webdis sidecar caches responses in
+## The Publisher creates _bq views per table that has fallback: true in the
+## sync config. An nginx proxy with webdis sidecar caches responses in
 ## Valkey and falls back to _bq views when the local table returns empty.
+## nginx receives a fallback.json map of which tables have BigQuery fallback.
 fallback:
-  ## Set to true to enable BigQuery fallback.
-  enabled: false
   ## Cache TTL in seconds for non-empty responses.
   cacheTtl: 300
   ## Maximum size of a response fetched with ngx.fetch, which is the fallback
@@ -463,11 +489,17 @@ fallback:
   ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: "ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:030de55"
+  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:030de55
   ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
   ## every webdis release up to this one still frees an in-flight command.
-  webdisImage: "docker.io/nicolas/webdis:0.1.25"
+  webdisImage: docker.io/nicolas/webdis:0.1.25
   ## Resource requests and limits for the nginx proxy deployment.
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
   ## Resource requests and limits for the webdis sidecar.
-  webdisResources: {}
+  webdisResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi

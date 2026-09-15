@@ -1,0 +1,20 @@
+{{- if .Values.ha.enabled }}
+{{- $root := . }}
+{{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-postgrest
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-postgrest
+    kind: Deployment
+    apiVersion: apps/v1
+  minReplicaCount: {{ $root.Values.ha.postgrest.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.ha.postgrest.maxReplicaCount }}
+  triggers:
+{{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgrest") | nindent 4 }}
+{{- end }}
+{{- end }}

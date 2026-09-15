@@ -1,87 +1,63 @@
-suite: Standalone mode (ha.enabled false)
+suite: CNPG shared mode
 templates:
-  - pvc-pgduckdb.yaml
-  - statefulset-duckdb.yaml
+  - cluster-cnpg.yaml
   - rbac.yaml
+  - cronjob-partman-maintenance.yaml
 tests:
-  - it: renders one retained pgduckdb PVC
+  - it: renders one CNPG Cluster in shared mode
     set:
-      pgduckdb.storage.size: 75Gi
+      cnpg.instances: 3
+      cnpg.storage.size: 100Gi
     asserts:
       - hasDocuments:
           count: 1
-        template: pvc-pgduckdb.yaml
+        template: cluster-cnpg.yaml
+      - isKind:
+          of: Cluster
+        template: cluster-cnpg.yaml
       - equal:
-          path: metadata.name
-          value: pgdata-data-proxy-duckdb-0
-        template: pvc-pgduckdb.yaml
+          path: spec.instances
+          value: 3
+        template: cluster-cnpg.yaml
       - equal:
-          path: metadata.annotations["helm.sh/resource-policy"]
-          value: keep
-        template: pvc-pgduckdb.yaml
-      - equal:
-          path: spec.resources.requests.storage
-          value: 75Gi
-        template: pvc-pgduckdb.yaml
+          path: spec.storage.size
+          value: 100Gi
+        template: cluster-cnpg.yaml
 
-  - it: renders one standalone StatefulSet with the explicit PVC
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: statefulset-duckdb.yaml
-      - equal:
-          path: spec.replicas
-          value: 1
-        template: statefulset-duckdb.yaml
-      - matchRegex:
-          path: spec.template.spec.containers[0].image
-          pattern: ghcr.io/prefeitura-rio/data-proxy-postgres:.*
-        template: statefulset-duckdb.yaml
-      - equal:
-          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
-          value: pgdata-data-proxy-duckdb-0
-        template: statefulset-duckdb.yaml
-      - notExists:
-          path: spec.volumeClaimTemplates
-        template: statefulset-duckdb.yaml
-
-  - it: injects the BigQuery credential into pgduckdb
-    set:
-      fallback.enabled: true
-      gcp.existingSecret: data-proxy-gcp-credentials
+  - it: configures pg_duckdb and pg_partman in shared_preload_libraries
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GOOGLE_APPLICATION_CREDENTIALS
-            value: /gcp/key.json
-        template: statefulset-duckdb.yaml
+          path: spec.postgresql.shared_preload_libraries
+          content: pg_duckdb
+        template: cluster-cnpg.yaml
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: gcp-key
-            mountPath: /gcp
-            readOnly: true
-        template: statefulset-duckdb.yaml
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: gcp-key
-            secret:
-              secretName: data-proxy-gcp-credentials
-        template: statefulset-duckdb.yaml
+          path: spec.postgresql.shared_preload_libraries
+          content: pg_partman_bgw
+        template: cluster-cnpg.yaml
 
-  - it: omits the BigQuery credential without an existing secret
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GOOGLE_APPLICATION_CREDENTIALS
-            value: /gcp/key.json
-        template: statefulset-duckdb.yaml
-
-  - it: does not render HA RBAC resources
+  - it: does not render Patroni RBAC resources
     asserts:
       - hasDocuments:
           count: 0
         template: rbac.yaml
+
+  - it: renders the partman maintenance CronJob with a daily schedule
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: cronjob-partman-maintenance.yaml
+      - isKind:
+          of: CronJob
+        template: cronjob-partman-maintenance.yaml
+      - equal:
+          path: spec.schedule
+          value: "0 6 * * *"
+        template: cronjob-partman-maintenance.yaml
+
+  - it: renders the partman CronJob even when backups are disabled
+    set:
+      cnpg.backup.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: cronjob-partman-maintenance.yaml

@@ -1,12 +1,13 @@
 {{- if .Values.backup.enabled }}
 {{- $root := . }}
 {{- range $schema, $_ := .Values.syncConfig.schemas }}
-{{- $name := include "data-proxy.schemaStackName" (dict "root" $root "schema" $schema) }}
+{{- $name := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+{{- $backupName := printf "%s-%s-backup" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ $name }}-backup-script
+  name: {{ $backupName }}-script
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -19,7 +20,7 @@ data:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ $name }}-backup
+  name: {{ $backupName }}
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -93,7 +94,7 @@ spec:
                 defaultMode: 0440
             - name: backup-script
               configMap:
-                name: {{ $name }}-backup-script
+                name: {{ $backupName }}-script
                 defaultMode: 0555
 {{- end }}
 {{- end }}

@@ -15,9 +15,9 @@ postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
 
-valkey:
-  auth:
-    password: testpass
+redis:
+  existingSecret: data-proxy-redis
+  writerAddress: redis-writer:6379
 
 producer:
   schedule: "0 2 * * *"

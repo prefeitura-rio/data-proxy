@@ -2,21 +2,6 @@
 apiVersion: security.istio.io/v1
 kind: RequestAuthentication
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: postgrest
-  {{- include "data-proxy.jwtRules" . | nindent 2 }}
-{{- if .Values.fallback.enabled }}
----
-apiVersion: security.istio.io/v1
-kind: RequestAuthentication
-metadata:
   name: {{ include "data-proxy.fullname" . }}-nginx-proxy
   namespace: {{ .Release.Namespace }}
   labels:
@@ -27,5 +12,4 @@ spec:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: nginx-proxy
   {{- include "data-proxy.jwtRules" . | nindent 2 }}
-{{- end }}
 {{- end }}
