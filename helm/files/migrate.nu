@@ -36,11 +36,6 @@ def producer-name []: nothing -> string {
     $env.PRODUCER? | default data-proxy-producer
 }
 
-# Return the release name from the environment, defaulting to data-proxy.
-def release-name []: nothing -> string {
-    $env.RELEASE_NAME? | default data-proxy
-}
-
 # Suspend the producer CronJob so no new syncs start.
 def block-syncs []: nothing -> string {
     let ns = namespace
@@ -64,27 +59,6 @@ def unblock-syncs []: nothing -> string {
         '{"spec":{"suspend":false}}'
         --type=merge
     )
-}
-
-# Check whether a CNPG cluster exists in the namespace.
-def cluster-exists [name: string]: nothing -> bool {
-    let ns = namespace
-    let result = kubectl -n $ns get cluster $name --ignore-not-found -o name | complete
-    $result.exit_code == 0 and ($result.stdout | str trim | is-not-empty)
-}
-
-# Detect migration direction from TARGET_MODE and existing clusters.
-def detect-direction []: nothing -> string {
-    let rel = release-name
-    let shared_exists = cluster-exists $rel
-    let schemas = $env.SCHEMAS | split row ' '
-    let per_schema_exists = $schemas | any {|schema| cluster-exists $'($rel)-($schema)' }
-
-    match $env.TARGET_MODE {
-        'per-schema' if $shared_exists => 'to-ha'
-        'shared' if $per_schema_exists => 'to-single'
-        _ => 'none'
-    }
 }
 
 # Wait for init-db to complete by checking access_policy table exists in target.
@@ -116,7 +90,7 @@ def migrate-schema [m: record]: nothing -> nothing {
 
     log info $'Dumping schema ($m.schema) from ($m.source)…'
     try {
-        pg_dump $m.source --format=custom --no-owner --no-acl --schema=($m.schema) --data-only --file=$dump_file
+        pg_dump $m.source --format=custom --no-owner --no-acl --schema=($m.schema) --file $dump_file
     } catch {|err| error make {
         msg: $'pg_dump failed for schema ($m.schema): ($err.msg)'
         label: {
@@ -127,7 +101,7 @@ def migrate-schema [m: record]: nothing -> nothing {
 
     log info $'Restoring schema ($m.schema) into ($m.target)…'
     try {
-        pg_restore $m.target --data-only --clean --if-exists --no-owner --no-acl --dbname=($m.target) $dump_file
+        pg_restore --clean --if-exists --no-owner --no-acl --dbname=($m.target) $dump_file
     } catch {|err| error make {
         msg: $'pg_restore failed for schema ($m.schema): ($err.msg)'
         label: {
@@ -159,7 +133,7 @@ def save-mode-state [state: record]: nothing -> nothing {
     let status = $state.status
     let direction = $state.direction
     let ns = namespace
-    let rel = release-name
+    let rel = $env.RELEASE_NAME? | default data-proxy
     let cm = $'($rel)-mode-state'
     let updated = date now | format date %Y-%m-%dT%H:%M:%S%z
     let yaml = (k -n $ns create configmap $cm
@@ -185,7 +159,7 @@ def run-migration [direction: string]: nothing -> nothing {
         }
     }
 
-    save-mode-state {mode: $env.TARGET_MODE, status: running, direction: $direction}
+    save-mode-state {mode: $env.SOURCE_MODE, status: running, direction: $direction}
     block-syncs
 
     try {
@@ -210,7 +184,7 @@ def run-migration [direction: string]: nothing -> nothing {
             migrate-schema $m
         }
     } catch {|err|
-        save-mode-state {mode: $env.TARGET_MODE, status: failed, direction: $direction}
+        save-mode-state {mode: $env.SOURCE_MODE, status: failed, direction: $direction}
         unblock-syncs
         error make {
             msg: $'Migration failed: ($err.msg)'
@@ -227,7 +201,11 @@ def run-migration [direction: string]: nothing -> nothing {
 }
 
 def main []: nothing -> nothing {
-    let direction = detect-direction
+    let direction = match [$env.SOURCE_MODE? $env.TARGET_MODE] {
+        ['shared' 'per-schema'] => 'to-ha'
+        ['per-schema' 'shared'] => 'to-single'
+        _ => 'none'
+    }
 
     match $direction {
         'none' => {

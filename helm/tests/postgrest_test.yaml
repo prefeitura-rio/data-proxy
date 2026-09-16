@@ -34,19 +34,10 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
 
-  - it: renders one replica by default
+  - it: leaves replica count to the read autoscaler
     asserts:
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 1
-
-  - it: honors a custom postgrest replica count
-    set:
-      postgrest.ro.replicas: 3
-    asserts:
-      - equal:
-          path: spec.replicas
-          value: 3
 
   - it: rolls PostgREST when syncConfig changes
     set:
@@ -71,7 +62,7 @@ tests:
               strategy: full
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].env[2]
+          path: spec.template.spec.containers[0].env[3]
           value:
             name: PGRST_DB_SCHEMAS
             value: "alpha_schema,zeta_schema,rls"
@@ -79,7 +70,7 @@ tests:
   - it: PGRST_DB_SCHEMAS always includes auth.rlsSchema even with no configured schemas
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].env[2]
+          path: spec.template.spec.containers[0].env[3]
           value:
             name: PGRST_DB_SCHEMAS
             value: "rls"

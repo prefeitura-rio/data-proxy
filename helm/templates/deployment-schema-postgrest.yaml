@@ -2,11 +2,8 @@
 {{- $root := . }}
 {{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-{{- $readReplicas := $root.Values.postgrest.ro.replicas | int }}
-{{- $writeReplicas := $root.Values.postgrest.rw.replicas | int }}
 {{- range $mode := list "ro" "rw" }}
 {{- $databaseService := ternary (printf "%s-pooler-ro" $cluster) (printf "%s-rw" $cluster) (eq $mode "ro") }}
-{{- $replicas := ternary $readReplicas $writeReplicas (eq $mode "ro") }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -18,7 +15,6 @@ metadata:
     app.kubernetes.io/component: postgrest-{{ $mode }}
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
-  replicas: {{ $replicas }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -74,6 +70,10 @@ spec:
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PGRST_DB_URI
               value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.cnpg.db.name | quote }}
+            {{- if eq $mode "ro" }}
+            - name: PGRST_DB_PREPARED_STATEMENTS
+              value: "false"
+            {{- end }}
             - name: PGRST_DB_SCHEMAS
               value: {{ $schema | quote }}
             - name: PGRST_DB_ANON_ROLE
@@ -99,8 +99,7 @@ spec:
           resources:
             {{- toYaml (ternary $root.Values.postgrest.ro.resources $root.Values.postgrest.rw.resources (eq $mode "ro")) | nindent 12 }}
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             periodSeconds: 5
       volumes:

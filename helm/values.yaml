@@ -210,7 +210,7 @@ seaweedfs:
     dataDirs:
       - name: data
         type: persistentVolumeClaim
-        size: 10Gi
+        size: 40Gi
         maxVolumes: 0
     resources:
       requests:
@@ -257,7 +257,7 @@ redis:
   webdisHost: redis-writer
   webdisPort: 6379
   ## Webdis read endpoint (Redis replica). Defaults to webdisHost when unset.
-  webdisReadHost: ""
+  webdisReadHost: redis-reader
   webdisReadPort: 6379
 ## Backup CronJob — exports each <schema>.access_policy table with pg_dump
 ## and uploads it to the dedicated backup S3-compatible service.
@@ -369,13 +369,13 @@ cnpg:
   ## Deployment mode: "shared" or "per-schema".
   mode: shared
   ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).
-  instances: 2
+  instances: 1
   ## Autoscaling for the shared cluster (single mode only).
   autoscaling:
-    ## Minimum instances — KEDA never scales below this. Must be >= 2 for failover.
-    minReplicaCount: 2
+    ## Minimum instances — KEDA never scales below this. Set to 1 for single mode.
+    minReplicaCount: 1
     ## Maximum instances — KEDA never scales above this.
-    maxReplicaCount: 3
+    maxReplicaCount: 1
     ## How often KEDA checks triggers, in seconds.
     pollingInterval: 30
     ## How long KEDA waits before scaling down, in seconds.

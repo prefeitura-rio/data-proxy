@@ -10,6 +10,17 @@ tests:
           count: 2
         template: configmap-nginx-proxy.yaml
 
+  - it: gives the CPU-scaled nginx container a CPU request without owning its replica count
+    set:
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+        template: deployment-nginx-proxy.yaml
+      - notExists:
+          path: spec.replicas
+        template: deployment-nginx-proxy.yaml
+
   - it: injects the Istio sidecar into the proxy that receives the traffic
     set:
     asserts:

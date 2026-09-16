@@ -192,8 +192,14 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
+{{- define "data-proxy.nginxConfigBody" -}}
+{{- $upstreams := .upstreams -}}
+{{- $root := .root -}}
+{{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams | replace "__CACHE_TTL__" (toString $root.Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString $root.Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString $root.Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString $root.Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString $root.Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString $root.Values.fallback.fetchKeepaliveTimeout) }}
+{{- end }}
+
 {{- define "data-proxy.nginxProxyConfig" -}}
-{{ .Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" (include "data-proxy.fallbackNginxUpstreams" .) | replace "__CACHE_TTL__" (toString .Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString .Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString .Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString .Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString .Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString .Values.fallback.fetchKeepaliveTimeout) }}
+{{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.fallbackNginxUpstreams" .)) }}
 {{- end }}
 
 {{- define "data-proxy.webdisWriteConfig" -}}
@@ -311,8 +317,16 @@ map $http_accept_profile $postgrest_write {
   value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
 - name: POSTGREST_RW_DEPLOYMENT_TEMPLATE
   value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
+- name: POSTGREST_RO_SERVICE_TEMPLATE
+  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
+- name: POSTGREST_RW_SERVICE_TEMPLATE
+  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
 - name: POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
+- name: REPLICATION_WAIT_TIMEOUT_SECONDS
+  value: "300"
+- name: REPLICATION_POLL_INTERVAL_SECONDS
+  value: "1"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
   value: /gcp/key.json

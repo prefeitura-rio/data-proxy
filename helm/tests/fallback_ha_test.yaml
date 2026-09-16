@@ -5,7 +5,29 @@ release:
 templates:
   - virtualservice.yaml
   - configmap-nginx-proxy.yaml
+  - configmap-schema-nginx-proxy.yaml
 tests:
+  - it: renders valid njs fetch settings in each per-schema proxy config
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      syncConfig.schemas.example.tables: []
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_fetch_max_response_buffer_size 32m;'
+        template: configmap-schema-nginx-proxy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-nginx-proxy
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: '__FETCH_[A-Z_]+__'
+        template: configmap-schema-nginx-proxy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-nginx-proxy
+
   - it: routes per-schema reads through the fallback proxy
     set:
       cnpg.mode: per-schema

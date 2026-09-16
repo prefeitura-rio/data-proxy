@@ -30,13 +30,11 @@ tests:
       postgrest.rw.hpa.minReplicas: 3
       postgrest.rw.hpa.maxReplicas: 5
     asserts:
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 2
         template: deployment-postgrest-ro.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 3
         template: deployment-postgrest-rw.yaml
       - equal:
           path: spec.minReplicaCount
@@ -69,6 +67,12 @@ tests:
             name: PGRST_DB_URI
             value: postgres://authenticator:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-rw:5432/data-proxy
         template: deployment-postgrest-rw.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_PREPARED_STATEMENTS
+            value: "false"
+        template: deployment-postgrest-ro.yaml
   - it: applies KEDA only to read and a CPU HPA to write
     asserts:
       - hasDocuments:

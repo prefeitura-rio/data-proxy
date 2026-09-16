@@ -32,6 +32,8 @@ spec:
           env:
             - name: TARGET_MODE
               value: {{ .Values.cnpg.mode | quote }}
+            - name: SOURCE_MODE
+              value: {{ $previous | quote }}
             - name: SOURCE_DSN
               value: {{ printf "postgresql://%s-rw:5432/%s" (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: TARGET_DSN

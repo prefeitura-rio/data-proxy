@@ -12,7 +12,6 @@ metadata:
     app.kubernetes.io/component: nginx-proxy
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
-  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -25,6 +24,9 @@ spec:
       data-proxy.io/schema: {{ $schema | quote }}
   template:
     metadata:
+      annotations:
+        checksum/proxy-config: {{ printf "%s%s%s" $schema ($root.Values.fallback | toJson) $root.Release.Namespace | sha256sum }}
+        checksum/sync-config: {{ $root.Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
         app.kubernetes.io/component: nginx-proxy
@@ -53,9 +55,14 @@ spec:
               port: http
             periodSeconds: 3
           volumeMounts:
+            {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 12 }}
             - name: config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+          {{- with $root.Values.fallback.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         - name: webdis-write
           image: {{ $root.Values.fallback.webdisImage }}
           command: ["/bin/sh", "-ec"]
@@ -111,6 +118,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
+        {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}
         - name: config
           configMap:
             name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy

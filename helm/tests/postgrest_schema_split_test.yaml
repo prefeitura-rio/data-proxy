@@ -16,16 +16,14 @@ tests:
       postgrest.rw.replicas: 3
       syncConfig.schemas.example.tables: []
     asserts:
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 2
         template: deployment-schema-postgrest.yaml
         documentSelector:
           path: metadata.name
           value: data-proxy-example-postgrest-ro
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 3
         template: deployment-schema-postgrest.yaml
         documentSelector:
           path: metadata.name
@@ -33,6 +31,13 @@ tests:
       - hasDocuments:
           count: 2
         template: deployment-schema-postgrest.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: http
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-ro
       - hasDocuments:
           count: 2
         template: service-schema-postgrest.yaml
@@ -54,6 +59,15 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-example-postgrest-rw
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_PREPARED_STATEMENTS
+            value: "false"
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-ro
       - equal:
           path: spec.scaleTargetRef.name
           value: data-proxy-example-postgrest-rw

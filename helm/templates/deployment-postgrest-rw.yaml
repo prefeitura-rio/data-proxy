@@ -8,7 +8,6 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgrest-rw
 spec:
-  replicas: {{ .Values.postgrest.rw.replicas }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}

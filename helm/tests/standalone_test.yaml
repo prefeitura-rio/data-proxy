@@ -25,6 +25,30 @@ tests:
           value: 100Gi
         template: cluster-cnpg.yaml
 
+  - it: mounts GCP credentials into every CNPG instance
+    set:
+      gcp.existingSecret: gcp-key
+    asserts:
+      - contains:
+          path: spec.projectedVolumeTemplate.sources[0].secret.items
+          content:
+            key: key.json
+            path: gcp-key.json
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.projectedVolumeTemplate.sources[0].secret.name
+          value: gcp-key
+        template: cluster-cnpg.yaml
+
+  - it: uses the configured CNPG PostgreSQL image
+    set:
+      cnpg.image: ghcr.io/example/data-proxy-postgres:test
+    asserts:
+      - equal:
+          path: spec.imageName
+          value: ghcr.io/example/data-proxy-postgres:test
+        template: cluster-cnpg.yaml
+
   - it: configures pg_duckdb and pg_partman in shared_preload_libraries
     asserts:
       - contains:

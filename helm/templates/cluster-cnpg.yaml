@@ -1,5 +1,10 @@
 {{- $root := . }}
-{{- if eq $root.Values.cnpg.mode "shared" }}
+{{- $state := lookup "v1" "ConfigMap" $root.Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" $root)) }}
+{{- $previous := "" }}
+{{- if $state }}
+{{- $previous = $state.data.mode | default "" }}
+{{- end }}
+{{- if or (eq $root.Values.cnpg.mode "shared") (and (eq $root.Values.cnpg.mode "per-schema") (eq $previous "shared")) }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -14,8 +19,19 @@ spec:
   env:
     - name: HOME
       value: /var/lib/postgresql/data
+    {{- if $root.Values.gcp.existingSecret }}
     - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: /var/lib/postgresql/data/gcp-key.json
+      value: /projected/gcp-key.json
+    {{- end }}
+  {{- if $root.Values.gcp.existingSecret }}
+  projectedVolumeTemplate:
+    sources:
+      - secret:
+          name: {{ $root.Values.gcp.existingSecret | quote }}
+          items:
+            - key: key.json
+              path: gcp-key.json
+  {{- end }}
   bootstrap:
     initdb:
       database: {{ $root.Values.cnpg.db.name | quote }}
@@ -58,13 +74,15 @@ spec:
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
 
-{{- else if eq $root.Values.cnpg.mode "per-schema" }}
+{{- end }}
+
+{{- if or (eq $root.Values.cnpg.mode "per-schema") (and (eq $root.Values.cnpg.mode "shared") (eq $previous "per-schema")) }}
 {{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -75,8 +93,19 @@ spec:
   env:
     - name: HOME
       value: /var/lib/postgresql/data
+    {{- if $root.Values.gcp.existingSecret }}
     - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: /var/lib/postgresql/data/gcp-key.json
+      value: /projected/gcp-key.json
+    {{- end }}
+  {{- if $root.Values.gcp.existingSecret }}
+  projectedVolumeTemplate:
+    sources:
+      - secret:
+          name: {{ $root.Values.gcp.existingSecret | quote }}
+          items:
+            - key: key.json
+              path: gcp-key.json
+  {{- end }}
   bootstrap:
     initdb:
       database: {{ $root.Values.cnpg.db.name | quote }}
