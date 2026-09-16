@@ -68,6 +68,12 @@ spec:
         value: localhost/data-proxy-postgres:17.0.0-local
       - name: CACHE_TTL_SECONDS
         value: "5"
+      - name: FALLBACK_CACHE_REDIS_DB
+        value: "1"
+      - name: POLICY_REPLICATION_TIMEOUT_SECONDS
+        value: "120"
+      - name: POLICY_REPLICATION_POLL_INTERVAL_SECONDS
+        value: "2"
       - name: MAX_DURATION
         value: "25m"
       - name: PARTITIONED_SOURCE

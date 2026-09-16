@@ -64,6 +64,7 @@ const API_URL =
 const WEBDIS_WRITE_URL = __ENV.WEBDIS_WRITE_URL || `${API_URL}/webdis/write`;
 const WEBDIS_READ_URL = __ENV.WEBDIS_READ_URL || `${API_URL}/webdis/read`;
 const PIPELINE_REDIS_DB = "0";
+const FALLBACK_CACHE_REDIS_DB = __ENV.FALLBACK_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
   __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
 const OIDC_CLIENT_ID = __ENV.OIDC_CLIENT_ID || "user-with-access";
@@ -96,6 +97,12 @@ const FULL_SOURCE =
   "rj-ia-desenvolvimento.dev.endpoint_participante_listagem";
 const OID_PROBE_TABLE = "e2e_oid_probe";
 const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
+const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
+  __ENV.POLICY_REPLICATION_TIMEOUT_SECONDS || "120",
+);
+const POLICY_REPLICATION_POLL_INTERVAL_SECONDS = Number(
+  __ENV.POLICY_REPLICATION_POLL_INTERVAL_SECONDS || "2",
+);
 
 const ACCESS_POLICY_ROWS = [
   { subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
@@ -153,7 +160,7 @@ function authHeaders(token: string): Record<string, string> {
 }
 
 /** Seeds the access policy table so RLS grants the test user its units. */
-function seedAccessPolicy(): void {
+function seedAccessPolicy(): string {
   const token = fetchToken("policy-writer");
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -176,6 +183,24 @@ function seedAccessPolicy(): void {
   check(null, {
     "access_policy seeded": () => status === 201 || status === 409,
   });
+  return token;
+}
+
+/** Waits until the seeded policy authorizes the user through the read path. */
+function waitForAccessPolicyReplication(token: string): void {
+  const deadline = Date.now() + POLICY_REPLICATION_TIMEOUT_SECONDS * 1000;
+  const path = `/${FULL_TABLE}?limit=1`;
+
+  while (Date.now() < deadline) {
+    const response = proxyGet(path, token);
+    const rows = rowsOf(response);
+    if (response.status === 200 && rows.length > 0) {
+      return;
+    }
+    sleep(POLICY_REPLICATION_POLL_INTERVAL_SECONDS);
+  }
+
+  throw new Error("access_policy did not authorize the read replica in time");
 }
 
 /** Verifies that a user without a policy gets a 200 with zero rows. */
@@ -1017,8 +1042,9 @@ function redisCommand(
   token: string,
   url: string,
   command: string,
+  database: string = PIPELINE_REDIS_DB,
 ): Record<string, unknown> | null {
-  const response = http.get(`${url}/${PIPELINE_REDIS_DB}/${command}`, {
+  const response = http.get(`${url}/${database}/${command}`, {
     headers: authHeaders(token),
     tags: { name: `redis:${command.split("/")[0]}` },
   }) as K6Response;
@@ -1026,6 +1052,19 @@ function redisCommand(
   return body !== null && typeof body === "object"
     ? (body as Record<string, unknown>)
     : null;
+}
+
+/** Clears cached table responses without touching pipeline streams. */
+function clearFallbackCache(token: string): void {
+  const answer = redisCommand(
+    token,
+    WEBDIS_WRITE_URL,
+    "FLUSHDB",
+    FALLBACK_CACHE_REDIS_DB,
+  );
+  check(null, {
+    "fallback response cache cleared": () => answer !== null,
+  });
 }
 
 /** Reads one stored table state, or null when it is absent or unreadable. */
@@ -1331,6 +1370,8 @@ export default function (): void {
   }
 
   seedAccessPolicy();
+  waitForAccessPolicyReplication(token);
+  clearFallbackCache(token);
   sleep(2);
   verifyMetrics(metrics);
   verifyNoAccess();

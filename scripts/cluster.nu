@@ -8,6 +8,7 @@ const MINIKUBE_DISK = '40g'
 const MINIKUBE_MEMORY = '12288'
 const NAMESPACE = 'data-proxy'
 const PROFILE = 'data-proxy'
+const FALLBACK_CACHE_REDIS_DB = '1'
 const STREAMS = [dp:extract dp:prepare dp:publish]
 const TEST_BUCKET = 'test-bucket'
 const TEST_SCHEMA = 'pic'
@@ -295,56 +296,6 @@ def apply-gcp-secret [kubecfg: path]: nothing -> string {
     | k $kubecfg apply -f -
 }
 
-# Create the local Redis connection Secret consumed by data-proxy.
-def provision-gcp-key [kubecfg: path]: nothing -> nothing {
-    let creds = $env.HOME | path join .config/gcloud/application_default_credentials.json
-    if not ($creds | path exists) {
-        log warning 'GCP credentials not found, skipping CNPG key provisioning'
-        return
-    }
-
-    let pod = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            cnpg.io/cluster=data-proxy
-            -l
-            cnpg.io/instanceRole=primary
-            -o
-            'jsonpath={.items[0].metadata.name}'
-        )
-        | str trim
-    )
-    kubectl --kubeconfig=($kubecfg) --context=data-proxy -n data-proxy cp $creds $'($pod):/var/lib/postgresql/data/gcp-key.json'
-    let size = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $pod
-            --
-            wc
-            -c
-            /var/lib/postgresql/data/gcp-key.json
-        )
-        | str trim
-    )
-    if $size =~ ': 0' {
-        error make {
-            msg: 'Copied GCP credential is empty'
-            label: {
-                text: 'provision-gcp-key'
-                span: (metadata $size).span
-            }
-        }
-    }
-}
-
 # Run weed shell commands inside the SeaweedFS all-in-one pod.
 def weed [kubecfg: path, ...commands: string]: nothing -> nothing {
     let jsonpath = 'jsonpath={.items[0].metadata.name}'
@@ -411,6 +362,20 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         )
     }
 
+    log info $'Clearing fallback response cache in Redis DB ($FALLBACK_CACHE_REDIS_DB)…'
+    (k
+        $kubecfg
+        -n
+        data-proxy
+        exec
+        $valkey
+        --
+        redis-cli
+        -n
+        $FALLBACK_CACHE_REDIS_DB
+        FLUSHDB
+    )
+
     (k
         $kubecfg
         -n
@@ -467,6 +432,7 @@ def k6-run [
     testrun: string
     yaml_path: path
     --profile: string = ''
+    --migration-phase: string = ''
 ]: nothing -> nothing {
     log info $'Creating configmap ($configmap)…'
     (k
@@ -487,7 +453,7 @@ def k6-run [
     k $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
 
     log info $'Applying testrun ($testrun)…'
-    if $profile != '' {
+    if ($profile != '') or ($migration_phase != '') {
         let yaml = try { open --raw $yaml_path } catch {|err| error make {
             msg: $'Failed to open ($yaml_path): ($err.msg)'
             label: {
@@ -496,9 +462,14 @@ def k6-run [
             }
         } }
 
-        $yaml
-        | str replace --all 'value: load' $'value: ($profile)'
-        | k $kubecfg apply -f -
+        mut rendered = $yaml
+        if $profile != '' {
+            $rendered = $rendered | str replace --all 'value: load' $'value: ($profile)'
+        }
+        if $migration_phase != '' {
+            $rendered = $rendered | str replace 'value: shared-baseline' $'value: ($migration_phase)'
+        }
+        $rendered | k $kubecfg apply -f -
     } else {
         k $kubecfg apply -f $yaml_path
     }
@@ -654,9 +625,6 @@ def "main k6 e2e" []: nothing -> nothing {
         $'($repo)/scripts/values/data-proxy.yaml'
     )
 
-    log info 'Provisioning GCP key for CNPG…'
-    provision-gcp-key $kubecfg
-
     log info 'Waiting for the init-db Job…'
     (k
         $kubecfg
@@ -680,6 +648,134 @@ def "main k6 e2e" []: nothing -> nothing {
         'data-proxy-e2e'
         'k6/e2e.yaml'
     )
+}
+
+# Validate published data through a full shared → HA → shared migration round trip.
+def "main k6 migrate" []: nothing -> nothing {
+    let kubecfg = git-root | path join .kubeconfig
+    let repo = git-root
+
+    main k6 e2e
+
+    log info 'Validating the shared baseline…'
+    (k
+        $kubecfg
+        -n
+        data-proxy
+        delete
+        configmap
+        data-proxy-migration-fingerprint
+        --ignore-not-found
+    )
+    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-baseline'
+
+    log info 'Upgrading data-proxy to HA…'
+    (
+        (hm
+            $kubecfg
+            upgrade
+            data-proxy
+            $'($repo)/helm'
+            --namespace
+            data-proxy
+            --values
+            $'($repo)/scripts/values/data-proxy.yaml'
+            --values
+            $'($repo)/scripts/values/data-proxy-ha.yaml'
+        )
+    ) | ignore
+    let ha_job = (
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            get
+            jobs
+            -l
+            app.kubernetes.io/component=migrate
+            --sort-by=.metadata.creationTimestamp
+            -o
+            name
+        )
+        | lines
+        | last
+        | str trim
+    )
+    k $kubecfg -n data-proxy wait --for=condition=complete $ha_job --timeout=6m
+    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha'
+
+    log info 'Reconciling settled HA topology…'
+    (
+        (hm
+            $kubecfg
+            upgrade
+            data-proxy
+            $'($repo)/helm'
+            --namespace
+            data-proxy
+            --values
+            $'($repo)/scripts/values/data-proxy.yaml'
+            --values
+            $'($repo)/scripts/values/data-proxy-ha.yaml'
+        )
+    ) | ignore
+    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha-settled'
+
+    log info 'Downgrading data-proxy to shared mode…'
+    (
+        (hm
+            $kubecfg
+            upgrade
+            data-proxy
+            $'($repo)/helm'
+            --namespace
+            data-proxy
+            --values
+            $'($repo)/scripts/values/data-proxy.yaml'
+        )
+    ) | ignore
+    let shared_job = (
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            get
+            jobs
+            -l
+            app.kubernetes.io/component=migrate
+            --sort-by=.metadata.creationTimestamp
+            -o
+            name
+        )
+        | lines
+        | last
+        | str trim
+    )
+    (k
+        $kubecfg
+        -n
+        data-proxy
+        wait
+        --for=condition=complete
+        $shared_job
+        --timeout=6m
+    )
+    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-return'
+
+    log info 'Reconciling settled shared topology…'
+    (
+        (hm
+            $kubecfg
+            upgrade
+            data-proxy
+            $'($repo)/helm'
+            --namespace
+            data-proxy
+            --values
+            $'($repo)/scripts/values/data-proxy.yaml'
+        )
+    ) | ignore
+    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-settled'
 }
 
 # Start Minikube and install the complete local stack.
