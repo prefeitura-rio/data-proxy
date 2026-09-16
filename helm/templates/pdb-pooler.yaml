@@ -15,7 +15,6 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
       app.kubernetes.io/component: pgbouncer
       data-proxy.io/schema: {{ $schema | quote }}
 {{- end }}

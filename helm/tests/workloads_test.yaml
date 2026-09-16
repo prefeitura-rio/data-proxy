@@ -9,7 +9,7 @@ templates:
   - scaledobject-dumper.yaml
   - deployment-dumper.yaml
 tests:
-  - it: creates init-db as a normal Job
+  - it: creates init-db as a Helm hook Job
     asserts:
       - isKind:
           of: Job
@@ -17,8 +17,9 @@ tests:
           path: metadata.name
           value: data-proxy-init-db
         template: job-init-db.yaml
-      - notExists:
+      - equal:
           path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
         documentSelector:
           path: metadata.name
           value: data-proxy-init-db

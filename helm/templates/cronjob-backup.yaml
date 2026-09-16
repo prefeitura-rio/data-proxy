@@ -51,12 +51,23 @@ spec:
               env:
                 - name: SCHEMA
                   value: {{ $schema | quote }}
-                - name: PG_DSN
+                - name: PGHOST
                   {{- if $root.Values.ha.enabled }}
-                  value: {{ printf "postgresql://backup:%s@%s-%s-rw:5432/%s" $root.Values.backup.password (include "data-proxy.fullname" $root) ($schema | replace "_" "-") $root.Values.postgres.db.name | quote }}
+                  value: {{ printf "%s-%s-rw" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") | quote }}
                   {{- else }}
-                  value: {{ printf "postgresql://backup:%s@%s-rw:5432/%s" $root.Values.backup.password (include "data-proxy.fullname" $root) $root.Values.postgres.db.name | quote }}
+                  value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
                   {{- end }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ $root.Values.postgres.db.name | quote }}
+                - name: PGUSER
+                  value: backup
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.backupSecretName" $root }}
+                      key: BACKUP_PASSWORD
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.backup.prefix | quote }}
                 - name: S3_BUCKET

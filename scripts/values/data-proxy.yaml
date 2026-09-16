@@ -17,6 +17,8 @@ postgres:
   existingSecret: ""
   password: test-pg-pass
   authenticatorPassword: test-auth-pass
+nushell:
+  image: localhost/data-proxy-nushell:local
 postgrest:
   proxyUri: http://localhost:3111
   jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json

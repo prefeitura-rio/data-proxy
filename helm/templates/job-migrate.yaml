@@ -12,7 +12,12 @@ metadata:
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-iteration
 spec:
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:

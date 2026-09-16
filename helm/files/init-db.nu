@@ -63,7 +63,7 @@ def wait-for-postgres []: nothing -> nothing {
     log info 'PostgreSQL is ready'
 }
 
-# Install PostGIS, pg_duckdb, and the sync_status enum type
+# Install extensions not already installed by CNPG postInitSQL (idempotent).
 def install-extensions []: nothing -> nothing {
     postgres (load-sql install_extensions.sql)
     log info 'Installed extensions'

@@ -90,7 +90,7 @@ def detect-direction []: nothing -> string {
 # Wait for init-db to complete by checking access_policy table exists in target.
 def wait-for-schema [schema: string, dsn: string]: any -> error {
     log info $'Waiting for ($schema).access_policy in target cluster…'
-    let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\)"
+    let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_duckdb'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_partman'\)"
     for _ in 1..60 {
         let exists = try {
             psql $dsn --tuples-only --no-psqlrc --quiet -c $query | str trim

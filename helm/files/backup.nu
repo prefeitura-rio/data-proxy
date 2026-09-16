@@ -10,7 +10,11 @@ def main []: nothing -> nothing {
     let object_date = date now | format date '%Y-%m-%d'
     let s3_object = $'s3://($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date).dump'
     let scheme = if ($env.S3_USE_SSL? | default 'false') == 'true' { 'https' } else { 'http' }
-    let endpoint_url = $'($scheme)://($env.S3_ENDPOINT)'
+    let endpoint_url = if ($env.S3_ENDPOINT | str starts-with 'http') {
+        $env.S3_ENDPOINT
+    } else {
+        $'($scheme)://($env.S3_ENDPOINT)'
+    }
 
     log info $'Backup started schema=($schema)'
 
@@ -27,7 +31,7 @@ def main []: nothing -> nothing {
 
     log info $'Dumping ($schema).access_policy…'
     try {
-        pg_dump $env.PG_DSN --format=custom --no-owner --no-acl --table=($'($schema).access_policy') --data-only --file=$dump_file
+        pg_dump --format=custom --no-owner --no-acl --table=($'($schema).access_policy') --data-only --file=$dump_file
     } catch {|err| error make {
         msg: $'pg_dump failed for ($schema).access_policy: ($err.msg)'
         label: {
