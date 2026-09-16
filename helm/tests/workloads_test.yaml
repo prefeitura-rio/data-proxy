@@ -14,15 +14,15 @@ tests:
       - isKind:
           of: Job
         documentSelector:
-          path: metadata.name
-          value: data-proxy-init-db
+          path: kind
+          value: Job
         template: job-init-db.yaml
       - equal:
           path: metadata.annotations["helm.sh/hook"]
           value: post-install,post-upgrade
         documentSelector:
-          path: metadata.name
-          value: data-proxy-init-db
+          path: kind
+          value: Job
         template: job-init-db.yaml
 
   - it: backup runs the Nushell script and mounts required files

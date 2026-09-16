@@ -37,7 +37,7 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "0"
-    helm.sh/hook-delete-policy: before-hook-iteration
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
@@ -66,7 +66,20 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
-              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+              value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.cnpg.db.user | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
             - name: AUTH_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE
@@ -132,7 +145,7 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "0"
-    helm.sh/hook-delete-policy: before-hook-iteration
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
@@ -162,7 +175,20 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
-              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
+              value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
+            - name: PGHOST
+              value: {{ printf "%s-rw" $cluster | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ $root.Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ $root.Values.cnpg.db.user | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" $root }}
+                  key: POSTGRES_PASSWORD
             - name: AUTH_ANON_ROLE
               value: {{ $root.Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE
