@@ -39,7 +39,7 @@ tests:
   - it: does not render Patroni RBAC resources
     asserts:
       - hasDocuments:
-          count: 3
+          count: 5
         template: rbac.yaml
 
   - it: renders the partman maintenance CronJob with a daily schedule

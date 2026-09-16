@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         "http://data-proxy-pushgateway.data-proxy.svc.cluster.local:9091"
     )
     FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
+    KUBERNETES_NAMESPACE: str = "data-proxy"
+    POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
+    POSTGREST_RW_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
+    POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
 
     @property
     def sync_config(self) -> SyncConfig:

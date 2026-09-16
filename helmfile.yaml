@@ -48,6 +48,29 @@ releases:
     createNamespace: true
     chart: keda/keda
     version: 2.18.3
+    values:
+      - resources:
+          operator:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          metricServer:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          webhooks:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
     wait: true
     timeout: 900
 

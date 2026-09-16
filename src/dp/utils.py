@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 from .log import logger
 from .models import PublishTask, TableState
 from .s3 import clear_s3_bucket
-from .schema import reload_postgrest
+from .schema import revoke_anonymous_access
 from .settings import settings
 from .state import cleanup_consumer, cleanup_run, complete_schema, read_active_run
 
@@ -85,7 +85,7 @@ async def handle_missing_plan(
         await read_active_run(redis) == task.run_id
         and await redis.hlen(f"dp:plans:{task.run_id}") == 0
     ):
-        await reload_postgrest(pg_conn, settings.sync_config)
+        await revoke_anonymous_access(pg_conn, settings.sync_config)
 
         await cleanup_run(redis, task.run_id)
 
@@ -100,7 +100,7 @@ async def complete_publication(
     remaining = await complete_schema(redis, task.run_id, task.schema_name, states)
 
     if remaining == 0:
-        await reload_postgrest(pg_conn, settings.sync_config)
+        await revoke_anonymous_access(pg_conn, settings.sync_config)
 
         await cleanup_run(redis, task.run_id)
         await clear_s3_bucket()

@@ -12,6 +12,7 @@ from psycopg import AsyncConnection
 from ..cache import clear_response_cache
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..errors import stop_on_error
+from ..kubernetes import refresh_postgrest
 from ..loading import apply_sync_plan
 from ..log import elapsed_ms, logger, runid, schemaname
 from ..metrics import record_publication_metrics, tracker
@@ -86,6 +87,9 @@ async def publish_schema_task(
     )
 
     states = build_table_states(result, schema_config)
+
+    await refresh_postgrest(task.schema_name, task.run_id)
+    logger.info("Refreshed PostgREST-ro schema cache")
 
     async with settings.redis() as redis:
         await complete_publication(redis, task, states, pg_conn)

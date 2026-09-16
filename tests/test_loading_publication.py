@@ -176,7 +176,7 @@ class TestLoadingApplySyncPlan:
                 "dp.loading.publish_prepared_tables",
                 return_value={"p.app.changed"},
             ) as publish,
-            patch("dp.loading.reload_postgrest") as reload,
+            patch("dp.loading.revoke_anonymous_access") as reload,
             patch("dp.loading.create_bq_views"),
             patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
@@ -358,7 +358,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.initialize_schemas"),
             patch("dp.loading.prepare_tables", return_value=[]),
             patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.revoke_anonymous_access"),
             patch("dp.loading.create_bq_views") as create_views,
             patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
@@ -396,7 +396,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.record_table_failures") as record_failures,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.revoke_anonymous_access"),
             patch("dp.loading.create_bq_views"),
             patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
@@ -434,7 +434,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.revoke_anonymous_access"),
             patch("dp.loading.create_bq_views"),
             patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
@@ -471,7 +471,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.record_table_failures") as record_failures,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.reload_postgrest"),
+            patch("dp.loading.revoke_anonymous_access"),
             patch("dp.loading.create_bq_views"),
             patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):

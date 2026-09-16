@@ -48,6 +48,10 @@ def allow_one_claim(monkeypatch: pytest.MonkeyPatch) -> None:
         "connect",
         AsyncMock(return_value=AsyncMock()),
     )
+    monkeypatch.setattr(
+        "dp.sync.publisher.refresh_postgrest",
+        AsyncMock(),
+    )
 
 
 class TestPublisherSubscriber:
@@ -65,7 +69,7 @@ class TestPublisherSubscriber:
         await redis.set("dp:active", "r1")
         message = stream_message()
         with (
-            patch("dp.utils.reload_postgrest"),
+            patch("dp.utils.revoke_anonymous_access"),
             pytest.raises(StopApplication),
         ):
             await handle_publish_task(
@@ -224,7 +228,7 @@ class TestPublishSchema:
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.utils.reload_postgrest"),
+            patch("dp.utils.revoke_anonymous_access"),
             patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
             patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock) as empty,
             pytest.raises(StopApplication),
@@ -294,7 +298,7 @@ class TestPublishSchema:
                 new_callable=AsyncMock,
                 return_value=0,
             ),
-            patch("dp.utils.reload_postgrest"),
+            patch("dp.utils.revoke_anonymous_access"),
             patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock),
             patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
             pytest.raises(StopApplication),

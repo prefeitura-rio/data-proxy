@@ -4,6 +4,7 @@
 use std/log
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
+
 let dsn = $env.PG_DSN
 let protected = [freshness access_policy]
 
@@ -11,7 +12,12 @@ let protected = [freshness access_policy]
 def schema-list []: nothing -> list<string> {
     let all = $config.schemas | columns
     let target = $env.SCHEMA?
-    if $target == null or ($target | is-empty) { $all } else { $all | where $it == $target }
+
+    if $target == null or ($target | is-empty) {
+        $all
+    } else {
+        $all | where $it == $target
+    }
 }
 
 load-env {
@@ -44,17 +50,23 @@ def redis-del [...keys: string]: nothing -> string {
 log info 'Cleanup started'
 
 for schema in (schema-list) {
-    let configured = $config.schemas
-    | get --optional $schema
-    | get tables
-    | each {|t| $t.name | split row . | last }
+    let configured = (
+        $config.schemas
+        | get --optional $schema
+        | get tables
+        | each {|t| $t.name | split row . | last }
+    )
 
-    let all = postgres --tuples-only $"SELECT tablename FROM pg_tables WHERE schemaname = '($schema)'"
-    | lines
-    | str trim
+    let all = (
+        postgres --tuples-only $"SELECT tablename FROM pg_tables WHERE schemaname = '($schema)'"
+        | lines
+        | str trim
+    )
 
-    let stale = $all
-    | where $it not-in $configured and $it not-in $protected
+    let stale = (
+        $all
+        | where $it not-in $configured and $it not-in $protected
+    )
 
     if ($stale | is-empty) {
         log info $'No stale tables in ($schema)'

@@ -20,6 +20,7 @@ dependencies = [
   "prometheus-client>=0.26.0",
   "aiobotocore>=3.9.0",
   "python-statemachine>=3.2.1",
+  "kubernetes-asyncio==36.1.0",
   "more-itertools>=11.1.0",
 ]
 
@@ -105,17 +106,18 @@ reportAny = false
 source = ["dp"]
 omit = [
   "*/__init__.py",
+  "src/dp/bigquery/clients.py",
   "src/dp/constants.py",
   "src/dp/duckdb.py",
   "src/dp/errors.py",
+  "src/dp/kubernetes.py",
   "src/dp/log.py",
   "src/dp/logging.py",
   "src/dp/metrics.py",
+  "src/dp/models.py",
   "src/dp/protocols.py",
   "src/dp/settings.py",
   "src/dp/templates.py",
-  "src/dp/models.py",
-  "src/dp/bigquery/clients.py",
 ]
 
 [tool.coverage.report]

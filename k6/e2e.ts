@@ -71,7 +71,7 @@ const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
   __ENV.POSTGREST_URL ||
-  "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
+  "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
 const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");

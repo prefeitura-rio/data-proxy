@@ -2,7 +2,15 @@
 
 use std/log
 
+const KUBERNETES_VERSION = 'v1.34.7'
+const MINIKUBE_CPUS = '6'
+const MINIKUBE_DISK = '40g'
+const MINIKUBE_MEMORY = '12288'
+const NAMESPACE = 'data-proxy'
 const PROFILE = 'data-proxy'
+const STREAMS = [dp:extract dp:prepare dp:publish]
+const TEST_BUCKET = 'test-bucket'
+const TEST_SCHEMA = 'pic'
 
 # Path to the repository git-root.
 def git-root []: nothing -> string {
@@ -47,7 +55,7 @@ def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
     }
 }
 
-# Start Minikube if it is not already running.
+# Start a missing local cluster with the supported Kubernetes version and capacity.
 def start-minikube [kubecfg: path]: nothing -> string {
     if (mk $kubecfg status | complete).exit_code != 0 {
         (
@@ -56,14 +64,196 @@ def start-minikube [kubecfg: path]: nothing -> string {
                 start
                 --driver=podman
                 --container-runtime=containerd
-                --cpus=6
-                --memory=12288
-                --disk-size=40g
+                --kubernetes-version
+                $KUBERNETES_VERSION
+                --cpus
+                $MINIKUBE_CPUS
+                --memory
+                $MINIKUBE_MEMORY
+                --disk-size
+                $MINIKUBE_DISK
             )
         )
     }
 
     mk $kubecfg update-context
+}
+
+# Wait until the fresh Minikube control plane remains stable.
+def wait-for-control-plane [kubecfg: path]: nothing -> nothing {
+    mut ready = false
+    for attempt in 1..60 {
+        if (k $kubecfg get --raw /readyz | complete).exit_code == 0 {
+            $ready = true
+            break
+        }
+        sleep 5sec
+    }
+    if not $ready {
+        error make {
+            msg: 'Kubernetes API server did not become ready within 5 minutes'
+            label: {
+                text: 'wait-for-control-plane'
+                span: (metadata $kubecfg).span
+            }
+        }
+    }
+
+    (
+        (k
+            $kubecfg
+            -n
+            kube-system
+            wait
+            --for=condition=Ready
+            pod
+            -l
+            component=etcd
+            --timeout=5m
+        )
+    ) | ignore
+    (
+        (k
+            $kubecfg
+            -n
+            kube-system
+            wait
+            --for=condition=Ready
+            pod/storage-provisioner
+            --timeout=5m
+        )
+    ) | ignore
+
+    let before = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
+    sleep 30sec
+    let after = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
+    if $after != $before {
+        error make {
+            msg: 'storage-provisioner restarted during the control-plane stability window'
+            label: {
+                text: 'wait-for-control-plane'
+                span: (metadata $kubecfg).span
+            }
+        }
+    }
+}
+
+# Wait until metrics-server serves the resource metrics API.
+def wait-for-metrics [kubecfg: path]: nothing -> nothing {
+    (['kube-system/metrics-server'] | wait-for deployment $kubecfg) | ignore
+
+    mut ready = false
+    for attempt in 1..60 {
+        if (k $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0 {
+            $ready = true
+            break
+        }
+        sleep 5sec
+    }
+
+    if not $ready {
+        error make {
+            msg: 'metrics-server did not become ready within 5 minutes'
+            label: {
+                text: 'wait-for-metrics'
+                span: (metadata $kubecfg).span
+            }
+        }
+    }
+}
+
+# Return the total restart count for matching Pods.
+def restart-count [kubecfg: path, namespace: string, selector: string]: nothing -> int {
+    let pods = try {
+        k $kubecfg -n $namespace get pods -l $selector -o json
+        | from json
+        | get items
+    } catch {
+        return 0
+    }
+
+    if ($pods | is-empty) { return 0 }
+
+    $pods
+    | each {|pod|
+        $pod.status.containerStatuses
+        | default []
+        | each {|container| $container.restartCount | into int }
+        | math sum
+    }
+    | math sum
+}
+
+# Return whether a Service has a ready EndpointSlice address.
+def service-ready [kubecfg: path, namespace: string, service: string]: nothing -> bool {
+    let slices = try {
+        (k
+            $kubecfg
+            -n
+            $namespace
+            get
+            endpointslice
+            -l
+            $'kubernetes.io/service-name=($service)'
+            -o
+            json
+        )
+        | from json
+        | get items
+    } catch {
+        return false
+    }
+
+    $slices
+    | any {|slice|
+        ($slice.endpoints | default [] | any {|endpoint| $endpoint.conditions.ready })
+    }
+}
+
+# Verify that platform controllers and their webhooks remain stable.
+def verify-platform [kubecfg: path]: nothing -> nothing {
+    [
+        'cnpg-system/cnpg-cloudnative-pg'
+        'keda/keda-operator'
+        'keda/keda-operator-metrics-apiserver'
+        'keda/keda-admission-webhooks'
+    ] | wait-for deployment $kubecfg | ignore
+
+    for webhook in [
+        {namespace: 'cnpg-system', name: 'cnpg-webhook-service'}
+        {namespace: 'keda', name: 'keda-admission-webhooks'}
+    ] {
+        if not (service-ready $kubecfg $webhook.namespace $webhook.name) {
+            error make {
+                msg: $'Webhook service ($webhook.namespace)/($webhook.name) has no endpoint'
+                label: {
+                    text: 'verify-platform'
+                    span: (metadata $kubecfg).span
+                }
+            }
+        }
+    }
+
+    let before_cnpg = restart-count $kubecfg cnpg-system 'app.kubernetes.io/name=cloudnative-pg'
+    let before_keda = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-operator'
+    let before_keda_metrics = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-metrics-apiserver'
+    let before_keda_webhook = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-admission-webhooks'
+    let before_storage = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
+    sleep 30sec
+    let after_cnpg = restart-count $kubecfg cnpg-system 'app.kubernetes.io/name=cloudnative-pg'
+    let after_keda = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-operator'
+    let after_keda_metrics = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-metrics-apiserver'
+    let after_keda_webhook = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-admission-webhooks'
+    let after_storage = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
+    if $after_cnpg != $before_cnpg or $after_keda != $before_keda or $after_keda_metrics != $before_keda_metrics or $after_keda_webhook != $before_keda_webhook or $after_storage != $before_storage {
+        error make {
+            msg: 'CNPG or KEDA restarted during the platform stability window'
+            label: {
+                text: 'verify-platform'
+                span: (metadata $kubecfg).span
+            }
+        }
+    }
 }
 
 # Build the platform container images into Minikube.
@@ -75,6 +265,7 @@ def --env build-images [kubecfg: path]: nothing -> string {
     }
 
     [
+        {image: 'data-proxy:local', dockerfile: 'Dockerfile'}
         {image: 'localhost/data-proxy-postgres:17.0.0-local', dockerfile: 'Dockerfile.postgres'}
         {image: 'data-proxy-nginx-proxy:local', dockerfile: 'Dockerfile.proxy'}
         {image: 'data-proxy-nushell:local', dockerfile: 'Dockerfile.nushell'}
@@ -204,7 +395,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         | str trim
     )
 
-    for stream in [dp:extract dp:prepare dp:publish] {
+    for stream in $STREAMS {
         (k
             $kubecfg
             -n
@@ -318,26 +509,66 @@ def k6-run [
     let pod_jsonpath = 'jsonpath={.items[0].metadata.name}'
 
     log info 'Waiting for the runner job to appear…'
-    while true {
+    mut job_ready = false
+    for attempt in 1..300 {
         let jobs = k $kubecfg -n data-proxy get jobs -l $label -o $items_jsonpath | str trim
-        if ($jobs | is-not-empty) and ($jobs != '[]') { break }
+        if ($jobs | is-not-empty) and ($jobs != '[]') {
+            $job_ready = true
+            break
+        }
         sleep 1sec
+    }
+    if not $job_ready {
+        error make {
+            msg: 'k6 runner Job did not appear within 5 minutes'
+            label: {
+                text: 'k6-run'
+                span: (metadata $testrun).span
+            }
+        }
     }
 
     log info 'Waiting for the test to complete…'
-    while true {
+    mut complete = false
+    mut failed = false
+    for attempt in 1..1800 {
         let phase = (
             (k $kubecfg -n data-proxy get jobs -l $label -o $'jsonpath=($complete_jsonpath)')
             | str trim
         )
-        if $phase =~ True { break }
+        if $phase == 'True' {
+            $complete = true
+            break
+        }
+        if $phase == 'FalseTrue' {
+            $failed = true
+            break
+        }
         sleep 2sec
     }
 
     let pod = (k $kubecfg -n data-proxy get pods -l $label -o $pod_jsonpath)
     let runner_log = (k $kubecfg -n data-proxy logs $pod)
-
     print ($runner_log | to text)
+
+    if $failed {
+        error make {
+            msg: 'k6 runner Job failed'
+            label: {
+                text: 'k6-run'
+                span: (metadata $testrun).span
+            }
+        }
+    }
+    if not $complete {
+        error make {
+            msg: 'k6 runner Job timed out after 60 minutes'
+            label: {
+                text: 'k6-run'
+                span: (metadata $testrun).span
+            }
+        }
+    }
 }
 
 # Print cluster status with kubecolor.
@@ -398,13 +629,8 @@ def "main k6 e2e" []: nothing -> nothing {
         return
     }
 
-    log info 'Building data-proxy:local…'
-    docker build -q -t data-proxy:local -f Dockerfile .
-    docker save -q data-proxy:local | mk $kubecfg image load -
-
-    log info 'Building data-proxy-nginx-proxy:local…'
-    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
-    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
+    log info 'Building and loading local images…'
+    build-images $kubecfg
 
     log info 'Waiting for the CNPG controller…'
     ['cnpg-system/cnpg-cloudnative-pg'] | wait-for deployment $kubecfg
@@ -467,13 +693,16 @@ def "main up" []: nothing -> nothing {
 
     k $kubecfg wait --for=condition=Ready nodes --all --timeout=5m
 
+    log info 'Waiting for the Minikube control plane…'
+    wait-for-control-plane $kubecfg
+
+    log info 'Enabling metrics-server…'
+    mk $kubecfg addons enable metrics-server
+    log info 'Waiting for metrics-server…'
+    wait-for-metrics $kubecfg
+
     log info 'Building container images…'
     build-images $kubecfg
-
-    log info 'Building data-proxy:local…'
-    docker build -t data-proxy:local -f ($repo | path join Dockerfile) $repo
-    log info 'Loading data-proxy:local into Minikube…'
-    docker save data-proxy:local | mk $kubecfg image load -
 
     log info 'Building Helm dependencies…'
     hm $kubecfg dependency build $'($repo)/helm'
@@ -492,6 +721,9 @@ def "main up" []: nothing -> nothing {
     with-env {KUBECONFIG: $kubecfg} {
         helmfile --concurrency 1 --file ($repo | path join helmfile.yaml) sync --wait --timeout 900
     }
+
+    log info 'Verifying CNPG and KEDA stability…'
+    verify-platform $kubecfg
 
     log info 'Applying GCP secret…'
     apply-gcp-secret $kubecfg
@@ -517,22 +749,30 @@ def "main up" []: nothing -> nothing {
     ] | wait-for deployment $kubecfg
 
     log info 'Waiting for CNPG cluster…'
-    while true {
-        let phase = (
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                get
-                cluster
-                data-proxy
-                -o
-                'jsonpath={.status.phase}'
-            )
-            | str trim
-        )
-        if $phase == 'Cluster in healthy state' { break }
+    mut cluster_ready = false
+    for attempt in 1..300 {
+        let phase = try {
+            k $kubecfg -n data-proxy get cluster data-proxy -o json
+            | from json
+            | get status.phase
+        } catch {
+            ''
+        }
+        if $phase == 'Cluster in healthy state' {
+            $cluster_ready = true
+            break
+        }
         sleep 2sec
+    }
+
+    if not $cluster_ready {
+        error make {
+            msg: 'CNPG cluster did not become healthy within 10 minutes'
+            label: {
+                text: 'main up'
+                span: (metadata $kubecfg).span
+            }
+        }
     }
 
     log info 'Creating the SeaweedFS test bucket…'

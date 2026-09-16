@@ -305,6 +305,14 @@ map $http_accept_profile $postgrest_write {
       key: writers.json
 - name: PUSHGATEWAY_URL
   value: {{ .Values.pushgateway.url | default (printf "http://%s-pushgateway.%s.svc.cluster.local:9091" .Release.Name .Release.Namespace) | quote }}
+- name: KUBERNETES_NAMESPACE
+  value: {{ .Release.Namespace | quote }}
+- name: POSTGREST_RO_DEPLOYMENT_TEMPLATE
+  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
+- name: POSTGREST_RW_DEPLOYMENT_TEMPLATE
+  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
+- name: POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS
+  value: "300"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
   value: /gcp/key.json

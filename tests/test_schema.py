@@ -1,10 +1,9 @@
 """Tests for schema initialization and PostgREST reload."""
 
-import psycopg
 import pytest
 
 from dp.models import FullTable, SchemaConfig, SyncConfig
-from dp.schema import initialize_schemas, reload_postgrest
+from dp.schema import initialize_schemas, revoke_anonymous_access
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql, sync_config
 
@@ -83,13 +82,11 @@ class TestSchema:
         assert row == (True,)
 
     @pytest.mark.asyncio
-    async def test_reload_postgrest_revokes_anonymous_then_notifies(
-        self, postgres: Postgres
-    ) -> None:
+    async def test_revoke_anonymous_access(self, postgres: Postgres) -> None:
         """
         GIVEN: a sync config.
-        WHEN: reload_postgrest is called.
-        THEN: anonymous access is revoked per schema before the reload notification.
+        WHEN: revoke_anonymous_access is called.
+        THEN: anonymous access is revoked per schema.
         """
         schema = postgres.namespace.schema
         config = sync_config([FullTable(name=f"p.{schema}.one")], schema_name=schema)
@@ -100,15 +97,7 @@ class TestSchema:
         )
         await postgres.connection.commit()
 
-        listener = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
-        try:
-            await listener.execute("LISTEN pgrst")
-            await reload_postgrest(postgres.connection, config)
-            notification = await anext(listener.notifies(timeout=1))
-        finally:
-            await listener.close()
-
-        assert notification.payload == "reload schema"
+        await revoke_anonymous_access(postgres.connection, config)
         usage = await (
             await execute_sql(
                 postgres.connection,

@@ -14,7 +14,7 @@ from .models import (
     SyncPublicationInput,
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
-from .schema import initialize_schemas, reload_postgrest
+from .schema import initialize_schemas, revoke_anonymous_access
 from .settings import settings
 from .state import emit_error
 
@@ -160,7 +160,7 @@ async def finalize_publication(pg_conn: AsyncConnection, config: SyncConfig) -> 
     await create_bq_views(pg_conn, config)
     logger.info("Created BigQuery fallback views")
 
-    await reload_postgrest(pg_conn, config)
+    await revoke_anonymous_access(pg_conn, config)
     logger.info("PostgREST schema reload requested")
 
 

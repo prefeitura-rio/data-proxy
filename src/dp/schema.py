@@ -71,8 +71,8 @@ async def initialize_schemas_for_plans(
             )
 
 
-async def reload_postgrest(pg_conn: AsyncConnection, config: SyncConfig) -> None:
-    """Revoke anonymous access and request a schema reload."""
+async def revoke_anonymous_access(pg_conn: AsyncConnection, config: SyncConfig) -> None:
+    """Revoke anonymous access before the PostgREST rollout refresh."""
     for schema in config.schemas:
         await execute_sql(
             pg_conn,
@@ -83,5 +83,4 @@ async def reload_postgrest(pg_conn: AsyncConnection, config: SyncConfig) -> None
             },
         )
 
-    await execute_sql(pg_conn, "postgres/reload_schema")
     await pg_conn.commit()
