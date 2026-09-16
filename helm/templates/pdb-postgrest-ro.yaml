@@ -1,0 +1,31 @@
+{{- if eq .Values.cnpg.mode "shared" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgrest-ro
+{{- else }}
+{{- $root := . }}
+{{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $cluster }}-postgrest-ro
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: postgrest-ro
+      data-proxy.io/schema: {{ $schema | quote }}
+{{- end }}
+{{- end }}

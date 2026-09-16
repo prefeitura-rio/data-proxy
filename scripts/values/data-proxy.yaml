@@ -3,6 +3,8 @@ sync:
   imagePullPolicy: IfNotPresent
   dumper:
     batchMegaBytes: 60000
+migration:
+  image: localhost/data-proxy-nushell:local
 serviceAccount:
   create: true
   name: data-proxy
@@ -11,7 +13,22 @@ postgrest:
   jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
   jwksFetch:
     image: localhost/data-proxy-nushell:local
-  maxReplicaCount: 3
+  ro:
+    replicas: 1
+    resources: {}
+    keda:
+      minReplicaCount: 1
+      maxReplicaCount: 3
+      pollingInterval: 30
+      cooldownPeriod: 300
+      triggers: []
+  rw:
+    replicas: 1
+    resources: {}
+    hpa:
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
 pooler:
     instances: 1
     poolSize: 20

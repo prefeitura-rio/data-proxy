@@ -1,7 +1,6 @@
 suite: HA topology
 templates:
   - validate-ha.yaml
-  - scaledobject-cnpg.yaml
   - scaledobject-postgrest.yaml
   - scaledobject-nginx-proxy.yaml
   - scaledobject-pooler.yaml
@@ -34,27 +33,6 @@ tests:
       - failedTemplate:
           errorMessage: ha.schemas[missing] is not present in syncConfig.schemas
         template: validate-ha.yaml
-  - it: creates CNPG autoscaling with CPU by default
-    set:
-      ha.enabled: true
-      cnpg.mode: per-schema
-      valkey.architecture: replication
-      valkey.replicaCount: 3
-      valkey.sentinel.enabled: true
-      syncConfig.schemas.foo.tables: []
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: scaledobject-cnpg.yaml
-      - equal:
-          path: spec.minReplicaCount
-          value: 2
-        template: scaledobject-cnpg.yaml
-      - equal:
-          path: spec.triggers[0].type
-          value: cpu
-        template: scaledobject-cnpg.yaml
-
   - it: renders per-schema Pooler ScaledObjects with shared autoscaling values
     set:
       ha.enabled: true

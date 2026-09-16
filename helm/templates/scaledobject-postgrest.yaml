@@ -2,20 +2,20 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest
+  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
   namespace: {{ .Release.Namespace }}
 spec:
   scaleTargetRef:
-    name: {{ include "data-proxy.fullname" . }}-postgrest
+    name: {{ include "data-proxy.fullname" . }}-postgrest-ro
     kind: Deployment
     apiVersion: apps/v1
-  minReplicaCount: 1
-  maxReplicaCount: {{ .Values.postgrest.maxReplicaCount }}
-  pollingInterval: {{ .Values.postgrest.autoscaling.pollingInterval }}
-  cooldownPeriod: {{ .Values.postgrest.autoscaling.cooldownPeriod }}
+  minReplicaCount: {{ .Values.postgrest.ro.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.postgrest.ro.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.postgrest.ro.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.postgrest.ro.keda.cooldownPeriod }}
   triggers:
-{{- if gt (len (.Values.postgrest.autoscaling.triggers | default list)) 0 }}
-{{ toYaml .Values.postgrest.autoscaling.triggers | nindent 4 }}
+{{- if gt (len (.Values.postgrest.ro.keda.triggers | default list)) 0 }}
+{{ toYaml .Values.postgrest.ro.keda.triggers | nindent 4 }}
 {{- else }}
 {{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
 {{- end }}

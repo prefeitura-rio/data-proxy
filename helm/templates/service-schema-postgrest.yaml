@@ -2,7 +2,7 @@
 {{- $root := . }}
 {{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-{{- range $mode := list "rw" }}
+{{- range $mode := list "ro" "rw" }}
 ---
 apiVersion: v1
 kind: Service

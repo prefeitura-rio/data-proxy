@@ -2,24 +2,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest
+  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest
+    app.kubernetes.io/component: postgrest-ro
 spec:
-  replicas: {{ .Values.postgrest.replicas }}
+  replicas: {{ .Values.postgrest.ro.replicas }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: postgrest
+      app.kubernetes.io/component: postgrest-ro
   template:
     metadata:
       annotations:
         checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: postgrest
+        app.kubernetes.io/component: postgrest-ro
         # The fallback proxy is the only entrance when it is enabled.
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
@@ -59,7 +59,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PGRST_DB_URI
-              value: {{ include "data-proxy.postgresDsn" . | quote }}
+              value: {{ include "data-proxy.postgresReadDsn" . | quote }}
             - name: PGRST_DB_SCHEMAS
               value: {{ append (keys (.Values.syncConfig.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE
@@ -97,7 +97,7 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
-          {{- with .Values.postgrest.resources }}
+          {{- with .Values.postgrest.ro.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}

@@ -44,6 +44,8 @@ interface ProxyResponse {
 
 interface RequestContext extends CacheKeyParts {
     upstream: string;
+    readUpstream: string;
+    writeUpstream: string;
     cacheTtl: string;
     fallback: boolean;
     maxBody: number;
@@ -293,6 +295,11 @@ function requestContext(
     fallbackMap: Record<string, TableEntry>,
 ): RequestContext {
     const jwt = decodeJWT(r.headersIn["Authorization"] || "");
+    const readUpstream = r.variables.postgrest_read || "";
+    const writeUpstream = r.variables.postgrest_write || "";
+    const upstream = r.method === "GET" || r.method === "HEAD"
+        ? readUpstream
+        : writeUpstream;
     const profile = r.headersIn["Accept-Profile"] || "";
     const table = tableFor(r.uri, fallbackMap);
     const lifetime = r.variables.fallback_cache_ttl || "";
@@ -305,7 +312,9 @@ function requestContext(
         schemas: jwt.schemas,
         profile: profile,
         headers: buildHeaders(r),
-        upstream: r.variables.fallback_pgrst || "",
+        upstream: upstream,
+        readUpstream: readUpstream,
+        writeUpstream: writeUpstream,
         cacheTtl: table?.cacheTtl ? String(table.cacheTtl) : lifetime,
         fallback: table?.fallback ?? false,
         maxBody: Number(r.variables.fallback_max_body || "0"),

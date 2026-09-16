@@ -1,0 +1,56 @@
+{{- if .Values.postgrest.rw.hpa.enabled }}
+{{- if eq .Values.cnpg.mode "per-schema" }}
+{{- $root := . }}
+{{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $cluster }}-postgrest-rw
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: postgrest-rw
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $cluster }}-postgrest-rw
+  minReplicas: {{ $root.Values.postgrest.rw.hpa.minReplicas }}
+  maxReplicas: {{ $root.Values.postgrest.rw.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $root.Values.postgrest.rw.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- else }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest-rw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgrest-rw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "data-proxy.fullname" . }}-postgrest-rw
+  minReplicas: {{ .Values.postgrest.rw.hpa.minReplicas }}
+  maxReplicas: {{ .Values.postgrest.rw.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.postgrest.rw.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

@@ -3,7 +3,7 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-pooler-autoscaler
+  name: {{ include "data-proxy.fullname" . }}-pooler-ro-autoscaler
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
@@ -12,7 +12,7 @@ spec:
   scaleTargetRef:
     apiVersion: postgresql.cnpg.io/v1
     kind: Pooler
-    name: {{ include "data-proxy.fullname" . }}-pooler
+    name: {{ include "data-proxy.fullname" . }}-pooler-ro
   minReplicaCount: {{ .Values.cnpg.pooler.autoscaling.minReplicaCount }}
   maxReplicaCount: {{ .Values.cnpg.pooler.autoscaling.maxReplicaCount }}
   pollingInterval: {{ .Values.cnpg.pooler.autoscaling.pollingInterval }}
@@ -34,7 +34,7 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ $pooler }}-pooler-autoscaler
+  name: {{ $pooler }}-pooler-ro-autoscaler
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -44,7 +44,7 @@ spec:
   scaleTargetRef:
     apiVersion: postgresql.cnpg.io/v1
     kind: Pooler
-    name: {{ $pooler }}-pooler
+    name: {{ $pooler }}-pooler-ro
   minReplicaCount: {{ $root.Values.cnpg.pooler.autoscaling.minReplicaCount }}
   maxReplicaCount: {{ $root.Values.cnpg.pooler.autoscaling.maxReplicaCount }}
   pollingInterval: {{ $root.Values.cnpg.pooler.autoscaling.pollingInterval }}

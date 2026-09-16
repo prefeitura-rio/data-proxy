@@ -3,7 +3,6 @@ templates:
   - cluster-cnpg.yaml
   - rbac.yaml
   - cronjob-partman-maintenance.yaml
-  - scaledobject-cnpg.yaml
   - scaledobject-pooler.yaml
 tests:
   - it: renders one CNPG Cluster in shared mode
@@ -64,27 +63,6 @@ tests:
           count: 1
         template: cronjob-partman-maintenance.yaml
 
-  - it: renders a CNPG ScaledObject for the shared cluster
-    set:
-      cnpg.autoscaling.minReplicaCount: 2
-      cnpg.autoscaling.maxReplicaCount: 3
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: scaledobject-cnpg.yaml
-      - equal:
-          path: spec.scaleTargetRef.name
-          value: data-proxy
-        template: scaledobject-cnpg.yaml
-      - equal:
-          path: spec.minReplicaCount
-          value: 2
-        template: scaledobject-cnpg.yaml
-      - equal:
-          path: spec.maxReplicaCount
-          value: 3
-        template: scaledobject-cnpg.yaml
-
   - it: renders a Pooler ScaledObject targeting the shared Pooler
     asserts:
       - hasDocuments:
@@ -96,7 +74,7 @@ tests:
         template: scaledobject-pooler.yaml
       - equal:
           path: spec.scaleTargetRef.name
-          value: data-proxy-pooler
+          value: data-proxy-pooler-ro
         template: scaledobject-pooler.yaml
       - equal:
           path: spec.minReplicaCount

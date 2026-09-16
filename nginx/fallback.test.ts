@@ -24,6 +24,8 @@ interface Scenario {
     token?: string;
     profile?: string;
     upstream?: string;
+    readUpstream?: string;
+    writeUpstream?: string;
     cacheTtl?: string;
     sync?: unknown;
     requestBody?: string;
@@ -806,7 +808,12 @@ function fakeRequest(
         headersOut: headersOut,
         variables: {
             args: scenario.args === undefined ? QUERY : scenario.args,
-            fallback_pgrst: scenario.upstream === undefined ? UPSTREAM : scenario.upstream,
+            postgrest_read: scenario.readUpstream === undefined
+                ? (scenario.upstream === undefined ? UPSTREAM : scenario.upstream)
+                : scenario.readUpstream,
+            postgrest_write: scenario.writeUpstream === undefined
+                ? (scenario.upstream === undefined ? UPSTREAM : scenario.upstream)
+                : scenario.writeUpstream,
             fallback_cache_ttl: scenario.cacheTtl === undefined ? '300' : scenario.cacheTtl,
             fallback_max_body: scenario.maxBody === undefined ? '' : String(scenario.maxBody),
         },
@@ -944,6 +951,46 @@ SCENARIOS.forEach((scenario) => {
             assert.equal(line.indexOf(QUERY), -1, 'a log line carries the query string');
         });
     });
+});
+
+test('proxy: selects the read upstream for GET and write upstream for mutations', async () => {
+    const read = 'http://postgrest-read:3000';
+    const write = 'http://postgrest-write:3000';
+    const common = {
+        readUpstream: read,
+        writeUpstream: write,
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'postgrest',
+        events: [],
+    };
+    const get = await run({
+        name: 'read route',
+        answers: [{ match: '/GET/', status: 200, body: MISS }, { match: read, status: 200, body: ROWS }],
+        calls: [CACHE_READ, 'GET ' + read + PATH + '?' + QUERY],
+        ...common,
+    });
+    const post = await run({
+        name: 'write route',
+        method: 'POST',
+        answers: [{ match: write, status: 200, body: ROWS }],
+        calls: ['POST ' + write + PATH + '?' + QUERY],
+        ...common,
+    });
+
+    const head = await run({
+        name: 'head route',
+        method: 'HEAD',
+        answers: [{ match: read, status: 200, body: ROWS }],
+        calls: ['HEAD ' + read + PATH + '?' + QUERY],
+        ...common,
+    });
+
+    assertCalls(get.calls, [CACHE_READ, 'GET ' + read + PATH + '?' + QUERY, CACHE_WRITE]);
+    assertCalls(head.calls, ['HEAD ' + read + PATH + '?' + QUERY]);
+    assertCalls(post.calls, ['POST ' + write + PATH + '?' + QUERY]);
 });
 
 test('proxy: keys a media type the same with and without parameters', async () => {

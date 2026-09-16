@@ -2,10 +2,10 @@
 {{- $root := . }}
 {{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-{{- $readReplicas := default $root.Values.cnpg.readReplicas (dig "readReplicas" 1 $stack) | int }}
-{{- $writeReplicas := default $root.Values.cnpg.writeReplicas (dig "writeReplicas" 1 $stack) | int }}
-{{- range $mode := list "rw" }}
-{{- $databaseService := printf "%s-pooler-ro" $cluster }}
+{{- $readReplicas := $root.Values.postgrest.ro.replicas | int }}
+{{- $writeReplicas := $root.Values.postgrest.rw.replicas | int }}
+{{- range $mode := list "ro" "rw" }}
+{{- $databaseService := ternary (printf "%s-pooler-ro" $cluster) (printf "%s-rw" $cluster) (eq $mode "ro") }}
 {{- $replicas := ternary $readReplicas $writeReplicas (eq $mode "ro") }}
 ---
 apiVersion: apps/v1
@@ -45,7 +45,7 @@ spec:
           labelSelector:
             matchLabels:
               {{- include "data-proxy.selectorLabels" $root | nindent 14 }}
-              app.kubernetes.io/component: postgrest
+              app.kubernetes.io/component: postgrest-{{ $mode }}
               data-proxy.io/schema: {{ $schema | quote }}
       initContainers:
         - name: fetch-jwks
@@ -97,7 +97,7 @@ spec:
               mountPath: /etc/postgrest
               readOnly: true
           resources:
-            {{- toYaml $root.Values.postgrest.resources | nindent 12 }}
+            {{- toYaml (ternary $root.Values.postgrest.ro.resources $root.Values.postgrest.rw.resources (eq $mode "ro")) | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /

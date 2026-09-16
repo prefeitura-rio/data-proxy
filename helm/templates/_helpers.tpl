@@ -157,11 +157,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 postgresql://{{ $root.Values.cnpg.db.user }}:{{ $root.Values.cnpg.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.cnpg.db.name }}
 {{- end }}
 
-{{- define "data-proxy.postgresDsn" -}}
+{{- define "data-proxy.postgresReadDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.postgresWriteDsn" -}}
+{{- $role := .Values.auth.authenticatorRole -}}
+{{- $db := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.postgresDsn" -}}
+{{ include "data-proxy.postgresWriteDsn" . }}
 {{- end }}
 
 {{- define "data-proxy.backupPgDsn" -}}
@@ -221,16 +232,23 @@ jwtRules:
 {{- end }}
 
 {{- define "data-proxy.fallbackNginxUpstreams" -}}
-map $http_accept_profile $fallback_pgrst {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
+map $http_accept_profile $postgrest_read {
+  default "http://{{ include "data-proxy.fullname" . }}-postgrest-ro.{{ .Release.Namespace }}.svc.cluster.local:3000";
   {{- if eq .Values.cnpg.mode "per-schema" }}
-  {{- $schemas := .Values.cnpg.schemas }}
-  {{- if .Values.ha.enabled }}{{ $schemas = .Values.syncConfig.schemas }}{{ end }}
-  {{- range $schema, $_ := $schemas }}
+  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
   {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
   {{- end }}
   {{- end }}
 }
+map $http_accept_profile $postgrest_write {
+  default "http://{{ include "data-proxy.fullname" . }}-postgrest-rw.{{ .Release.Namespace }}.svc.cluster.local:3000";
+  {{- if eq .Values.cnpg.mode "per-schema" }}
+  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
+  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-rw.{{ $.Release.Namespace }}.svc.cluster.local:3000";
+  {{- end }}
+  {{- end }}
+}
+
 {{- end }}
 
 {{- define "data-proxy.appEnv" -}}

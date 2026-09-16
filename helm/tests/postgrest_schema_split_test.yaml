@@ -1,0 +1,80 @@
+suite: Per-schema PostgREST read/write split
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - deployment-schema-postgrest.yaml
+  - service-schema-postgrest.yaml
+  - hpa-postgrest-rw.yaml
+  - configmap-schema-nginx-proxy.yaml
+tests:
+  - it: renders read and write workloads with role-aware DSNs
+    set:
+      cnpg.mode: per-schema
+      ha.enabled: true
+      postgrest.ro.replicas: 2
+      postgrest.rw.replicas: 3
+      syncConfig.schemas.example.tables: []
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-ro
+      - equal:
+          path: spec.replicas
+          value: 3
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-rw
+      - hasDocuments:
+          count: 2
+        template: deployment-schema-postgrest.yaml
+      - hasDocuments:
+          count: 2
+        template: service-schema-postgrest.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_URI
+            value: postgres://authenticator:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-example-pooler-ro:5432/data-proxy
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-ro
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_URI
+            value: postgres://authenticator:$(PGRST_AUTHENTICATOR_PASSWORD)@data-proxy-example-rw:5432/data-proxy
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-rw
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-example-postgrest-rw
+        template: hpa-postgrest-rw.yaml
+  - it: exposes separate read and write upstreams to the proxy
+    set:
+      cnpg.mode: per-schema
+      ha.enabled: true
+      syncConfig.schemas.example.tables: []
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'postgrest_read \{ default "http://data-proxy-example-postgrest-ro.default.svc.cluster.local:3000"'
+        template: configmap-schema-nginx-proxy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'default "http://data-proxy-example-postgrest-rw.default.svc.cluster.local:3000"'
+        template: configmap-schema-nginx-proxy.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-nginx-proxy

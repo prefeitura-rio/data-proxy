@@ -22,6 +22,14 @@ releases:
     createNamespace: true
     chart: cnpg/cloudnative-pg
     version: 0.23.2
+    values:
+      - resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
     wait: true
     timeout: 900
 
@@ -39,7 +47,7 @@ releases:
     namespace: keda
     createNamespace: true
     chart: keda/keda
-    version: 2.18.0
+    version: 2.18.3
     wait: true
     timeout: 900
 

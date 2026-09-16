@@ -102,10 +102,6 @@ serviceAccount:
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
-  ## Number of PostgREST Deployment replicas. Managed by KEDA when autoscaling is enabled.
-  replicas: 1
-  ## Maximum replicas for the KEDA ScaledObject (single mode).
-  maxReplicaCount: 3
   ## External URL that PostgREST uses in the OpenAPI specification.
   ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
@@ -119,26 +115,41 @@ postgrest:
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
   ## Aggregates can be expensive. Limit access with row-level security and indexes.
   aggregatesEnabled: true
-  ## Container resources for PostgREST.
-  resources:
-    requests:
-      cpu: 100m
-      memory: 64Mi
-      ephemeral-storage: 128Mi
-    limits:
-      memory: 256Mi
-      ephemeral-storage: 512Mi
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
-  ## Autoscaling for PostgREST in single and HA modes.
-  autoscaling:
-    minReplicaCount: 1
-    maxReplicaCount: 3
-    pollingInterval: 30
-    cooldownPeriod: 300
-    triggers: []
+  ro:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+        ephemeral-storage: 128Mi
+      limits:
+        memory: 256Mi
+        ephemeral-storage: 512Mi
+    keda:
+      minReplicaCount: 1
+      maxReplicaCount: 3
+      pollingInterval: 30
+      cooldownPeriod: 300
+      triggers: []
+  rw:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+        ephemeral-storage: 128Mi
+      limits:
+        memory: 256Mi
+        ephemeral-storage: 512Mi
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
 ## CNPG Pooler configuration for PgBouncer connection pooling.
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled

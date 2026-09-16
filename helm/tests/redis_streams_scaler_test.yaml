@@ -1,0 +1,23 @@
+suite: Redis Streams scaler connection
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - scaledobject-dumper.yaml
+  - scaledjob-seeder.yaml
+  - scaledjob-publisher.yaml
+tests:
+  - it: supplies the Redis writer address to every stream scaler
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata.address
+          value: redis-writer:6379
+        template: scaledobject-dumper.yaml
+      - equal:
+          path: spec.triggers[0].metadata.address
+          value: redis-writer:6379
+        template: scaledjob-seeder.yaml
+      - equal:
+          path: spec.triggers[0].metadata.address
+          value: redis-writer:6379
+        template: scaledjob-publisher.yaml

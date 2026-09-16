@@ -27,7 +27,7 @@ tests:
         template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.host
-          value: data-proxy-nginx-proxy
+          value: data-proxy-app-pequenos-cariocas-nginx-proxy
         template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.port.number

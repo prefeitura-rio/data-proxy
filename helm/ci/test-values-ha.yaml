@@ -58,7 +58,22 @@ s3:
 postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
-  maxReplicaCount: 5
+  ro:
+    replicas: 1
+    resources: {}
+    keda:
+      minReplicaCount: 1
+      maxReplicaCount: 5
+      pollingInterval: 30
+      cooldownPeriod: 300
+      triggers: []
+  rw:
+    replicas: 1
+    resources: {}
+    hpa:
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
 pooler:
     instances: 2
     poolSize: 20

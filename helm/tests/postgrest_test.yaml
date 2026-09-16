@@ -1,6 +1,6 @@
 suite: PostgREST
 templates:
-  - deployment-postgrest.yaml
+  - deployment-postgrest-ro.yaml
 tests:
   - it: fetches and validates JWKS before PostgREST starts
     set:
@@ -42,7 +42,7 @@ tests:
 
   - it: honors a custom postgrest replica count
     set:
-      postgrest.replicas: 3
+      postgrest.ro.replicas: 3
     asserts:
       - equal:
           path: spec.replicas

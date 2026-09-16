@@ -5,17 +5,17 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-postgrest
+  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-postgrest-ro
   namespace: {{ $root.Release.Namespace }}
 spec:
   scaleTargetRef:
-    name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-postgrest
+    name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-postgrest-ro
     kind: Deployment
     apiVersion: apps/v1
-  minReplicaCount: {{ $root.Values.postgrest.autoscaling.minReplicaCount }}
-  maxReplicaCount: {{ $root.Values.postgrest.autoscaling.maxReplicaCount }}
-  pollingInterval: {{ $root.Values.postgrest.autoscaling.pollingInterval }}
-  cooldownPeriod: {{ $root.Values.postgrest.autoscaling.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.postgrest.ro.keda.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.postgrest.ro.keda.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.postgrest.ro.keda.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.postgrest.ro.keda.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgrest") | nindent 4 }}
 {{- end }}

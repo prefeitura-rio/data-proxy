@@ -1,27 +1,27 @@
 suite: Always-on services
 templates:
-  - service-postgrest.yaml
+  - service-postgrest-ro.yaml
 tests:
   - it: postgrest service is rendered as ClusterIP on port 3000 in shared mode
     asserts:
       - hasDocuments:
           count: 1
-        template: service-postgrest.yaml
+        template: service-postgrest-ro.yaml
       - equal:
           path: spec.type
           value: ClusterIP
-        template: service-postgrest.yaml
+        template: service-postgrest-ro.yaml
       - equal:
           path: spec.ports[0].port
           value: 3000
-        template: service-postgrest.yaml
+        template: service-postgrest-ro.yaml
 
   - it: postgrest service selects the postgrest component
     asserts:
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
-          value: postgrest
-        template: service-postgrest.yaml
+          value: postgrest-ro
+        template: service-postgrest-ro.yaml
 
   - it: postgrest service is not rendered in per-schema mode
     set:
@@ -31,4 +31,4 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
-        template: service-postgrest.yaml
+        template: service-postgrest-ro.yaml

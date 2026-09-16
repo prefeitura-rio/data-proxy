@@ -5,7 +5,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-pooler
+  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-pooler-ro
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
