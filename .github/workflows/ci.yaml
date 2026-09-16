@@ -72,11 +72,11 @@ jobs:
           changed() { echo "$CHANGED" | grep -Eq "$1" && echo true || echo false; }
           {
             echo "ci=$(changed '^\.github/workflows/')"
-            echo "python=$(changed '^(src/|tests/|pyproject\.toml$|uv\.lock$|Docker$)')"
+            echo "python=$(changed '^(src/|tests/|pyproject\.toml$|uv\.lock$|Dockerfile$)')"
             echo "nushell=$(changed '^(scripts/|helm/files/.*\.nu$)')"
             echo "proxy=$(changed '^(nginx/|Dockerfile\.proxy$)')"
             echo "helm=$(changed '^helm/')"
-            echo "dp_image=$(changed '^(Docker$|src/|pyproject\.toml$|uv\.lock$)')"
+            echo "dp_image=$(changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)')"
             echo "pg_image=$(changed '^Dockerfile\.postgres$')"
             echo "nushell_image=$(changed '^Dockerfile\.nushell$')"
           } >> "$GITHUB_OUTPUT"
@@ -370,12 +370,13 @@ jobs:
       - name: Pin image SHAs in values.yaml
         if: github.ref == 'refs/heads/main'
         run: |
-          yq e ".image.tag = strenv(APP_SHA)" -i helm/values.yaml
-          yq e ".pgduckdb.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
-          yq e ".nushell.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".pgduckdb.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy:\" + strenv(APP_SHA)" -i helm/values.yaml
+          yq e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
+          yq e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(PROXY_SHA)" -i helm/values.yaml
         env:
           APP_SHA: ${{ steps.shas.outputs.app }}
