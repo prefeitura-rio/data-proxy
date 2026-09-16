@@ -96,6 +96,8 @@ spec:
             - name: jwks
               mountPath: /etc/postgrest
               readOnly: true
+          resources:
+            {{- toYaml $root.Values.postgrest.resources | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /

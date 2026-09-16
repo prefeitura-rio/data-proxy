@@ -327,6 +327,14 @@ cnpg:
     ## Transaction pooling mode: each client transaction gets a server connection.
     poolSize: 20
     maxClientConns: 100
+    ## Resource requests and limits for PgBouncer pods.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
     ## Autoscaling for the CNPG Pooler via KEDA. The Pooler CRD exposes a scale subresource.
     autoscaling:
       ## Minimum PgBouncer instances. Single mode: 1, HA: 2.
