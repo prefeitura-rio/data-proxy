@@ -233,7 +233,8 @@ def main []: nothing -> nothing {
 
     match $direction {
         'none' => {
-            log info 'No migration needed — target mode already matches cluster state.'
+            save-mode-state $env.TARGET_MODE
+            log info 'No migration needed — target mode recorded.'
         }
         _ => {
             log info $'Starting migration ($direction)…'
