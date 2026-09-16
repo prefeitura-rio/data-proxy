@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: swagger-ui
 data:
   schemas.js: |
-    window.dataProxySchemas = {{ .Values.swaggerUi.schemas | toJson }};
+    window.dataProxySchemas = {{ keys (.Values.syncConfig.schemas | default dict) | sortAlpha | toJson }};
 
     window.createSchemaSelector = function(schemas, selectedSchema, onChange) {
       var schemes = document.querySelector('.schemes-server-container');

@@ -1,14 +1,90 @@
-## PostgreSQL client image for the pre-upgrade database reconciliation Job.
-migration:
-  image: postgres:17-alpine
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
-image:
-  ## Registry path for the data-proxy image, without the tag.
-  repository: ghcr.io/prefeitura-rio/data-proxy
-  ## Immutable application image version.
-  tag: "738c8b5"
-  ## Image pull policy. Use Always when the tag is mutable (for example, latest).
-  pullPolicy: IfNotPresent
+sync:
+  image: ghcr.io/prefeitura-rio/data-proxy:3a849db
+  imagePullPolicy: IfNotPresent
+  producer:
+    ## Cron expression that controls when the producer runs.
+    ## Default: daily at 02:00 UTC.
+    schedule: 0 2 * * *
+    ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+    startingDeadlineSeconds: 600
+    ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
+    activeDeadlineSeconds: 3600
+    ## Time in seconds between checks for the prior pipeline to complete.
+    pollIntervalSeconds: 60
+    ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
+    ttlSecondsAfterFinished: 300
+  dumper:
+    ## Spread concurrent Dumper pods across nodes when possible.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: dumper
+            app.kubernetes.io/instance: data-proxy
+            app.kubernetes.io/name: data-proxy
+    ## Time in milliseconds before a Dumper can reclaim a pending task. One task
+    ## extracts a whole batch, so this must exceed the duration of a batch.
+    visibilityTimeoutMs: 3600000
+    ## Size in megabytes of uncompressed source data that one extraction batch collects before it
+    ## closes. A batch becomes one Parquet file in the bucket.
+    batchMegaBytes: 600
+    ## Maximum number of partitions in one batch, which bounds a partition set
+    ## that never reaches batchMegaBytes (in MB).
+    batchMaxPartitions: 256
+    ## Local scratch space that a Dumper uses to merge the partitions of a batch.
+    scratch:
+      ## Directory inside the container that holds the scratch files.
+      mountPath: /scratch
+      ## Size limit of the emptyDir volume that backs the scratch directory.
+      sizeLimit: 4Gi
+    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+    terminationGracePeriodSeconds: 900
+    keda:
+      ## Number of unread stream messages that triggers one additional Dumper pod.
+      lagCount: "1"
+      ## Number of delivered-but-unacknowledged messages that keeps a Dumper pod
+      ## alive. lagCount alone reaches 0 as soon as the last message is
+      ## delivered, before it is actually processed, so this second trigger
+      ## prevents KEDA from terminating a pod still finishing its last task.
+      pendingEntriesCount: "1"
+      ## Maximum number of concurrent Dumper pods.
+      maxReplicaCount: 15
+      ## Interval in seconds between KEDA metric checks.
+      pollingInterval: 30
+      ## Cooldown in seconds before scaling down to zero.
+      cooldownPeriod: 60
+  publisher:
+    ## Time in milliseconds before a publisher can reclaim a pending message.
+    visibilityTimeoutMs: 7200000
+    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+    terminationGracePeriodSeconds: 1800
+    keda:
+      ## Maximum publisher Jobs. Leave unset for one Job for each configured schema.
+      ## maxReplicaCount: 2
+      ## Number of delivered-but-unacknowledged messages that asks KEDA for a Job,
+      ## which then reclaims the message after the visibility timeout.
+      pendingEntriesCount: "1"
+      ## Interval in seconds between KEDA metric checks.
+      pollingInterval: 30
+      ## Number of completed publisher Jobs that KEDA keeps. Zero removes them.
+      successfulJobsHistoryLimit: 0
+      ## Number of failed publisher Jobs that KEDA keeps for inspection.
+      failedJobsHistoryLimit: 1
+  seeder:
+    visibilityTimeoutMs: 900000
+    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
+    terminationGracePeriodSeconds: 900
+    keda:
+      pendingEntriesCount: "1"
+      pollingInterval: 30
+      successfulJobsHistoryLimit: 0
+      failedJobsHistoryLimit: 1
+migration:
+  ## Image used by the HA mode migration Job.
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
 ## Kubernetes ServiceAccount for the pipeline pods.
 ## Attach a Workload Identity annotation here to allow BigQuery access without
 ## a service account key file.
@@ -23,38 +99,6 @@ serviceAccount:
 ## Configuration for the PostgreSQL database with pg_duckdb, PostGIS, and pg_partman.
 ## CNPG manages the PostgreSQL clusters. This section configures the database
 ## name, credentials, and init image used by the chart.
-postgres:
-  ## Database image used by standalone and HA members.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
-  storage:
-    ## Size of the PersistentVolumeClaim that stores PostgreSQL data.
-    size: 100Gi
-    ## StorageClass for the PersistentVolumeClaim. Leave empty to use the cluster default.
-    storageClass: ""
-    claimNamePrefix: ""
-  db:
-    ## Name of the PostgreSQL database that the pipeline writes to.
-    name: dataproxy
-    ## PostgreSQL superuser name used by the pipeline services to connect.
-    user: dataproxy
-  ## Nushell image used by the post-install init-db Job.
-  init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
-  resources:
-    requests:
-      memory: 512Mi
-      ephemeral-storage: 1Gi
-    limits:
-      memory: 2Gi
-      ephemeral-storage: 4Gi
-  ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain POSTGRES_PASSWORD and PGRST_AUTHENTICATOR_PASSWORD.
-  existingSecret: ""
-  ## Password for the PostgreSQL superuser. Required when existingSecret is empty.
-  password: ""
-  ## Password for the PostgREST authenticator role. Required when existingSecret is empty.
-  authenticatorPassword: ""
-## Configuration for the PostgREST REST API service.
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
@@ -75,34 +119,27 @@ postgrest:
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
   ## Aggregates can be expensive. Limit access with row-level security and indexes.
   aggregatesEnabled: true
-  ## PostgreSQL client image for database reconciliation before PostgREST starts.
-  dbMigrate:
-    image: postgres:17-alpine
+  ## Container resources for PostgREST.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+      ephemeral-storage: 128Mi
+    limits:
+      memory: 256Mi
+      ephemeral-storage: 512Mi
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
-  ## PgBouncer connection pooler deployed between PostgREST and CNPG.
-  pgBouncer:
-    ## PgBouncer container image.
-    image: pgbouncer/pgbouncer:1.23.1
-    ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
-    instances: 1
-    ## Transaction pooling mode: each client transaction gets a server connection.
-    poolSize: 20
-    maxClientConns: 100
-    ## Autoscaling for the CNPG Pooler via KEDA. The Pooler CRD exposes a scale subresource.
-    autoscaling:
-      ## Minimum PgBouncer instances. Single mode: 1, HA: 2.
-      minReplicaCount: 1
-      ## Maximum PgBouncer instances.
-      maxReplicaCount: 3
-      ## How often KEDA checks triggers, in seconds.
-      pollingInterval: 30
-      ## How long KEDA waits before scaling down, in seconds.
-      cooldownPeriod: 300
-      ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
-      triggers: []
+  ## Autoscaling for PostgREST in single and HA modes.
+  autoscaling:
+    minReplicaCount: 1
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 300
+    triggers: []
+## CNPG Pooler configuration for PgBouncer connection pooling.
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
 ## is also true, the page needs the same valid JWT and audience as PostgREST itself.
@@ -111,16 +148,8 @@ swaggerUi:
   enabled: false
   ## Swagger UI container image.
   image: swaggerapi/swagger-ui:v5.18.2
-  ## Schemas available in the Swagger UI schema profile selector.
-  schemas:
-    - app_pequenos_cariocas
-    - bcadastro
 ## Google Cloud Platform credentials for BigQuery access.
 ## In GKE, use Workload Identity via serviceAccount.annotations instead.
-## Nushell image with PostgreSQL client, Redis, AWS CLI, and age pre-installed.
-## Used by the init-db Job, PostgREST JWKS init container, backup CronJob, and cleanup CronJob.
-nushell:
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
 ## In minikube, set existingSecret to a Secret containing key.json.
 gcp:
   ## Name of an existing Secret with a key.json file for BigQuery access.
@@ -219,48 +248,35 @@ redis:
   ## Webdis read endpoint (Redis replica). Defaults to webdisHost when unset.
   webdisReadHost: ""
   webdisReadPort: 6379
-## Producer CronJob — runs once per schedule, publishes sync tasks to Valkey, then exits.
-producer:
-  ## Cron expression that controls when the producer runs.
-  ## Default: daily at 02:00 UTC.
-  schedule: 0 2 * * *
-  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
-  startingDeadlineSeconds: 600
-  ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
-  activeDeadlineSeconds: 3600
-  ## Time in seconds between checks for the prior pipeline to complete.
-  pollIntervalSeconds: 60
-  ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
-  ttlSecondsAfterFinished: 300
 ## Backup CronJob — exports each <schema>.access_policy table with pg_dump
-## and uploads it to the backup S3 service configured under cnpg.backup.
+## and uploads it to the dedicated backup S3-compatible service.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
 backup:
-  ## Set to true to deploy the backup CronJob.
+  ## Set to true to deploy the table-level backup CronJob.
   enabled: false
   ## Nushell image with PostgreSQL client, Redis, AWS CLI, and kubectl.
   image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
-  ## Cron expression that controls when the backup runs.
-  ## Default: daily at 03:00 UTC, after the producer.
   schedule: 0 3 * * *
-  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
-  ## Maximum wall-clock time the backup Job may run before Kubernetes terminates it.
   activeDeadlineSeconds: 1800
-  ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
   ttlSecondsAfterFinished: 300
-  ## S3 object key prefix for uploaded backups, under the bucket configured in cnpg.backup.bucket.
+  ## S3 object key prefix for access_policy dumps.
   prefix: backups/access_policy
-  ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain BACKUP_PASSWORD.
+  ## PostgreSQL backup role Secret. The Secret must contain BACKUP_PASSWORD.
   existingSecret: ""
-  ## Password for the read-only backup role. Required when existingSecret is empty.
   password: ""
+  ## Separate S3/GCS-compatible backup service.
+  s3:
+    endpointURL: ""
+    bucket: ""
+    existingSecret: ""
 ## Stale table cleanup CronJob — drops PostgreSQL tables that are no longer
 ## listed in the sync config. System tables (freshness, access_policy) are preserved.
 cleanup:
   ## Set to true to deploy the cleanup CronJob.
-  enabled: false
+  enabled: true
+  ## Image used by the cleanup CronJob.
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
   ## Cron expression that controls when the cleanup runs.
   ## Default: daily at 04:00 UTC, after the backup.
   schedule: 0 4 * * *
@@ -268,76 +284,8 @@ cleanup:
   startingDeadlineSeconds: 600
 ## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
 ## Scales to zero when the stream is empty.
-dumper:
-  ## Spread concurrent Dumper pods across nodes when possible.
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: ScheduleAnyway
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: dumper
-          app.kubernetes.io/instance: data-proxy
-          app.kubernetes.io/name: data-proxy
-  ## Time in milliseconds before a Dumper can reclaim a pending task. One task
-  ## extracts a whole batch, so this must exceed the duration of a batch.
-  visibilityTimeoutMs: 3600000
-  ## Size in megabytes of uncompressed source data that one extraction batch collects before it
-  ## closes. A batch becomes one Parquet file in the bucket.
-  batchMegaBytes: 600
-  ## Maximum number of partitions in one batch, which bounds a partition set
-  ## that never reaches batchMegaBytes (in MB).
-  batchMaxPartitions: 256
-  ## Local scratch space that a Dumper uses to merge the partitions of a batch.
-  scratch:
-    ## Directory inside the container that holds the scratch files.
-    mountPath: /scratch
-    ## Size limit of the emptyDir volume that backs the scratch directory.
-    sizeLimit: 4Gi
-  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-  terminationGracePeriodSeconds: 900
-  keda:
-    ## Number of unread stream messages that triggers one additional Dumper pod.
-    lagCount: "1"
-    ## Number of delivered-but-unacknowledged messages that keeps a Dumper pod
-    ## alive. lagCount alone reaches 0 as soon as the last message is
-    ## delivered, before it is actually processed, so this second trigger
-    ## prevents KEDA from terminating a pod still finishing its last task.
-    pendingEntriesCount: "1"
-    ## Maximum number of concurrent Dumper pods.
-    maxReplicaCount: 15
-    ## Interval in seconds between KEDA metric checks.
-    pollingInterval: 30
-    ## Cooldown in seconds before scaling down to zero.
-    cooldownPeriod: 60
 ## Publisher — KEDA ScaledJob with one Job for each schema plan.
-publisher:
-  ## Time in milliseconds before a publisher can reclaim a pending message.
-  visibilityTimeoutMs: "7200000"
-  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-  terminationGracePeriodSeconds: 1800
-  keda:
-    ## Maximum publisher Jobs. Leave unset for one Job for each configured schema.
-    ## maxReplicaCount: 2
-    ## Number of delivered-but-unacknowledged messages that asks KEDA for a Job,
-    ## which then reclaims the message after the visibility timeout.
-    pendingEntriesCount: "1"
-    ## Interval in seconds between KEDA metric checks.
-    pollingInterval: 30
-    ## Number of completed publisher Jobs that KEDA keeps. Zero removes them.
-    successfulJobsHistoryLimit: 0
-    ## Number of failed publisher Jobs that KEDA keeps for inspection.
-    failedJobsHistoryLimit: 1
 ## Seeder — KEDA ScaledJob with one Job for each seed task.
-seeder:
-  visibilityTimeoutMs: 900000
-  ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-  terminationGracePeriodSeconds: 900
-  keda:
-    pendingEntriesCount: "1"
-    pollingInterval: 30
-    successfulJobsHistoryLimit: 0
-    failedJobsHistoryLimit: 1
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
 syncConfig:
@@ -366,26 +314,6 @@ auth:
 ## Entries in schemas are optional per-schema overrides.
 ha:
   enabled: false
-  postgres:
-    minReplicaCount: 2
-    maxReplicaCount: 5
-    pollingInterval: 30
-    cooldownPeriod: 300
-    triggers: []
-  postgrest:
-    minReplicaCount: 2
-    maxReplicaCount: 5
-    pollingInterval: 30
-    cooldownPeriod: 300
-    triggers: []
-  fallback:
-    minReplicaCount: 2
-    maxReplicaCount: 5
-    pollingInterval: 30
-    cooldownPeriod: 300
-    triggers: []
-  redis:
-    triggers: []
   schemas: []
 ## CloudNativePG manages PostgreSQL clusters with native streaming replication,
 ## automatic failover, and Barman backups. No Patroni or HAProxy needed.
@@ -393,6 +321,32 @@ ha:
 ## mode: shared   — one Cluster for all schemas (staging)
 ## mode: per-schema — one Cluster per schema (prod, publication isolation)
 cnpg:
+  pooler:
+    ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
+    instances: 1
+    ## Transaction pooling mode: each client transaction gets a server connection.
+    poolSize: 20
+    maxClientConns: 100
+    ## Autoscaling for the CNPG Pooler via KEDA. The Pooler CRD exposes a scale subresource.
+    autoscaling:
+      ## Minimum PgBouncer instances. Single mode: 1, HA: 2.
+      minReplicaCount: 1
+      ## Maximum PgBouncer instances.
+      maxReplicaCount: 3
+      ## How often KEDA checks triggers, in seconds.
+      pollingInterval: 30
+      ## How long KEDA waits before scaling down, in seconds.
+      cooldownPeriod: 300
+      ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
+      triggers: []
+  db:
+    name: data-proxy
+    user: dataproxy
+  init:
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+  existingSecret: ""
+  password: ""
+  authenticatorPassword: ""
   ## Deployment mode: "shared" or "per-schema".
   mode: shared
   ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).
@@ -427,9 +381,9 @@ cnpg:
     ## StorageClass for the PVCs. Leave empty to use the cluster default.
     storageClass: ""
   ## PostgREST read replica count for each schema (per-schema mode only).
-  postgrestReadReplicas: 1
+  readReplicas: 1
   ## PostgREST write replica count for each schema (per-schema mode only).
-  postgrestWriteReplicas: 1
+  writeReplicas: 1
   ## Per-schema overrides. Only used when mode is per-schema.
   ## Each key must also exist in syncConfig.schemas.
   ## Example:
@@ -437,7 +391,7 @@ cnpg:
   ##     instances: 3
   ##     storage:
   ##       size: 200Gi
-  ##     postgrestReadReplicas: 2
+  ##     readReplicas: 2
   schemas: {}
   ## Barman backup configuration. Backups go to a separate S3-compatible service.
   backup:
@@ -457,30 +411,18 @@ cnpg:
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.
     backupRetention: 7
+  partman:
+    schedule: 0 6 * * *
+    retention: 365 days
 ## pg_partman configuration for native PostgreSQL partition management.
 ## Creates future partitions and drops expired ones automatically.
 ## The Publisher INSERTs into the partitioned parent instead of delete+reload.
-partman:
-  ## Cron expression for the partition maintenance CronJob.
-  ## Runs partman.run_maintenance_proc() against the CNPG primary.
-  schedule: 0 6 * * *
-  ## Default retention for time-partitioned tables. Override per table in syncConfig.
-  retention: 365 days
 ## Pushgateway for metrics push from short-lived worker pods.
 ## When enabled, deploys prometheus-pushgateway as a subchart.
 ## When disabled, set pushgateway.url to point to an external service.
 pushgateway:
   enabled: true
   url: ""
-## Resource requests and limits applied to PostgREST containers.
-resources:
-  requests:
-    cpu: 100m
-    memory: 64Mi
-    ephemeral-storage: 128Mi
-  limits:
-    memory: 256Mi
-    ephemeral-storage: 512Mi
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ## No VirtualService is created when enabled is false.
 ingress:
@@ -557,3 +499,10 @@ fallback:
     requests:
       cpu: 10m
       memory: 32Mi
+  ## Autoscaling for nginx in single and HA modes.
+  autoscaling:
+    minReplicaCount: 1
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 300
+    triggers: []

@@ -13,13 +13,13 @@ spec:
     apiVersion: postgresql.cnpg.io/v1
     kind: Pooler
     name: {{ include "data-proxy.fullname" . }}-pooler
-  minReplicaCount: {{ .Values.postgrest.pgBouncer.autoscaling.minReplicaCount }}
-  maxReplicaCount: {{ .Values.postgrest.pgBouncer.autoscaling.maxReplicaCount }}
-  pollingInterval: {{ .Values.postgrest.pgBouncer.autoscaling.pollingInterval }}
-  cooldownPeriod: {{ .Values.postgrest.pgBouncer.autoscaling.cooldownPeriod }}
+  minReplicaCount: {{ .Values.cnpg.pooler.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.cnpg.pooler.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.cnpg.pooler.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.cnpg.pooler.autoscaling.cooldownPeriod }}
   triggers:
-{{- if gt (len (.Values.postgrest.pgBouncer.autoscaling.triggers | default list)) 0 }}
-{{ toYaml .Values.postgrest.pgBouncer.autoscaling.triggers | nindent 4 }}
+{{- if gt (len (.Values.cnpg.pooler.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.cnpg.pooler.autoscaling.triggers | nindent 4 }}
 {{- else }}
     - type: cpu
       metricType: Utilization
@@ -45,13 +45,13 @@ spec:
     apiVersion: postgresql.cnpg.io/v1
     kind: Pooler
     name: {{ $pooler }}-pooler
-  minReplicaCount: {{ max (int $root.Values.postgrest.pgBouncer.autoscaling.minReplicaCount) 2 }}
-  maxReplicaCount: {{ max (int $root.Values.postgrest.pgBouncer.autoscaling.maxReplicaCount) 2 }}
-  pollingInterval: {{ $root.Values.postgrest.pgBouncer.autoscaling.pollingInterval }}
-  cooldownPeriod: {{ $root.Values.postgrest.pgBouncer.autoscaling.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.cnpg.pooler.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.cnpg.pooler.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.cnpg.pooler.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.cnpg.pooler.autoscaling.cooldownPeriod }}
   triggers:
-{{- if gt (len ($root.Values.postgrest.pgBouncer.autoscaling.triggers | default list)) 0 }}
-{{ toYaml $root.Values.postgrest.pgBouncer.autoscaling.triggers | nindent 4 }}
+{{- if gt (len ($root.Values.cnpg.pooler.autoscaling.triggers | default list)) 0 }}
+{{ toYaml $root.Values.cnpg.pooler.autoscaling.triggers | nindent 4 }}
 {{- else }}
     - type: cpu
       metricType: Utilization

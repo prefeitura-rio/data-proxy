@@ -7,15 +7,15 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: producer
 spec:
-  schedule: {{ .Values.producer.schedule | quote }}
-  startingDeadlineSeconds: {{ .Values.producer.startingDeadlineSeconds }}
+  schedule: {{ .Values.sync.producer.schedule | quote }}
+  startingDeadlineSeconds: {{ .Values.sync.producer.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
-      activeDeadlineSeconds: {{ .Values.producer.activeDeadlineSeconds }}
-      ttlSecondsAfterFinished: {{ .Values.producer.ttlSecondsAfterFinished }}
+      activeDeadlineSeconds: {{ .Values.sync.producer.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.sync.producer.ttlSecondsAfterFinished }}
       backoffLimit: 0
       template:
         metadata:
@@ -27,13 +27,13 @@ spec:
           serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
           containers:
             - name: producer
-              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              image: "{{ .Values.sync.image }}"
+              imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
               command: ["python", "-m", "dp.sync.producer"]
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
                 - name: PRODUCER_POLL_INTERVAL_SECONDS
-                  value: {{ .Values.producer.pollIntervalSeconds | quote }}
+                  value: {{ .Values.sync.producer.pollIntervalSeconds | quote }}
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
                 {{- include "data-proxy.gcpVolumeMount" . | nindent 16 }}

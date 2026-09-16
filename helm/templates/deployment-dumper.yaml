@@ -19,14 +19,14 @@ spec:
         app.kubernetes.io/component: dumper
     spec:
       restartPolicy: Always
-      terminationGracePeriodSeconds: {{ .Values.dumper.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.sync.dumper.terminationGracePeriodSeconds }}
       topologySpreadConstraints:
-        {{- toYaml .Values.dumper.topologySpreadConstraints | nindent 8 }}
+        {{- toYaml .Values.sync.dumper.topologySpreadConstraints | nindent 8 }}
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
         - name: dumper
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.sync.image }}"
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: ["python", "-m", "dp.sync.dumper"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
@@ -34,10 +34,10 @@ spec:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             - name: scratch
-              mountPath: {{ .Values.dumper.scratch.mountPath }}
+              mountPath: {{ .Values.sync.dumper.scratch.mountPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
         - name: scratch
           emptyDir:
-            sizeLimit: {{ .Values.dumper.scratch.sizeLimit }}
+            sizeLimit: {{ .Values.sync.dumper.scratch.sizeLimit }}

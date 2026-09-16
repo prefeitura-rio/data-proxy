@@ -11,10 +11,10 @@ spec:
     name: {{ include "data-proxy.fullname" . }}-dumper
     kind: Deployment
     apiVersion: apps/v1
-  pollingInterval: {{ .Values.dumper.keda.pollingInterval }}
-  cooldownPeriod: {{ .Values.dumper.keda.cooldownPeriod }}
+  pollingInterval: {{ .Values.sync.dumper.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.sync.dumper.keda.cooldownPeriod }}
   minReplicaCount: 0
-  maxReplicaCount: {{ .Values.dumper.keda.maxReplicaCount }}
+  maxReplicaCount: {{ .Values.sync.dumper.keda.maxReplicaCount }}
   triggers:
     - type: redis-streams
       authenticationRef:
@@ -23,7 +23,7 @@ spec:
         address: {{ include "data-proxy.redisWriterAddress" . }}
         stream: dp:extract
         consumerGroup: dumpers
-        lagCount: {{ .Values.dumper.keda.lagCount | quote }}
+        lagCount: {{ .Values.sync.dumper.keda.lagCount | quote }}
     - type: redis-streams
       authenticationRef:
         name: {{ include "data-proxy.fullname" . }}-valkey-trigger-auth
@@ -31,4 +31,4 @@ spec:
         address: {{ include "data-proxy.redisWriterAddress" . }}
         stream: dp:extract
         consumerGroup: dumpers
-        pendingEntriesCount: {{ .Values.dumper.keda.pendingEntriesCount | quote }}
+        pendingEntriesCount: {{ .Values.sync.dumper.keda.pendingEntriesCount | quote }}

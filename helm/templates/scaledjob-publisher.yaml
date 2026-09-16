@@ -21,12 +21,12 @@ spec:
       spec:
         ## A Job accepts Never or OnFailure only. One pod publishes one schema.
         restartPolicy: Never
-        terminationGracePeriodSeconds: {{ .Values.publisher.terminationGracePeriodSeconds }}
+        terminationGracePeriodSeconds: {{ .Values.sync.publisher.terminationGracePeriodSeconds }}
         serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
         containers:
           - name: publisher
-            image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            image: "{{ .Values.sync.image }}"
+            imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
             command: ["python", "-m", "dp.sync.publisher"]
             env:
               {{- include "data-proxy.appEnv" . | nindent 14 }}
@@ -38,11 +38,11 @@ spec:
           {{- include "data-proxy.syncConfigVolume" . | nindent 10 }}
           {{- include "data-proxy.schemaWritersVolume" . | nindent 10 }}
           {{- include "data-proxy.gcpVolume" . | nindent 10 }}
-  pollingInterval: {{ .Values.publisher.keda.pollingInterval }}
+  pollingInterval: {{ .Values.sync.publisher.keda.pollingInterval }}
   minReplicaCount: 0
-  maxReplicaCount: {{ .Values.publisher.keda.maxReplicaCount | default (max 1 (len .Values.syncConfig.schemas)) }}
-  successfulJobsHistoryLimit: {{ .Values.publisher.keda.successfulJobsHistoryLimit }}
-  failedJobsHistoryLimit: {{ .Values.publisher.keda.failedJobsHistoryLimit }}
+  maxReplicaCount: {{ .Values.sync.publisher.keda.maxReplicaCount | default (max 1 (len .Values.syncConfig.schemas)) }}
+  successfulJobsHistoryLimit: {{ .Values.sync.publisher.keda.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.sync.publisher.keda.failedJobsHistoryLimit }}
   triggers:
     - type: redis-streams
       authenticationRef:
@@ -59,4 +59,4 @@ spec:
         address: {{ include "data-proxy.redisWriterAddress" . }}
         stream: dp:publish
         consumerGroup: publishers
-        pendingEntriesCount: {{ .Values.publisher.keda.pendingEntriesCount | quote }}
+        pendingEntriesCount: {{ .Values.sync.publisher.keda.pendingEntriesCount | quote }}

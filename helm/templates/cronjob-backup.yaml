@@ -60,7 +60,7 @@ spec:
                 - name: PGPORT
                   value: "5432"
                 - name: PGDATABASE
-                  value: {{ $root.Values.postgres.db.name | quote }}
+                  value: {{ $root.Values.cnpg.db.name | quote }}
                 - name: PGUSER
                   value: backup
                 - name: PGPASSWORD
@@ -71,20 +71,20 @@ spec:
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.backup.prefix | quote }}
                 - name: S3_BUCKET
-                  value: {{ $root.Values.cnpg.backup.bucket | quote }}
+                  value: {{ required "backup.s3.bucket is required when backup.enabled is true" $root.Values.backup.s3.bucket | quote }}
                 - name: S3_ENDPOINT
-                  value: {{ $root.Values.cnpg.backup.endpointURL | quote }}
+                  value: {{ required "backup.s3.endpointURL is required when backup.enabled is true" $root.Values.backup.s3.endpointURL | quote }}
                 - name: S3_USE_SSL
                   value: "true"
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: {{ $root.Values.cnpg.backup.existingSecret }}
+                      name: {{ required "backup.s3.existingSecret is required when backup.enabled is true" $root.Values.backup.s3.existingSecret }}
                       key: S3_ACCESS_KEY
                 - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: {{ $root.Values.cnpg.backup.existingSecret }}
+                      name: {{ required "backup.s3.existingSecret is required when backup.enabled is true" $root.Values.backup.s3.existingSecret }}
                       key: S3_SECRET_KEY
               volumeMounts:
                 - name: backup-script

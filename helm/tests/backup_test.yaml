@@ -14,9 +14,9 @@ tests:
       backup.image: postgres:17-alpine
       backup.password: test-backup-pass
       backup.prefix: backups/access_policy
-      cnpg.backup.bucket: backup-bucket
-      cnpg.backup.endpointURL: https://storage.googleapis.com
-      cnpg.backup.existingSecret: backup-s3-creds
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: https://storage.googleapis.com
+      backup.s3.existingSecret: backup-s3-creds
       syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
@@ -61,13 +61,13 @@ tests:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
           value: data-proxy-bcadastro-backup-script
 
-  - it: uses backup S3 credentials from cnpg.backup.existingSecret
+  - it: uses backup S3 credentials from backup.s3.existingSecret
     set:
       backup.enabled: true
       backup.password: test-backup-pass
-      cnpg.backup.bucket: backup-bucket
-      cnpg.backup.endpointURL: https://storage.googleapis.com
-      cnpg.backup.existingSecret: backup-s3-creds
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: https://storage.googleapis.com
+      backup.s3.existingSecret: backup-s3-creds
       syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:

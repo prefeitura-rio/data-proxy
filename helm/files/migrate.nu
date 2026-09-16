@@ -153,25 +153,21 @@ def migrate-schema [m: record]: nothing -> nothing {
     log info $'Schema ($m.schema) migrated.'
 }
 
-# Build the source and target DSNs for one schema based on migration direction.
-def save-mode-state [mode: string]: nothing -> nothing {
+# Record migration state in a ConfigMap.
+def save-mode-state [state: record]: nothing -> nothing {
+    let mode = $state.mode
+    let status = $state.status
+    let direction = $state.direction
     let ns = namespace
     let rel = release-name
     let cm = $'($rel)-mode-state'
-    log info $'Recording mode ($mode) in ConfigMap ($cm)…'
-    let yaml = (
-        (k
-            -n
-            $ns
-            create
-            configmap
-            $cm
-            $'--from-literal=mode=($mode)'
-            --dry-run=client
-            -o
-            yaml
-        )
-    )
+    let updated = date now | format date %Y-%m-%dT%H:%M:%S%z
+    let yaml = (k -n $ns create configmap $cm
+        $'--from-literal=mode=($mode)'
+        $'--from-literal=status=($status)'
+        $'--from-literal=direction=($direction)'
+        $'--from-literal=updated_at=($updated)'
+        --dry-run=client -o yaml)
     $yaml | kubectl -n $ns apply -f -
 }
 
@@ -189,6 +185,7 @@ def run-migration [direction: string]: nothing -> nothing {
         }
     }
 
+    save-mode-state {mode: $env.TARGET_MODE, status: running, direction: $direction}
     block-syncs
 
     try {
@@ -213,6 +210,7 @@ def run-migration [direction: string]: nothing -> nothing {
             migrate-schema $m
         }
     } catch {|err|
+        save-mode-state {mode: $env.TARGET_MODE, status: failed, direction: $direction}
         unblock-syncs
         error make {
             msg: $'Migration failed: ($err.msg)'
@@ -224,7 +222,7 @@ def run-migration [direction: string]: nothing -> nothing {
     }
 
     unblock-syncs
-    save-mode-state $env.TARGET_MODE
+    save-mode-state {mode: $env.TARGET_MODE, status: completed, direction: $direction}
     log info 'All schemas migrated. Producer resumed.'
 }
 
@@ -233,7 +231,7 @@ def main []: nothing -> nothing {
 
     match $direction {
         'none' => {
-            save-mode-state $env.TARGET_MODE
+            save-mode-state {mode: $env.TARGET_MODE, status: completed, direction: none}
             log info 'No migration needed — target mode recorded.'
         }
         _ => {

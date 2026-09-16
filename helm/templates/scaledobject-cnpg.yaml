@@ -44,10 +44,10 @@ spec:
     apiVersion: postgresql.cnpg.io/v1
     kind: Cluster
     name: {{ $cluster }}
-  minReplicaCount: {{ $root.Values.ha.postgres.minReplicaCount }}
-  maxReplicaCount: {{ $root.Values.ha.postgres.maxReplicaCount }}
-  pollingInterval: {{ $root.Values.ha.postgres.pollingInterval }}
-  cooldownPeriod: {{ $root.Values.ha.postgres.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.cnpg.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.cnpg.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.cnpg.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.cnpg.autoscaling.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgres") | nindent 4 }}
 {{- end }}

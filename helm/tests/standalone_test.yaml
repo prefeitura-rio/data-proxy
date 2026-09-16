@@ -58,7 +58,7 @@ tests:
 
   - it: renders the partman CronJob even when backups are disabled
     set:
-      cnpg.backup.enabled: false
+      backup.enabled: false
     asserts:
       - hasDocuments:
           count: 1

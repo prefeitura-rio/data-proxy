@@ -29,9 +29,9 @@ tests:
     set:
       backup.enabled: true
       backup.password: test-pass
-      cnpg.backup.bucket: backup-bucket
-      cnpg.backup.endpointURL: https://storage.googleapis.com
-      cnpg.backup.existingSecret: backup-creds
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: https://storage.googleapis.com
+      backup.s3.existingSecret: backup-creds
       syncConfig.schemas.app_example: {}
     asserts:
       - equal:
@@ -124,9 +124,9 @@ tests:
 
   - it: large numeric settings render as plain integers
     set:
-      dumper.visibilityTimeoutMs: 86400000
-      seeder.visibilityTimeoutMs: 7200000
-      dumper.batchMegaBytes: 1024
+      sync.dumper.visibilityTimeoutMs: 86400000
+      sync.seeder.visibilityTimeoutMs: 7200000
+      sync.dumper.batchMegaBytes: 1024
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -149,9 +149,9 @@ tests:
 
   - it: dumper uses the configured scratch size limit and batch size
     set:
-      dumper.batchMegaBytes: 100
-      dumper.scratch.sizeLimit: 1Gi
-      dumper.scratch.mountPath: /work
+      sync.dumper.batchMegaBytes: 100
+      sync.dumper.scratch.sizeLimit: 1Gi
+      sync.dumper.scratch.mountPath: /work
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -331,7 +331,7 @@ tests:
         other:
           claim: preferred_username
           tables: []
-      publisher.keda.maxReplicaCount: 1
+      sync.publisher.keda.maxReplicaCount: 1
     asserts:
       - equal:
           path: spec.maxReplicaCount
@@ -340,7 +340,7 @@ tests:
 
   - it: dumper triggers on the tasks stream with configured lagCount
     set:
-      dumper.keda.lagCount: "2"
+      sync.dumper.keda.lagCount: "2"
     asserts:
       - equal:
           path: spec.triggers[0].metadata.lagCount
@@ -377,6 +377,8 @@ tests:
           value: data-proxy-cleanup
 
   - it: cleanup does not render when disabled
+    set:
+      cleanup.enabled: false
     asserts:
       - hasDocuments:
           count: 0

@@ -51,8 +51,8 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: init-db
-          image: {{ .Values.postgres.init.image | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ .Values.cnpg.init.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/init-db.nu]
           env:
             - name: POSTGRES_PASSWORD
@@ -66,7 +66,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
-              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.postgres.db.user (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: AUTH_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE
@@ -147,8 +147,8 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: init-db
-          image: {{ $root.Values.postgres.init.image | quote }}
-          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          image: {{ $root.Values.cnpg.init.image | quote }}
+          imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
           command: [nu, /scripts/init-db.nu]
           env:
             - name: POSTGRES_PASSWORD
@@ -162,7 +162,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
-              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.postgres.db.user $cluster $root.Values.postgres.db.name | quote }}
+              value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
             - name: AUTH_ANON_ROLE
               value: {{ $root.Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE

@@ -12,13 +12,13 @@ metadata:
 spec:
   cluster:
     name: {{ include "data-proxy.fullname" $root }}
-  instances: {{ $root.Values.postgrest.pgBouncer.instances }}
+  instances: {{ $root.Values.cnpg.pooler.instances }}
   type: ro
   pgbouncer:
     poolMode: transaction
     parameters:
-      max_client_conn: {{ $root.Values.postgrest.pgBouncer.maxClientConns | quote }}
-      default_pool_size: {{ $root.Values.postgrest.pgBouncer.poolSize | quote }}
+      max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
+      default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
 {{- else if eq $root.Values.cnpg.mode "per-schema" }}
 {{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 ---
@@ -34,7 +34,7 @@ metadata:
 spec:
   cluster:
     name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-  instances: {{ if $root.Values.ha.enabled }}{{ max (int $root.Values.postgrest.pgBouncer.instances) 2 }}{{ else }}{{ $root.Values.postgrest.pgBouncer.instances }}{{ end }}
+  instances: {{ if $root.Values.ha.enabled }}{{ $root.Values.cnpg.pooler.autoscaling.minReplicaCount }}{{ else }}{{ $root.Values.cnpg.pooler.instances }}{{ end }}
   type: ro
   template:
     metadata:
@@ -53,7 +53,7 @@ spec:
   pgbouncer:
     poolMode: transaction
     parameters:
-      max_client_conn: {{ $root.Values.postgrest.pgBouncer.maxClientConns | quote }}
-      default_pool_size: {{ $root.Values.postgrest.pgBouncer.poolSize | quote }}
+      max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
+      default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
 {{- end }}
 {{- end }}

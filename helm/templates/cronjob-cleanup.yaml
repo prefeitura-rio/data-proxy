@@ -41,8 +41,8 @@ spec:
           serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
           containers:
             - name: cleanup
-              image: {{ .Values.backup.image | quote }}
-              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              image: {{ .Values.cleanup.image | quote }}
+              imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
               command: [nu, /scripts/cleanup.nu]
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
@@ -95,8 +95,8 @@ spec:
           serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
           containers:
             - name: cleanup
-              image: {{ $root.Values.backup.image | quote }}
-              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              image: {{ $root.Values.cleanup.image | quote }}
+              imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
               command: [nu, /scripts/cleanup.nu]
               env:
                 {{- include "data-proxy.appEnv" $root | nindent 16 }}

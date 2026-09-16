@@ -1,31 +1,18 @@
-image:
-  repository: localhost/data-proxy
-  tag: local
-  pullPolicy: IfNotPresent
+sync:
+  image: localhost/data-proxy:local
+  imagePullPolicy: IfNotPresent
+  dumper:
+    batchMegaBytes: 60000
 serviceAccount:
   create: true
   name: data-proxy
-postgres:
-  image: localhost/data-proxy-postgres:17.0.0-local
-  init:
-    image: localhost/data-proxy-nushell:local
-  storage:
-    size: 2Gi
-  db:
-    name: dataproxy
-    user: dataproxy
-  existingSecret: ""
-  password: test-pg-pass
-  authenticatorPassword: test-auth-pass
-nushell:
-  image: localhost/data-proxy-nushell:local
 postgrest:
   proxyUri: http://localhost:3111
   jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
   jwksFetch:
     image: localhost/data-proxy-nushell:local
   maxReplicaCount: 3
-  pgBouncer:
+pooler:
     instances: 1
     poolSize: 20
     maxClientConns: 100
@@ -74,8 +61,6 @@ swaggerUi:
 worker:
   keda:
     lagCount: "7"
-dumper:
-  batchMegaBytes: 60000
 syncConfig:
   schemas:
     pic:
@@ -108,6 +93,13 @@ fallback:
   cacheTtl: 5
   nginxImage: localhost/data-proxy-nginx-proxy:local
 cnpg:
+  db:
+    name: data-proxy
+    user: dataproxy
+  password: test-pg-pass
+  authenticatorPassword: test-auth-pass
+  init:
+    image: localhost/data-proxy-nushell:local
   mode: shared
   instances: 2
   image: localhost/data-proxy-postgres:17.0.0-local

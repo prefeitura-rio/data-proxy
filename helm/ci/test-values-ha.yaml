@@ -1,13 +1,19 @@
-image:
-  repository: gcr.io/proj/data-proxy
-  tag: "1.0.0"
+sync:
+  image: gcr.io/proj/data-proxy:1.0.0
+  imagePullPolicy: IfNotPresent
 
-postgres:
+  producer:
+    schedule: "0 2 * * *"
+
+cnpg:
+  db:
+    name: data-proxy
+    user: dataproxy
   image: gcr.io/proj/data-proxy-postgres:17-v1.1.1
   password: pgpass
   authenticatorPassword: authrole
-
-cnpg:
+  init:
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
   mode: per-schema
   instances: 2
   autoscaling:
@@ -53,7 +59,7 @@ postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
   maxReplicaCount: 5
-  pgBouncer:
+pooler:
     instances: 2
     poolSize: 20
     maxClientConns: 100
@@ -68,9 +74,6 @@ redis:
   writerAddress: redis-writer:6379
   webdisHost: redis-writer
   webdisPort: 6379
-
-producer:
-  schedule: "0 2 * * *"
 
 auth:
   anonRole: dp_anon

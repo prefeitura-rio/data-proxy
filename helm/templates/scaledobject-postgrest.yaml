@@ -11,11 +11,11 @@ spec:
     apiVersion: apps/v1
   minReplicaCount: 1
   maxReplicaCount: {{ .Values.postgrest.maxReplicaCount }}
-  pollingInterval: {{ .Values.ha.postgrest.pollingInterval }}
-  cooldownPeriod: {{ .Values.ha.postgrest.cooldownPeriod }}
+  pollingInterval: {{ .Values.postgrest.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.postgrest.autoscaling.cooldownPeriod }}
   triggers:
-{{- if gt (len (.Values.ha.postgrest.triggers | default list)) 0 }}
-{{ toYaml .Values.ha.postgrest.triggers | nindent 4 }}
+{{- if gt (len (.Values.postgrest.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.postgrest.autoscaling.triggers | nindent 4 }}
 {{- else }}
 {{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
 {{- end }}

@@ -73,8 +73,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.dbSecretName" -}}
-{{- if .Values.postgres.existingSecret }}
-{{- .Values.postgres.existingSecret }}
+{{- if .Values.cnpg.existingSecret }}
+{{- .Values.cnpg.existingSecret }}
 {{- else }}
 {{- include "data-proxy.fullname" . }}-db
 {{- end }}
@@ -127,8 +127,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.schemaWritersSecretName" -}}
-{{- if .Values.postgres.existingSecret }}
-{{- .Values.postgres.existingSecret }}-schema-writers
+{{- if .Values.cnpg.existingSecret }}
+{{- .Values.cnpg.existingSecret }}-schema-writers
 {{- else }}
 {{- include "data-proxy.fullname" . }}-schema-writers
 {{- end }}
@@ -154,18 +154,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.schemaWriterDsn" -}}
 {{- $root := .root -}}
 {{- $cluster := include "data-proxy.cnpgClusterName" . -}}
-postgresql://{{ $root.Values.postgres.db.user }}:{{ $root.Values.postgres.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.postgres.db.name }}
+postgresql://{{ $root.Values.cnpg.db.user }}:{{ $root.Values.cnpg.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.cnpg.db.name }}
 {{- end }}
 
 {{- define "data-proxy.postgresDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
-{{- $db := .Values.postgres.db.name -}}
+{{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.backupPgDsn" -}}
-{{- $db := .Values.postgres.db.name -}}
+{{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
@@ -175,8 +175,8 @@ postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.appPgDsn" -}}
-{{- $user := .Values.postgres.db.user -}}
-{{- $db   := .Values.postgres.db.name -}}
+{{- $user := .Values.cnpg.db.user -}}
+{{- $db   := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
@@ -263,17 +263,17 @@ map $http_accept_profile $fallback_pgrst {
 - name: FALLBACK_CACHE_REDIS_DB
   value: {{ .Values.fallback.cacheRedisDb | quote }}
 - name: DUMPER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.dumper.visibilityTimeoutMs | int64 | quote }}
+  value: {{ .Values.sync.dumper.visibilityTimeoutMs | int64 | quote }}
 - name: DUMPER_BATCH_BYTES
-  value: {{ .Values.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
+  value: {{ .Values.sync.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
 - name: DUMPER_BATCH_MAX_PARTITIONS
-  value: {{ .Values.dumper.batchMaxPartitions | quote }}
+  value: {{ .Values.sync.dumper.batchMaxPartitions | quote }}
 - name: DUMPER_SCRATCH_DIR
-  value: {{ .Values.dumper.scratch.mountPath | quote }}
+  value: {{ .Values.sync.dumper.scratch.mountPath | quote }}
 - name: SEEDER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.seeder.visibilityTimeoutMs | int64 | quote }}
+  value: {{ .Values.sync.seeder.visibilityTimeoutMs | int64 | quote }}
 - name: PUBLISHER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.publisher.visibilityTimeoutMs | int64 | quote }}
+  value: {{ .Values.sync.publisher.visibilityTimeoutMs | int64 | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE

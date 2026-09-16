@@ -18,8 +18,8 @@ spec:
       value: /var/lib/postgresql/data/gcp-key.json
   bootstrap:
     initdb:
-      database: {{ $root.Values.postgres.db.name | quote }}
-      owner: {{ $root.Values.postgres.db.user | quote }}
+      database: {{ $root.Values.cnpg.db.name | quote }}
+      owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
   instances: {{ $root.Values.cnpg.instances | int }}
@@ -46,7 +46,7 @@ spec:
     {{- end }}
   managed:
     roles:
-      - name: {{ $root.Values.postgres.db.user | quote }}
+      - name: {{ $root.Values.cnpg.db.user | quote }}
         ensure: present
         superuser: true
         login: true
@@ -57,21 +57,7 @@ spec:
         login: true
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
-  {{- if $root.Values.cnpg.backup.enabled }}
-  backup:
-    barmanObjectStore:
-      destinationPath: {{ $root.Values.cnpg.backup.destinationPath | default (printf "s3://%s/backups" $root.Values.cnpg.backup.bucket) | quote }}
-      endpointURL: {{ $root.Values.cnpg.backup.endpointURL | quote }}
-      s3Credentials:
-        accessKeyId:
-          name: {{ $root.Values.cnpg.backup.existingSecret }}
-          key: S3_ACCESS_KEY
-        secretAccessKey:
-          name: {{ $root.Values.cnpg.backup.existingSecret }}
-          key: S3_SECRET_KEY
-      retentionPolicy: {{ printf "%d backups" (int $root.Values.cnpg.backup.backupRetention) | quote }}
-    retentionPolicy: {{ printf "%d backups" (int $root.Values.cnpg.backup.backupRetention) | quote }}
-  {{- end }}
+
 {{- else if eq $root.Values.cnpg.mode "per-schema" }}
 {{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 ---
@@ -93,8 +79,8 @@ spec:
       value: /var/lib/postgresql/data/gcp-key.json
   bootstrap:
     initdb:
-      database: {{ $root.Values.postgres.db.name | quote }}
-      owner: {{ $root.Values.postgres.db.user | quote }}
+      database: {{ $root.Values.cnpg.db.name | quote }}
+      owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
@@ -121,7 +107,7 @@ spec:
     {{- end }}
   managed:
     roles:
-      - name: {{ $root.Values.postgres.db.user | quote }}
+      - name: {{ $root.Values.cnpg.db.user | quote }}
         ensure: present
         superuser: true
         login: true
@@ -132,20 +118,6 @@ spec:
         login: true
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
-  {{- if $root.Values.cnpg.backup.enabled }}
-  backup:
-    barmanObjectStore:
-      destinationPath: {{ $root.Values.cnpg.backup.destinationPath | default (printf "s3://%s/backups/%s" $root.Values.cnpg.backup.bucket $schema) | quote }}
-      endpointURL: {{ $root.Values.cnpg.backup.endpointURL | quote }}
-      s3Credentials:
-        accessKeyId:
-          name: {{ $root.Values.cnpg.backup.existingSecret }}
-          key: S3_ACCESS_KEY
-        secretAccessKey:
-          name: {{ $root.Values.cnpg.backup.existingSecret }}
-          key: S3_SECRET_KEY
-      retentionPolicy: {{ printf "%d backups" (int $root.Values.cnpg.backup.backupRetention) | quote }}
-    retentionPolicy: {{ printf "%d backups" (int $root.Values.cnpg.backup.backupRetention) | quote }}
-  {{- end }}
+
 {{- end }}
 {{- end }}

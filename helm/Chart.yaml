@@ -4,6 +4,7 @@ description: Data proxy — BigQuery → SeaweedFS → pg_duckdb sync pipeline w
 type: application
 version: 1.92.0
 appVersion: "1.0.0"
+icon: https://www.cncf.io/wp-content/uploads/2020/08/cncf-color.png
 dependencies:
   - name: prometheus-pushgateway
     version: "2.17.0"

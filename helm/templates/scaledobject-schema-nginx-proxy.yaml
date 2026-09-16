@@ -12,10 +12,10 @@ spec:
     name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
     kind: Deployment
     apiVersion: apps/v1
-  minReplicaCount: {{ $root.Values.ha.fallback.minReplicaCount }}
-  maxReplicaCount: {{ $root.Values.ha.fallback.maxReplicaCount }}
-  pollingInterval: {{ $root.Values.ha.fallback.pollingInterval }}
-  cooldownPeriod: {{ $root.Values.ha.fallback.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.fallback.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.fallback.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.fallback.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.fallback.autoscaling.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "fallback") | nindent 4 }}
 {{- end }}

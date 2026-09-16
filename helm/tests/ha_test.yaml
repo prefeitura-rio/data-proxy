@@ -55,7 +55,7 @@ tests:
           value: cpu
         template: scaledobject-cnpg.yaml
 
-  - it: renders per-schema Pooler ScaledObjects with min 2
+  - it: renders per-schema Pooler ScaledObjects with shared autoscaling values
     set:
       ha.enabled: true
       cnpg.mode: per-schema
@@ -71,5 +71,5 @@ tests:
         template: scaledobject-pooler.yaml
       - equal:
           path: spec.minReplicaCount
-          value: 2
+          value: 1
         template: scaledobject-pooler.yaml

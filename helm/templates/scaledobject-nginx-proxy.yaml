@@ -10,12 +10,12 @@ spec:
     kind: Deployment
     apiVersion: apps/v1
   minReplicaCount: 1
-  maxReplicaCount: {{ .Values.ha.fallback.maxReplicaCount }}
-  pollingInterval: {{ .Values.ha.fallback.pollingInterval }}
-  cooldownPeriod: {{ .Values.ha.fallback.cooldownPeriod }}
+  maxReplicaCount: {{ .Values.fallback.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.fallback.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.fallback.autoscaling.cooldownPeriod }}
   triggers:
-{{- if gt (len (.Values.ha.fallback.triggers | default list)) 0 }}
-{{ toYaml .Values.ha.fallback.triggers | nindent 4 }}
+{{- if gt (len (.Values.fallback.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.fallback.autoscaling.triggers | nindent 4 }}
 {{- else }}
 {{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
 {{- end }}

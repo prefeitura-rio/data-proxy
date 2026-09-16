@@ -10,7 +10,7 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: partman
 spec:
-  schedule: {{ .Values.partman.schedule | quote }}
+  schedule: {{ .Values.cnpg.partman.schedule | quote }}
   startingDeadlineSeconds: 600
   concurrencyPolicy: Forbid
   jobTemplate:
@@ -26,7 +26,7 @@ spec:
           automountServiceAccountToken: false
           containers:
             - name: partman
-              image: {{ .Values.postgres.init.image | quote }}
+              image: {{ .Values.cnpg.init.image | quote }}
               command: [nu, -c]
               args:
                 - |
@@ -39,7 +39,7 @@ spec:
                       name: {{ include "data-proxy.dbSecretName" . }}
                       key: POSTGRES_PASSWORD
                 - name: PG_DSN
-                  value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.postgres.db.user (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+                  value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
 {{- else }}
 {{- range $schema, $_ := $root.Values.syncConfig.schemas }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
@@ -54,7 +54,7 @@ metadata:
     app.kubernetes.io/component: partman
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
-  schedule: {{ $root.Values.partman.schedule | quote }}
+  schedule: {{ $root.Values.cnpg.partman.schedule | quote }}
   startingDeadlineSeconds: 600
   concurrencyPolicy: Forbid
   jobTemplate:
@@ -71,7 +71,7 @@ spec:
           automountServiceAccountToken: false
           containers:
             - name: partman
-              image: {{ $root.Values.postgres.init.image | quote }}
+              image: {{ $root.Values.cnpg.init.image | quote }}
               command: [nu, -c]
               args:
                 - |
@@ -84,6 +84,6 @@ spec:
                       name: {{ include "data-proxy.dbSecretName" $root }}
                       key: POSTGRES_PASSWORD
                 - name: PG_DSN
-                  value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.postgres.db.user $cluster $root.Values.postgres.db.name | quote }}
+                  value: {{ printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
 {{- end }}
 {{- end }}

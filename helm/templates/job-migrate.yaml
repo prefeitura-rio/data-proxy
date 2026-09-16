@@ -7,8 +7,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-migrate
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "data-proxy.fullname" . }}-migrate-{{ randAlphaNum 5 | lower }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
@@ -28,15 +27,22 @@ spec:
       serviceAccountName: {{ include "data-proxy.fullname" . }}-migrate
       containers:
         - name: migrate
-          image: {{ .Values.nushell.image | quote }}
+          image: {{ .Values.migration.image | quote }}
           command: ["/usr/bin/nu", "/scripts/migrate.nu"]
           env:
             - name: TARGET_MODE
               value: {{ .Values.cnpg.mode | quote }}
             - name: SOURCE_DSN
-              value: {{ printf "postgresql://%s:%s@%s-rw:5432/%s" .Values.postgres.db.user .Values.postgres.password (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+              value: {{ printf "postgresql://%s-rw:5432/%s" (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: TARGET_DSN
-              value: {{ printf "postgresql://%s:%s@%s-{schema}-rw:5432/%s" .Values.postgres.db.user .Values.postgres.password (include "data-proxy.fullname" .) .Values.postgres.db.name | quote }}
+              value: {{ printf "postgresql://%s-{schema}-rw:5432/%s" (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.cnpg.db.user | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
             - name: SCHEMAS
               value: {{ keys (.Values.syncConfig.schemas | default dict) | join " " | quote }}
             - name: NAMESPACE

@@ -2,8 +2,8 @@
 {{- $root := . }}
 {{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-{{- $readReplicas := default $root.Values.cnpg.postgrestReadReplicas (dig "postgrestReadReplicas" 1 $stack) | int }}
-{{- $writeReplicas := default $root.Values.cnpg.postgrestWriteReplicas (dig "postgrestWriteReplicas" 1 $stack) | int }}
+{{- $readReplicas := default $root.Values.cnpg.readReplicas (dig "readReplicas" 1 $stack) | int }}
+{{- $writeReplicas := default $root.Values.cnpg.writeReplicas (dig "writeReplicas" 1 $stack) | int }}
 {{- range $mode := list "rw" }}
 {{- $databaseService := printf "%s-pooler-ro" $cluster }}
 {{- $replicas := ternary $readReplicas $writeReplicas (eq $mode "ro") }}
@@ -73,7 +73,7 @@ spec:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PGRST_DB_URI
-              value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.postgres.db.name | quote }}
+              value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.cnpg.db.name | quote }}
             - name: PGRST_DB_SCHEMAS
               value: {{ $schema | quote }}
             - name: PGRST_DB_ANON_ROLE

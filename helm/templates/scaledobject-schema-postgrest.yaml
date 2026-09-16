@@ -12,10 +12,10 @@ spec:
     name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-postgrest
     kind: Deployment
     apiVersion: apps/v1
-  minReplicaCount: {{ $root.Values.ha.postgrest.minReplicaCount }}
-  maxReplicaCount: {{ $root.Values.ha.postgrest.maxReplicaCount }}
-  pollingInterval: {{ $root.Values.ha.postgrest.pollingInterval }}
-  cooldownPeriod: {{ $root.Values.ha.postgrest.cooldownPeriod }}
+  minReplicaCount: {{ $root.Values.postgrest.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ $root.Values.postgrest.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ $root.Values.postgrest.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.postgrest.autoscaling.cooldownPeriod }}
   triggers:
 {{ include "data-proxy.haTriggers" (dict "root" $root "schema" $schema "component" "postgrest") | nindent 4 }}
 {{- end }}
