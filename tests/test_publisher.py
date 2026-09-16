@@ -52,6 +52,14 @@ def allow_one_claim(monkeypatch: pytest.MonkeyPatch) -> None:
         "dp.sync.publisher.refresh_postgrest",
         AsyncMock(),
     )
+    monkeypatch.setattr(
+        "dp.sync.publisher.current_wal_lsn",
+        AsyncMock(return_value="0/1"),
+    )
+    monkeypatch.setattr(
+        "dp.sync.publisher.wait_for_replica_replay",
+        AsyncMock(),
+    )
 
 
 class TestPublisherSubscriber:

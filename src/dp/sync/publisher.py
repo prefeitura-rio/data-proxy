@@ -17,6 +17,7 @@ from ..loading import apply_sync_plan
 from ..log import elapsed_ms, logger, runid, schemaname
 from ..metrics import record_publication_metrics, tracker
 from ..models import PublishTask, SyncConfig, SyncPlan
+from ..replication import current_wal_lsn, wait_for_replica_replay
 from ..settings import settings
 from ..state import (
     build_table_states,
@@ -87,6 +88,9 @@ async def publish_schema_task(
     )
 
     states = build_table_states(result, schema_config)
+
+    target_lsn = await current_wal_lsn(pg_conn)
+    await wait_for_replica_replay(pg_conn, target_lsn)
 
     await refresh_postgrest(task.schema_name, task.run_id)
     logger.info("Refreshed PostgREST-ro schema cache")

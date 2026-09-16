@@ -50,7 +50,13 @@ class Settings(BaseSettings):
     KUBERNETES_NAMESPACE: str = "data-proxy"
     POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
     POSTGREST_RW_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
+    POSTGREST_RO_SERVICE_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
+    POSTGREST_RW_SERVICE_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
     POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    POSTGREST_API_POLL_INTERVAL_SECONDS: int = Field(default=1, gt=0)
+    POSTGREST_API_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    REPLICATION_WAIT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    REPLICATION_POLL_INTERVAL_SECONDS: int = Field(default=1, gt=0)
 
     @property
     def sync_config(self) -> SyncConfig:

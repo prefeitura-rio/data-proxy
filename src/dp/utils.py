@@ -1,6 +1,6 @@
 """Cross-domain worker coordination helpers."""
 
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import NoReturn
 from uuid import uuid4
@@ -9,6 +9,7 @@ from faststream.exceptions import StopApplication
 from faststream.redis import RedisStreamMessage, StreamSub
 from psycopg import AsyncConnection
 from redis.asyncio import Redis
+from tenacity import retry, stop_after_delay, wait_fixed
 
 from .log import logger
 from .models import PublishTask, TableState
@@ -16,6 +17,29 @@ from .s3 import clear_s3_bucket
 from .schema import revoke_anonymous_access
 from .settings import settings
 from .state import cleanup_consumer, cleanup_run, complete_schema, read_active_run
+
+
+async def wait_for(
+    check: Callable[[], Awaitable[None]],
+    *,
+    timeout: float,
+    interval: float,
+    message: str,
+) -> None:
+    """Retry an async readiness check until it succeeds or times out."""
+
+    @retry(
+        stop=stop_after_delay(timeout),
+        wait=wait_fixed(interval),
+        reraise=True,
+    )
+    async def attempt() -> None:
+        await check()
+
+    try:
+        await attempt()
+    except Exception as error:
+        raise TimeoutError(message) from error
 
 
 @asynccontextmanager
