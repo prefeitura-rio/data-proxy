@@ -15,6 +15,8 @@ from .models import (
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
 from .schema import initialize_schemas, reload_postgrest
+from .settings import settings
+from .state import emit_error
 
 
 def empty_incremental_tables(plan: SyncPlan) -> set[str]:
@@ -40,6 +42,11 @@ async def record_extraction_failures(
     tables = {table.name: table for table in config.tables}
 
     failed_tables = decision.blocked_tables | empty_incremental
+
+    if failed_tables:
+        async with settings.redis() as redis:
+            for table_name in sorted(failed_tables):
+                await emit_error(redis, "table_blocked", table=table_name)
 
     partitions_by_table = {
         table_name: decision.failed_partitions.get(table_name, set())
@@ -68,6 +75,9 @@ async def record_preparation_failures(
     failed = [tables[name] for name in eligible - prepared_names]
 
     if failed:
+        async with settings.redis() as redis:
+            for table in failed:
+                await emit_error(redis, "table_preparation_failed", table=table.name)
         await record_table_failures(pg_conn, failed, source_plan, attempted_at)
 
 

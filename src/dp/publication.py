@@ -30,6 +30,7 @@ from .models import (
     TableConfig,
 )
 from .settings import settings
+from .state import emit_error
 from .templates import render_fragment
 from .utils import atomic
 
@@ -511,6 +512,8 @@ async def prepare_tables(
             )
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
+            async with settings.redis() as redis:
+                await emit_error(redis, "table_preparation_failed", table=table.name)
             continue
 
         logger.info("Table preparation completed table=%s", table.name)
@@ -551,6 +554,9 @@ async def publish_prepared_tables(
         except Exception:
             logger.exception("Table publication failed table=%s", table.name)
             await pg_conn.rollback()
+
+            async with settings.redis() as redis:
+                await emit_error(redis, "table_publication_failed", table=table.name)
 
             await record_table_failures(pg_conn, [table], plan, attempted_at)
             await upsert_freshness(

@@ -151,12 +151,13 @@ class TestLoadingPrepareTablesPartitions:
         )
         await postgres.connection.commit()
 
-        prepared = await prepare_tables(
-            postgres.connection,
-            sync_config([table], schema_name=postgres.namespace.schema),
-            plan,
-            {table.name},
-        )
+        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+            prepared = await prepare_tables(
+                postgres.connection,
+                sync_config([table], schema_name=postgres.namespace.schema),
+                plan,
+                {table.name},
+            )
 
         remaining = await fetch_all(
             postgres.connection,
@@ -229,12 +230,13 @@ class TestLoadingPrepareTablesPartitions:
         )
         await postgres.connection.commit()
 
-        prepared = await prepare_tables(
-            postgres.connection,
-            sync_config([table], schema_name=postgres.namespace.schema),
-            plan,
-            {table.name},
-        )
+        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+            prepared = await prepare_tables(
+                postgres.connection,
+                sync_config([table], schema_name=postgres.namespace.schema),
+                plan,
+                {table.name},
+            )
 
         remaining = await fetch_all(
             postgres.connection,

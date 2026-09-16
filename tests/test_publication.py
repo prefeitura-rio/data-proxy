@@ -1,5 +1,7 @@
 """Tests for publication conditions, plan reduction, and table lifecycle."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from psycopg.sql import SQL, Identifier
 
@@ -320,12 +322,13 @@ class TestPrepareTable:
             paths={table.name: ["s3://missing/data.parquet"]},
         )
 
-        prepared = await prepare_tables(
-            postgres.connection,
-            sync_config([table], schema_name=schema),
-            plan,
-            {table.name},
-        )
+        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+            prepared = await prepare_tables(
+                postgres.connection,
+                sync_config([table], schema_name=schema),
+                plan,
+                {table.name},
+            )
 
         assert prepared == []
 

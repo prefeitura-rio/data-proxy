@@ -1,6 +1,5 @@
 """FastStream producer application for one synchronization run."""
 
-from asyncio import sleep
 from time import monotonic
 
 import uvloop
@@ -15,7 +14,7 @@ from ..metrics import metrics, tracker
 from ..models import SeedTask
 from ..planning import build_sync_work
 from ..settings import settings
-from ..state import create_run, ensure_groups, read_active_run, read_remaining
+from ..state import create_run, emit_error, ensure_groups, read_active_run
 
 broker = RedisBroker(str(settings.REDIS.write), logger=logger)
 producer = FastStream(broker, logger=logger)
@@ -29,14 +28,15 @@ async def produce_tasks() -> None:
     started = monotonic()
 
     async with settings.redis() as redis:
-        recovered_run: str | None = None
-        while (active_run := await read_active_run(redis)) is not None:
-            remaining = await read_remaining(redis, active_run)
-            if remaining == 0 and recovered_run != active_run:
-                await broker.publish(SeedTask(run_id=active_run), stream=SEED_STREAM)
-                recovered_run = active_run
-            logger.info("Waiting for pipeline run=%s to complete", active_run)
-            await sleep(settings.PRODUCER_POLL_INTERVAL_SECONDS)
+        active_run = await read_active_run(redis)
+        if active_run is not None:
+            logger.warning("Skipping run — active run=%s still in progress", active_run)
+            metrics.producer_runs_total.labels(status="active_run_conflict").inc()
+            await emit_error(
+                redis, "active_run_conflict", active_run=active_run, timestamp=runidval
+            )
+            producer.exit()
+            return
 
         await ensure_groups(redis)
 
@@ -58,6 +58,7 @@ async def produce_tasks() -> None:
         if not await create_run(redis, runidval, work.plans, len(work.tasks)):
             logger.warning("An active run already exists")
             metrics.producer_runs_total.labels(status="active_run_conflict").inc()
+            await emit_error(redis, "create_run_conflict", timestamp=runidval)
             producer.exit()
             return
 

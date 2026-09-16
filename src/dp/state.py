@@ -12,6 +12,8 @@ from .constants import (
     ACTIVE_KEY,
     DUMP_STREAM,
     DUMPERS_GROUP,
+    ERROR_STREAM,
+    ERROR_STREAM_MAXLEN,
     PLANS_KEY,
     PUBLISH_STREAM,
     PUBLISHERS_GROUP,
@@ -41,6 +43,20 @@ def decode_redis_value(value: bytes | str | None) -> str | None:
             return value.decode()
         case _:
             return value
+
+
+async def emit_error(
+    redis: Redis,
+    reason: str,
+    **fields: str,
+) -> None:
+    """Publish a structured error event to the dp:errors Redis stream."""
+    await redis.xadd(
+        ERROR_STREAM,
+        {"reason": reason, **fields},
+        maxlen=ERROR_STREAM_MAXLEN,
+        approximate=True,
+    )
 
 
 async def read_table_signature(redis: Redis, table: str) -> str | None:

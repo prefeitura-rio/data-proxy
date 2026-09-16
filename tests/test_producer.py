@@ -7,7 +7,7 @@ import pytest
 from duckdb import connect as connect_duckdb
 from redis.asyncio import Redis
 
-from dp.constants import DUMP_STREAM, SEED_STREAM
+from dp.constants import DUMP_STREAM
 from dp.models import AllSelection, DumpTask, SeedTask, SyncWork
 from dp.sync.producer import produce_tasks, producer
 from tests.helpers import dump as make_dump
@@ -106,53 +106,43 @@ class TestProducer:
         assert publish.call_args.kwargs["stream"] == DUMP_STREAM
 
     @pytest.mark.asyncio
-    async def test_producer_recovers_run_with_zero_remaining_tasks(
+    async def test_producer_skips_when_active_run_exists(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
         """
-        GIVEN: an active run with zero remaining tasks.
+        GIVEN: an active run still in progress.
         WHEN: produce_tasks runs.
-        THEN: the producer recovers the run and publishes a seed sync.
+        THEN: the producer emits an error event and exits without waiting.
         """
         with (
             patch(
                 "dp.sync.producer.read_active_run",
                 new_callable=AsyncMock,
-                side_effect=["old", "old", None],
-            ),
-            patch(
-                "dp.sync.producer.read_remaining",
-                new_callable=AsyncMock,
-                return_value=0,
-            ),
-            patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
-            patch(
-                "dp.sync.producer.build_sync_work",
-                new_callable=AsyncMock,
-                return_value=SyncWork([], []),
+                return_value="old",
             ),
             patch("dp.sync.producer.broker.publish", new_callable=AsyncMock) as publish,
-            patch.object(producer, "exit"),
+            patch.object(producer, "exit") as exit_mock,
         ):
             await produce_tasks()
 
-        sleep.assert_awaited_with(60)
-        publish.assert_awaited_once_with(SeedTask(run_id="old"), stream=SEED_STREAM)
+        exit_mock.assert_called_once()
+        # Should not publish any dump or seed tasks
+        publish.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_producer_waits_for_active_pipeline_before_dispatch(
+    async def test_producer_dispatches_when_no_active_run(
         self,
         sync_config_path: Path,
         redis: Redis,
         broker: object,
     ) -> None:
         """
-        GIVEN: an active pipeline that later completes.
-        WHEN: the next Producer runs.
-        THEN: it waits before it dispatches work.
+        GIVEN: no active pipeline.
+        WHEN: the Producer runs.
+        THEN: it dispatches work immediately without waiting.
         """
         task = make_dump()
         work = SyncWork(
@@ -168,14 +158,8 @@ class TestProducer:
             patch(
                 "dp.sync.producer.read_active_run",
                 new_callable=AsyncMock,
-                side_effect=["old", None],
+                return_value=None,
             ),
-            patch(
-                "dp.sync.producer.read_remaining",
-                new_callable=AsyncMock,
-                return_value=2,
-            ),
-            patch("dp.sync.producer.sleep", new_callable=AsyncMock) as sleep,
             patch(
                 "dp.sync.producer.build_sync_work",
                 new_callable=AsyncMock,
@@ -189,7 +173,6 @@ class TestProducer:
         ):
             await produce_tasks()
 
-        sleep.assert_awaited_once_with(60)
         publish.assert_awaited_once_with(task, stream="dp:extract")
 
     @pytest.mark.asyncio

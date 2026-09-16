@@ -13,7 +13,7 @@ from ..log import elapsed_ms, logger, runid, tablename
 from ..metrics import metrics, tracker
 from ..models import DumpSuccess, DumpTask, SeedTask
 from ..settings import settings
-from ..state import complete_dump
+from ..state import complete_dump, emit_error
 from ..state_machines import worker_state
 from ..utils import remove_idle_consumers, stream_subscriptions
 
@@ -42,6 +42,14 @@ async def dump_task(task: DumpTask, logger: Logger) -> None:
     try:
         await extract_task(task)
     except Exception as error:
+        async with settings.redis() as redis:
+            await emit_error(
+                redis,
+                "extraction_failed",
+                task=task.task_id,
+                table=task.table,
+                error=str(error),
+            )
         await retry_or_stop(
             error, task, broker.publish, max_retries=settings.DUMPER_MAX_RETRIES
         )

@@ -52,6 +52,7 @@ class TestLoadingPublishPrepared:
         with (
             patch("dp.publication.publish_table") as publish,
             patch("dp.freshness.execute_sql", new_callable=AsyncMock),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await publish_prepared_tables(
                 connection,
@@ -130,6 +131,7 @@ class TestLoadingPublishPrepared:
                 "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
             ),
             patch("dp.freshness.execute_sql", new_callable=AsyncMock),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await publish_prepared_tables(
                 connection,
@@ -176,6 +178,7 @@ class TestLoadingApplySyncPlan:
             ) as publish,
             patch("dp.loading.reload_postgrest") as reload,
             patch("dp.loading.create_bq_views"),
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
             result = await apply_sync_plan(
                 AsyncMock(spec=AsyncConnection), config, plan
@@ -357,6 +360,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
             patch("dp.loading.create_bq_views") as create_views,
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
             conn = AsyncMock(spec=AsyncConnection)
             await apply_sync_plan(conn, config, plan)
@@ -394,6 +398,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
             patch("dp.loading.create_bq_views"),
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
             result = await apply_sync_plan(
                 AsyncMock(spec=AsyncConnection),
@@ -431,6 +436,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
             patch("dp.loading.create_bq_views"),
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
             result = await apply_sync_plan(
                 AsyncMock(spec=AsyncConnection),
@@ -467,6 +473,7 @@ class TestLoadingApplySyncPlan:
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.reload_postgrest"),
             patch("dp.loading.create_bq_views"),
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
         ):
             result = await apply_sync_plan(
                 AsyncMock(spec=AsyncConnection), config, plan
