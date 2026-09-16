@@ -25,6 +25,7 @@ const FORWARDED_RESPONSE_HEADERS = [
 const DEFAULT_MEDIA_TYPE = "application/json";
 const JSON_TYPE = "application/json; charset=utf-8";
 const NO_FALLBACK_PATHS = ["/freshness", "/access_policy"];
+const NO_CACHE_PATHS = ["/access_policy"];
 
 interface CacheKeyParts {
     method: string;
@@ -99,6 +100,10 @@ const inFlight: Record<string, Promise<SharedAnswer>> = {};
  */
 function skipsFallback(uri: string): boolean {
     return NO_FALLBACK_PATHS.some((p) => uri === p || uri.startsWith(p + "/"));
+}
+
+function skipsCache(uri: string): boolean {
+    return NO_CACHE_PATHS.some((p) => uri === p || uri.startsWith(p + "/"));
 }
 
 /**
@@ -493,7 +498,7 @@ async function fetchAnswer(
     ctx: RequestContext,
     key: string,
 ): Promise<SharedAnswer> {
-    if (ctx.method === "GET") {
+    if (ctx.method === "GET" && !skipsCache(ctx.uri)) {
         const cached = await readCache(r, ctx, key);
 
         if (cached !== null) {
@@ -618,6 +623,7 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
             result.leading &&
             result.source !== "cache" &&
             ctx.method === "GET" &&
+            !skipsCache(ctx.uri) &&
             reply.status === 200 &&
             !ctx.headers["Range"] &&
             !isEmpty(reply.body) &&

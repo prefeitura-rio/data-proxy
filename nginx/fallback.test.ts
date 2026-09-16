@@ -186,6 +186,20 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + CALL],
     },
     {
+        name: 'does not cache access_policy reads',
+        uri: '/access_policy',
+        answers: [
+            { match: UPSTREAM, status: 200, body: ROWS },
+        ],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'postgrest',
+        events: [],
+        calls: ['GET ' + UPSTREAM + '/access_policy?' + QUERY],
+    },
+    {
         name: 'never runs the fallback for a write request',
         answers: [
             { match: UPSTREAM, status: 200, body: EMPTY },
