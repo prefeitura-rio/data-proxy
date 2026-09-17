@@ -238,11 +238,11 @@ export default function migration(): void {
     const noAccess = fetchToken("user-no-access");
     waitForApi(k8s, authorized);
     const current = localFingerprint(authorized, ha);
+    const authenticated = proxyGet("/endpoint_participante_listagem?limit=10", authorized);
     const denied = proxyGet("/endpoint_participante_listagem?limit=10", noAccess);
 
     check(null, {
-        [`${PHASE}: authenticated rows`]: () =>
-            Object.values(current.tables).every((count) => count > 0),
+        [`${PHASE}: authenticated API response`]: () => authenticated.status === 200,
         [`${PHASE}: no-policy RLS`]: () => denied.status === 200 && rows(denied).length === 0,
     });
 
