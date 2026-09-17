@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.14"
       - run: uv sync --all-groups --frozen
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: "3.14"
       - run: uv sync --all-groups --frozen
@@ -124,6 +124,17 @@ jobs:
       - run: uv run pytest tests/ -q
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
+  lint-sql:
+    name: Lint SQL templates
+    needs: changes
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: cachix/install-nix-action@v31
+      - run: nix run nixpkgs#sqlfluff -- lint --dialect postgres src/dp/sql/postgres helm/files/sql
+      - run: nix run nixpkgs#sqlfluff -- lint --dialect duckdb src/dp/sql/duckdb
+      - run: nix run nixpkgs#sqlfluff -- lint --dialect bigquery src/dp/sql/bigquery
   lint-nushell:
     name: Lint Nushell scripts
     needs: changes
@@ -166,11 +177,12 @@ jobs:
       - lint-python
       - test-python
       - lint-nushell
+      - lint-sql
       - lint-proxy
       - test-proxy
       - lint-helm
       - test-helm
-    if: always() && (needs.changes.outputs.python == 'true' || needs.changes.outputs.nushell == 'true' || needs.changes.outputs.proxy == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || inputs.force_full == true) && (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') && (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') && (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') && (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') && (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') && (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped')
+    if: always() && (needs.changes.outputs.python == 'true' || needs.changes.outputs.nushell == 'true' || needs.changes.outputs.proxy == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || inputs.force_full == true) && (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') && (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') && (needs.lint-sql.result == 'success' || needs.lint-sql.result == 'skipped') && (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') && (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') && (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') && (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - run: echo "All affected validation jobs passed"
@@ -186,19 +198,19 @@ jobs:
       - uses: hadolint/hadolint-action@v3.2.0
         with:
           dockerfile: Dockerfile
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -215,19 +227,19 @@ jobs:
       - uses: hadolint/hadolint-action@v3.2.0
         with:
           dockerfile: Dockerfile.postgres
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}-postgres
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           file: Dockerfile.postgres
           push: true
@@ -245,19 +257,19 @@ jobs:
       - uses: hadolint/hadolint-action@v3.2.0
         with:
           dockerfile: Dockerfile.nushell
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}-nushell
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           file: Dockerfile.nushell
           push: true
@@ -275,19 +287,19 @@ jobs:
       - uses: hadolint/hadolint-action@v3.2.0
         with:
           dockerfile: Dockerfile.proxy
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}-nginx-proxy
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile.proxy
@@ -319,9 +331,10 @@ jobs:
           version: v4.2.4
       - name: Install the chart test plugin
         run: helm plugin install https://github.com/helm-unittest/helm-unittest/releases/download/v1.1.2/unittest-1.1.2.tgz --verify=false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.24"
+          cache: false
       - name: Install the schema validator
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
@@ -405,25 +418,31 @@ jobs:
       - name: Login to GHCR
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-      - name: Package and push chart
+      - name: Update from main
+        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
+        run: git pull --rebase origin main
+      - name: Bump chart version
+        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
+        run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+      - name: Package chart
+        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
+        run: helm package helm/ --destination ./packaged/
+      - name: Commit and tag chart release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: |
-          helm package helm/ --destination ./packaged/
-          helm push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
-      - name: Bump chart version, commit, and tag
-        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: |
-          yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
+          git pull --rebase origin main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add helm/Chart.yaml helm/values.yaml
-          git commit -m "chore: bump helm chart to ${{ steps.version.outputs.next }} [skip ci]"
-          git tag ${{ steps.version.outputs.tag }}
-          git pull --rebase origin main
+          git commit -m "chore: release helm chart ${{ steps.version.outputs.next }} [skip ci]"
+          git tag helm-v${{ steps.version.outputs.next }}
           git push origin HEAD:main
-          git push origin ${{ steps.version.outputs.tag }}
-        env:
-          NEXT: ${{ steps.version.outputs.next }}
+          git push origin helm-v${{ steps.version.outputs.next }}
+      - name: Push chart
+        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
+        run: helm push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
       - name: Create GitHub release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         env:
