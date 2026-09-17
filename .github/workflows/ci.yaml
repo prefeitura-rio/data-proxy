@@ -341,11 +341,12 @@ jobs:
   build:
     name: Build
     needs:
+      - changes
       - build-dp
       - build-pg
       - build-nushell
       - build-proxy
-    if: always() && (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') && (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') && (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') && (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
+    if: always() && (needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_nginx == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.build_postgres == 'true') && (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') && (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') && (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') && (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - run: echo "All selected build jobs passed"
@@ -392,7 +393,7 @@ jobs:
       - changes
       - quality
       - build
-    if: always() && !cancelled() && (needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true') && needs.quality.result == 'success' && needs.build.result == 'success'
+    if: always() && !cancelled() && (needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true') && needs.quality.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
