@@ -67,6 +67,7 @@ spec:
           image: {{ .Values.cnpg.init.image | quote }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/init-db.nu]
+          workingDir: /scripts
           env:
             - name: POSTGRES_PASSWORD
               valueFrom:
@@ -164,6 +165,7 @@ spec:
           image: {{ $root.Values.cnpg.init.image | quote }}
           imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
           command: [nu, /scripts/init-db.nu]
+          workingDir: /scripts
           env:
             - name: POSTGRES_PASSWORD
               valueFrom:

@@ -3,19 +3,20 @@
   "kind": "template",
   "description": "Render the setup policy writer database operation.",
   "inputs": {
-    "policy_writer_role": "Role allowed to write access-policy rows.",
-    "authenticator_role": "PostgREST authenticator role.",
+    "policy_writer_role": "SQL-safe policy-writer role identifier.",
+    "policy_writer_literal": "SQL-safe policy-writer role literal.",
+    "authenticator_role": "SQL-safe PostgREST authenticator role identifier.",
     "schema": "PostgreSQL schema that owns the target objects.",
-    "policy_name": "Access policy name."
+    "policy_name": "SQL-safe access policy identifier."
   }
 }
 #}
--- noqa: disable=LT02,LT14,LT01
-SELECT format('CREATE ROLE %I NOLOGIN NOBYPASSRLS', '{{ policy_writer_role }}')
+-- noqa: disable=LT02,LT14,LT01,LT05
+SELECT format('CREATE ROLE %I NOLOGIN NOBYPASSRLS', {{ policy_writer_literal }})
 WHERE NOT EXISTS (
     SELECT 1
     FROM pg_roles
-    WHERE rolname = '{{ policy_writer_role }}'
+    WHERE rolname = {{ policy_writer_literal }}
 )
 \gexec
 GRANT {{ policy_writer_role }} TO {{ authenticator_role }};

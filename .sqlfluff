@@ -47,6 +47,7 @@ anonymous_role = anon
 authenticator_role = dp_auth
 scope = true
 policy_writer_role = policy_writer_pic
+policy_writer_literal = "'policy_writer_pic'"
 policy_name = policy_writer_pic
 roles = ["anon", "dp_user", "dp_auth"]
 parent_table = "'pic.people'"

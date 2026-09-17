@@ -44,6 +44,7 @@ spec:
               image: {{ .Values.cleanup.image | quote }}
               imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
               command: [nu, /scripts/cleanup.nu]
+              workingDir: /scripts
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
                 - name: S3_ENDPOINT_URL
@@ -98,6 +99,7 @@ spec:
               image: {{ $root.Values.cleanup.image | quote }}
               imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
               command: [nu, /scripts/cleanup.nu]
+              workingDir: /scripts
               env:
                 {{- include "data-proxy.appEnv" $root | nindent 16 }}
                 - name: S3_ENDPOINT_URL

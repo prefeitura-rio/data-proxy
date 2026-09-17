@@ -9,8 +9,9 @@
   }
 }
 #}
+{% from "duckdb/macros.sql" import select_projection %}
 COPY (
-    SELECT *{% if json_columns %} REPLACE ({% for column in json_columns %}to_json({{ column }}) AS {{ column }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
+    {{ select_projection(json_columns) }}
     FROM bigquery_scan({{ bq_table }})
 ) TO {{ path }} (
     FORMAT PARQUET

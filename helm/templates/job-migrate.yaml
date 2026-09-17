@@ -40,6 +40,7 @@ spec:
         - name: migrate
           image: {{ .Values.migration.image | quote }}
           command: ["/usr/bin/nu", "/scripts/migrate.nu"]
+          workingDir: /scripts
           env:
             - name: TARGET_MODE
               value: {{ .Values.cnpg.mode | quote }}

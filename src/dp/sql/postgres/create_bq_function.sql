@@ -15,6 +15,7 @@
   }
 }
 #}
+{% from "postgres/macros.sql" import rls_mapping_values %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS TABLE(
 {% for column in columns %}
@@ -47,11 +48,7 @@ BEGIN
     FROM (
       SELECT format('%I IN (%s)', t.col, string_agg(quote_literal(p.unit_id), ',')) AS predicate
       FROM (VALUES
-        {% for mapping in rls_mappings %}
-        ('{{ mapping.column }}', '{{ mapping.unit_type }}'){% if not loop.last %}, {% endif %}
-        {% else %}
-        ('', '')
-        {% endfor %}
+        {{ rls_mapping_values(rls_mappings) }}
       ) AS t(col, ut)
       JOIN {{ schema }}.access_policy p ON p.unit_type = t.ut
       WHERE p.subject = v_subject AND p.is_enabled

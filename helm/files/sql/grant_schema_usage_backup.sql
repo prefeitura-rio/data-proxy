@@ -7,4 +7,5 @@
   }
 }
 #}
-GRANT USAGE ON SCHEMA {{ schema }} TO backup;
+{% from "macros.sql" import grant_schema_usage %}
+{{ grant_schema_usage(schema, 'backup') }}

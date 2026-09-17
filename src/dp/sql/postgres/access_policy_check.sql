@@ -11,6 +11,7 @@
   }
 }
 #}
+{% from "postgres/macros.sql" import rls_mapping_predicates %}
 -- noqa: disable=LT02,LT05
 ALTER TABLE {{ schema }}.{{ table }} ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS access_policy_scoped ON {{ schema }}.{{ table }};
@@ -22,9 +23,7 @@ USING (
         WHERE p.subject = current_setting({{ claim_setting }}, true)
           AND p.is_enabled
           AND (p.is_admin OR (
-              {% for mapping in rls_mappings %}
-              (p.unit_type = '{{ mapping.unit_type }}' AND p.unit_id = "{{ mapping.column }}"::text){% if not loop.last %} OR {% endif %}
-              {% endfor %}
+              {{ rls_mapping_predicates(rls_mappings) }}
           ))
     )
 )

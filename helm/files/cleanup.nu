@@ -2,10 +2,9 @@
 # nu-lint-ignore-file: dont_mix_different_effects
 
 use std/log
-use ./lib.nu render-sql
+use ./lib.nu [quote-pg render-sql]
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
-
 let dsn = $env.PG_DSN
 let protected = [freshness access_policy]
 
@@ -24,17 +23,6 @@ def schema-list []: nothing -> list<string> {
 load-env {
     AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
     AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
-}
-
-# Execute a SQL statement against PostgreSQL
-def quote-pg-identifier [value: string]: nothing -> string {
-    let escaped = $value | str replace --all '"' '""'
-    $'"($escaped)"'
-}
-
-def quote-pg-literal [value: string]: nothing -> string {
-    let escaped = $value | str replace --all "'" "''"
-    $"'($escaped)'"
 }
 
 # Execute a SQL statement against PostgreSQL
@@ -69,7 +57,7 @@ for schema in (schema-list) {
         | each {|t| $t.name | split row . | last }
     )
 
-    let schema_literal = quote-pg-literal $schema
+    let schema_literal = quote-pg $schema literal
     let all = (
         postgres --tuples-only (render-sql cleanup_list_tables.sql {
             schema: $schema_literal
@@ -93,14 +81,14 @@ for schema in (schema-list) {
 
             log info $'Dropping table ($full_name)'
             (postgres (render-sql cleanup_drop_table.sql {
-                schema: (quote-pg-identifier $schema)
-                table: (quote-pg-identifier $table)
+                schema: (quote-pg $schema identifier)
+                table: (quote-pg $table identifier)
             }))
 
             log info $'Deleting freshness rows for ($full_name)'
             (postgres (render-sql cleanup_delete_freshness.sql {
-                schema: (quote-pg-identifier $schema)
-                table: (quote-pg-literal $table)
+                schema: (quote-pg $schema identifier)
+                table: (quote-pg $table literal)
             }))
 
             log info $'Deleting Redis state for ($full_name)'
@@ -115,7 +103,7 @@ for schema in (schema-list) {
 
         log info $'Truncating access_policy for ($schema)'
         (postgres (render-sql cleanup_truncate_access_policy.sql {
-            schema: (quote-pg-identifier $schema)
+            schema: (quote-pg $schema identifier)
         }))
     }
 

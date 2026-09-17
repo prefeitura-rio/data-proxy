@@ -2,6 +2,7 @@ sync:
   image: localhost/data-proxy:local
   imagePullPolicy: IfNotPresent
   dumper:
+    visibilityTimeoutMs: 60000
     batchMegaBytes: 60000
 migration:
   image: localhost/data-proxy-nushell:local

@@ -6,6 +6,6 @@ RUN apk add --no-cache \
     redis=8.8.0-r0 \
     aws-cli=2.34.63-r0 \
     kubectl=1.36.1-r1 \
-    minijinja-cli=2.13.0-r0
+    minijinja-cli=2.21.0-r0
 
 USER nushell

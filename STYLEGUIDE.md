@@ -100,23 +100,28 @@ Document each template once at the top of its source file. Use one multiline JSO
 
 Use `kind: template` with `description`. Add `inputs` only when the template has inputs. Keep input descriptions short.
 
-Document a group of reusable macros or Helm helpers once. Use the function-style form.
+Document every macro or Helm `define` once. Use one JSON header immediately before the definition.
 
 ```gotemplate
 {{/*
 {
   "kind": "macro",
-  "name": "data-proxy.helpers",
-  "description": "Shared Helm template helpers.",
-  "returns": "Rendered helper-specific values.",
+  "name": "data-proxy.name",
+  "description": "Return the chart name truncated to the Kubernetes limit.",
   "inputs": {
-    "root": "Helm context passed to the helper."
-  }
+    "context": "Helm chart context."
+  },
+  "returns": "A Kubernetes-safe chart name."
 }
 */}}
+{{- define "data-proxy.name" -}}
+...
+{{- end -}}
 ```
 
-Use `kind: macro` for reusable macros and helpers. Add `name`, `description`, and `returns`. Add `inputs` only when needed. Do not generate metadata at runtime. Do not document ordinary called functions with template metadata.
+Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`, which is Helm's standard helper file. Use one JSON header per macro or `define`.
+
+Put one blank line before the header. Put no blank line between the header and definition. Put one blank line after the definition. Add `name`, `description`, and `returns`. Add `inputs` when the macro accepts inputs. Do not generate metadata at runtime. Do not document ordinary called functions with macro metadata.
 
 Use `{# ... #}` for Jinja and minijinja. Use `{{/* ... */}}` for Go templates. The metadata must stay inside the source comment and must not appear in rendered output.
 

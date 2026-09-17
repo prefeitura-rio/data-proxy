@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use std/log
-use lib.nu render-sql
+use ./lib.nu [quote-pg render-sql]
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
     msg: $'Failed to open sync config: ($err.msg)'
@@ -57,15 +57,15 @@ def install-extensions []: nothing -> nothing {
 def create-schemas-and-freshness []: nothing -> nothing {
     for schema in (schema-list) {
         (postgres (render-sql setup_freshness.sql {
-            schema: $schema
-            user_role: $env.AUTH_USER_ROLE
-            rls_schema: rls
-            scope: ($schema + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
+            schema: (quote-pg $schema identifier)
+            user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
+            rls_schema: (quote-pg rls identifier)
+            scope: ((quote-pg $schema literal) + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
         }))
 
         if $env.BACKUP_ENABLED == 'true' {
             (
-                postgres (render-sql grant_schema_usage_backup.sql {schema: $schema})
+                postgres (render-sql grant_schema_usage_backup.sql {schema: (quote-pg $schema identifier)})
             )
         }
     }
@@ -78,8 +78,8 @@ def create-pre-request []: nothing -> nothing {
     postgres (render-sql create_pre_request.sql {})
 
     (postgres (render-sql grant_rls_usage.sql {
-        anonymous_role: $env.AUTH_ANON_ROLE
-        user_role: $env.AUTH_USER_ROLE
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier)
+        user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
     }))
 
     log info 'Created pre_request function'
@@ -89,21 +89,22 @@ def create-pre-request []: nothing -> nothing {
 def create-access-policy []: nothing -> nothing {
     for schema in (schema-list) {
         (postgres (render-sql setup_access_policy.sql {
-            schema: $schema
-            user_role: $env.AUTH_USER_ROLE
-            scope: ($schema + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
+            schema: (quote-pg $schema identifier)
+            user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
+            scope: ((quote-pg $schema literal) + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
         }))
 
         (postgres (render-sql setup_policy_writer.sql {
-            schema: $schema
-            policy_writer_role: $'policy_writer_($schema)'
-            authenticator_role: $env.AUTH_AUTHENTICATOR_ROLE
-            policy_name: $'policy_writer_($schema)'
+            schema: (quote-pg $schema identifier)
+            policy_writer_role: (quote-pg $'policy_writer_($schema)' identifier)
+            policy_writer_literal: (quote-pg $'policy_writer_($schema)' literal)
+            authenticator_role: (quote-pg $env.AUTH_AUTHENTICATOR_ROLE identifier)
+            policy_name: (quote-pg $'policy_writer_($schema)' identifier)
         }))
 
         if $env.BACKUP_ENABLED == 'true' {
             (
-                postgres (render-sql setup_access_policy_backup.sql {schema: $schema})
+                postgres (render-sql setup_access_policy_backup.sql {schema: (quote-pg $schema identifier)})
             )
         }
     }

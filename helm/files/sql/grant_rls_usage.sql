@@ -8,5 +8,6 @@
   }
 }
 #}
-GRANT USAGE ON SCHEMA rls TO {{ anonymous_role }};
-GRANT USAGE ON SCHEMA rls TO {{ user_role }};
+{% from "macros.sql" import grant_schema_usage %}
+{{ grant_schema_usage('rls', anonymous_role) }}
+{{ grant_schema_usage('rls', user_role) }}

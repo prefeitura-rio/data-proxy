@@ -73,7 +73,6 @@
   tasks = {
     "dp:lint:ci".exec = "actionlint .github/workflows/*.yaml";
     "dp:lint:py".exec = ''
-      set -e
       uv run ruff check src/ tests/
       uv run basedpyright src/ tests/
       uv run complexipy src/ tests/

@@ -1,9 +1,8 @@
 #!/usr/bin/env nu
-
 # nu-lint-ignore-file: dont_mix_different_effects, unhandled_external_error
 
 use std/log
-use lib.nu render-sql
+use ./lib.nu [quote-pg render-sql]
 
 $env.SQL_TEMPLATE_DIR = '/scripts'
 
@@ -120,8 +119,8 @@ def migrate-schema [m: record]: nothing -> nothing {
     log info $'Granting application access to migrated schema ($m.schema)…'
     try {
         (render-sql grant_migration_access.sql {
-            schema: $m.schema
-            user_role: $env.AUTH_USER_ROLE
+            schema: (quote-pg $m.schema identifier)
+            user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
         }) | psql $m.target --no-psqlrc --quiet -v ON_ERROR_STOP=1
     } catch {|err| error make {
         msg: $'Migration access grant failed for schema ($m.schema): ($err.msg)'
