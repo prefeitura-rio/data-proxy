@@ -20,8 +20,24 @@ on:
     paths: *ci_paths
   workflow_dispatch:
     inputs:
-      force_proxy:
-        description: Build and push the proxy image even when its sources are unchanged
+      force_python:
+        description: Run Python lint, tests, and application image build
+        type: boolean
+        default: false
+      force_nginx:
+        description: Run Nginx lint, tests, and proxy image build
+        type: boolean
+        default: false
+      force_nushell:
+        description: Run Nushell lint and image build
+        type: boolean
+        default: false
+      force_postgres:
+        description: Run PostgreSQL image build
+        type: boolean
+        default: false
+      force_helm:
+        description: Run Helm lint, tests, and chart release
         type: boolean
         default: false
       force_full:
@@ -42,12 +58,14 @@ jobs:
     outputs:
       ci: ${{ steps.filter.outputs.ci }}
       python: ${{ steps.filter.outputs.python }}
+      nginx: ${{ steps.filter.outputs.nginx }}
       nushell: ${{ steps.filter.outputs.nushell }}
-      proxy: ${{ steps.filter.outputs.proxy }}
+      postgres: ${{ steps.filter.outputs.postgres }}
       helm: ${{ steps.filter.outputs.helm }}
-      dp_image: ${{ steps.filter.outputs.dp_image }}
-      pg_image: ${{ steps.filter.outputs.pg_image }}
-      nushell_image: ${{ steps.filter.outputs.nushell_image }}
+      build_python: ${{ steps.filter.outputs.build_python }}
+      build_nginx: ${{ steps.filter.outputs.build_nginx }}
+      build_nushell: ${{ steps.filter.outputs.build_nushell }}
+      build_postgres: ${{ steps.filter.outputs.build_postgres }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -56,9 +74,14 @@ jobs:
         env:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
+          FORCE_PYTHON: ${{ inputs.force_python || false }}
+          FORCE_NGINX: ${{ inputs.force_nginx || false }}
+          FORCE_NUSHELL: ${{ inputs.force_nushell || false }}
+          FORCE_POSTGRES: ${{ inputs.force_postgres || false }}
+          FORCE_HELM: ${{ inputs.force_helm || false }}
         run: |
           if [ "$FORCE_FULL" = "true" ]; then
-            for output in ci python nushell proxy helm dp_image pg_image nushell_image; do
+            for output in ci python nginx nushell postgres helm build_python build_nginx build_nushell build_postgres; do
               echo "$output=true" >> "$GITHUB_OUTPUT"
             done
             exit 0
@@ -67,15 +90,24 @@ jobs:
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
           CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA")
           changed() { echo "$CHANGED" | grep -Eq "$1" && echo true || echo false; }
+          force_or_changed() {
+            if [ "$1" = "true" ]; then
+              echo true
+            else
+              changed "$2"
+            fi
+          }
           {
             echo "ci=$(changed '^\.github/workflows/')"
-            echo "python=$(changed '^(src/|tests/|pyproject\.toml$|uv\.lock$|Dockerfile$)')"
-            echo "nushell=$(changed '^(scripts/|helm/files/.*\.nu$)')"
-            echo "proxy=$(changed '^(nginx/|Dockerfile\.proxy$)')"
-            echo "helm=$(changed '^helm/')"
-            echo "dp_image=$(changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)')"
-            echo "pg_image=$(changed '^Dockerfile\.postgres$')"
-            echo "nushell_image=$(changed '^Dockerfile\.nushell$')"
+            echo "python=$(force_or_changed "$FORCE_PYTHON" '^(src/|tests/|pyproject\.toml$|uv\.lock$|Dockerfile$)')"
+            echo "nginx=$(force_or_changed "$FORCE_NGINX" '^(nginx/|Dockerfile\.proxy$)')"
+            echo "nushell=$(force_or_changed "$FORCE_NUSHELL" '^(scripts/|helm/files/.*\.nu$|Dockerfile\.nushell$)')"
+            echo "postgres=$(force_or_changed "$FORCE_POSTGRES" '^Dockerfile\.postgres$')"
+            echo "helm=$(force_or_changed "$FORCE_HELM" '^helm/')"
+            echo "build_python=$(force_or_changed "$FORCE_PYTHON" '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)')"
+            echo "build_nginx=$(force_or_changed "$FORCE_NGINX" '^(nginx/|Dockerfile\.proxy$)')"
+            echo "build_nushell=$(force_or_changed "$FORCE_NUSHELL" '^Dockerfile\.nushell$')"
+            echo "build_postgres=$(force_or_changed "$FORCE_POSTGRES" '^Dockerfile\.postgres$')"
           } >> "$GITHUB_OUTPUT"
   lint-ci:
     name: Lint GitHub Actions workflows
@@ -150,7 +182,7 @@ jobs:
   lint-proxy:
     name: Lint nginx proxy script
     needs: changes
-    if: needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true
+    if: needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -162,7 +194,7 @@ jobs:
   test-proxy:
     name: Test nginx proxy script
     needs: changes
-    if: needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true
+    if: needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -170,8 +202,8 @@ jobs:
         with:
           node-version: 24.19.0
       - run: node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
-  validation:
-    name: Validate affected components
+  quality:
+    name: Lint and test
     needs:
       - changes
       - lint-python
@@ -182,16 +214,16 @@ jobs:
       - test-proxy
       - lint-helm
       - test-helm
-    if: always() && (needs.changes.outputs.python == 'true' || needs.changes.outputs.nushell == 'true' || needs.changes.outputs.proxy == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || inputs.force_full == true) && (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') && (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') && (needs.lint-sql.result == 'success' || needs.lint-sql.result == 'skipped') && (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') && (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') && (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') && (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped')
+    if: always() && (needs.changes.outputs.python == 'true' || needs.changes.outputs.nushell == 'true' || needs.changes.outputs.nginx == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true') && (needs.lint-python.result == 'success' || needs.lint-python.result == 'skipped') && (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') && (needs.lint-nushell.result == 'success' || needs.lint-nushell.result == 'skipped') && (needs.lint-sql.result == 'success' || needs.lint-sql.result == 'skipped') && (needs.lint-proxy.result == 'success' || needs.lint-proxy.result == 'skipped') && (needs.test-proxy.result == 'success' || needs.test-proxy.result == 'skipped') && (needs.lint-helm.result == 'success' || needs.lint-helm.result == 'skipped') && (needs.test-helm.result == 'success' || needs.test-helm.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - run: echo "All affected validation jobs passed"
+      - run: echo "All affected quality jobs passed"
   build-dp:
     name: Build application image
     needs:
       - changes
-      - validation
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.dp_image == 'true' && needs.validation.result == 'success'
+      - quality
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.build_python == 'true' && needs.quality.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -219,8 +251,8 @@ jobs:
     name: Build PostgreSQL image
     needs:
       - changes
-      - validation
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.pg_image == 'true' && needs.validation.result == 'success'
+      - quality
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.build_postgres == 'true' && needs.quality.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -249,8 +281,8 @@ jobs:
     name: Build Nushell image
     needs:
       - changes
-      - validation
-    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.nushell_image == 'true' && needs.validation.result == 'success'
+      - quality
+    if: always() && github.ref == 'refs/heads/main' && needs.changes.outputs.build_nushell == 'true' && needs.quality.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -279,8 +311,8 @@ jobs:
     name: Build nginx proxy image
     needs:
       - changes
-      - validation
-    if: always() && github.ref == 'refs/heads/main' && (needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true) && needs.validation.result == 'success'
+      - quality
+    if: always() && github.ref == 'refs/heads/main' && (needs.changes.outputs.nginx == 'true') && needs.quality.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -306,10 +338,21 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+  build:
+    name: Build
+    needs:
+      - build-dp
+      - build-pg
+      - build-nushell
+      - build-proxy
+    if: always() && (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') && (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') && (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') && (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All selected build jobs passed"
   lint-helm:
     name: Lint Helm chart
     needs: changes
-    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_full == true
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -322,7 +365,7 @@ jobs:
   test-helm:
     name: Test Helm chart
     needs: changes
-    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_full == true
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -347,12 +390,9 @@ jobs:
     name: Release Helm chart
     needs:
       - changes
-      - validation
-      - build-dp
-      - build-pg
-      - build-nushell
-      - build-proxy
-    if: always() && !cancelled() && (needs.changes.outputs.helm == 'true' || needs.changes.outputs.dp_image == 'true' || needs.changes.outputs.pg_image == 'true' || needs.changes.outputs.nushell_image == 'true' || needs.changes.outputs.proxy == 'true' || inputs.force_proxy == true || inputs.force_full == true) && needs.validation.result == 'success' && (needs.build-dp.result == 'success' || needs.build-dp.result == 'skipped') && (needs.build-pg.result == 'success' || needs.build-pg.result == 'skipped') && (needs.build-nushell.result == 'success' || needs.build-nushell.result == 'skipped') && (needs.build-proxy.result == 'success' || needs.build-proxy.result == 'skipped')
+      - quality
+      - build
+    if: always() && !cancelled() && (needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true') && needs.quality.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -380,7 +420,7 @@ jobs:
             echo "app=$(resolve_sha data-proxy)"
             echo "postgres=$(resolve_sha data-proxy-postgres)"
             echo "nushell=$(resolve_sha data-proxy-nushell)"
-            echo "proxy=$(resolve_sha data-proxy-nginx-proxy)"
+            echo "nginx=$(resolve_sha data-proxy-nginx-proxy)"
           } >> "$GITHUB_OUTPUT"
       - name: Pin image SHAs in values.yaml
         if: github.ref == 'refs/heads/main'
@@ -392,12 +432,12 @@ jobs:
           yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(PROXY_SHA)" -i helm/values.yaml
+          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(NGINX_SHA)" -i helm/values.yaml
         env:
           APP_SHA: ${{ steps.shas.outputs.app }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
-          PROXY_SHA: ${{ steps.shas.outputs.proxy }}
+          NGINX_SHA: ${{ steps.shas.outputs.nginx }}
       - name: Read current version
         if: github.ref == 'refs/heads/main'
         id: version
@@ -439,7 +479,6 @@ jobs:
       - name: Commit and tag chart release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: |
-          git pull --rebase origin main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add helm/Chart.yaml helm/values.yaml
