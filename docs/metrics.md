@@ -13,6 +13,16 @@ Workers push the current metric registry to Pushgateway after execution. Push fa
 | `seed_runs_total`                | `status`           | Seed runs. Current status: `success`.                                     |
 | `producer_runs_total`            | `status`           | Producer runs. Status: `success`, `no_changes`, or `active_run_conflict`. |
 
+## Pipeline errors
+
+Workers publish structured failure events to the bounded Redis Stream `dp:errors`. The stream is capped at approximately 10,000 entries. Use it to investigate failures without treating it as a durable audit log.
+
+Events include the worker, error type, message, schema or table context when available, and the run identifier. The stream is written for diagnostics; normal pipeline state remains in the application state tables and Redis keys.
+
+```bash
+redis-cli XREAD COUNT 20 STREAMS dp:errors 0
+```
+
 ## Proxy logs
 
 The fallback proxy writes one JSON request log per request.

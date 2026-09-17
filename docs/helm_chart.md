@@ -18,7 +18,7 @@ See [`helm/values.yaml`](../helm/values.yaml) for all values.
 ## Chart tests
 
 ```bash
-devenv tasks run dp:test:charts
+devenv tasks run dp:test:helm
 ```
 
 The task runs Helm lint, Helm unit tests, and Kubeconform for standalone and HA values.
@@ -29,13 +29,15 @@ The chart pins repository images in `helm/values.yaml`. Released chart values do
 
 ## Database storage
 
-A fresh installation creates one retained PVC per pgduckdb member. Increase `pgduckdb.storage.size` when needed; Kubernetes does not support PVC size reduction. Remove retained PVCs only as a separate destructive operation.
+CNPG creates one retained PostgreSQL PVC per instance. Configure the size under `cnpg.storage.size`; Kubernetes does not support PVC size reduction. Remove retained PVCs only as a separate destructive operation.
 
-Existing installations that use StatefulSet `volumeClaimTemplates` need a manual migration before using this storage layout.
+SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL database uses pg_duckdb to read Parquet; pg_duckdb is an extension, not a separate database service.
 
-## Database upgrades
+## Database initialization and readiness
 
-Before PostgREST starts, the init container waits for its writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. A configuration checksum change also reruns reconciliation.
+The init-db hook waits for its CNPG writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. CNPG owns core database roles and memberships. Init-db owns extensions, schemas, tables, functions, RLS policies, and database S3 secrets.
+
+PostgREST-ro and PostgREST-rw use HTTP readiness probes on `/`. A Deployment is not Ready until PostgREST is serving its configured schema.
 
 ## Istio ingress
 
@@ -54,7 +56,9 @@ Configure proxy values under `fallback`, including `cacheTtl`, `fetchBufferSize`
 
 ## Enable HA
 
-HA creates one CNPG Cluster, one PostgREST Deployment, and one nginx Deployment for each schema in `syncConfig.schemas`. The `ha.schemas` list contains optional overrides only.
+HA creates one CNPG Cluster, read Pooler, PostgREST-ro/rw pair, and nginx Deployment for each schema in `syncConfig.schemas`. The `ha.schemas` list contains optional overrides only.
+
+GET and HEAD requests use PostgREST-ro through the read Pooler. Mutations use PostgREST-rw directly against the current writer. CNPG manages PostgreSQL replication and failover; no Patroni or HAProxy resources are required.
 
 ```yaml
 redis:
@@ -77,6 +81,31 @@ The Redis Secret contains a JSON value under `REDIS`:
 ```
 
 An empty PostgreSQL trigger list uses CPU. Empty PostgREST and nginx trigger lists use CPU and memory. Redis has no autoscaler unless custom triggers are supplied.
+
+## Migrate between modes
+
+Use two values files. Keep the shared local values first and the HA overlay second:
+
+```sh
+helm upgrade data-proxy ./helm \
+  --namespace data-proxy \
+  --values scripts/values/data-proxy.yaml \
+  --values scripts/values/data-proxy-ha.yaml \
+  --kubeconfig .kubeconfig \
+  --kube-context data-proxy
+```
+
+The migration hook retains the source CNPG topology while Helm creates and initializes the target. It copies each configured schema with an idempotent dump/restore, waits for target initialization, and records `data-proxy-mode-state`. Run a normal reconciliation after the migration to prune retained source resources. Reverse the values-file order for HA to shared:
+
+```sh
+helm upgrade data-proxy ./helm \
+  --namespace data-proxy \
+  --values scripts/values/data-proxy.yaml \
+  --kubeconfig .kubeconfig \
+  --kube-context data-proxy
+```
+
+Do not delete CNPG or application resources during a transition. A failed release can be retried after the source state is inspected; preserve the source topology until the copy succeeds.
 
 ## Versioning
 

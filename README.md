@@ -1,6 +1,6 @@
 # Data Proxy
 
-Data Proxy synchronises BigQuery tables to a PostgreSQL database (pg_duckdb) and exposes them through a PostgREST REST API, enforcing row-level security against a backend-managed access policy table, keyed by JWT identity claims.
+Data Proxy synchronises BigQuery tables to PostgreSQL with the pg_duckdb extension and exposes them through a PostgREST REST API, enforcing row-level security against a backend-managed access policy table, keyed by JWT identity claims.
 
 BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually consistent read cache.
 

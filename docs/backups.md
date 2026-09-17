@@ -4,10 +4,10 @@ A sync rebuilds application tables from BigQuery. It does not rebuild access gra
 
 ## Operation
 
-Set `backup.enabled` to create one CronJob per configured schema. Each job exports `access_policy` as CSV, encrypts it with [age](https://github.com/FiloSottile/age), and uploads it to:
+Set `backup.enabled` to create one CronJob per configured schema. Each job exports only `<schema>.access_policy` and uploads the dump to the separate backup S3/GCS-compatible service:
 
 ```text
-<backup.prefix>/<schema>/<date>.csv.age
+<backup.prefix>/<schema>/<date>.dump
 ```
 
 The chart default prefix is:
@@ -16,46 +16,41 @@ The chart default prefix is:
 backups/access_policy
 ```
 
-The chart does not store the age private key. Keep it outside the cluster.
+Backups contain only access-policy data. They do not contain PostgreSQL tables, Parquet files, or the full database.
 
 ## Configuration
 
 ```yaml
 backup:
   enabled: true
-  ageRecipient: "age1..."
-  password: "..."
   schedule: "0 3 * * *"
+  prefix: backups/access_policy
+  existingSecret: data-proxy-backup
+  s3:
+    endpointURL: https://storage.googleapis.com
+    bucket: access-policy-backups
 ```
 
-`ageRecipient` is the encryption recipient. `password` is the PostgreSQL backup-role password, not an age password.
+The backup Secret supplies the PostgreSQL backup-role password and the separate object-store credentials. Configure bucket lifecycle rules for retention.
 
 The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart does not delete backup objects.
 
 ## Verify a backup
 
-Download first, then decrypt:
+Download the dump and inspect it before restoring:
 
 ```bash
 aws s3 cp \
-  "s3://<bucket>/backups/access_policy/<schema>/<date>.csv.age" \
-  backup.csv.age
+  "s3://<bucket>/backups/access_policy/<schema>/<date>.dump" \
+  access_policy.dump
 
-age --decrypt \
-  --identity key.txt \
-  --output verified.csv \
-  backup.csv.age
-```
-
-```bash
-head -1 verified.csv
-wc -l verified.csv
+pg_restore --list access_policy.dump
 ```
 
 ## Restore
 
-1. Decrypt into a reviewed local CSV.
-2. Load it into a temporary table.
+1. Download the reviewed dump from the separate backup service.
+2. Restore it into a temporary database or table.
 3. Compare it with `<schema>.access_policy`.
 4. Apply reviewed rows only.
 

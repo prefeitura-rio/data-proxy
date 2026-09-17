@@ -32,17 +32,32 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 
 ## Table fields
 
-| Field       | Required | Meaning                                                                          |
-| ----------- | -------- | -------------------------------------------------------------------------------- |
-| `name`      | Yes      | BigQuery reference: `project.dataset.table`.                                     |
-| `strategy`  | Yes      | `full` replaces the table; `partitioned` updates physical partitions.            |
-| `n`         | No       | Keep the newest `n` time partitions.                                             |
-| `fallback`  | No       | Enables the `_bq` fallback view when chart fallback is enabled. Default: `true`. |
-| `cache_ttl` | No       | Fallback cache lifetime in seconds.                                              |
-| `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                    |
-| `indexes`   | No       | Index definitions created after publication.                                     |
+| Field       | Required | Meaning                                                                                                                                         |
+| ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`      | Yes      | BigQuery reference: `project.dataset.table`.                                                                                                    |
+| `strategy`  | Yes      | `full` replaces the table; `partitioned` updates physical partitions.                                                                           |
+| `n`         | No       | Keep the newest `n` time partitions.                                                                                                            |
+| `fallback`  | No       | Enables the `_bq` fallback view for this table when chart fallback is enabled. Set `false` to disable fallback for this table. Default: `true`. |
+| `cache_ttl` | No       | Fallback cache lifetime in seconds.                                                                                                             |
+| `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                                                                                   |
+| `indexes`   | No       | Index definitions created after publication.                                                                                                    |
+| `fallback`  | No       | Enable BigQuery fallback for the table                                                                                                          |
 
 `indexes.expressions` contains raw SQL. Use it only in trusted configuration. Expressions are inserted into `CREATE INDEX` DDL.
+
+## Fallback per table
+
+Fallback has two gates. The chart-level fallback configuration must be enabled, and the table must have `fallback: true` (the default). Use `fallback: false` for tables that must never query BigQuery when the local table is empty.
+
+```json
+{
+  "name": "project.dataset.internal_table",
+  "strategy": "full",
+  "fallback": false
+}
+```
+
+When fallback is disabled for a table, the Publisher does not create its `_bq` view and nginx returns the local PostgREST response without a BigQuery fallback request. See [Fallback](fallback.md).
 
 ## Batching
 

@@ -9,6 +9,12 @@ curl \
   "${BASE_URL}/participants?select=id_cras,name&limit=20"
 ```
 
+## Read and write routing
+
+nginx routes `GET` and `HEAD` requests to PostgREST-ro, which uses the CNPG read Pooler. POST, PUT, PATCH, and DELETE requests route to PostgREST-rw, which connects directly to the current CNPG writer. This separation keeps reads replica-friendly while writes use the primary.
+
+The read and write deployments are refreshed by the Publisher after replica replay. A PostgREST deployment is not Ready until its HTTP readiness probe serves `/`.
+
 ## OpenAPI
 
 When `swaggerUi.enabled` is true, the OpenAPI page is available at:

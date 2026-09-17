@@ -1,6 +1,6 @@
 # Database Schema
 
-Chart initialization creates shared roles, extensions, and the `rls` schema. The sync workflow creates configured application schemas, policy objects, and tables.
+CNPG creates and maintains the core roles. Init-db creates extensions, the `rls` schema, configured application schemas, policy objects, and tables.
 
 ## Shared objects
 
@@ -17,9 +17,9 @@ Chart initialization creates shared roles, extensions, and the `rls` schema. The
 | ------------------------ | ------------------------------------------------------------------- |
 | `anon`                   | No application table access.                                        |
 | `user`                   | Read access subject to schema and row conditions.                   |
-| `authenticator`          | PostgREST login role.                                               |
-| `policy_writer_<schema>` | Reads and writes one schema's `access_policy` table. Cannot delete. |
-| `backup`                 | Reads `access_policy` for backups.                                  |
+| `authenticator`          | PostgREST login role. CNPG keeps it `NOINHERIT` and grants membership in `anon` and `user`. |
+| `policy_writer_<schema>` | Reads and writes one schema's `access_policy` table. Created by init-db/Publisher. Cannot delete. |
+| `backup`                 | Optional CNPG-managed role that reads `access_policy` for backups. |
 
 ## Application schema
 
@@ -41,6 +41,8 @@ Each configured schema contains:
 The sync workflow creates schema and row conditions for application tables. See [Security](security.md) for access behavior.
 
 The chart creates a pg_duckdb S3 secret from `S3_ACCESS_KEY` and `S3_SECRET_KEY`. The Publisher uses it to read Parquet files with `read_parquet()`.
+
+Production GCP credentials are projected into every CNPG instance through `gcp.existingSecret`. This is required because pg_duckdb fallback queries can execute on read replicas.
 
 ---
 

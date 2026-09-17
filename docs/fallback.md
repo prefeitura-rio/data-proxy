@@ -1,4 +1,4 @@
-# BigQuery Fallback
+# Fallback
 
 Fallback serves an empty local `GET` from the BigQuery-backed `<table>_bq` view. Clients keep using the normal table endpoint.
 
@@ -9,7 +9,7 @@ fallback:
   enabled: true
 ```
 
-The chart deploys nginx and Valkey. nginx is the public read endpoint; PostgREST remains the local API endpoint.
+The chart deploys nginx and Valkey. nginx is the public endpoint. GET and HEAD requests use PostgREST-ro through the read Pooler; mutations use PostgREST-rw directly through the current writer. PostgREST remains the local API endpoint.
 
 ## Request flow
 
@@ -47,7 +47,7 @@ sequenceDiagram
     end
 ```
 
-Fallback applies to reads only. The proxy does not cache empty, ranged, write, oversized, or non-JSON responses.
+Fallback applies to reads only. The proxy does not cache empty, ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never read from or written to the response cache, regardless of schema profile.
 
 ## Access and cache scope
 
