@@ -80,7 +80,8 @@
     '';
     "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
     "dp:lint:sql".exec = ''
-      sqlfluff lint --dialect postgres src/dp/sql/postgres helm/files/sql
+      sqlfluff lint --dialect postgres --config helm/files/sql/helm/.sqlfluff helm/files/sql/helm
+      sqlfluff lint --dialect postgres src/dp/sql/postgres helm/files/sql/jinja
       sqlfluff lint --dialect duckdb src/dp/sql/duckdb
       sqlfluff lint --dialect bigquery src/dp/sql/bigquery
     '';

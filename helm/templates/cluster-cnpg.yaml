@@ -51,7 +51,7 @@ spec:
       encoding: UTF8
       dataChecksums: true
       postInitApplicationSQL:
-        - {{ tpl ($files.Get "files/sql/bootstrap_roles.sql") $root | quote }}
+        - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ $root.Values.cnpg.instances | int }}
   resources:
     requests:
@@ -148,7 +148,7 @@ spec:
       encoding: UTF8
       dataChecksums: true
       postInitApplicationSQL:
-        - {{ tpl ($files.Get "files/sql/bootstrap_authenticator.sql") $root | quote }}
+        - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
   resources:
     requests:

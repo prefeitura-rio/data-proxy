@@ -33,7 +33,7 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: init-db
 data:
-{{- range $path, $_ := .Files.Glob "files/sql/*.sql" }}
+{{- range $path, $_ := .Files.Glob "files/sql/jinja/*.sql" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
@@ -119,7 +119,7 @@ spec:
               mountPath: /scripts
               readOnly: true
             - name: init-db-sql
-              mountPath: /sql
+              mountPath: /sql/jinja
               readOnly: true
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
@@ -219,7 +219,7 @@ spec:
               mountPath: /scripts
               readOnly: true
             - name: init-db-sql
-              mountPath: /sql
+              mountPath: /sql/jinja
               readOnly: true
       volumes:
         {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}

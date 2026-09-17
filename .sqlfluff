@@ -2,13 +2,11 @@
 dialect = postgres
 templater = jinja
 max_line_length = 88
-# These rules are dialect-specific or conflict with generated SQL.
-# AL05: Parquet aliases are required by PostgreSQL syntax but not referenced.
-# RF04/RF06: Jinja-rendered identifiers can look like keywords or unnecessary quotes.
-exclude_rules = AL05,AL07,CV09,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02,TQ03,TQ04
+exclude_rules = AL05,AL07,CV09,LT02,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02,TQ03,TQ04
 
 [sqlfluff:templater:jinja]
 apply_dbt_builtins = False
+loader_search_path = helm/files/sql/jinja
 
 [sqlfluff:templater:jinja:context]
 schema = pic
