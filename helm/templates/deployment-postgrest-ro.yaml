@@ -51,6 +51,27 @@ spec:
             - name: jwks
               mountPath: /etc/postgrest
         {{- end }}
+        - name: wait-for-authenticator
+          image: {{ .Values.cnpg.init.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: ["/usr/bin/nu", "-c"]
+          args:
+            - |
+{{ .Files.Get "files/wait-for-authenticator.nu" | nindent 14 }}
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.auth.authenticatorRole | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.fullname" . }}-cnpg-authenticator
+                  key: password
       volumes:
         {{- if not .Values.postgrest.jwtSecret }}
         - name: jwks
@@ -66,8 +87,8 @@ spec:
             - name: PGRST_AUTHENTICATOR_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" . }}
-                  key: PGRST_AUTHENTICATOR_PASSWORD
+                  name: {{ include "data-proxy.fullname" . }}-cnpg-authenticator
+                  key: password
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgresReadDsn" . | quote }}
             - name: PGRST_DB_PREPARED_STATEMENTS

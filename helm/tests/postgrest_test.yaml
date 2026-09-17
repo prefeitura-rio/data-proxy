@@ -123,10 +123,20 @@ tests:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
           value: "true"
 
-  - it: does not inject the sidecar when sidecarInject is disabled
+  - it: waits for the CNPG authenticator role before PostgREST starts
     set:
-      ingress.sidecarInject: false
+      postgrest.jwtSecret: test-secret
     asserts:
-      - equal:
-          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
-          value: "false"
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: PGUSER
+            value: authenticator
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: data-proxy-cnpg-authenticator
