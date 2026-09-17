@@ -7,7 +7,6 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: dumper
 spec:
-  replicas: 0
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}

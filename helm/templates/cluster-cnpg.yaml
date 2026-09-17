@@ -68,11 +68,32 @@ spec:
         login: true
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-dataproxy
+      - name: {{ $root.Values.auth.anonRole | quote }}
+        ensure: present
+        login: false
+        bypassrls: false
+      - name: {{ $root.Values.auth.userRole | quote }}
+        ensure: present
+        login: false
+        bypassrls: false
       - name: {{ $root.Values.auth.authenticatorRole | quote }}
         ensure: present
         login: true
+        bypassrls: false
+        inherit: false
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+        inRoles:
+          - {{ $root.Values.auth.anonRole | quote }}
+          - {{ $root.Values.auth.userRole | quote }}
+      {{- if $root.Values.cnpg.backup.enabled }}
+      - name: backup
+        ensure: present
+        login: true
+        bypassrls: false
+        passwordSecret:
+          name: {{ include "data-proxy.fullname" $root }}-backup
+      {{- end }}
 
 {{- end }}
 
@@ -142,11 +163,32 @@ spec:
         login: true
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-dataproxy
+      - name: {{ $root.Values.auth.anonRole | quote }}
+        ensure: present
+        login: false
+        bypassrls: false
+      - name: {{ $root.Values.auth.userRole | quote }}
+        ensure: present
+        login: false
+        bypassrls: false
       - name: {{ $root.Values.auth.authenticatorRole | quote }}
         ensure: present
         login: true
+        bypassrls: false
+        inherit: false
         passwordSecret:
           name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+        inRoles:
+          - {{ $root.Values.auth.anonRole | quote }}
+          - {{ $root.Values.auth.userRole | quote }}
+      {{- if $root.Values.cnpg.backup.enabled }}
+      - name: backup
+        ensure: present
+        login: true
+        bypassrls: false
+        passwordSecret:
+          name: {{ include "data-proxy.fullname" $root }}-backup
+      {{- end }}
 
 {{- end }}
 {{- end }}

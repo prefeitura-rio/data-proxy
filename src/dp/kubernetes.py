@@ -6,7 +6,6 @@ from contextlib import AbstractAsyncContextManager
 from operator import attrgetter
 from typing import Protocol, cast
 
-from httpx2 import AsyncClient
 from kubernetes_asyncio import config
 from kubernetes_asyncio.client import ApiClient, AppsV1Api
 
@@ -92,41 +91,6 @@ async def deployment_ready(read: Callable[[], Awaitable[Deployment]]) -> None:
         raise RuntimeError("Deployment is not ready")
 
 
-async def postgrest_api_ready(http: AsyncClient, schema: str) -> None:
-    """Raise until both PostgREST Services expose their API."""
-    path = "/"
-    templates = (
-        settings.POSTGREST_RO_SERVICE_TEMPLATE,
-        settings.POSTGREST_RW_SERVICE_TEMPLATE,
-    )
-
-    for template in templates:
-        service = expand_template(template, schema)
-        url = (
-            f"http://{service}.{settings.KUBERNETES_NAMESPACE}"
-            f".svc.cluster.local:3000{path}"
-        )
-
-        try:
-            response = await http.get(url, headers={"Accept-Profile": schema})
-        except Exception as error:
-            raise RuntimeError("PostgREST Service is unavailable") from error
-
-        if response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError("PostgREST schema is not ready")
-
-
-async def wait_for_postgrest_api(schema: str) -> None:
-    """Wait until both PostgREST Services expose their API."""
-    async with AsyncClient(timeout=5) as http:
-        await wait_for(
-            lambda: postgrest_api_ready(http, schema),
-            timeout=settings.POSTGREST_API_TIMEOUT_SECONDS,
-            interval=settings.POSTGREST_API_POLL_INTERVAL_SECONDS,
-            message="PostgREST API did not expose the published schema",
-        )
-
-
 async def refresh_postgrest(schema: str, revision: str) -> None:
     """Restart both PostgREST deployments and wait for their rollouts."""
     load_config()
@@ -168,5 +132,3 @@ async def refresh_postgrest(schema: str, revision: str) -> None:
             )
 
         await gather(*(wait_for_deployment(name) for name in names))
-
-    await wait_for_postgrest_api(schema)

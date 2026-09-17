@@ -86,17 +86,31 @@ function rows(response: K6Response): unknown[] {
     return value;
 }
 
-/** Captures credential-free table row and access-policy counts from the public API. */
-function fingerprint(token: string): Fingerprint {
+/** Sends an authenticated read directly to the active PostgREST service. */
+function postgrestGet(path: string, token: string, ha: boolean): K6Response {
+    const service = ha ? "data-proxy-pic-postgrest-ro" : "data-proxy-postgrest-ro";
+    return http.get(
+        `http://${service}.${NAMESPACE}.svc.cluster.local:3000${path}`,
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Accept-Profile": SCHEMA,
+            },
+        },
+    ) as K6Response;
+}
+
+/** Captures local PostgreSQL row and access-policy counts without nginx fallback. */
+function localFingerprint(token: string, ha: boolean): Fingerprint {
     const tables: Record<string, number> = {};
 
     for (const table of TABLES) {
-        const response = proxyGet(`/${table}?limit=1000`, token);
+        const response = postgrestGet(`/${table}?limit=1000`, token, ha);
         if (response.status !== 200) throw new Error(`${table} returned ${response.status}`);
         tables[table] = rows(response).length;
     }
 
-    const policy = proxyGet("/access_policy?subject=eq.user-1&limit=1000", token);
+    const policy = postgrestGet("/access_policy?subject=eq.user-1&limit=1000", token, ha);
     if (policy.status !== 200) throw new Error(`access_policy returned ${policy.status}`);
     return { tables, accessPolicy: rows(policy).length };
 }
@@ -155,10 +169,24 @@ function waitForMigrationJob(k8s: Kubernetes, direction: string): void {
 
     while (Date.now() < deadline) {
         const jobs = k8s.list("Job.batch", NAMESPACE) as KubernetesResource[];
-        if (jobs.some((job) => job.metadata.name.startsWith("data-proxy-migrate-") && job.status?.succeeded)) return;
+        if (jobs.some((job) => job.metadata.name.startsWith("data-proxy-migrate-") && job.status?.succeeded)) {
+            verifyModeState(k8s, direction);
+            return;
+        }
         sleep(POLL_SECONDS);
     }
     throw new Error(`${PHASE}: migration Job for ${direction} did not complete`);
+}
+
+/** Verifies the mode-state ConfigMap records the expected direction and completed status. */
+function verifyModeState(k8s: Kubernetes, expectedDirection: string): void {
+    const config = k8s.get("ConfigMap", "data-proxy-mode-state", NAMESPACE) as {
+        data?: { direction?: string; status?: string };
+    };
+
+    if (config.data?.direction !== expectedDirection || config.data?.status !== "completed") {
+        throw new Error(`${PHASE}: mode-state expected direction=${expectedDirection} status=completed, got direction=${config.data?.direction} status=${config.data?.status}`);
+    }
 }
 
 /** Stores the shared baseline fingerprint for independent later TestRun Pods. */
@@ -182,12 +210,34 @@ function loadBaseline(k8s: Kubernetes): Fingerprint {
     return JSON.parse(config.data.fingerprint) as Fingerprint;
 }
 
+/** Waits for the public pic API to accept requests after topology changes. */
+function waitForApi(k8s: Kubernetes, token: string): void {
+    const deadline = Date.now() + TIMEOUT_SECONDS * 1000;
+    while (Date.now() < deadline) {
+        const response = proxyGet("/endpoint_participante_listagem?limit=1", token);
+        if (response.status === 200) return;
+        sleep(POLL_SECONDS);
+    }
+    throw new Error(`${PHASE}: public pic API did not become ready within ${TIMEOUT_SECONDS}s`);
+}
+
 /** Runs the assertions selected by MIGRATION_PHASE. */
 export default function migration(): void {
     const k8s = new Kubernetes();
+    const ha = PHASE === "ha" || PHASE === "ha-settled";
+
+    if (PHASE === "shared-baseline") {
+        waitForTopology(k8s, false);
+    } else {
+        if (PHASE === "ha") waitForMigrationJob(k8s, "to-ha");
+        if (PHASE === "shared-return") waitForMigrationJob(k8s, "to-single");
+        waitForTopology(k8s, ha);
+    }
+
     const authorized = fetchToken("user-with-access");
     const noAccess = fetchToken("user-no-access");
-    const current = fingerprint(authorized);
+    waitForApi(k8s, authorized);
+    const current = localFingerprint(authorized, ha);
     const denied = proxyGet("/endpoint_participante_listagem?limit=10", noAccess);
 
     check(null, {
@@ -197,15 +247,9 @@ export default function migration(): void {
     });
 
     if (PHASE === "shared-baseline") {
-        waitForTopology(k8s, false);
         saveBaseline(k8s, current);
         return;
     }
-
-    const ha = PHASE === "ha" || PHASE === "ha-settled";
-    if (PHASE === "ha") waitForMigrationJob(k8s, "to-ha");
-    if (PHASE === "shared-return") waitForMigrationJob(k8s, "to-single");
-    waitForTopology(k8s, ha);
 
     check(null, {
         [`${PHASE}: fingerprint equals baseline`]: () =>
@@ -213,19 +257,53 @@ export default function migration(): void {
     });
 
     if (PHASE === "ha-settled") {
+        const sharedResources = [
+            ["Cluster.postgresql.cnpg.io", "data-proxy"],
+            ["Pooler.postgresql.cnpg.io", "data-proxy-pooler-ro"],
+            ["Deployment.apps", "data-proxy-nginx-proxy"],
+            ["Deployment.apps", "data-proxy-postgrest-ro"],
+            ["Deployment.apps", "data-proxy-postgrest-rw"],
+            ["ScaledObject.keda.sh", "data-proxy-nginx-proxy"],
+            ["ScaledObject.keda.sh", "data-proxy-postgrest-ro"],
+            ["ScaledObject.keda.sh", "data-proxy-pooler-ro-autoscaler"],
+            ["HorizontalPodAutoscaler.autoscaling", "data-proxy-postgrest-rw"],
+            ["Service", "data-proxy-nginx-proxy"],
+            ["Service", "data-proxy-postgrest-ro"],
+            ["Service", "data-proxy-postgrest-rw"],
+            ["PodDisruptionBudget.policy", "data-proxy-postgrest-ro"],
+            ["PodDisruptionBudget.policy", "data-proxy-postgrest-rw"],
+            ["CronJob.batch", "data-proxy-cleanup"],
+            ["CronJob.batch", "data-proxy-partman"],
+        ];
         check(null, {
             "ha-settled: shared source pruned": () =>
-                resourceIsAbsent(k8s, "Cluster.postgresql.cnpg.io", "data-proxy") &&
-                resourceIsAbsent(k8s, "Deployment.apps", "data-proxy-nginx-proxy"),
+                sharedResources.every(([kind, name]) => resourceIsAbsent(k8s, kind, name)),
         });
     }
 
     if (PHASE === "shared-settled") {
+        const haResources = [
+            ["Cluster.postgresql.cnpg.io", "data-proxy-pic"],
+            ["Pooler.postgresql.cnpg.io", "data-proxy-pic-pooler-ro"],
+            ["Deployment.apps", "data-proxy-pic-nginx-proxy"],
+            ["Deployment.apps", "data-proxy-pic-postgrest-ro"],
+            ["Deployment.apps", "data-proxy-pic-postgrest-rw"],
+            ["ScaledObject.keda.sh", "data-proxy-pic-nginx-proxy"],
+            ["ScaledObject.keda.sh", "data-proxy-pic-postgrest-ro"],
+            ["ScaledObject.keda.sh", "data-proxy-pic-pooler-ro-autoscaler"],
+            ["HorizontalPodAutoscaler.autoscaling", "data-proxy-pic-postgrest-rw"],
+            ["Service", "data-proxy-pic-nginx-proxy"],
+            ["Service", "data-proxy-pic-postgrest-ro"],
+            ["Service", "data-proxy-pic-postgrest-rw"],
+            ["PodDisruptionBudget.policy", "data-proxy-pic-pooler-ro"],
+            ["PodDisruptionBudget.policy", "data-proxy-pic-postgrest-ro"],
+            ["PodDisruptionBudget.policy", "data-proxy-pic-postgrest-rw"],
+            ["CronJob.batch", "data-proxy-pic-cleanup"],
+            ["CronJob.batch", "data-proxy-pic-partman"],
+        ];
         check(null, {
             "shared-settled: HA source pruned": () =>
-                resourceIsAbsent(k8s, "Cluster.postgresql.cnpg.io", "data-proxy-pic") &&
-                resourceIsAbsent(k8s, "Deployment.apps", "data-proxy-pic-nginx-proxy") &&
-                resourceIsAbsent(k8s, "ScaledObject.keda.sh", "data-proxy-pic-postgrest-ro"),
+                haResources.every(([kind, name]) => resourceIsAbsent(k8s, kind, name)),
         });
     }
 }

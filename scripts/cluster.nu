@@ -616,7 +616,6 @@ def "main k6 e2e" []: nothing -> nothing {
     (hm
         $kubecfg
         upgrade
-        --force-conflicts
         data-proxy
         $'($repo)/helm'
         --namespace
@@ -636,6 +635,13 @@ def "main k6 e2e" []: nothing -> nothing {
         --timeout=180s
     ) out> /dev/null
 
+    log info 'Waiting for data-proxy deployments…'
+    [
+        'data-proxy/data-proxy-nginx-proxy'
+        'data-proxy/data-proxy-postgrest-ro'
+        'data-proxy/data-proxy-postgrest-rw'
+    ] | wait-for deployment $kubecfg
+
     log info 'Clearing test resources…'
     clear-test-resources $kubecfg
 
@@ -650,10 +656,154 @@ def "main k6 e2e" []: nothing -> nothing {
     )
 }
 
+# Recover from a failed or pending migration before starting a new test.
+def recover-migration [kubecfg: path, repo: path]: nothing -> nothing {
+    let status = (
+        hm $kubecfg status data-proxy --namespace data-proxy
+        | lines
+        | first
+        | split words
+        | last
+        | str trim
+    )
+    let mode = (
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            get
+            configmap
+            data-proxy-mode-state
+            -o
+            jsonpath='{.data.mode}'
+        )
+        | str trim
+    )
+    let state = (
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            get
+            configmap
+            data-proxy-mode-state
+            -o
+            jsonpath='{.data.status}'
+        )
+        | str trim
+    )
+
+    if $status == 'deployed' and $mode == 'shared' and $state == 'completed' {
+        return
+    }
+
+    if $status != 'deployed' {
+        let direction = (
+            (k
+                $kubecfg
+                -n
+                data-proxy
+                get
+                configmap
+                data-proxy-mode-state
+                -o
+                jsonpath='{.data.direction}'
+            )
+            | str trim
+        )
+        let revision = (
+            hm $kubecfg history data-proxy --namespace data-proxy
+            | lines
+            | last
+            | split words
+            | first
+            | into int
+        )
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            delete
+            secret
+            $'sh.helm.release.v1.data-proxy.v($revision)'
+            --ignore-not-found
+        )
+
+        if $direction == 'to-ha' {
+            (k
+                $kubecfg
+                -n
+                data-proxy
+                patch
+                configmap
+                data-proxy-mode-state
+                --type
+                merge
+                -p
+                '{"data":{"mode":"per-schema","status":"completed","direction":"to-ha"}}'
+            )
+            (
+                (hm
+                    $kubecfg
+                    upgrade
+                    --take-ownership
+                    data-proxy
+                    $'($repo)/helm'
+                    --namespace
+                    data-proxy
+                    --values
+                    $'($repo)/scripts/values/data-proxy.yaml'
+                    --values
+                    $'($repo)/scripts/values/data-proxy-ha.yaml'
+                )
+            ) | ignore
+            (
+                (hm
+                    $kubecfg
+                    upgrade
+                    data-proxy
+                    $'($repo)/helm'
+                    --namespace
+                    data-proxy
+                    --values
+                    $'($repo)/scripts/values/data-proxy.yaml'
+                )
+            ) | ignore
+        } else {
+            (k
+                $kubecfg
+                -n
+                data-proxy
+                patch
+                configmap
+                data-proxy-mode-state
+                --type
+                merge
+                -p
+                '{"data":{"mode":"shared","status":"completed","direction":"none"}}'
+            )
+            (
+                (hm
+                    $kubecfg
+                    upgrade
+                    data-proxy
+                    $'($repo)/helm'
+                    --namespace
+                    data-proxy
+                    --values
+                    $'($repo)/scripts/values/data-proxy.yaml'
+                )
+            ) | ignore
+        }
+    }
+}
+
 # Validate published data through a full shared → HA → shared migration round trip.
 def "main k6 migrate" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
     let repo = git-root
+
+    recover-migration $kubecfg $repo
 
     main k6 e2e
 
@@ -828,7 +978,6 @@ def "main up" []: nothing -> nothing {
     (hm
         $kubecfg
         upgrade
-        --force-conflicts
         --install
         data-proxy
         $'($repo)/helm'

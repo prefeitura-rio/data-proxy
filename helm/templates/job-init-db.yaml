@@ -60,11 +60,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: PGRST_AUTHENTICATOR_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" . }}
-                  key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: PGHOST
@@ -88,13 +83,6 @@ spec:
               value: {{ .Values.auth.authenticatorRole | quote }}
             - name: BACKUP_ENABLED
               value: {{ .Values.backup.enabled | quote }}
-            {{- if .Values.backup.enabled }}
-            - name: BACKUP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.backupSecretName" . }}
-                  key: BACKUP_PASSWORD
-            {{- end }}
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -169,11 +157,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: POSTGRES_PASSWORD
-            - name: PGRST_AUTHENTICATOR_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" $root }}
-                  key: PGRST_AUTHENTICATOR_PASSWORD
             - name: PG_DSN
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
             - name: PGHOST
@@ -197,13 +180,6 @@ spec:
               value: {{ $root.Values.auth.authenticatorRole | quote }}
             - name: BACKUP_ENABLED
               value: {{ $root.Values.backup.enabled | quote }}
-            {{- if $root.Values.backup.enabled }}
-            - name: BACKUP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.backupSecretName" $root }}
-                  key: BACKUP_PASSWORD
-            {{- end }}
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:

@@ -47,6 +47,8 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: SCHEMAS
               value: {{ keys (.Values.syncConfig.schemas | default dict) | join " " | quote }}
+            - name: AUTH_USER_ROLE
+              value: {{ .Values.auth.userRole | quote }}
             - name: NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: PRODUCER

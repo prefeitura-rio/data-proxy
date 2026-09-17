@@ -9,3 +9,5 @@ metadata:
 data:
   migrate.nu: |
 {{ .Files.Get "files/migrate.nu" | indent 4 }}
+  grant_migration_access.sql: |
+{{ .Files.Get "files/sql/grant_migration_access.sql" | indent 4 }}

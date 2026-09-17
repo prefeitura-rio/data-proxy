@@ -317,10 +317,6 @@ map $http_accept_profile $postgrest_write {
   value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
 - name: POSTGREST_RW_DEPLOYMENT_TEMPLATE
   value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RO_SERVICE_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RW_SERVICE_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
 - name: POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
 - name: REPLICATION_WAIT_TIMEOUT_SECONDS

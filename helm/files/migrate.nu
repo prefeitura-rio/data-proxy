@@ -100,12 +100,29 @@ def migrate-schema [m: record]: nothing -> nothing {
     } }
 
     log info $'Restoring schema ($m.schema) into ($m.target)…'
-    try {
+    let restore = (
         pg_restore --clean --if-exists --no-owner --no-acl --dbname=($m.target) $dump_file
+        | complete
+    )
+    if $restore.exit_code != 0 and ($restore.stderr !~ "errors ignored on restore") {
+        error make {
+            msg: $'pg_restore failed for schema ($m.schema): ($restore.stderr)'
+            label: {
+                text: pg_restore
+                span: (metadata $m).span
+            }
+        }
+    }
+
+    log info $'Granting application access to migrated schema ($m.schema)…'
+    let schema_var = $'schema=($m.schema)'
+    let role_var = $'user_role=($env.AUTH_USER_ROLE)'
+    try {
+        psql $m.target --no-psqlrc --quiet -v ON_ERROR_STOP=1 -v $schema_var -v $role_var -f /scripts/grant_migration_access.sql
     } catch {|err| error make {
-        msg: $'pg_restore failed for schema ($m.schema): ($err.msg)'
+        msg: $'Migration access grant failed for schema ($m.schema): ($err.msg)'
         label: {
-            text: pg_restore
+            text: grant_migration_access
             span: (metadata $m).span
         }
     } }
@@ -202,8 +219,8 @@ def run-migration [direction: string]: nothing -> nothing {
 
 def main []: nothing -> nothing {
     let direction = match [$env.SOURCE_MODE? $env.TARGET_MODE] {
-        ['shared' 'per-schema'] => 'to-ha'
-        ['per-schema' 'shared'] => 'to-single'
+        ['shared', 'per-schema'] => 'to-ha'
+        ['per-schema', 'shared'] => 'to-single'
         _ => 'none'
     }
 

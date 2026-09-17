@@ -5,6 +5,33 @@ templates:
   - cronjob-partman-maintenance.yaml
   - scaledobject-pooler.yaml
 tests:
+  - it: manages anon, user, and authenticator roles through CNPG
+    asserts:
+      - equal:
+          path: spec.managed.roles[1].name
+          value: "anon"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[1].login
+          value: false
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[2].name
+          value: "user"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[3].name
+          value: "authenticator"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[3].inherit
+          value: false
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[3].inRoles
+          value: ["anon", "user"]
+        template: cluster-cnpg.yaml
+
   - it: renders one CNPG Cluster in shared mode
     set:
       cnpg.instances: 3

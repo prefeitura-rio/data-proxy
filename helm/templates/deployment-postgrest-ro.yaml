@@ -94,7 +94,8 @@ spec:
               readOnly: true
             {{- end }}
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5

@@ -99,7 +99,8 @@ spec:
           resources:
             {{- toYaml (ternary $root.Values.postgrest.ro.resources $root.Values.postgrest.rw.resources (eq $mode "ro")) | nindent 12 }}
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /
               port: http
             periodSeconds: 5
       volumes:

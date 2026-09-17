@@ -32,8 +32,8 @@ tests:
           count: 2
         template: deployment-schema-postgrest.yaml
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
-          value: http
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /
         template: deployment-schema-postgrest.yaml
         documentSelector:
           path: metadata.name

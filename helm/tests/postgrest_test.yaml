@@ -34,8 +34,16 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
 
-  - it: leaves replica count to the read autoscaler
+  - it: uses HTTP readiness probe for shared PostgREST-ro
     asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /
+        template: deployment-postgrest-ro.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+        template: deployment-postgrest-ro.yaml
       - notExists:
           path: spec.replicas
 

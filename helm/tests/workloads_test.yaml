@@ -65,9 +65,8 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.dumper]
         template: deployment-dumper.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 0
         template: deployment-dumper.yaml
 
   - it: dumper carries the batch settings and a scratch volume

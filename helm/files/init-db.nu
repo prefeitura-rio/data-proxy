@@ -69,55 +69,6 @@ def install-extensions []: nothing -> nothing {
     log info 'Installed extensions'
 }
 
-# Create the optional backup role.
-def create-backup-role []: nothing -> nothing {
-    if $env.BACKUP_ENABLED != 'true' {
-        return
-    }
-
-    (postgres
-        (load-sql create_backup_role.sql)
-        $'backup_password=($env.BACKUP_PASSWORD)'
-    )
-    log info 'Created backup role'
-}
-
-# Create anon, user, authenticator, and backup roles with grants
-def create-roles []: nothing -> nothing {
-    (postgres
-        (load-sql create_roles.sql)
-        $'anon_role=($env.AUTH_ANON_ROLE)'
-        $'user_role=($env.AUTH_USER_ROLE)'
-        $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
-    )
-    (postgres
-        (load-sql set_role_nologin.sql)
-        $'role=($env.AUTH_ANON_ROLE)'
-    )
-    (postgres
-        (load-sql set_role_nologin.sql)
-        $'role=($env.AUTH_USER_ROLE)'
-    )
-    (postgres
-        (load-sql set_authenticator_password.sql)
-        $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
-        $'auth_password=($env.PGRST_AUTHENTICATOR_PASSWORD)'
-    )
-    (postgres
-        (load-sql grant_role_to_authenticator.sql)
-        $'role=($env.AUTH_ANON_ROLE)'
-        $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
-    )
-    (postgres
-        (load-sql grant_role_to_authenticator.sql)
-        $'role=($env.AUTH_USER_ROLE)'
-        $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
-    )
-
-    create-backup-role
-    log info 'Created roles'
-}
-
 # Create per-schema freshness tables with RLS policies
 def create-schemas-and-freshness []: nothing -> nothing {
     for schema in (schema-list) {
@@ -137,6 +88,11 @@ def create-schemas-and-freshness []: nothing -> nothing {
 # Create the pre_request function that mirrors JWT claims into session variables
 def create-pre-request []: nothing -> nothing {
     postgres (load-sql create_pre_request.sql)
+
+    let anon_var = $'anon_role=($env.AUTH_ANON_ROLE)'
+    let user_var = $'user_role=($env.AUTH_USER_ROLE)'
+    (postgres (load-sql grant_rls_usage.sql) $anon_var $user_var)
+
     log info 'Created pre_request function'
 }
 
@@ -147,6 +103,11 @@ def create-access-policy []: nothing -> nothing {
         let user_var = $'user_role=($env.AUTH_USER_ROLE)'
 
         (postgres (load-sql setup_access_policy.sql) $schema_var $user_var)
+
+        let writer_var = $'policy_writer_role=policy_writer_($schema)'
+        let auth_var = $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
+        let policy_var = $'policy_name=policy_writer_($schema)'
+        (postgres (load-sql setup_policy_writer.sql) $schema_var $writer_var $auth_var $policy_var)
 
         if $env.BACKUP_ENABLED == 'true' {
             (postgres (load-sql setup_access_policy_backup.sql) $schema_var)
@@ -179,7 +140,6 @@ log info 'Database initialization started'
 try {
     wait-for-postgres
     install-extensions
-    create-roles
     create-schemas-and-freshness
     create-pre-request
     create-access-policy
