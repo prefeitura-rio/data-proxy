@@ -399,13 +399,20 @@ jobs:
         if: github.ref == 'refs/heads/main'
         id: version
         run: |
-          CURRENT=$(yq eval '.version' helm/Chart.yaml)
-          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          CHART_VERSION=$(yq eval '.version' helm/Chart.yaml)
+          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
+          LAST_VERSION=${LAST_TAG#helm-v}
+          BASE_VERSION="$CHART_VERSION"
+          if [ -n "$LAST_VERSION" ] && [ "$(printf '%s\n' "$BASE_VERSION" "$LAST_VERSION" | sort -V | tail -1)" = "$LAST_VERSION" ]; then
+            BASE_VERSION="$LAST_VERSION"
+          fi
+          MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
+          NEXT="$MAJOR.$((MINOR + 1)).0"
           {
-            echo "current=$CURRENT"
-            echo "next=$MAJOR.$((MINOR + 1)).0"
-            echo "tag=helm-v$CURRENT"
+            echo "current=$CHART_VERSION"
+            echo "next=$NEXT"
+            echo "tag=helm-v$NEXT"
           } >> "$GITHUB_OUTPUT"
       - name: Skip if no chart or image changes since release
         if: github.ref == 'refs/heads/main'
