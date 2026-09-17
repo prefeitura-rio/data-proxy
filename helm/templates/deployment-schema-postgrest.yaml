@@ -79,6 +79,8 @@ spec:
               value: {{ $databaseService | quote }}
             - name: PGPORT
               value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
             - name: PGDATABASE
               value: {{ $root.Values.cnpg.db.name | quote }}
             - name: PGUSER

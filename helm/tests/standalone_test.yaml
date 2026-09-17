@@ -31,6 +31,35 @@ tests:
           path: spec.managed.roles[3].inRoles
           value: ["anon", "user"]
         template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "CREATE ROLE.*NOLOGIN"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "ALTER ROLE.*PASSWORD"
+        template: cluster-cnpg.yaml
+
+  - it: renders the bootstrap password and role grants
+    set:
+      cnpg.authenticatorPassword: test-authenticator-password
+    asserts:
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "authenticator_password text := .test-authenticator-password."
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "GRANT.*anon_role.*authenticator_role"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "GRANT.*user_role.*authenticator_role"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[3].passwordSecret.name
+          value: data-proxy-cnpg-authenticator
+        template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster in shared mode
     set:

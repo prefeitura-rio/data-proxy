@@ -63,6 +63,8 @@ spec:
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
             - name: PGPORT
               value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
             - name: PGDATABASE
               value: {{ .Values.cnpg.db.name | quote }}
             - name: PGUSER

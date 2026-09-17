@@ -10,6 +10,7 @@
 }
 */}}
 {{- $root := . }}
+{{- $files := .Files }}
 {{- $state := lookup "v1" "ConfigMap" $root.Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" $root)) }}
 {{- $previous := "" }}
 {{- if $state }}
@@ -49,6 +50,8 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
+      postInitApplicationSQL:
+        - {{ tpl ($files.Get "files/sql/bootstrap_roles.sql") $root | quote }}
   instances: {{ $root.Values.cnpg.instances | int }}
   resources:
     requests:
@@ -144,6 +147,8 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
+      postInitApplicationSQL:
+        - {{ tpl ($files.Get "files/sql/bootstrap_authenticator.sql") $root | quote }}
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
   resources:
     requests:
