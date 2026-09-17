@@ -353,8 +353,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: cachix/install-nix-action@v31
       - run: |
-          nix run nixpkgs#helm -- lint helm/ -f helm/ci/test-values.yaml
-          nix run nixpkgs#helm -- lint helm/ -f helm/ci/test-values-ha.yaml
+          nix run nixpkgs#kubernetes-helm -- lint helm/ -f helm/ci/test-values.yaml
+          nix run nixpkgs#kubernetes-helm -- lint helm/ -f helm/ci/test-values-ha.yaml
   test-helm:
     name: Test Helm chart
     needs: changes
@@ -366,9 +366,9 @@ jobs:
       - run: |
           HELM_UNITTEST_PATH="$(nix eval --raw nixpkgs#kubernetes-helmPlugins.helm-unittest)"
           export HELM_PLUGINS="$HELM_UNITTEST_PATH"
-          nix run nixpkgs#helm -- unittest helm/
-          nix run nixpkgs#helm -- template data-proxy helm/ -f helm/ci/test-values.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
-          nix run nixpkgs#helm -- template data-proxy helm/ -f helm/ci/test-values-ha.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          nix run nixpkgs#kubernetes-helm -- unittest helm/
+          nix run nixpkgs#kubernetes-helm -- template data-proxy helm/ -f helm/ci/test-values.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          nix run nixpkgs#kubernetes-helm -- template data-proxy helm/ -f helm/ci/test-values-ha.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
   helm:
     name: Release Helm chart
     needs:
@@ -448,7 +448,7 @@ jobs:
           fi
       - name: Login to GHCR
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | nix run nixpkgs#helm -- registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | nix run nixpkgs#kubernetes-helm -- registry login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Bump chart version
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: nix run nixpkgs#yq-go -- e '.version = strenv(NEXT)' -i helm/Chart.yaml
@@ -456,7 +456,7 @@ jobs:
           NEXT: ${{ steps.version.outputs.next }}
       - name: Package chart
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: nix run nixpkgs#helm -- package helm/ --destination ./packaged/
+        run: nix run nixpkgs#kubernetes-helm -- package helm/ --destination ./packaged/
       - name: Commit and tag chart release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: |
@@ -469,7 +469,7 @@ jobs:
           git push origin helm-v${{ steps.version.outputs.next }}
       - name: Push chart
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: nix run nixpkgs#helm -- push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: nix run nixpkgs#kubernetes-helm -- push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
       - name: Create GitHub release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         env:
