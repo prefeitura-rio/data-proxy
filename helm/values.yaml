@@ -1,6 +1,6 @@
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:3a849db
+  image: ghcr.io/prefeitura-rio/data-proxy:463ac83
   imagePullPolicy: IfNotPresent
   producer:
     ## Cron expression that controls when the producer runs.
@@ -84,7 +84,7 @@ sync:
       failedJobsHistoryLimit: 1
 migration:
   ## Image used by the HA mode migration Job.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:463ac83
 ## Kubernetes ServiceAccount for the pipeline pods.
 ## Attach a Workload Identity annotation here to allow BigQuery access without
 ## a service account key file.
@@ -118,7 +118,7 @@ postgrest:
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:463ac83
   ro:
     replicas: 1
     resources:
@@ -266,7 +266,7 @@ backup:
   ## Set to true to deploy the table-level backup CronJob.
   enabled: false
   ## Nushell image with PostgreSQL client, Redis, AWS CLI, and kubectl.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:463ac83
   schedule: 0 3 * * *
   startingDeadlineSeconds: 600
   activeDeadlineSeconds: 1800
@@ -287,7 +287,7 @@ cleanup:
   ## Set to true to deploy the cleanup CronJob.
   enabled: true
   ## Image used by the cleanup CronJob.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:463ac83
   ## Cron expression that controls when the cleanup runs.
   ## Default: daily at 04:00 UTC, after the backup.
   schedule: 0 4 * * *
@@ -362,7 +362,7 @@ cnpg:
     name: data-proxy
     user: dataproxy
   init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:463ac83
   existingSecret: ""
   password: ""
   authenticatorPassword: ""
@@ -393,7 +393,7 @@ cnpg:
       memory: 4Gi
   ## Container image with pg_duckdb, PostGIS, and pg_partman.
   ## Must be based on the official postgres image for CNPG compatibility.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:030de55
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:463ac83
   storage:
     ## Size of the PersistentVolumeClaim for each PostgreSQL instance.
     size: 100Gi
@@ -504,7 +504,7 @@ fallback:
   ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:030de55
+  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:463ac83
   ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
   ## every webdis release up to this one still frees an in-flight command.
   webdisImage: docker.io/nicolas/webdis:0.1.25
