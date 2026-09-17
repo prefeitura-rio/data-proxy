@@ -361,6 +361,9 @@ jobs:
       - uses: azure/setup-helm@59b1c81c6280f5abebb1fb1bc585696daa7dfb42 # v5
         with:
           version: v4.2.4
+      - name: Update from main
+        if: github.ref == 'refs/heads/main'
+        run: git pull --rebase origin main
       - name: Resolve latest image SHAs from GHCR
         if: github.ref == 'refs/heads/main'
         id: shas
@@ -425,9 +428,6 @@ jobs:
       - name: Login to GHCR
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-      - name: Update from main
-        if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: git pull --rebase origin main
       - name: Bump chart version
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
