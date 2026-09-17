@@ -3,6 +3,9 @@
 # nu-lint-ignore-file: dont_mix_different_effects, unhandled_external_error
 
 use std/log
+use lib.nu render-sql
+
+$env.SQL_TEMPLATE_DIR = '/scripts'
 
 # Wrapped kubectl with optional context selection.
 def --wrapped k [...rest: string]: nothing -> string {
@@ -115,10 +118,11 @@ def migrate-schema [m: record]: nothing -> nothing {
     }
 
     log info $'Granting application access to migrated schema ($m.schema)…'
-    let schema_var = $'schema=($m.schema)'
-    let role_var = $'user_role=($env.AUTH_USER_ROLE)'
     try {
-        psql $m.target --no-psqlrc --quiet -v ON_ERROR_STOP=1 -v $schema_var -v $role_var -f /scripts/grant_migration_access.sql
+        (render-sql grant_migration_access.sql {
+            schema: $m.schema
+            user_role: $env.AUTH_USER_ROLE
+        }) | psql $m.target --no-psqlrc --quiet -v ON_ERROR_STOP=1
     } catch {|err| error make {
         msg: $'Migration access grant failed for schema ($m.schema): ($err.msg)'
         label: {

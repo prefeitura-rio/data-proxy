@@ -1,3 +1,14 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the database migration Job.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 {{- $state := lookup "v1" "ConfigMap" .Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" .)) }}
 {{- $previous := "" }}
 {{- if $state }}

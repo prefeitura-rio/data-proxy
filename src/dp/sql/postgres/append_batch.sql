@@ -1,5 +1,18 @@
-CREATE TEMP TABLE ${temp} AS
-SELECT ${cols}
-FROM read_parquet(${s3_path}) AS r;
-INSERT INTO ${schema}.${table} SELECT * FROM ${temp};
-DROP TABLE ${temp}
+{#
+{
+  "kind": "template",
+  "description": "Render the append batch database operation.",
+  "inputs": {
+    "temp": "Temporary table used during the operation.",
+    "columns": "Structured SQL-safe column metadata.",
+    "path": "SQL-safe Parquet or object-storage path literal.",
+    "schema": "PostgreSQL schema that owns the target objects.",
+    "table": "PostgreSQL table being read or changed."
+  }
+}
+#}
+CREATE TEMP TABLE {{ temp }} AS
+SELECT {{ columns | join(',\n    ') }}
+FROM read_parquet({{ path }}) AS r;
+INSERT INTO {{ schema }}.{{ table }} SELECT * FROM {{ temp }};
+DROP TABLE {{ temp }}

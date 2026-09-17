@@ -1,1 +1,1 @@
-SELECT count(*) FROM ${schema}.freshness;
+SELECT count(*) FROM {{ schema }}.freshness;

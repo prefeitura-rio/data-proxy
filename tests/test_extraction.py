@@ -7,7 +7,6 @@ import pytest
 from duckdb import DuckDBPyConnection
 
 from dp.extraction import (
-    build_columns,
     extract_task,
     extraction_statement,
     merge_statement,
@@ -84,29 +83,6 @@ class TestSelectionFields:
             selection_fields(invalid_selection)
 
 
-class TestBuildColumns:
-    """STRUCT-to-JSON column rewriting."""
-
-    def test_flat_table_uses_star(self) -> None:
-        """
-        GIVEN: a table without STRUCT columns.
-        WHEN: build_columns is called.
-        THEN: it returns a plain star expression.
-        """
-        assert build_columns([]).as_string(None) == "*"
-
-    def test_struct_columns_are_wrapped_with_json(self) -> None:
-        """
-        GIVEN: STRUCT column names.
-        WHEN: build_columns is called.
-        THEN: each column is wrapped with to_json under a star replace.
-        """
-        rendered = build_columns(["units", "data"]).as_string(None)
-        assert rendered == (
-            '* REPLACE (to_json("units") AS "units", to_json("data") AS "data")'
-        )
-
-
 class TestExtractionStatement:
     """Extraction template selection."""
 
@@ -146,7 +122,7 @@ class TestMergeStatement:
         """
         template, mapping = merge_statement("/scratch", "s3://b/out")
         assert template == "duckdb/merge_batch"
-        assert render(mapping["scratch"]) == "'/scratch/*.parquet'"
+        assert render(mapping["scratch_path"]) == "'/scratch/*.parquet'"
         assert render(mapping["path"]) == "'s3://b/out'"
 
 

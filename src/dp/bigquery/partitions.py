@@ -268,7 +268,7 @@ async def physical_partitions(
     ):
         partition = normalize_partition(row, table, kind_cfg, signature)
 
-        if partition is not None:
+        if partition:
             partitions[partition.partition_id] = partition
 
     if n is not None:

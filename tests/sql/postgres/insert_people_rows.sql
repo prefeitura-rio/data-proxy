@@ -1,1 +1,1 @@
-INSERT INTO ${schema}.people VALUES ${rows}
+INSERT INTO {{ schema }}.people VALUES {{ rows }}

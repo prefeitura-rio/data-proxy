@@ -27,7 +27,7 @@ from dp.models import (
     TaskSelection,
     UnitMapping,
 )
-from dp.templates import TemplateSpec, load_template, render_template
+from dp.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import Postgres, PostgresTestNamespace, SeaweedFS
 from tests.helpers import TEST_SQL_DIR, execute_sql
@@ -177,12 +177,10 @@ async def postgres(
 
     connection = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     await connection.execute(
-        load_template(
-            TemplateSpec(
-                path="postgres/create_silo_s3_secret",
-                mapping={"endpoint": "silo:9000"},
-            ),
-            TEST_SQL_DIR,
+        render_template(
+            "postgres/create_silo_s3_secret",
+            {"endpoint": "silo:9000"},
+            root=TEST_SQL_DIR,
         ).encode()
     )
     await connection.set_autocommit(False)

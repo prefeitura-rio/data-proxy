@@ -1,60 +1,18 @@
 """BigQuery fallback view generation and cache invalidation."""
 
-from dataclasses import dataclass
 from typing import cast
 
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from .conditions import schema_scope_condition, unit_access_condition
+from .conditions import schema_scope_condition
 from .executor import execute_sql
-from .models import SyncConfig, TableConfig, UnitMapping
+from .models import SyncConfig, TableConfig
 from .settings import settings
-from .templates import render_fragment
+from .templates import render_template
+from .types import TemplateValue
 
 DUCKDB_VIEW_PREFIX = "bq_fallback_"
-
-
-@dataclass(frozen=True, slots=True)
-class Column:
-    """Pre-rendered SQL fragments for one set of BigQuery columns."""
-
-    bq_select: str
-    pg_select: str
-    return_types: str
-    duckdb_cols: str
-
-    @classmethod
-    def from_columns(cls, columns: list[tuple[str, str]]) -> Column:
-        """Render all SQL column fragments from BigQuery column metadata."""
-        return cls(
-            bq_select=", ".join(bigquery_column_expr(c, t) for c, t in columns),
-            pg_select=", ".join(postgres_column_cast(c, t) for c, t in columns),
-            return_types=", ".join(return_type_for(c, t) for c, t in columns),
-            duckdb_cols=", ".join(quoted_identifier(c) for c, _ in columns),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RLS:
-    """Pre-rendered SQL fragments for RLS unit mappings."""
-
-    enabled: str
-    unit_values: Composable
-
-    @classmethod
-    def from_mappings(cls, mappings: list[UnitMapping] | None) -> RLS:
-        """Render RLS SQL fragments from unit mappings, with empty defaults."""
-        if not mappings:
-            return cls(enabled="false", unit_values=SQL("('','')"))
-
-        return cls(
-            enabled="true",
-            unit_values=SQL(", ").join(
-                SQL("({},{})").format(Literal(m.column), Literal(m.unit_type))
-                for m in mappings
-            ),
-        )
 
 
 def is_nested_or_json(duckdb_type: str) -> bool:
@@ -88,31 +46,6 @@ def quoted_identifier(identifier: str) -> str:
     return Identifier(identifier).as_string(None)
 
 
-def bigquery_column_expr(column: str, duckdb_type: str) -> str:
-    """
-    Return the DuckDB SELECT expression for one column.
-
-    STRUCT and ARRAY types are wrapped with to_json() for PostgreSQL jsonb casting.
-    """
-    quoted = quoted_identifier(column)
-
-    if is_nested_or_json(duckdb_type):
-        return f"to_json({quoted}) AS {quoted}"
-
-    return quoted
-
-
-def postgres_column_cast(column: str, duckdb_type: str) -> str:
-    """Return the PostgreSQL cast expression for one duckdb.query() column."""
-    quoted = quoted_identifier(column)
-    key = Literal(column).as_string(None)
-
-    if is_nested_or_json(duckdb_type):
-        return f"r[{key}]::text AS {quoted}"
-
-    return f"r[{key}]::{pg_scalar_type(duckdb_type)} AS {quoted}"
-
-
 def rls_where_clause(schema: str, table: TableConfig) -> str | Composable:
     """Build the BigQuery WHERE clause from the table's RLS unit mappings.
 
@@ -126,13 +59,19 @@ def rls_where_clause(schema: str, table: TableConfig) -> str | Composable:
     if claim is None:
         return ""
 
-    return render_fragment(
-        "postgres/rls_where_clause",
-        {
-            "schema": Identifier(schema),
-            "session_var": Literal(f"app.claim_{claim}"),
-            "predicate": unit_access_condition(table.rls),
-        },
+    return SQL(
+        render_template(
+            "postgres/rls_where_clause",
+            {
+                "schema": Identifier(schema),
+                "claim_setting": Literal(f"app.claim_{claim}"),
+                "scope": schema_scope_condition(schema),
+                "rls_mappings": [
+                    {"column": mapping.column, "unit_type": mapping.unit_type}
+                    for mapping in table.rls
+                ],
+            },
+        )
     )
 
 
@@ -150,66 +89,70 @@ async def column_types_from_duckdb(
     return [(str(column), str(duckdb_type)) for column, duckdb_type in rows]
 
 
-def return_type_for(column: str, duckdb_type: str) -> str:
-    """Return the PostgreSQL column type declaration for a RETURNS TABLE clause."""
+def return_type_for(duckdb_type: str) -> str:
+    """Return the PostgreSQL type for one DuckDB column."""
     if is_nested_or_json(duckdb_type):
-        return f"{quoted_identifier(column)} text"
+        return "text"
 
-    match duckdb_type.upper():
-        case "DATE" | "BOOLEAN":
-            return f"{quoted_identifier(column)} {duckdb_type.upper().lower()}"
-        case t if t.startswith(("INTEGER", "BIGINT", "INT")):
-            return f"{quoted_identifier(column)} bigint"
-        case _:
-            return f"{quoted_identifier(column)} text"
+    return pg_scalar_type(duckdb_type)
 
 
 def bq_function_mapping(
     schema: str,
     table: TableConfig,
     columns: list[tuple[str, str]],
-) -> dict[str, str | Composable]:
+) -> dict[str, TemplateValue]:
     """Return mappings for the CREATE OR REPLACE FUNCTION template."""
     table_name = table.table_name
     fn_name = f"{table_name}_bq_fn"
     duckdb_view = f"{DUCKDB_VIEW_PREFIX}{schema}_{table_name}"
     claim = settings.sync_config.schemas[schema].claim or "sub"
 
-    cols = Column.from_columns(columns)
-    rls = RLS.from_mappings(table.rls)
+    column_context = [
+        {
+            "name": Identifier(column).as_string(None),
+            "key": Literal(column).as_string(None),
+            "is_json": is_nested_or_json(duckdb_type),
+            "pg_type": pg_scalar_type(duckdb_type),
+            "return_type": return_type_for(duckdb_type),
+        }
+        for column, duckdb_type in columns
+    ]
 
     return {
         "schema": Identifier(schema),
-        "fn_name": Identifier(fn_name),
-        "return_types": cols.return_types,
-        "claim_var": f"app.claim_{claim}",
+        "function": Identifier(fn_name),
+        "columns": column_context,
+        "claim_setting": f"app.claim_{claim}",
         "scope": schema_scope_condition(schema),
         "duckdb_view": duckdb_view,
-        "bq_select_cols": cols.bq_select,
         "bq_table": table.name,
-        "pg_select_cols": cols.pg_select,
-        "duckdb_cols": cols.duckdb_cols,
-        "has_rls": rls.enabled,
-        "unit_values": rls.unit_values,
+        "has_rls": "true" if table.rls else "false",
+        "rls_mappings": [
+            {"column": str(mapping.column), "unit_type": str(mapping.unit_type)}
+            for mapping in (table.rls or [])
+        ],
     }
 
 
 def bq_view_mapping(
     schema: str, table: TableConfig, columns: list[tuple[str, str]]
-) -> dict[str, str | Composable]:
+) -> dict[str, TemplateValue]:
     """Return mappings for the PostgreSQL boundary view template."""
-    select_cols = ", ".join(
-        f"{quoted_identifier(column)}::jsonb AS {quoted_identifier(column)}"
-        if is_nested_or_json(duckdb_type)
-        else quoted_identifier(column)
+    columns_sql = [
+        (
+            f"{quoted_identifier(column)}::jsonb AS {quoted_identifier(column)}"
+            if is_nested_or_json(duckdb_type)
+            else quoted_identifier(column)
+        )
         for column, duckdb_type in columns
-    )
+    ]
 
     return {
         "schema": Identifier(schema),
-        "view_name": Identifier(f"{table.table_name}_bq"),
-        "fn_name": Identifier(f"{table.table_name}_bq_fn"),
-        "select_cols": select_cols,
+        "view": Identifier(f"{table.table_name}_bq"),
+        "function": Identifier(f"{table.table_name}_bq_fn"),
+        "columns": columns_sql,
     }
 
 

@@ -5,7 +5,7 @@ from typing import assert_never
 from psycopg import AsyncConnection
 from psycopg.sql import Identifier, Literal
 
-from .conditions import schema_scope_condition, unit_access_condition
+from .conditions import schema_scope_condition
 from .executor import execute_sql
 from .models import UnitMapping
 from .settings import settings
@@ -54,8 +54,11 @@ async def bootstrap_table(
                 mapping={
                     "schema": Identifier(schema),
                     "table": Identifier(table_name),
-                    "session_var": Literal(f"app.claim_{claim}"),
-                    "predicate": unit_access_condition(rls),
+                    "claim_setting": Literal(f"app.claim_{claim}"),
+                    "rls_mappings": [
+                        {"column": mapping.column, "unit_type": mapping.unit_type}
+                        for mapping in rls
+                    ],
                     "scope": schema_scope_condition(schema),
                 },
             )

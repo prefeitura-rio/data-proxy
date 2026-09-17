@@ -29,7 +29,7 @@ async def produce_tasks() -> None:
 
     async with settings.redis() as redis:
         active_run = await read_active_run(redis)
-        if active_run is not None:
+        if active_run:
             logger.warning("Skipping run — active run=%s still in progress", active_run)
             metrics.producer_runs_total.labels(status="active_run_conflict").inc()
             await emit_error(

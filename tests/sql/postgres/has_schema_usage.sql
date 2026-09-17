@@ -1,1 +1,1 @@
-SELECT has_schema_privilege('anon', '${schema}', 'USAGE')
+SELECT has_schema_privilege('anon', '{{ schema }}', 'USAGE')

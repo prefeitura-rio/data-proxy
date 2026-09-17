@@ -1,5 +1,13 @@
 {{/*
-This file defines shared Helm template helpers for names, labels, secrets, and connection strings.
+{
+  "kind": "macro",
+  "description": "Shared Helm helpers for names, labels, secrets, triggers, and connection strings.",
+  "name": "data-proxy.helpers",
+  "returns": "Rendered helper-specific Kubernetes or configuration values.",
+  "inputs": {
+    "root": "Helm context passed to the helper."
+  }
+}
 */}}
 {{- define "data-proxy.defaultCpuTrigger" -}}
 - type: cpu

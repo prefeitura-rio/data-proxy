@@ -1,2 +1,2 @@
 SELECT indexname FROM pg_indexes
-WHERE schemaname = '${schema}' AND tablename = '${table}';
+WHERE schemaname = '{{ schema }}' AND tablename = '{{ table }}';

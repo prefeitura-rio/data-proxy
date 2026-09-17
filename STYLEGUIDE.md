@@ -40,6 +40,86 @@ Conventions for working in this repository. Follow these before inventing new pa
 - Set `diagnose=False` for loggers in production paths; do not leak local variable values into logs by default.
 - Prefer `logger.exception` inside `except` blocks over `logger.error` plus manual traceback formatting.
 
+## Jinja SQL Templates
+
+Use Jinja for SQL template presentation logic. Use one name for each semantic role.
+
+**Core names**: Use `schema`, `table`, `view`, `function`, `policy`, and `index` for PostgreSQL objects. Do not use `name` when the object type is known.
+
+**Column names**: Use `column` for one column. Use `columns` for a collection of columns. Do not use `cols` or `select_cols` as aliases.
+
+**Paths**: Use `path` when a template has one path. Use `source` and `target` when a template has two distinct endpoints. Use `scratch_path` when the path is specifically temporary storage.
+
+**Roles**: Use `user_role`, `anonymous_role`, `authenticator_role`, and `policy_writer_role`. Do not shorten these names.
+
+**Predicates**: Use `scope` for a schema-scope predicate. Use `predicate` for a row or partition predicate. Use `claim_setting` for a PostgreSQL session-setting name.
+
+**Template context**: Keep SQLFluff context values close to the template family that uses them. Do not create one global context bag with unrelated values. A context value must represent a valid example for the template.
+
+**Runtime mappings**: Use the same names in Python mappings and Jinja variables. Keep PostgreSQL identifier, literal, type, and prepared-parameter semantics in Python helpers. Move only presentation loops and conditional formatting into Jinja.
+
+**Example**:
+
+```python
+render_template(
+    "postgres/create_bq_view",
+    {
+        "schema": Identifier(schema),
+        "view": Identifier(view_name),
+        "function": Identifier(function_name),
+        "columns": column_expressions,
+    },
+)
+```
+
+```sql
+CREATE OR REPLACE VIEW {{ schema }}.{{ view }} AS
+SELECT {% for column in columns %}{{ column }}{% if not loop.last %}, {% endif %}{% endfor %}
+FROM {{ schema }}.{{ function }}();
+```
+
+Do not merge variables that have different meanings. `table`, `view`, and `function` are all identifiers. They are not interchangeable. `path`, `source`, and `target` are all strings. They are not interchangeable when a template uses more than one.
+
+### Template documentation
+
+Document each template once at the top of its source file. Use one multiline JSON object inside the native template comment.
+
+```jinja
+{#
+{
+  "kind": "template",
+  "description": "Create a table from Parquet.",
+  "inputs": {
+    "schema": "Destination PostgreSQL schema.",
+    "table": "Destination PostgreSQL table.",
+    "path": "Parquet file path."
+  }
+}
+#}
+```
+
+Use `kind: template` with `description`. Add `inputs` only when the template has inputs. Keep input descriptions short.
+
+Document a group of reusable macros or Helm helpers once. Use the function-style form.
+
+```gotemplate
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.helpers",
+  "description": "Shared Helm template helpers.",
+  "returns": "Rendered helper-specific values.",
+  "inputs": {
+    "root": "Helm context passed to the helper."
+  }
+}
+*/}}
+```
+
+Use `kind: macro` for reusable macros and helpers. Add `name`, `description`, and `returns`. Add `inputs` only when needed. Do not generate metadata at runtime. Do not document ordinary called functions with template metadata.
+
+Use `{# ... #}` for Jinja and minijinja. Use `{{/* ... */}}` for Go templates. The metadata must stay inside the source comment and must not appear in rendered output.
+
 ## Testing & Verification
 
 Before considering any change complete, run and confirm clean output from:

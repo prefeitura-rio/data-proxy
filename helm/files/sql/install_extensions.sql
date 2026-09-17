@@ -1,3 +1,9 @@
+{#
+{
+  "kind": "template",
+  "description": "Render the install extensions database operation."
+}
+#}
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pg_duckdb;
 CREATE SCHEMA IF NOT EXISTS partman;

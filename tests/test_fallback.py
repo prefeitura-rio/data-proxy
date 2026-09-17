@@ -13,12 +13,10 @@ from redis.asyncio import Redis
 
 from dp.cache import clear_response_cache
 from dp.fallback import (
-    RLS,
-    bigquery_column_expr,
     column_types_from_duckdb,
     create_bq_views,
     is_nested_or_json,
-    postgres_column_cast,
+    pg_scalar_type,
     return_type_for,
     rls_where_clause,
 )
@@ -39,20 +37,18 @@ class FallbackColumn:
     name: str
     duckdb_type: str
     is_nested: bool
-    postgres_cast: str
-    return_type: str
 
 
 FALLBACK_COLUMNS = [
-    FallbackColumn("data", "STRUCT(x VARCHAR)", True, "::text", '"data" text'),
-    FallbackColumn("items", "ARRAY(VARCHAR)", True, "::text", '"items" text'),
-    FallbackColumn("values", "LIST(VARCHAR)", True, "::text", '"values" text'),
-    FallbackColumn("payload", "JSON", True, "::text", '"payload" text'),
-    FallbackColumn("name", "VARCHAR", False, "::text", '"name" text'),
-    FallbackColumn("born", "DATE", False, "::date", '"born" date'),
-    FallbackColumn("active", "BOOLEAN", False, "::boolean", '"active" boolean'),
-    FallbackColumn("count", "INTEGER", False, "::bigint", '"count" bigint'),
-    FallbackColumn("total", "BIGINT", False, "::bigint", '"total" bigint'),
+    FallbackColumn("data", "STRUCT(x VARCHAR)", True),
+    FallbackColumn("items", "ARRAY(VARCHAR)", True),
+    FallbackColumn("values", "LIST(VARCHAR)", True),
+    FallbackColumn("payload", "JSON", True),
+    FallbackColumn("name", "VARCHAR", False),
+    FallbackColumn("born", "DATE", False),
+    FallbackColumn("active", "BOOLEAN", False),
+    FallbackColumn("count", "INTEGER", False),
+    FallbackColumn("total", "BIGINT", False),
 ]
 
 
@@ -76,55 +72,27 @@ class TestIsNestedOrJson:
         assert is_nested_or_json("json")
 
 
-class TestBigqueryColumnExpr:
-    """DuckDB SELECT expression generation for BigQuery columns."""
+class TestFallbackTypes:
+    """Map DuckDB types to PostgreSQL fallback types."""
 
-    @pytest.mark.asyncio
-    async def test_struct_wrapped_with_to_json(self) -> None:
-        """STRUCT column is wrapped with to_json()."""
-        assert (
-            bigquery_column_expr("data", "STRUCT(x VARCHAR)")
-            == 'to_json("data") AS "data"'
-        )
-
-    @pytest.mark.asyncio
-    async def test_varchar_passes_through(self) -> None:
-        """VARCHAR column passes through unchanged."""
-        assert bigquery_column_expr("name", "VARCHAR") == '"name"'
-
-
-class TestPostgresColumnCast:
-    """PostgreSQL cast expression generation for duckdb.query() columns."""
-
-    @pytest.mark.parametrize("column", FALLBACK_COLUMNS)
-    @pytest.mark.asyncio
-    async def test_cast(self, column: FallbackColumn) -> None:
-        """Each type maps to the correct PostgreSQL cast."""
-        result = postgres_column_cast(column.name, column.duckdb_type)
-        assert column.postgres_cast in result
-
-
-class TestReturnTypeFor:
-    """PostgreSQL type declaration for RETURNS TABLE clause."""
-
-    @pytest.mark.parametrize("column", FALLBACK_COLUMNS)
-    @pytest.mark.asyncio
-    async def test_return_type(self, column: FallbackColumn) -> None:
-        """Each type maps to the correct RETURNS TABLE declaration."""
-        assert return_type_for(column.name, column.duckdb_type) == column.return_type
+    @pytest.mark.parametrize(
+        ("duckdb_type", "expected"),
+        [
+            ("DATE", "date"),
+            ("BOOLEAN", "boolean"),
+            ("INTEGER", "bigint"),
+            ("VARCHAR", "text"),
+            ("STRUCT(x INT)", "text"),
+        ],
+    )
+    def test_type_mapping(self, duckdb_type: str, expected: str) -> None:
+        """Return the PostgreSQL type for each fallback category."""
+        assert return_type_for(duckdb_type) == expected
+        assert pg_scalar_type(duckdb_type) == expected
 
 
 class TestRlsWhereClause:
     """BigQuery WHERE clause generation from RLS unit mappings."""
-
-    def test_empty_mappings_disable_rls(self) -> None:
-        """No unit mappings produce a disabled RLS fragment."""
-        assert RLS.from_mappings(None).enabled == "false"
-
-    def test_mappings_enable_rls(self) -> None:
-        """Unit mappings produce an enabled RLS fragment."""
-        rls = RLS.from_mappings([UnitMapping(column="id_unit", unit_type="unit")])
-        assert rls.enabled == "true"
 
     @pytest.mark.asyncio
     async def test_no_rls_returns_empty(self) -> None:

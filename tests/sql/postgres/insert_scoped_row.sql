@@ -1,1 +1,1 @@
-INSERT INTO ${schema}.scoped VALUES ('visible')
+INSERT INTO {{ schema }}.scoped VALUES ('visible')

@@ -1,3 +1,14 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the database initialization Job.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 {{- $root := . }}
 apiVersion: v1
 kind: ConfigMap
@@ -10,6 +21,8 @@ metadata:
 data:
   init-db.nu: |
 {{ .Files.Get "files/init-db.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/lib.nu" | nindent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap

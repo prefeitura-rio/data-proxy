@@ -21,6 +21,7 @@ from dp.models import (
     TaskSelection,
 )
 from dp.templates import render_template
+from dp.types import TemplateValue
 from tests.constants import FILES
 
 TEST_SQL_DIR = FILES.parent / "sql"
@@ -126,7 +127,7 @@ async def execute_sql(
     connection: AsyncConnection,
     path: str,
     *,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
 ) -> AsyncCursor[tuple[object, ...]]:
     """Execute a SQL fixture template, commit it, and return the cursor."""
@@ -142,7 +143,7 @@ async def fetch_all(
     connection: AsyncConnection,
     path: str,
     *,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
 ) -> list[tuple[object, ...]]:
     """Execute a SQL fixture template and return every row."""
@@ -154,7 +155,7 @@ async def fetch_one(
     connection: AsyncConnection,
     path: str,
     *,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
 ) -> tuple[object, ...] | None:
     """Execute a SQL fixture template and return one row."""

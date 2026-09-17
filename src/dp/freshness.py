@@ -118,7 +118,7 @@ def failure_partitions(
     if partitions_by_table and table.name in partitions_by_table:
         return partitions_by_table[table.name]
 
-    if partitioned is not None:
+    if partitioned:
         return partitioned.changed_paths.keys()
 
     return {None}

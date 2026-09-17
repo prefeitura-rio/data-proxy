@@ -1,23 +1,27 @@
 """Substitute mapping into a cached SQL template and return the final SQL."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from string import Template
 from typing import LiteralString, cast
 
-from psycopg.sql import SQL, Composable
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+from psycopg.sql import Composable
+
+from .types import TemplateValue
 
 SQL_DIR = Path(__file__).parent / "sql"
 
 
-@dataclass(frozen=True, slots=True)
-class TemplateSpec:
-    """Template path and substitution values for one SQL statement."""
-
-    path: str
-    mapping: Mapping[str, str | Composable]
+@lru_cache
+def jinja_environment(root: Path) -> Environment:
+    """Return one strict Jinja environment for a SQL template directory."""
+    return Environment(
+        loader=FileSystemLoader(root),
+        undefined=StrictUndefined,
+        autoescape=select_autoescape(default=False, default_for_string=False),
+        keep_trailing_newline=True,
+    )
 
 
 @lru_cache
@@ -26,47 +30,22 @@ def read_template(name: str, root: Path) -> str:
     return (root / f"{name}.sql").read_text()
 
 
-def load_template(spec: TemplateSpec, root: Path) -> str:
-    """Substitute a mapping into its named SQL template.
+def render_template(
+    path: str,
+    mapping: Mapping[str, TemplateValue],
+    *,
+    root: Path = SQL_DIR,
+) -> LiteralString:
+    """Render one strict Jinja SQL template with composable values converted to SQL."""
+    rendered: dict[str, TemplateValue] = {}
 
-    Values that are `Composable` (`Identifier`, `Literal`, `SQL`) render
-    through psycopg's own quoting and escaping. Plain strings pass through
-    unescaped and must already be safe (for example a validated raw keyword
-    like "true" or "false").
-    """
-    rendered: dict[str, str] = {}
-
-    for key, value in spec.mapping.items():
+    for key, value in mapping.items():
         match value:
             case Composable():
                 rendered[key] = value.as_string(None)
             case _:
                 rendered[key] = value
 
-    return Template(read_template(spec.path, root)).substitute(rendered)
+    template = jinja_environment(root).get_template(f"{path}.sql").render(rendered)
 
-
-def render_template(
-    path: str,
-    mapping: Mapping[str, str | Composable],
-    *,
-    root: Path = SQL_DIR,
-) -> LiteralString:
-    """Load and substitute a SQL template in one call.
-
-    The result is safe by construction: every substituted value is either a
-    `Composable` that psycopg escapes, or a plain string that the caller has
-    already validated.
-    """
-    return cast(
-        "LiteralString",
-        load_template(TemplateSpec(path=path, mapping=mapping), root),
-    )
-
-
-def render_fragment(
-    path: str,
-    mapping: Mapping[str, str | Composable],
-) -> Composable:
-    """Render one composable SQL fragment for use in another template."""
-    return SQL(render_template(path, mapping))
+    return cast("LiteralString", template)

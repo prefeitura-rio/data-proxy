@@ -14,7 +14,7 @@ def bigquery_clients() -> Generator[Callable[[str], Client]]:
     def get_client(project: str) -> Client:
         client = clients.get(project)
 
-        if client is None:
+        if not client:
             client = Client(project=project)
             clients[project] = client
 

@@ -1,3 +1,14 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the CloudNativePG database cluster.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 {{- $root := . }}
 {{- $state := lookup "v1" "ConfigMap" $root.Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" $root)) }}
 {{- $previous := "" }}

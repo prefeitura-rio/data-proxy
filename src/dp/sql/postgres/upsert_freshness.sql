@@ -1,4 +1,13 @@
-INSERT INTO ${schema}.freshness
+{#
+{
+  "kind": "template",
+  "description": "Render the upsert freshness database operation.",
+  "inputs": {
+    "schema": "PostgreSQL schema that owns the target objects."
+  }
+}
+#}
+INSERT INTO {{ schema }}.freshness
     ("table", strategy, partition, updated_at, attempted_at, status)
 VALUES (%s, %s, %s, %s, %s, %s::rls.sync_status)
 ON CONFLICT ("table", strategy, partition) DO UPDATE SET

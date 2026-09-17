@@ -1,1 +1,1 @@
-SELECT cpf, name FROM ${schema}.people ORDER BY cpf
+SELECT cpf, name FROM {{ schema }}.people ORDER BY cpf

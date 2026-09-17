@@ -1,1 +1,1 @@
-SELECT status::text FROM ${schema}.freshness;
+SELECT status::text FROM {{ schema }}.freshness;

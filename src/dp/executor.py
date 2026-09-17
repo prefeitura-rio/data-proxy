@@ -9,10 +9,10 @@ from asyncer import asyncify
 from duckdb import DuckDBPyConnection
 from google.cloud.bigquery import Client, QueryJobConfig
 from psycopg import AsyncConnection, AsyncCursor
-from psycopg.sql import Composable
 from whenever import Instant
 
 from .templates import render_template
+from .types import TemplateValue
 
 type SQLParam = str | datetime | Instant | None
 
@@ -106,7 +106,7 @@ async def execute_bigquery(
 async def execute_sql(
     connection: AsyncCursor,
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     *,
     params: list[tuple[SQLParam, ...]],
 ) -> None: ...
@@ -116,7 +116,7 @@ async def execute_sql(
 async def execute_sql(
     connection: AsyncConnection | AsyncCursor,
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     *,
     params: tuple[SQLParam, ...] | None = None,
 ) -> AsyncCursor: ...
@@ -126,7 +126,7 @@ async def execute_sql(
 async def execute_sql(
     connection: DuckDBPyConnection,
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     *,
     params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
 ) -> DuckDBPyConnection: ...
@@ -136,7 +136,7 @@ async def execute_sql(
 async def execute_sql(
     connection: Client,
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     *,
     job_config: QueryJobConfig,
 ) -> BigQueryJob: ...
@@ -145,7 +145,7 @@ async def execute_sql(
 async def execute_sql(
     connection: object,
     path: str,
-    mapping: Mapping[str, str | Composable] | None = None,
+    mapping: Mapping[str, TemplateValue] | None = None,
     *,
     params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
     job_config: QueryJobConfig | None = None,

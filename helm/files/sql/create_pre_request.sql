@@ -1,3 +1,9 @@
+{#
+{
+  "kind": "template",
+  "description": "Render the create pre request database operation."
+}
+#}
 CREATE OR REPLACE FUNCTION rls.pre_request() RETURNS void AS $$
 DECLARE
     claims json := coalesce(

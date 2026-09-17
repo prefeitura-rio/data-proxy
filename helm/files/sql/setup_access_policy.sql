@@ -1,4 +1,15 @@
-CREATE TABLE IF NOT EXISTS :"schema".access_policy (
+{#
+{
+  "kind": "template",
+  "description": "Render the setup access policy database operation.",
+  "inputs": {
+    "schema": "PostgreSQL schema that owns the target objects.",
+    "user_role": "Application database role.",
+    "scope": "SQL predicate limiting access to the current schema."
+  }
+}
+#}
+CREATE TABLE IF NOT EXISTS {{ schema }}.access_policy (
     subject text NOT NULL,
     is_admin boolean NOT NULL DEFAULT false,
     is_enabled boolean NOT NULL DEFAULT true,
@@ -7,8 +18,8 @@ CREATE TABLE IF NOT EXISTS :"schema".access_policy (
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     UNIQUE (subject, unit_type, unit_id)
 );
-ALTER TABLE :"schema".access_policy ENABLE ROW LEVEL SECURITY;
-CREATE OR REPLACE FUNCTION :"schema".set_access_policy_metadata_timestamps()
+ALTER TABLE {{ schema }}.access_policy ENABLE ROW LEVEL SECURITY;
+CREATE OR REPLACE FUNCTION {{ schema }}.set_access_policy_metadata_timestamps()
 RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -24,17 +35,12 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON :"schema".access_policy;
+DROP TRIGGER IF EXISTS access_policy_metadata_timestamps ON {{ schema }}.access_policy;
 CREATE TRIGGER access_policy_metadata_timestamps
-    BEFORE INSERT OR UPDATE ON :"schema".access_policy
-    FOR EACH ROW
-    EXECUTE FUNCTION :"schema".set_access_policy_metadata_timestamps();
-GRANT SELECT ON :"schema".access_policy TO :"user_role";
-DROP POLICY IF EXISTS user_read ON :"schema".access_policy;
-CREATE POLICY user_read ON :"schema".access_policy
-FOR SELECT TO :"user_role"
-USING (
-    :'schema' = ANY(string_to_array(
-        current_setting('app.claim_schemas', true), ','
-    ))
-)
+BEFORE INSERT OR UPDATE ON {{ schema }}.access_policy
+FOR EACH ROW EXECUTE FUNCTION {{ schema }}.set_access_policy_metadata_timestamps();
+GRANT SELECT ON {{ schema }}.access_policy TO {{ user_role }};
+DROP POLICY IF EXISTS user_read ON {{ schema }}.access_policy;
+CREATE POLICY user_read ON {{ schema }}.access_policy
+FOR SELECT TO {{ user_role }}
+USING ({{ scope }})

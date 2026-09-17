@@ -1,3 +1,9 @@
+{#
+{
+  "kind": "template",
+  "description": "Render the column types database operation."
+}
+#}
 SELECT a.attname, format_type(a.atttypid, a.atttypmod)
 FROM pg_attribute a
 JOIN pg_class c ON a.attrelid = c.oid

@@ -9,7 +9,6 @@ from .models import (
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
-    UnitMapping,
 )
 
 
@@ -59,14 +58,4 @@ def schema_scope_condition(schema: str) -> Composable:
     """Return the schema-claim condition."""
     return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
         Literal(schema), Literal("app.claim_schemas")
-    )
-
-
-def unit_access_condition(mappings: list[UnitMapping]) -> Composable:
-    """Return the unit-access condition."""
-    return SQL(" OR ").join(
-        SQL("(p.unit_type = {} AND p.unit_id = {}::text)").format(
-            Literal(mapping.unit_type), Identifier(mapping.column)
-        )
-        for mapping in mappings
     )

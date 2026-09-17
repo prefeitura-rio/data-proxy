@@ -1,1 +1,1 @@
-SELECT id FROM ${schema}.scoped
+SELECT id FROM {{ schema }}.scoped

@@ -1,0 +1,55 @@
+[sqlfluff]
+dialect = postgres
+templater = jinja
+max_line_length = 88
+# These rules are dialect-specific or conflict with generated SQL.
+# AL05: Parquet aliases are required by PostgreSQL syntax but not referenced.
+# RF04/RF06: Jinja-rendered identifiers can look like keywords or unnecessary quotes.
+exclude_rules = AL05,AL07,CV09,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02,TQ03,TQ04
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = False
+
+[sqlfluff:templater:jinja:context]
+schema = pic
+table = people
+view = people_bq
+function = people_bq_fn
+index = idx_people
+columns = id
+column = id
+column_name = id
+json_columns = id
+method =
+path = "'s3://bucket/partition.parquet'"
+scratch_path = "'s3://bucket/scratch.parquet'"
+temp = _batch
+predicate = true
+has_rls = false
+claim_setting = "'app.claim_sub'"
+affected_partitions = "id >= 1"
+rls_mappings = [{"column":"id_unit","unit_type":"unit"}]
+old_table = people_old
+next_table = people_next
+duckdb_view = bq_fallback_pic_people
+bq_table = "'project.dataset.people'"
+lower = "'2024-01-01'"
+upper = "'2024-02-01'"
+s3_key_id = key
+s3_secret_key = secret
+s3_endpoint = endpoint
+s3_use_ssl = false
+project = project
+dataset = dataset
+rls_schema = rls
+user_role = dp_user
+anonymous_role = anon
+authenticator_role = dp_auth
+scope = true
+policy_writer_role = policy_writer_pic
+policy_name = policy_writer_pic
+roles = ["anon", "dp_user", "dp_auth"]
+parent_table = "'pic.people'"
+interval = "'1 day'"
+retention = "'30 days'"
+clauses = "ALTER COLUMN payload SET DATA TYPE jsonb USING payload::jsonb"

@@ -1,3 +1,14 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the HA validation Job.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 {{- if .Values.ha.enabled }}
 {{- if not (eq .Values.cnpg.mode "per-schema") }}
 {{- fail "ha.enabled requires cnpg.mode=per-schema" }}

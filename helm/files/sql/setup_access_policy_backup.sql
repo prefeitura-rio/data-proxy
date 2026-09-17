@@ -1,5 +1,14 @@
-GRANT SELECT ON :"schema".access_policy TO backup;
-DROP POLICY IF EXISTS backup_read ON :"schema".access_policy;
-CREATE POLICY backup_read ON :"schema".access_policy
-    FOR SELECT TO backup
-    USING (true)
+{#
+{
+  "kind": "template",
+  "description": "Render the setup access policy backup database operation.",
+  "inputs": {
+    "schema": "PostgreSQL schema that owns the target objects."
+  }
+}
+#}
+GRANT SELECT ON {{ schema }}.access_policy TO backup;
+DROP POLICY IF EXISTS backup_read ON {{ schema }}.access_policy;
+CREATE POLICY backup_read ON {{ schema }}.access_policy
+FOR SELECT TO backup
+USING (true)

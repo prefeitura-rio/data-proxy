@@ -1,6 +1,7 @@
 #!/usr/bin/env nu
 
 use std/log
+use lib.nu render-sql
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
     msg: $'Failed to open sync config: ($err.msg)'
@@ -9,8 +10,6 @@ let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
         span: (metadata $env.SYNC_CONFIG_PATH).span
     }
 } }
-
-let sql_dir = '/sql'
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
 def schema-list []: nothing -> list<string> {
@@ -21,25 +20,10 @@ def schema-list []: nothing -> list<string> {
     }
 }
 
-# Load a SQL template file from the mounted sql directory
-def load-sql [name: path]: nothing -> string {
+# Execute rendered SQL against PostgreSQL
+def postgres [query: string]: nothing -> nothing {
     try {
-        open ($sql_dir | path join $name)
-    } catch {|err| error make {
-        msg: $'Failed to load SQL template ($name): ($err.msg)'
-        label: {
-            text: load-sql
-            span: (metadata $name).span
-        }
-    } }
-}
-
-# Execute a SQL statement against PostgreSQL with optional psql variables
-def postgres [query: string, ...vars: string]: nothing -> nothing {
-    let args = $vars | each {|v| [-v $v] } | flatten
-
-    try {
-        $query | psql $env.PG_DSN --no-psqlrc --quiet -v ON_ERROR_STOP=1 ...$args
+        $query | psql $env.PG_DSN --no-psqlrc --quiet -v ON_ERROR_STOP=1
     } catch {|err| error make {
         msg: $'psql failed: ($err.msg)'
         label: {
@@ -65,20 +49,24 @@ def wait-for-postgres []: nothing -> nothing {
 
 # Install extensions not already installed by CNPG postInitSQL (idempotent).
 def install-extensions []: nothing -> nothing {
-    postgres (load-sql install_extensions.sql)
+    postgres (render-sql install_extensions.sql {})
     log info 'Installed extensions'
 }
 
 # Create per-schema freshness tables with RLS policies
 def create-schemas-and-freshness []: nothing -> nothing {
     for schema in (schema-list) {
-        let schema_var = $'schema=($schema)'
-        let user_var = $'user_role=($env.AUTH_USER_ROLE)'
-
-        (postgres (load-sql setup_freshness.sql) $schema_var $user_var)
+        (postgres (render-sql setup_freshness.sql {
+            schema: $schema
+            user_role: $env.AUTH_USER_ROLE
+            rls_schema: rls
+            scope: ($schema + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
+        }))
 
         if $env.BACKUP_ENABLED == 'true' {
-            (postgres (load-sql grant_schema_usage_backup.sql) $schema_var)
+            (
+                postgres (render-sql grant_schema_usage_backup.sql {schema: $schema})
+            )
         }
     }
 
@@ -87,11 +75,12 @@ def create-schemas-and-freshness []: nothing -> nothing {
 
 # Create the pre_request function that mirrors JWT claims into session variables
 def create-pre-request []: nothing -> nothing {
-    postgres (load-sql create_pre_request.sql)
+    postgres (render-sql create_pre_request.sql {})
 
-    let anon_var = $'anon_role=($env.AUTH_ANON_ROLE)'
-    let user_var = $'user_role=($env.AUTH_USER_ROLE)'
-    (postgres (load-sql grant_rls_usage.sql) $anon_var $user_var)
+    (postgres (render-sql grant_rls_usage.sql {
+        anonymous_role: $env.AUTH_ANON_ROLE
+        user_role: $env.AUTH_USER_ROLE
+    }))
 
     log info 'Created pre_request function'
 }
@@ -99,18 +88,23 @@ def create-pre-request []: nothing -> nothing {
 # Create per-schema access_policy tables with triggers and RLS policies
 def create-access-policy []: nothing -> nothing {
     for schema in (schema-list) {
-        let schema_var = $'schema=($schema)'
-        let user_var = $'user_role=($env.AUTH_USER_ROLE)'
+        (postgres (render-sql setup_access_policy.sql {
+            schema: $schema
+            user_role: $env.AUTH_USER_ROLE
+            scope: ($schema + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
+        }))
 
-        (postgres (load-sql setup_access_policy.sql) $schema_var $user_var)
-
-        let writer_var = $'policy_writer_role=policy_writer_($schema)'
-        let auth_var = $'authenticator_role=($env.AUTH_AUTHENTICATOR_ROLE)'
-        let policy_var = $'policy_name=policy_writer_($schema)'
-        (postgres (load-sql setup_policy_writer.sql) $schema_var $writer_var $auth_var $policy_var)
+        (postgres (render-sql setup_policy_writer.sql {
+            schema: $schema
+            policy_writer_role: $'policy_writer_($schema)'
+            authenticator_role: $env.AUTH_AUTHENTICATOR_ROLE
+            policy_name: $'policy_writer_($schema)'
+        }))
 
         if $env.BACKUP_ENABLED == 'true' {
-            (postgres (load-sql setup_access_policy_backup.sql) $schema_var)
+            (
+                postgres (render-sql setup_access_policy_backup.sql {schema: $schema})
+            )
         }
     }
 
@@ -119,19 +113,18 @@ def create-access-policy []: nothing -> nothing {
 
 # Create the PostgreSQL S3 secret for postgres read_parquet access to the bucket
 def create-s3-secret []: nothing -> nothing {
-    (postgres
-        (load-sql create_s3_secret.sql)
-        $'s3_key_id=($env.S3_ACCESS_KEY)'
-        $'s3_secret_key=($env.S3_SECRET_KEY)'
-        $'s3_endpoint=($env.S3_ENDPOINT)'
-        $'s3_use_ssl=($env.S3_USE_SSL)'
-    )
+    (postgres (render-sql create_s3_secret.sql {
+        s3_key_id: $env.S3_ACCESS_KEY
+        s3_secret_key: $env.S3_SECRET_KEY
+        s3_endpoint: $env.S3_ENDPOINT
+        s3_use_ssl: $env.S3_USE_SSL
+    }))
     log info 'Created PostgreSQL S3 secret'
 }
 
 # Install the PostgreSQL bigquery community extension for BigQuery fallback views
 def install-bigquery-extension []: nothing -> nothing {
-    postgres (load-sql install_bigquery_extension.sql)
+    postgres (render-sql install_bigquery_extension.sql {})
     log info 'Installed bigquery extension'
 }
 
@@ -145,7 +138,7 @@ try {
     create-access-policy
     create-s3-secret
     install-bigquery-extension
-    postgres (load-sql notify_pgrst.sql)
+    postgres (render-sql notify_pgrst.sql {})
 
     log info 'Database initialization completed'
 } catch {|err|

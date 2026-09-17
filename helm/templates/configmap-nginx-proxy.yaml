@@ -1,3 +1,14 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the shared nginx proxy configuration.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 {{- if not .Values.ha.enabled }}
 apiVersion: v1
 kind: ConfigMap

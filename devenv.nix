@@ -1,7 +1,4 @@
 { pkgs, config, ... }:
-let
-  crdSchema = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json";
-in
 {
   name = "data-proxy";
 
@@ -10,7 +7,6 @@ in
     UV_LINK_MODE = "copy";
     KUBECONFIG = ".kubeconfig";
     DOCKER_HOST = "unix:///run/user/1000/podman/podman.sock";
-    NU_LIB_DIRS = "vendor";
   };
 
   packages = with pkgs; [
@@ -24,6 +20,8 @@ in
     nu-lint
     nushell
     seaweedfs
+    sqlfluff
+    minijinja
     typescript
     helmfile
     kubecolor
@@ -58,7 +56,7 @@ in
     basedpyright = {
       enable = true;
       name = "basedpyright";
-      entry = "${pkgs.uv}/bin/uv run basedpyright src/ tests/";
+      entry = "uv run basedpyright src/ tests/";
       language = "system";
       types = [ "python" ];
       pass_filenames = false;
@@ -66,10 +64,10 @@ in
   };
 
   scripts = {
-    seed.exec = ''${pkgs.uv}/bin/uv run python scripts/seed.py "$@"'';
-    token.exec = "${pkgs.nushell}/bin/nu scripts/token.nu";
-    cluster.exec = ''${pkgs.nushell}/bin/nu scripts/cluster.nu "$@"'';
-    types.exec = "${pkgs.nodejs}/bin/npm install --no-save @types/node @types/k6 njs-types >/dev/null";
+    cluster.exec = ''nu scripts/cluster.nu "$@"'';
+    seed.exec = ''uv run python scripts/seed.py "$@"'';
+    token.exec = "nu scripts/token.nu";
+    types.exec = "npm install --no-save @types/node @types/k6 njs-types >/dev/null";
   };
 
   tasks = {
@@ -82,26 +80,39 @@ in
       uv run vulture src/ tests/ --min-confidence 90
     '';
     "dp:lint:nu".exec = "nu-lint helm/files/*.nu";
-    "dp:lint:helm".exec =
-      "helm lint helm/ -f helm/ci/test-values.yaml && helm lint helm/ -f helm/ci/test-values-ha.yaml && helmfile -f helmfile.yaml lint";
-    "dp:lint:proxy".exec = "${pkgs.typescript}/bin/tsc -p nginx";
-    "dp:lint:k6".exec = "${pkgs.typescript}/bin/tsc -p k6 --noEmit";
+    "dp:lint:sql".exec = ''
+      sqlfluff lint --dialect postgres src/dp/sql/postgres helm/files/sql
+      sqlfluff lint --dialect duckdb src/dp/sql/duckdb
+      sqlfluff lint --dialect bigquery src/dp/sql/bigquery
+    '';
+    "dp:lint:helm".exec = ''
+      helm lint helm/ -f helm/ci/test-values.yaml
+      helm lint helm/ -f helm/ci/test-values-ha.yaml
+      helmfile -f helmfile.yaml lint
+    '';
+    "dp:lint:proxy".exec = "tsc -p nginx";
+    "dp:lint:k6".exec = "tsc -p k6 --noEmit";
+    "dp:test:py".exec = "uv run pytest --cov=dp --cov-report=term-missing";
+    "dp:test:py:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
+    "dp:test:proxy".exec =
+      "node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
+    "dp:test:helm".exec =
+      let
+        crdSchema = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json";
+      in
+      ''
+        helm unittest helm/
+        helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
+        helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
+      '';
     "dp:lint".after = [
       "dp:lint:ci"
+      "dp:lint:sql"
       "dp:lint:py"
       "dp:lint:helm"
       "dp:lint:proxy"
       "dp:lint:k6"
     ];
-    "dp:test:py".exec = "uv run pytest --cov=dp --cov-report=term-missing";
-    "dp:test:py:mut".exec = "COVERAGE_CORE=ctrace uv run pytest --gremlins --gremlin-batch";
-    "dp:test:proxy".exec =
-      "${pkgs.nodejs}/bin/node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
-    "dp:test:helm".exec = ''
-      helm unittest helm/
-      helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
-      helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
-    '';
     "dp:test".after = [
       "dp:test:py"
       "dp:test:py:mut"

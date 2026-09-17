@@ -19,7 +19,7 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> No
         "postgres/init_roles",
         mapping={
             "user_role": Identifier(settings.AUTH_USER_ROLE),
-            "anon_role": Identifier(settings.AUTH_ANON_ROLE),
+            "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
             "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
             "rls_schema": Identifier("rls"),
         },
@@ -79,7 +79,7 @@ async def revoke_anonymous_access(pg_conn: AsyncConnection, config: SyncConfig) 
             "postgres/revoke_anon",
             mapping={
                 "schema": Identifier(schema),
-                "anon_role": Identifier(settings.AUTH_ANON_ROLE),
+                "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
             },
         )
 

@@ -294,7 +294,7 @@ async def plan_partitioned_tables(
                 table, client, redis, sync_id, s3_bucket, db
             )
 
-            if plan is not None:
+            if plan:
                 plans[table.name] = plan
                 tasks.extend(table_tasks)
 

@@ -9,7 +9,7 @@ from psycopg.sql import SQL, Composable, Identifier, Literal
 from whenever import Instant
 
 from .authorization import bootstrap_table
-from .conditions import partition_condition, scan_condition
+from .conditions import partition_condition, scan_condition, schema_scope_condition
 from .constants import PARTMAN_INTERVALS
 from .executor import execute_sql
 from .fallback import duckdb_type_for
@@ -31,7 +31,6 @@ from .models import (
 )
 from .settings import settings
 from .state import emit_error
-from .templates import render_fragment
 from .utils import atomic
 
 
@@ -69,8 +68,8 @@ async def table_exists(pg_conn: AsyncConnection, schema: str, table_name: str) -
 
 async def column_select_list(
     pg_conn: AsyncConnection, schema: str, table_name: str
-) -> Composable:
-    """Return a SQL select list with explicit casts for one table's columns."""
+) -> list[str]:
+    """Return SQL-safe select expressions with explicit casts for one table."""
     cursor = await execute_sql(
         pg_conn,
         "postgres/column_types",
@@ -79,14 +78,16 @@ async def column_select_list(
     rows = cast("list[tuple[object, object]]", await cursor.fetchall())
     rows = [(str(column), str(column_type)) for column, column_type in rows]
 
-    return SQL(", ").join(
-        SQL("r[{}]::{} AS {}").format(
+    return [
+        SQL("r[{}]::{} AS {}")
+        .format(
             Literal(col),
             SQL(cast(LiteralString, duckdb_type_for(typ))),
             Identifier(col),
         )
+        .as_string(None)
         for col, typ in rows
-    )
+    ]
 
 
 async def insert_partition(
@@ -94,7 +95,7 @@ async def insert_partition(
     schema: str,
     table_name: str,
     path: str,
-    select_list: Composable,
+    select_list: list[str],
     predicate: Composable,
 ) -> None:
     """Insert one Parquet partition into a pg_partman partitioned parent table.
@@ -110,7 +111,7 @@ async def insert_partition(
             "temp": Identifier("_insert_partition"),
             "schema": Identifier(schema),
             "table": Identifier(table_name),
-            "cols": select_list,
+            "columns": select_list,
             "path": Literal(path),
             "predicate": predicate,
         },
@@ -139,21 +140,13 @@ async def cast_json_columns_to_jsonb(
     if not columns:
         return
 
-    clauses = SQL(", ").join(
-        render_fragment(
-            "postgres/alter_json_to_jsonb_clause",
-            {"column": Identifier(column)},
-        )
-        for column in columns
-    )
-
     await execute_sql(
         conn,
         "postgres/cast_json_to_jsonb",
         mapping={
             "schema": Identifier(schema),
             "table": Identifier(table_name),
-            "clauses": clauses,
+            "columns": columns,
         },
     )
 
@@ -169,12 +162,11 @@ async def create_indexes(
             case "gin":
                 method = " USING gin"
 
-        if index.expressions is not None:
-            columns = SQL(", ").join(
-                SQL(cast(LiteralString, expr)) for expr in index.expressions
-            )
-        else:
-            columns = SQL(", ").join(Identifier(column) for column in index.columns)
+        columns = (
+            list(index.expressions)
+            if index.expressions is not None
+            else list(index.columns)
+        )
 
         await execute_sql(
             conn,
@@ -213,14 +205,20 @@ async def delete_partitions(
     affected: list[PhysicalPartition],
 ) -> None:
     """Delete rows in affected partitions from the live table."""
-    predicates = [partition_condition(partition) for partition in affected]
+    predicates = [
+        partition_condition(partition).as_string(None) for partition in affected
+    ]
     await execute_sql(
         pg_conn,
         "postgres/delete_partitions",
         mapping={
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(table.table_name),
-            "affected_partitions": SQL(" OR ").join(predicates),
+            "affected_partitions": predicates,
+            "has_rls": bool(table.rls),
+            "claim_setting": Literal(f"app.claim_{table.resolved_schema}"),
+            "scope": schema_scope_condition(table.resolved_schema),
+            "predicate": SQL("true"),
         },
     )
 
@@ -229,8 +227,8 @@ async def append_batch(
     pg_conn: AsyncConnection,
     table: TableConfig,
     table_name: str,
-    s3_path: str,
-    select_list: Composable,
+    path: str,
+    select_list: list[str],
 ) -> None:
     """Append one Parquet file to an existing table."""
     await execute_sql(
@@ -240,8 +238,8 @@ async def append_batch(
             "temp": Identifier("_load_batch"),
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(table_name),
-            "s3_path": Literal(s3_path),
-            "cols": select_list,
+            "path": Literal(path),
+            "columns": select_list,
         },
     )
 
@@ -250,7 +248,7 @@ async def create_table_from_parquet(
     pg_conn: AsyncConnection,
     table: TableConfig,
     table_name: str,
-    s3_path: str,
+    path: str,
 ) -> None:
     """Create and populate a table from a Parquet file."""
     await execute_sql(
@@ -259,7 +257,7 @@ async def create_table_from_parquet(
         mapping={
             "schema": Identifier(table.resolved_schema),
             "table": Identifier(table_name),
-            "s3_path": Literal(s3_path),
+            "path": Literal(path),
         },
     )
 
@@ -337,8 +335,8 @@ async def create_partitioned_table(
         "table": Identifier(table.table_name),
         "temp": Identifier(table.resolved_schema, temp_name),
         "parent_table": Literal(f"{table.resolved_schema}.{table.table_name}"),
-        "column_identifier": Identifier(partitioning.column),
-        "column": Literal(partitioning.column),
+        "column": Identifier(partitioning.column),
+        "column_name": Literal(partitioning.column),
         "interval": Literal(PARTMAN_INTERVALS[partitioning.interval]),
         "retention": Literal(partitioning.retention or "365 days"),
     }

@@ -10,4 +10,4 @@ SELECT struct_pack(
     modified := modified
 ) AS metadata
 FROM table_metadata
-WHERE table_name = '$table_name'
+WHERE table_name = '{{ table_name }}'

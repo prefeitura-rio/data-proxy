@@ -1,0 +1,22 @@
+# Prepared psycopg SQL uses %s parameters; validate through execution tests.
+src/dp/sql/postgres/column_types.sql
+src/dp/sql/postgres/delete_partition_freshness.sql
+src/dp/sql/postgres/delete_table_freshness.sql
+src/dp/sql/postgres/json_columns.sql
+src/dp/sql/postgres/replicas_replayed.sql
+src/dp/sql/postgres/table_exists.sql
+src/dp/sql/postgres/upsert_freshness.sql
+
+# These templates need multiple Jinja contexts or are SQL fragments.
+src/dp/sql/postgres/create_bq_function.sql
+src/dp/sql/postgres/cast_json_to_jsonb.sql
+src/dp/sql/postgres/create_index.sql
+src/dp/sql/postgres/delete_partitions.sql
+src/dp/sql/postgres/rls_where_clause.sql
+
+# These contain dialect-specific syntax not supported by SQLFluff.
+src/dp/sql/duckdb/describe_table.sql
+src/dp/sql/duckdb/setup.sql
+
+# Dynamic Jinja projection renders a long line for SQLFluff's static parser.
+src/dp/sql/duckdb/write_all.sql

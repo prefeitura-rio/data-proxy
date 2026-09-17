@@ -126,7 +126,7 @@ async def handle_publish_task(
     async with settings.redis() as redis:
         plan = await read_sync_plan(redis, task.run_id, task.schema_name)
 
-        if plan is None:
+        if not plan:
             async with await AsyncConnection.connect(settings.PG_DSN) as pg_conn:
                 await handle_missing_plan(redis, task, pg_conn)
             await ack_and_stop(message, redis, PUBLISHERS_GROUP)

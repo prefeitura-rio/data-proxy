@@ -1,1 +1,1 @@
-CREATE TABLE ${schema}.${table} (${columns});
+CREATE TABLE {{ schema }}.{{ table }} ({{ columns }});

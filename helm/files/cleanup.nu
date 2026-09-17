@@ -2,6 +2,7 @@
 # nu-lint-ignore-file: dont_mix_different_effects
 
 use std/log
+use ./lib.nu render-sql
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
 
@@ -23,6 +24,17 @@ def schema-list []: nothing -> list<string> {
 load-env {
     AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
     AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
+}
+
+# Execute a SQL statement against PostgreSQL
+def quote-pg-identifier [value: string]: nothing -> string {
+    let escaped = $value | str replace --all '"' '""'
+    $'"($escaped)"'
+}
+
+def quote-pg-literal [value: string]: nothing -> string {
+    let escaped = $value | str replace --all "'" "''"
+    $"'($escaped)'"
 }
 
 # Execute a SQL statement against PostgreSQL
@@ -57,8 +69,11 @@ for schema in (schema-list) {
         | each {|t| $t.name | split row . | last }
     )
 
+    let schema_literal = quote-pg-literal $schema
     let all = (
-        postgres --tuples-only $"SELECT tablename FROM pg_tables WHERE schemaname = '($schema)'"
+        postgres --tuples-only (render-sql cleanup_list_tables.sql {
+            schema: $schema_literal
+        })
         | lines
         | str trim
     )
@@ -77,10 +92,16 @@ for schema in (schema-list) {
             let full_name = $'($schema).($table)'
 
             log info $'Dropping table ($full_name)'
-            postgres $'DROP TABLE IF EXISTS ($schema)."($table)" CASCADE'
+            (postgres (render-sql cleanup_drop_table.sql {
+                schema: (quote-pg-identifier $schema)
+                table: (quote-pg-identifier $table)
+            }))
 
             log info $'Deleting freshness rows for ($full_name)'
-            postgres $"DELETE FROM ($schema).freshness WHERE \"table\" = '($table)'"
+            (postgres (render-sql cleanup_delete_freshness.sql {
+                schema: (quote-pg-identifier $schema)
+                table: (quote-pg-literal $table)
+            }))
 
             log info $'Deleting Redis state for ($full_name)'
             let deleted = (redis-del
@@ -93,7 +114,9 @@ for schema in (schema-list) {
         }
 
         log info $'Truncating access_policy for ($schema)'
-        postgres $'TRUNCATE ($schema).access_policy'
+        (postgres (render-sql cleanup_truncate_access_policy.sql {
+            schema: (quote-pg-identifier $schema)
+        }))
     }
 
     log info $'Notifying PostgREST to reload schema cache for ($schema)'

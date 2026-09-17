@@ -1,1 +1,1 @@
-GRANT USAGE ON SCHEMA ${schema} TO "user"
+GRANT USAGE ON SCHEMA {{ schema }} TO "user"

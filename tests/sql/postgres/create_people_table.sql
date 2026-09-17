@@ -1,1 +1,1 @@
-CREATE TABLE ${schema}.people (cpf int, name text)
+CREATE TABLE {{ schema }}.people (cpf int, name text)

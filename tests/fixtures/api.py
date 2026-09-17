@@ -23,7 +23,7 @@ from dp.sync.dumper import broker as dumper_broker
 from dp.sync.producer import broker as producer_broker
 from dp.sync.publisher import broker as publisher_broker
 from dp.sync.seeder import broker as seeder_broker
-from dp.templates import TemplateSpec, load_template
+from dp.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import SeaweedFS
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
@@ -136,12 +136,10 @@ def bigquery() -> Iterator[Client]:
         """Return metadata for one preseeded table."""
         name = table.replace(":", ".")
         row = database.execute(
-            load_template(
-                TemplateSpec(
-                    path="bigquery/table_metadata",
-                    mapping={"table_name": name},
-                ),
-                FILES.parent / "sql",
+            render_template(
+                "bigquery/table_metadata",
+                {"table_name": name},
+                root=FILES.parent / "sql",
             )
         ).fetchone()
 
@@ -165,10 +163,7 @@ def bigquery() -> Iterator[Client]:
         )
 
         rows = database.execute(
-            load_template(
-                TemplateSpec(path="bigquery/partitions", mapping={}),
-                FILES.parent / "sql",
-            ),
+            render_template("bigquery/partitions", {}, root=FILES.parent / "sql"),
             [f"test.dataset.{name}" if name else ""],
         ).fetchall()
 

@@ -1,4 +1,4 @@
-CREATE TABLE ${schema}.freshness (
+CREATE TABLE {{ schema }}.freshness (
     "table" text NOT NULL,
     strategy text NOT NULL,
     partition text,

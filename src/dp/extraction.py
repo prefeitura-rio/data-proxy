@@ -3,7 +3,7 @@
 from tempfile import TemporaryDirectory
 from typing import assert_never
 
-from psycopg.sql import SQL, Composable, Identifier, Literal
+from psycopg.sql import Composable, Identifier, Literal
 
 from .duckdb import connect_duckdb
 from .executor import execute_sql
@@ -16,8 +16,9 @@ from .models import (
     TimeRangeSelection,
 )
 from .settings import settings
+from .types import TemplateValue
 
-type StatementMapping = tuple[str, dict[str, str | Composable]]
+type StatementMapping = tuple[str, dict[str, TemplateValue]]
 
 
 def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
@@ -44,26 +45,16 @@ def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
             assert_never(selection)
 
 
-def build_columns(json_columns: list[str]) -> Composable:
-    """Return a SELECT expression that converts STRUCT columns to JSON."""
-    if not json_columns:
-        return SQL("*")
-
-    replacements = SQL(", ").join(
-        SQL("to_json({0}) AS {0}").format(Identifier(col)) for col in json_columns
-    )
-
-    return SQL("* REPLACE ({replacements})").format(replacements=replacements)
-
-
 def extraction_statement(
     task: DumpTask, selection: TaskSelection, path: str
 ) -> StatementMapping:
     """Return one extraction template and its values."""
-    mapping: dict[str, str | Composable] = {
+    mapping: dict[str, TemplateValue] = {
         "bq_table": Literal(task.table),
         "path": Literal(path),
-        "columns": build_columns(task.json_columns),
+        "json_columns": [
+            Identifier(column).as_string(None) for column in task.json_columns
+        ],
     }
 
     mapping |= selection_fields(selection)
@@ -79,10 +70,10 @@ def extraction_statement(
             assert_never(selection)
 
 
-def merge_statement(scratch: str, path: str) -> StatementMapping:
+def merge_statement(scratch_path: str, path: str) -> StatementMapping:
     """Return the merge template and its values."""
     return "duckdb/merge_batch", {
-        "scratch": Literal(f"{scratch}/*.parquet"),
+        "scratch_path": Literal(f"{scratch_path}/*.parquet"),
         "path": Literal(path),
     }
 
