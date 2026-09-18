@@ -107,6 +107,8 @@ spec:
             {{- if eq $mode "ro" }}
             - name: PGRST_DB_PREPARED_STATEMENTS
               value: "false"
+            - name: PGRST_DB_CHANNEL_ENABLED
+              value: "false"
             {{- end }}
             - name: PGRST_DB_SCHEMAS
               value: {{ $schema | quote }}

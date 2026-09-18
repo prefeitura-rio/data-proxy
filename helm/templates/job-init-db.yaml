@@ -113,6 +113,8 @@ spec:
               value: {{ .Values.s3.useSsl | quote }}
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
+            - name: SQL_TEMPLATE_DIR
+              value: /sql/jinja
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: init-db-script
@@ -211,6 +213,8 @@ spec:
               value: {{ $root.Values.s3.useSsl | quote }}
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
+            - name: SQL_TEMPLATE_DIR
+              value: /sql/jinja
             - name: SCHEMA
               value: {{ $schema | quote }}
           volumeMounts:

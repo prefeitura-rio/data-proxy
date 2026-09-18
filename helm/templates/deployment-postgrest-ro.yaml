@@ -95,6 +95,8 @@ spec:
               value: {{ include "data-proxy.postgresReadDsn" . | quote }}
             - name: PGRST_DB_PREPARED_STATEMENTS
               value: "false"
+            - name: PGRST_DB_CHANNEL_ENABLED
+              value: "false"
             - name: PGRST_DB_SCHEMAS
               value: {{ append (keys (.Values.syncConfig.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE

@@ -68,6 +68,15 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-example-postgrest-ro
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_CHANNEL_ENABLED
+            value: "false"
+        template: deployment-schema-postgrest.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-example-postgrest-ro
       - equal:
           path: spec.scaleTargetRef.name
           value: data-proxy-example-postgrest-rw

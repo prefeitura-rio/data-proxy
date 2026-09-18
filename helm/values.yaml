@@ -149,7 +149,7 @@ postgrest:
       enabled: true
       minReplicas: 1
       maxReplicas: 3
-      targetCPUUtilizationPercentage: 70
+      targetCPUUtilizationPercentage: 90
 ## CNPG Pooler configuration for PgBouncer connection pooling.
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 ## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled

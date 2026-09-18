@@ -46,11 +46,33 @@ tests:
 
   - it: renders the bootstrap password and role grants
     set:
+      cnpg.password: test-dataproxy-password
       cnpg.authenticatorPassword: test-authenticator-password
+      backup.password: test-backup-password
     asserts:
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "ALTER ROLE dataproxy"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "PASSWORD 'test-dataproxy-password'"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "ALTER ROLE authenticator"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
           pattern: "PASSWORD 'test-authenticator-password'"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "ALTER ROLE backup"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "PASSWORD 'test-backup-password'"
         template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]

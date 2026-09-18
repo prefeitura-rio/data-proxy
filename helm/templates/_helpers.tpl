@@ -14,7 +14,7 @@
 - type: cpu
   metricType: Utilization
   metadata:
-    value: "60"
+    value: "90"
 {{- end }}
 
 {{/*
@@ -32,11 +32,11 @@
 - type: cpu
   metricType: Utilization
   metadata:
-    value: "60"
+    value: "90"
 - type: memory
   metricType: Utilization
   metadata:
-    value: "60"
+    value: "90"
 {{- end }}
 
 {{/*

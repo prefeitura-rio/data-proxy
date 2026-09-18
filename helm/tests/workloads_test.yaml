@@ -24,6 +24,15 @@ tests:
           path: kind
           value: Job
         template: job-init-db.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_TEMPLATE_DIR
+            value: /sql/jinja
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db
+        template: job-init-db.yaml
 
   - it: backup runs the Nushell script and mounts required files
     set:

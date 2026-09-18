@@ -73,7 +73,7 @@ postgrest:
     hpa:
       minReplicas: 1
       maxReplicas: 3
-      targetCPUUtilizationPercentage: 70
+      targetCPUUtilizationPercentage: 90
 pooler:
     instances: 2
     poolSize: 20

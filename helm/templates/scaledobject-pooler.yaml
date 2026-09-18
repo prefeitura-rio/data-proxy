@@ -24,7 +24,7 @@ spec:
     - type: cpu
       metricType: Utilization
       metadata:
-        value: "80"
+        value: "90"
 {{- end }}
 {{- else }}
 {{- $root := . }}
@@ -56,7 +56,7 @@ spec:
     - type: cpu
       metricType: Utilization
       metadata:
-        value: "80"
+        value: "90"
 {{- end }}
 {{- end }}
 {{- end }}
