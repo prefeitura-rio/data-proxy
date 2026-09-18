@@ -1,4 +1,9 @@
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 let
   crdSchema = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json";
 in
@@ -15,7 +20,7 @@ in
       module = {
         env = {
           UV_LINK_MODE = "copy";
-          UV_PROJECT_ENVIRONMENT = ".venv";
+          UV_PROJECT_ENVIRONMENT = "${config.devenv.root}/.venv";
         };
 
         packages = with pkgs; [
@@ -40,13 +45,7 @@ in
             enable = true;
             package = pkgs.python314;
             lsp.package = pkgs.basedpyright;
-            uv = {
-              enable = true;
-              sync = {
-                enable = true;
-                allGroups = true;
-              };
-            };
+            uv.enable = true;
           };
         };
 
