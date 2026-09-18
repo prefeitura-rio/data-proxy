@@ -54,10 +54,6 @@ tests:
           path: spec.pgbouncer.authQuery
           value: SELECT usename, passwd FROM public.user_search($1)
         template: pooler-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[4].passwordSecret.name
-          value: data-proxy-cnpg-pooler
-        template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitSQL[0]
           pattern: "CREATE OR REPLACE FUNCTION public.user_search"

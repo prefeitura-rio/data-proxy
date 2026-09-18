@@ -102,11 +102,6 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
-      - name: cnpg_pooler_pgbouncer
-        ensure: present
-        login: true
-        passwordSecret:
-          name: {{ include "data-proxy.poolerSecretName" $root }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present
@@ -206,11 +201,6 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
-      - name: cnpg_pooler_pgbouncer
-        ensure: present
-        login: true
-        passwordSecret:
-          name: {{ include "data-proxy.poolerSecretName" $root }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present

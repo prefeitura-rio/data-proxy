@@ -39,6 +39,27 @@ tests:
           path: metadata.name
           value: data-proxy-init-db-0
         template: job-init-db.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_ADMIN_DSN
+            value: postgresql://dataproxy@data-proxy-rw:5432/postgres
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db-0
+        template: job-init-db.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POOLER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-pooler
+                key: password
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db-0
+        template: job-init-db.yaml
 
   - it: backup runs the Nushell script and mounts required files
     set:

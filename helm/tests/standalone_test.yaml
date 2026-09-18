@@ -45,13 +45,10 @@ tests:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
           pattern: "PASSWORD"
         template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[4].name
-          value: cnpg_pooler_pgbouncer
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[4].passwordSecret.name
-          value: data-proxy-cnpg-pooler
+      - notContains:
+          path: spec.managed.roles
+          content:
+            name: cnpg_pooler_pgbouncer
         template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitSQL[0]

@@ -72,6 +72,13 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: PG_DSN
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+            - name: PG_ADMIN_DSN
+              value: {{ printf "postgresql://%s@%s-rw:5432/postgres" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+            - name: POOLER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.poolerSecretName" . }}
+                  key: password
             - name: PGHOST
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
             - name: PGPORT
@@ -168,6 +175,13 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: PG_DSN
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
+            - name: PG_ADMIN_DSN
+              value: {{ printf "postgresql://%s@%s-rw:5432/postgres" $root.Values.cnpg.db.user $cluster | quote }}
+            - name: POOLER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.poolerSecretName" $root }}
+                  key: password
             - name: PGHOST
               value: {{ printf "%s-rw" $cluster | quote }}
             - name: PGPORT
