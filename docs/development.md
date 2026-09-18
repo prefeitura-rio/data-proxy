@@ -7,7 +7,7 @@ The local stack runs on Minikube with Podman and Helm.
 Install Minikube, Podman, `kubectl`, Helm, and Google Cloud CLI when using BigQuery.
 
 ```bash
-devenv shell
+devenv --profile default shell
 cluster up
 ```
 
@@ -65,13 +65,10 @@ Run `cluster k6 e2e` after changing local images, sync configuration, fallback, 
 Run the static and focused checks with devenv tasks:
 
 ```bash
-devenv tasks run dp:lint
-devenv tasks run dp:test:py
-devenv tasks run dp:test:helm
-devenv tasks run dp:test:proxy
+devenv --profile default tasks run dp:lint dp:test
 ```
 
-`dp:lint:k6` type-checks the k6 TypeScript suite. E2E and migration tests run against the local cluster or staging environment, not in CI.
+E2E and migration tests run against the local cluster or staging environment, not in CI.
 
 ## Stop the cluster
 

@@ -18,7 +18,7 @@ See [`helm/values.yaml`](../helm/values.yaml) for all values.
 ## Chart tests
 
 ```bash
-devenv tasks run dp:test:helm
+devenv --profile default tasks run dp:test:helm
 ```
 
 The task runs Helm lint, Helm unit tests, and Kubeconform for standalone and HA values.
