@@ -1,6 +1,6 @@
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:b41800c
+  image: ghcr.io/prefeitura-rio/data-proxy:5585f4b
   imagePullPolicy: IfNotPresent
   producer:
     ## Cron expression that controls when the producer runs.
@@ -393,7 +393,7 @@ cnpg:
       memory: 4Gi
   ## Container image with pg_duckdb, PostGIS, and pg_partman.
   ## Must be based on the official postgres image for CNPG compatibility.
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:b41800c
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-5585f4b
   storage:
     ## Size of the PersistentVolumeClaim for each PostgreSQL instance.
     size: 100Gi
