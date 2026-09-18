@@ -1,6 +1,6 @@
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:1c23a7d
+  image: ghcr.io/prefeitura-rio/data-proxy:0e682f4
   imagePullPolicy: IfNotPresent
   producer:
     ## Cron expression that controls when the producer runs.
