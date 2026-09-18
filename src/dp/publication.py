@@ -182,10 +182,15 @@ async def create_indexes(
 
 
 async def publish_table(conn: AsyncConnection, table: TableConfig) -> None:
-    """Create indexes on the shadow table and atomically swap it into service."""
+    """Atomically swap the shadow table into service, then create its indexes.
+
+    Indexes are created after the swap so that CREATE INDEX IF NOT EXISTS
+    does not find a stale index name from the previous live table and skip
+    creation.  The old table and its indexes are dropped by the swap before
+    the new indexes are created.
+    """
     table_name = table.table_name
     shadow_name = f"{table_name}__next"
-    await create_indexes(conn, table, shadow_name)
 
     await execute_sql(
         conn,
@@ -197,6 +202,8 @@ async def publish_table(conn: AsyncConnection, table: TableConfig) -> None:
             "old_table": Identifier(f"{table_name}__old"),
         },
     )
+
+    await create_indexes(conn, table, table_name)
 
 
 async def delete_partitions(

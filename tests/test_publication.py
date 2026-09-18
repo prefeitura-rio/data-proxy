@@ -230,6 +230,79 @@ class TestPublishTable:
         assert indexes == [("idx_people_cpf",)]
 
     @pytest.mark.asyncio
+    async def test_publish_table_preserves_indexes_when_live_table_already_has_them(
+        self, postgres: Postgres
+    ) -> None:
+        """
+        GIVEN: a live table that already has an index from a previous sync,
+               and a shadow table with new data.
+        WHEN: publish_table is called.
+        THEN: the index exists on the new live table after the swap.
+
+        This reproduces the bug where CREATE INDEX IF NOT EXISTS on the
+        shadow table was silently skipped because the index name already
+        existed on the old live table.  After the swap, the old table
+        (with the index) was dropped, leaving the new live table without
+        any indexes.
+        """
+        schema = postgres.namespace.schema
+        table = FullTable(
+            name=f"p.{schema}.people",
+            resolved_schema=schema,
+            indexes=[IndexConfig(name="idx_people_cpf", columns=["cpf"])],
+        )
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_people_table",
+            mapping={"schema": schema},
+        )
+        await postgres.connection.execute(
+            SQL("INSERT INTO {} VALUES (10, 'old10')").format(
+                Identifier(schema, "people")
+            )
+        )
+        # Create the index on the live table (simulating a previous sync)
+        await postgres.connection.execute(
+            SQL("CREATE INDEX idx_people_cpf ON {} ({})").format(
+                Identifier(schema, "people"), Identifier("cpf")
+            )
+        )
+        await postgres.connection.commit()
+
+        # Create the shadow table with new data
+        await execute_sql(
+            postgres.connection,
+            "postgres/create_table",
+            mapping={
+                "schema": schema,
+                "table": "people__next",
+                "columns": "cpf integer, name text",
+            },
+        )
+        await postgres.connection.execute(
+            SQL("INSERT INTO {} VALUES (20, 'new20')").format(
+                Identifier(schema, "people__next")
+            )
+        )
+        await postgres.connection.commit()
+
+        await publish_table(postgres.connection, table)
+        await postgres.connection.commit()
+
+        rows = await fetch_all(
+            postgres.connection,
+            "postgres/select_people_rows",
+            mapping={"schema": schema},
+        )
+        indexes = await fetch_all(
+            postgres.connection,
+            "postgres/index_names",
+            mapping={"schema": schema, "table": "people"},
+        )
+        assert rows == [(20, "new20")]
+        assert indexes == [("idx_people_cpf",)]
+
+    @pytest.mark.asyncio
     async def test_create_indexes_supports_expression_indexes(
         self, postgres: Postgres
     ) -> None:
