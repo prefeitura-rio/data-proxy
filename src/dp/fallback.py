@@ -165,6 +165,12 @@ async def create_bq_views(conn: AsyncConnection, config: SyncConfig) -> None:
 
             columns = await column_types_from_duckdb(conn, table)
 
+            if not columns:
+                table_name = f"{table.resolved_schema}.{table.table_name}"
+                raise RuntimeError(
+                    f"DuckDB returned no columns for fallback table {table_name}"
+                )
+
             await execute_sql(
                 conn,
                 "postgres/create_bq_function",

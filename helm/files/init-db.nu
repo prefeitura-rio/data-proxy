@@ -112,17 +112,6 @@ def create-access-policy []: nothing -> nothing {
     log info 'Created access policy tables'
 }
 
-# Create the PostgreSQL S3 secret for postgres read_parquet access to the bucket
-def create-s3-secret []: nothing -> nothing {
-    (postgres (render-sql create_s3_secret.sql {
-        s3_key_id: $env.S3_ACCESS_KEY
-        s3_secret_key: $env.S3_SECRET_KEY
-        s3_endpoint: $env.S3_ENDPOINT
-        s3_use_ssl: $env.S3_USE_SSL
-    }))
-    log info 'Created PostgreSQL S3 secret'
-}
-
 # Install the PostgreSQL bigquery community extension for BigQuery fallback views
 def install-bigquery-extension []: nothing -> nothing {
     postgres (render-sql install_bigquery_extension.sql {})
@@ -137,7 +126,6 @@ try {
     create-schemas-and-freshness
     create-pre-request
     create-access-policy
-    create-s3-secret
     install-bigquery-extension
     postgres (render-sql notify_pgrst.sql {})
 

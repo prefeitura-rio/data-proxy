@@ -183,6 +183,19 @@ class TestFallbackMockedServices:
         conn.commit.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_rejects_empty_column_metadata(self) -> None:
+        """Fallback generation fails before rendering an empty table type."""
+        table = FullTable(name="p.app.t", resolved_schema="app", fallback=True)
+        config = sync_config([table])
+        conn = AsyncMock(spec=AsyncConnection)
+
+        with (
+            patch("dp.fallback.column_types_from_duckdb", return_value=[]),
+            pytest.raises(RuntimeError, match="returned no columns"),
+        ):
+            await create_bq_views(conn, config)
+
     async def test_skips_tables_with_fallback_disabled(self) -> None:
         """Tables with fallback=False are skipped."""
         table = FullTable(name="p.app.t", resolved_schema="app", fallback=False)

@@ -8,10 +8,12 @@ from faststream.exceptions import StopApplication
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, RedisStreamMessage
 from psycopg import AsyncConnection
+from psycopg.sql import Literal
 
 from ..cache import clear_response_cache
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
 from ..errors import stop_on_error
+from ..executor import execute_sql
 from ..kubernetes import refresh_postgrest
 from ..loading import apply_sync_plan
 from ..log import elapsed_ms, logger, runid, schemaname
@@ -68,6 +70,17 @@ async def publish_schema_task(
 
     pg_conn = await AsyncConnection.connect(
         settings.SCHEMA_WRITERS.dsn(task.schema_name)
+    )
+
+    await execute_sql(
+        pg_conn,
+        "postgres/configure_s3_secret",
+        mapping={
+            "s3_key_id": Literal(settings.S3_ACCESS_KEY),
+            "s3_secret_key": Literal(settings.S3_SECRET_KEY),
+            "s3_endpoint": Literal(settings.S3_ENDPOINT),
+            "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
+        },
     )
 
     result = await apply_sync_plan(

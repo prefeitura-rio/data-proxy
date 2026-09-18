@@ -53,6 +53,10 @@ def allow_one_claim(monkeypatch: pytest.MonkeyPatch) -> None:
         AsyncMock(),
     )
     monkeypatch.setattr(
+        "dp.sync.publisher.execute_sql",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
         "dp.sync.publisher.current_wal_lsn",
         AsyncMock(return_value="0/1"),
     )
