@@ -33,6 +33,50 @@ subjects:
     name: {{ include "data-proxy.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 
+{{/* The init-db Job needs to remove legacy database-side files. */}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-init-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-db
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "data-proxy.fullname" . }}-init-db
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "data-proxy.fullname" . }}-init-db
+    namespace: {{ .Release.Namespace }}
+
 {{/* The migration Job needs a dedicated SA. */}}
 ---
 apiVersion: v1

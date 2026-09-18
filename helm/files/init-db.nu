@@ -47,6 +47,34 @@ def wait-for-postgres []: nothing -> nothing {
     log info 'PostgreSQL is ready'
 }
 
+# Remove the obsolete filesystem-backed DuckDB S3 secret from every CNPG instance.
+def remove-legacy-s3-secret []: nothing -> nothing {
+    let selector = $'cnpg.io/cluster=($env.CNPG_CLUSTER_NAME)'
+    let pods = (
+        kubectl get pods -n $env.KUBERNETES_NAMESPACE -l $selector
+            -o 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}'
+        | lines
+        | where ($it | is-not-empty)
+    )
+
+    if ($pods | is-empty) {
+        error make {msg: $'No Pods found for CNPG Cluster ($env.CNPG_CLUSTER_NAME)'}
+    }
+
+    for pod in $pods {
+        let result = (
+            kubectl exec -n $env.KUBERNETES_NAMESPACE $pod -c postgres --
+                rm -f /var/lib/postgresql/data/.duckdb/stored_secrets/s3.duckdb_secret
+            | complete
+        )
+        if $result.exit_code != 0 {
+            error make {msg: $'Failed to remove legacy S3 secret from ($pod): ($result.stderr)'}
+        }
+    }
+
+    log info $'Removed legacy filesystem S3 secrets from ($pods | length) CNPG Pods'
+}
+
 # Install extensions not already installed by CNPG postInitSQL (idempotent).
 def install-extensions []: nothing -> nothing {
     postgres (render-sql install_extensions.sql {})
@@ -122,6 +150,7 @@ log info 'Database initialization started'
 
 try {
     wait-for-postgres
+    remove-legacy-s3-secret
     install-extensions
     create-schemas-and-freshness
     create-pre-request
