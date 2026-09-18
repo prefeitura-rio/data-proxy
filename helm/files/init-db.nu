@@ -49,10 +49,10 @@ def wait-for-postgres []: nothing -> nothing {
 
 # Remove the obsolete filesystem-backed DuckDB S3 secret from every CNPG instance.
 def remove-legacy-s3-secret []: nothing -> nothing {
-    let selector = $'cnpg.io/cluster=($env.CNPG_CLUSTER_NAME)'
+    let selector = $'cnpg.io/cluster=($env.CNPG_CLUSTER_NAME),cnpg.io/podRole=instance'
     let pods = (
         kubectl get pods -n $env.KUBERNETES_NAMESPACE -l $selector
-            -o 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}'
+            -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}'
         | lines
         | where ($it | is-not-empty)
     )
