@@ -30,16 +30,11 @@
               kubeconform
               nu-lint
               sqlfluff
-            ]
-          );
-
-          build = mkShell (
-            with pkgs;
-            [
-              hadolint
               typescript
             ]
           );
+
+          build = mkShell (with pkgs; [ hadolint ]);
 
           release = mkShell (
             with pkgs;
