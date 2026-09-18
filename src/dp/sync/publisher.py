@@ -8,7 +8,6 @@ from faststream.exceptions import StopApplication
 from faststream.middlewares import ExceptionMiddleware
 from faststream.redis import RedisBroker, RedisStreamMessage
 from psycopg import AsyncConnection
-from psycopg.sql import Literal
 
 from ..cache import clear_response_cache
 from ..constants import PUBLISH_STREAM, PUBLISHERS_GROUP
@@ -76,9 +75,9 @@ async def publish_schema_task(
         pg_conn,
         "postgres/configure_s3_secret",
         mapping={
-            "s3_key_id": Literal(settings.S3_ACCESS_KEY),
-            "s3_secret_key": Literal(settings.S3_SECRET_KEY),
-            "s3_endpoint": Literal(settings.S3_ENDPOINT),
+            "s3_key_id": settings.S3_ACCESS_KEY,
+            "s3_secret_key": settings.S3_SECRET_KEY,
+            "s3_endpoint": settings.S3_ENDPOINT,
             "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
         },
     )
