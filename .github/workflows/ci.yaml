@@ -101,8 +101,6 @@ jobs:
         with:
           path: .devenv
           key: devenv-quality-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
-          restore-keys: |
-            devenv-quality-${{ runner.os }}-
       - run: devenv tasks run dp:lint dp:test
   build-images:
     name: Build ${{ matrix.name }} image

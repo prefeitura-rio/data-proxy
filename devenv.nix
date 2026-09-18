@@ -13,7 +13,10 @@ in
     quality = {
       extends = [ "base" ];
       module = {
-        env.UV_LINK_MODE = "copy";
+        env = {
+          UV_LINK_MODE = "copy";
+          UV_PROJECT_ENVIRONMENT = ".devenv/state/venv";
+        };
 
         packages = with pkgs; [
           actionlint

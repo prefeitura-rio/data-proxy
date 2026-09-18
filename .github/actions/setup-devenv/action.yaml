@@ -5,6 +5,9 @@ runs:
   steps:
     - uses: DeterminateSystems/nix-installer-action@main
     - uses: DeterminateSystems/magic-nix-cache-action@main
+      with:
+        use-flakehub: false
+        use-gha-cache: true
     - name: Install devenv
       shell: bash
       run: nix profile add nixpkgs#devenv
