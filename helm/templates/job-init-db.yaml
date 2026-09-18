@@ -57,8 +57,7 @@ spec:
         app.kubernetes.io/component: init-db
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: {{ include "data-proxy.fullname" . }}-init-db
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       containers:
         - name: init-db
           image: {{ .Values.cnpg.init.image | quote }}
@@ -110,10 +109,6 @@ spec:
               value: {{ .Values.s3.useSsl | quote }}
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
-            - name: KUBERNETES_NAMESPACE
-              value: {{ .Release.Namespace | quote }}
-            - name: CNPG_CLUSTER_NAME
-              value: {{ include "data-proxy.fullname" . | quote }}
             - name: SQL_TEMPLATE_DIR
               value: /sql/jinja
           volumeMounts:
@@ -158,8 +153,7 @@ spec:
         data-proxy.io/schema: {{ $schema | quote }}
     spec:
       restartPolicy: OnFailure
-      serviceAccountName: {{ include "data-proxy.fullname" $root }}-init-db
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       containers:
         - name: init-db
           image: {{ $root.Values.cnpg.init.image | quote }}
@@ -211,10 +205,6 @@ spec:
               value: {{ $root.Values.s3.useSsl | quote }}
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
-            - name: KUBERNETES_NAMESPACE
-              value: {{ $root.Release.Namespace | quote }}
-            - name: CNPG_CLUSTER_NAME
-              value: {{ $cluster | quote }}
             - name: SQL_TEMPLATE_DIR
               value: /sql/jinja
             - name: SCHEMA

@@ -108,7 +108,7 @@ tests:
   - it: does not render Patroni RBAC resources
     asserts:
       - hasDocuments:
-          count: 8
+          count: 5
         template: rbac.yaml
 
   - it: leaves Pooler authentication to CNPG
