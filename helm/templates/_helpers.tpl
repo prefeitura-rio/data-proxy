@@ -305,7 +305,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 }
 */}}
 {{- define "data-proxy.redisWriterAddress" -}}
-{{- required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
+{{- $address := required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
+{{- if contains ".svc." $address }}
+{{- $address }}
+{{- else }}
+{{- $parts := splitList ":" $address }}
+{{- printf "%s.%s.svc.cluster.local:%s" (index $parts 0) .Release.Namespace (index $parts 1) }}
+{{- end }}
 {{- end }}
 
 {{/*

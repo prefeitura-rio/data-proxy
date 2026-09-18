@@ -11,13 +11,13 @@ tests:
     asserts:
       - equal:
           path: spec.triggers[0].metadata.address
-          value: redis-writer:6379
+          value: redis-writer.default.svc.cluster.local:6379
         template: scaledobject-dumper.yaml
       - equal:
           path: spec.triggers[0].metadata.address
-          value: redis-writer:6379
+          value: redis-writer.default.svc.cluster.local:6379
         template: scaledjob-seeder.yaml
       - equal:
           path: spec.triggers[0].metadata.address
-          value: redis-writer:6379
+          value: redis-writer.default.svc.cluster.local:6379
         template: scaledjob-publisher.yaml
