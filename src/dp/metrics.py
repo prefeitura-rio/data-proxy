@@ -103,8 +103,10 @@ def tracker[**P](
     def decorator(fn: Callable[P, Awaitable[None]]) -> Callable[P, Awaitable[None]]:
         @wraps(fn)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
-            await fn(*args, **kwargs)
-            await push_to_gateway(settings.PUSHGATEWAY_URL, job)
+            try:
+                await fn(*args, **kwargs)
+            finally:
+                await push_to_gateway(settings.PUSHGATEWAY_URL, job)
 
         return wrapper
 
