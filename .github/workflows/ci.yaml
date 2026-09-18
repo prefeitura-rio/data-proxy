@@ -89,7 +89,7 @@ jobs:
   quality:
     defaults:
       run:
-        shell: devenv shell -- bash -e {0}
+        shell: devenv --profile quality shell -- bash -e {0}
     name: Lint and test
     needs: changes
     runs-on: ubuntu-latest
@@ -100,9 +100,9 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .devenv
-          key: devenv-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
+          key: devenv-quality-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
           restore-keys: |
-            devenv-${{ runner.os }}-
+            devenv-quality-${{ runner.os }}-
       - run: devenv tasks run dp:lint dp:test
   build-images:
     name: Build ${{ matrix.name }} image
@@ -141,7 +141,7 @@ jobs:
   helm:
     defaults:
       run:
-        shell: devenv shell -- bash -e {0}
+        shell: devenv --profile helm shell -- bash -e {0}
     name: Release Helm chart
     timeout-minutes: 15
     needs:
