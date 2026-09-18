@@ -50,11 +50,6 @@ tests:
           content:
             name: cnpg_pooler_pgbouncer
         template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitSQL[0]
-          pattern: "CREATE OR REPLACE FUNCTION public.user_search"
-        template: cluster-cnpg.yaml
-
   - it: renders one CNPG Cluster in shared mode
     set:
       cnpg.instances: 3
@@ -116,24 +111,14 @@ tests:
           count: 5
         template: rbac.yaml
 
-  - it: configures explicit Pooler authentication
+  - it: leaves Pooler authentication to CNPG
     asserts:
-      - equal:
-          path: spec.pgbouncer.authQuerySecret.name
-          value: data-proxy-cnpg-pooler
+      - notExists:
+          path: spec.pgbouncer.authQuerySecret
         template: pooler-cnpg.yaml
-      - equal:
+      - notExists:
           path: spec.pgbouncer.authQuery
-          value: SELECT usename, passwd FROM public.user_search($1)
         template: pooler-cnpg.yaml
-      - equal:
-          path: stringData.username
-          value: cnpg_pooler_pgbouncer
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cnpg-pooler
-        template: secret-cnpg-roles.yaml
-
   - it: renders the partman maintenance CronJob with a daily schedule
     asserts:
       - hasDocuments:

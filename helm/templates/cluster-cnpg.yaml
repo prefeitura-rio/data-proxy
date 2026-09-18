@@ -50,8 +50,6 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
-      postInitSQL:
-        - {{ tpl ($files.Get "files/sql/helm/bootstrap_pooler.sql") $root | quote }}
       postInitApplicationSQL:
         - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ $root.Values.cnpg.instances | int }}
@@ -148,9 +146,6 @@ spec:
       database: {{ $root.Values.cnpg.db.name | quote }}
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
-      dataChecksums: true
-      postInitSQL:
-        - {{ tpl ($files.Get "files/sql/helm/bootstrap_pooler.sql") $root | quote }}
       postInitApplicationSQL:
         - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}

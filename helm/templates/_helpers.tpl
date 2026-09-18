@@ -196,14 +196,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.poolerSecretName" -}}
-{{- if .Values.cnpg.pooler.existingSecret }}
-{{- .Values.cnpg.pooler.existingSecret }}
-{{- else }}
-{{- printf "%s-cnpg-pooler" (include "data-proxy.fullname" .) }}
-{{- end }}
-{{- end }}
-
 {{- define "data-proxy.backupSecretName" -}}
 {{- if .Values.backup.existingSecret }}
 {{- .Values.backup.existingSecret }}

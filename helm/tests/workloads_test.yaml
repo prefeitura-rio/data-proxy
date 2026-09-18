@@ -39,23 +39,10 @@ tests:
           path: metadata.name
           value: data-proxy-init-db-0
         template: job-init-db.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PG_ADMIN_DSN
-            value: postgresql://dataproxy@data-proxy-rw:5432/postgres
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-init-db-0
-        template: job-init-db.yaml
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: POOLER_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: data-proxy-cnpg-pooler
-                key: password
         documentSelector:
           path: metadata.name
           value: data-proxy-init-db-0
@@ -100,8 +87,9 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [python, -m, dp.sync.dumper]
         template: deployment-dumper.yaml
-      - notExists:
+      - equal:
           path: spec.replicas
+          value: 0
         template: deployment-dumper.yaml
 
   - it: dumper carries the batch settings and a scratch volume

@@ -41,23 +41,17 @@ tests:
               name: data-proxy-sync
         template: deployment-schema-nginx-proxy.yaml
 
-  - it: configures explicit Pooler authentication for each schema
+  - it: leaves per-schema Pooler authentication to CNPG
     set:
       cnpg.mode: per-schema
       syncConfig.schemas.foo.tables: []
     asserts:
-      - equal:
-          path: spec.pgbouncer.authQuerySecret.name
-          value: data-proxy-cnpg-pooler
+      - notExists:
+          path: spec.pgbouncer.authQuerySecret
         template: pooler-cnpg.yaml
-      - equal:
+      - notExists:
           path: spec.pgbouncer.authQuery
-          value: SELECT usename, passwd FROM public.user_search($1)
         template: pooler-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitSQL[0]
-          pattern: "CREATE OR REPLACE FUNCTION public.user_search"
-        template: cluster-cnpg.yaml
 
   - it: mounts GCP credentials into per-schema CNPG instances
     set:

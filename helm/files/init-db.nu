@@ -47,22 +47,6 @@ def wait-for-postgres []: nothing -> nothing {
     log info 'PostgreSQL is ready'
 }
 
-# Configure CNPG's reserved Pooler authentication role after PostgreSQL is ready.
-def configure-pooler-auth []: nothing -> nothing {
-    let password = quote-pg $env.POOLER_PASSWORD literal
-    let query = open ($env.SQL_TEMPLATE_DIR | path join configure_pooler.sql) | str replace "'__POOLER_PASSWORD__'" $password
-    try {
-        $query | psql $env.PG_ADMIN_DSN --no-psqlrc --quiet -v ON_ERROR_STOP=1
-    } catch {|err| error make {
-        msg: $'Pooler authentication setup failed: ($err.msg)'
-        label: {
-            text: configure-pooler-auth
-            span: (metadata $query).span
-        }
-    } }
-    log info 'Configured Pooler authentication'
-}
-
 # Install extensions not already installed by CNPG postInitSQL (idempotent).
 def install-extensions []: nothing -> nothing {
     postgres (render-sql install_extensions.sql {})
@@ -149,7 +133,6 @@ log info 'Database initialization started'
 
 try {
     wait-for-postgres
-    configure-pooler-auth
     install-extensions
     create-schemas-and-freshness
     create-pre-request

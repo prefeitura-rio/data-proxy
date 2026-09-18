@@ -11,7 +11,7 @@
 */}}
 {{- if hasKey .Values.cnpg "password" }}{{ fail "cnpg.password was removed; use cnpg.existingSecret" }}{{- end }}
 {{- if hasKey .Values.cnpg "authenticatorPassword" }}{{ fail "cnpg.authenticatorPassword was removed; use auth.existingSecret" }}{{- end }}
-{{- if hasKey .Values.cnpg "poolerPassword" }}{{ fail "cnpg.poolerPassword was removed; use cnpg.pooler.existingSecret" }}{{- end }}
+{{- if hasKey .Values.cnpg "poolerPassword" }}{{ fail "cnpg.poolerPassword was removed; CNPG manages Pooler authentication" }}{{- end }}
 {{- if hasKey .Values.backup "password" }}{{ fail "backup.password was removed; use backup.existingSecret" }}{{- end }}
 {{- if hasKey .Values.s3 "accessKey" }}{{ fail "s3.accessKey was removed; use s3.existingSecret" }}{{- end }}
 {{- if hasKey .Values.s3 "secretKey" }}{{ fail "s3.secretKey was removed; use s3.existingSecret" }}{{- end }}
