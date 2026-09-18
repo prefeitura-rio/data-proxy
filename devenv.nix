@@ -15,7 +15,7 @@ in
       module = {
         env = {
           UV_LINK_MODE = "copy";
-          UV_PROJECT_ENVIRONMENT = ".devenv/state/venv";
+          UV_PROJECT_ENVIRONMENT = ".venv";
         };
 
         packages = with pkgs; [
