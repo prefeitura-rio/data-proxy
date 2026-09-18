@@ -82,6 +82,8 @@ async def publish_schema_task(
         },
     )
 
+    await pg_conn.commit()
+
     result = await apply_sync_plan(
         pg_conn,
         schema_config,

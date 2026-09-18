@@ -441,6 +441,64 @@ class TestPublishSchema:
             )
 
 
+class TestS3SecretIsolation:
+    """Tests for DuckDB S3 secret transaction isolation."""
+
+    @pytest.mark.asyncio
+    async def test_commit_after_configure_s3_secret_before_apply_sync_plan(
+        self,
+        sync_config_path: Path,
+        redis: Redis,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        GIVEN: a publish task with a valid sync plan.
+        WHEN: handle_publish_task is called.
+        THEN: pg_conn.commit is called after configure_s3_secret and before
+              apply_sync_plan, isolating DuckDB initialization in its own
+              transaction so that subsequent DO/EXCEPTION blocks do not
+              trigger the pg_duckdb SAVEPOINT error.
+        """
+        sync_config_path.write_text(
+            sync_config([FullTable(name="p.app.t")]).model_dump_json()
+        )
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"p.app.t": "sig"},
+            paths={"p.app.t": ["s3://b/t"]},
+        )
+        await redis.hset("dp:plans:r1", "app", plan.model_dump_json())
+        await redis.set("dp:active", "r1")
+
+        mock_conn = AsyncMock()
+        monkeypatch.setattr(
+            AsyncConnection,
+            "connect",
+            AsyncMock(return_value=mock_conn),
+        )
+        with (
+            patch(
+                "dp.sync.publisher.apply_sync_plan",
+                new_callable=AsyncMock,
+                return_value=PublicationResult(plan=plan, published_tables={"p.app.t"}),
+            ) as apply,
+            patch("dp.sync.publisher.refresh_postgrest", new_callable=AsyncMock),
+            patch("dp.utils.complete_schema", new_callable=AsyncMock, return_value=0),
+            patch("dp.utils.revoke_anonymous_access"),
+            patch("dp.sync.publisher.clear_response_cache", new_callable=AsyncMock),
+            patch("dp.utils.clear_s3_bucket", new_callable=AsyncMock),
+            pytest.raises(StopApplication),
+        ):
+            await handle_publish_task(
+                PublishTask(run_id="r1", schema_name="app"),
+                logging.getLogger("test"),
+                stream_message(),
+            )
+
+        mock_conn.commit.assert_awaited()
+        apply.assert_awaited_once()
+
+
 class TestPublisherCleanup:
     """Tests for publisher consumer cleanup."""
 
