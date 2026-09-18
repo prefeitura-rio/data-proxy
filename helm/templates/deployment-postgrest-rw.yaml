@@ -72,7 +72,7 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.fullname" . }}-cnpg-authenticator
+                  name: {{ include "data-proxy.authenticatorSecretName" . }}
                   key: password
       volumes:
         {{- if not .Values.postgrest.jwtSecret }}
@@ -89,7 +89,7 @@ spec:
             - name: PGRST_AUTHENTICATOR_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.fullname" . }}-cnpg-authenticator
+                  name: {{ include "data-proxy.authenticatorSecretName" . }}
                   key: password
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgresWriteDsn" . | quote }}

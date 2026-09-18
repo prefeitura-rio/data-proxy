@@ -177,12 +177,9 @@ s3:
   ## Set to true when the endpoint answers over HTTPS.
   useSsl: "false"
   ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain S3_ACCESS_KEY and S3_SECRET_KEY.
+  ## The Secret must contain S3_ACCESS_KEY and S3_SECRET_KEY. When SeaweedFS
+  ## authentication is enabled, it must also contain seaweedfs_s3_config.
   existingSecret: ""
-  ## Access key for S3 access. Required when existingSecret is empty.
-  accessKey: ""
-  ## Secret key for S3 access. Required when existingSecret is empty.
-  secretKey: ""
 ## SeaweedFS object store, deployed as a subchart.
 ## Master, volume, filer and the S3 gateway run as separate workloads. The
 ## all-in-one process is not used, so each part can be sized and restarted alone.
@@ -232,10 +229,7 @@ seaweedfs:
     replicas: 1
     ## Require credentials on every request.
     enableAuth: true
-    credentials:
-      admin:
-        accessKey: ""
-        secretKey: ""
+    existingConfigSecret: data-proxy-s3
     ## Buckets the subchart creates after installation. The name must match s3.bucket.
     createBuckets:
       - name: data-proxy
@@ -244,10 +238,8 @@ seaweedfs:
         cpu: 50m
         memory: 128Mi
 ## External Redis-compatible broker and cache.
-## The platform chart owns Redis and metrics.
 redis:
-  ## Existing Secret containing the stable writer and reader URLs.
-  ## Required by every deployment.
+  ## Existing Secret containing REDIS and REDIS_PASSWORD.
   existingSecret: data-proxy-redis
   configKey: REDIS
   passwordKey: REDIS_PASSWORD
@@ -273,9 +265,8 @@ backup:
   ttlSecondsAfterFinished: 300
   ## S3 object key prefix for access_policy dumps.
   prefix: backups/access_policy
-  ## PostgreSQL backup role Secret. The Secret must contain BACKUP_PASSWORD.
+  ## PostgreSQL backup role Secret. The Secret must contain username, password, and BACKUP_PASSWORD.
   existingSecret: ""
-  password: ""
   ## Separate S3/GCS-compatible backup service.
   s3:
     endpointURL: ""
@@ -299,6 +290,9 @@ cleanup:
 ## Seeder — KEDA ScaledJob with one Job for each seed task.
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
+schemaWriters:
+  ## Existing Secret containing writers.json. Required when cnpg.existingSecret is set.
+  existingSecret: ""
 syncConfig:
   ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
   ## schema's identity claim and its list of tables. See docs/sync.md.
@@ -314,6 +308,8 @@ auth:
   ## PostgreSQL login role that PostgREST uses to connect.
   ## PostgREST uses this role in PGRST_DB_URI.
   authenticatorRole: authenticator
+  ## Existing Basic Auth Secret for the authenticator role (username and password).
+  existingSecret: ""
   ## PostgREST JSPath expression that selects the database role from JWT claims. A
   ## token may also resolve to policy_writer_<schema>, created per configured
   ## schema, to write that schema's access_policy table only.
@@ -333,6 +329,8 @@ ha:
 ## mode: per-schema — one Cluster per schema (prod, publication isolation)
 cnpg:
   pooler:
+    ## Existing Basic Auth Secret for the Pooler role (username and password).
+    existingSecret: ""
     ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
     instances: 1
     ## Transaction pooling mode: each client transaction gets a server connection.
@@ -364,8 +362,6 @@ cnpg:
   init:
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:b41800c
   existingSecret: ""
-  password: ""
-  authenticatorPassword: ""
   ## Deployment mode: "shared" or "per-schema".
   mode: shared
   ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).

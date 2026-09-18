@@ -9,8 +9,6 @@ cnpg:
   db:
     name: data-proxy
     user: dataproxy
-  password: pgpass
-  authenticatorPassword: authrole
   instances: 2
   autoscaling:
     minReplicaCount: 2
@@ -25,8 +23,6 @@ cnpg:
 
 s3:
   bucket: prod-bucket
-  accessKey: s3-access-key
-  secretKey: s3-secret
 
 postgrest:
   proxyUri: https://api.example.com

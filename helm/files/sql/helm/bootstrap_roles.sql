@@ -1,11 +1,6 @@
 -- {
 --   "kind": "template",
 --   "description": "Bootstrap the PostgreSQL roles required by Data Proxy.",
---   "inputs": {
---     "dataproxy_password": "Password for the Data Proxy database owner.",
---     "authenticator_password": "Password for the PostgREST authenticator role.",
---     "backup_password": "Password for the backup role."
---   }
 -- }
 DO '
 BEGIN
@@ -33,12 +28,3 @@ BEGIN
   GRANT "user" TO authenticator;
 END
 ';
-ALTER ROLE dataproxy
-SUPERUSER LOGIN
-PASSWORD '{{ .Values.cnpg.password }}';
-ALTER ROLE authenticator
-LOGIN NOINHERIT
-PASSWORD '{{ .Values.cnpg.authenticatorPassword }}';
-ALTER ROLE backup
-LOGIN
-PASSWORD '{{ .Values.backup.password }}';

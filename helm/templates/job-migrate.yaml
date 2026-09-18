@@ -18,14 +18,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-migrate-{{ randAlphaNum 5 | lower }}
+  name: {{ include "data-proxy.fullname" . }}-migrate-{{ .Release.Revision }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
-  annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "10"
-    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   ttlSecondsAfterFinished: 300
   template:

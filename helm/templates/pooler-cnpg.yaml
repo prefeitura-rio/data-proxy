@@ -33,6 +33,9 @@ spec:
             {{- toYaml $root.Values.cnpg.pooler.resources | nindent 12 }}
   pgbouncer:
     poolMode: transaction
+    authQuerySecret:
+      name: {{ include "data-proxy.poolerSecretName" $root }}
+    authQuery: "SELECT usename, passwd FROM public.user_search($1)"
     parameters:
       max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
       default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
@@ -73,6 +76,9 @@ spec:
               data-proxy.io/schema: {{ $schema | quote }}
   pgbouncer:
     poolMode: transaction
+    authQuerySecret:
+      name: {{ include "data-proxy.poolerSecretName" $root }}
+    authQuery: "SELECT usename, passwd FROM public.user_search($1)"
     parameters:
       max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
       default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}

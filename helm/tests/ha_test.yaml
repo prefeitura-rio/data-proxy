@@ -5,6 +5,8 @@ templates:
   - scaledobject-postgrest.yaml
   - scaledobject-nginx-proxy.yaml
   - scaledobject-pooler.yaml
+  - pooler-cnpg.yaml
+  - secret-cnpg-roles.yaml
   - deployment-schema-nginx-proxy.yaml
 tests:
   - it: gives per-schema CPU-scaled nginx a CPU request without owning its replica count
@@ -38,6 +40,28 @@ tests:
             configMap:
               name: data-proxy-sync
         template: deployment-schema-nginx-proxy.yaml
+
+  - it: configures explicit Pooler authentication for each schema
+    set:
+      cnpg.mode: per-schema
+      syncConfig.schemas.foo.tables: []
+    asserts:
+      - equal:
+          path: spec.pgbouncer.authQuerySecret.name
+          value: data-proxy-cnpg-pooler
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.pgbouncer.authQuery
+          value: SELECT usename, passwd FROM public.user_search($1)
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[4].passwordSecret.name
+          value: data-proxy-cnpg-pooler
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitSQL[0]
+          pattern: "CREATE OR REPLACE FUNCTION public.user_search"
+        template: cluster-cnpg.yaml
 
   - it: mounts GCP credentials into per-schema CNPG instances
     set:

@@ -50,6 +50,8 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
+      postInitSQL:
+        - {{ tpl ($files.Get "files/sql/helm/bootstrap_pooler.sql") $root | quote }}
       postInitApplicationSQL:
         - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ $root.Values.cnpg.instances | int }}
@@ -81,7 +83,7 @@ spec:
         superuser: true
         login: true
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-cnpg-dataproxy
+          name: {{ include "data-proxy.dbSecretName" $root }}
       - name: {{ $root.Values.auth.anonRole | quote }}
         ensure: present
         login: false
@@ -96,17 +98,22 @@ spec:
         bypassrls: false
         inherit: false
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+          name: {{ include "data-proxy.authenticatorSecretName" $root }}
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+      - name: cnpg_pooler_pgbouncer
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ include "data-proxy.poolerSecretName" $root }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present
         login: true
         bypassrls: false
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-backup
+          name: {{ include "data-proxy.backupSecretName" $root }}
       {{- end }}
 
 {{- end }}
@@ -147,6 +154,8 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
+      postInitSQL:
+        - {{ tpl ($files.Get "files/sql/helm/bootstrap_pooler.sql") $root | quote }}
       postInitApplicationSQL:
         - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
@@ -178,7 +187,7 @@ spec:
         superuser: true
         login: true
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-cnpg-dataproxy
+          name: {{ include "data-proxy.dbSecretName" $root }}
       - name: {{ $root.Values.auth.anonRole | quote }}
         ensure: present
         login: false
@@ -193,17 +202,22 @@ spec:
         bypassrls: false
         inherit: false
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+          name: {{ include "data-proxy.authenticatorSecretName" $root }}
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+      - name: cnpg_pooler_pgbouncer
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ include "data-proxy.poolerSecretName" $root }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present
         login: true
         bypassrls: false
         passwordSecret:
-          name: {{ include "data-proxy.fullname" $root }}-backup
+          name: {{ include "data-proxy.backupSecretName" $root }}
       {{- end }}
 
 {{- end }}

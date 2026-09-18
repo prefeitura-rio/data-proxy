@@ -88,7 +88,7 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+                  name: {{ include "data-proxy.authenticatorSecretName" $root }}
                   key: password
       containers:
         - name: postgrest
@@ -100,7 +100,7 @@ spec:
             - name: PGRST_AUTHENTICATOR_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.fullname" $root }}-cnpg-authenticator
+                  name: {{ include "data-proxy.authenticatorSecretName" $root }}
                   key: password
             - name: PGRST_DB_URI
               value: {{ printf "postgres://%s:$(PGRST_AUTHENTICATOR_PASSWORD)@%s:5432/%s" $root.Values.auth.authenticatorRole $databaseService $root.Values.cnpg.db.name | quote }}

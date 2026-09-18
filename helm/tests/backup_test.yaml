@@ -12,7 +12,6 @@ tests:
       backup.enabled: true
       backup.schedule: "30 4 * * *"
       backup.image: postgres:17-alpine
-      backup.password: test-backup-pass
       backup.prefix: backups/access_policy
       backup.s3.bucket: backup-bucket
       backup.s3.endpointURL: https://storage.googleapis.com
@@ -64,7 +63,6 @@ tests:
   - it: uses backup S3 credentials from backup.s3.existingSecret
     set:
       backup.enabled: true
-      backup.password: test-backup-pass
       backup.s3.bucket: backup-bucket
       backup.s3.endpointURL: https://storage.googleapis.com
       backup.s3.existingSecret: backup-s3-creds

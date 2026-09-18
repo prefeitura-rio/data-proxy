@@ -4,6 +4,8 @@ templates:
   - rbac.yaml
   - cronjob-partman-maintenance.yaml
   - scaledobject-pooler.yaml
+  - pooler-cnpg.yaml
+  - secret-cnpg-roles.yaml
 tests:
   - it: manages anon, user, and authenticator roles through CNPG
     asserts:
@@ -39,52 +41,21 @@ tests:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
           pattern: "CREATE ROLE authenticator"
         template: cluster-cnpg.yaml
-      - matchRegex:
+      - notMatchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
           pattern: "PASSWORD"
         template: cluster-cnpg.yaml
-
-  - it: renders the bootstrap password and role grants
-    set:
-      cnpg.password: test-dataproxy-password
-      cnpg.authenticatorPassword: test-authenticator-password
-      backup.password: test-backup-password
-    asserts:
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "ALTER ROLE dataproxy"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "PASSWORD 'test-dataproxy-password'"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "ALTER ROLE authenticator"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "PASSWORD 'test-authenticator-password'"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "ALTER ROLE backup"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "PASSWORD 'test-backup-password'"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "GRANT.*anon.*authenticator"
-        template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "GRANT.*user.*authenticator"
+      - equal:
+          path: spec.managed.roles[4].name
+          value: cnpg_pooler_pgbouncer
         template: cluster-cnpg.yaml
       - equal:
-          path: spec.managed.roles[3].passwordSecret.name
-          value: data-proxy-cnpg-authenticator
+          path: spec.managed.roles[4].passwordSecret.name
+          value: data-proxy-cnpg-pooler
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitSQL[0]
+          pattern: "CREATE OR REPLACE FUNCTION public.user_search"
         template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster in shared mode
@@ -147,6 +118,24 @@ tests:
       - hasDocuments:
           count: 5
         template: rbac.yaml
+
+  - it: configures explicit Pooler authentication
+    asserts:
+      - equal:
+          path: spec.pgbouncer.authQuerySecret.name
+          value: data-proxy-cnpg-pooler
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.pgbouncer.authQuery
+          value: SELECT usename, passwd FROM public.user_search($1)
+        template: pooler-cnpg.yaml
+      - equal:
+          path: stringData.username
+          value: cnpg_pooler_pgbouncer
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cnpg-pooler
+        template: secret-cnpg-roles.yaml
 
   - it: renders the partman maintenance CronJob with a daily schedule
     asserts:

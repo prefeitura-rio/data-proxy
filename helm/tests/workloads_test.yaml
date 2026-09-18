@@ -9,7 +9,7 @@ templates:
   - scaledobject-dumper.yaml
   - deployment-dumper.yaml
 tests:
-  - it: creates init-db as a Helm hook Job
+  - it: creates init-db as a revision-specific normal Job
     asserts:
       - isKind:
           of: Job
@@ -18,8 +18,14 @@ tests:
           value: Job
         template: job-init-db.yaml
       - equal:
+          path: metadata.name
+          value: data-proxy-init-db-0
+        documentSelector:
+          path: kind
+          value: Job
+        template: job-init-db.yaml
+      - notExists:
           path: metadata.annotations["helm.sh/hook"]
-          value: post-install,post-upgrade
         documentSelector:
           path: kind
           value: Job
@@ -31,13 +37,12 @@ tests:
             value: /sql/jinja
         documentSelector:
           path: metadata.name
-          value: data-proxy-init-db
+          value: data-proxy-init-db-0
         template: job-init-db.yaml
 
   - it: backup runs the Nushell script and mounts required files
     set:
       backup.enabled: true
-      backup.password: test-pass
       backup.s3.bucket: backup-bucket
       backup.s3.endpointURL: https://storage.googleapis.com
       backup.s3.existingSecret: backup-creds

@@ -173,7 +173,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.cnpg.existingSecret }}
 {{- .Values.cnpg.existingSecret }}
 {{- else }}
-{{- include "data-proxy.fullname" . }}-db
+{{- include "data-proxy.fullname" . }}-cnpg-dataproxy
 {{- end }}
 {{- end }}
 
@@ -188,6 +188,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   "returns": "Helper-rendered Kubernetes or configuration content."
 }
 */}}
+{{- define "data-proxy.authenticatorSecretName" -}}
+{{- if .Values.auth.existingSecret }}
+{{- .Values.auth.existingSecret }}
+{{- else }}
+{{- printf "%s-cnpg-authenticator" (include "data-proxy.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.poolerSecretName" -}}
+{{- if .Values.cnpg.pooler.existingSecret }}
+{{- .Values.cnpg.pooler.existingSecret }}
+{{- else }}
+{{- printf "%s-cnpg-pooler" (include "data-proxy.fullname" .) }}
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.backupSecretName" -}}
 {{- if .Values.backup.existingSecret }}
 {{- .Values.backup.existingSecret }}
@@ -312,7 +328,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 }
 */}}
 {{- define "data-proxy.schemaWritersSecretName" -}}
-{{- if .Values.cnpg.existingSecret }}
+{{- if .Values.schemaWriters.existingSecret }}
+{{- .Values.schemaWriters.existingSecret }}
+{{- else if .Values.cnpg.existingSecret }}
 {{- .Values.cnpg.existingSecret }}-schema-writers
 {{- else }}
 {{- include "data-proxy.fullname" . }}-schema-writers
@@ -356,23 +374,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- else -}}
 {{- printf "%s-%s" (include "data-proxy.fullname" $root) (.schema | replace "_" "-") -}}
 {{- end -}}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWriterDsn",
-  "description": "Render the schemaWriterDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWriterDsn" -}}
-{{- $root := .root -}}
-{{- $cluster := include "data-proxy.cnpgClusterName" . -}}
-postgresql://{{ $root.Values.cnpg.db.user }}:{{ $root.Values.cnpg.password }}@{{ $cluster }}-rw:5432/{{ $root.Values.cnpg.db.name }}
 {{- end }}
 
 {{/*
