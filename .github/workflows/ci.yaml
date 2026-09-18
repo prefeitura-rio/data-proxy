@@ -109,14 +109,19 @@ jobs:
             echo "build_postgres=$(force_or_changed "$FORCE_POSTGRES" '^Dockerfile\.postgres$')"
           } >> "$GITHUB_OUTPUT"
   lint-ci:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint GitHub Actions workflows
     needs: changes
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#actionlint -- .github/workflows/*.yaml
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: actionlint .github/workflows/*.yaml
   lint-python:
     name: Lint Python codebase
     needs: changes
@@ -156,28 +161,41 @@ jobs:
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
   lint-sql:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint SQL templates
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: |
-          nix run nixpkgs#sqlfluff -- lint --dialect postgres --config helm/files/sql/helm/.sqlfluff helm/files/sql/helm
-          nix run nixpkgs#sqlfluff -- lint --dialect postgres src/dp/sql/postgres helm/files/sql/jinja
-          nix run nixpkgs#sqlfluff -- lint --dialect duckdb src/dp/sql/duckdb
-          nix run nixpkgs#sqlfluff -- lint --dialect bigquery src/dp/sql/bigquery
+          sqlfluff lint --dialect postgres --config helm/files/sql/helm/.sqlfluff helm/files/sql/helm
+          sqlfluff lint --dialect postgres src/dp/sql/postgres helm/files/sql/jinja
+          sqlfluff lint --dialect duckdb src/dp/sql/duckdb
+          sqlfluff lint --dialect bigquery src/dp/sql/bigquery
   lint-nushell:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint Nushell scripts
     needs: changes
     if: needs.changes.outputs.nushell == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#nu-lint -- helm/files/*.nu
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nu-lint helm/files/*.nu
   lint-proxy:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Lint nginx proxy script
     needs: changes
     if: needs.changes.outputs.nginx == 'true'
@@ -188,8 +206,11 @@ jobs:
         with:
           node-version: 24.19.0
       - run: npm install --no-save "njs-types@$NJS_TYPES_VERSION" @types/node
-      - run: nix run nixpkgs#typescript -- tsc -p nginx
+      - run: tsc -p nginx
   test-proxy:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Test nginx proxy script
     needs: changes
     if: needs.changes.outputs.nginx == 'true'
@@ -217,6 +238,9 @@ jobs:
     steps:
       - run: echo "All affected quality jobs passed"
   build-dp:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Build application image
     needs:
       - changes
@@ -225,8 +249,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#hadolint -- Dockerfile
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: hadolint Dockerfile
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -245,6 +271,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   build-pg:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Build PostgreSQL image
     needs:
       - changes
@@ -253,8 +282,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#hadolint -- Dockerfile.postgres
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: hadolint Dockerfile.postgres
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -274,6 +305,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   build-nushell:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Build Nushell image
     needs:
       - changes
@@ -282,8 +316,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#hadolint -- Dockerfile.nushell
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: hadolint Dockerfile.nushell
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -303,6 +339,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   build-proxy:
+    defaults:
+      run:
+        shell: nix develop ./.github#build --impure -c bash -e {0}
     name: Build nginx proxy image
     needs:
       - changes
@@ -311,8 +350,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
-      - run: nix run nixpkgs#hadolint -- Dockerfile.proxy
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: hadolint Dockerfile.proxy
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -345,31 +386,42 @@ jobs:
     steps:
       - run: echo "All selected build jobs passed"
   lint-helm:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint Helm chart
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: |
-          nix run nixpkgs#kubernetes-helm -- lint helm/ -f helm/ci/test-values.yaml
-          nix run nixpkgs#kubernetes-helm -- lint helm/ -f helm/ci/test-values-ha.yaml
+          helm lint helm/ -f helm/ci/test-values.yaml
+          helm lint helm/ -f helm/ci/test-values-ha.yaml
   test-helm:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Test Helm chart
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: |
-          HELM_UNITTEST_PATH="$(nix eval --raw nixpkgs#kubernetes-helmPlugins.helm-unittest)"
-          export HELM_PLUGINS="$HELM_UNITTEST_PATH"
-          nix run nixpkgs#kubernetes-helm -- unittest helm/
-          nix run nixpkgs#kubernetes-helm -- template data-proxy helm/ -f helm/ci/test-values.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
-          nix run nixpkgs#kubernetes-helm -- template data-proxy helm/ -f helm/ci/test-values-ha.yaml | nix run nixpkgs#kubeconform -- -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          helm unittest helm/
+          helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
+          helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location "$CRD_SCHEMA"
   helm:
+    defaults:
+      run:
+        shell: nix develop ./.github#release --impure -c bash -e {0}
     name: Release Helm chart
     needs:
       - changes
@@ -381,7 +433,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Update from main
         if: github.ref == 'refs/heads/main'
         run: git pull --rebase origin main
@@ -406,14 +460,14 @@ jobs:
       - name: Pin image SHAs in values.yaml
         if: github.ref == 'refs/heads/main'
         run: |
-          nix run nixpkgs#yq-go -- e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy:\" + strenv(APP_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          nix run nixpkgs#yq-go -- e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(NGINX_SHA)" -i helm/values.yaml
+          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy:\" + strenv(APP_SHA)" -i helm/values.yaml
+          yq e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
+          yq e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
+          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(NGINX_SHA)" -i helm/values.yaml
         env:
           APP_SHA: ${{ steps.shas.outputs.app }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
@@ -423,7 +477,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         id: version
         run: |
-          CHART_VERSION=$(nix run nixpkgs#yq-go -- eval '.version' helm/Chart.yaml)
+          CHART_VERSION=$(yq eval '.version' helm/Chart.yaml)
           LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
           LAST_VERSION=${LAST_TAG#helm-v}
           BASE_VERSION="$CHART_VERSION"
@@ -448,15 +502,15 @@ jobs:
           fi
       - name: Login to GHCR
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | nix run nixpkgs#kubernetes-helm -- registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Bump chart version
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: nix run nixpkgs#yq-go -- e '.version = strenv(NEXT)' -i helm/Chart.yaml
+        run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
         env:
           NEXT: ${{ steps.version.outputs.next }}
       - name: Package chart
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: nix run nixpkgs#kubernetes-helm -- package helm/ --destination ./packaged/
+        run: helm package helm/ --destination ./packaged/
       - name: Commit and tag chart release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         run: |
@@ -469,7 +523,7 @@ jobs:
           git push origin helm-v${{ steps.version.outputs.next }}
       - name: Push chart
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
-        run: nix run nixpkgs#kubernetes-helm -- push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: helm push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
       - name: Create GitHub release
         if: github.ref == 'refs/heads/main' && steps.guard.outputs.skip != 'true'
         env:
