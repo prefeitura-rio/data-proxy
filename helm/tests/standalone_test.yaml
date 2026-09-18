@@ -37,7 +37,11 @@ tests:
         template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "ALTER ROLE.*PASSWORD"
+          pattern: "CREATE ROLE authenticator"
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
+          pattern: "PASSWORD"
         template: cluster-cnpg.yaml
 
   - it: renders the bootstrap password and role grants
@@ -46,15 +50,15 @@ tests:
     asserts:
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "authenticator_password text := .test-authenticator-password."
+          pattern: "PASSWORD 'test-authenticator-password'"
         template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "GRANT.*anon_role.*authenticator_role"
+          pattern: "GRANT.*anon.*authenticator"
         template: cluster-cnpg.yaml
       - matchRegex:
           path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "GRANT.*user_role.*authenticator_role"
+          pattern: "GRANT.*user.*authenticator"
         template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[3].passwordSecret.name
