@@ -5,6 +5,7 @@ on:
       - main
     paths: &ci_paths
       - .github/workflows/**
+      - .github/actions/**
       - src/**
       - tests/**
       - nginx/**
@@ -27,6 +28,9 @@ on:
         description: Run all stages
         type: boolean
         default: false
+concurrency:
+  group: data-proxy-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: write
   packages: write
@@ -36,10 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_helm: ${{ steps.filter.outputs.build_helm }}
-      build_nginx: ${{ steps.filter.outputs.build_nginx }}
-      build_nushell: ${{ steps.filter.outputs.build_nushell }}
-      build_postgres: ${{ steps.filter.outputs.build_postgres }}
-      build_python: ${{ steps.filter.outputs.build_python }}
+      build_images: ${{ steps.filter.outputs.build_images }}
+      build_matrix: ${{ steps.filter.outputs.build_matrix }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -49,34 +51,53 @@ jobs:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
         run: |
+          matrix='{"include":['
+          first=true
+          build_images=false
+          add_image() {
+            if [ "$first" = false ]; then matrix+=','; fi
+            first=false
+            matrix+="{\"name\":\"$1\",\"dockerfile\":\"$2\",\"image\":\"ghcr.io/$GITHUB_REPOSITORY$3\"}"
+            build_images=true
+          }
           if [ "$FORCE_FULL" = "true" ]; then
-            for output in build_nginx build_helm build_python build_nushell build_postgres; do
-              echo "$output=true" >> "$GITHUB_OUTPUT"
-            done
-            exit 0
+            build_helm=true
+            add_image "Sync pipeline" "Dockerfile" ""
+            add_image "PostgreSQL" "Dockerfile.postgres" "-postgres"
+            add_image "Nushell" "Dockerfile.nushell" "-nushell"
+            add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy"
+          else
+            BASE="$BEFORE"
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
+            CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+            changed() { echo "$CHANGED" | grep -Eq "$1"; }
+            build_helm=false
+            if changed '^helm/'; then build_helm=true; fi
+            if changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Sync pipeline" "Dockerfile" ""; fi
+            if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy"; fi
+            if changed '^Dockerfile\.nushell$'; then add_image "Nushell" "Dockerfile.nushell" "-nushell"; fi
+            if changed '^Dockerfile\.postgres$'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres"; fi
           fi
-          BASE="$BEFORE"
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
-          CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA")
-          changed() { echo "$CHANGED" | grep -Eq "$1" && echo true || echo false; }
+          matrix+=']}'
           {
-            echo "build_nginx=$(changed '^(nginx/|Dockerfile\.proxy$)')"
-            echo "build_helm=$(changed '^helm/')"
-            echo "build_python=$(changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)')"
-            echo "build_nushell=$(changed '^Dockerfile\.nushell$')"
-            echo "build_postgres=$(changed '^Dockerfile\.postgres$')"
+            echo "build_helm=$build_helm"
+            echo "build_images=$build_images"
+            echo "build_matrix<<EOF"
+            echo "$matrix"
+            echo EOF
           } >> "$GITHUB_OUTPUT"
   quality:
     defaults:
       run:
         shell: devenv shell -- bash -e {0}
     name: Lint and test
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-devenv
-      - run: devenv tasks run dp:lint
-      - run: devenv tasks run dp:test
+      - run: devenv tasks run dp:lint dp:test
   build-images:
     name: Build ${{ matrix.name }} image
     needs:
@@ -84,62 +105,43 @@ jobs:
       - quality
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: application
-            dockerfile: Dockerfile
-            image: ghcr.io/${{ github.repository }}
-            changed: build_python
-          - name: PostgreSQL
-            dockerfile: Dockerfile.postgres
-            image: ghcr.io/${{ github.repository }}-postgres
-            changed: build_postgres
-          - name: Nushell
-            dockerfile: Dockerfile.nushell
-            image: ghcr.io/${{ github.repository }}-nushell
-            changed: build_nushell
-          - name: Nginx proxy
-            dockerfile: Dockerfile.proxy
-            image: ghcr.io/${{ github.repository }}-nginx-proxy
-            changed: build_nginx
-    if: always() && github.ref == 'refs/heads/main' && needs.quality.result == 'success'
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+    if: always() && github.ref == 'refs/heads/main' && needs.quality.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - if: needs.changes.outputs[matrix.changed] != 'true'
-        run: echo "Skipping ${{ matrix.name }} image"
-      - if: needs.changes.outputs[matrix.changed] == 'true'
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - if: needs.changes.outputs[matrix.changed] == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - if: needs.changes.outputs[matrix.changed] == 'true'
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ${{ matrix.image }}
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
-      - if: needs.changes.outputs[matrix.changed] == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
   helm:
     defaults:
       run:
         shell: devenv shell -- bash -e {0}
     name: Release Helm chart
+    timeout-minutes: 15
     needs:
       - changes
       - quality
       - build-images
-    if: always() && !cancelled() && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_python == 'true' || needs.changes.outputs.build_postgres == 'true' || needs.changes.outputs.build_nushell == 'true' || needs.changes.outputs.build_nginx == 'true') && needs.quality.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.quality.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
