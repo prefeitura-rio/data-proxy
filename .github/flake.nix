@@ -28,9 +28,11 @@
               actionlint
               helm
               kubeconform
+              nodejs
               nu-lint
               sqlfluff
               typescript
+              uv
             ]
           );
 

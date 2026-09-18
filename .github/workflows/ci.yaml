@@ -123,15 +123,18 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: actionlint .github/workflows/*.yaml
   lint-python:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint Python codebase
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: DeterminateSystems/determinate-nix-action@v3.22.4
         with:
-          python-version: "3.14"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: uv sync --all-groups --frozen
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
@@ -145,15 +148,15 @@ jobs:
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
   test-python:
+    defaults:
+      run:
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Test Python codebase
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        with:
-          python-version: "3.14"
       - run: uv sync --all-groups --frozen
         env:
           UV_PROJECT_ENVIRONMENT: .devenv/state/venv
@@ -195,31 +198,25 @@ jobs:
   lint-proxy:
     defaults:
       run:
-        shell: nix develop ./.github#build --impure -c bash -e {0}
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Lint nginx proxy script
     needs: changes
     if: needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.19.0
       - run: npm install --no-save "njs-types@$NJS_TYPES_VERSION" @types/node
       - run: tsc -p nginx
   test-proxy:
     defaults:
       run:
-        shell: nix develop ./.github#build --impure -c bash -e {0}
+        shell: nix develop ./.github#quality --impure -c bash -e {0}
     name: Test nginx proxy script
     needs: changes
     if: needs.changes.outputs.nginx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24.19.0
       - run: node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts
   quality:
     name: Lint and test
