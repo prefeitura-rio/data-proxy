@@ -100,7 +100,7 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
-          {{- range $schema := keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+          {{- range $schema := sortAlpha (keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas)) }}
           - {{ printf "policy_writer_%s" $schema | quote }}
           {{- end }}
       {{- if $root.Values.cnpg.backup.enabled }}
