@@ -161,3 +161,36 @@ tests:
           path: spec.maxReplicaCount
           value: 3
         template: scaledobject-pooler.yaml
+
+  - it: sizes duckdb threads proportionally to the memory limit
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "2"
+        template: cluster-cnpg.yaml
+    set:
+      cnpg.resources.limits.memory: 4Gi
+  - it: raises duckdb threads for large memory limits
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "3"
+        template: cluster-cnpg.yaml
+    set:
+      cnpg.resources.limits.memory: 6Gi
+  - it: caps duckdb threads at four
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "4"
+        template: cluster-cnpg.yaml
+    set:
+      cnpg.resources.limits.memory: 32Gi
+  - it: floors duckdb threads at one for tiny memory limits
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "1"
+        template: cluster-cnpg.yaml
+    set:
+      cnpg.resources.limits.memory: 512Mi

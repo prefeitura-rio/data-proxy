@@ -69,6 +69,7 @@ spec:
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
       duckdb.postgres_role: authenticator
+      duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
   storage:
     size: {{ $root.Values.cnpg.storage.size | quote }}
     {{- with $root.Values.cnpg.storage.storageClass }}
@@ -165,6 +166,7 @@ spec:
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
       duckdb.postgres_role: authenticator
+      duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
   storage:
     size: {{ default $root.Values.cnpg.storage.size (dig "storage" "size" $root.Values.cnpg.storage.size $stack) | quote }}
     {{- with $root.Values.cnpg.storage.storageClass }}

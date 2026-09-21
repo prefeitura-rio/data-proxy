@@ -794,3 +794,38 @@ map $http_accept_profile $postgrest_write {
   mountPath: /config/schema-writers
   readOnly: true
 {{- end }}
+
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.duckdbThreads",
+  "description": "Compute duckdb.threads proportional to the CNPG memory limit: floor(GiB / 2), clamped to 1..4.",
+  "inputs": {
+    "context": "Helm template context with cnpg.resources.limits.memory."
+  },
+  "returns": "Thread count as a quoted string for the postgresql.parameters map."
+}
+*/}}
+{{- define "data-proxy.duckdbThreads" -}}
+{{- $mem := .Values.cnpg.resources.limits.memory | toString -}}
+{{- $bytes := 0 -}}
+{{- if (regexMatch "^[0-9]+(\\.[0-9]+)?(Gi|Mi|Ti|Ki)?$" $mem) -}}
+  {{- $num := regexFind "^[0-9]+(\\.[0-9]+)?" $mem | float64 -}}
+  {{- $unit := regexFind "(Gi|Mi|Ti|Ki)$" $mem -}}
+  {{- $mult := dict "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 -}}
+  {{- $factor := 1.0 -}}
+  {{- if $unit -}}
+    {{- $factor = index $mult $unit -}}
+  {{- end -}}
+  {{- $bytes = mulf $num $factor -}}
+{{- end -}}
+{{- $gib := divf $bytes 1073741824.0 -}}
+{{- $threads := floor (divf $gib 2.0) | int -}}
+{{- if lt $threads 1 -}}
+  {{- $threads = 1 -}}
+{{- end -}}
+{{- if gt $threads 4 -}}
+  {{- $threads = 4 -}}
+{{- end -}}
+{{- $threads | quote -}}
+{{- end }}
