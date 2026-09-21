@@ -17,7 +17,7 @@ ALTER TABLE {{ schema }}.{{ table }} ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS access_policy_scoped ON {{ schema }}.{{ table }};
 CREATE POLICY access_policy_scoped ON {{ schema }}.{{ table }}
 USING (
-    {{ scope }}
+    (SELECT {{ scope }})
     AND (
         (SELECT EXISTS(SELECT 1 FROM {{ schema }}.access_policy WHERE subject = current_setting({{ claim_setting }}, true) AND is_enabled AND is_admin))
         OR {{ rls_unit_array_checks(rls_mappings, claim_setting, schema) }}

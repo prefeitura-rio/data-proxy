@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {{ schema }}.access_policy (
     UNIQUE (subject, unit_type, unit_id)
 );
 CREATE INDEX IF NOT EXISTS access_policy_enabled_subject
-    ON {{ schema }}.access_policy (subject, unit_type, unit_id)
+    ON {{ schema }}.access_policy (subject, unit_type, unit_id, is_admin)
     WHERE is_enabled;
 ALTER TABLE {{ schema }}.access_policy ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE FUNCTION {{ schema }}.set_access_policy_metadata_timestamps()

@@ -64,6 +64,7 @@ spec:
       - pg_duckdb
       - pg_partman_bgw
     parameters:
+      maintenance_work_mem: 512MB
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
@@ -163,6 +164,7 @@ spec:
       - pg_duckdb
       - pg_partman_bgw
     parameters:
+      maintenance_work_mem: 512MB
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
