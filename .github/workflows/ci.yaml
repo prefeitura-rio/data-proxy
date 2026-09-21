@@ -76,7 +76,7 @@ jobs:
             if changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Sync pipeline" "Dockerfile" "" ""; fi
             if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy" ""; fi
             if changed '^Dockerfile\.nushell$'; then add_image "Nushell" "Dockerfile.nushell" "-nushell" ""; fi
-            if changed '^(\.github/workflows/ci\.yaml|Dockerfile\.postgres$)'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"; fi
+            if changed '^Dockerfile\.postgres$'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"; fi
           fi
           matrix+=']}'
           {
