@@ -146,7 +146,7 @@ class Table(BaseModel):
     name: BigQueryTableName
     rls: list[UnitMapping] | None = None
     indexes: list[IndexConfig] = []
-    fallback: bool = True
+    fallback: bool = False
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
     resolved_schema: str = ""
