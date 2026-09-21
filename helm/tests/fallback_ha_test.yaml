@@ -7,7 +7,7 @@ templates:
   - configmap-nginx-proxy.yaml
   - configmap-schema-nginx-proxy.yaml
 tests:
-  - it: renders valid njs fetch settings in each per-schema proxy config
+  - it: renders env var placeholders in each per-schema proxy config
     set:
       ha.enabled: true
       cnpg.mode: per-schema
@@ -15,7 +15,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'js_fetch_max_response_buffer_size 32m;'
+          pattern: 'js_fetch_max_response_buffer_size \$\{FETCH_BUFFER_SIZE\}'
         template: configmap-schema-nginx-proxy.yaml
         documentSelector:
           path: metadata.name

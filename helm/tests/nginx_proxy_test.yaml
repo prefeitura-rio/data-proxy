@@ -138,14 +138,14 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive 32;"
+          pattern: "js_fetch_keepalive \\${FETCH_KEEPALIVE}"
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
         template: configmap-nginx-proxy.yaml
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive_timeout 60s;"
+          pattern: "js_fetch_keepalive_timeout \\${FETCH_KEEPALIVE_TIMEOUT}"
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
@@ -156,20 +156,14 @@ tests:
       fallback.fetchKeepalive: 8
       fallback.fetchKeepaliveTimeout: 30s
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive 8;"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-nginx-proxy
-        template: configmap-nginx-proxy.yaml
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive_timeout 30s;"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-nginx-proxy
-        template: configmap-nginx-proxy.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_KEEPALIVE")].value
+          value: "8"
+        template: deployment-nginx-proxy.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_KEEPALIVE_TIMEOUT")].value
+          value: "30s"
+        template: deployment-nginx-proxy.yaml
 
   - it: rolls the proxy when its configuration changes
     set:

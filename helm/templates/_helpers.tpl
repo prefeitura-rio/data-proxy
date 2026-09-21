@@ -489,7 +489,7 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- define "data-proxy.nginxConfigBody" -}}
 {{- $upstreams := .upstreams -}}
 {{- $root := .root -}}
-{{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams | replace "__CACHE_TTL__" (toString $root.Values.fallback.cacheTtl) | replace "__MAX_BODY__" (toString $root.Values.fallback.maxCacheBodyBytes) | replace "__FETCH_BUFFER_SIZE__" (toString $root.Values.fallback.fetchBufferSize) | replace "__FETCH_TIMEOUT__" (toString $root.Values.fallback.fetchTimeout) | replace "__FETCH_KEEPALIVE__" (toString $root.Values.fallback.fetchKeepalive) | replace "__FETCH_KEEPALIVE_TIMEOUT__" (toString $root.Values.fallback.fetchKeepaliveTimeout) }}
+{{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams }}
 {{- end }}
 
 {{/*

@@ -10,7 +10,11 @@ RUN npm install --no-save njs-types@1.0.0 typescript@7.0.2 \
  && ./node_modules/.bin/tsc -p nginx/tsconfig.build.json \
  && rm -rf /build
 
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY helm/files/nginx.conf /etc/nginx/templates/nginx.conf.template
+
+ENV NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates \
+    NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template \
+    NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx \
+    NGINX_ENVSUBST_FILTER=^(CACHE_TTL|MAX_BODY|FETCH_BUFFER_SIZE|FETCH_TIMEOUT|FETCH_KEEPALIVE|FETCH_KEEPALIVE_TIMEOUT|LARGE_CLIENT_HEADER_BUFFERS)$
 
 EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]

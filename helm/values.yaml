@@ -485,7 +485,9 @@ fallback:
   fetchBufferSize: 32m
   ## Timeout of a fetch. Keep it below the ingress timeout, so that this proxy
   ## logs the failure instead of the route timing out first.
-  fetchTimeout: 60s
+  fetchTimeout: 120s
+  ## Nginx large_client_header_buffers for long query-string filters.
+  largeClientHeaderBuffers: "4 64k"
   ## Connections that ngx.fetch holds open for reuse. Zero opens and closes one
   ## connection for each fetch, which makes webdis free its client while a
   ## command is still in flight and corrupts the reply path.

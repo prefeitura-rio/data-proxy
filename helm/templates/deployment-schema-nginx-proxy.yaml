@@ -60,6 +60,21 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: CACHE_TTL
+              value: {{ toString $root.Values.fallback.cacheTtl | quote }}
+            - name: MAX_BODY
+              value: {{ toString $root.Values.fallback.maxCacheBodyBytes | quote }}
+            - name: FETCH_BUFFER_SIZE
+              value: {{ toString $root.Values.fallback.fetchBufferSize | quote }}
+            - name: FETCH_TIMEOUT
+              value: {{ toString $root.Values.fallback.fetchTimeout | quote }}
+            - name: FETCH_KEEPALIVE
+              value: {{ toString $root.Values.fallback.fetchKeepalive | quote }}
+            - name: FETCH_KEEPALIVE_TIMEOUT
+              value: {{ toString $root.Values.fallback.fetchKeepaliveTimeout | quote }}
+            - name: LARGE_CLIENT_HEADER_BUFFERS
+              value: {{ toString $root.Values.fallback.largeClientHeaderBuffers | quote }}
           readinessProbe:
             httpGet:
               path: /health
@@ -68,7 +83,7 @@ spec:
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 12 }}
             - name: config
-              mountPath: /etc/nginx/nginx.conf
+              mountPath: /etc/nginx/templates/nginx.conf.template
               subPath: nginx.conf
           {{- with $root.Values.fallback.resources }}
           resources:

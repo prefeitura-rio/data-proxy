@@ -39,10 +39,25 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            - name: CACHE_TTL
+              value: {{ toString .Values.fallback.cacheTtl | quote }}
+            - name: MAX_BODY
+              value: {{ toString .Values.fallback.maxCacheBodyBytes | quote }}
+            - name: FETCH_BUFFER_SIZE
+              value: {{ toString .Values.fallback.fetchBufferSize | quote }}
+            - name: FETCH_TIMEOUT
+              value: {{ toString .Values.fallback.fetchTimeout | quote }}
+            - name: FETCH_KEEPALIVE
+              value: {{ toString .Values.fallback.fetchKeepalive | quote }}
+            - name: FETCH_KEEPALIVE_TIMEOUT
+              value: {{ toString .Values.fallback.fetchKeepaliveTimeout | quote }}
+            - name: LARGE_CLIENT_HEADER_BUFFERS
+              value: {{ toString .Values.fallback.largeClientHeaderBuffers | quote }}
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: config
-              mountPath: /etc/nginx/nginx.conf
+              mountPath: /etc/nginx/templates/nginx.conf.template
               subPath: nginx.conf
           readinessProbe:
             httpGet:

@@ -4,14 +4,14 @@ release:
   namespace: default
 templates:
   - configmap-nginx-proxy.yaml
+  - deployment-nginx-proxy.yaml
 tests:
-  - it: renders a configured proxy and cache
+  - it: renders env var placeholders in nginx config
     set:
       fallback.nginxImage: example.invalid/data-proxy-fallback:test
-      fallback.cacheTtl: 123
       fallback.cacheRedisDb: 2
-      fallback.fetchBufferSize: 8m
-      fallback.fetchTimeout: 30s
+    templates:
+      - configmap-nginx-proxy.yaml
     asserts:
       - matchRegex:
           path: data["webdis-write.json"]
@@ -21,58 +21,88 @@ tests:
           value: data-proxy-webdis
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'set \$fallback_cache_ttl "123";'
+          pattern: 'fallback_cache_ttl "\$\{CACHE_TTL\}"'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'js_fetch_max_response_buffer_size 8m;'
+          pattern: 'js_fetch_max_response_buffer_size \$\{FETCH_BUFFER_SIZE\}'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'js_fetch_timeout 30s;'
+          pattern: 'js_fetch_timeout \$\{FETCH_TIMEOUT\}'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000";'
+          pattern: 'large_client_header_buffers \$\{LARGE_CLIENT_HEADER_BUFFERS\}'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest-rw.default.svc.cluster.local:3000";'
+          pattern: 'default "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'js_preload_object /config/sync.json;'
+          pattern: 'default "http://data-proxy-postgrest-rw.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'proxy_pass http://127.0.0.1:7379/;'
+          pattern: 'js_preload_object /config/sync.json'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://127.0.0.1:7379/'
         documentSelector:
           path: metadata.name
           value: data-proxy-nginx-proxy
 
-  - it: trusts the token only when the mesh validates it
-    set:
-      ingress.enabled: true
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      fallback.maxCacheBodyBytes: 512
+  - it: sets env vars on the nginx container from helm values
+    templates:
+      - deployment-nginx-proxy.yaml
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'set \$fallback_max_body "512";'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-nginx-proxy
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value
+          value: "120s"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="LARGE_CLIENT_HEADER_BUFFERS")].value
+          value: "4 64k"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_BUFFER_SIZE")].value
+          value: "32m"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="CACHE_TTL")].value
+          value: "300"
+
+  - it: overrides env vars from helm values
+    templates:
+      - deployment-nginx-proxy.yaml
+    set:
+      fallback.fetchTimeout: 30s
+      fallback.largeClientHeaderBuffers: "8 128k"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value
+          value: "30s"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="LARGE_CLIENT_HEADER_BUFFERS")].value
+          value: "8 128k"
+
+  - it: mounts config as envsubst template
+    templates:
+      - deployment-nginx-proxy.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name=="config")].mountPath
+          value: /etc/nginx/templates/nginx.conf.template
