@@ -381,7 +381,7 @@ cnpg:
   resources:
     requests:
       cpu: 500m
-      memory: 500Mi
+      memory: 2Gi
     limits:
       cpu: "4"
       memory: 4Gi

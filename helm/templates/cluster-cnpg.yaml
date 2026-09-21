@@ -63,8 +63,13 @@ spec:
     shared_preload_libraries:
       - pg_duckdb
       - pg_partman_bgw
+      - pg_stat_statements
     parameters:
+      shared_buffers: 1GB
+      work_mem: 16MB
       maintenance_work_mem: 512MB
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
@@ -163,8 +168,13 @@ spec:
     shared_preload_libraries:
       - pg_duckdb
       - pg_partman_bgw
+      - pg_stat_statements
     parameters:
+      shared_buffers: 1GB
+      work_mem: 16MB
       maintenance_work_mem: 512MB
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
