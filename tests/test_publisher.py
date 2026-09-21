@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from faststream.exceptions import StopApplication
@@ -47,6 +47,10 @@ def allow_one_claim(monkeypatch: pytest.MonkeyPatch) -> None:
         AsyncConnection,
         "connect",
         AsyncMock(return_value=AsyncMock()),
+    )
+    monkeypatch.setattr(
+        "dp.sync.publisher.initialize_schemas",
+        AsyncMock(),
     )
     monkeypatch.setattr(
         "dp.sync.publisher.refresh_postgrest",
@@ -442,10 +446,10 @@ class TestPublishSchema:
 
 
 class TestS3SecretIsolation:
-    """Tests for DuckDB S3 secret transaction isolation."""
+    """Tests for DuckDB S3 secret backend isolation."""
 
     @pytest.mark.asyncio
-    async def test_commit_after_configure_s3_secret_before_apply_sync_plan(
+    async def test_schema_initialization_runs_on_dedicated_connection(
         self,
         sync_config_path: Path,
         redis: Redis,
@@ -454,10 +458,9 @@ class TestS3SecretIsolation:
         """
         GIVEN: a publish task with a valid sync plan.
         WHEN: handle_publish_task is called.
-        THEN: pg_conn.commit is called after configure_s3_secret and before
-              apply_sync_plan, isolating DuckDB initialization in its own
-              transaction so that subsequent DO/EXCEPTION blocks do not
-              trigger the pg_duckdb SAVEPOINT error.
+        THEN: configure_s3_secret runs on the publication connection while
+              apply_sync_plan receives a distinct init connection, so the
+              pg_duckdb SAVEPOINT error cannot break schema initialization.
         """
         sync_config_path.write_text(
             sync_config([FullTable(name="p.app.t")]).model_dump_json()
@@ -470,13 +473,25 @@ class TestS3SecretIsolation:
         await redis.hset("dp:plans:r1", "app", plan.model_dump_json())
         await redis.set("dp:active", "r1")
 
-        mock_conn = AsyncMock()
+        publication_conn = AsyncMock()
+        init_conn = AsyncMock()
+        publication_conn.__aenter__.return_value = publication_conn
+        init_conn.__aenter__.return_value = init_conn
+        connections = [init_conn, publication_conn]
         monkeypatch.setattr(
             AsyncConnection,
             "connect",
-            AsyncMock(return_value=mock_conn),
+            AsyncMock(side_effect=connections),
         )
         with (
+            patch(
+                "dp.sync.publisher.execute_sql",
+                new_callable=AsyncMock,
+            ) as execute,
+            patch(
+                "dp.sync.publisher.initialize_schemas",
+                new_callable=AsyncMock,
+            ) as initialize,
             patch(
                 "dp.sync.publisher.apply_sync_plan",
                 new_callable=AsyncMock,
@@ -495,8 +510,13 @@ class TestS3SecretIsolation:
                 stream_message(),
             )
 
-        mock_conn.commit.assert_awaited()
+        initialize.assert_awaited_once_with(init_conn, ANY)
+        execute.assert_awaited_once_with(
+            publication_conn, "postgres/configure_s3_secret", mapping=ANY
+        )
         apply.assert_awaited_once()
+        assert apply.await_args is not None
+        assert "init_conn" not in apply.await_args.kwargs
 
 
 class TestPublisherCleanup:

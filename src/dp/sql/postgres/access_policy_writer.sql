@@ -4,7 +4,6 @@
   "description": "Render the access policy writer database operation.",
   "inputs": {
     "policy_writer_role": "Role allowed to write access-policy rows.",
-    "authenticator_role": "PostgREST authenticator role.",
     "schema": "PostgreSQL schema that owns the target objects.",
     "policy_name": "Access policy name."
   }
@@ -17,7 +16,6 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;
 END
 $$;
-GRANT {{ policy_writer_role }} TO {{ authenticator_role }};
 GRANT USAGE ON SCHEMA rls TO {{ policy_writer_role }};
 GRANT USAGE ON SCHEMA {{ schema }} TO {{ policy_writer_role }};
 GRANT SELECT, INSERT, UPDATE ON {{ schema }}.access_policy TO {{ policy_writer_role }};

@@ -59,27 +59,36 @@ class TestSchema:
         await postgres.connection.commit()
 
     @pytest.mark.asyncio
-    async def test_initialize_schemas_grants_anonymous_access_to_rls(
+    async def test_initialize_schemas_does_not_grant_role_membership(
         self, postgres: Postgres
     ) -> None:
         """
         GIVEN: a sync config.
         WHEN: initialize_schemas is called.
-        THEN: the anonymous role may use the rls schema, which holds the pre-request function.
+        THEN: no role membership is granted, because CNPG owns the
+              authenticator membership through inRoles.
         """
         schema = postgres.namespace.schema
         config = sync_config([FullTable(name=f"p.{schema}.one")], schema_name=schema)
 
-        await initialize_schemas(postgres.connection, config)
-
-        row = await (
+        before = await (
             await execute_sql(
                 postgres.connection,
-                "postgres/has_schema_usage",
-                mapping={"schema": "rls"},
+                "postgres/role_memberships",
+                mapping={"role": "authenticator"},
             )
-        ).fetchone()
-        assert row == (True,)
+        ).fetchall()
+
+        await initialize_schemas(postgres.connection, config)
+
+        after = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/role_memberships",
+                mapping={"role": "authenticator"},
+            )
+        ).fetchall()
+        assert after == before
 
     @pytest.mark.asyncio
     async def test_revoke_anonymous_access(self, postgres: Postgres) -> None:

@@ -19,7 +19,6 @@ async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> 
         mapping={
             "schema": Identifier(schema),
             "policy_writer_role": Identifier(f"policy_writer_{schema}"),
-            "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
             "policy_name": Identifier(f"policy_writer_{schema}"),
         },
     )

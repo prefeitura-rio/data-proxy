@@ -33,17 +33,24 @@ tests:
           path: spec.managed.roles[3].inRoles
           value: ["anon", "user"]
         template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "CREATE ROLE.*NOLOGIN"
+      - equal:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+          value: []
         template: cluster-cnpg.yaml
-      - matchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "CREATE ROLE authenticator"
-        template: cluster-cnpg.yaml
-      - notMatchRegex:
-          path: spec.bootstrap.initdb.postInitApplicationSQL[0]
-          pattern: "PASSWORD"
+  - it: grants policy writer membership per configured schema
+    set:
+      syncConfig:
+        schemas:
+          app_pequenos_cariocas:
+            claim: preferred_username
+            tables: []
+          bcadastro:
+            claim: preferred_username
+            tables: []
+    asserts:
+      - equal:
+          path: spec.managed.roles[3].inRoles
+          value: ["anon", "user", "policy_writer_app_pequenos_cariocas", "policy_writer_bcadastro"]
         template: cluster-cnpg.yaml
       - notContains:
           path: spec.managed.roles

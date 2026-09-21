@@ -19,7 +19,6 @@ WHERE NOT EXISTS (
     WHERE rolname = {{ policy_writer_literal }}
 )
 \gexec
-GRANT {{ policy_writer_role }} TO {{ authenticator_role }};
 GRANT USAGE ON SCHEMA rls TO {{ policy_writer_role }};
 GRANT USAGE ON SCHEMA {{ schema }} TO {{ policy_writer_role }};
 GRANT SELECT, INSERT, UPDATE ON {{ schema }}.access_policy TO {{ policy_writer_role }};

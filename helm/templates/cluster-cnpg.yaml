@@ -50,8 +50,7 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
-      postInitApplicationSQL:
-        - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
+      postInitApplicationSQL: []
   instances: {{ $root.Values.cnpg.instances | int }}
   resources:
     requests:
@@ -101,6 +100,9 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+          {{- range $schema := keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
+          - {{ printf "policy_writer_%s" $schema | quote }}
+          {{- end }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present
@@ -147,8 +149,7 @@ spec:
       database: {{ $root.Values.cnpg.db.name | quote }}
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
-      postInitApplicationSQL:
-        - {{ tpl ($files.Get "files/sql/helm/bootstrap_roles.sql") $root | quote }}
+      postInitApplicationSQL: []
   instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
   resources:
     requests:
@@ -198,6 +199,7 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+          - {{ printf "policy_writer_%s" $schema | quote }}
       {{- if $root.Values.cnpg.backup.enabled }}
       - name: backup
         ensure: present

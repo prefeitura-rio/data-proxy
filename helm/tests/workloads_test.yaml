@@ -34,7 +34,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SQL_TEMPLATE_DIR
-            value: /sql/jinja
+            value: /sql/helm
         documentSelector:
           path: metadata.name
           value: data-proxy-init-db-0

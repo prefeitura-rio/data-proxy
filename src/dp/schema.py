@@ -17,12 +17,7 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> No
     await execute_sql(
         pg_conn,
         "postgres/init_roles",
-        mapping={
-            "user_role": Identifier(settings.AUTH_USER_ROLE),
-            "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
-            "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
-            "rls_schema": Identifier("rls"),
-        },
+        mapping={"rls_schema": Identifier("rls")},
     )
 
     for schema in config.schemas:

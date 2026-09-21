@@ -19,6 +19,7 @@ from ..log import elapsed_ms, logger, runid, schemaname
 from ..metrics import record_publication_metrics, tracker
 from ..models import PublishTask, SyncConfig, SyncPlan
 from ..replication import current_wal_lsn, wait_for_replica_replay
+from ..schema import initialize_schemas
 from ..settings import settings
 from ..state import (
     build_table_states,
@@ -67,50 +68,56 @@ async def publish_schema_task(
 
     started = monotonic()
 
-    pg_conn = await AsyncConnection.connect(
+    async with await AsyncConnection.connect(
         settings.SCHEMA_WRITERS.dsn(task.schema_name)
-    )
+    ) as pg_conn:
+        await initialize_schemas(pg_conn, schema_config)
 
-    await execute_sql(
-        pg_conn,
-        "postgres/configure_s3_secret",
-        mapping={
-            "s3_key_id": settings.S3_ACCESS_KEY,
-            "s3_secret_key": settings.S3_SECRET_KEY,
-            "s3_endpoint": settings.S3_ENDPOINT,
-            "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
-        },
-    )
+    logger.info("Initialized database schemas")
 
-    await pg_conn.commit()
+    async with await AsyncConnection.connect(
+        settings.SCHEMA_WRITERS.dsn(task.schema_name)
+    ) as pg_conn:
+        await execute_sql(
+            pg_conn,
+            "postgres/configure_s3_secret",
+            mapping={
+                "s3_key_id": settings.S3_ACCESS_KEY,
+                "s3_secret_key": settings.S3_SECRET_KEY,
+                "s3_endpoint": settings.S3_ENDPOINT,
+                "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
+            },
+        )
 
-    result = await apply_sync_plan(
-        pg_conn,
-        schema_config,
-        plan,
-        failed_paths,
-    )
+        await pg_conn.commit()
 
-    duration = monotonic() - started
+        result = await apply_sync_plan(
+            pg_conn,
+            schema_config,
+            plan,
+            failed_paths,
+        )
 
-    record_publication_metrics(result, task.schema_name, duration)
+        duration = monotonic() - started
 
-    logger.info(
-        "Publish completed tables=%d elapsed_ms=%d",
-        len(result.published_tables),
-        elapsed_ms(started),
-    )
+        record_publication_metrics(result, task.schema_name, duration)
 
-    states = build_table_states(result, schema_config)
+        logger.info(
+            "Publish completed tables=%d elapsed_ms=%d",
+            len(result.published_tables),
+            elapsed_ms(started),
+        )
 
-    target_lsn = await current_wal_lsn(pg_conn)
-    await wait_for_replica_replay(pg_conn, target_lsn)
+        states = build_table_states(result, schema_config)
 
-    await refresh_postgrest(task.schema_name, task.run_id)
-    logger.info("Refreshed PostgREST-ro schema cache")
+        target_lsn = await current_wal_lsn(pg_conn)
+        await wait_for_replica_replay(pg_conn, target_lsn)
 
-    async with settings.redis() as redis:
-        await complete_publication(redis, task, states, pg_conn)
+        await refresh_postgrest(task.schema_name, task.run_id)
+        logger.info("Refreshed PostgREST-ro schema cache")
+
+        async with settings.redis() as redis:
+            await complete_publication(redis, task, states, pg_conn)
 
     await clear_response_cache(settings.FALLBACK_CACHE_REDIS_DB)
     logger.info("Flushed response cache")

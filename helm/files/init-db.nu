@@ -98,7 +98,6 @@ def create-access-policy []: nothing -> nothing {
             schema: (quote-pg $schema identifier)
             policy_writer_role: (quote-pg $'policy_writer_($schema)' identifier)
             policy_writer_literal: (quote-pg $'policy_writer_($schema)' literal)
-            authenticator_role: (quote-pg $env.AUTH_AUTHENTICATOR_ROLE identifier)
             policy_name: (quote-pg $'policy_writer_($schema)' identifier)
         }))
 

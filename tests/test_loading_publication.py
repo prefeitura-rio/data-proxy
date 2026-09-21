@@ -20,6 +20,7 @@ from dp.publication import (
     prepare_tables,
     publish_prepared_tables,
 )
+from dp.schema import initialize_schemas
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, fetch_one, partition, sync_config
 
@@ -156,7 +157,7 @@ class TestLoadingApplySyncPlan:
         """
         GIVEN: a sync config and plan with changes.
         WHEN: apply_sync_plan runs.
-        THEN: the orchestrator delegates to initialize, prepare, publish, and reload.
+        THEN: the orchestrator delegates to prepare, publish, and reload.
         """
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(
@@ -166,7 +167,7 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.loading.initialize_schemas") as initialize,
+            patch("dp.schema.initialize_schemas") as initialize,
             patch("dp.loading.record_extraction_failures"),
             patch(
                 "dp.loading.prepare_tables",
@@ -184,7 +185,7 @@ class TestLoadingApplySyncPlan:
                 AsyncMock(spec=AsyncConnection), config, plan
             )
 
-        initialize.assert_called_once()
+        initialize.assert_not_called()
         publish.assert_called_once()
         reload.assert_called_once()
         assert result.plan == plan
@@ -210,6 +211,10 @@ class TestLoadingApplySyncPlan:
             },
         )
         with patch("dp.loading.create_bq_views"):
+            await initialize_schemas(
+                postgres.connection,
+                sync_config([table], schema_name=postgres.namespace.schema),
+            )
             result = await apply_sync_plan(
                 postgres.connection,
                 sync_config([table], schema_name=postgres.namespace.schema),
@@ -348,6 +353,32 @@ class TestLoadingApplySyncPlan:
         ]
 
     @pytest.mark.asyncio
+    async def test_apply_sync_plan_does_not_initialize_schemas(
+        self,
+    ) -> None:
+        """
+        GIVEN: a publication connection.
+        WHEN: apply_sync_plan runs.
+        THEN: it never initializes schemas, because schema initialization needs
+              a backend without pg_duckdb state and runs as a separate step.
+        """
+        config = sync_config([FullTable(name="p.app.changed")])
+        plan = SyncPlan(schema_name="app")
+
+        with (
+            patch("dp.schema.initialize_schemas") as initialize,
+            patch("dp.loading.record_extraction_failures"),
+            patch("dp.loading.prepare_tables", return_value=[]),
+            patch("dp.loading.publish_prepared_tables", return_value=set()),
+            patch("dp.loading.revoke_anonymous_access"),
+            patch("dp.loading.create_bq_views"),
+            patch("dp.loading.emit_error", new_callable=AsyncMock),
+        ):
+            await apply_sync_plan(AsyncMock(spec=AsyncConnection), config, plan)
+
+        initialize.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_apply_sync_plan_creates_fallback_views_when_enabled(
         self,
     ) -> None:
@@ -355,7 +386,7 @@ class TestLoadingApplySyncPlan:
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
         with (
-            patch("dp.loading.initialize_schemas"),
+            patch("dp.schema.initialize_schemas"),
             patch("dp.loading.prepare_tables", return_value=[]),
             patch("dp.loading.publish_prepared_tables", return_value=set()),
             patch("dp.loading.revoke_anonymous_access"),
@@ -392,7 +423,7 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.loading.initialize_schemas"),
+            patch("dp.schema.initialize_schemas"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.record_table_failures") as record_failures,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
@@ -430,7 +461,7 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.loading.initialize_schemas"),
+            patch("dp.schema.initialize_schemas"),
             patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.publish_prepared_tables", return_value=set()),
@@ -466,7 +497,7 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.loading.initialize_schemas"),
+            patch("dp.schema.initialize_schemas"),
             patch("dp.loading.record_extraction_failures"),
             patch("dp.loading.prepare_tables", return_value=[]) as prepare,
             patch("dp.loading.record_table_failures") as record_failures,

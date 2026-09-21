@@ -14,7 +14,7 @@ from .models import (
     SyncPublicationInput,
 )
 from .publication import prepare_tables, publish_prepared_tables, reduce_sync_plan
-from .schema import initialize_schemas, revoke_anonymous_access
+from .schema import revoke_anonymous_access
 from .settings import settings
 from .state import emit_error
 
@@ -141,18 +141,12 @@ async def record_publication_failures(
     source_plan: SyncPlan,
     decision: PublicationDecision,
     empty_incremental: set[str],
-) -> Instant:
-    """Initialize schemas and record extraction and empty-incremental failures."""
-    await initialize_schemas(pg_conn, config)
-
-    logger.info("Initialized database schemas")
-    attempted_at = Instant.now()
-
+    attempted_at: Instant,
+) -> None:
+    """Record extraction and empty-incremental failures for the publication."""
     await record_extraction_failures(
         pg_conn, config, source_plan, decision, empty_incremental, attempted_at
     )
-
-    return attempted_at
 
 
 async def finalize_publication(pg_conn: AsyncConnection, config: SyncConfig) -> None:
@@ -175,8 +169,9 @@ async def apply_sync_plan(
         plan, config, failed_paths or set()
     )
 
-    attempted_at = await record_publication_failures(
-        pg_conn, config, plan, decision, empty_incremental
+    attempted_at = Instant.now()
+    await record_publication_failures(
+        pg_conn, config, plan, decision, empty_incremental, attempted_at
     )
 
     published = await publish_eligible_tables(
