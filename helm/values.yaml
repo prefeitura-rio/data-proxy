@@ -1,6 +1,6 @@
 ## Container image for the producer, Dumper, Seeder, and Publisher services.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:0e682f4
+  image: ghcr.io/prefeitura-rio/data-proxy:dceeaee
   imagePullPolicy: IfNotPresent
   producer:
     ## Cron expression that controls when the producer runs.
@@ -500,7 +500,7 @@ fallback:
   ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
   ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:b41800c
+  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:dceeaee
   ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
   ## every webdis release up to this one still frees an in-flight command.
   webdisImage: docker.io/nicolas/webdis:0.1.25
