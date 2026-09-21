@@ -98,14 +98,13 @@ in
           };
           "dp:lint:sql" = {
             exec = ''
-              sqlfluff lint --dialect postgres --config helm/files/sql/helm/.sqlfluff helm/files/sql/helm
+              sqlfluff lint --dialect postgres helm/files/sql/helm
               sqlfluff lint --dialect postgres src/dp/sql/postgres
               sqlfluff lint --dialect duckdb src/dp/sql/duckdb
               sqlfluff lint --dialect bigquery src/dp/sql/bigquery
             '';
             execIfModified = [
               ".sqlfluff"
-              "helm/files/sql/helm/.sqlfluff"
               "helm/files/sql"
               "src/dp/sql"
             ];

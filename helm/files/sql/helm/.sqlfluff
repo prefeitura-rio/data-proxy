@@ -1,5 +1,0 @@
-[sqlfluff]
-dialect = postgres
-templater = raw
-max_line_length = 88
-exclude_rules = AL05,AL07,CV09,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02,TQ03,TQ04

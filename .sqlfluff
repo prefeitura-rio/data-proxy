@@ -6,7 +6,7 @@ exclude_rules = AL05,AL07,CV09,LT02,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02
 
 [sqlfluff:templater:jinja]
 apply_dbt_builtins = False
-loader_search_path = helm/files/sql/jinja
+loader_search_path = helm/files/sql/helm
 
 [sqlfluff:templater:jinja:context]
 schema = pic
