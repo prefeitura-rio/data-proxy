@@ -68,6 +68,8 @@ spec:
       shared_buffers: 1GB
       work_mem: 16MB
       maintenance_work_mem: 512MB
+      effective_cache_size: 5GB
+      max_parallel_workers_per_gather: "4"
       random_page_cost: "1.1"
       effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
@@ -173,6 +175,8 @@ spec:
       shared_buffers: 1GB
       work_mem: 16MB
       maintenance_work_mem: 512MB
+      effective_cache_size: 5GB
+      max_parallel_workers_per_gather: "4"
       random_page_cost: "1.1"
       effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
