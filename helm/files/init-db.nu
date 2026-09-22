@@ -103,19 +103,21 @@ def install-bigquery-extension []: nothing -> nothing {
     log info 'Installed bigquery extension'
 }
 
-log info 'Database initialization started'
+def main []: nothing -> nothing {
+    log info 'Database initialization started'
 
-try {
-    wait-for-postgres
-    install-extensions
-    create-schemas-and-freshness
-    create-pre-request
-    create-access-policy
-    install-bigquery-extension
-    postgres (render-sql notify_pgrst.sql {})
+    try {
+        wait-for-postgres
+        install-extensions
+        create-schemas-and-freshness
+        create-pre-request
+        create-access-policy
+        install-bigquery-extension
+        postgres (render-sql notify_pgrst.sql {})
 
-    log info 'Database initialization completed'
-} catch {|err|
-    log error $err.msg
-    exit 1
+        log info 'Database initialization completed'
+    } catch {|err|
+        log error $err.msg
+        exit 1
+    }
 }
