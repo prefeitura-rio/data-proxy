@@ -43,7 +43,7 @@ def --wrapped hm [kubecfg: path, ...rest: string]: nothing -> string {
 def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
     for ref in $in {
         let r = $ref | parse '{namespace}/{name}' | first
-        log info $'  ($kind)/($r.namespace)/($r.name)…'
+        log info $'  ($kind)/($r.namespace)/($r.name)...'
         (k
             $kubecfg
             -n
@@ -274,9 +274,9 @@ def --env build-images [kubecfg: path]: nothing -> string {
         {image: 'localhost/oidc:local', dockerfile: 'Dockerfile.oidc'}
     ]
     | each {|img|
-        log info $'Building ($img.image)…'
+        log info $'Building ($img.image)...'
         docker build -t $img.image -f $img.dockerfile .
-        log info $'Loading ($img.image) into Minikube…'
+        log info $'Loading ($img.image) into Minikube...'
         docker save $img.image | mk $kubecfg image load -
     }
 }
@@ -362,7 +362,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         )
     }
 
-    log info $'Clearing fallback response cache in Redis DB ($FALLBACK_CACHE_REDIS_DB)…'
+    log info $'Clearing fallback response cache in Redis DB ($FALLBACK_CACHE_REDIS_DB)...'
     (k
         $kubecfg
         -n
@@ -434,7 +434,7 @@ def k6-run [
     --profile: string = ''
     --migration-phase: string = ''
 ]: nothing -> nothing {
-    log info $'Creating configmap ($configmap)…'
+    log info $'Creating configmap ($configmap)...'
     (k
         $kubecfg
         -n
@@ -449,10 +449,10 @@ def k6-run [
         yaml
     ) | k $kubecfg apply -f -
 
-    log info $'Deleting previous testrun ($testrun)…'
+    log info $'Deleting previous testrun ($testrun)...'
     k $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
 
-    log info $'Applying testrun ($testrun)…'
+    log info $'Applying testrun ($testrun)...'
     if ($profile != '') or ($migration_phase != '') {
         let yaml = try { open --raw $yaml_path } catch {|err| error make {
             msg: $'Failed to open ($yaml_path): ($err.msg)'
@@ -479,7 +479,7 @@ def k6-run [
     let complete_jsonpath = '{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
     let pod_jsonpath = 'jsonpath={.items[0].metadata.name}'
 
-    log info 'Waiting for the runner job to appear…'
+    log info 'Waiting for the runner job to appear...'
     mut job_ready = false
     for attempt in 1..300 {
         let jobs = k $kubecfg -n data-proxy get jobs -l $label -o $items_jsonpath | str trim
@@ -499,7 +499,7 @@ def k6-run [
         }
     }
 
-    log info 'Waiting for the test to complete…'
+    log info 'Waiting for the test to complete...'
     mut complete = false
     mut failed = false
     for attempt in 1..1800 {
@@ -559,7 +559,7 @@ def show-status [kubecfg: path]: nothing -> nothing {
 
 # Rebuild and roll out the local nginx proxy image.
 def refresh-proxy [kubecfg: path]: nothing -> nothing {
-    log info 'Building data-proxy-nginx-proxy:local…'
+    log info 'Building data-proxy-nginx-proxy:local...'
     docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
     docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
     k $kubecfg -n data-proxy rollout restart deployment/data-proxy-nginx-proxy out> /dev/null
@@ -600,19 +600,19 @@ def "main k6 e2e" []: nothing -> nothing {
         return
     }
 
-    log info 'Building and loading local images…'
+    log info 'Building and loading local images...'
     build-images $kubecfg
 
-    log info 'Waiting for the CNPG controller…'
+    log info 'Waiting for the CNPG controller...'
     ['cnpg-system/cnpg-cloudnative-pg'] | wait-for deployment $kubecfg
 
-    log info 'Applying GCP secret…'
+    log info 'Applying GCP secret...'
     apply-gcp-secret $kubecfg
 
-    log info 'Deleting the init-db Job so it recreates the postgres S3 secret…'
+    log info 'Deleting the init-db Job so it recreates the postgres S3 secret...'
     k $kubecfg -n data-proxy delete job data-proxy-init-db --ignore-not-found
 
-    log info 'Upgrading data-proxy release…'
+    log info 'Upgrading data-proxy release...'
     (hm
         $kubecfg
         upgrade
@@ -624,7 +624,7 @@ def "main k6 e2e" []: nothing -> nothing {
         $'($repo)/scripts/values/data-proxy.yaml'
     )
 
-    log info 'Waiting for the init-db Job…'
+    log info 'Waiting for the init-db Job...'
     (k
         $kubecfg
         -n
@@ -635,17 +635,17 @@ def "main k6 e2e" []: nothing -> nothing {
         --timeout=180s
     ) out> /dev/null
 
-    log info 'Waiting for data-proxy deployments…'
+    log info 'Waiting for data-proxy deployments...'
     [
         'data-proxy/data-proxy-nginx-proxy'
         'data-proxy/data-proxy-postgrest-ro'
         'data-proxy/data-proxy-postgrest-rw'
     ] | wait-for deployment $kubecfg
 
-    log info 'Clearing test resources…'
+    log info 'Clearing test resources...'
     clear-test-resources $kubecfg
 
-    log info 'Running e2e test…'
+    log info 'Running e2e test...'
     (k6-run
         $kubecfg
         'data-proxy-e2e'
@@ -807,7 +807,7 @@ def "main k6 migrate" []: nothing -> nothing {
 
     main k6 e2e
 
-    log info 'Validating the shared baseline…'
+    log info 'Validating the shared baseline...'
     (k
         $kubecfg
         -n
@@ -819,7 +819,7 @@ def "main k6 migrate" []: nothing -> nothing {
     )
     k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-baseline'
 
-    log info 'Upgrading data-proxy to HA…'
+    log info 'Upgrading data-proxy to HA...'
     (
         (hm
             $kubecfg
@@ -854,7 +854,7 @@ def "main k6 migrate" []: nothing -> nothing {
     k $kubecfg -n data-proxy wait --for=condition=complete $ha_job --timeout=6m
     k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha'
 
-    log info 'Reconciling settled HA topology…'
+    log info 'Reconciling settled HA topology...'
     (
         (hm
             $kubecfg
@@ -871,7 +871,7 @@ def "main k6 migrate" []: nothing -> nothing {
     ) | ignore
     k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha-settled'
 
-    log info 'Downgrading data-proxy to shared mode…'
+    log info 'Downgrading data-proxy to shared mode...'
     (
         (hm
             $kubecfg
@@ -912,7 +912,7 @@ def "main k6 migrate" []: nothing -> nothing {
     )
     k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-return'
 
-    log info 'Reconciling settled shared topology…'
+    log info 'Reconciling settled shared topology...'
     (
         (hm
             $kubecfg
@@ -934,27 +934,27 @@ def "main up" []: nothing -> nothing {
 
     let repo = git-root
 
-    log info 'Starting Minikube…'
+    log info 'Starting Minikube...'
     start-minikube $kubecfg
 
     k $kubecfg wait --for=condition=Ready nodes --all --timeout=5m
 
-    log info 'Waiting for the Minikube control plane…'
+    log info 'Waiting for the Minikube control plane...'
     wait-for-control-plane $kubecfg
 
-    log info 'Enabling metrics-server…'
+    log info 'Enabling metrics-server...'
     mk $kubecfg addons enable metrics-server
-    log info 'Waiting for metrics-server…'
+    log info 'Waiting for metrics-server...'
     wait-for-metrics $kubecfg
 
-    log info 'Building container images…'
+    log info 'Building container images...'
     build-images $kubecfg
 
-    log info 'Building Helm dependencies…'
+    log info 'Building Helm dependencies...'
     hm $kubecfg dependency build $'($repo)/helm'
 
     k $kubecfg create namespace data-proxy --dry-run=client -o yaml | k $kubecfg apply -f -
-    log info 'Applying local Redis secret…'
+    log info 'Applying local Redis secret...'
     (
         k $kubecfg -n data-proxy create secret generic data-proxy-redis
             '--from-literal=REDIS_PASSWORD=valkey-local'
@@ -963,18 +963,18 @@ def "main up" []: nothing -> nothing {
             --dry-run=client -o yaml
     ) | k $kubecfg apply -f -
 
-    log info 'Installing platform charts with Helmfile…'
+    log info 'Installing platform charts with Helmfile...'
     with-env {KUBECONFIG: $kubecfg} {
         helmfile --concurrency 1 --file ($repo | path join helmfile.yaml) sync --wait --timeout 900
     }
 
-    log info 'Verifying CNPG and KEDA stability…'
+    log info 'Verifying CNPG and KEDA stability...'
     verify-platform $kubecfg
 
-    log info 'Applying GCP secret…'
+    log info 'Applying GCP secret...'
     apply-gcp-secret $kubecfg
 
-    log info 'Installing data-proxy…'
+    log info 'Installing data-proxy...'
     (hm
         $kubecfg
         upgrade
@@ -987,13 +987,13 @@ def "main up" []: nothing -> nothing {
         $'($repo)/scripts/values/data-proxy.yaml'
     )
 
-    log info 'Waiting for data-proxy deployments…'
+    log info 'Waiting for data-proxy deployments...'
     [
         data-proxy/oidc
         data-proxy/data-proxy-swagger-ui
     ] | wait-for deployment $kubecfg
 
-    log info 'Waiting for CNPG cluster…'
+    log info 'Waiting for CNPG cluster...'
     mut cluster_ready = false
     for attempt in 1..300 {
         let phase = try {
@@ -1020,7 +1020,7 @@ def "main up" []: nothing -> nothing {
         }
     }
 
-    log info 'Creating the SeaweedFS test bucket…'
+    log info 'Creating the SeaweedFS test bucket...'
     (weed
         $kubecfg
         's3.bucket.delete -name test-bucket'
@@ -1032,7 +1032,7 @@ def "main up" []: nothing -> nothing {
 
 # Remove the Minikube profile.
 def "main down" []: nothing -> nothing {
-    log info 'Deleting Minikube profile…'
+    log info 'Deleting Minikube profile...'
     minikube --profile $PROFILE delete
 }
 

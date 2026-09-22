@@ -42,7 +42,7 @@ def producer-name []: nothing -> string {
 def block-syncs []: nothing -> string {
     let ns = namespace
     let producer = producer-name
-    log info $'Suspending producer CronJob ($producer)…'
+    log info $'Suspending producer CronJob ($producer)...'
     k -n $ns patch cronjob $producer -p '{"spec":{"suspend":true}}' --type=merge
 }
 
@@ -50,7 +50,7 @@ def block-syncs []: nothing -> string {
 def unblock-syncs []: nothing -> string {
     let ns = namespace
     let producer = producer-name
-    log info $'Unsuspending producer CronJob ($producer)…'
+    log info $'Unsuspending producer CronJob ($producer)...'
     (k
         -n
         $ns
@@ -65,7 +65,7 @@ def unblock-syncs []: nothing -> string {
 
 # Wait for init-db to complete by checking access_policy table exists in target.
 def wait-for-schema [schema: string, dsn: string]: any -> error {
-    log info $'Waiting for ($schema).access_policy in target cluster…'
+    log info $'Waiting for ($schema).access_policy in target cluster...'
     let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_duckdb'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_partman'\)"
     for _ in 1..60 {
         let exists = try {
@@ -90,7 +90,7 @@ def wait-for-schema [schema: string, dsn: string]: any -> error {
 def migrate-schema [m: record]: nothing -> nothing {
     let dump_file = $'/tmp/($m.schema).dump'
 
-    log info $'Dumping schema ($m.schema) from ($m.source)…'
+    log info $'Dumping schema ($m.schema) from ($m.source)...'
     try {
         pg_dump $m.source --format=custom --no-owner --no-acl --schema=($m.schema) --file $dump_file
     } catch {|err| error make {
@@ -101,7 +101,7 @@ def migrate-schema [m: record]: nothing -> nothing {
         }
     } }
 
-    log info $'Restoring schema ($m.schema) into ($m.target)…'
+    log info $'Restoring schema ($m.schema) into ($m.target)...'
     let restore = (
         pg_restore --clean --if-exists --no-owner --no-acl --dbname=($m.target) $dump_file
         | complete
@@ -116,7 +116,7 @@ def migrate-schema [m: record]: nothing -> nothing {
         }
     }
 
-    log info $'Granting application access to migrated schema ($m.schema)…'
+    log info $'Granting application access to migrated schema ($m.schema)...'
     try {
         (render-sql grant_migration_access.sql {
             schema: (quote-pg $m.schema identifier)
@@ -130,7 +130,7 @@ def migrate-schema [m: record]: nothing -> nothing {
         }
     } }
 
-    log info $'Reloading PostgREST schema cache for ($m.schema)…'
+    log info $'Reloading PostgREST schema cache for ($m.schema)...'
     try {
         "NOTIFY pgrst, 'reload schema'" | psql $m.target --no-psqlrc --quiet
     } catch {|err| error make {
@@ -233,7 +233,7 @@ def main []: nothing -> nothing {
             log info 'No migration needed — target mode recorded.'
         }
         _ => {
-            log info $'Starting migration ($direction)…'
+            log info $'Starting migration ($direction)...'
             run-migration $direction
         }
     }

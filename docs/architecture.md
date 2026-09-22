@@ -94,7 +94,7 @@ sequenceDiagram
             RP-->>RO: rows
             RO-->>N: 200 (local)
         else local table empty
-            RO->>RP: SELECT … FROM table_bq
+            RO->>RP: SELECT ... FROM table_bq
             RP->>BQ: _bq view query
             BQ-->>RP: fallback rows
             RP-->>RO: fallback rows

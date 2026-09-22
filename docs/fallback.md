@@ -34,7 +34,7 @@ sequenceDiagram
             N-->>C: 200 (from local)
         else local table empty
             N->>P: GET /table_bq (JWT forwarded)
-            P->>B: SELECT … FROM table_bq
+            P->>B: SELECT ... FROM table_bq
             B-->>P: fallback rows
             P-->>N: fallback rows
             alt fallback rows present
