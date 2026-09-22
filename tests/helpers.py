@@ -64,6 +64,7 @@ def dump(
     return DumpTask(
         run_id=run_id,
         table=table,
+        target_schema="test",
         bucket_path=bucket_path,
         selections=selections or [AllSelection()],
     )

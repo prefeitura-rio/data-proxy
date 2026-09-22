@@ -18,6 +18,7 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.network import Network
 
 from dp.bigquery.config import PartitionKindConfig
+from dp.duckdb import DuckDB
 from dp.models import (
     DumpTask,
     FullTable,
@@ -27,6 +28,8 @@ from dp.models import (
     TaskSelection,
     UnitMapping,
 )
+from dp.settings import settings
+from dp.state import ensure_app_schema
 from dp.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import Postgres, PostgresTestNamespace, SeaweedFS
@@ -94,7 +97,7 @@ def invalid_partition_row() -> Row:
 @pytest.fixture
 def invalid_kind_config() -> PartitionKindConfig:
     """Return an invalid partition kind config for guard tests."""
-    return cast("PartitionKindConfig", cast(object, "invalid"))
+    return cast("PartitionKindConfig", cast("object", SimpleNamespace(kind="invalid")))
 
 
 @pytest.fixture
@@ -183,6 +186,13 @@ async def postgres(
             root=TEST_SQL_DIR,
         ).encode()
     )
+    settings.DBOS_SYSTEM_DATABASE_URL = dsn
+    await ensure_app_schema(connection)
+    await execute_sql(
+        connection,
+        "postgres/create_freshness_table",
+        mapping={"schema": namespace.schema},
+    )
     await connection.set_autocommit(False)
     try:
         yield Postgres(connection=connection, dsn=dsn, namespace=namespace)
@@ -245,11 +255,11 @@ async def freshness_tables(
 
 
 @pytest.fixture(name="duckdb")
-def duckdb_connection() -> Iterator[duckdb.DuckDBPyConnection]:
-    """Provide an isolated in-memory DuckDB connection."""
+def duckdb_connection() -> Iterator[DuckDB]:
+    """Provide an isolated in-memory DuckDB facade."""
     connection = duckdb.connect(":memory:")
 
     try:
-        yield connection
+        yield DuckDB(connection=connection)
     finally:
         connection.close()

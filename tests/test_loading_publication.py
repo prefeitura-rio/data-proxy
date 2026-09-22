@@ -7,7 +7,6 @@ from psycopg import AsyncConnection
 from psycopg.sql import SQL
 from whenever import Instant
 
-from dp.loading import apply_sync_plan
 from dp.models import (
     FullTable,
     IndexConfig,
@@ -18,9 +17,9 @@ from dp.models import (
 from dp.publication import (
     PreparedTable,
     prepare_tables,
-    publish_prepared_tables,
+    run_publication,
+    run_publication_batch,
 )
-from dp.schema import initialize_schemas
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, fetch_one, partition, sync_config
 
@@ -29,12 +28,12 @@ class TestLoadingPublishPrepared:
     """Tests for PublishPrepared behavior."""
 
     @pytest.mark.asyncio
-    async def test_publish_prepared_tables_swaps_each_table(
+    async def test_run_publication_batch_swaps_each_table(
         self,
     ) -> None:
         """
         GIVEN: multiple prepared shadow tables.
-        WHEN: publish_prepared_tables runs.
+        WHEN: run_publication_batch runs.
         THEN: each table is atomically published.
         """
         tables: list[FullTable | PartitionedTable] = [
@@ -55,7 +54,8 @@ class TestLoadingPublishPrepared:
             patch("dp.freshness.execute_sql", new_callable=AsyncMock),
             patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await publish_prepared_tables(
+            result = await run_publication_batch(
+                connection,
                 connection,
                 prepared,
                 plan,
@@ -69,12 +69,12 @@ class TestLoadingPublishPrepared:
         assert result == {"p.app.one", "p.app.two"}
 
     @pytest.mark.asyncio
-    async def test_publish_prepared_tables_skips_the_swap_for_a_replaced_partition(
+    async def test_run_publication_batch_skips_the_swap_for_a_replaced_partition(
         self,
     ) -> None:
         """
         GIVEN: a prepared table that needs no swap.
-        WHEN: publish_prepared_tables runs.
+        WHEN: run_publication_batch runs.
         THEN: it skips the table swap and only updates freshness.
         """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
@@ -95,7 +95,8 @@ class TestLoadingPublishPrepared:
             patch("dp.publication.publish_table") as publish,
             patch("dp.publication.update_published_freshness") as freshness,
         ):
-            result = await publish_prepared_tables(
+            result = await run_publication_batch(
+                AsyncMock(spec=AsyncConnection),
                 AsyncMock(spec=AsyncConnection),
                 [PreparedTable(table=table, swap=False)],
                 plan,
@@ -108,12 +109,12 @@ class TestLoadingPublishPrepared:
         assert result == {"p.app.people"}
 
     @pytest.mark.asyncio
-    async def test_publish_prepared_tables_excludes_failed_publication(
+    async def test_run_publication_batch_excludes_failed_publication(
         self,
     ) -> None:
         """
         GIVEN: one table swap raises RuntimeError.
-        WHEN: publish_prepared_tables runs.
+        WHEN: run_publication_batch runs.
         THEN: only the successful tables are reported as synchronized.
         """
         tables = [
@@ -134,7 +135,8 @@ class TestLoadingPublishPrepared:
             patch("dp.freshness.execute_sql", new_callable=AsyncMock),
             patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await publish_prepared_tables(
+            result = await run_publication_batch(
+                connection,
                 connection,
                 [PreparedTable(table=table, swap=True) for table in tables],
                 plan,
@@ -147,17 +149,17 @@ class TestLoadingPublishPrepared:
         assert connection.commit.call_count == 3
 
 
-class TestLoadingApplySyncPlan:
+class TestLoadingRunPublication:
     """Tests for ApplySyncPlan behavior."""
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_delegates_all_steps(
+    async def test_run_publication_delegates_all_steps(
         self,
     ) -> None:
         """
         GIVEN: a sync config and plan with changes.
-        WHEN: apply_sync_plan runs.
-        THEN: the orchestrator delegates to prepare, publish, and reload.
+        WHEN: run_publication runs.
+        THEN: the orchestrator delegates to initialize, prepare, publish, and reload.
         """
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(
@@ -167,32 +169,35 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.schema.initialize_schemas") as initialize,
-            patch("dp.loading.record_extraction_failures"),
+            patch("dp.publication.initialize_schemas") as initialize,
+            patch("dp.publication.SyncContext.record_extraction_failures"),
             patch(
-                "dp.loading.prepare_tables",
+                "dp.publication.prepare_tables",
                 return_value=[PreparedTable(table=config.tables[0], swap=True)],
             ),
             patch(
-                "dp.loading.publish_prepared_tables",
+                "dp.publication.run_publication_batch",
                 return_value={"p.app.changed"},
             ) as publish,
-            patch("dp.loading.revoke_anonymous_access") as reload,
-            patch("dp.loading.create_bq_views"),
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
+            patch("dp.publication.revoke_anonymous_access") as reload,
+            patch("dp.publication.run_fallback_views_creation"),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await apply_sync_plan(
-                AsyncMock(spec=AsyncConnection), config, plan
+            result = await run_publication(
+                AsyncMock(spec=AsyncConnection),
+                AsyncMock(spec=AsyncConnection),
+                config,
+                plan,
             )
 
-        initialize.assert_not_called()
+        initialize.assert_called_once()
         publish.assert_called_once()
         reload.assert_called_once()
         assert result.plan == plan
         assert result.published_tables == {"p.app.changed"}
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_publishes_silo_parquet(
+    async def test_run_publication_publishes_silo_parquet(
         self,
         postgres: Postgres,
     ) -> None:
@@ -210,12 +215,9 @@ class TestLoadingApplySyncPlan:
                 ]
             },
         )
-        with patch("dp.loading.create_bq_views"):
-            await initialize_schemas(
+        with patch("dp.publication.run_fallback_views_creation"):
+            result = await run_publication(
                 postgres.connection,
-                sync_config([table], schema_name=postgres.namespace.schema),
-            )
-            result = await apply_sync_plan(
                 postgres.connection,
                 sync_config([table], schema_name=postgres.namespace.schema),
                 plan,
@@ -253,6 +255,7 @@ class TestLoadingApplySyncPlan:
         )
 
         prepared = await prepare_tables(
+            postgres.connection,
             postgres.connection,
             sync_config([table], schema_name=postgres.namespace.schema),
             plan,
@@ -316,6 +319,7 @@ class TestLoadingApplySyncPlan:
 
         prepared = await prepare_tables(
             postgres.connection,
+            postgres.connection,
             sync_config([table], schema_name=postgres.namespace.schema),
             plan,
             {table.name},
@@ -353,58 +357,32 @@ class TestLoadingApplySyncPlan:
         ]
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_does_not_initialize_schemas(
-        self,
-    ) -> None:
-        """
-        GIVEN: a publication connection.
-        WHEN: apply_sync_plan runs.
-        THEN: it never initializes schemas, because schema initialization needs
-              a backend without pg_duckdb state and runs as a separate step.
-        """
-        config = sync_config([FullTable(name="p.app.changed")])
-        plan = SyncPlan(schema_name="app")
-
-        with (
-            patch("dp.schema.initialize_schemas") as initialize,
-            patch("dp.loading.record_extraction_failures"),
-            patch("dp.loading.prepare_tables", return_value=[]),
-            patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.revoke_anonymous_access"),
-            patch("dp.loading.create_bq_views"),
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
-        ):
-            await apply_sync_plan(AsyncMock(spec=AsyncConnection), config, plan)
-
-        initialize.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_apply_sync_plan_creates_fallback_views_when_enabled(
+    async def test_run_publication_creates_fallback_views_when_enabled(
         self,
     ) -> None:
         """Fallback creates BigQuery views after publication."""
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
         with (
-            patch("dp.schema.initialize_schemas"),
-            patch("dp.loading.prepare_tables", return_value=[]),
-            patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.revoke_anonymous_access"),
-            patch("dp.loading.create_bq_views") as create_views,
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
+            patch("dp.publication.initialize_schemas"),
+            patch("dp.publication.prepare_tables", return_value=[]),
+            patch("dp.publication.run_publication_batch", return_value=set()),
+            patch("dp.publication.revoke_anonymous_access"),
+            patch("dp.publication.run_fallback_views_creation") as create_views,
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            conn = AsyncMock(spec=AsyncConnection)
-            await apply_sync_plan(conn, config, plan)
+            pg_conn = AsyncMock(spec=AsyncConnection)
+            await run_publication(pg_conn, pg_conn, config, plan)
 
-        create_views.assert_called_once_with(conn, config)
+        create_views.assert_called_once_with(pg_conn, config)
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_records_failure_without_incremental_publication(
+    async def test_run_publication_records_failure_without_incremental_publication(
         self,
     ) -> None:
         """
         GIVEN: a fully failed incremental change.
-        WHEN: apply_sync_plan runs.
+        WHEN: run_publication runs.
         THEN: it records failure without performing a publication swap.
         """
         table = PartitionedTable(name="p.app.people", resolved_schema="app")
@@ -423,34 +401,35 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.schema.initialize_schemas"),
-            patch("dp.loading.prepare_tables", return_value=[]) as prepare,
-            patch("dp.loading.record_table_failures") as record_failures,
-            patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.revoke_anonymous_access"),
-            patch("dp.loading.create_bq_views"),
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
+            patch("dp.publication.initialize_schemas"),
+            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
+            patch("dp.publication.record_freshness_failures") as record_failures,
+            patch("dp.publication.run_publication_batch", return_value=set()),
+            patch("dp.publication.revoke_anonymous_access"),
+            patch("dp.publication.run_fallback_views_creation"),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await apply_sync_plan(
+            result = await run_publication(
+                AsyncMock(spec=AsyncConnection),
                 AsyncMock(spec=AsyncConnection),
                 sync_config([table]),
                 plan,
                 {path},
             )
 
-        prepare.assert_called_once_with(ANY, ANY, ANY, set())
+        prepare.assert_called_once_with(ANY, ANY, ANY, ANY, set())
         record_failures.assert_called_once_with(
             ANY, [table], plan, ANY, {table.name: {"10"}}
         )
         assert result.published_tables == set()
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_excludes_extraction_failures(
+    async def test_run_publication_excludes_extraction_failures(
         self,
     ) -> None:
         """
         GIVEN: a table with a failed extraction path.
-        WHEN: apply_sync_plan runs.
+        WHEN: run_publication runs.
         THEN: the table is not prepared from stale Parquet.
         """
         config = sync_config([FullTable(name="p.app.changed")])
@@ -461,32 +440,33 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.schema.initialize_schemas"),
-            patch("dp.loading.record_extraction_failures"),
-            patch("dp.loading.prepare_tables", return_value=[]) as prepare,
-            patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.revoke_anonymous_access"),
-            patch("dp.loading.create_bq_views"),
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
+            patch("dp.publication.initialize_schemas"),
+            patch("dp.publication.SyncContext.record_extraction_failures"),
+            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
+            patch("dp.publication.run_publication_batch", return_value=set()),
+            patch("dp.publication.revoke_anonymous_access"),
+            patch("dp.publication.run_fallback_views_creation"),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await apply_sync_plan(
+            result = await run_publication(
+                AsyncMock(spec=AsyncConnection),
                 AsyncMock(spec=AsyncConnection),
                 config,
                 plan,
                 {"s3://bucket/changed/data.parquet"},
             )
 
-        prepare.assert_called_once_with(ANY, config, plan, set())
+        prepare.assert_called_once_with(ANY, ANY, config, plan, set())
         assert result.plan == plan
         assert result.published_tables == set()
 
     @pytest.mark.asyncio
-    async def test_apply_sync_plan_records_preparation_failure_for_eligible_table(
+    async def test_run_publication_records_preparation_failure_for_eligible_table(
         self,
     ) -> None:
         """
         GIVEN: an eligible table that fails to prepare.
-        WHEN: apply_sync_plan runs.
+        WHEN: run_publication runs.
         THEN: it records the preparation failure without publishing.
         """
         config = sync_config([FullTable(name="p.app.changed")])
@@ -497,19 +477,22 @@ class TestLoadingApplySyncPlan:
         )
 
         with (
-            patch("dp.schema.initialize_schemas"),
-            patch("dp.loading.record_extraction_failures"),
-            patch("dp.loading.prepare_tables", return_value=[]) as prepare,
-            patch("dp.loading.record_table_failures") as record_failures,
-            patch("dp.loading.publish_prepared_tables", return_value=set()),
-            patch("dp.loading.revoke_anonymous_access"),
-            patch("dp.loading.create_bq_views"),
-            patch("dp.loading.emit_error", new_callable=AsyncMock),
+            patch("dp.publication.initialize_schemas"),
+            patch("dp.publication.SyncContext.record_extraction_failures"),
+            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
+            patch("dp.publication.record_freshness_failures") as record_failures,
+            patch("dp.publication.run_publication_batch", return_value=set()),
+            patch("dp.publication.revoke_anonymous_access"),
+            patch("dp.publication.run_fallback_views_creation"),
+            patch("dp.publication.emit_error", new_callable=AsyncMock),
         ):
-            result = await apply_sync_plan(
-                AsyncMock(spec=AsyncConnection), config, plan
+            result = await run_publication(
+                AsyncMock(spec=AsyncConnection),
+                AsyncMock(spec=AsyncConnection),
+                config,
+                plan,
             )
 
-        prepare.assert_called_once_with(ANY, ANY, ANY, {"p.app.changed"})
+        prepare.assert_called_once_with(ANY, ANY, ANY, ANY, {"p.app.changed"})
         record_failures.assert_called_with(ANY, [config.tables[0]], plan, ANY)
         assert result.published_tables == set()

@@ -6,11 +6,10 @@ from redis.asyncio import Redis
 from dp.models import SchemaWriters
 from dp.settings import Settings
 
-REDIS_JSON = '{"read":"redis://reader:6379/1","write":"redis://writer:6379/0"}'
-
 
 def test_redis_uses_write_url_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("REDIS", REDIS_JSON)
+    monkeypatch.setenv("REDIS_READ", "redis://reader:6379/1")
+    monkeypatch.setenv("REDIS_WRITE", "redis://writer:6379/0")
     settings = Settings(
         SCHEMA_WRITERS=SchemaWriters(writers={"test": "postgresql://test"})
     )
@@ -23,7 +22,8 @@ def test_redis_uses_write_url_by_default(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_redis_selects_read_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("REDIS", REDIS_JSON)
+    monkeypatch.setenv("REDIS_READ", "redis://reader:6379/1")
+    monkeypatch.setenv("REDIS_WRITE", "redis://writer:6379/0")
     settings = Settings(
         SCHEMA_WRITERS=SchemaWriters(writers={"test": "postgresql://test"})
     )

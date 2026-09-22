@@ -1,518 +1,117 @@
-"""Tests for current run state."""
+"""Tests for the Postgres-backed synchronization state repository."""
 
+import psycopg
 import pytest
 
-from dp.constants import ACTIVE_KEY, REMAINING_KEY, RESULTS_KEY
-from dp.models import (
-    AllSelection,
-    DumpFailure,
-    DumpSuccess,
-    DumpTask,
-    PhysicalPartition,
-    RangeSelection,
-    Strategy,
-    SyncPlan,
-    TableState,
-)
-from dp.settings import settings
+from dp.models import FullTable, Strategy, TableState
 from dp.state import (
-    cleanup_consumer,
-    cleanup_run,
-    complete_dump,
-    complete_schema,
-    create_consumer_group,
-    create_run,
-    ensure_groups,
-    read_active_run,
-    read_failed_paths,
+    build_table_states,
+    emit_error,
     read_partition_manifest,
-    read_remaining,
-    read_sync_plan,
-    read_sync_plans,
     read_table_signature,
     read_table_state,
+    write_table_states,
 )
 
-pytestmark = pytest.mark.usefixtures("test_settings")
 
-
-class TestRunState:
-    """Tests for synchronization run creation and active-run state."""
-
-    @pytest.mark.asyncio
-    async def test_create_run_stores_and_reads_schema_plans(
-        self,
-    ) -> None:
-        """
-        GIVEN: a schema plan for a new run.
-        WHEN: create_run and read_sync_plan are called.
-        THEN: the plan is stored and read back from the run hash.
-        """
-        plan = SyncPlan(
-            schema_name="app", signatures={"p.d.t": "s"}, paths={"p.d.t": ["s3://b/t"]}
-        )
-        assert await create_run(settings.redis(), "r1", [plan], 1)
-        assert await read_sync_plan(settings.redis(), "r1", "app") == plan
-
-    @pytest.mark.asyncio
-    async def test_create_run_state_has_no_expiry(self) -> None:
-        """
-        GIVEN: a new synchronization run.
-        WHEN: its state is stored.
-        THEN: it persists until explicit pipeline cleanup.
-        """
-        plan = SyncPlan(
-            schema_name="app", signatures={"p.d.t": "s"}, paths={"p.d.t": ["s3://b/t"]}
-        )
-
-        assert await create_run(settings.redis(), "r1", [plan], 1)
-        await complete_dump(
-            settings.redis(),
-            DumpTask(
-                run_id="r1",
-                table="p.d.t",
-                bucket_path="s3://b/t",
-                selections=[AllSelection()],
-            ),
-            DumpSuccess(),
-        )
-
-        assert await settings.redis().ttl(ACTIVE_KEY) == -1
-        assert await settings.redis().ttl(REMAINING_KEY.format(run_id="r1")) == -1
-        assert await settings.redis().ttl(RESULTS_KEY.format(run_id="r1")) == -1
-
-
-class TestDumpCompletion:
-    """Tests for dump-result completion state."""
-
-    @pytest.mark.asyncio
-    async def test_complete_dump_is_idempotent_for_duplicate_results(
-        self,
-    ) -> None:
-        """
-        GIVEN: a dump failure followed by a duplicate dump success.
-        WHEN: complete_dump is called twice.
-        THEN: the second call is a no-op and returns None.
-        """
-        await settings.redis().set("dp:remaining:r1", "1")
-        task = DumpTask(
-            run_id="r1",
-            table="p.d.t",
-            bucket_path="s3://b/t",
-            selections=[AllSelection()],
-        )
-        assert (
-            await complete_dump(
-                settings.redis(), task, DumpFailure(failed_path="s3://b/t")
-            )
-            == 0
-        )
-        assert await complete_dump(settings.redis(), task, DumpSuccess()) is None
-
-
-class TestSchemaCompletion:
-    """Tests for schema publication completion state."""
-
-    @pytest.mark.asyncio
-    async def test_complete_schema_removes_plan_and_counts_remaining(
-        self,
-    ) -> None:
-        """
-        GIVEN: a run with multiple schema plans.
-        WHEN: complete_schema is called for one schema.
-        THEN: it removes that plan and returns the remaining count.
-        """
-        plans_key = "dp:plans:r1"
-        await settings.redis().hset(plans_key, mapping={"app": "{}", "other": "{}"})
-        states = {"p.d.t": TableState(strategy=Strategy.FULL, signature="s")}
-        assert await complete_schema(settings.redis(), "r1", "app", states) == 1
-        assert await settings.redis().hexists(plans_key, "app") is False
-        assert await complete_schema(settings.redis(), "r1", "app", states) is None
-
-
-class TestStateReaders:
-    """Tests for persisted state readers."""
-
-    @pytest.mark.asyncio
-    async def test_state_readers_return_none_for_missing_values(
-        self,
-    ) -> None:
-        """
-        GIVEN: no stored state values.
-        WHEN: state readers are called.
-        THEN: they all return None.
-        """
-        assert await read_table_state(settings.redis(), "p.d.t") is None
-        assert await read_table_signature(settings.redis(), "p.d.t") is None
-        assert await read_partition_manifest(settings.redis(), "p.d.t") is None
-        assert await read_active_run(settings.redis()) is None
-        assert await read_remaining(settings.redis(), "r") is None
-
-
-class TestConsumerGroups:
-    """Tests for Redis stream consumer groups."""
-
-    @pytest.mark.asyncio
-    async def test_create_consumer_group_ignores_busy_group_error(
-        self,
-    ) -> None:
-        """
-        GIVEN: a consumer group that already exists.
-        WHEN: create_consumer_group is called twice.
-        THEN: the busy-group error is ignored.
-        """
-        await create_consumer_group(settings.redis(), "s", "g")
-        await create_consumer_group(settings.redis(), "s", "g")
-
-
-class TestDumpCompletionValidation:
-    """Tests for invalid dump completion state."""
-
-    @pytest.mark.asyncio
-    async def test_complete_dump_rejects_missing_and_invalid_remaining_counter(
-        self,
-    ) -> None:
-        """
-        GIVEN: a dump success with no remaining counter and then an invalid counter.
-        WHEN: complete_dump is called.
-        THEN: it raises RuntimeError for both the missing and invalid counter.
-        """
-        task = DumpTask(
-            run_id="r", table="p.d.t", bucket_path="s3://b", selections=[AllSelection()]
-        )
-        with pytest.raises(RuntimeError, match="Remaining task count"):
-            await complete_dump((settings.redis()), task, DumpSuccess())
-        await settings.redis().set("dp:remaining:r", "0")
-        with pytest.raises(RuntimeError, match="Invalid remaining"):
-            await complete_dump(settings.redis(), task, DumpSuccess())
-
-
-class TestStoredStateReaders:
-    """Tests for stored state reader values."""
-
-    @pytest.mark.asyncio
-    async def test_state_readers_return_stored_values_and_groups_are_created(
-        self,
-    ) -> None:
-        """
-        GIVEN: stored run state, table state, and schema plans.
-        WHEN: state readers and ensure_groups are called.
-        THEN: they return the stored values and groups are created without error.
-        """
-        await settings.redis().set("dp:active", "r1")
-        await settings.redis().set("dp:remaining:r1", "2")
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(strategy=Strategy.FULL, signature="s").model_dump_json(),
-        )
-        await settings.redis().hset(
-            "dp:plans:r1", "app", SyncPlan(schema_name="app").model_dump_json()
-        )
-        assert await read_active_run(settings.redis()) == "r1"
-        assert await read_remaining(settings.redis(), "r1") == 2
-        assert await read_table_signature(settings.redis(), "p.d.t") == "s"
-        assert await read_table_state(settings.redis(), "p.d.t") is not None
-        assert await read_partition_manifest(settings.redis(), "p.d.t") is None
-        assert len(await read_sync_plans(settings.redis(), "r1")) == 1
-        await ensure_groups(settings.redis())
-
-
-class TestRunCleanup:
-    """Tests for run and consumer cleanup."""
-
-    @pytest.mark.asyncio
-    async def test_cleanup_run_and_consumer_remove_all_run_keys(
-        self,
-    ) -> None:
-        """
-        GIVEN: an active run with zero remaining and an idle consumer.
-        WHEN: cleanup_consumer and cleanup_run are called.
-        THEN: all run keys are removed from Redis.
-        """
-        await settings.redis().mset({"dp:active": "r1", "dp:remaining:r1": "0"})
-        await create_consumer_group(settings.redis(), "stream", "group")
-        await cleanup_consumer(settings.redis(), "stream", "group", "consumer")
-        await cleanup_run(settings.redis(), "r1")
-        assert (
-            await settings.redis().exists(
-                "dp:active", "dp:plans:r1", "dp:remaining:r1", "dp:results:r1"
-            )
-            == 0
-        )
-
-    @pytest.mark.asyncio
-    async def test_cleanup_run_preserves_publish_stream_entries(
-        self,
-    ) -> None:
-        """
-        GIVEN: publish stream entries for run r1 and run r2.
-        WHEN: cleanup_run is called for run r1.
-        THEN: all entries remain to preserve consumer-group positions.
-        """
-        await settings.redis().mset({"dp:active": "r1", "dp:remaining:r1": "0"})
-        await settings.redis().xadd(
-            "dp:publish", {"run_id": "r1", "schema_name": "app"}
-        )
-        await settings.redis().xadd(
-            "dp:publish", {"run_id": "r2", "schema_name": "app"}
-        )
-        await settings.redis().xadd(
-            "dp:publish", {"run_id": "r1", "schema_name": "other"}
-        )
-
-        await cleanup_run(settings.redis(), "r1")
-
-        remaining = await settings.redis().xrange("dp:publish")
-        assert remaining is not None
-
-        remaining_run_ids = [
-            fields.get(b"run_id") for _, fields in remaining if fields is not None
-        ]
-
-        assert remaining_run_ids == [b"r1", b"r2", b"r1"]
-
-    @pytest.mark.asyncio
-    async def test_cleanup_run_with_no_matching_publish_entries_is_noop(
-        self,
-    ) -> None:
-        """
-        GIVEN: publish stream entries only for run r2.
-        WHEN: cleanup_run is called for run r1.
-        THEN: all run r2 entries remain unchanged.
-        """
-        await settings.redis().mset({"dp:active": "r1", "dp:remaining:r1": "0"})
-        await settings.redis().xadd(
-            "dp:publish", {"run_id": "r2", "schema_name": "app"}
-        )
-
-        await cleanup_run(settings.redis(), "r1")
-
-        remaining = await settings.redis().xrange("dp:publish")
-        assert remaining is not None
-        assert len(remaining) == 1
-
-    @pytest.mark.asyncio
-    async def test_cleanup_consumer_preserves_pending_messages(
-        self,
-    ) -> None:
-        """
-        GIVEN: a consumer with pending messages.
-        WHEN: cleanup_consumer is called.
-        THEN: the pending messages are kept.
-        """
-        stream = "pending-stream"
-        group = "pending-group"
-        consumer = "pending-consumer"
-        await settings.redis().xadd(stream, {"payload": "value"})
-        await settings.redis().xgroup_create(stream, group, id="0")
-        await settings.redis().xreadgroup(group, consumer, {stream: ">"})
-
-        await cleanup_consumer(settings.redis(), stream, group, consumer)
-
-        assert (
-            await settings.redis().xpending_range(stream, group, "-", "+", 10, consumer)
-            != []
-        )
-
-
-class TestPartitionStateReaders:
-    """Tests for partition manifests and stored table state."""
-
-    @pytest.mark.asyncio
-    async def test_read_partition_manifest_returns_manifest_for_partitioned_table(
-        self,
-    ) -> None:
-        """
-        GIVEN: a partitioned table state with an empty partition manifest.
-        WHEN: read_partition_manifest is called.
-        THEN: it returns the manifest.
-        """
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(
-                strategy=Strategy.PARTITIONED, signature="s", partitions={}
-            ).model_dump_json(),
-        )
-        assert await read_partition_manifest(settings.redis(), "p.d.t") is not None
-
-
-class TestRunStateValidation:
-    """Tests for run creation validation and persistence."""
-
-    @pytest.mark.asyncio
-    async def test_create_run_rejects_active_run(
-        self,
-    ) -> None:
-        """
-        GIVEN: an existing active run.
-        WHEN: create_run is called for a new run.
-        THEN: it returns False.
-        """
-        await settings.redis().set("dp:active", "old")
-        assert await create_run(settings.redis(), "new", [], 0) is False
-
-    @pytest.mark.asyncio
-    async def test_read_failed_paths_returns_only_failed_paths(
-        self,
-    ) -> None:
-        """
-        GIVEN: dump results with both failures and successes.
-        WHEN: read_failed_paths is called.
-        THEN: it returns only the failed paths.
-        """
-        task = DumpTask(
-            run_id="r1",
-            table="p.app.t",
-            bucket_path="s3://b/t",
-            selections=[AllSelection()],
-        )
-
-        await settings.redis().hset(
-            "dp:results:r1",
-            mapping={
-                task.task_id: DumpFailure(failed_path="s3://b/t").model_dump_json(),
-                "success": DumpSuccess().model_dump_json(),
-            },
-        )
-
-        assert await read_failed_paths(settings.redis(), "r1") == {"s3://b/t"}
-
-    @pytest.mark.asyncio
-    async def test_read_table_state_returns_decoded_table_state_fields(
-        self,
-    ) -> None:
-        """
-        GIVEN: a stored table state with strategy and signature.
-        WHEN: read_table_state is called.
-        THEN: it returns a TableState with the exact strategy and signature.
-        """
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(strategy=Strategy.FULL, signature="s").model_dump_json(),
-        )
-
-        state = await read_table_state(settings.redis(), "p.d.t")
-
-        assert state is not None
-        assert state.strategy == Strategy.FULL
-        assert state.signature == "s"
-
-    @pytest.mark.asyncio
-    async def test_read_table_signature_returns_exact_stored_signature(
-        self,
-    ) -> None:
-        """
-        GIVEN: a stored table state with a known signature.
-        WHEN: read_table_signature is called.
-        THEN: it returns the exact signature string, not None.
-        """
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(strategy=Strategy.FULL, signature="sig123").model_dump_json(),
-        )
-
-        assert await read_table_signature(settings.redis(), "p.d.t") == "sig123"
-
-    @pytest.mark.asyncio
-    async def test_read_partition_manifest_returns_manifest_with_exact_fields(
-        self,
-    ) -> None:
-        """
-        GIVEN: a partitioned table state with a non-null partitions dict.
-        WHEN: read_partition_manifest is called.
-        THEN: it returns a manifest with the exact signature and partitions.
-        """
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(
-                strategy=Strategy.PARTITIONED,
-                signature="sig456",
-                partitions={
-                    "1": PhysicalPartition(
-                        partition_id="1",
-                        signature="ps",
-                        selection=RangeSelection(
-                            partition_id="1", column="id", lower=0, upper=1
-                        ),
-                    )
-                },
-            ).model_dump_json(),
-        )
-
-        manifest = await read_partition_manifest(settings.redis(), "p.d.t")
-
-        assert manifest is not None
-        assert manifest.table_signature == "sig456"
-        assert "1" in manifest.partitions
-
-    @pytest.mark.asyncio
-    async def test_read_partition_manifest_returns_none_for_full_table_with_null_partitions(
-        self,
-    ) -> None:
-        """
-        GIVEN: a full table state where partitions is None.
-        WHEN: read_partition_manifest is called.
-        THEN: it returns None because partitions is None.
-        """
-        await settings.redis().set(
-            "dp:state:p.d.t",
-            TableState(strategy=Strategy.FULL, signature="s").model_dump_json(),
-        )
-
-        assert await read_partition_manifest(settings.redis(), "p.d.t") is None
-
-    @pytest.mark.asyncio
-    async def test_create_run_returns_true_and_writes_all_keys_to_redis(
-        self,
-    ) -> None:
-        """
-        GIVEN: no active run in Redis.
-        WHEN: create_run is called with a plan and task count.
-        THEN: it returns True and writes active, plans, and remaining keys.
-        """
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.d.t": "s"},
-            paths={"p.d.t": ["s3://b/t"]},
-        )
-
-        result = await create_run(settings.redis(), "r1", [plan], 3)
-
-        assert result is True
-        assert await settings.redis().get("dp:active") == b"r1"
-        assert await settings.redis().hexists("dp:plans:r1", "app")
-        assert await settings.redis().get("dp:remaining:r1") == b"3"
-
-    @pytest.mark.asyncio
-    async def test_create_run_returns_false_when_active_run_exists(
-        self,
-    ) -> None:
-        """
-        GIVEN: an existing active run.
-        WHEN: create_run is called for a new run.
-        THEN: it returns False and does not write the new run keys.
-        """
-        await settings.redis().set("dp:active", "old")
-
-        result = await create_run(settings.redis(), "new", [], 0)
-
-        assert result is False
-        assert await settings.redis().hexists("dp:plans:new", "app") is False
-
-
-class TestConsumerGroupCreation:
-    """Tests for consumer group creation."""
-
-    @pytest.mark.asyncio
-    async def test_create_consumer_group_creates_group_in_redis(
-        self,
-    ) -> None:
-        """
-        GIVEN: a stream with no consumer group.
-        WHEN: create_consumer_group is called.
-        THEN: the group exists in Redis.
-        """
-        await create_consumer_group(settings.redis(), "new-stream", "new-group")
-
-        groups = await settings.redis().xinfo_groups("new-stream")
-        assert any(group["name"] == b"new-group" for group in groups)
+@pytest.mark.usefixtures("test_settings")
+@pytest.mark.asyncio
+async def test_table_state_round_trip(
+    state_conn: psycopg.AsyncConnection,
+) -> None:
+    """
+    GIVEN: an empty data-proxy.state table.
+    WHEN: state for one table is written and read back.
+    THEN: the read returns the written state.
+    """
+    state = TableState(strategy=Strategy.FULL, signature="abc")
+    await write_table_states(state_conn, {"p.d.t": state})
+
+    assert await read_table_state(state_conn, "p.d.t") == state
+    assert await read_table_signature(state_conn, "p.d.t") == "abc"
+
+
+@pytest.mark.usefixtures("test_settings")
+@pytest.mark.asyncio
+async def test_table_state_upsert_replaces_existing(
+    state_conn: psycopg.AsyncConnection,
+) -> None:
+    """
+    GIVEN: state for one table.
+    WHEN: new state for the same table is written.
+    THEN: the read returns the new state.
+    """
+    await write_table_states(
+        state_conn, {"p.d.t": TableState(strategy=Strategy.FULL, signature="old")}
+    )
+    await write_table_states(
+        state_conn, {"p.d.t": TableState(strategy=Strategy.FULL, signature="new")}
+    )
+
+    assert await read_table_signature(state_conn, "p.d.t") == "new"
+
+
+@pytest.mark.usefixtures("test_settings")
+@pytest.mark.asyncio
+async def test_read_table_state_returns_none_when_absent(
+    state_conn: psycopg.AsyncConnection,
+) -> None:
+    """
+    GIVEN: an empty data-proxy.state table.
+    WHEN: state for an unknown table is read.
+    THEN: None is returned.
+    """
+    assert await read_table_state(state_conn, "p.d.t") is None
+    assert await read_table_signature(state_conn, "p.d.t") is None
+    assert await read_partition_manifest(state_conn, "p.d.t") is None
+
+
+@pytest.mark.usefixtures("test_settings")
+@pytest.mark.asyncio
+async def test_emit_error_persists_one_row(
+    state_conn: psycopg.AsyncConnection,
+) -> None:
+    """
+    GIVEN: an empty data-proxy.errors table.
+    WHEN: one error event is emitted.
+    THEN: one row with the reason and fields is persisted.
+    """
+    await emit_error(state_conn, "extraction_failed", table="p.d.t", error="boom")
+
+    cursor = await state_conn.execute(
+        'SELECT reason, fields FROM "data-proxy".errors ORDER BY id DESC LIMIT 1'
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == "extraction_failed"
+    assert row[1]["table"] == "p.d.t"
+    assert row[1]["error"] == "boom"
+
+
+def test_build_table_states_is_unchanged(full_table: FullTable) -> None:
+    """
+    GIVEN: a publication result with one published full table.
+    WHEN: build_table_states is called.
+    THEN: it returns state for the published table only.
+    """
+    from dp.models import (
+        FullTable,
+        PublicationResult,
+        SchemaConfig,
+        SyncConfig,
+        SyncPlan,
+    )
+
+    table = FullTable(name="p.app.t", resolved_schema="app")
+    config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
+    plan = SyncPlan(
+        schema_name="app",
+        signatures={"p.app.t": "sig"},
+        paths={"p.app.t": ["s3://b/t"]},
+    )
+    result = PublicationResult(plan=plan, published_tables={"p.app.t"})
+
+    states = build_table_states(result, config)
+
+    assert set(states) == {"p.app.t"}
+    assert states["p.app.t"].signature == "sig"

@@ -3,26 +3,22 @@
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 from time import monotonic, sleep
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.request import urlopen
 
 import duckdb
+import psycopg
 import pytest
-from fakeredis import FakeAsyncRedis
-from faststream.redis import RedisBroker, TestRedisBroker
 from google.cloud.bigquery import Client, Table
 from minio import Minio
-from redis.asyncio import Redis
+from psycopg.sql import SQL, Identifier
+from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
+from dp.bigquery.clients import BigQuery
 from dp.models import AllSelection, DumpTask, SchemaWriters
 from dp.settings import Settings, settings
-from dp.sync.dumper import broker as dumper_broker
-from dp.sync.producer import broker as producer_broker
-from dp.sync.publisher import broker as publisher_broker
-from dp.sync.seeder import broker as seeder_broker
 from dp.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import SeaweedFS
@@ -34,21 +30,8 @@ Tracker = Callable[[Callable[..., object]], Callable[..., object]]
 
 @pytest.fixture
 def metrics_disabled() -> object:
-    """Prevent real HTTP calls to Pushgateway during tests."""
-
-    def fake_tracker(job: str) -> Tracker:
-        def decorator(function: Callable[..., object]) -> Callable[..., object]:
-            return function
-
-        return decorator
-
-    with (
-        patch("dp.metrics.push_to_gateway", new_callable=AsyncMock),
-        patch("dp.sync.publisher.tracker", fake_tracker),
-        patch("dp.sync.dumper.tracker", fake_tracker),
-        patch("dp.sync.seeder.tracker", fake_tracker),
-        patch("dp.sync.producer.tracker", fake_tracker),
-    ):
+    """Prevent metrics recording during tests."""
+    with patch("dp.metrics.record_publication_metrics"):
         yield
 
 
@@ -61,9 +44,14 @@ def sync_config_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def redis() -> Redis:
-    """Return fakeredis state for deterministic Redis API and state tests."""
-    return cast(Redis, FakeAsyncRedis())
+def redis() -> MagicMock:
+    """Return a mock async Redis client for cache tests."""
+
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    client.flushdb = AsyncMock()
+    return client
 
 
 @pytest.fixture
@@ -80,6 +68,7 @@ def standard_dump_task() -> DumpTask:
     return DumpTask(
         run_id="r1",
         table="p.d.t",
+        target_schema="test",
         bucket_path="s3://b/t",
         selections=[AllSelection()],
     )
@@ -88,36 +77,53 @@ def standard_dump_task() -> DumpTask:
 @pytest.fixture
 def test_settings(
     monkeypatch: pytest.MonkeyPatch,
-    redis: Redis,
     schema_writers: SchemaWriters,
     sync_config_path: Path,
 ) -> Settings:
     """Provide settings configured with test dependency objects."""
-
-    def redis_client(_settings: Settings, db: int | None = None) -> Redis:
-        return redis
-
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
-    monkeypatch.setattr(Settings, "redis", redis_client)
     monkeypatch.setattr(settings, "SCHEMA_WRITERS", schema_writers)
     return settings
 
 
-@pytest.fixture
-async def broker() -> AsyncIterator[tuple[RedisBroker, ...]]:
-    """Provide an in-memory broker for all application Redis brokers."""
-    async with TestRedisBroker(
-        producer_broker,
-        dumper_broker,
-        seeder_broker,
-        publisher_broker,
-        connect_only=False,
-    ) as broker:
-        yield broker
+@pytest.fixture(scope="session")
+def system_db_container() -> Iterator[PostgresContainer]:
+    """Provide a Postgres container for the DBOS system database and application state."""
+    container = PostgresContainer("postgres:17-alpine")
+    container.start()
+    try:
+        yield container
+    finally:
+        container.stop()
 
 
 @pytest.fixture
-def bigquery() -> Iterator[Client]:
+async def state_conn(
+    system_db_container: PostgresContainer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[psycopg.AsyncConnection]:
+    """Provide an async connection to the DBOS system database with the dp schema initialized."""
+    from dp.state import ensure_app_schema
+
+    url = system_db_container.get_connection_url().replace(
+        "postgresql+psycopg2://", "postgresql://"
+    )
+    monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", url)
+    conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
+    await ensure_app_schema(conn)
+    await conn.execute(
+        SQL("TRUNCATE {}.state, {}.errors").format(
+            Identifier(settings.DBOS_APP_SCHEMA), Identifier(settings.DBOS_APP_SCHEMA)
+        )
+    )
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.fixture
+def bigquery() -> Iterator[BigQuery]:
     """Provide a deterministic DuckDB-backed BigQuery API mock.
 
     This fixture does not call GCP and does not validate the Google API service.
@@ -177,7 +183,7 @@ def bigquery() -> Iterator[Client]:
     client.query.side_effect = query
 
     try:
-        yield client
+        yield BigQuery(client=client)
     finally:
         database.close()
 

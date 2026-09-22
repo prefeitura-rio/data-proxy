@@ -3,24 +3,21 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from psycopg import AsyncConnection
-from psycopg.sql import Composable
 from redis.asyncio import Redis
 
-from dp.cache import clear_response_cache
+from dp.cache import clear_cache
 from dp.fallback import (
     column_types_from_duckdb,
-    create_bq_views,
     is_nested_or_json,
     pg_scalar_type,
     return_type_for,
-    rls_where_clause,
+    run_fallback_views_creation,
 )
-from dp.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
+from dp.models import FullTable
 from dp.settings import Settings
 from tests.helpers import sync_config
 
@@ -91,53 +88,8 @@ class TestFallbackTypes:
         assert pg_scalar_type(duckdb_type) == expected
 
 
-class TestRlsWhereClause:
-    """BigQuery WHERE clause generation from RLS unit mappings."""
-
-    @pytest.mark.asyncio
-    async def test_no_rls_returns_empty(self) -> None:
-        """Table without RLS returns an empty string."""
-        table = FullTable(name="p.app.t", resolved_schema="app")
-        assert rls_where_clause("app", table) == ""
-
-    @pytest.mark.asyncio
-    async def test_no_claim_returns_empty(self) -> None:
-        """Schema with no claim returns an empty string."""
-        table = FullTable(
-            name="p.app.t",
-            resolved_schema="app",
-            rls=[UnitMapping(column="id_unit", unit_type="unit")],
-        )
-        config = SyncConfig.model_construct(
-            schemas={"app": SchemaConfig.model_construct(tables=[table], claim=None)}
-        )
-        with patch.object(
-            Settings, "sync_config", new_callable=lambda: property(lambda _: config)
-        ):
-            assert rls_where_clause("app", table) == ""
-
-    @pytest.mark.asyncio
-    async def test_rls_with_claim_renders_the_access_policy(self) -> None:
-        """A table with RLS and a schema claim renders the access-policy condition."""
-        table = FullTable(
-            name="p.app.t",
-            resolved_schema="app",
-            rls=[UnitMapping(column="id_unit", unit_type="unit")],
-        )
-        config = SyncConfig.model_construct(
-            schemas={
-                "app": SchemaConfig.model_construct(
-                    tables=[table], claim="preferred_username"
-                )
-            }
-        )
-        with patch.object(
-            Settings, "sync_config", new_callable=lambda: property(lambda _: config)
-        ):
-            rendered = cast(Composable, rls_where_clause("app", table)).as_string(None)
-
-        assert "access_policy" in rendered
-        assert "app.claim_preferred_username" in rendered
+class TestColumnTypesFromDuckDB:
+    """Column type extraction from the local PostgreSQL table."""
 
     @pytest.mark.usefixtures("test_settings")
     @pytest.mark.asyncio
@@ -169,7 +121,7 @@ class TestFallbackMockedServices:
         table = FullTable(name="p.app.t", resolved_schema="app", fallback=True)
         config = sync_config([table])
         sync_config_path.write_text(config.model_dump_json())
-        conn = AsyncMock(spec=AsyncConnection)
+        pg_conn = AsyncMock(spec=AsyncConnection)
 
         with (
             patch(
@@ -177,10 +129,10 @@ class TestFallbackMockedServices:
             ),
             patch("dp.fallback.execute_sql") as execute,
         ):
-            await create_bq_views(conn, config)
+            await run_fallback_views_creation(pg_conn, config)
 
         assert execute.await_count == 3
-        conn.commit.assert_called_once()
+        pg_conn.commit.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.asyncio
@@ -188,25 +140,25 @@ class TestFallbackMockedServices:
         """Fallback generation fails before rendering an empty table type."""
         table = FullTable(name="p.app.t", resolved_schema="app", fallback=True)
         config = sync_config([table])
-        conn = AsyncMock(spec=AsyncConnection)
+        pg_conn = AsyncMock(spec=AsyncConnection)
 
         with (
             patch("dp.fallback.column_types_from_duckdb", return_value=[]),
             pytest.raises(RuntimeError, match="returned no columns"),
         ):
-            await create_bq_views(conn, config)
+            await run_fallback_views_creation(pg_conn, config)
 
     async def test_skips_tables_with_fallback_disabled(self) -> None:
         """Tables with fallback=False are skipped."""
         table = FullTable(name="p.app.t", resolved_schema="app", fallback=False)
         config = sync_config([table])
-        conn = AsyncMock(spec=AsyncConnection)
+        pg_conn = AsyncMock(spec=AsyncConnection)
 
         with patch("dp.fallback.column_types_from_duckdb") as fake_columns:
-            await create_bq_views(conn, config)
+            await run_fallback_views_creation(pg_conn, config)
 
         fake_columns.assert_not_called()
-        conn.execute.assert_not_called()
+        pg_conn.execute.assert_not_called()
 
 
 class TestFallbackMockedCache:
@@ -219,7 +171,7 @@ class TestFallbackMockedCache:
     ) -> None:
         """clear_response_cache calls flushdb on the Redis client."""
         with patch.object(Settings, "redis", configure_redis(redis)):
-            await clear_response_cache(db=1)
+            await clear_cache()
 
     @pytest.mark.asyncio
     async def test_clear_response_cache_uses_correct_db(
@@ -233,6 +185,6 @@ class TestFallbackMockedCache:
         fake_redis.flushdb = AsyncMock()
 
         with patch.object(Settings, "redis", configure_redis(fake_redis)):
-            await clear_response_cache(db=1)
+            await clear_cache()
 
         fake_redis.flushdb.assert_awaited()

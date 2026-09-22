@@ -7,14 +7,12 @@ import pytest
 from dp.models import (
     PartitionedTable,
     PartitionedTablePlan,
-    PartitioningConfig,
     PhysicalPartition,
     RangeSelection,
     SyncPlan,
 )
 from dp.publication import (
     PreparedTable,
-    create_partitioned_table,
     prepare_tables,
 )
 from tests.fixtures.types import Postgres
@@ -71,6 +69,7 @@ class TestLoadingPrepareTablesPartitions:
         await postgres.connection.commit()
 
         prepared = await prepare_tables(
+            postgres.connection,
             postgres.connection,
             sync_config([table], schema_name=postgres.namespace.schema),
             plan,
@@ -154,6 +153,7 @@ class TestLoadingPrepareTablesPartitions:
         with patch("dp.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
+                postgres.connection,
                 sync_config([table], schema_name=postgres.namespace.schema),
                 plan,
                 {table.name},
@@ -233,6 +233,7 @@ class TestLoadingPrepareTablesPartitions:
         with patch("dp.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
+                postgres.connection,
                 sync_config([table], schema_name=postgres.namespace.schema),
                 plan,
                 {table.name},
@@ -284,11 +285,12 @@ class TestLoadingPrepareTablesPartitions:
         with (
             patch("dp.publication.table_exists", return_value=True),
             patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.bootstrap_table"),
+            patch("dp.publication.apply_table_authorization"),
             patch("dp.publication.cast_json_columns_to_jsonb"),
             patch("dp.publication.execute_sql", new_callable=AsyncMock),
         ):
             prepared = await prepare_tables(
+                postgres.connection,
                 postgres.connection,
                 sync_config([table]),
                 plan,
@@ -327,68 +329,12 @@ class TestLoadingPrepareTablesPartitions:
         with (
             patch("dp.publication.table_exists", return_value=False),
             patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.bootstrap_table"),
+            patch("dp.publication.apply_table_authorization"),
             patch("dp.publication.cast_json_columns_to_jsonb"),
             patch("dp.publication.execute_sql", new_callable=AsyncMock),
         ):
             prepared = await prepare_tables(
                 postgres.connection,
-                sync_config([table]),
-                plan,
-                {table.name},
-            )
-
-        assert prepared == [PreparedTable(table=table, swap=False)]
-
-    @pytest.mark.asyncio
-    async def test_prepare_tables_full_rebuild_with_partitioning_uses_replace_partitions(
-        self,
-        postgres: Postgres,
-    ) -> None:
-        """
-        GIVEN: an existing partitioned table with pg_partman config and a full rebuild.
-        WHEN: prepare_tables runs.
-        THEN: it replaces partitions in place (delete all + re-INSERT) and does not swap.
-        """
-        table = PartitionedTable(
-            name=f"p.{postgres.namespace.schema}.people",
-            resolved_schema=postgres.namespace.schema,
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
-        first = "s3://bucket/app/people/batches/0/data.parquet"
-        second = "s3://bucket/app/people/batches/1/data.parquet"
-        plan = SyncPlan(
-            schema_name=postgres.namespace.schema,
-            partitioned_tables={
-                table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=True,
-                    current_partitions={
-                        "10": partition("10"),
-                        "20": partition("20"),
-                    },
-                    changed_paths={"10": first, "20": second},
-                    removed_partitions={},
-                )
-            },
-        )
-
-        with (
-            patch("dp.publication.table_exists", return_value=True),
-            patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.bootstrap_table"),
-            patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.execute_sql", new_callable=AsyncMock),
-            patch(
-                "dp.publication.AsyncConnection.connect", new_callable=AsyncMock
-            ) as mock_connect,
-        ):
-            mock_connect.return_value.__aenter__ = AsyncMock(
-                return_value=postgres.connection
-            )
-            mock_connect.return_value.__aexit__ = AsyncMock(return_value=None)
-            prepared = await prepare_tables(
                 postgres.connection,
                 sync_config([table]),
                 plan,
@@ -396,154 +342,3 @@ class TestLoadingPrepareTablesPartitions:
             )
 
         assert prepared == [PreparedTable(table=table, swap=False)]
-
-    @pytest.mark.asyncio
-    async def test_prepare_tables_with_partitioning_calls_partman_maintenance(
-        self,
-        postgres: Postgres,
-    ) -> None:
-        """
-        GIVEN: an existing partitioned table with pg_partman config and an incremental plan.
-        WHEN: prepare_tables runs.
-        THEN: it calls run_partman_maintenance before replacing partitions.
-        """
-        table = PartitionedTable(
-            name=f"p.{postgres.namespace.schema}.people",
-            resolved_schema=postgres.namespace.schema,
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
-        path = "/test-files/people_partition_10.parquet"
-        plan = SyncPlan(
-            schema_name=postgres.namespace.schema,
-            partitioned_tables={
-                table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=False,
-                    current_partitions={"10": partition("10"), "30": partition("30")},
-                    changed_paths={"10": path},
-                    removed_partitions={"20": partition("20")},
-                )
-            },
-        )
-
-        mock_execute = AsyncMock()
-        with (
-            patch("dp.publication.table_exists", return_value=True),
-            patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.execute_sql", new=mock_execute),
-            patch(
-                "dp.publication.AsyncConnection.connect", new_callable=AsyncMock
-            ) as mock_connect,
-        ):
-            mock_connect.return_value.__aenter__ = AsyncMock(
-                return_value=postgres.connection
-            )
-            mock_connect.return_value.__aexit__ = AsyncMock(return_value=None)
-            await prepare_tables(
-                postgres.connection,
-                sync_config([table]),
-                plan,
-                {table.name},
-            )
-
-        calls = [str(call) for call in mock_execute.call_args_list]
-        assert any("run_partman_maintenance" in call for call in calls)
-
-    @pytest.mark.asyncio
-    async def test_prepare_tables_first_creation_with_partitioning_uses_create(
-        self,
-        postgres: Postgres,
-    ) -> None:
-        """
-        GIVEN: a new partitioned table with pg_partman config that does not exist yet.
-        WHEN: prepare_tables runs.
-        THEN: it uses the CREATE route and calls create_partitioned_table.
-        """
-        table = PartitionedTable(
-            name=f"p.{postgres.namespace.schema}.people",
-            resolved_schema=postgres.namespace.schema,
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
-        first = "s3://bucket/app/people/batches/0/data.parquet"
-        plan = SyncPlan(
-            schema_name=postgres.namespace.schema,
-            partitioned_tables={
-                table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=True,
-                    current_partitions={"10": partition("10")},
-                    changed_paths={"10": first},
-                    removed_partitions={},
-                )
-            },
-        )
-
-        with (
-            patch("dp.publication.table_exists", return_value=False),
-            patch(
-                "dp.publication.create_partitioned_table", new_callable=AsyncMock
-            ) as mock_create,
-            patch(
-                "dp.publication.rebuild_table", new_callable=AsyncMock
-            ) as mock_rebuild,
-        ):
-            prepared = await prepare_tables(
-                postgres.connection,
-                sync_config([table]),
-                plan,
-                {table.name},
-            )
-
-        assert prepared == [PreparedTable(table=table, swap=False)]
-        mock_create.assert_called_once()
-        mock_rebuild.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_create_partitioned_table_builds_parent_and_loads_data(
-        self,
-        postgres: Postgres,
-    ) -> None:
-        """
-        GIVEN: a partitioned table with pg_partman config and Parquet paths.
-        WHEN: create_partitioned_table runs.
-        THEN: it creates a temp table, creates the partitioned parent, registers
-        with pg_partman, bootstraps RLS, and loads data via insert_partition.
-        """
-        table = PartitionedTable(
-            name=f"p.{postgres.namespace.schema}.people",
-            resolved_schema=postgres.namespace.schema,
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
-        partitioning = PartitioningConfig(column="created_at")
-        path = "s3://bucket/app/people/data.parquet"
-
-        with (
-            patch("dp.publication.create_table_from_parquet", new_callable=AsyncMock),
-            patch(
-                "dp.publication.AsyncConnection.connect", new_callable=AsyncMock
-            ) as mock_connect,
-            patch("dp.publication.execute_sql", new_callable=AsyncMock),
-            patch("dp.publication.bootstrap_table", new_callable=AsyncMock),
-            patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.insert_partition", new_callable=AsyncMock),
-            patch("dp.publication.cast_json_columns_to_jsonb", new_callable=AsyncMock),
-            patch(
-                "dp.publication.create_indexes", new_callable=AsyncMock
-            ) as mock_indexes,
-        ):
-            partman_connection = AsyncMock()
-            partman_connection.__aenter__.return_value = postgres.connection
-            mock_connect.return_value = partman_connection
-
-            await create_partitioned_table(
-                postgres.connection,
-                sync_config([table], schema_name=postgres.namespace.schema),
-                table,
-                partitioning,
-                [path],
-            )
-
-        mock_indexes.assert_called_once()

@@ -7,7 +7,7 @@ from whenever import Instant
 
 from dp.freshness import (
     delete_partition_freshness,
-    record_table_failures,
+    record_freshness_failures,
     update_published_freshness,
     upsert_freshness,
 )
@@ -142,14 +142,14 @@ class TestFreshness:
         assert await fetch_one(postgres.connection, "postgres/select_one") == (1,)
 
     @pytest.mark.asyncio
-    async def test_record_table_failures_uses_explicit_or_changed_partitions(
+    async def test_record_freshness_failures_uses_explicit_or_changed_partitions(
         self,
         postgres: Postgres,
         freshness_tables: tuple[FullTable, PartitionedTable, str],
     ) -> None:
         """
         GIVEN: a full table and a partitioned table with explicit and plan-derived failures.
-        WHEN: record_table_failures is called.
+        WHEN: record_freshness_failures is called.
         THEN: failure records use the explicit partitions or the plan's changed partitions.
         """
         full, partitioned, schema = freshness_tables
@@ -168,7 +168,7 @@ class TestFreshness:
             },
         )
 
-        await record_table_failures(
+        await record_freshness_failures(
             postgres.connection,
             [full, partitioned],
             plan,

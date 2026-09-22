@@ -11,7 +11,6 @@ from dp.models import (
     IndexConfig,
     PartitionedTable,
     PartitionedTablePlan,
-    PartitioningConfig,
     PhysicalPartition,
     RemainderSelection,
     SyncPlan,
@@ -398,6 +397,7 @@ class TestPrepareTable:
         with patch("dp.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
+                postgres.connection,
                 sync_config([table], schema_name=schema),
                 plan,
                 {table.name},
@@ -419,6 +419,7 @@ class TestPrepareTable:
         plan = SyncPlan(schema_name=schema)
 
         prepared = await prepare_tables(
+            postgres.connection,
             postgres.connection,
             sync_config([table], schema_name=schema),
             plan,
@@ -447,7 +448,7 @@ class TestDecideRoute:
         THEN: it returns CREATE.
         """
         table = FullTable(name="p.d.t")
-        assert decide_route(False, table, None) == CreateRoute(partitioning=None)
+        assert decide_route(False, table, None) == CreateRoute()
 
     def test_partitioned_incremental_uses_replace_partitions(self) -> None:
         """
@@ -463,15 +464,13 @@ class TestDecideRoute:
             changed_paths={},
             removed_partitions={},
         )
-        assert decide_route(True, table, plan) == ReplacePartitionsRoute(
-            plan=plan, partman=False
-        )
+        assert decide_route(True, table, plan) == ReplacePartitionsRoute(plan=plan)
 
-    def test_partitioned_full_rebuild_without_partitioning_uses_shadow_swap(
+    def test_partitioned_full_rebuild_uses_shadow_swap(
         self,
     ) -> None:
         """
-        GIVEN: an existing partitioned table without pg_partman config and a full rebuild.
+        GIVEN: an existing partitioned table and a full rebuild.
         WHEN: decide_route runs.
         THEN: it returns SHADOW_SWAP.
         """
@@ -485,19 +484,13 @@ class TestDecideRoute:
         )
         assert decide_route(True, table, plan) == ShadowSwapRoute()
 
-    def test_partitioned_full_rebuild_with_partitioning_uses_replace_partitions(
-        self,
-    ) -> None:
+    def test_partitioned_first_creation_uses_create(self) -> None:
         """
-        GIVEN: an existing partitioned table with pg_partman config and a full rebuild.
+        GIVEN: a new partitioned table that does not exist yet.
         WHEN: decide_route runs.
-        THEN: it returns REPLACE_PARTITIONS because partitioned parents cannot be swapped.
+        THEN: it returns CREATE.
         """
-        table = PartitionedTable(
-            name="p.d.t",
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
+        table = PartitionedTable(name="p.d.t")
         plan = PartitionedTablePlan(
             table_signature="s",
             full_rebuild=True,
@@ -505,28 +498,4 @@ class TestDecideRoute:
             changed_paths={},
             removed_partitions={},
         )
-        assert decide_route(True, table, plan) == ReplacePartitionsRoute(
-            plan=plan, partman=True
-        )
-
-    def test_partitioned_first_creation_with_partitioning_uses_create(self) -> None:
-        """
-        GIVEN: a new partitioned table with pg_partman config that does not exist yet.
-        WHEN: decide_route runs.
-        THEN: it returns CREATE so the Publisher builds the partitioned parent from Parquet.
-        """
-        table = PartitionedTable(
-            name="p.d.t",
-            n=7,
-            partitioning=PartitioningConfig(column="created_at"),
-        )
-        plan = PartitionedTablePlan(
-            table_signature="s",
-            full_rebuild=True,
-            current_partitions={},
-            changed_paths={},
-            removed_partitions={},
-        )
-        assert decide_route(False, table, plan) == CreateRoute(
-            partitioning=PartitioningConfig(column="created_at")
-        )
+        assert decide_route(False, table, plan) == CreateRoute()

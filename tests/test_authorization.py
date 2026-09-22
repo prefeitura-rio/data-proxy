@@ -4,7 +4,7 @@ import pytest
 from psycopg import AsyncConnection
 from testcontainers.community.postgres import PostgresContainer
 
-from dp.authorization import bootstrap_table
+from dp.authorization import apply_table_authorization
 from dp.models import UnitMapping
 from dp.templates import render_template
 from tests.constants import HELM_SQL
@@ -22,11 +22,11 @@ class TestAuthorization:
     ) -> None:
         """
         GIVEN: an invalid runtime RLS value.
-        WHEN: bootstrap_table is called.
+        WHEN: apply_table_authorization is called.
         THEN: it raises AssertionError.
         """
         with pytest.raises(AssertionError):
-            await bootstrap_table(
+            await apply_table_authorization(
                 AsyncMock(spec=AsyncConnection), "app", "table", invalid_rls, None
             )
 
@@ -36,7 +36,7 @@ class TestAuthorization:
     ) -> None:
         """
         GIVEN: a non-RLS table.
-        WHEN: bootstrap_table is called.
+        WHEN: apply_table_authorization is called.
         THEN: it receives a read grant and a schema-scope policy.
         """
         schema = postgres.namespace.schema
@@ -46,7 +46,7 @@ class TestAuthorization:
             mapping={"schema": schema, "table": "table", "columns": "id_cras text"},
         )
 
-        await bootstrap_table(
+        await apply_table_authorization(
             postgres.connection,
             schema=schema,
             table_name="table",
@@ -81,7 +81,7 @@ class TestAuthorization:
     ) -> None:
         """
         GIVEN: a protected table with RLS and an access_policy table.
-        WHEN: bootstrap_table is called.
+        WHEN: apply_table_authorization is called.
         THEN: it renders grants and the access_policy check together.
         """
         schema = postgres.namespace.schema
@@ -96,7 +96,7 @@ class TestAuthorization:
             mapping={"schema": schema},
         )
 
-        await bootstrap_table(
+        await apply_table_authorization(
             postgres.connection,
             schema=schema,
             table_name="table",
@@ -135,7 +135,7 @@ class TestAuthorization:
             "postgres/setup_unit_rls_visibility",
             mapping={"schema": schema},
         )
-        await bootstrap_table(
+        await apply_table_authorization(
             postgres.connection,
             schema,
             "visible",
@@ -188,7 +188,9 @@ class TestAuthorization:
             mapping={"schema": schema},
         )
         await postgres.connection.commit()
-        await bootstrap_table(postgres.connection, schema, "scoped", None, None)
+        await apply_table_authorization(
+            postgres.connection, schema, "scoped", None, None
+        )
         await postgres.connection.commit()
         await execute_sql(
             postgres.connection,
@@ -224,11 +226,11 @@ class TestAuthorization:
     ) -> None:
         """
         GIVEN: a protected table without a configured schema claim.
-        WHEN: bootstrap_table is called.
+        WHEN: apply_table_authorization is called.
         THEN: it raises RuntimeError.
         """
         with pytest.raises(RuntimeError, match="identity claim"):
-            await bootstrap_table(
+            await apply_table_authorization(
                 AsyncMock(spec=AsyncConnection),
                 schema="app",
                 table_name="table",
