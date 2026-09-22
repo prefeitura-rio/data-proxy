@@ -254,7 +254,7 @@ tests:
           path: metadata.name
           value: data-proxy-cleanup
       - equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[2].name
+          path: spec.jobTemplate.spec.template.spec.volumes[1].name
           value: scripts
         documentSelector:
           path: metadata.name

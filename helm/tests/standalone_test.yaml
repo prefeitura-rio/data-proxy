@@ -126,7 +126,7 @@ tests:
           path: spec.postgresql.parameters["pg_stat_statements.max"]
           value: "10000"
         template: cluster-cnpg.yaml
-      - notContains:
+      - contains:
           path: spec.postgresql.shared_preload_libraries
           content: pg_stat_statements
         template: cluster-cnpg.yaml
