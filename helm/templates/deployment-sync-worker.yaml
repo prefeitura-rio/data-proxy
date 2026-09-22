@@ -1,42 +1,54 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the DBOS sync worker Deployment.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-dumper
+  name: {{ include "data-proxy.fullname" . }}-sync-worker
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: dumper
+    app.kubernetes.io/component: sync-worker
 spec:
   replicas: 0
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: dumper
+      app.kubernetes.io/component: sync-worker
   template:
     metadata:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: dumper
+        app.kubernetes.io/component: sync-worker
     spec:
       restartPolicy: Always
-      terminationGracePeriodSeconds: {{ .Values.sync.dumper.terminationGracePeriodSeconds }}
       topologySpreadConstraints:
-        {{- toYaml .Values.sync.dumper.topologySpreadConstraints | nindent 8 }}
+        {{- toYaml .Values.sync.worker.topologySpreadConstraints | nindent 8 }}
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
-        - name: dumper
+        - name: sync-worker
           image: "{{ .Values.sync.image }}"
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
-          command: ["python", "-m", "dp.sync.dumper"]
+          command: ["python", "-m", "dp.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
+            {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             - name: scratch
               mountPath: {{ .Values.sync.dumper.scratch.mountPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
+        {{- include "data-proxy.schemaWritersVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
         - name: scratch
           emptyDir:

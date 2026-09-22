@@ -15,7 +15,7 @@ let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
 # Execute rendered SQL against PostgreSQL
 def postgres [query: string]: nothing -> nothing {
     try {
-        $query | psql $env.PG_DSN --no-psqlrc --quiet -v ON_ERROR_STOP=1
+        $query | psql $env.PG_DATABASE_URL --no-psqlrc --quiet -v ON_ERROR_STOP=1
     } catch {|err| error make {
         msg: $'psql failed: ($err.msg)'
         label: {
@@ -29,7 +29,7 @@ def postgres [query: string]: nothing -> nothing {
 def wait-for-postgres []: nothing -> nothing {
     loop {
         let result = (
-            psql $env.PG_DSN --no-psqlrc --quiet -t -A -c 'SELECT 1'
+            psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -c 'SELECT 1'
             | complete
         )
         if $result.exit_code == 0 { break }

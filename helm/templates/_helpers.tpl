@@ -173,7 +173,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.cnpg.existingSecret }}
 {{- .Values.cnpg.existingSecret }}
 {{- else }}
-{{- include "data-proxy.fullname" . }}-cnpg-dataproxy
+{{- include "data-proxy.fullname" . }}-cnpg-data-proxy
 {{- end }}
 {{- end }}
 
@@ -266,21 +266,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 {
   "kind": "macro",
-  "name": "data-proxy.redisConfigKey",
-  "description": "Render the redisConfigKey Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisConfigKey" -}}
-{{- .Values.redis.configKey | default "REDIS" }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
   "name": "data-proxy.redisPasswordKey",
   "description": "Render the redisPasswordKey Helm helper.",
   "inputs": {
@@ -347,11 +332,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 }
 */}}
 {{- define "data-proxy.redisConfigEnv" -}}
-- name: REDIS
+- name: REDIS_READ
   valueFrom:
     secretKeyRef:
       name: {{ include "data-proxy.redisSecretName" . }}
-      key: {{ include "data-proxy.redisConfigKey" . }}
+      key: {{ .Values.redis.readKey | default "REDIS_READ" }}
+- name: REDIS_WRITE
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ .Values.redis.writeKey | default "REDIS_WRITE" }}
 {{- end }}
 
 {{/*
@@ -455,6 +445,41 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
+postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+{{- end }}
+
+{{/*
+{
+  "kind": "helper",
+  "name": "data-proxy.dbosClusterName",
+  "description": "Render the DBOS CNPG cluster name: the shared cluster in single mode, a dedicated cluster in HA mode.",
+  "inputs": {
+    "context": "Helm template context."
+  }
+}
+*/}}
+{{- define "data-proxy.dbosClusterName" -}}
+{{- if .Values.ha.enabled -}}
+{{- printf "%s-dbos" (include "data-proxy.fullname" .) -}}
+{{- else -}}
+{{- include "data-proxy.fullname" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+{
+  "kind": "helper",
+  "name": "data-proxy.dbosSystemDatabaseUrl",
+  "description": "Render the DBOS system database URL for the DBOS cluster.",
+  "inputs": {
+    "context": "Helm template context."
+  }
+}
+*/}}
+{{- define "data-proxy.dbosSystemDatabaseUrl" -}}
+{{- $user := .Values.cnpg.db.user -}}
+{{- $db   := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.dbosClusterName" . -}}
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
@@ -606,7 +631,7 @@ map $http_accept_profile $postgrest_write {
     secretKeyRef:
       name: {{ include "data-proxy.dbSecretName" . }}
       key: POSTGRES_PASSWORD
-- name: PG_DSN
+- name: PG_DATABASE_URL
   value: {{ include "data-proxy.appPgDsn" . | quote }}
 {{ include "data-proxy.redisConfigEnv" . }}
 - name: S3_BUCKET
@@ -629,18 +654,34 @@ map $http_accept_profile $postgrest_write {
   value: /config/sync.json
 - name: FALLBACK_CACHE_REDIS_DB
   value: {{ .Values.fallback.cacheRedisDb | quote }}
-- name: DUMPER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.dumper.visibilityTimeoutMs | int64 | quote }}
 - name: DUMPER_BATCH_BYTES
   value: {{ .Values.sync.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
 - name: DUMPER_BATCH_MAX_PARTITIONS
   value: {{ .Values.sync.dumper.batchMaxPartitions | quote }}
 - name: DUMPER_SCRATCH_DIR
   value: {{ .Values.sync.dumper.scratch.mountPath | quote }}
-- name: SEEDER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.seeder.visibilityTimeoutMs | int64 | quote }}
-- name: PUBLISHER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.publisher.visibilityTimeoutMs | int64 | quote }}
+- name: DUMP_QUEUE_MAX_ATTEMPTS
+  value: {{ .Values.sync.worker.dumperStepMaxAttempts | quote }}
+- name: DBOS_SYSTEM_DATABASE_URL
+  value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
+- name: AIRFLOW_CONN_AIRFLOW_DB
+  value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
+- name: DBOS_APPLICATION_NAME
+  value: {{ .Values.dbos.applicationName | quote }}
+- name: DBOS_APPLICATION_VERSION
+  value: {{ .Values.dbos.applicationVersion | quote }}
+- name: DBOS_SYSTEM_SCHEMA
+  value: {{ .Values.dbos.systemSchema | quote }}
+- name: DBOS_APP_SCHEMA
+  value: {{ .Values.dbos.appSchema | quote }}
+- name: SYNC_SCHEDULE
+  value: {{ .Values.sync.schedule | quote }}
+- name: DUMP_QUEUE_WORKER_CONCURRENCY
+  value: {{ .Values.sync.worker.dumpQueueWorkerConcurrency | quote }}
+- name: PUBLISH_QUEUE_WORKER_CONCURRENCY
+  value: {{ .Values.sync.worker.publishQueueWorkerConcurrency | quote }}
+- name: SYNC_QUEUE_CONCURRENCY
+  value: {{ .Values.sync.queue.concurrency | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
@@ -652,8 +693,6 @@ map $http_accept_profile $postgrest_write {
     secretKeyRef:
       name: {{ include "data-proxy.schemaWritersSecretName" . }}
       key: writers.json
-- name: PUSHGATEWAY_URL
-  value: {{ .Values.pushgateway.url | default (printf "http://%s-pushgateway.%s.svc.cluster.local:9091" .Release.Name .Release.Namespace) | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
 - name: POSTGREST_RO_DEPLOYMENT_TEMPLATE

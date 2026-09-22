@@ -48,19 +48,26 @@ spec:
               value: {{ printf "postgresql://%s-{schema}-rw:5432/%s" (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: PGUSER
               value: {{ .Values.cnpg.db.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: POSTGRES_PASSWORD
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: POSTGRES_PASSWORD
+            - name: DBOS_SYSTEM_DATABASE_URL
+              value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
+            - name: DBOS_SYSTEM_SCHEMA
+              value: {{ .Values.dbos.systemSchema | quote }}
             - name: SCHEMAS
               value: {{ keys (.Values.syncConfig.schemas | default dict) | join " " | quote }}
             - name: AUTH_USER_ROLE
               value: {{ .Values.auth.userRole | quote }}
             - name: NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            - name: PRODUCER
-              value: {{ include "data-proxy.fullname" . }}-producer
             - name: RELEASE_NAME
               value: {{ include "data-proxy.fullname" . }}
           volumeMounts:

@@ -5,6 +5,7 @@ use std/log
 use ./lib.nu [quote-pg refresh-postgrest render-sql schema-list]
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
+let dsn = $env.PG_DATABASE_URL
 let protected = [freshness access_policy access_log]
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
@@ -24,17 +25,14 @@ def postgres [query: string, --tuples-only]: nothing -> string {
     } catch {|err| log error $'psql failed: ($err.msg)' }
 }
 
-# Delete Redis keys and return the count removed
-def redis-del [...keys: string]: nothing -> string {
+# Execute a SQL statement against the DBOS system database
+def postgres-state [query: string]: nothing -> string {
     try {
-        let url = ($env.REDIS | from json | get write | url parse)
-        let dsn = $"redis://default:($url.password)@($url.host):($url.port)($url.path)"
-        redis-cli -u $dsn --no-auth-warning DEL ...$keys | str trim
-    } catch {|err|
-        log error $'redis-cli failed: ($err.msg)'
-        '0'
-    }
+        psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $query
+    } catch {|err| log error $'psql (state) failed: ($err.msg)' }
 }
+
+let app_schema = $env.DBOS_APP_SCHEMA? | default "dp"
 
 log info 'Cleanup started'
 
@@ -97,14 +95,11 @@ for schema in (schema-list $config) {
                 table: (quote-pg $table literal)
             }))
 
-            log info $'Deleting Redis state for ($full_name)'
-            let deleted = (redis-del
-                $'dp:state:($full_name)'
-                $'dp:sync:partitions:($full_name)'
-                $'dp:sync:state:($full_name)'
-            )
-
-            log info $'Deleted ($deleted) Redis keys for ($full_name)'
+            log info $'Deleting table state for ($full_name)'
+            (postgres-state (render-sql cleanup_delete_table_state.sql {
+                schema: (quote-pg $app_schema identifier)
+                table: (quote-pg $table literal)
+            }))
         }
 
         log info $'Deleting access_policy rows for ($schema)'

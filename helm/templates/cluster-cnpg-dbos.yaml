@@ -1,0 +1,45 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the dedicated CloudNativePG cluster for the DBOS system database in HA mode.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
+{{- if .Values.ha.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "data-proxy.dbosClusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dbos
+spec:
+  imageName: {{ .Values.cnpg.image | quote }}
+  env:
+    - name: HOME
+      value: /var/lib/postgresql/data
+  bootstrap:
+    initdb:
+      database: {{ .Values.cnpg.db.name | quote }}
+      owner: {{ .Values.cnpg.db.user | quote }}
+      encoding: UTF8
+      dataChecksums: true
+  instances: 2
+  resources:
+    requests:
+      cpu: {{ .Values.dbos.cluster.resources.requests.cpu | quote }}
+      memory: {{ .Values.dbos.cluster.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.dbos.cluster.resources.limits.cpu | quote }}
+      memory: {{ .Values.dbos.cluster.resources.limits.memory | quote }}
+  storage:
+    size: {{ .Values.dbos.cluster.storage.size | quote }}
+    {{- if .Values.dbos.cluster.storage.storageClass }}
+    storageClass: {{ .Values.dbos.cluster.storage.storageClass | quote }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,36 @@
+{{/*
+{
+  "kind": "template",
+  "description": "Render the single KEDA ScaledObject that scales the DBOS sync worker on the DBOS workflow queue.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names.",
+    "chart": "Helm chart metadata used in labels."
+  }
+}
+*/}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-sync-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync-worker
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-sync-worker
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: {{ .Values.sync.worker.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.sync.worker.keda.cooldownPeriod }}
+  idleReplicaCount: {{ .Values.sync.worker.keda.idleReplicaCount }}
+  minReplicaCount: {{ .Values.sync.worker.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.sync.worker.keda.maxReplicaCount }}
+  triggers:
+    - type: postgresql
+      metadata:
+        connectionFromEnv: AIRFLOW_CONN_AIRFLOW_DB
+        query: {{ .Values.sync.worker.keda.query | quote }}
+        targetQueryValue: {{ .Values.sync.worker.keda.targetQueryValue | quote }}
+        activationTargetQueryValue: {{ .Values.sync.worker.keda.activationTargetQueryValue | quote }}

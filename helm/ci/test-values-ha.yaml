@@ -8,7 +8,7 @@ sync:
 cnpg:
   db:
     name: data-proxy
-    user: dataproxy
+    user: data-proxy
   image: gcr.io/proj/data-proxy-postgres:17-v1.1.1
   init:
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:030de55

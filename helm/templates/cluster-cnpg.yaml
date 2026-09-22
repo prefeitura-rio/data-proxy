@@ -62,7 +62,7 @@ spec:
   postgresql:
     shared_preload_libraries:
       - pg_duckdb
-      - pg_partman_bgw
+      - pg_stat_statements
     parameters:
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: top
@@ -170,7 +170,7 @@ spec:
   postgresql:
     shared_preload_libraries:
       - pg_duckdb
-      - pg_partman_bgw
+      - pg_stat_statements
     parameters:
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: top
@@ -217,7 +217,9 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+          {{- range $schema := sortAlpha (keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas)) }}
           - {{ printf "policy_writer_%s" $schema | quote }}
+          {{- end }}
       {{- if or $root.Values.backup.enabled $root.Values.cleanup.enabled }}
       - name: jobs
         ensure: present

@@ -70,7 +70,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: POSTGRES_PASSWORD
-            - name: PG_DSN
+            - name: PG_DATABASE_URL
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
             - name: PGHOST
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
@@ -166,7 +166,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" $root }}
                   key: POSTGRES_PASSWORD
-            - name: PG_DSN
+            - name: PG_DATABASE_URL
               value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
             - name: PGHOST
               value: {{ printf "%s-rw" $cluster | quote }}

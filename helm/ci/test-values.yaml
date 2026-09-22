@@ -8,7 +8,7 @@ sync:
 cnpg:
   db:
     name: data-proxy
-    user: dataproxy
+    user: data-proxy
   instances: 2
   autoscaling:
     minReplicaCount: 2

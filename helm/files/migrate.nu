@@ -33,40 +33,29 @@ def namespace []: nothing -> string {
     $env.NAMESPACE? | default data-proxy
 }
 
-# Return the producer CronJob name from the environment, defaulting to data-proxy-producer.
-def producer-name []: nothing -> string {
-    $env.PRODUCER? | default data-proxy-producer
+# Return the DBOS system schema from the environment, defaulting to dbos.
+def dbos-schema []: nothing -> string {
+    $env.DBOS_SYSTEM_SCHEMA? | default dbos
 }
 
-# Suspend the producer CronJob so no new syncs start.
+# Pause the DBOS sync schedule so no new syncs start.
 def block-syncs []: nothing -> string {
-    let ns = namespace
-    let producer = producer-name
-    log info $'Suspending producer CronJob ($producer)...'
-    k -n $ns patch cronjob $producer -p '{"spec":{"suspend":true}}' --type=merge
+    let schema = dbos-schema
+    log info 'Pausing DBOS sync schedule…'
+    psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $"UPDATE ($schema).workflow_schedules SET status = 'PAUSED' WHERE schedule_name = 'sync'"
 }
 
-# Resume the producer CronJob so syncs can start again.
+# Resume the DBOS sync schedule so syncs can start again.
 def unblock-syncs []: nothing -> string {
-    let ns = namespace
-    let producer = producer-name
-    log info $'Unsuspending producer CronJob ($producer)...'
-    (k
-        -n
-        $ns
-        patch
-        cronjob
-        $producer
-        -p
-        '{"spec":{"suspend":false}}'
-        --type=merge
-    )
+    let schema = dbos-schema
+    log info 'Resuming DBOS sync schedule…'
+    psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $"UPDATE ($schema).workflow_schedules SET status = 'ACTIVE' WHERE schedule_name = 'sync'"
 }
 
 # Wait for init-db to complete by checking access_policy table exists in target.
 def wait-for-schema [schema: string, dsn: string]: any -> error {
-    log info $'Waiting for ($schema).access_policy in target cluster...'
-    let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_duckdb'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_partman'\)"
+    log info $'Waiting for ($schema).access_policy in target cluster…'
+    let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_duckdb'\)"
     for _ in 1..60 {
         let exists = try {
             psql $dsn --tuples-only --no-psqlrc --quiet -c $query | str trim

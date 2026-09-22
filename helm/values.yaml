@@ -2,34 +2,19 @@
 sync:
   image: ghcr.io/prefeitura-rio/data-proxy:caa0da9
   imagePullPolicy: IfNotPresent
-  producer:
-    ## Cron expression that controls when the producer runs.
-    ## Default: daily at 02:00 UTC.
-    schedule: 0 2 * * *
-    ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
-    startingDeadlineSeconds: 600
-    ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
-    activeDeadlineSeconds: 3600
-    ## Time in seconds between checks for the prior pipeline to complete.
-    pollIntervalSeconds: 60
-    ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
-    ttlSecondsAfterFinished: 300
+  ## Cron expression that controls when the producer CronJob fires.
+  ## Default: daily at 02:00 UTC. The producer enqueues one sync_run workflow.
+  schedule: 0 2 * * *
+  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+  startingDeadlineSeconds: 600
+  ## Maximum wall-clock time one sync run may run before it is considered hung.
+  activeDeadlineSeconds: 3600
+  ## DBOS queue that carries the enqueued sync_run workflow.
+  queue:
+    ## Maximum concurrent sync_run workflows across all workers.
+    concurrency: 1
   dumper:
-    ## Spread concurrent Dumper pods across nodes when possible.
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/component: dumper
-            app.kubernetes.io/instance: data-proxy
-            app.kubernetes.io/name: data-proxy
-    ## Time in milliseconds before a Dumper can reclaim a pending task. One task
-    ## extracts a whole batch, so this must exceed the duration of a batch.
-    visibilityTimeoutMs: 3600000
     ## Size in megabytes of uncompressed source data that one extraction batch collects before it
-    ## closes. A batch becomes one Parquet file in the bucket.
     batchMegaBytes: 600
     ## Maximum number of partitions in one batch, which bounds a partition set
     ## that never reaches batchMegaBytes (in MB).
@@ -40,48 +25,42 @@ sync:
       mountPath: /scratch
       ## Size limit of the emptyDir volume that backs the scratch directory.
       sizeLimit: 4Gi
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 900
+  worker:
+    ## Spread concurrent sync worker pods across nodes when possible.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: sync-worker
+            app.kubernetes.io/instance: data-proxy
+            app.kubernetes.io/name: data-proxy
+    ## Maximum DBOS step retry attempts for one dump task.
+    dumperStepMaxAttempts: 3
+    ## Per-process concurrency for the DBOS dump queue.
+    dumpQueueWorkerConcurrency: 4
+    ## Per-process concurrency for the DBOS publish queue.
+    publishQueueWorkerConcurrency: 4
     keda:
-      ## Number of unread stream messages that triggers one additional Dumper pod.
-      lagCount: "1"
-      ## Number of delivered-but-unacknowledged messages that keeps a Dumper pod
-      ## alive. lagCount alone reaches 0 as soon as the last message is
-      ## delivered, before it is actually processed, so this second trigger
-      ## prevents KEDA from terminating a pod still finishing its last task.
-      pendingEntriesCount: "1"
-      ## Maximum number of concurrent Dumper pods.
-      maxReplicaCount: 15
       ## Interval in seconds between KEDA metric checks.
       pollingInterval: 30
-      ## Cooldown in seconds before scaling down to zero.
+      ## Cooldown in seconds before scaling down to idle.
       cooldownPeriod: 60
-  publisher:
-    ## Time in milliseconds before a publisher can reclaim a pending message.
-    visibilityTimeoutMs: 7200000
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 1800
-    keda:
-      ## Maximum publisher Jobs. Leave unset for one Job for each configured schema.
-      ## maxReplicaCount: 2
-      ## Number of delivered-but-unacknowledged messages that asks KEDA for a Job,
-      ## which then reclaims the message after the visibility timeout.
-      pendingEntriesCount: "1"
-      ## Interval in seconds between KEDA metric checks.
-      pollingInterval: 30
-      ## Number of completed publisher Jobs that KEDA keeps. Zero removes them.
-      successfulJobsHistoryLimit: 0
-      ## Number of failed publisher Jobs that KEDA keeps for inspection.
-      failedJobsHistoryLimit: 1
-  seeder:
-    visibilityTimeoutMs: 900000
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 900
-    keda:
-      pendingEntriesCount: "1"
-      pollingInterval: 30
-      successfulJobsHistoryLimit: 0
-      failedJobsHistoryLimit: 1
+      ## Replicas KEDA scales down to when the DBOS queue is empty. Keep at least one
+      ## warm worker: the producer enqueues one sync_run coordinator, and a single
+      ## queued workflow cannot activate a count trigger from zero, so it would never start.
+      idleReplicaCount: 1
+      ## Minimum replicas once work activates. We always start with at least 3 workers.
+      minReplicaCount: 3
+      ## Maximum number of concurrent sync worker pods.
+      maxReplicaCount: 15
+      ## Postgres trigger query counting DBOS queued/running workflows.
+      query: "SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';"
+      ## Target value for the query result; one additional worker per 16 queued/running workflows.
+      targetQueryValue: "1.1"
+      ## Value above which KEDA activates from zero replicas.
+      activationTargetQueryValue: "5"
 migration:
   ## Image used by the HA mode migration Job.
   image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
@@ -96,7 +75,7 @@ serviceAccount:
   ## Annotations to add to the ServiceAccount. Use this field for Workload Identity.
   ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
   annotations: {}
-## Configuration for the PostgreSQL database with pg_duckdb, PostGIS, and pg_partman.
+## Configuration for the PostgreSQL database with pg_duckdb and PostGIS.
 ## CNPG manages the PostgreSQL clusters. This section configures the database
 ## name, credentials, and init image used by the chart.
 postgrest:
@@ -239,9 +218,10 @@ seaweedfs:
         memory: 128Mi
 ## External Redis-compatible broker and cache.
 redis:
-  ## Existing Secret containing REDIS and REDIS_PASSWORD.
+  ## Existing Secret containing REDIS_READ, REDIS_WRITE, and REDIS_PASSWORD.
   existingSecret: data-proxy-redis
-  configKey: REDIS
+  readKey: REDIS_READ
+  writeKey: REDIS_WRITE
   passwordKey: REDIS_PASSWORD
   ## Host and port used by KEDA Redis Streams triggers.
   writerAddress: redis-writer:6379
@@ -294,10 +274,20 @@ cleanup:
   schedule: 0 4 * * *
   ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
-## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
-## Scales to zero when the stream is empty.
-## Publisher — KEDA ScaledJob with one Job for each schema plan.
-## Seeder — KEDA ScaledJob with one Job for each seed task.
+## Retention CronJob — deletes rows older than each table's configured retention
+## window. Tables declare retention in syncConfig. See docs/sync.md.
+retention:
+  ## Set to true to deploy the retention CronJob.
+  enabled: false
+  ## Image used by the retention CronJob.
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:b41800c
+  ## Cron expression that controls when retention runs.
+  ## Default: daily at 05:00 UTC, after the cleanup.
+  schedule: 0 5 * * *
+  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
+  startingDeadlineSeconds: 600
+## Sync worker — one DBOS Deployment scaled by a single KEDA ScaledObject that counts
+## DBOS queued/running workflows. Scales to zero when the queue is empty.
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
 schemaWriters:
@@ -332,6 +322,26 @@ auth:
 ha:
   enabled: false
   schemas: []
+## DBOS system database configuration.
+## In single mode DBOS runs in the shared CNPG cluster. In HA mode a dedicated
+## CNPG cluster (1 primary + 1 replica, no pooler) is rendered for DBOS.
+dbos:
+  applicationName: data-proxy-sync
+  applicationVersion: "0.1.0"
+  systemSchema: dbos
+  appSchema: dp
+  cluster:
+    ## Resource requests and limits for each DBOS Postgres instance pod (HA mode).
+    resources:
+      requests:
+        cpu: 250m
+        memory: 250Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    storage:
+      size: 20Gi
+      storageClass: ""
 ## CloudNativePG manages PostgreSQL clusters with native streaming replication,
 ## automatic failover, and Barman backups. No Patroni or HAProxy needed.
 ##
@@ -366,7 +376,7 @@ cnpg:
       triggers: []
   db:
     name: data-proxy
-    user: dataproxy
+    user: data-proxy
   init:
     image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
   existingSecret: ""
@@ -395,7 +405,7 @@ cnpg:
     limits:
       cpu: "4"
       memory: 4Gi
-  ## Container image with pg_duckdb, PostGIS, and pg_partman.
+  ## Container image with pg_duckdb and PostGIS.
   ## Must be based on the official postgres image for CNPG compatibility.
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-ff86fc4
   storage:
@@ -434,12 +444,6 @@ cnpg:
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.
     backupRetention: 7
-  partman:
-    schedule: 0 6 * * *
-    retention: 365 days
-## pg_partman configuration for native PostgreSQL partition management.
-## Creates future partitions and drops expired ones automatically.
-## The Publisher INSERTs into the partitioned parent instead of delete+reload.
 ## Pushgateway for metrics push from short-lived worker pods.
 ## When enabled, deploys prometheus-pushgateway as a subchart.
 ## When disabled, set pushgateway.url to point to an external service.
