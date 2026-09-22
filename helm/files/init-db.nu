@@ -97,6 +97,14 @@ def create-access-policy []: nothing -> nothing {
     log info 'Created access policy tables'
 }
 
+# Install maintenance procedures used by cleanup and retention jobs.
+def install-maintenance []: nothing -> nothing {
+    postgres (render-sql setup_maintenance.sql {
+        schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
+    })
+    log info 'Installed maintenance procedures'
+}
+
 # Install the PostgreSQL bigquery community extension for BigQuery fallback views
 def install-bigquery-extension []: nothing -> nothing {
     postgres (render-sql install_bigquery_extension.sql {})
@@ -112,6 +120,7 @@ def main []: nothing -> nothing {
         create-schemas-and-freshness
         create-pre-request
         create-access-policy
+        install-maintenance
         install-bigquery-extension
         postgres (render-sql notify_pgrst.sql {})
 
