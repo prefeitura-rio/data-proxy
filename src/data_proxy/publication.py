@@ -481,7 +481,7 @@ def apply_partition_fallback(
 ) -> None:
     """Keep prior manifest entries and omit failed new entries."""
     for partition_id in failed_ids:
-        table_plan.changed_paths.pop(partition_id)
+        table_plan.changed_paths.pop(partition_id, None)
         previous = table_plan.previous_partitions.get(partition_id)
 
         if previous is None:

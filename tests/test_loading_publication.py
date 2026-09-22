@@ -1,11 +1,9 @@
 """Tests for Parquet-to-PostgreSQL loading operations."""
 
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-from psycopg import AsyncConnection
 from psycopg.sql import SQL
-from whenever import Instant
 
 from data_proxy.models import (
     FullTable,
@@ -18,189 +16,17 @@ from data_proxy.publication import (
     PreparedTable,
     prepare_tables,
     run_publication,
-    run_publication_batch,
 )
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, fetch_one, partition, sync_config
-
-
-class TestLoadingPublishPrepared:
-    """Tests for PublishPrepared behavior."""
-
-    @pytest.mark.asyncio
-    async def test_run_publication_batch_swaps_each_table(
-        self,
-    ) -> None:
-        """
-        GIVEN: multiple prepared shadow tables.
-        WHEN: run_publication_batch runs.
-        THEN: each table is atomically published.
-        """
-        tables: list[FullTable | PartitionedTable] = [
-            FullTable(name="p.app.one", resolved_schema="app"),
-            FullTable(name="p.app.two", resolved_schema="app"),
-        ]
-
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={table.name: "new" for table in tables},
-            paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
-        )
-        prepared = [PreparedTable(table=table, swap=True) for table in tables]
-        connection = AsyncMock(spec=AsyncConnection)
-
-        with (
-            patch("data_proxy.publication.publish_table") as publish,
-            patch("data_proxy.freshness.execute_sql", new_callable=AsyncMock),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication_batch(
-                connection,
-                connection,
-                prepared,
-                plan,
-                {},
-                Instant.now(),
-            )
-
-        assert publish.call_count == 2
-        assert connection.commit.call_count == 2
-        connection.rollback.assert_not_called()
-        assert result == {"p.app.one", "p.app.two"}
-
-    @pytest.mark.asyncio
-    async def test_run_publication_batch_skips_the_swap_for_a_replaced_partition(
-        self,
-    ) -> None:
-        """
-        GIVEN: a prepared table that needs no swap.
-        WHEN: run_publication_batch runs.
-        THEN: it skips the table swap and only updates freshness.
-        """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
-        plan = SyncPlan(
-            schema_name="app",
-            partitioned_tables={
-                table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=False,
-                    current_partitions={"10": partition("10")},
-                    changed_paths={"10": "s3://bucket/10.parquet"},
-                    removed_partitions={},
-                )
-            },
-        )
-
-        with (
-            patch("data_proxy.publication.publish_table") as publish,
-            patch("data_proxy.publication.update_published_freshness") as freshness,
-        ):
-            result = await run_publication_batch(
-                AsyncMock(spec=AsyncConnection),
-                AsyncMock(spec=AsyncConnection),
-                [PreparedTable(table=table, swap=False)],
-                plan,
-                {},
-                Instant.now(),
-            )
-
-        publish.assert_not_called()
-        freshness.assert_called_once()
-        assert result == {"p.app.people"}
-
-    @pytest.mark.asyncio
-    async def test_run_publication_batch_excludes_failed_publication(
-        self,
-    ) -> None:
-        """
-        GIVEN: one table swap raises RuntimeError.
-        WHEN: run_publication_batch runs.
-        THEN: only the successful tables are reported as synchronized.
-        """
-        tables = [
-            FullTable(name="p.app.one", resolved_schema="app"),
-            FullTable(name="p.app.two", resolved_schema="app"),
-        ]
-        connection = AsyncMock(spec=AsyncConnection)
-
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={table.name: "new" for table in tables},
-            paths={table.name: [f"s3://b/{table.table_name}"] for table in tables},
-        )
-        with (
-            patch(
-                "data_proxy.publication.publish_table",
-                side_effect=[RuntimeError("boom"), None],
-            ),
-            patch("data_proxy.freshness.execute_sql", new_callable=AsyncMock),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication_batch(
-                connection,
-                connection,
-                [PreparedTable(table=table, swap=True) for table in tables],
-                plan,
-                {"p.app.one": {"10"}},
-                Instant.now(),
-            )
-
-        assert result == {"p.app.two"}
-        assert connection.rollback.call_count == 1
-        assert connection.commit.call_count == 3
 
 
 class TestLoadingRunPublication:
     """Tests for ApplySyncPlan behavior."""
 
     @pytest.mark.asyncio
-    async def test_run_publication_delegates_all_steps(
-        self,
-    ) -> None:
-        """
-        GIVEN: a sync config and plan with changes.
-        WHEN: run_publication runs.
-        THEN: the orchestrator delegates to initialize, prepare, publish, and reload.
-        """
-        config = sync_config([FullTable(name="p.app.changed")])
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.app.changed": "100"},
-            paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
-        )
-
-        with (
-            patch("data_proxy.publication.initialize_schemas") as initialize,
-            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
-            patch(
-                "data_proxy.publication.prepare_tables",
-                return_value=[PreparedTable(table=config.tables[0], swap=True)],
-            ),
-            patch(
-                "data_proxy.publication.run_publication_batch",
-                return_value={"p.app.changed"},
-            ) as publish,
-            patch("data_proxy.publication.revoke_anonymous_access") as reload,
-            patch("data_proxy.publication.run_fallback_views_creation"),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication(
-                AsyncMock(spec=AsyncConnection),
-                AsyncMock(spec=AsyncConnection),
-                config,
-                plan,
-            )
-
-        initialize.assert_called_once()
-        publish.assert_called_once()
-        reload.assert_called_once()
-        assert result.plan == plan
-        assert result.published_tables == {"p.app.changed"}
-
-    @pytest.mark.asyncio
     async def test_run_publication_publishes_silo_parquet(
-        self,
-        postgres: Postgres,
+        self, postgres: Postgres
     ) -> None:
         """The real orchestration publishes the Silo-backed Parquet fixture."""
         table = FullTable(
@@ -232,8 +58,7 @@ class TestLoadingRunPublication:
 
     @pytest.mark.asyncio
     async def test_prepare_tables_creates_a_missing_full_table_directly(
-        self,
-        postgres: Postgres,
+        self, postgres: Postgres
     ) -> None:
         """
         GIVEN: a full table that does not exist yet.
@@ -254,7 +79,6 @@ class TestLoadingRunPublication:
                 ]
             },
         )
-
         prepared = await prepare_tables(
             postgres.connection,
             postgres.connection,
@@ -262,7 +86,6 @@ class TestLoadingRunPublication:
             plan,
             {table.name},
         )
-
         rows = await fetch_all(
             postgres.connection,
             "postgres/select_people_rows",
@@ -273,7 +96,6 @@ class TestLoadingRunPublication:
             "postgres/index_names",
             mapping={"schema": postgres.namespace.schema, "table": "people"},
         )
-
         assert prepared == [PreparedTable(table=table, swap=False)]
         assert rows == [
             (10, "name10"),
@@ -291,8 +113,7 @@ class TestLoadingRunPublication:
 
     @pytest.mark.asyncio
     async def test_prepare_tables_appends_every_batch_of_a_full_rebuild(
-        self,
-        postgres: Postgres,
+        self, postgres: Postgres
     ) -> None:
         """
         GIVEN: a full rebuild whose two batches hold different partitions.
@@ -317,7 +138,6 @@ class TestLoadingRunPublication:
                 )
             },
         )
-
         prepared = await prepare_tables(
             postgres.connection,
             postgres.connection,
@@ -325,14 +145,12 @@ class TestLoadingRunPublication:
             plan,
             {table.name},
         )
-
         cursor = await postgres.connection.execute(
             SQL("SELECT cpf, name FROM {} ORDER BY cpf").format(
                 postgres.namespace.table("people")
             )
         )
         rows = await cursor.fetchall()
-
         assert prepared == [PreparedTable(table=table, swap=False)]
         assert rows == [
             (10, "name10"),
@@ -356,148 +174,3 @@ class TestLoadingRunPublication:
             (28, "name28"),
             (29, "name29"),
         ]
-
-    @pytest.mark.asyncio
-    async def test_run_publication_creates_fallback_views_when_enabled(
-        self,
-    ) -> None:
-        """Fallback creates BigQuery views after publication."""
-        config = sync_config([FullTable(name="p.app.changed")])
-        plan = SyncPlan(schema_name="app")
-        with (
-            patch("data_proxy.publication.initialize_schemas"),
-            patch("data_proxy.publication.prepare_tables", return_value=[]),
-            patch("data_proxy.publication.run_publication_batch", return_value=set()),
-            patch("data_proxy.publication.revoke_anonymous_access"),
-            patch("data_proxy.publication.run_fallback_views_creation") as create_views,
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            pg_conn = AsyncMock(spec=AsyncConnection)
-            await run_publication(pg_conn, pg_conn, config, plan)
-
-        create_views.assert_called_once_with(pg_conn, config)
-
-    @pytest.mark.asyncio
-    async def test_run_publication_records_failure_without_incremental_publication(
-        self,
-    ) -> None:
-        """
-        GIVEN: a fully failed incremental change.
-        WHEN: run_publication runs.
-        THEN: it records failure without performing a publication swap.
-        """
-        table = PartitionedTable(name="p.app.people", resolved_schema="app")
-        path = "s3://bucket/people/10.parquet"
-        plan = SyncPlan(
-            schema_name="app",
-            partitioned_tables={
-                table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=False,
-                    current_partitions={"10": partition("10")},
-                    changed_paths={"10": path},
-                    removed_partitions={},
-                )
-            },
-        )
-
-        with (
-            patch("data_proxy.publication.initialize_schemas"),
-            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
-            patch(
-                "data_proxy.publication.record_freshness_failures"
-            ) as record_failures,
-            patch("data_proxy.publication.run_publication_batch", return_value=set()),
-            patch("data_proxy.publication.revoke_anonymous_access"),
-            patch("data_proxy.publication.run_fallback_views_creation"),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication(
-                AsyncMock(spec=AsyncConnection),
-                AsyncMock(spec=AsyncConnection),
-                sync_config([table]),
-                plan,
-                {path},
-            )
-
-        prepare.assert_called_once_with(ANY, ANY, ANY, ANY, set())
-        record_failures.assert_called_once_with(
-            ANY, [table], plan, ANY, {table.name: {"10"}}
-        )
-        assert result.published_tables == set()
-
-    @pytest.mark.asyncio
-    async def test_run_publication_excludes_extraction_failures(
-        self,
-    ) -> None:
-        """
-        GIVEN: a table with a failed extraction path.
-        WHEN: run_publication runs.
-        THEN: the table is not prepared from stale Parquet.
-        """
-        config = sync_config([FullTable(name="p.app.changed")])
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.app.changed": "100"},
-            paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
-        )
-
-        with (
-            patch("data_proxy.publication.initialize_schemas"),
-            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
-            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
-            patch("data_proxy.publication.run_publication_batch", return_value=set()),
-            patch("data_proxy.publication.revoke_anonymous_access"),
-            patch("data_proxy.publication.run_fallback_views_creation"),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication(
-                AsyncMock(spec=AsyncConnection),
-                AsyncMock(spec=AsyncConnection),
-                config,
-                plan,
-                {"s3://bucket/changed/data.parquet"},
-            )
-
-        prepare.assert_called_once_with(ANY, ANY, config, plan, set())
-        assert result.plan == plan
-        assert result.published_tables == set()
-
-    @pytest.mark.asyncio
-    async def test_run_publication_records_preparation_failure_for_eligible_table(
-        self,
-    ) -> None:
-        """
-        GIVEN: an eligible table that fails to prepare.
-        WHEN: run_publication runs.
-        THEN: it records the preparation failure without publishing.
-        """
-        config = sync_config([FullTable(name="p.app.changed")])
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.app.changed": "100"},
-            paths={"p.app.changed": ["s3://bucket/changed/data.parquet"]},
-        )
-
-        with (
-            patch("data_proxy.publication.initialize_schemas"),
-            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
-            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
-            patch(
-                "data_proxy.publication.record_freshness_failures"
-            ) as record_failures,
-            patch("data_proxy.publication.run_publication_batch", return_value=set()),
-            patch("data_proxy.publication.revoke_anonymous_access"),
-            patch("data_proxy.publication.run_fallback_views_creation"),
-            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
-        ):
-            result = await run_publication(
-                AsyncMock(spec=AsyncConnection),
-                AsyncMock(spec=AsyncConnection),
-                config,
-                plan,
-            )
-
-        prepare.assert_called_once_with(ANY, ANY, ANY, ANY, {"p.app.changed"})
-        record_failures.assert_called_with(ANY, [config.tables[0]], plan, ANY)
-        assert result.published_tables == set()

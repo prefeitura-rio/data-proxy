@@ -1,11 +1,14 @@
 """Shared test builders and assertions for the data-proxy test suite."""
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import cast
 
+from google.cloud.bigquery import Row
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.sql import Composable
 
+from data_proxy.kubernetes import Deployment
 from data_proxy.models import (
     AllSelection,
     DumpTask,
@@ -19,6 +22,7 @@ from data_proxy.models import (
     SyncPlan,
     TableConfig,
     TaskSelection,
+    TimeRangeSelection,
 )
 from data_proxy.templates import render_template
 from data_proxy.types import DatabaseRow, TemplateValue
@@ -162,3 +166,44 @@ async def fetch_one(
     """Execute a SQL fixture template and return one row."""
     cursor = await execute_sql(connection, path, mapping=mapping, params=params)
     return await cursor.fetchone()
+
+
+def metadata_row(
+    partition_id: str,
+    logical_bytes: int,
+    modified: datetime | None = None,
+    missing_modified: bool = False,
+) -> Row:
+    """Build one BigQuery partition metadata row."""
+    if modified is None:
+        modified = datetime(2025, 1, 1, tzinfo=UTC)
+    return cast(
+        Row,
+        cast(
+            object,
+            {
+                "partition_id": partition_id,
+                "last_modified_time": None if missing_modified else modified,
+                "logical_bytes": logical_bytes,
+            },
+        ),
+    )
+
+
+def partition_for(
+    selection: RangeSelection | TimeRangeSelection | RemainderSelection,
+) -> PhysicalPartition:
+    """Build a physical partition for one selection."""
+    partition_id = (
+        selection.partition_id if isinstance(selection, RangeSelection) else "partition"
+    )
+    return PhysicalPartition(
+        partition_id=partition_id,
+        signature="signature",
+        selection=selection,
+    )
+
+
+async def deployment_value(value: Deployment) -> Deployment:
+    """Return a deployment from a readiness test double."""
+    return value

@@ -1,7 +1,5 @@
 """Freshness edge coverage."""
 
-from unittest.mock import AsyncMock, call, patch
-
 import pytest
 from whenever import Instant
 
@@ -49,11 +47,9 @@ class TestFreshnessPublishedFreshness:
         """
         full_table, _, schema = freshness_tables
         attempted_at = Instant.now()
-
         await upsert_freshness(
             postgres.connection, full_table, {"old"}, attempted_at, success=True
         )
-
         await update_published_freshness(
             postgres.connection,
             full_table,
@@ -66,7 +62,6 @@ class TestFreshnessPublishedFreshness:
             attempted_at,
         )
         await postgres.connection.commit()
-
         rows = await fetch_all(
             postgres.connection,
             "postgres/freshness_partitions_by_table",
@@ -77,9 +72,7 @@ class TestFreshnessPublishedFreshness:
 
     @pytest.mark.asyncio
     async def test_update_published_freshness_records_partition_results(
-        self,
-        postgres: Postgres,
-        partitioned_table: PartitionedTable,
+        self, postgres: Postgres, partitioned_table: PartitionedTable
     ) -> None:
         """
         GIVEN: a partitioned table with successful, failed, and removed partitions.
@@ -105,13 +98,10 @@ class TestFreshnessPublishedFreshness:
         await upsert_freshness(
             postgres.connection, partitioned_table, {"3"}, attempted_at, success=True
         )
-
         await update_published_freshness(
             postgres.connection, partitioned_table, plan, {"2"}, attempted_at
         )
-
         await postgres.connection.commit()
-
         rows = await fetch_all(
             postgres.connection,
             "postgres/freshness_partitions_by_table_ordered",
@@ -126,9 +116,7 @@ class TestFreshness:
 
     @pytest.mark.asyncio
     async def test_empty_freshness_batches_leave_no_rows_modified(
-        self,
-        postgres: Postgres,
-        full_table: FullTable,
+        self, postgres: Postgres, full_table: FullTable
     ) -> None:
         """
         GIVEN: empty freshness batches.
@@ -136,14 +124,11 @@ class TestFreshness:
         THEN: no rows are modified.
         """
         attempted_at = Instant.now()
-
         await upsert_freshness(
             postgres.connection, full_table, set(), attempted_at, success=True
         )
         await delete_partition_freshness(postgres.connection, full_table, set())
-
         await postgres.connection.commit()
-
         assert await fetch_one(postgres.connection, "postgres/select_one") == (1,)
 
     @pytest.mark.asyncio
@@ -172,7 +157,6 @@ class TestFreshness:
                 )
             },
         )
-
         await record_freshness_failures(
             postgres.connection,
             [full, partitioned],
@@ -180,9 +164,7 @@ class TestFreshness:
             Instant.now(),
             {full.name: {"override"}},
         )
-
         await postgres.connection.commit()
-
         rows = await fetch_all(
             postgres.connection,
             "postgres/freshness_table_partitions",
@@ -199,9 +181,7 @@ class TestFreshnessTemplates:
 
     @pytest.mark.asyncio
     async def test_delete_freshness_removes_specified_partitions(
-        self,
-        postgres: Postgres,
-        partitioned_table: PartitionedTable,
+        self, postgres: Postgres, partitioned_table: PartitionedTable
     ) -> None:
         """
         GIVEN: a partitioned table with a partition to remove.
@@ -209,9 +189,7 @@ class TestFreshnessTemplates:
         THEN: the partition is removed using the freshness SQL template.
         """
         await delete_partition_freshness(postgres.connection, partitioned_table, {"10"})
-
         await postgres.connection.commit()
-
         row = await fetch_one(
             postgres.connection,
             "postgres/freshness_count",
@@ -221,9 +199,7 @@ class TestFreshnessTemplates:
 
     @pytest.mark.asyncio
     async def test_upsert_freshness_writes_failure_status_using_enum_template(
-        self,
-        postgres: Postgres,
-        partitioned_table: PartitionedTable,
+        self, postgres: Postgres, partitioned_table: PartitionedTable
     ) -> None:
         """
         GIVEN: a partitioned table with a failed partition.
@@ -231,17 +207,10 @@ class TestFreshnessTemplates:
         THEN: the freshness write uses the shared status enum template with the failure value.
         """
         attempted_at = Instant.now()
-
         await upsert_freshness(
-            postgres.connection,
-            partitioned_table,
-            {"10"},
-            attempted_at,
-            success=False,
+            postgres.connection, partitioned_table, {"10"}, attempted_at, success=False
         )
-
         await postgres.connection.commit()
-
         row = await fetch_one(
             postgres.connection,
             "postgres/freshness_status",
@@ -251,9 +220,7 @@ class TestFreshnessTemplates:
 
     @pytest.mark.asyncio
     async def test_full_rebuild_freshness_resets_to_current_manifest(
-        self,
-        postgres: Postgres,
-        partitioned_table: PartitionedTable,
+        self, postgres: Postgres, partitioned_table: PartitionedTable
     ) -> None:
         """
         GIVEN: a full rebuild plan with current partitions.
@@ -273,72 +240,13 @@ class TestFreshnessTemplates:
             },
         )
         attempted_at = Instant.now()
-
         await update_published_freshness(
             postgres.connection, partitioned_table, plan, set(), attempted_at
         )
-
         await postgres.connection.commit()
-
         rows = await fetch_all(
             postgres.connection,
             "postgres/freshness_partitions",
             mapping={"schema": partitioned_table.resolved_schema},
         )
         assert rows == [("10", "success")]
-
-    @pytest.mark.asyncio
-    async def test_incremental_freshness_records_success_failure_and_removal(
-        self,
-        postgres: Postgres,
-        partitioned_table: PartitionedTable,
-    ) -> None:
-        """
-        GIVEN: a partial partition publication with successful, failed, and removed partitions.
-        WHEN: update_published_freshness is called.
-        THEN: freshness matches each result with its correct status.
-        """
-        plan = SyncPlan(
-            schema_name=partitioned_table.resolved_schema,
-            partitioned_tables={
-                partitioned_table.name: PartitionedTablePlan(
-                    table_signature="table",
-                    full_rebuild=False,
-                    current_partitions={"10": partition("10")},
-                    changed_paths={"10": "successful"},
-                    removed_partitions={"30": partition("30")},
-                )
-            },
-        )
-        attempted_at = Instant.now()
-
-        with (
-            patch(
-                "data_proxy.freshness.upsert_freshness", new_callable=AsyncMock
-            ) as upsert,
-            patch(
-                "data_proxy.freshness.delete_partition_freshness",
-                new_callable=AsyncMock,
-            ) as delete,
-        ):
-            await update_published_freshness(
-                postgres.connection, partitioned_table, plan, {"20"}, attempted_at
-            )
-
-        assert upsert.await_args_list == [
-            call(
-                postgres.connection,
-                partitioned_table,
-                {"10"},
-                attempted_at,
-                success=True,
-            ),
-            call(
-                postgres.connection,
-                partitioned_table,
-                {"20"},
-                attempted_at,
-                success=False,
-            ),
-        ]
-        delete.assert_awaited_once_with(postgres.connection, partitioned_table, {"30"})

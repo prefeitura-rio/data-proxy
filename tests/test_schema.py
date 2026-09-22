@@ -11,18 +11,6 @@ from tests.helpers import execute_sql, sync_config
 class TestSchema:
     """Tests for schema lifecycle behavior."""
 
-    def test_table_accepts_a_cache_lifetime(self) -> None:
-        """
-        GIVEN: a table entry with a cache lifetime and one without.
-        WHEN: the sync config is built.
-        THEN: the lifetime is kept and the other table leaves it unset.
-        """
-        table = FullTable(name="p.dev.eventos", cache_ttl=42)
-        other = FullTable(name="p.dev.outro")
-
-        assert table.cache_ttl == 42
-        assert other.cache_ttl is None
-
     @pytest.mark.asyncio
     async def test_initialize_schemas_creates_roles_schemas_and_policies_in_order(
         self, postgres: Postgres
@@ -42,9 +30,7 @@ class TestSchema:
                 ),
             }
         )
-
         await initialize_schemas(postgres.connection, config)
-
         query = "".join(
             [
                 "SELECT to_regprocedure(name) ",
@@ -61,7 +47,6 @@ class TestSchema:
             ("data_proxy.apply_retention(jsonb,text)",),
             ("data_proxy.prune_access_log(interval,text)",),
         ]
-
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -87,7 +72,6 @@ class TestSchema:
         """
         schema = postgres.namespace.schema
         config = sync_config([FullTable(name=f"p.{schema}.one")], schema_name=schema)
-
         before = await (
             await execute_sql(
                 postgres.connection,
@@ -95,9 +79,7 @@ class TestSchema:
                 mapping={"role": "authenticator"},
             )
         ).fetchall()
-
         await initialize_schemas(postgres.connection, config)
-
         after = await (
             await execute_sql(
                 postgres.connection,
@@ -122,7 +104,6 @@ class TestSchema:
             mapping={"schema": schema},
         )
         await postgres.connection.commit()
-
         await revoke_anonymous_access(postgres.connection, config)
         usage = await (
             await execute_sql(
@@ -156,7 +137,6 @@ class TestSchema:
             (config.model_dump_json(), schema),
         )
         await postgres.connection.commit()
-
         row = await (
             await postgres.connection.execute(
                 b"SELECT to_regclass(%s)", (f"{schema}.stale",)

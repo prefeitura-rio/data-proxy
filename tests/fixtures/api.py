@@ -93,7 +93,7 @@ async def dbos_conn(
     system_db_container: PostgresContainer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[psycopg.AsyncConnection]:
-    """Provide an async connection to the DBOS system database with the dp schema initialized."""
+    """Provide an async connection to the DBOS system database with the data_proxy schema initialized."""
     from data_proxy.state import ensure_app_schema
 
     url = system_db_container.get_connection_url().replace(

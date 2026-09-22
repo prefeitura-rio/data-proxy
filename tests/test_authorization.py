@@ -1,7 +1,4 @@
-from unittest.mock import AsyncMock
-
 import pytest
-from psycopg import AsyncConnection
 from testcontainers.community.postgres import PostgresContainer
 
 from data_proxy.authorization import apply_table_authorization
@@ -13,21 +10,6 @@ from tests.helpers import execute_sql
 
 class TestAuthorization:
     """Tests for authorization validation and bootstrap safety."""
-
-    @pytest.mark.asyncio
-    async def test_bootstrap_rejects_an_invalid_runtime_rls_value(
-        self,
-        invalid_rls: list[UnitMapping],
-    ) -> None:
-        """
-        GIVEN: an invalid runtime RLS value.
-        WHEN: apply_table_authorization is called.
-        THEN: it raises AssertionError.
-        """
-        with pytest.raises(AssertionError):
-            await apply_table_authorization(
-                AsyncMock(spec=AsyncConnection), "app", "table", invalid_rls, None
-            )
 
     @pytest.mark.asyncio
     async def test_bootstrap_grants_access_without_rls(
@@ -44,16 +26,10 @@ class TestAuthorization:
             "postgres/create_table",
             mapping={"schema": schema, "table": "table", "columns": "id_cras text"},
         )
-
         await apply_table_authorization(
-            postgres.connection,
-            schema=schema,
-            table_name="table",
-            rls=None,
-            claim=None,
+            postgres.connection, schema=schema, table_name="table", rls=None, claim=None
         )
         await postgres.connection.commit()
-
         mapping = {"schema": schema, "table": "table"}
         row = await (
             await execute_sql(
@@ -94,7 +70,6 @@ class TestAuthorization:
             "postgres/create_access_policy",
             mapping={"schema": schema},
         )
-
         await apply_table_authorization(
             postgres.connection,
             schema=schema,
@@ -103,7 +78,6 @@ class TestAuthorization:
             claim="preferred_username",
         )
         await postgres.connection.commit()
-
         policies = await (
             await execute_sql(
                 postgres.connection,
@@ -155,7 +129,6 @@ class TestAuthorization:
             )
         ).fetchall()
         assert rows == [("allowed",)]
-
         await postgres.connection.execute("RESET ROLE")
         await postgres.connection.execute(
             f"DELETE FROM {schema}.access_policy WHERE subject = 'alice'".encode()
@@ -219,24 +192,6 @@ class TestAuthorization:
         ).fetchall()
         assert rows == []
 
-    @pytest.mark.asyncio
-    async def test_bootstrap_requires_a_configured_claim_for_protected_tables(
-        self,
-    ) -> None:
-        """
-        GIVEN: a protected table without a configured schema claim.
-        WHEN: apply_table_authorization is called.
-        THEN: it raises RuntimeError.
-        """
-        with pytest.raises(RuntimeError, match="identity claim"):
-            await apply_table_authorization(
-                AsyncMock(spec=AsyncConnection),
-                schema="app",
-                table_name="table",
-                rls=[UnitMapping(column="id_cras", unit_type="cras")],
-                claim=None,
-            )
-
 
 @pytest.fixture
 async def access_policy(postgres: Postgres) -> str:
@@ -281,13 +236,9 @@ class TestAccessPolicyLog:
         """
         schema = access_policy
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('123', true, 'cras', '42')"
-            ).encode()
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('123', true, 'cras', '42')".encode()
         )
         await postgres.connection.commit()
-
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -308,20 +259,13 @@ class TestAccessPolicyLog:
         """
         schema = access_policy
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('456', false, 'escola', '7')"
-            ).encode()
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('456', false, 'escola', '7')".encode()
         )
         await postgres.connection.commit()
-
         await postgres.connection.execute(
-            (
-                f"UPDATE {schema}.access_policy SET is_admin = true WHERE subject = '456'"
-            ).encode()
+            f"UPDATE {schema}.access_policy SET is_admin = true WHERE subject = '456'".encode()
         )
         await postgres.connection.commit()
-
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -344,18 +288,13 @@ class TestAccessPolicyLog:
         """
         schema = access_policy
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('789', false, 'ap', '1')"
-            ).encode()
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('789', false, 'ap', '1')".encode()
         )
         await postgres.connection.commit()
-
         await postgres.connection.execute(
             f"DELETE FROM {schema}.access_policy WHERE subject = '789'".encode()
         )
         await postgres.connection.commit()
-
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -378,26 +317,16 @@ class TestAccessPolicyLog:
         """
         schema = access_policy
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('recent', true, 'cras', '1')"
-            ).encode()
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('recent', true, 'cras', '1')".encode()
         )
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_log "
-                f"(subject, is_admin, unit_type, unit_id, action, changed_at) "
-                f"VALUES ('stale', false, 'escola', '2', 'delete', now() - interval '100 days')"
-            ).encode()
+            f"INSERT INTO {schema}.access_log (subject, is_admin, unit_type, unit_id, action, changed_at) VALUES ('stale', false, 'escola', '2', 'delete', now() - interval '100 days')".encode()
         )
         await postgres.connection.commit()
-
         await postgres.connection.execute(
-            b"CALL data_proxy.prune_access_log(%s::interval, %s)",
-            ("90 days", schema),
+            b"CALL data_proxy.prune_access_log(%s::interval, %s)", ("90 days", schema)
         )
         await postgres.connection.commit()
-
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -425,13 +354,9 @@ class TestAccessPolicyBackup:
         """
         schema = access_policy
         await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('dump', true, 'cras', '1')"
-            ).encode()
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('dump', true, 'cras', '1')".encode()
         )
         await postgres.connection.commit()
-
         for table in ("access_policy", "access_log"):
             result = postgres_container.exec(
                 [

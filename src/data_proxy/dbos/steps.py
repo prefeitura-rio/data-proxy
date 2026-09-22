@@ -127,7 +127,7 @@ async def extract_task(task: DumpTask) -> None:
 
 @DBOS.step()
 async def record_dump_failure(task: DumpTask, error: str) -> None:
-    """Persist one dump failure in the dp.errors table."""
+    """Persist one dump failure in the data_proxy.errors table."""
     async with connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await emit_error(
             pg_conn,

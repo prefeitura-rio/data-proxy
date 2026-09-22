@@ -13,4 +13,5 @@ os.environ.setdefault(
 pytest_plugins = [
     "tests.fixtures.api",
     "tests.fixtures.db",
+    "tests.fixtures.unit",
 ]

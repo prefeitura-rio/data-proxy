@@ -98,7 +98,7 @@ reportAny = false
 
 
 [tool.coverage.run]
-source = ["dp"]
+source = ["data_proxy"]
 omit = [
   "*/__init__.py",
   "src/data_proxy/bigquery/clients.py",

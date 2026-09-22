@@ -25,7 +25,7 @@ def configure_metrics() -> None:
 
 
 configure_metrics()
-meter = otel_metrics.get_meter("dp")
+meter = otel_metrics.get_meter("data_proxy")
 RunStatus = Literal["success", "no_changes", "failure"]
 P = ParamSpec("P")
 StatusRecorder = Callable[[RunStatus], Awaitable[None]]
