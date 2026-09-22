@@ -12,9 +12,9 @@ Webdis caches non-empty JSON responses with identity-aware keys. PostgREST valid
 
 | Component | Work                                              | Result                                                              |
 | --------- | ------------------------------------------------- | ------------------------------------------------------------------- |
-| sync_run  | Detect changed tables and partitions.             | Enqueues dump tasks to the DBOS dump queue.                       |
+| run_sync  | Detect changed tables and partitions.             | Enqueues dump tasks to the DBOS dump queue.                       |
 | dump_task | Extract one full table or one partition batch.    | Writes one Parquet file and returns the result.                     |
-| seed      | Initialize configured schemas and policy objects. | Runs inside sync_run before the publish fan-out.                    |
+| seed      | Initialize configured schemas and policy objects. | Runs inside run_sync before the publish fan-out.                    |
 | publish_schema | Load, prepare, and publish one schema.       | Commits table state and refreshes PostgREST after the final schema. |
 
 The Producer includes configuration in a table signature. A configuration change therefore causes a resync.
@@ -34,7 +34,7 @@ Use standalone mode for development and single-region deployments.
 ```mermaid
 sequenceDiagram
     participant BQ as BigQuery
-    participant P as sync_run
+    participant P as run_sync
     participant D as DBOS
     participant W as dump_task
     participant S3 as S3/SeaweedFS
@@ -123,7 +123,7 @@ The Publisher commits database state, waits for standby WAL replay, refreshes bo
 ```mermaid
 sequenceDiagram
     participant BQ as BigQuery
-    participant P as sync_run
+    participant P as run_sync
     participant D as DBOS
     participant W as dump_task
     participant S3 as S3/SeaweedFS

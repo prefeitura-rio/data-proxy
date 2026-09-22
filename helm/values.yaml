@@ -7,9 +7,9 @@ sync:
   schedule: 0 2 * * *
   ## Maximum wall-clock time for one DBOS sync workflow.
   workflowTimeoutSeconds: 3600
-  ## DBOS queue that carries the enqueued sync_run workflow.
+  ## DBOS queue that carries the enqueued run_sync workflow.
   queue:
-    ## Maximum concurrent sync_run workflows across all workers.
+    ## Maximum concurrent run_sync workflows across all workers.
     concurrency: 1
   dumper:
     ## Size in megabytes of uncompressed source data that one extraction batch collects before it

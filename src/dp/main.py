@@ -285,7 +285,7 @@ async def publish_schema(
 
 @DBOS.workflow()
 @observe_sync_run(record_run_status)
-async def sync_run(scheduled_at: datetime, context: object) -> RunStatus:
+async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
     """Plan one run, fan out dumps, seed, fan out publishers, and finalize."""
     workflow_id = DBOS.workflow_id
     if workflow_id is None:
@@ -382,7 +382,7 @@ def main() -> None:
         [
             ScheduleInput(
                 schedule_name=settings.SYNC_SCHEDULE_NAME,
-                workflow_fn=sync_run,
+                workflow_fn=run_sync,
                 schedule=settings.SYNC_SCHEDULE,
                 queue_name=SYNC_QUEUE,
             )

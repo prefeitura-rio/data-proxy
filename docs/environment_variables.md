@@ -46,7 +46,7 @@ Application defaults below apply outside Helm. Helm can override them.
 
 | Variable | Application default | Meaning |
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `SYNC_SCHEDULE` | `0 2 * * *` | Cron schedule for the DBOS `sync_run` workflow. |
+| `SYNC_SCHEDULE` | `0 2 * * *` | Cron schedule for the DBOS `run_sync` workflow. |
 | `SYNC_SCHEDULE_NAME` | `sync` | DBOS schedule name. |
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Per-process DBOS sync queue concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |

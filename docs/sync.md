@@ -62,7 +62,7 @@ When fallback is disabled for a table, the Publisher does not create its `_bq` v
 
 ## Pipeline
 
-The sync pipeline is one DBOS application. A scheduled `sync_run` workflow plans a run, enqueues one `dump_task` workflow per extraction unit to the `dump` queue, seeds the configured schemas, enqueues one `publish_schema` workflow per schema plan to the `publish` queue, and finalizes. DBOS stores all run state in Postgres; cross-run table signatures and partition manifests live in the `dp` schema in the DBOS system database. Redis is used only for the response cache. See [KEDA Scaling](keda.md).
+The sync pipeline is one DBOS application. A scheduled `run_sync` workflow plans a run, enqueues one `dump_task` workflow per extraction unit to the `dump` queue, seeds the configured schemas, enqueues one `publish_schema` workflow per schema plan to the `publish` queue, and finalizes. DBOS stores all run state in Postgres; cross-run table signatures and partition manifests live in the `dp` schema in the DBOS system database. Redis is used only for the response cache. See [KEDA Scaling](keda.md).
 
 ## Retention
 
