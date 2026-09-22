@@ -1,0 +1,46 @@
+suite: Scripts ConfigMap
+templates:
+  - configmap-scripts.yaml
+tests:
+  - it: ships the backup script that the backup CronJob runs
+    set:
+      cleanup.enabled: true
+      backup.enabled: true
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - documentSelector:
+          path: kind
+          value: ConfigMap
+        isKind:
+          of: ConfigMap
+      - documentSelector:
+          path: kind
+          value: ConfigMap
+        equal:
+          path: metadata.name
+          value: data-proxy-scripts
+      - documentSelector:
+          path: kind
+          value: ConfigMap
+        isNotNull:
+          path: data["backup.nu"]
+
+  - it: renders when backup is enabled and cleanup is disabled
+    set:
+      cleanup.enabled: false
+      backup.enabled: true
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+
+  - it: does not render when cleanup and backup are disabled
+    set:
+      cleanup.enabled: false
+      backup.enabled: false
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - hasDocuments:
+          count: 0

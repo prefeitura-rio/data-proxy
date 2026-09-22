@@ -1,22 +1,5 @@
 {{- if .Values.cleanup.enabled }}
 {{- $root := . }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-scripts
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cleanup
-data:
-  cleanup.nu: |
-{{ .Files.Get "files/cleanup.nu" | nindent 4 }}
-  lib.nu: |
-{{ .Files.Get "files/lib.nu" | nindent 4 }}
-{{- range $path, $_ := .Files.Glob "files/sql/helm/*.sql" }}
-  {{ base $path }}: |
-{{ $.Files.Get $path | nindent 4 }}
-{{- end }}
 {{- if not .Values.ha.enabled }}
 ---
 apiVersion: batch/v1

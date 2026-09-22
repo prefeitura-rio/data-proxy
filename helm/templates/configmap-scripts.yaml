@@ -1,0 +1,20 @@
+{{- if or .Values.cleanup.enabled .Values.backup.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+data:
+  cleanup.nu: |
+{{ .Files.Get "files/cleanup.nu" | nindent 4 }}
+  backup.nu: |
+{{ .Files.Get "files/backup.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/lib.nu" | nindent 4 }}
+{{- range $path, $_ := .Files.Glob "files/sql/helm/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}
