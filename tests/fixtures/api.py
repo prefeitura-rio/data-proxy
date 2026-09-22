@@ -1,6 +1,6 @@
 """API and external service fixtures."""
 
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from time import monotonic, sleep
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,11 +25,9 @@ from tests.fixtures.types import SeaweedFS
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
-Tracker = Callable[[Callable[..., object]], Callable[..., object]]
-
 
 @pytest.fixture
-def metrics_disabled() -> object:
+def metrics_disabled() -> Iterator[None]:
     """Prevent metrics recording during tests."""
     with patch("data_proxy.metrics.record_publication_metrics"):
         yield
@@ -138,7 +136,7 @@ def bigquery() -> Iterator[BigQuery]:
 
     client = MagicMock(spec=Client)
 
-    def get_table(table: str, **_: object) -> Table:
+    def get_table(table: str, **kwargs: object) -> Table:
         """Return metadata for one preseeded table."""
         name = table.replace(":", ".")
         row = database.execute(
@@ -159,7 +157,7 @@ def bigquery() -> Iterator[BigQuery]:
     def query(
         _: str,
         job_config: BigQueryQueryConfig | None = None,
-        **__: object,
+        **kwargs: object,
     ) -> object:
         """Return validated partition rows for the requested preseeded table."""
         name = (

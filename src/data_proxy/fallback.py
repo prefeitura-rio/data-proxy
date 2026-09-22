@@ -10,7 +10,7 @@ from .conditions import schema_scope_condition
 from .executor import execute_sql
 from .models import SyncConfig, TableConfig
 from .settings import settings
-from .types import TemplateValue
+from .types import DatabaseRow, TemplateValue
 
 DUCKDB_VIEW_PREFIX = "bq_fallback_"
 
@@ -52,7 +52,7 @@ async def column_types_from_duckdb(
         params=(table.resolved_schema, table.table_name),
     )
 
-    rows = cast("list[tuple[object, object]]", await cursor.fetchall())
+    rows = cast("list[DatabaseRow]", await cursor.fetchall())
     return [(str(column), str(duckdb_type)) for column, duckdb_type in rows]
 
 

@@ -22,6 +22,7 @@ from data_proxy.models import (
     TimeRangeSelection,
 )
 from data_proxy.settings import settings
+from data_proxy.types import TemplateValue
 from tests.helpers import dump, render
 
 
@@ -144,7 +145,7 @@ class TestExtract:
         """
         calls: list[tuple[str, str]] = []
 
-        def record_render(path: str, mapping: dict[str, object]) -> str:
+        def record_render(path: str, mapping: dict[str, TemplateValue]) -> str:
             calls.append((path, render(mapping["path"])))
             return "SELECT 1"
 
@@ -171,7 +172,7 @@ class TestExtract:
         calls: list[tuple[str, str]] = []
         scratch_files: list[Path] = []
 
-        def record_render(path: str, mapping: dict[str, object]) -> str:
+        def record_render(path: str, mapping: dict[str, TemplateValue]) -> str:
             target = render(mapping["path"]).strip("'")
             calls.append((path, target))
             if path != "duckdb/merge_batch":

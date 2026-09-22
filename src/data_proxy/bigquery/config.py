@@ -8,7 +8,12 @@ from functools import partial
 from hashlib import sha256
 from typing import Literal, cast
 
-from google.cloud.bigquery import RangePartitioning, Table, TimePartitioning
+from google.cloud.bigquery import (
+    RangePartitioning,
+    SchemaField,
+    Table,
+    TimePartitioning,
+)
 from whenever import PlainDateTime
 
 from ..constants import TIME_GRANULARITY_SPECS
@@ -139,7 +144,7 @@ def partitioned_table_signature(
             {
                 "config": config_json,
                 **asdict(kind_config),
-                "schema": repr(cast("object", metadata.schema)),
+                "schema": repr(cast(list[SchemaField], metadata.schema)),
             },
             sort_keys=True,
         ).encode()

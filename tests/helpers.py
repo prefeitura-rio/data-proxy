@@ -21,7 +21,7 @@ from data_proxy.models import (
     TaskSelection,
 )
 from data_proxy.templates import render_template
-from data_proxy.types import TemplateValue
+from data_proxy.types import DatabaseRow, TemplateValue
 from tests.constants import FILES
 
 TEST_SQL_DIR = FILES.parent / "sql"
@@ -130,7 +130,7 @@ async def execute_sql(
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
-) -> AsyncCursor[tuple[object, ...]]:
+) -> AsyncCursor[DatabaseRow]:
     """Execute a SQL fixture template, commit it, and return the cursor."""
     cursor = await connection.execute(
         render_template(path, mapping or {}, root=TEST_SQL_DIR),
@@ -146,7 +146,7 @@ async def fetch_all(
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
-) -> list[tuple[object, ...]]:
+) -> list[DatabaseRow]:
     """Execute a SQL fixture template and return every row."""
     cursor = await execute_sql(connection, path, mapping=mapping, params=params)
     return await cursor.fetchall()
@@ -158,7 +158,7 @@ async def fetch_one(
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
     params: tuple[object, ...] = (),
-) -> tuple[object, ...] | None:
+) -> DatabaseRow | None:
     """Execute a SQL fixture template and return one row."""
     cursor = await execute_sql(connection, path, mapping=mapping, params=params)
     return await cursor.fetchone()

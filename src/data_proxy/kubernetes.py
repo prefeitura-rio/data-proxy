@@ -41,7 +41,7 @@ class DeploymentApi(Protocol):
     """Typed subset of the Kubernetes Deployment API used here."""
 
     async def patch_namespaced_deployment(
-        self, *, name: str, namespace: str, **_kwargs: object
+        self, *, name: str, namespace: str, **kwargs: object
     ) -> Deployment: ...
 
     async def read_namespaced_deployment(
@@ -54,7 +54,7 @@ class KubernetesApiClient(Protocol):
 
     async def __aenter__(self) -> KubernetesApiClient: ...
 
-    async def __aexit__(self, *_args: object) -> None: ...
+    async def __aexit__(self, *args: object) -> None: ...
 
 
 load_config = cast(Callable[[], None], attrgetter("load_incluster_config")(config))

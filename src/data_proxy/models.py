@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
+from .types import JsonValue
 
 NonEmptyString = Annotated[str, Field(min_length=1)]
 BigQueryTableName = Annotated[
@@ -166,7 +167,7 @@ class Table(BaseModel):
         """Return the unqualified source table name."""
         return self.name.split(".")[-1]
 
-    def config_signature_fields(self) -> dict[str, object]:
+    def config_signature_fields(self) -> dict[str, JsonValue]:
         """Return the configuration fields that identify this table for a sync."""
         return {
             "name": self.name,
@@ -204,7 +205,7 @@ class FullTable(Table):
     strategy: Literal[Strategy.FULL] = Strategy.FULL
 
     @override
-    def config_signature_fields(self) -> dict[str, object]:
+    def config_signature_fields(self) -> dict[str, JsonValue]:
         """Include the strategy and a null partition window for a full table."""
         fields = super().config_signature_fields()
         fields["strategy"] = self.strategy
@@ -220,7 +221,7 @@ class PartitionedTable(Table):
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
     @override
-    def config_signature_fields(self) -> dict[str, object]:
+    def config_signature_fields(self) -> dict[str, JsonValue]:
         """Include the strategy and the partition window."""
         fields = super().config_signature_fields()
         fields["strategy"] = self.strategy

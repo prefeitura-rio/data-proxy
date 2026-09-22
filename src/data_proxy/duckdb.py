@@ -15,6 +15,7 @@ from psycopg.sql import Literal
 
 from .settings import settings
 from .templates import render_template
+from .types import DatabaseRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +50,10 @@ class DuckDB:
 
     async def fetchall(
         self, sql: str, params: Sequence[object] | None = None
-    ) -> list[tuple[object, ...]]:
+    ) -> list[DatabaseRow]:
         """Run one query and return every row."""
 
-        def whole() -> list[tuple[object, ...]]:
+        def whole() -> list[DatabaseRow]:
             return self.connection.execute(sql, params).fetchall()
 
         return await asyncify(whole)()

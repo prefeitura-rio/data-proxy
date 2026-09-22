@@ -31,6 +31,7 @@ from .models import (
 from .schema import initialize_schemas, revoke_anonymous_access
 from .settings import settings
 from .state import emit_error
+from .types import DatabaseRow
 from .utils import atomic
 
 
@@ -72,7 +73,7 @@ async def column_select_list(
         "postgres/column_types",
         params=(schema, table_name),
     )
-    rows = cast("list[tuple[object, object]]", await cursor.fetchall())
+    rows = cast("list[DatabaseRow]", await cursor.fetchall())
     rows = [(str(column), str(column_type)) for column, column_type in rows]
 
     return [
@@ -123,7 +124,7 @@ async def cast_json_columns_to_jsonb(
     )
     rows = await cursor.fetchall()
 
-    columns = [str(cast(object, row[0])) for row in rows]
+    columns = [cast(str, row[0]) for row in rows]
 
     if not columns:
         return
