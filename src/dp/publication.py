@@ -369,7 +369,7 @@ async def prepare_table(
 
 async def prepare_tables(
     pg_conn: AsyncConnection,
-    state_conn: AsyncConnection,
+    dbos_conn: AsyncConnection,
     config: SyncConfig,
     plan: SyncPlan,
     changed: set[str],
@@ -396,7 +396,7 @@ async def prepare_tables(
             )
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
-            await emit_error(state_conn, "table_preparation_failed", table=table.name)
+            await emit_error(dbos_conn, "table_preparation_failed", table=table.name)
             continue
 
         logger.info("Table preparation completed table=%s", table.name)
@@ -410,7 +410,7 @@ class TablePublication:
     """Pipeline state for publishing one prepared table."""
 
     pg_conn: AsyncConnection
-    state_conn: AsyncConnection
+    dbos_conn: AsyncConnection
     table: TableConfig
     plan: SyncPlan
     attempted_at: Instant
@@ -440,7 +440,7 @@ class TablePublication:
         await self.pg_conn.rollback()
 
         await emit_error(
-            self.state_conn, "table_publication_failed", table=self.table.name
+            self.dbos_conn, "table_publication_failed", table=self.table.name
         )
 
         await record_freshness_failures(
@@ -550,7 +550,7 @@ def decide_route(
 
 async def run_publication_batch(
     pg_conn: AsyncConnection,
-    state_conn: AsyncConnection,
+    dbos_conn: AsyncConnection,
     prepared: Sequence[PreparedTable],
     plan: SyncPlan,
     failed_partitions: dict[str, set[str]],
@@ -565,7 +565,7 @@ async def run_publication_batch(
 
         ctx = TablePublication(
             pg_conn=pg_conn,
-            state_conn=state_conn,
+            dbos_conn=dbos_conn,
             table=table,
             plan=plan,
             attempted_at=attempted_at,
@@ -602,7 +602,7 @@ class SyncContext:
     """Mutable pipeline state for one sync plan publication."""
 
     pg_conn: AsyncConnection
-    state_conn: AsyncConnection
+    dbos_conn: AsyncConnection
     config: SyncConfig
     plan: SyncPlan
     failed_paths: set[str] = field(default_factory=set)
@@ -660,7 +660,7 @@ class SyncContext:
 
         if failed_tables:
             for table_name in sorted(failed_tables):
-                await emit_error(self.state_conn, "table_blocked", table=table_name)
+                await emit_error(self.dbos_conn, "table_blocked", table=table_name)
 
         partitions_by_table = {
             table_name: self.decision.failed_partitions.get(table_name, set())
@@ -684,7 +684,7 @@ class SyncContext:
 
         prepared = await prepare_tables(
             self.pg_conn,
-            self.state_conn,
+            self.dbos_conn,
             self.config,
             self.decision.plan,
             self.eligible,
@@ -697,7 +697,7 @@ class SyncContext:
 
         self.published = await run_publication_batch(
             self.pg_conn,
-            self.state_conn,
+            self.dbos_conn,
             prepared,
             self.decision.plan,
             self.decision.failed_partitions,
@@ -718,7 +718,7 @@ class SyncContext:
         if failed:
             for table in failed:
                 await emit_error(
-                    self.state_conn, "table_preparation_failed", table=table.name
+                    self.dbos_conn, "table_preparation_failed", table=table.name
                 )
             await record_freshness_failures(
                 self.pg_conn, failed, self.plan, self.attempted_at
@@ -735,7 +735,7 @@ class SyncContext:
 
 async def run_publication(
     pg_conn: AsyncConnection,
-    state_conn: AsyncConnection,
+    dbos_conn: AsyncConnection,
     config: SyncConfig,
     plan: SyncPlan,
     failed_paths: set[str] | None = None,
@@ -743,7 +743,7 @@ async def run_publication(
     """Run the publication pipeline for one sync plan."""
     ctx = SyncContext(
         pg_conn=pg_conn,
-        state_conn=state_conn,
+        dbos_conn=dbos_conn,
         config=config,
         plan=plan,
         failed_paths=failed_paths or set(),

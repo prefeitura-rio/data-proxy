@@ -163,11 +163,11 @@ async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedS
 
     async with (
         connect_pg(settings.SCHEMA_WRITERS.dsn(plan.schema_name)) as pg_conn,
-        connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as state_conn,
+        connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as dbos_conn,
     ):
         await configure_s3_secret(pg_conn)
 
-        result = await run_publication(pg_conn, state_conn, config, plan, failed_paths)
+        result = await run_publication(pg_conn, dbos_conn, config, plan, failed_paths)
         target_lsn = await current_wal_lsn(pg_conn)
 
     return PublishedSchema(result=result, target_lsn=target_lsn)

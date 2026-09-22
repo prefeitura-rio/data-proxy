@@ -98,7 +98,7 @@ def system_db_container() -> Iterator[PostgresContainer]:
 
 
 @pytest.fixture
-async def state_conn(
+async def dbos_conn(
     system_db_container: PostgresContainer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[psycopg.AsyncConnection]:
