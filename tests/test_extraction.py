@@ -1,17 +1,19 @@
 """Tests for BigQuery-to-Parquet extraction operations."""
 
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import NamedTuple
 
 import pytest
-from duckdb import DuckDBPyConnection
 
+from dp.duckdb import DuckDB
 from dp.extraction import (
-    extract_task,
     extraction_statement,
     merge_statement,
     selection_fields,
 )
+from dp.main import extract
 from dp.models import (
     AllSelection,
     RangeSelection,
@@ -126,57 +128,59 @@ class TestMergeStatement:
         assert render(mapping["path"]) == "'s3://b/out'"
 
 
-class TestExtractTask:
+class TestExtract:
     """Extraction execution against DuckDB."""
 
     @pytest.mark.asyncio
     async def test_single_selection_writes_directly(
         self,
-        duckdb: DuckDBPyConnection,
+        duckdb: DuckDB,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         GIVEN: a task with one selection.
-        WHEN: extract_task is called.
+        WHEN: extract is called.
         THEN: it writes the destination once and uses no scratch directory.
         """
         calls: list[tuple[str, str]] = []
 
-        async def record(_: object, template: str, mapping: dict[str, str]) -> None:
-            calls.append((template, render(mapping["path"])))
+        def record_render(path: str, mapping: dict[str, object]) -> str:
+            calls.append((path, render(mapping["path"])))
+            return "SELECT 1"
 
-        monkeypatch.setattr("dp.extraction.connect_duckdb", lambda: _connect(duckdb))
-        monkeypatch.setattr("dp.extraction.execute_sql", record)
+        monkeypatch.setattr(DuckDB, "connect", _connect(duckdb))
+        monkeypatch.setattr("dp.executor.render_template", record_render)
         task = dump(bucket_path="s3://b/one.parquet", selections=[AllSelection()])
 
-        await extract_task(task)
+        await extract(task)
 
         assert calls == [("duckdb/write_all", "'s3://b/one.parquet'")]
 
     @pytest.mark.asyncio
     async def test_multiple_selections_merge_from_scratch(
         self,
-        duckdb: DuckDBPyConnection,
+        duckdb: DuckDB,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         GIVEN: a task with two selections and a scratch directory.
-        WHEN: extract_task is called.
+        WHEN: extract is called.
         THEN: it writes each batch then merges them into one destination.
         """
         calls: list[tuple[str, str]] = []
         scratch_files: list[Path] = []
 
-        async def record(_: object, template: str, mapping: dict[str, str]) -> None:
-            path = render(mapping["path"]).strip("'")
-            calls.append((template, path))
-            if template != "duckdb/merge_batch":
-                Path(path).write_text("parquet")
-                scratch_files.append(Path(path))
+        def record_render(path: str, mapping: dict[str, object]) -> str:
+            target = render(mapping["path"]).strip("'")
+            calls.append((path, target))
+            if path != "duckdb/merge_batch":
+                Path(target).write_text("parquet")
+                scratch_files.append(Path(target))
+            return "SELECT 1"
 
-        monkeypatch.setattr("dp.extraction.connect_duckdb", lambda: _connect(duckdb))
-        monkeypatch.setattr("dp.extraction.execute_sql", record)
+        monkeypatch.setattr(DuckDB, "connect", _connect(duckdb))
+        monkeypatch.setattr("dp.executor.render_template", record_render)
         monkeypatch.setattr(settings, "DUMPER_SCRATCH_DIR", tmp_path)
         task = dump(
             bucket_path="s3://b/out.parquet",
@@ -186,7 +190,7 @@ class TestExtractTask:
             ],
         )
 
-        await extract_task(task)
+        await extract(task)
 
         assert [template for template, _ in calls] == [
             "duckdb/write_partition",
@@ -198,6 +202,11 @@ class TestExtractTask:
         assert not scratch_files[0].parent.exists()
 
 
-async def _connect(duckdb: DuckDBPyConnection) -> DuckDBPyConnection:
-    """Return the shared DuckDB connection for extraction tests."""
-    return duckdb
+def _connect(facade: DuckDB) -> Callable[[], AbstractAsyncContextManager[DuckDB]]:
+    """Return a DuckDB.connect stand-in that yields a prepared facade."""
+
+    @asynccontextmanager
+    async def connect() -> AsyncGenerator[DuckDB]:
+        yield facade
+
+    return connect

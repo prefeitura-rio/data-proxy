@@ -1,11 +1,11 @@
-"""BigQuery-to-Parquet extraction operations."""
+"""BigQuery-to-Parquet extraction statement builders and runner."""
 
 from tempfile import TemporaryDirectory
 from typing import assert_never
 
 from psycopg.sql import Composable, Identifier, Literal
 
-from .duckdb import connect_duckdb
+from .duckdb import DuckDB
 from .executor import execute_sql
 from .models import (
     AllSelection,
@@ -78,26 +78,21 @@ def merge_statement(scratch_path: str, path: str) -> StatementMapping:
     }
 
 
-async def extract_task(task: DumpTask) -> None:
-    """Write one extraction task to Parquet."""
-    db = await connect_duckdb()
+async def run_extraction(task: DumpTask, duckdb: DuckDB) -> None:
+    """Extract one dump task from BigQuery to Parquet via DuckDB."""
+    if len(task.selections) == 1:
+        template, mapping = extraction_statement(
+            task, task.selections[0], task.bucket_path
+        )
+        await execute_sql(duckdb, template, mapping)
+        return
 
-    try:
-        if len(task.selections) == 1:
+    with TemporaryDirectory(dir=settings.DUMPER_SCRATCH_DIR) as scratch:
+        for index, selection in enumerate(task.selections):
             template, mapping = extraction_statement(
-                task, task.selections[0], task.bucket_path
+                task, selection, f"{scratch}/{index}.parquet"
             )
-            await execute_sql(db, template, mapping)
-            return
+            await execute_sql(duckdb, template, mapping)
 
-        with TemporaryDirectory(dir=settings.DUMPER_SCRATCH_DIR) as scratch:
-            for index, selection in enumerate(task.selections):
-                template, mapping = extraction_statement(
-                    task, selection, f"{scratch}/{index}.parquet"
-                )
-                await execute_sql(db, template, mapping)
-
-            template, mapping = merge_statement(scratch, task.bucket_path)
-            await execute_sql(db, template, mapping)
-    finally:
-        db.close()
+        template, mapping = merge_statement(scratch, task.bucket_path)
+        await execute_sql(duckdb, template, mapping)

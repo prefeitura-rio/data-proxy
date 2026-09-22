@@ -1,46 +1,43 @@
 """Ports and singledispatch facade for rendered SQL execution."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from functools import singledispatch
-from typing import LiteralString, Protocol, cast, overload
+from typing import LiteralString, cast, overload
 
-from asyncer import asyncify
-from duckdb import DuckDBPyConnection
-from google.cloud.bigquery import Client, QueryJobConfig
+from google.cloud.bigquery import QueryJobConfig
+from google.cloud.bigquery.table import Row
 from psycopg import AsyncConnection, AsyncCursor
 from whenever import Instant
 
+from .bigquery.clients import BigQuery
+from .duckdb import DuckDB
 from .templates import render_template
 from .types import TemplateValue
 
 type SQLParam = str | datetime | Instant | None
-
-
-class BigQueryJob(Protocol):
-    """Minimal BigQuery job port."""
-
-    def result(self) -> object: ...
+type SQLRow = tuple[SQLParam, ...]
+type SQLParams = Sequence[SQLParam] | list[SQLRow] | dict[str, SQLParam] | None
 
 
 @singledispatch
 async def execute(
-    connection: object,
+    conn: object,
     sql: str,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
 ) -> object:
     """Execute SQL through a registered backend implementation."""
-    raise TypeError(f"unsupported SQL connection: {type(connection).__name__}")
+    raise TypeError(f"unsupported SQL connection: {type(conn).__name__}")
 
 
 @execute.register
 async def execute_postgres_connection(
-    connection: AsyncConnection,
+    conn: AsyncConnection,
     sql: str,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: SQLRow | list[SQLRow] | dict[str, SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
 ) -> AsyncCursor:
     """Execute one statement through an async PostgreSQL connection."""
@@ -49,112 +46,123 @@ async def execute_postgres_connection(
             raise TypeError("executemany requires a cursor, not a connection")
         case _:
             pass
+
     if job_config is not None:
         raise TypeError("PostgreSQL execution does not accept job_config")
-    return await connection.execute(cast(LiteralString, sql), params=params)
+
+    return await conn.execute(cast(LiteralString, sql), params=params)
 
 
 @execute.register
 async def execute_postgres_cursor(
-    connection: AsyncCursor,
+    conn: AsyncCursor,
     sql: str,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: SQLRow | list[SQLRow] | dict[str, SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
 ) -> AsyncCursor | None:
     """Execute one or many statements through an async PostgreSQL cursor."""
     if job_config is not None:
         raise TypeError("PostgreSQL execution does not accept job_config")
+
     match params:
         case list():
-            return await connection.executemany(cast(LiteralString, sql), params)
+            return await conn.executemany(cast(LiteralString, sql), params)
         case _:
-            return await connection.execute(cast(LiteralString, sql), params=params)
+            return await conn.execute(cast(LiteralString, sql), params=params)
 
 
 @execute.register
 async def execute_duckdb(
-    connection: DuckDBPyConnection,
+    conn: DuckDB,
     sql: str,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: Sequence[SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
-) -> DuckDBPyConnection:
-    """Execute SQL through DuckDB in a worker thread."""
+) -> list[tuple[object, ...]]:
+    """Execute one query through DuckDB and return every row."""
     if job_config is not None:
         raise TypeError("DuckDB execution does not accept job_config")
-    return await asyncify(connection.execute)(sql, *(params or ()))
+
+    return await conn.fetchall(sql, params)
 
 
-@execute.register(Client)
+@execute.register
 async def execute_bigquery(
-    connection: Client,
+    conn: BigQuery,
     sql: str,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
-) -> BigQueryJob:
-    """Submit SQL to BigQuery in a worker thread."""
+) -> Sequence[Row]:
+    """Execute one query through BigQuery and return every row."""
     if params is not None:
         raise TypeError("BigQuery execution does not accept params")
+
     if job_config is None:
         raise TypeError("BigQuery execution requires job_config")
-    return await asyncify(connection.query)(sql, job_config=job_config)
+
+    return await conn.rows(sql, job_config)
 
 
 @overload
 async def execute_sql(
-    connection: AsyncCursor,
+    conn: AsyncConnection | AsyncCursor,
     path: str,
     mapping: Mapping[str, TemplateValue] | None = None,
     *,
-    params: list[tuple[SQLParam, ...]],
-) -> None: ...
-
-
-@overload
-async def execute_sql(
-    connection: AsyncConnection | AsyncCursor,
-    path: str,
-    mapping: Mapping[str, TemplateValue] | None = None,
-    *,
-    params: tuple[SQLParam, ...] | None = None,
+    params: dict[str, SQLParam] | None = None,
 ) -> AsyncCursor: ...
 
 
 @overload
 async def execute_sql(
-    connection: DuckDBPyConnection,
+    conn: AsyncCursor,
     path: str,
     mapping: Mapping[str, TemplateValue] | None = None,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
-) -> DuckDBPyConnection: ...
+    params: list[SQLRow],
+) -> None: ...
 
 
 @overload
 async def execute_sql(
-    connection: Client,
+    conn: AsyncConnection | AsyncCursor,
+    path: str,
+    mapping: Mapping[str, TemplateValue] | None = None,
+    *,
+    params: SQLRow | None = None,
+) -> AsyncCursor: ...
+
+
+@overload
+async def execute_sql(
+    conn: DuckDB,
+    path: str,
+    mapping: Mapping[str, TemplateValue] | None = None,
+    *,
+    params: Sequence[SQLParam] | None = None,
+) -> list[tuple[object, ...]]: ...
+
+
+@overload
+async def execute_sql(
+    conn: BigQuery,
     path: str,
     mapping: Mapping[str, TemplateValue] | None = None,
     *,
     job_config: QueryJobConfig,
-) -> BigQueryJob: ...
+) -> Sequence[Row]: ...
 
 
 async def execute_sql(
-    connection: object,
+    conn: AsyncConnection | AsyncCursor | DuckDB | BigQuery,
     path: str,
     mapping: Mapping[str, TemplateValue] | None = None,
     *,
-    params: list[tuple[SQLParam, ...]] | tuple[SQLParam, ...] | None = None,
+    params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
 ) -> object:
     """Render and execute one SQL template through a registered backend."""
     sql = render_template(path, mapping or {})
-    return await execute(
-        connection,
-        sql,
-        params=params,
-        job_config=job_config,
-    )
+    return await execute(conn, sql, params=params, job_config=job_config)

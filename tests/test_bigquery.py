@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import cast
 
 import pytest
-from google.cloud.bigquery import Client, Row
+from google.cloud.bigquery import Row
 
+from dp.bigquery.clients import BigQuery
 from dp.bigquery.config import (
     PartitionKindConfig,
     RangeConfig,
@@ -13,12 +14,11 @@ from dp.bigquery.config import (
     TimeGranularity,
 )
 from dp.bigquery.partitions import (
-    TypedRow,
-    normalize_partition,
+    PartitionNormalizer,
+    parse_table_reference,
     physical_partitions,
-    row_logical_bytes,
+    table_modified,
 )
-from dp.bigquery.tables import parse_table_reference, table_modified
 from dp.models import RangeSelection
 
 
@@ -54,30 +54,30 @@ class InvalidMetadataCase:
 class TestBigQueryTableModified:
     """Tests for TableModified behavior."""
 
-    def test_row_logical_bytes_defaults_to_zero_for_non_integers(self) -> None:
+    def test_logical_bytes_defaults_to_zero_for_non_integers(self) -> None:
         """
         GIVEN: a BigQuery row whose logical_bytes is not an integer.
-        WHEN: row_logical_bytes is called.
+        WHEN: PartitionNormalizer.logical_bytes is called.
         THEN: it returns zero instead of the raw value.
         """
-        row = cast(TypedRow, cast(object, {"logical_bytes": None}))
-        assert row_logical_bytes(row) == 0
+        row = cast("Row", cast("object", {"logical_bytes": None}))
+        assert PartitionNormalizer.logical_bytes(row) == 0
 
-    def test_table_modified_returns_epoch_milliseconds(self, bigquery: Client) -> None:
+    async def test_table_modified_returns_epoch_milliseconds(
+        self, bigquery: BigQuery
+    ) -> None:
         """
         GIVEN: a table with a real metadata timestamp.
         WHEN: table_modified is called.
         THEN: it returns the timestamp as epoch milliseconds.
         """
-        bigquery.get_table("test.dataset.plain")
-
-        result = table_modified(bigquery, "test.dataset.plain")
+        result = await table_modified(bigquery, "test.dataset.plain")
 
         assert result.isdigit()
 
-    def test_table_modified_rejects_missing_timestamp(
+    async def test_table_modified_rejects_missing_timestamp(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a table without modification metadata.
@@ -85,7 +85,7 @@ class TestBigQueryTableModified:
         THEN: it raises ValueError instead of silently resyncing.
         """
         with pytest.raises(ValueError, match="Missing BigQuery modification time"):
-            table_modified(bigquery, "test.dataset.missing_modified")
+            await table_modified(bigquery, "test.dataset.missing_modified")
 
 
 class TestBigQueryPhysicalPartitions:
@@ -93,7 +93,7 @@ class TestBigQueryPhysicalPartitions:
 
     @pytest.mark.asyncio
     async def test_physical_partitions_normalizes_existing_range_buckets(
-        self, bigquery: Client
+        self, bigquery: BigQuery
     ) -> None:
         """
         GIVEN: a range-partitioned table with aligned buckets.
@@ -123,7 +123,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_accepts_nonzero_range_start(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: range metadata with an explicit nonzero start.
@@ -141,7 +141,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_normalizes_null_bucket_into_remainder(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a range-partitioned table with a __NULL__ bucket.
@@ -161,7 +161,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_normalizes_time_partitions_into_ranges(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a DAY time-partitioned table.
@@ -193,7 +193,7 @@ class TestBigQueryPhysicalPartitions:
     )
     @pytest.mark.asyncio
     async def test_physical_partitions_normalizes_every_time_granularity(
-        self, bigquery: Client, case: TimeGranularityCase
+        self, bigquery: BigQuery, case: TimeGranularityCase
     ) -> None:
         """
         GIVEN: a time-partitioned table for each supported granularity.
@@ -221,7 +221,7 @@ class TestBigQueryPhysicalPartitions:
 
     @pytest.mark.asyncio
     async def test_physical_partitions_skips_time_null_bucket(
-        self, bigquery: Client
+        self, bigquery: BigQuery
     ) -> None:
         """
         GIVEN: a time-partitioned table with a __NULL__ bucket.
@@ -236,7 +236,7 @@ class TestBigQueryPhysicalPartitions:
 
     @pytest.mark.asyncio
     async def test_physical_partitions_keeps_last_n_time_partitions(
-        self, bigquery: Client
+        self, bigquery: BigQuery
     ) -> None:
         """
         GIVEN: a time-partitioned table with more than n partitions.
@@ -252,7 +252,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_rejects_n_for_range_partitioned_tables(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a range-partitioned table.
@@ -267,7 +267,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_rejects_unsupported_time_granularity(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a table with an unrecognized time partition granularity.
@@ -280,7 +280,7 @@ class TestBigQueryPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_physical_partitions_rejects_ingestion_time_partitioning(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a table with ingestion-time partitioning and no explicit field.
@@ -327,10 +327,10 @@ class TestBigQuery:
         """
         with pytest.raises(ValueError, match=case.message):
             RangeConfig(
-                case.field,
-                case.start,
-                case.end,
-                case.interval,
+                field=case.field,
+                start=case.start,
+                end=case.end,
+                interval=case.interval,
             )
 
     def test_time_config_rejects_empty_field(
@@ -342,7 +342,7 @@ class TestBigQuery:
         THEN: it raises ValueError.
         """
         with pytest.raises(ValueError, match="field must not be empty"):
-            TimeConfig("", TimeGranularity.DAY)
+            TimeConfig(field="", granularity=TimeGranularity.DAY)
 
     @pytest.mark.parametrize(
         "case",
@@ -373,7 +373,7 @@ class TestBigQuery:
     )
     @pytest.mark.asyncio
     async def test_physical_partitions_rejects_invalid_metadata_cases(
-        self, bigquery: Client, case: InvalidMetadataCase
+        self, bigquery: BigQuery, case: InvalidMetadataCase
     ) -> None:
         """
         GIVEN: invalid or incomplete physical partition metadata.
@@ -386,20 +386,18 @@ class TestBigQuery:
         ):
             await physical_partitions(bigquery, f"test.dataset.{case.table}", "{}")
 
-    def test_normalize_partition_rejects_invalid_kind_config(
+    def test_normalize_rejects_invalid_kind_config(
         self,
         invalid_partition_row: Row,
         invalid_kind_config: PartitionKindConfig,
     ) -> None:
         """
         GIVEN: an invalid partition kind config.
-        WHEN: normalize_partition is called.
+        WHEN: PartitionNormalizer.normalize is called.
         THEN: it raises AssertionError.
         """
+        normalizer = PartitionNormalizer(
+            kind_config=invalid_kind_config, table="p.d.t", signature="sig"
+        )
         with pytest.raises(AssertionError):
-            normalize_partition(
-                invalid_partition_row,
-                "p.d.t",
-                invalid_kind_config,
-                "sig",
-            )
+            normalizer.normalize(invalid_partition_row)

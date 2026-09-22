@@ -1,27 +1,43 @@
-"""BigQuery client lifecycle helpers."""
+"""Async view of a synchronous BigQuery client.
 
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+The underlying client is safe to share and concurrent calls overlap, so one
+instance may serve several tasks at once.
+"""
 
-from google.cloud.bigquery import Client
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+
+from asyncer import asyncify
+from google.cloud.bigquery import Client, QueryJobConfig
+from google.cloud.bigquery.table import Row, Table
 
 
-@contextmanager
-def bigquery_clients() -> Generator[Callable[[str], Client]]:
-    """Yield a per-project client getter and close clients on exit."""
-    clients: dict[str, Client] = {}
+@dataclass(frozen=True, slots=True)
+class BigQuery:
+    """An async view of one synchronous BigQuery client."""
 
-    def get_client(project: str) -> Client:
-        client = clients.get(project)
+    client: Client
 
-        if not client:
-            client = Client(project=project)
-            clients[project] = client
+    @classmethod
+    @asynccontextmanager
+    async def connect(cls, project: str) -> AsyncGenerator[BigQuery]:
+        """Build a client for one project and close it off the event loop."""
+        client = await asyncify(Client)(project=project)
 
-        return client
+        try:
+            yield cls(client=client)
+        finally:
+            await asyncify(client.close)()
 
-    try:
-        yield get_client
-    finally:
-        for client in clients.values():
-            client.close()
+    async def get_table(self, table: str) -> Table:
+        """Fetch one table's metadata."""
+        return await asyncify(self.client.get_table)(table)
+
+    async def rows(self, sql: str, job_config: QueryJobConfig) -> Sequence[Row]:
+        """Run one query and return every row."""
+
+        def whole() -> Sequence[Row]:
+            return list(self.client.query(sql, job_config=job_config).result())
+
+        return await asyncify(whole)()

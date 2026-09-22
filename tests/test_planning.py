@@ -1,26 +1,31 @@
 """Tests for planning result types."""
 
-from contextlib import nullcontext
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import duckdb
 import hypothesis
 import pytest
-from duckdb import DuckDBPyConnection
-from duckdb import connect as connect_duckdb
-from google.cloud.bigquery import Client
 from hypothesis import strategies as st
+from psycopg import AsyncConnection
+from psycopg.rows import TupleRow
+from pydantic import ValidationError
 
+from dp.bigquery.clients import BigQuery
+from dp.duckdb import DuckDB
 from dp.models import (
     AllSelection,
     FullTable,
     IndexConfig,
     PartitionedTable,
     PartitionedTablePlan,
-    PartitioningConfig,
     PartitionManifest,
     PhysicalPartition,
     RangeSelection,
+    RetentionConfig,
     SyncConfig,
     SyncWork,
     TableConfig,
@@ -28,7 +33,6 @@ from dp.models import (
 )
 from dp.planning import (
     build_partition_tasks,
-    build_sync_work,
     detect_changes,
     discover_json_columns,
     expand_config,
@@ -36,10 +40,30 @@ from dp.planning import (
     group_partitions,
     plan_partitioned_table,
     plan_partitioned_tables,
+    run_planning,
     table_signature,
 )
 from dp.settings import settings
 from tests.helpers import planning_partition, sync_config
+
+STATE_CONN = cast("AsyncConnection[TupleRow]", MagicMock())
+
+
+def in_memory_duckdb() -> DuckDB:
+    """Return a facade over a fresh in-memory DuckDB connection."""
+    return DuckDB(connection=duckdb.connect(":memory:"))
+
+
+def bigquery_connect(
+    connection: BigQuery,
+) -> Callable[[str], AbstractAsyncContextManager[BigQuery]]:
+    """Return a BigQuery.connect stand-in that yields a prepared facade."""
+
+    @asynccontextmanager
+    async def connect(_project: str) -> AsyncGenerator[BigQuery]:
+        yield connection
+
+    return connect
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +87,7 @@ class TestPlanningPlanPartitioned:
     @pytest.mark.asyncio
     async def test_plan_partitioned_table_builds_changed_plan(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a partitioned table with changed partitions and no stored manifest.
@@ -92,10 +116,10 @@ class TestPlanningPlanPartitioned:
             plan, tasks = await plan_partitioned_table(
                 table,
                 bigquery,
-                (settings.redis()),
+                STATE_CONN,
                 "r",
                 "b",
-                connect_duckdb(":memory:"),
+                in_memory_duckdb(),
             )
 
         assert plan is not None
@@ -104,7 +128,7 @@ class TestPlanningPlanPartitioned:
     @pytest.mark.asyncio
     async def test_plan_partitioned_tables_groups_partitioned_tables(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a config with one partitioned table.
@@ -121,8 +145,8 @@ class TestPlanningPlanPartitioned:
         )
         with (
             patch(
-                "dp.planning.bigquery_clients",
-                return_value=nullcontext(MagicMock(return_value=bigquery)),
+                "dp.planning.BigQuery.connect",
+                new=bigquery_connect(bigquery),
             ),
             patch(
                 "dp.planning.plan_partitioned_table",
@@ -131,7 +155,7 @@ class TestPlanningPlanPartitioned:
             ),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis()), "r", "b", connect_duckdb(":memory:")
+                config, STATE_CONN, "r", "b", in_memory_duckdb()
             )
         assert plans == {"p.d.t": table_plan}
         assert tasks == []
@@ -141,12 +165,12 @@ class TestPlanningBuildSync:
     """Tests for BuildSync behavior."""
 
     @pytest.mark.asyncio
-    async def test_build_sync_work_returns_empty_when_no_changes(
+    async def test_run_planning_returns_empty_when_no_changes(
         self,
     ) -> None:
         """
         GIVEN: an empty sync config with no changes.
-        WHEN: build_sync_work is called.
+        WHEN: run_planning is called.
         THEN: it returns empty plans and tasks.
         """
         config = SyncConfig(schemas={})
@@ -160,18 +184,18 @@ class TestPlanningBuildSync:
                 return_value=({}, []),
             ),
         ):
-            result = await build_sync_work(
-                config, (settings.redis()), "r1", "b", connect_duckdb(":memory:")
+            result = await run_planning(
+                config, STATE_CONN, "r1", "b", in_memory_duckdb()
             )
         assert result == SyncWork(plans=[], tasks=[])
 
     @pytest.mark.asyncio
-    async def test_build_sync_work_groups_full_table_by_schema(
+    async def test_run_planning_groups_full_table_by_schema(
         self,
     ) -> None:
         """
         GIVEN: a config with a changed full table.
-        WHEN: build_sync_work is called.
+        WHEN: run_planning is called.
         THEN: it groups the full table task by schema.
         """
         config = sync_config([FullTable(name="p.app.t")])
@@ -189,8 +213,8 @@ class TestPlanningBuildSync:
                 return_value=({}, []),
             ),
         ):
-            result = await build_sync_work(
-                config, (settings.redis()), "r1", "b", connect_duckdb(":memory:")
+            result = await run_planning(
+                config, STATE_CONN, "r1", "b", in_memory_duckdb()
             )
         assert len(result.plans) == 1
         assert result.plans[0].schema_name == "app"
@@ -201,12 +225,12 @@ class TestPlanning:
     """Tests for planning module behavior."""
 
     @pytest.mark.asyncio
-    async def test_build_sync_work_groups_partitioned_plan(
+    async def test_run_planning_groups_partitioned_plan(
         self,
     ) -> None:
         """
         GIVEN: a config with a partitioned table plan.
-        WHEN: build_sync_work is called.
+        WHEN: run_planning is called.
         THEN: it groups the partitioned plan by schema.
         """
         config = sync_config([PartitionedTable(name="p.app.t")])
@@ -227,9 +251,7 @@ class TestPlanning:
                 return_value=({"p.app.t": table_plan}, []),
             ),
         ):
-            work = await build_sync_work(
-                config, (settings.redis()), "r", "b", connect_duckdb(":memory:")
-            )
+            work = await run_planning(config, STATE_CONN, "r", "b", in_memory_duckdb())
         assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
     def test_sync_work_exposes_plans_and_tasks_lists(
@@ -303,7 +325,7 @@ class TestPlanning:
 
     @pytest.mark.asyncio
     async def test_expand_config_discovers_json_columns_for_full_tables(
-        self, duckdb: DuckDBPyConnection
+        self, duckdb: DuckDB
     ) -> None:
         """
         GIVEN: a full table config with no JSON columns.
@@ -364,25 +386,18 @@ class TestPlanning:
         assert [len(task.selections) for task in batch.tasks] == [1, 1, 1, 1]
 
     @pytest.mark.asyncio
-    async def test_discover_json_columns_returns_only_struct_columns(
-        self, duckdb: DuckDBPyConnection
-    ) -> None:
+    async def test_discover_json_columns_returns_only_struct_columns(self) -> None:
         """
         GIVEN: a source table with a STRUCT column and a VARCHAR column.
         WHEN: discover_json_columns is called.
         THEN: it returns only the STRUCT column name.
         """
-        rows = MagicMock()
-        rows.fetchall.return_value = [
-            ("a", "STRUCT(x INTEGER)"),
-            ("b", "VARCHAR"),
-        ]
-        with patch(
-            "dp.planning.execute_sql",
-            new_callable=AsyncMock,
-            return_value=rows,
-        ):
-            assert await discover_json_columns(duckdb, "p.d.t") == ["a"]
+        duckdb = MagicMock(spec=DuckDB)
+        duckdb.fetchall = AsyncMock(
+            return_value=[("a", "STRUCT(x INTEGER)"), ("b", "VARCHAR")]
+        )
+
+        assert await discover_json_columns(duckdb, "p.d.t") == ["a"]
 
     def test_partition_changes_ignores_new_partition_metadata(
         self,
@@ -474,7 +489,7 @@ class TestPlanning:
     @pytest.mark.asyncio
     async def test_detect_changes_filters_unchanged_and_partitioned(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a config with an unchanged full table and a partitioned table.
@@ -487,8 +502,8 @@ class TestPlanning:
         )
         with (
             patch(
-                "dp.planning.bigquery_clients",
-                return_value=nullcontext(MagicMock(return_value=bigquery)),
+                "dp.planning.BigQuery.connect",
+                new=bigquery_connect(bigquery),
             ),
             patch("dp.planning.table_modified", return_value="m"),
             patch(
@@ -497,13 +512,13 @@ class TestPlanning:
                 return_value=None,
             ),
         ):
-            result = await detect_changes(config, (settings.redis()))
+            result = await detect_changes(config, STATE_CONN)
         assert set(result) == {"p.d.t"}
 
     @pytest.mark.asyncio
     async def test_partitioned_table_returns_none_when_unchanged(
         self,
-        bigquery: Client,
+        bigquery: BigQuery,
     ) -> None:
         """
         GIVEN: a partitioned table with no changes since the stored manifest.
@@ -528,16 +543,18 @@ class TestPlanning:
             plan, tasks = await plan_partitioned_table(
                 table,
                 bigquery,
-                (settings.redis()),
+                STATE_CONN,
                 "run",
                 "bucket",
-                connect_duckdb(":memory:"),
+                in_memory_duckdb(),
             )
         assert plan is None
         assert tasks == []
 
     @pytest.mark.asyncio
-    async def test_partitioned_tables_skips_full_tables(self, bigquery: Client) -> None:
+    async def test_partitioned_tables_skips_full_tables(
+        self, bigquery: BigQuery
+    ) -> None:
         """
         GIVEN: a config with only full tables.
         WHEN: plan_partitioned_tables is called.
@@ -545,11 +562,11 @@ class TestPlanning:
         """
         config = sync_config([FullTable(name="p.d.t")], schema_name="d")
         with patch(
-            "dp.planning.bigquery_clients",
-            return_value=nullcontext(MagicMock(return_value=bigquery)),
+            "dp.planning.BigQuery.connect",
+            new=bigquery_connect(bigquery),
         ):
             plans, tasks = await plan_partitioned_tables(
-                config, (settings.redis()), "run", "bucket", connect_duckdb(":memory:")
+                config, STATE_CONN, "run", "bucket", in_memory_duckdb()
             )
         assert plans == {}
         assert tasks == []
@@ -651,44 +668,45 @@ class TestTableSignature:
         )
 
 
-class TestPartitioningConfigValidation:
-    """Tests for pg_partman partitioning config validation."""
+class TestRetentionConfig:
+    """Tests for time-window retention configuration."""
 
-    def test_partitioning_without_n_raises(self) -> None:
+    def test_retention_is_accepted(self) -> None:
         """
-        GIVEN: a PartitionedTable with partitioning config but no n.
+        GIVEN: a table with a retention window.
         WHEN: the table is constructed.
-        THEN: ValueError is raised.
-        """
-        with pytest.raises(
-            ValueError,
-            match="partitioning requires n",
-        ):
-            PartitionedTable(
-                name="p.d.t",
-                partitioning=PartitioningConfig(column="created_at"),
-            )
-
-    def test_partitioning_with_n_succeeds(self) -> None:
-        """
-        GIVEN: a PartitionedTable with partitioning config and n.
-        WHEN: the table is constructed.
-        THEN: the table is created successfully.
+        THEN: the retention config is preserved.
         """
         table = PartitionedTable(
             name="p.d.t",
             n=7,
-            partitioning=PartitioningConfig(column="created_at"),
+            retention=RetentionConfig(column="created_at", window="365 days"),
         )
-        assert table.partitioning is not None
-        assert table.n == 7
+        assert table.retention is not None
+        assert table.retention.column == "created_at"
+        assert table.retention.window == "365 days"
 
-    def test_no_partitioning_succeeds_without_n(self) -> None:
+    def test_retention_rejects_an_empty_window(self) -> None:
         """
-        GIVEN: a PartitionedTable without partitioning config and without n.
-        WHEN: the table is constructed.
-        THEN: the table is created successfully.
+        GIVEN: an empty retention window.
+        WHEN: the config is constructed.
+        THEN: validation fails.
         """
-        table = PartitionedTable(name="p.d.t")
-        assert table.partitioning is None
-        assert table.n is None
+        with pytest.raises(ValidationError):
+            RetentionConfig(column="created_at", window="")
+
+    def test_retention_is_not_part_of_the_signature(self) -> None:
+        """
+        GIVEN: two tables that differ only by retention.
+        WHEN: their signatures are compared.
+        THEN: the signatures are equal, so retention does not force a resync.
+        """
+        without = FullTable(name="p.d.t", resolved_schema="app")
+        with_retention = FullTable(
+            name="p.d.t",
+            resolved_schema="app",
+            retention=RetentionConfig(column="created_at", window="30 days"),
+        )
+        assert table_signature(without, None, "m") == table_signature(
+            with_retention, None, "m"
+        )
