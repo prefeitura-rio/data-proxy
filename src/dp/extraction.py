@@ -78,13 +78,13 @@ def merge_statement(scratch_path: str, path: str) -> StatementMapping:
     }
 
 
-async def run_extraction(task: DumpTask, duckdb: DuckDB) -> None:
+async def run_extraction(task: DumpTask, duckdb_conn: DuckDB) -> None:
     """Extract one dump task from BigQuery to Parquet via DuckDB."""
     if len(task.selections) == 1:
         template, mapping = extraction_statement(
             task, task.selections[0], task.bucket_path
         )
-        await execute_sql(duckdb, template, mapping)
+        await execute_sql(duckdb_conn, template, mapping)
         return
 
     with TemporaryDirectory(dir=settings.DUMPER_SCRATCH_DIR) as scratch:
@@ -92,7 +92,7 @@ async def run_extraction(task: DumpTask, duckdb: DuckDB) -> None:
             template, mapping = extraction_statement(
                 task, selection, f"{scratch}/{index}.parquet"
             )
-            await execute_sql(duckdb, template, mapping)
+            await execute_sql(duckdb_conn, template, mapping)
 
         template, mapping = merge_statement(scratch, task.bucket_path)
-        await execute_sql(duckdb, template, mapping)
+        await execute_sql(duckdb_conn, template, mapping)

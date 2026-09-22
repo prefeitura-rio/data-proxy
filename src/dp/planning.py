@@ -390,9 +390,9 @@ class PlanningContext:
 async def run_planning(
     config: SyncConfig,
     pg_conn: AsyncConnection,
+    duckdb_conn: DuckDB,
     sync_id: str,
     bucket: str,
-    duckdb_conn: DuckDB,
 ) -> SyncWork:
     """Build a publisher plan and tasks for changed data only."""
     ctx = PlanningContext(

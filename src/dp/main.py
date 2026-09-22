@@ -33,6 +33,7 @@ from .models import (
     DumpTask,
     PublicationResult,
     PublishedSchema,
+    SchemaConfig,
     SyncConfig,
     SyncPlan,
     SyncWork,
@@ -57,12 +58,16 @@ from .utils import wait_for
 async def build_work(run_id: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     async with (
-        DuckDB.connect() as duckdb,
+        DuckDB.connect() as duckdb_conn,
         connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
     ):
         await ensure_app_schema(pg_conn)
         return await run_planning(
-            settings.sync_config, pg_conn, run_id, settings.S3_BUCKET, duckdb
+            settings.sync_config,
+            pg_conn,
+            duckdb_conn,
+            run_id,
+            settings.S3_BUCKET,
         )
 
 
@@ -102,22 +107,20 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
 @DBOS.step()
 async def seed(plans: list[SyncPlan]) -> None:
     """Initialize configured schemas and policy objects for one run."""
-    by_dsn: dict[str, list[str]] = {}
+    by_dsn: dict[str, dict[str, SchemaConfig]] = {}
 
     for plan in plans:
-        by_dsn.setdefault(settings.SCHEMA_WRITERS.dsn(plan.schema_name), []).append(
-            plan.schema_name
+        schema_name = plan.schema_name
+        dsn = settings.SCHEMA_WRITERS.dsn(schema_name)
+        by_dsn.setdefault(dsn, {})[schema_name] = (
+            settings.sync_config.schemas[schema_name]
         )
 
     for dsn, schemas in by_dsn.items():
         async with connect_pg(dsn) as pg_conn:
             await initialize_schemas(
                 pg_conn,
-                SyncConfig(
-                    schemas={
-                        name: settings.sync_config.schemas[name] for name in schemas
-                    }
-                ),
+                SyncConfig(schemas=schemas),
             )
 
     for plan in plans:
@@ -133,8 +136,8 @@ async def seed(plans: list[SyncPlan]) -> None:
 )
 async def extract(task: DumpTask) -> None:
     """Extract one dump task from BigQuery to Parquet."""
-    async with DuckDB.connect() as duckdb:
-        await run_extraction(task, duckdb)
+    async with DuckDB.connect() as duckdb_conn:
+        await run_extraction(task, duckdb_conn)
 
 
 @DBOS.step()

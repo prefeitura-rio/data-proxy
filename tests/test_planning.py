@@ -185,7 +185,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await run_planning(
-                config, STATE_CONN, "r1", "b", in_memory_duckdb()
+                config, STATE_CONN, in_memory_duckdb(), "r1", "b"
             )
         assert result == SyncWork(plans=[], tasks=[])
 
@@ -214,7 +214,7 @@ class TestPlanningBuildSync:
             ),
         ):
             result = await run_planning(
-                config, STATE_CONN, "r1", "b", in_memory_duckdb()
+                config, STATE_CONN, in_memory_duckdb(), "r1", "b"
             )
         assert len(result.plans) == 1
         assert result.plans[0].schema_name == "app"
@@ -251,7 +251,7 @@ class TestPlanning:
                 return_value=({"p.app.t": table_plan}, []),
             ),
         ):
-            work = await run_planning(config, STATE_CONN, "r", "b", in_memory_duckdb())
+            work = await run_planning(config, STATE_CONN, in_memory_duckdb(), "r", "b")
         assert work.plans[0].partitioned_tables["p.app.t"] == table_plan
 
     def test_sync_work_exposes_plans_and_tasks_lists(
