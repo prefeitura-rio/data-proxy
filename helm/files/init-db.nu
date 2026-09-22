@@ -62,12 +62,6 @@ def create-schemas-and-freshness []: nothing -> nothing {
             rls_schema: (quote-pg rls identifier)
             scope: ((quote-pg $schema literal) + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))")
         }))
-
-        if $env.BACKUP_ENABLED == 'true' {
-            (
-                postgres (render-sql grant_schema_usage_backup.sql {schema: (quote-pg $schema identifier)})
-            )
-        }
     }
 
     log info 'Created schemas and freshness tables'
@@ -101,9 +95,9 @@ def create-access-policy []: nothing -> nothing {
             policy_name: (quote-pg $'policy_writer_($schema)' identifier)
         }))
 
-        if $env.BACKUP_ENABLED == 'true' {
+        if $env.JOBS_ENABLED == 'true' {
             (
-                postgres (render-sql setup_access_policy_backup.sql {schema: (quote-pg $schema identifier)})
+                postgres (render-sql setup_jobs_access.sql {schema: (quote-pg $schema identifier)})
             )
         }
     }

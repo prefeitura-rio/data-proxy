@@ -65,7 +65,7 @@ tests:
       - contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
           content:
-            name: backup-script
+            name: scripts
             mountPath: /scripts
             readOnly: true
         documentSelector:
@@ -73,7 +73,7 @@ tests:
           value: data-proxy-app-example-backup
       - equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].name
-          value: backup-script
+          value: scripts
         documentSelector:
           path: metadata.name
           value: data-proxy-app-example-backup
@@ -388,7 +388,7 @@ tests:
           value: data-proxy-cleanup
       - equal:
           path: spec.jobTemplate.spec.template.spec.volumes[2].name
-          value: cleanup-script
+          value: scripts
         documentSelector:
           path: metadata.name
           value: data-proxy-cleanup
@@ -397,6 +397,53 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-cleanup
+
+  - it: cleanup CronJob runs as the shared jobs role
+    set:
+      cleanup.enabled: true
+      syncConfig.schemas.app_example: {}
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGUSER
+            value: jobs
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cleanup
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-jobs
+                key: JOBS_PASSWORD
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cleanup
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PG_DSN
+          documentSelector:
+            path: metadata.name
+            value: data-proxy-cleanup
+
+  - it: init-db receives the jobs flag for the shared maintenance role
+    set:
+      backup.enabled: false
+      cleanup.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JOBS_ENABLED
+            value: "true"
+        documentSelector:
+          path: kind
+          value: Job
+        template: job-init-db.yaml
 
   - it: cleanup does not render when disabled
     set:

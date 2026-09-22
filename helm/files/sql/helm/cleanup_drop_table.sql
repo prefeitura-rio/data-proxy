@@ -1,11 +1,11 @@
 {#
 {
   "kind": "template",
-  "description": "Drop one stale table and its dependent objects.",
+  "description": "Drop one stale table and its dependent objects through the SECURITY DEFINER helper.",
   "inputs": {
     "schema": "SQL-safe PostgreSQL schema identifier.",
-    "table": "SQL-safe PostgreSQL table identifier."
+    "table": "SQL-safe PostgreSQL table literal."
   }
 }
 #}
-DROP TABLE IF EXISTS {{ schema }}.{{ table }} CASCADE
+SELECT {{ schema }}.drop_table_if_exists({{ table }})

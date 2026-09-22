@@ -111,13 +111,13 @@ spec:
           {{- range $schema := sortAlpha (keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas)) }}
           - {{ printf "policy_writer_%s" $schema | quote }}
           {{- end }}
-      {{- if $root.Values.cnpg.backup.enabled }}
-      - name: backup
+      {{- if or $root.Values.backup.enabled $root.Values.cleanup.enabled }}
+      - name: jobs
         ensure: present
         login: true
         bypassrls: false
         passwordSecret:
-          name: {{ include "data-proxy.backupSecretName" $root }}
+          name: {{ include "data-proxy.jobsSecretName" $root }}
       {{- end }}
 
 {{- end }}
@@ -216,13 +216,13 @@ spec:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
           - {{ printf "policy_writer_%s" $schema | quote }}
-      {{- if $root.Values.cnpg.backup.enabled }}
-      - name: backup
+      {{- if or $root.Values.backup.enabled $root.Values.cleanup.enabled }}
+      - name: jobs
         ensure: present
         login: true
         bypassrls: false
         passwordSecret:
-          name: {{ include "data-proxy.backupSecretName" $root }}
+          name: {{ include "data-proxy.jobsSecretName" $root }}
       {{- end }}
 
 {{- end }}

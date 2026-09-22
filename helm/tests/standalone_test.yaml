@@ -57,6 +57,19 @@ tests:
           content:
             name: cnpg_pooler_pgbouncer
         template: cluster-cnpg.yaml
+  - it: manages the shared jobs role through CNPG
+    asserts:
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: jobs
+            ensure: present
+            login: true
+            bypassrls: false
+            passwordSecret:
+              name: data-proxy-jobs
+        template: cluster-cnpg.yaml
+
   - it: renders one CNPG Cluster in shared mode
     set:
       cnpg.instances: 3

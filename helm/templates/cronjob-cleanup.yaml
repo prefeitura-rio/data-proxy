@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-cleanup-script
+  name: {{ include "data-proxy.fullname" . }}-scripts
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
@@ -11,6 +11,12 @@ metadata:
 data:
   cleanup.nu: |
 {{ .Files.Get "files/cleanup.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/lib.nu" | nindent 4 }}
+{{- range $path, $_ := .Files.Glob "files/sql/helm/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
 {{- if not .Values.ha.enabled }}
 ---
 apiVersion: batch/v1
@@ -47,20 +53,36 @@ spec:
               workingDir: /scripts
               env:
                 {{- include "data-proxy.appEnv" . | nindent 16 }}
+                {{- /* The cleanup job runs as the shared jobs role, never as the superuser. */}}
+                - name: PGHOST
+                  value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ .Values.cnpg.db.name | quote }}
+                - name: PGUSER
+                  value: jobs
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.jobsSecretName" . }}
+                      key: JOBS_PASSWORD
                 - name: S3_ENDPOINT_URL
                   value: {{ printf "%s://%s" (ternary "https" "http" (eq .Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" .) | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" . | nindent 16 }}
                 {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 16 }}
-                - name: cleanup-script
+                - name: scripts
                   mountPath: /scripts
                   readOnly: true
           volumes:
             {{- include "data-proxy.syncConfigVolume" . | nindent 12 }}
             {{- include "data-proxy.schemaWritersVolume" . | nindent 12 }}
-            - name: cleanup-script
+            - name: scripts
               configMap:
-                name: {{ include "data-proxy.fullname" . }}-cleanup-script
+                name: {{ include "data-proxy.fullname" . }}-scripts
                 defaultMode: 0555
 {{- else }}
 {{- range $schema, $_ := $root.Values.syncConfig.schemas }}
@@ -102,22 +124,38 @@ spec:
               workingDir: /scripts
               env:
                 {{- include "data-proxy.appEnv" $root | nindent 16 }}
+                {{- /* The cleanup job runs as the shared jobs role, never as the superuser. */}}
+                - name: PGHOST
+                  value: {{ printf "%s-rw" $cluster | quote }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ $root.Values.cnpg.db.name | quote }}
+                - name: PGUSER
+                  value: jobs
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.jobsSecretName" $root }}
+                      key: JOBS_PASSWORD
                 - name: S3_ENDPOINT_URL
                   value: {{ printf "%s://%s" (ternary "https" "http" (eq $root.Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" $root) | quote }}
                 - name: SCHEMA
                   value: {{ $schema | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
               volumeMounts:
                 {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 16 }}
                 {{- include "data-proxy.schemaWritersVolumeMount" $root | nindent 16 }}
-                - name: cleanup-script
+                - name: scripts
                   mountPath: /scripts
                   readOnly: true
           volumes:
             {{- include "data-proxy.syncConfigVolume" $root | nindent 12 }}
             {{- include "data-proxy.schemaWritersVolume" $root | nindent 12 }}
-            - name: cleanup-script
+            - name: scripts
               configMap:
-                name: {{ include "data-proxy.fullname" $root }}-cleanup-script
+                name: {{ include "data-proxy.fullname" $root }}-scripts
                 defaultMode: 0555
 {{- end }}
 {{- end }}

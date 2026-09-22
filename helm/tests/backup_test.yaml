@@ -58,7 +58,35 @@ tests:
           value: CronJob
         equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
-          value: data-proxy-bcadastro-backup-script
+          value: data-proxy-scripts
+
+  - it: connects as the shared jobs role
+    set:
+      backup.enabled: true
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: https://storage.googleapis.com
+      backup.s3.existingSecret: backup-s3-creds
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - documentSelector:
+          path: kind
+          value: CronJob
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGUSER
+            value: jobs
+      - documentSelector:
+          path: kind
+          value: CronJob
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-jobs
+                key: JOBS_PASSWORD
 
   - it: uses backup S3 credentials from backup.s3.existingSecret
     set:

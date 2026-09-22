@@ -180,8 +180,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 {
   "kind": "macro",
-  "name": "data-proxy.backupSecretName",
-  "description": "Render the backupSecretName Helm helper.",
+  "name": "data-proxy.authenticatorSecretName",
+  "description": "Render the authenticatorSecretName Helm helper.",
   "inputs": {
     "context": "Helm template context."
   },
@@ -196,11 +196,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.backupSecretName" -}}
-{{- if .Values.backup.existingSecret }}
-{{- .Values.backup.existingSecret }}
+{{- define "data-proxy.jobsSecretName" -}}
+{{- if .Values.jobs.existingSecret }}
+{{- .Values.jobs.existingSecret }}
 {{- else }}
-{{- include "data-proxy.fullname" . }}-backup
+{{- include "data-proxy.fullname" . }}-jobs
 {{- end }}
 {{- end }}
 
@@ -423,23 +423,6 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{
 */}}
 {{- define "data-proxy.postgresDsn" -}}
 {{ include "data-proxy.postgresWriteDsn" . }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.backupPgDsn",
-  "description": "Render the backupPgDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.backupPgDsn" -}}
-{{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgresql://backup:$(BACKUP_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{/*

@@ -3,19 +3,6 @@
 {{- range $schema, $_ := .Values.syncConfig.schemas }}
 {{- $backupName := printf "%s-%s-backup" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") }}
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ $backupName }}-script
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: backup
-    data-proxy.io/schema: {{ $schema | quote }}
-data:
-  backup.nu: |
-{{ $root.Files.Get "files/backup.nu" | nindent 4 }}
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -48,6 +35,7 @@ spec:
             - name: backup
               image: {{ $root.Values.backup.image | quote }}
               command: [nu, /scripts/backup.nu]
+              workingDir: /scripts
               env:
                 - name: SCHEMA
                   value: {{ $schema | quote }}
@@ -62,12 +50,12 @@ spec:
                 - name: PGDATABASE
                   value: {{ $root.Values.cnpg.db.name | quote }}
                 - name: PGUSER
-                  value: backup
+                  value: jobs
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "data-proxy.backupSecretName" $root }}
-                      key: BACKUP_PASSWORD
+                      name: {{ include "data-proxy.jobsSecretName" $root }}
+                      key: JOBS_PASSWORD
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.backup.prefix | quote }}
                 - name: S3_BUCKET
@@ -86,14 +74,18 @@ spec:
                     secretKeyRef:
                       name: {{ required "backup.s3.existingSecret is required when backup.enabled is true" $root.Values.backup.s3.existingSecret }}
                       key: S3_SECRET_KEY
+                - name: ACCESS_LOG_RETENTION_DAYS
+                  value: {{ $root.Values.backup.accessLog.retentionDays | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
               volumeMounts:
-                - name: backup-script
+                - name: scripts
                   mountPath: /scripts
                   readOnly: true
           volumes:
-            - name: backup-script
+            - name: scripts
               configMap:
-                name: {{ $backupName }}-script
+                name: {{ include "data-proxy.fullname" $root }}-scripts
                 defaultMode: 0555
 {{- end }}
 {{- end }}

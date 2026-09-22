@@ -251,6 +251,14 @@ redis:
   ## Webdis read endpoint (Redis replica). Defaults to webdisHost when unset.
   webdisReadHost: redis-reader
   webdisReadPort: 6379
+## Shared PostgreSQL role used by the maintenance CronJobs (backup and cleanup).
+## The role reads the governance tables and prunes expired rows. It cannot run
+## DDL: stale table drops go through a SECURITY DEFINER function owned by the
+## schema owner.
+jobs:
+  ## Existing Secret with username, password, and JOBS_PASSWORD. Leave empty to
+  ## let the chart generate one.
+  existingSecret: ""
 ## Backup CronJob — exports each <schema>.access_policy table with pg_dump
 ## and uploads it to the dedicated backup S3-compatible service.
 ## Every other table is rebuildable by rerunning a sync; access_policy is not.
@@ -265,15 +273,17 @@ backup:
   ttlSecondsAfterFinished: 300
   ## S3 object key prefix for access_policy dumps.
   prefix: backups/access_policy
-  ## PostgreSQL backup role Secret. The Secret must contain username, password, and BACKUP_PASSWORD.
-  existingSecret: ""
   ## Separate S3/GCS-compatible backup service.
   s3:
     endpointURL: ""
     bucket: ""
     existingSecret: ""
+  ## Access log retention: rows in access_log are pruned after this many days.
+  accessLog:
+    retentionDays: 90
 ## Stale table cleanup CronJob — drops PostgreSQL tables that are no longer
-## listed in the sync config. System tables (freshness, access_policy) are preserved.
+## listed in the sync config. System tables (freshness, access_policy, access_log)
+## are preserved.
 cleanup:
   ## Set to true to deploy the cleanup CronJob.
   enabled: true
@@ -487,7 +497,7 @@ fallback:
   ## logs the failure instead of the route timing out first.
   fetchTimeout: 120s
   ## Nginx large_client_header_buffers for long query-string filters.
-  largeClientHeaderBuffers: "4 64k"
+  largeClientHeaderBuffers: 4 64k
   ## Connections that ngx.fetch holds open for reuse. Zero opens and closes one
   ## connection for each fetch, which makes webdis free its client while a
   ## command is still in flight and corrupts the reply path.
