@@ -13,7 +13,7 @@ from dp.extraction import (
     merge_statement,
     selection_fields,
 )
-from dp.main import extract
+from dp.main import extract_task
 from dp.models import (
     AllSelection,
     RangeSelection,
@@ -152,7 +152,7 @@ class TestExtract:
         monkeypatch.setattr("dp.executor.render_template", record_render)
         task = dump(bucket_path="s3://b/one.parquet", selections=[AllSelection()])
 
-        await extract(task)
+        await extract_task(task)
 
         assert calls == [("duckdb/write_all", "'s3://b/one.parquet'")]
 
@@ -190,7 +190,7 @@ class TestExtract:
             ],
         )
 
-        await extract(task)
+        await extract_task(task)
 
         assert [template for template, _ in calls] == [
             "duckdb/write_partition",

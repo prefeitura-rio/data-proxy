@@ -105,7 +105,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
 
 
 @DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
-async def seed(plans: list[SyncPlan]) -> None:
+async def seed_schemas(plans: list[SyncPlan]) -> None:
     """Initialize configured schemas and policy objects for one run."""
     by_dsn: dict[str, dict[str, SchemaConfig]] = {}
 
@@ -134,7 +134,7 @@ async def seed(plans: list[SyncPlan]) -> None:
     max_attempts=settings.DUMP_QUEUE_MAX_ATTEMPTS,
     should_retry=lambda error: not isinstance(error, ValueError | RuntimeError),
 )
-async def extract(task: DumpTask) -> None:
+async def extract_task(task: DumpTask) -> None:
     """Extract one dump task from BigQuery to Parquet."""
     async with DuckDB.connect() as duckdb_conn:
         await run_extraction(task, duckdb_conn)
@@ -241,7 +241,7 @@ async def commit_state(plan: SyncPlan, result: PublicationResult) -> None:
 
 
 @DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
-async def finalize(run_id: str) -> None:
+async def finalize_run(run_id: str) -> None:
     """Empty the temporary object store and flush the response cache."""
     await clear_s3_bucket()
     await clear_cache()
@@ -255,7 +255,7 @@ async def dump_task(task: DumpTask) -> DumpResult:
     logger.info("Dump started task_id=%s", task.task_id)
 
     try:
-        await extract(task)
+        await extract_task(task)
         result: DumpResult = DumpSuccess()
     except Exception as error:
         await record_dump_failure(task, str(error))
@@ -320,7 +320,7 @@ async def sync_run(scheduled_at: datetime, context: object) -> RunStatus:
             if (path := result.maybe_failed_path) is not None
         }
 
-        await seed(work.plans)
+        await seed_schemas(work.plans)
 
         publish_handles: list[WorkflowHandleAsync[set[str]]] = []
 
@@ -337,7 +337,7 @@ async def sync_run(scheduled_at: datetime, context: object) -> RunStatus:
 
         await asyncio.gather(*(handle.get_result() for handle in publish_handles))
 
-        await finalize(workflow_id)
+        await finalize_run(workflow_id)
         return "success"
 
 
