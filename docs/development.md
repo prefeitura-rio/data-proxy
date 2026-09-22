@@ -26,12 +26,10 @@ gcloud auth application-default login
 seed --project rj-ia-desenvolvimento
 ```
 
-Run one producer job when needed:
+Run one sync when needed. This triggers the DBOS schedule once and waits for the run:
 
 ```bash
-kubectl -n data-proxy create job \
-  --from=cronjob/data-proxy-producer \
-  data-proxy-producer-manual
+kubectl -n data-proxy exec deploy/data-proxy-sync-worker -- python -m dp.trigger
 ```
 
 ## Access the API

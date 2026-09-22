@@ -11,7 +11,7 @@ Workers push the current metric registry to Pushgateway after execution. Push fa
 | `publish_tables_total`           | `schema`, `status` | Published tables. Status: `success` or `failure`.                         |
 | `publish_table_duration_seconds` | `table`            | Schema publication duration recorded for each published table.            |
 | `seed_runs_total`                | `status`           | Seed runs. Current status: `success`.                                     |
-| `producer_runs_total`            | `status`           | Producer runs. Status: `success`, `no_changes`, or `active_run_conflict`. |
+| `sync_runs_total`                | `status`           | Sync runs. Status: `success` or `no_changes`.                             |
 
 ## Pipeline errors
 

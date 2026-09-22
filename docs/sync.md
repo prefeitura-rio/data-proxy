@@ -39,6 +39,7 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 | `n`         | No       | Keep the newest `n` time partitions.                                                                                                            |
 | `fallback`  | No       | Enables the `_bq` fallback view for this table when chart fallback is enabled. Set `false` to disable fallback for this table. Default: `true`. |
 | `cache_ttl` | No       | Fallback cache lifetime in seconds.                                                                                                             |
+| `retention` | No       | `{ "column": "created_at", "window": "365 days" }`. A CronJob deletes rows older than the window.                                             |
 | `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                                                                                   |
 | `indexes`   | No       | Index definitions created after publication.                                                                                                    |
 | `fallback`  | No       | Enable BigQuery fallback for the table                                                                                                          |
@@ -59,14 +60,34 @@ Fallback has two gates. The chart-level fallback configuration must be enabled, 
 
 When fallback is disabled for a table, the Publisher does not create its `_bq` view and nginx returns the local PostgREST response without a BigQuery fallback request. See [Fallback](fallback.md).
 
+## Pipeline
+
+The sync pipeline is one DBOS application. A scheduled `sync_run` workflow plans a run, enqueues one `dump_task` workflow per extraction unit to the `dump` queue, seeds the configured schemas, enqueues one `publish_schema` workflow per schema plan to the `publish` queue, and finalizes. DBOS stores all run state in Postgres; cross-run table signatures and partition manifests live in the `dp` schema in the DBOS system database. Redis is used only for the response cache. See [KEDA Scaling](keda.md).
+
+## Retention
+
+Set `retention` on a table to delete rows older than a time window. A daily CronJob reads the window and deletes expired rows per table.
+
+```json
+{
+  "name": "project.dataset.events",
+  "strategy": "partitioned",
+  "n": 365,
+  "retention": { "column": "created_at", "window": "365 days" }
+}
+```
+
+`column` is the time column. `window` is a PostgreSQL interval such as `90 days` or `12 months`. Enable the job with `retention.enabled: true` in the chart values. Retention is operational cleanup, so changing it does not trigger a resync.
+
 ## Batching
 
-A `full` table creates one Dumper task. Changed physical partitions are grouped into Dumper tasks. Each task writes one Parquet file.
+A `full` table creates one dump task. Changed physical partitions are grouped into dump tasks. Each task writes one Parquet file.
 
 ```yaml
-dumper:
-  batchMegaBytes: 600
-  batchMaxPartitions: 256
+sync:
+  dumper:
+    batchMegaBytes: 600
+    batchMaxPartitions: 256
 ```
 
 `batchMegaBytes` is the uncompressed source-data target in MiB. `batchMaxPartitions` limits the number of partitions in one task. A batch closes before adding a partition that would exceed either limit.

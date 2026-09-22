@@ -24,6 +24,60 @@ Conventions for working in this repository. Follow these before inventing new pa
 - No outbound HTTP calls from request-time authorization logic (e.g. RLS checks). Authorization must resolve from data already in the database.
 - Generalize hardcoded identifiers (customer names, specific org/table names) into configuration the first time you touch code that has them.
 - Reserved SQL keywords used as identifiers (e.g. a role literally named `user`) must be double-quoted in raw SQL or shell heredocs. `psycopg.sql.Identifier()` already handles this automatically -- prefer it over hand-quoting.
+## Nushell
+
+Nushell powers the Helm CronJob scripts (cleanup, retention, migration) and `lib.nu`. Keep these scripts small and typed.
+
+- Use `def name [args]: input_type -> output_type` signatures. Declare every parameter type. Do not rely on `any`.
+- Spell flags out in full: `save --force`, `open --raw`, `uniq --count`. Short flags are for the prompt, not code.
+- Use `where` for filtering, `match` for dispatch, `get --optional` for field extraction. Do not use `filter` or long `if/else if` chains.
+- Place `|` at the start of continuation lines, one step per line. Group stages that read as one action (`| lines | str trim`).
+- Use `$"($var)"` for interpolation. Never use bash `$VAR` or `$(cmd)`. Use `$env.VAR`.
+- Use `try { ... } catch { |err| log error $'... ($err.msg)' }` around every external command (`psql`, `minijinja-cli`, `redis-cli`). Log and continue or re-raise with `error make`.
+- Use `use std/log` for logging. Use `log info`, `log error`. Do not use `print` for operational output.
+- Use `use ./lib.nu [quote-pg render-sql]` for SQL rendering. Never hand-build SQL with string interpolation. Pass a `record` context to `render-sql`; let Jinja do the presentation.
+- Use `quote-pg $value identifier` and `quote-pg $value literal` for any value that reaches raw SQL outside a Jinja template. Never inline a variable into a `psql -c` string.
+- Read configuration from `$env.VAR? | default ...`. Do not assume an env var is set.
+- Use `--tuples-only` on the `postgres` helper when you parse the output as data. Omit it for DDL that produces no result.
+- One `main` per script. Prefer script mode (`nu script.nu subcommand`) over module mode. Do not share a script across CronJobs with a flag; make a second script.
+- Run `nu --ide-check` to validate syntax before committing. Use the `nushell` skill for non-trivial pipelines.
+
+## SQL
+
+SQL lives in Jinja templates under `src/dp/sql/<target>/`. Each target is one database backend. Every template starts with a `{# kind/description/inputs #}` header (see Jinja SQL Templates above).
+
+### PostgreSQL (application and DBOS system database)
+
+- Use `psycopg.sql.Identifier()` and `psycopg.sql.Literal()` in Python mappings for identifiers and literals. Let Jinja render only presentation loops and conditionals.
+- Use prepared parameters (`%(name)s` or `%s`) for all runtime values. Never interpolate a user value into SQL text.
+- Use `ON CONFLICT ... DO UPDATE` for idempotent upserts. Prefer it over `DELETE` + `INSERT`.
+- Use `timestamptz` for timestamps. Do not store timestamps as `text` or `timestamp`.
+- Use `jsonb`, not `json`, for stored JSON that is queried or indexed.
+- Use `text` with a `CHECK` constraint over `varchar(n)`. Use `bigint GENERATED ALWAYS AS IDENTITY` over `serial`/`bigserial`.
+- Quote reserved keywords used as identifiers (e.g. `"table"`, `"user"`) in raw SQL. `Identifier()` handles this in Python.
+- Keep one transaction per logical operation. Use the `atomic` context manager for commit-on-success, rollback-on-error.
+- Use `SECURITY DEFINER` functions for RLS-bypassing access (e.g. the BigQuery fallback function). Grant execute to the authenticator role only.
+- Use `STABLE` for functions that only read. Mark volatile functions `VOLATILE` explicitly.
+- Use `NOTIFY pgrst` to reload PostgREST schema cache after a publication. Use `LISTEN`/`NOTIFY` for cross-process signals. Do not poll a table in a tight loop.
+- Use `DELETE FROM ... WHERE {{ column }} < now() - interval '{{ retention }}'` for time-window retention. Run it from a K8s CronJob. Do not use `pg_partman`.
+- Use `CREATE TABLE ... AS SELECT` or `INSERT ... SELECT` for bulk loads from Parquet via `pg_duckdb`. Do not row-by-row insert.
+
+### DuckDB (extraction and fallback)
+
+- Use `COPY (...) TO path (FORMAT PARQUET)` for extraction. One `COPY` per dump task.
+- Use `bigquery_scan('project.dataset.table')` for BigQuery reads. Pass the table reference as a literal.
+- Use `LOAD bigquery` and `LOAD httpfs` once per connection. Set the S3 secret once at connection setup.
+- Use `read_parquet('s3://...')` for S3 reads inside Postgres via `pg_duckdb`. Do not download Parquet to disk first.
+- Use `to_json(column)` for STRUCT/RECORD columns during extraction. Cast to `jsonb` on the Postgres side during load.
+- Use DuckDB in a worker thread via `asyncer.asyncify`. Do not call blocking DuckDB APIs on the event loop.
+- Use a temporary directory for multi-partition merges. Clean it up in a `finally` block.
+
+### BigQuery (source queries)
+
+- Use the BigQuery client for metadata only (`get_table`, partition listing). Do not run data queries through the client.
+- Use `bigquery_scan` in DuckDB for actual data reads. The client is for planning, not extraction.
+- Use partition predicates (`_PARTITIONTIME`, `__NULL__`) to limit scanned bytes. The producer already filters to the last N partitions. Do not re-filter downstream.
+- Use a service account or Workload Identity. Do not embed a key file in the image.
 
 ## Configuration & Schema Design
 
@@ -33,12 +87,11 @@ Conventions for working in this repository. Follow these before inventing new pa
 
 ## Concurrency & State (sync pipeline specifics)
 
-- Redis/streams are the source of truth for pipeline state, not in-memory counters.
+- DBOS/Postgres is the source of truth for pipeline state. Redis is cache-only.
+- DBOS workflows and steps checkpoint results. Do not re-implement checkpointing in application code.
 - Every background loop has exactly one termination trigger. Do not add a second, redundant shutdown path.
-- State keys are explicit and typed, not stringly-composed ad hoc.
-- Prefer `XTRIM` with an explicit policy over `DEL` when trimming a stream -- destructive resets lose in-flight consumer state.
-- Set `diagnose=False` for loggers in production paths; do not leak local variable values into logs by default.
 - Prefer `logger.exception` inside `except` blocks over `logger.error` plus manual traceback formatting.
+- Sequential orchestration with shared state uses a dataclass context with step methods — no `Pipeline` suffix, no `Protocol`, no `run()` wrapper. The caller creates the context and calls steps in order.
 
 ## Jinja SQL Templates
 

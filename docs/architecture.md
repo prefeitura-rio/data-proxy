@@ -12,10 +12,10 @@ Webdis caches non-empty JSON responses with identity-aware keys. PostgREST valid
 
 | Component | Work                                              | Result                                                              |
 | --------- | ------------------------------------------------- | ------------------------------------------------------------------- |
-| Producer  | Detect changed tables and partitions.             | Stores plans and publishes tasks to Valkey.                         |
-| Dumper    | Extract one full table or one partition batch.    | Writes one Parquet file and records the result.                     |
-| Seeder    | Initialize configured schemas and policy objects. | Publishes one schema task per plan.                                 |
-| Publisher | Load, prepare, and publish one schema.            | Commits table state and refreshes PostgREST after the final schema. |
+| sync_run  | Detect changed tables and partitions.             | Enqueues dump tasks to the DBOS dump queue.                       |
+| dump_task | Extract one full table or one partition batch.    | Writes one Parquet file and returns the result.                     |
+| seed      | Initialize configured schemas and policy objects. | Runs inside sync_run before the publish fan-out.                    |
+| publish_schema | Load, prepare, and publish one schema.       | Commits table state and refreshes PostgREST after the final schema. |
 
 The Producer includes configuration in a table signature. A configuration change therefore causes a resync.
 
@@ -34,29 +34,25 @@ Use standalone mode for development and single-region deployments.
 ```mermaid
 sequenceDiagram
     participant BQ as BigQuery
-    participant P as Producer
-    participant R as Valkey
-    participant W as Dumper
+    participant P as sync_run
+    participant D as DBOS
+    participant W as dump_task
     participant S3 as S3/SeaweedFS
-    participant S as Seeder
-    participant PUB as Publisher
+    participant PUB as publish_schema
     participant CW as CNPG writer
     participant CR as CNPG replica
     participant RO as PostgREST-ro
     participant RW as PostgREST-rw
 
-    Note over P: CronJob trigger
+    Note over P: DBOS scheduled workflow
     P->>BQ: discover changed tables and partitions
-    P->>R: publish extract tasks
-    Note over W: ScaledObject scales on stream length
-    W->>R: consume extract task
+    P->>D: enqueue dump tasks
+    Note over W: ScaledObject scales on DBOS queue length
     W->>BQ: extract rows
     W->>S3: write Parquet
-    W->>R: publish seed task
-    Note over S: ScaledJob scales on stream length
-    S->>R: consume seed task
-    S->>R: publish publish task
-    Note over PUB: ScaledJob scales on stream length
+    P->>D: seed schemas
+    P->>D: enqueue publish tasks per schema
+    Note over PUB: ScaledObject scales on DBOS queue length
     PUB->>S3: read Parquet
     PUB->>CW: load and commit local tables
     CW-->>CR: stream WAL when a replica exists
@@ -64,7 +60,8 @@ sequenceDiagram
     PUB->>RO: refresh deployment and wait for HTTP readiness
     PUB->>RW: refresh deployment and wait for HTTP readiness
     PUB->>S3: cleanup consumed files
-    PUB->>R: commit publication state and flush cache
+    PUB->>D: commit table state
+    P->>D: flush response cache
 ```
 
 #### Request
@@ -115,6 +112,8 @@ sequenceDiagram
 
 CNPG manages PostgreSQL instances, replication, failover, and lifecycle. In shared mode, one CNPG Cluster serves all configured schemas. In per-schema HA mode, each configured schema has its own CNPG Cluster, read Pooler, nginx proxy, and PostgREST-ro/rw pair.
 
+The DBOS system database holds all sync workflow state and the `dp` application schema (table signatures, partition manifests, errors). In single mode it runs in the shared CNPG cluster. In HA mode DBOS gets its own CNPG cluster with one primary and one replica and no pooler.
+
 Nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and is not used by sync workers or PostgREST writes.
 
 The Publisher commits database state, waits for standby WAL replay, refreshes both PostgREST deployments, and waits for their HTTP readiness probes before it completes publication and flushes the response cache. `/access_policy` is never response-cached.
@@ -124,29 +123,25 @@ The Publisher commits database state, waits for standby WAL replay, refreshes bo
 ```mermaid
 sequenceDiagram
     participant BQ as BigQuery
-    participant P as Producer
-    participant R as Valkey
-    participant W as Dumper
+    participant P as sync_run
+    participant D as DBOS
+    participant W as dump_task
     participant S3 as S3/SeaweedFS
-    participant S as Seeder
-    participant PUB as Publisher
+    participant PUB as publish_schema
     participant CW as CNPG writer
     participant CR as CNPG replica
     participant RO as PostgREST-ro
     participant RW as PostgREST-rw
 
-    Note over P: CronJob trigger
+    Note over P: DBOS scheduled workflow
     P->>BQ: discover changed tables and partitions
-    P->>R: publish extract tasks
-    Note over W: ScaledObject scales on stream length
-    W->>R: consume extract task
+    P->>D: enqueue dump tasks
+    Note over W: ScaledObject scales on DBOS queue length
     W->>BQ: extract rows
     W->>S3: write Parquet
-    W->>R: publish seed task
-    Note over S: ScaledJob scales on stream length
-    S->>R: consume seed task
-    S->>R: publish publish task
-    Note over PUB: ScaledJob scales on stream length
+    P->>D: seed schemas
+    P->>D: enqueue publish tasks per schema
+    Note over PUB: ScaledObject scales on DBOS queue length
     PUB->>S3: read Parquet
     PUB->>CW: load and commit schema tables
     CW-->>CR: stream WAL
@@ -154,7 +149,8 @@ sequenceDiagram
     PUB->>RO: refresh deployment and wait for HTTP readiness
     PUB->>RW: refresh deployment and wait for HTTP readiness
     PUB->>S3: cleanup consumed files
-    PUB->>R: commit publication state and flush cache
+    PUB->>D: commit table state
+    P->>D: flush response cache
 ```
 
 #### Request
