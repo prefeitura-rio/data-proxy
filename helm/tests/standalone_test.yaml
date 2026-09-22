@@ -125,6 +125,17 @@ tests:
           content: pg_partman_bgw
         template: cluster-cnpg.yaml
 
+  - it: declares a pg_stat_statements parameter so CNPG manages the extension
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["pg_stat_statements.max"]
+          value: "10000"
+        template: cluster-cnpg.yaml
+      - notContains:
+          path: spec.postgresql.shared_preload_libraries
+          content: pg_stat_statements
+        template: cluster-cnpg.yaml
+
   - it: does not render Patroni RBAC resources
     asserts:
       - hasDocuments:
