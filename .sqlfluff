@@ -52,4 +52,5 @@ parent_table = "'pic.people'"
 interval = "'1 day'"
 retention = "'30 days'"
 log_retention_days = 90
+window = "'30 days'"
 clauses = "ALTER COLUMN payload SET DATA TYPE jsonb USING payload::jsonb"

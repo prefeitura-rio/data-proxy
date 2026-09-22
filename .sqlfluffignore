@@ -1,5 +1,8 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
 src/dp/sql/postgres/column_types.sql
+src/dp/sql/postgres/insert_error.sql
+src/dp/sql/postgres/read_state.sql
+src/dp/sql/postgres/upsert_state.sql
 src/dp/sql/postgres/delete_partition_freshness.sql
 src/dp/sql/postgres/delete_table_freshness.sql
 src/dp/sql/postgres/json_columns.sql
@@ -12,7 +15,6 @@ src/dp/sql/postgres/create_bq_function.sql
 src/dp/sql/postgres/cast_json_to_jsonb.sql
 src/dp/sql/postgres/create_index.sql
 src/dp/sql/postgres/delete_partitions.sql
-src/dp/sql/postgres/rls_where_clause.sql
 src/dp/sql/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
@@ -26,8 +28,8 @@ src/dp/sql/duckdb/write_remainder.sql
 
 # Jinja macro source and imports are validated through rendering.
 src/dp/sql/duckdb/macros.sql
-helm/files/sql/macros.sql
-helm/files/sql/grant_migration_access.sql
-helm/files/sql/grant_rls_usage.sql
-helm/files/sql/grant_schema_usage_backup.sql
+helm/files/sql/helm/macros.sql
+helm/files/sql/helm/grant_migration_access.sql
+helm/files/sql/helm/grant_rls_usage.sql
+helm/files/sql/helm/grant_schema_usage_backup.sql
 src/dp/sql/postgres/access_policy_check.sql
