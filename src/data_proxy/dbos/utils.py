@@ -3,7 +3,7 @@ from ..models import SchemaConfig, SchemaWriters, SyncConfig, SyncPlan
 
 def retry_transient(error: BaseException) -> bool:
     """Retry backend failures but not input validation errors."""
-    return not isinstance(error, ValueError)
+    return isinstance(error, Exception) and not isinstance(error, ValueError)
 
 
 def group_schema_configs_by_dsn(

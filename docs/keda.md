@@ -18,7 +18,7 @@ triggers:
 
 | Value                            | Helm default | Meaning                                      |
 | -------------------------------- | ------------ | -------------------------------------------- |
-| `keda.idleReplicaCount`          | `0`          | Replicas when the DBOS queue is empty.       |
+| `keda.idleReplicaCount`          | `1`          | Replicas when the DBOS queue is empty.       |
 | `keda.minReplicaCount`           | `3`          | Minimum replicas once work activates.        |
 | `keda.maxReplicaCount`           | `15`         | Maximum concurrent sync worker pods.         |
 | `keda.pollingInterval`           | `30`         | Seconds between KEDA metric checks.          |
@@ -43,7 +43,7 @@ sync:
     dumpQueueWorkerConcurrency: 4
     publishQueueWorkerConcurrency: 4
     keda:
-      idleReplicaCount: 0
+      idleReplicaCount: 1
       minReplicaCount: 3
       maxReplicaCount: 15
       pollingInterval: 30
@@ -55,7 +55,7 @@ sync:
     batchMaxPartitions: 256
 ```
 
-The sync schedule is a DBOS scheduled workflow. DBOS deduplicates the schedule across worker replicas, so no separate CronJob is required.
+The sync schedule is a DBOS scheduled workflow. DBOS deduplicates the schedule across worker replicas, so no separate CronJob is required. Keep one idle worker. The scheduled coordinator must reach a worker even when the queue has only one item.
 
 ---
 
