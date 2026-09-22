@@ -25,7 +25,7 @@ from .kubernetes import (
     load_config,
 )
 from .log import logger, schemaname, tablename
-from .metrics import RunStatus, metrics, observe_sync_run
+from .metrics import RunStatus, metrics, observe_sync
 from .models import (
     DumpFailure,
     DumpResult,
@@ -284,7 +284,7 @@ async def publish_schema(
 
 
 @DBOS.workflow()
-@observe_sync_run(record_run_status)
+@observe_sync(record_run_status)
 async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
     """Plan one run, fan out dumps, seed, fan out publishers, and finalize."""
     workflow_id = DBOS.workflow_id

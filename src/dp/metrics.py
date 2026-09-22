@@ -10,6 +10,9 @@ from opentelemetry.metrics import Counter, get_meter
 meter = get_meter("dp")
 RunStatus = Literal["success", "no_changes", "failure"]
 P = ParamSpec("P")
+StatusRecorder = Callable[[RunStatus], Awaitable[None]]
+SyncWorkflow = Callable[P, Awaitable[RunStatus]]
+ObservedWorkflow = Callable[P, Coroutine[object, object, None]]
 
 
 @dataclass(slots=True)
@@ -41,16 +44,16 @@ class Metrics:
 metrics = Metrics()
 
 
-def observe_sync_run(
-    record_status: Callable[[RunStatus], Awaitable[None]],
+def observe_sync(
+    record_status: StatusRecorder,
 ) -> Callable[
     [Callable[P, Awaitable[RunStatus]]], Callable[P, Coroutine[object, object, None]]
 ]:
     """Record one terminal status for a sync workflow."""
 
     def decorate(
-        workflow: Callable[P, Awaitable[RunStatus]],
-    ) -> Callable[P, Coroutine[object, object, None]]:
+        workflow: SyncWorkflow[P],
+    ) -> ObservedWorkflow[P]:
         @wraps(workflow)
         async def observed(*args: P.args, **kwargs: P.kwargs) -> None:
             try:
