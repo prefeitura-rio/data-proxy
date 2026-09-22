@@ -28,6 +28,15 @@ END;
 $$;
 REVOKE ALL ON PROCEDURE {{ schema }}.cleanup_table_state(jsonb) FROM public;
 
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
+        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
+        GRANT EXECUTE ON PROCEDURE {{ schema }}.cleanup_table_state(jsonb) TO jobs;
+    END IF;
+END;
+$$;
+
 CREATE SCHEMA IF NOT EXISTS {{ schema }};
 
 CREATE OR REPLACE PROCEDURE {{ schema }}.cleanup_stale_objects(
@@ -163,6 +172,15 @@ END;
 $$;
 REVOKE ALL ON PROCEDURE {{ schema }}.apply_retention(jsonb, text) FROM public;
 
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
+        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
+        GRANT EXECUTE ON PROCEDURE {{ schema }}.apply_retention(jsonb, text) TO jobs;
+    END IF;
+END;
+$$;
+
 CREATE SCHEMA IF NOT EXISTS {{ schema }};
 
 CREATE OR REPLACE PROCEDURE {{ schema }}.prune_access_log(
@@ -193,7 +211,6 @@ DO $$
 BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
         GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
-        GRANT EXECUTE ON PROCEDURE {{ schema }}.apply_retention(jsonb, text) TO jobs;
         GRANT EXECUTE ON PROCEDURE {{ schema }}.prune_access_log(interval, text) TO jobs;
     END IF;
 END;
