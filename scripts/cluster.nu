@@ -403,7 +403,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
     ) | str trim
 
     let tables = (
-        k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/data-proxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
+        k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
     )
 
     if ($tables | str trim | is-not-empty) {
@@ -414,11 +414,11 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             | str join '; '
         )
         (
-            k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c $"($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c $"($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     } else {
         (
-            k $kubecfg -n data-proxy exec $pg -- psql postgresql://dataproxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c "DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
+            k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c "DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
         )
     }
 }

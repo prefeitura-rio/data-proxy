@@ -41,7 +41,7 @@ s3:
   bucket: test-bucket
   useSsl: "false"
   accessKey: seaweedfs
-  secretKey: seaweedfs-local
+  secretKey: seaweedfs
 seaweedfs:
   allInOne:
     enabled: true
@@ -64,7 +64,7 @@ seaweedfs:
     credentials:
       admin:
         accessKey: seaweedfs
-        secretKey: seaweedfs-local
+        secretKey: seaweedfs
 redis:
   existingSecret: data-proxy-redis
   writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
@@ -113,7 +113,7 @@ fallback:
 cnpg:
   db:
     name: data-proxy
-    user: dataproxy
+    user: data-proxy
   password: test-pg-pass
   authenticatorPassword: test-auth-pass
   init:
