@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use std/log
-use ./lib.nu [quote-pg render-sql]
+use ./lib.nu [quote-pg render-sql schema-list]
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
     msg: $'Failed to open sync config: ($err.msg)'
@@ -12,14 +12,6 @@ let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {
 } }
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
-def schema-list []: nothing -> list<string> {
-    let all = $config.schemas | columns
-    let target = $env.SCHEMA?
-    if $target == null or ($target | is-empty) { $all } else {
-        $all | where $it == $target
-    }
-}
-
 # Execute rendered SQL against PostgreSQL
 def postgres [query: string]: nothing -> nothing {
     try {
@@ -55,7 +47,7 @@ def install-extensions []: nothing -> nothing {
 
 # Create per-schema freshness tables with RLS policies
 def create-schemas-and-freshness []: nothing -> nothing {
-    for schema in (schema-list) {
+    for schema in (schema-list $config) {
         (postgres (render-sql setup_freshness.sql {
             schema: (quote-pg $schema identifier)
             user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
@@ -81,7 +73,7 @@ def create-pre-request []: nothing -> nothing {
 
 # Create per-schema access_policy tables with triggers and RLS policies
 def create-access-policy []: nothing -> nothing {
-    for schema in (schema-list) {
+    for schema in (schema-list $config) {
         (postgres (render-sql setup_access_policy.sql {
             schema: (quote-pg $schema identifier)
             user_role: (quote-pg $env.AUTH_USER_ROLE identifier)

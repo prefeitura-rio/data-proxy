@@ -2,7 +2,7 @@
 # nu-lint-ignore-file: dont_mix_different_effects, unhandled_external_error
 
 use std/log
-use ./lib.nu [quote-pg render-sql]
+use ./lib.nu [quote-pg refresh-postgrest render-sql]
 
 $env.SQL_TEMPLATE_DIR = '/scripts'
 
@@ -130,17 +130,6 @@ def migrate-schema [m: record]: nothing -> nothing {
         }
     } }
 
-    log info $'Reloading PostgREST schema cache for ($m.schema)...'
-    try {
-        "NOTIFY pgrst, 'reload schema'" | psql $m.target --no-psqlrc --quiet
-    } catch {|err| error make {
-        msg: $'psql NOTIFY failed for schema ($m.schema): ($err.msg)'
-        label: {
-            text: psql
-            span: (metadata $m).span
-        }
-    } }
-
     try { rm --force $dump_file } catch {|_|
 
     }
@@ -216,6 +205,8 @@ def run-migration [direction: string]: nothing -> nothing {
     }
 
     unblock-syncs
+    log info 'Restarting PostgREST deployments...'
+    refresh-postgrest (namespace) --context $env.KUBE_CONTEXT?
     save-mode-state {mode: $env.TARGET_MODE, status: completed, direction: $direction}
     log info 'All schemas migrated. Producer resumed.'
 }

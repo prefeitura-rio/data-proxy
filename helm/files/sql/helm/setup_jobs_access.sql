@@ -34,4 +34,17 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION {{ schema }}.drop_table_if_exists(text) FROM public;
-GRANT EXECUTE ON FUNCTION {{ schema }}.drop_table_if_exists(text) TO jobs
+GRANT EXECUTE ON FUNCTION {{ schema }}.drop_table_if_exists(text) TO jobs;
+CREATE OR REPLACE FUNCTION {{ schema }}.drop_fallback_objects(target_table text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    EXECUTE format('DROP VIEW IF EXISTS {{ schema }}.%I', target_table || '_bq');
+    EXECUTE format('DROP FUNCTION IF EXISTS {{ schema }}.%I()', target_table || '_bq_fn');
+END;
+$$;
+REVOKE ALL ON FUNCTION {{ schema }}.drop_fallback_objects(text) FROM public;
+GRANT EXECUTE ON FUNCTION {{ schema }}.drop_fallback_objects(text) TO jobs

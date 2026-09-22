@@ -2,23 +2,12 @@
 # nu-lint-ignore-file: dont_mix_different_effects
 
 use std/log
-use ./lib.nu [quote-pg render-sql]
+use ./lib.nu [quote-pg refresh-postgrest render-sql schema-list]
 
 let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
 let protected = [freshness access_policy access_log]
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
-def schema-list []: nothing -> list<string> {
-    let all = $config.schemas | columns
-    let target = $env.SCHEMA?
-
-    if $target == null or ($target | is-empty) {
-        $all
-    } else {
-        $all | where $it == $target
-    }
-}
-
 load-env {
     AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
     AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
@@ -49,11 +38,19 @@ def redis-del [...keys: string]: nothing -> string {
 
 log info 'Cleanup started'
 
-for schema in (schema-list) {
+for schema in (schema-list $config) {
     let configured = (
         $config.schemas
         | get --optional $schema
         | get tables
+        | each {|t| $t.name | split row . | last }
+    )
+
+    let configured_fallback = (
+        $config.schemas
+        | get --optional $schema
+        | get tables
+        | where ($it.fallback? | default false)
         | each {|t| $t.name | split row . | last }
     )
 
@@ -68,6 +65,16 @@ for schema in (schema-list) {
     let stale = (
         $all
         | where $it not-in $configured and $it not-in $protected
+    )
+
+    let stale_fallback = (
+        postgres --tuples-only (render-sql cleanup_list_fallback.sql {
+            schema: (quote-pg $schema literal)
+        })
+        | lines
+        | str trim
+        | where ($it | is-not-empty)
+        | where $it not-in $configured_fallback
     )
 
     if ($stale | is-empty) {
@@ -104,9 +111,25 @@ for schema in (schema-list) {
         (postgres (render-sql cleanup_delete_access_policy.sql {
             schema: (quote-pg $schema identifier)
         }))
+    }
 
-        log info $'Notifying PostgREST to reload schema cache for ($schema)'
-        postgres 'NOTIFY pgrst'
+    if ($stale_fallback | is-empty) {
+        log info $'No stale fallback objects in ($schema)'
+    } else {
+        log info $'Found ($stale_fallback | length) stale fallback objects in ($schema)'
+
+        for table in $stale_fallback {
+            log info $'Dropping fallback objects for ($schema).($table)'
+            (postgres (render-sql cleanup_drop_fallback.sql {
+                schema: (quote-pg $schema identifier)
+                table: (quote-pg $table literal)
+            }))
+        }
+    }
+
+    if not (($stale | is-empty) and ($stale_fallback | is-empty)) {
+        log info $'Refreshing PostgREST schema cache for ($schema)'
+        refresh-postgrest $env.KUBERNETES_NAMESPACE
     }
 }
 
