@@ -354,3 +354,39 @@ tests:
       - hasDocuments:
           count: 0
         template: cronjob-retention.yaml
+
+  - it: sync worker renders DBOS controls and resources
+    set:
+      observability.otlpLogsEndpoint: http://otel-collector:4318/v1/logs
+      sync.workflowTimeoutSeconds: 1800
+      sync.worker.dumpQueueRateLimit: 20
+      sync.worker.stepMaxAttempts: 4
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTLP_LOGS_ENDPOINT
+            value: http://otel-collector:4318/v1/logs
+        template: deployment-sync-worker.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SYNC_RUN_TIMEOUT_SECONDS
+            value: "1800"
+        template: deployment-sync-worker.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUMP_QUEUE_RATE_LIMIT
+            value: "20"
+        template: deployment-sync-worker.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SYNC_STEP_MAX_ATTEMPTS
+            value: "4"
+        template: deployment-sync-worker.yaml
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 6Gi
+        template: deployment-sync-worker.yaml

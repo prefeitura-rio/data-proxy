@@ -37,6 +37,8 @@ spec:
         - name: sync-worker
           image: "{{ .Values.sync.image }}"
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.sync.worker.resources | nindent 12 }}
           command: ["python", "-m", "dp.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}

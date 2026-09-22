@@ -662,6 +662,12 @@ map $http_accept_profile $postgrest_write {
   value: {{ .Values.sync.dumper.scratch.mountPath | quote }}
 - name: DUMP_QUEUE_MAX_ATTEMPTS
   value: {{ .Values.sync.worker.dumperStepMaxAttempts | quote }}
+- name: DUMP_QUEUE_RATE_LIMIT
+  value: {{ .Values.sync.worker.dumpQueueRateLimit | quote }}
+- name: SYNC_STEP_MAX_ATTEMPTS
+  value: {{ .Values.sync.worker.stepMaxAttempts | quote }}
+- name: SYNC_RUN_TIMEOUT_SECONDS
+  value: {{ .Values.sync.workflowTimeoutSeconds | quote }}
 - name: DBOS_SYSTEM_DATABASE_URL
   value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
 - name: AIRFLOW_CONN_AIRFLOW_DB
@@ -674,6 +680,10 @@ map $http_accept_profile $postgrest_write {
   value: {{ .Values.dbos.systemSchema | quote }}
 - name: DBOS_APP_SCHEMA
   value: {{ .Values.dbos.appSchema | quote }}
+- name: OTLP_LOGS_ENDPOINT
+  value: {{ .Values.observability.otlpLogsEndpoint | quote }}
+- name: OTLP_TRACES_ENDPOINT
+  value: {{ .Values.observability.otlpTracesEndpoint | quote }}
 - name: SYNC_SCHEDULE
   value: {{ .Values.sync.schedule | quote }}
 - name: DUMP_QUEUE_WORKER_CONCURRENCY

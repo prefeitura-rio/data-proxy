@@ -50,6 +50,7 @@ Application defaults below apply outside Helm. Helm can override them.
 | `SYNC_SCHEDULE_NAME` | `sync` | DBOS schedule name. |
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Per-process DBOS sync queue concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
+| `SYNC_STEP_MAX_ATTEMPTS` | `3` | Maximum attempts for safe transient DBOS steps. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Per-process DBOS dump queue concurrency. |
 | `DUMP_QUEUE_RATE_LIMIT` | `50` | Maximum dump tasks enqueued per 60 seconds. |
 | `PUBLISH_QUEUE_WORKER_CONCURRENCY` | `4` | Per-process DBOS publish queue concurrency. |
@@ -84,6 +85,7 @@ Application defaults below apply outside Helm. Helm can override them.
 | Variable | Application default | Meaning |
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
 | `OTLP_LOGS_ENDPOINT` | `""` (disabled) | OTLP logs endpoint. When empty, OTLP export is disabled. |
+| `OTLP_TRACES_ENDPOINT` | `""` (disabled) | OTLP traces endpoint. When empty, trace export is disabled. |
 
 The FastStream and Redis-stream variables (`PRODUCER_POLL_INTERVAL_SECONDS`, `DUMPER_MAX_RETRIES`, `DUMPER_VISIBILITY_TIMEOUT_MS`, `SEEDER_VISIBILITY_TIMEOUT_MS`, `PUBLISHER_VISIBILITY_TIMEOUT_MS`) are removed. DBOS owns run state, retries, and recovery. The Prometheus Pushgateway (`PUSHGATEWAY_URL`) is removed; observability uses one OTLP pipeline.
 

@@ -1,14 +1,12 @@
-## Container image for the producer, Dumper, Seeder, and Publisher services.
+## Container image for the DBOS sync worker.
 sync:
   image: ghcr.io/prefeitura-rio/data-proxy:caa0da9
   imagePullPolicy: IfNotPresent
-  ## Cron expression that controls when the producer CronJob fires.
-  ## Default: daily at 02:00 UTC. The producer enqueues one sync_run workflow.
+  ## Cron expression for the DBOS sync schedule.
+  ## Default: daily at 02:00 UTC.
   schedule: 0 2 * * *
-  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
-  startingDeadlineSeconds: 600
-  ## Maximum wall-clock time one sync run may run before it is considered hung.
-  activeDeadlineSeconds: 3600
+  ## Maximum wall-clock time for one DBOS sync workflow.
+  workflowTimeoutSeconds: 3600
   ## DBOS queue that carries the enqueued sync_run workflow.
   queue:
     ## Maximum concurrent sync_run workflows across all workers.
@@ -38,6 +36,17 @@ sync:
             app.kubernetes.io/name: data-proxy
     ## Maximum DBOS step retry attempts for one dump task.
     dumperStepMaxAttempts: 3
+    ## Maximum attempts for safe transient DBOS steps.
+    stepMaxAttempts: 3
+    ## Maximum dump tasks enqueued per 60 seconds.
+    dumpQueueRateLimit: 50
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "4"
+        memory: 6Gi
     ## Per-process concurrency for the DBOS dump queue.
     dumpQueueWorkerConcurrency: 4
     ## Per-process concurrency for the DBOS publish queue.
@@ -48,7 +57,7 @@ sync:
       ## Cooldown in seconds before scaling down to idle.
       cooldownPeriod: 60
       ## Replicas KEDA scales down to when the DBOS queue is empty. Keep at least one
-      ## warm worker: the producer enqueues one sync_run coordinator, and a single
+      ## warm worker: a single queued workflow must reach a worker.
       ## queued workflow cannot activate a count trigger from zero, so it would never start.
       idleReplicaCount: 1
       ## Minimum replicas once work activates. We always start with at least 3 workers.
@@ -138,6 +147,12 @@ swaggerUi:
   enabled: false
   ## Swagger UI container image.
   image: swaggerapi/swagger-ui:v5.18.2
+## OpenTelemetry configuration for worker logs.
+observability:
+  ## OTLP logs endpoint. Leave empty to disable export.
+  otlpLogsEndpoint: ""
+  ## OTLP traces endpoint. Leave empty to disable export.
+  otlpTracesEndpoint: ""
 ## Google Cloud Platform credentials for BigQuery access.
 ## In GKE, use Workload Identity via serviceAccount.annotations instead.
 ## In minikube, set existingSecret to a Secret containing key.json.
@@ -348,6 +363,9 @@ dbos:
 ## mode: shared   — one Cluster for all schemas (staging)
 ## mode: per-schema — one Cluster per schema (prod, publication isolation)
 cnpg:
+  duckdb:
+    ## Maximum memory available to pg_duckdb in each application cluster.
+    maxMemory: 3072MB
   pooler:
     ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
     instances: 1

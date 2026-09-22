@@ -199,3 +199,12 @@ tests:
         template: cluster-cnpg.yaml
     set:
       cnpg.resources.limits.memory: 512Mi
+
+  - it: configures the DuckDB memory cap
+    set:
+      cnpg.duckdb.maxMemory: 2048MB
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters["duckdb.max_memory"]
+          value: 2048MB
+        template: cluster-cnpg.yaml
