@@ -12,8 +12,6 @@ data:
 {{ .Files.Get "files/retention.nu" | nindent 4 }}
   lib.nu: |
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
-  retention_delete.sql: |
-{{ .Files.Get "files/sql/helm/retention_delete.sql" | nindent 4 }}
 ---
 apiVersion: batch/v1
 kind: CronJob
