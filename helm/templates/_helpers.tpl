@@ -684,6 +684,8 @@ map $http_accept_profile $postgrest_write {
   value: {{ .Values.observability.otlpLogsEndpoint | quote }}
 - name: OTLP_TRACES_ENDPOINT
   value: {{ .Values.observability.otlpTracesEndpoint | quote }}
+- name: OTLP_METRICS_ENDPOINT
+  value: {{ .Values.observability.otlpMetricsEndpoint | quote }}
 - name: SYNC_SCHEDULE
   value: {{ .Values.sync.schedule | quote }}
 - name: DUMP_QUEUE_WORKER_CONCURRENCY

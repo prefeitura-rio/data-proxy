@@ -86,6 +86,7 @@ Application defaults below apply outside Helm. Helm can override them.
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
 | `OTLP_LOGS_ENDPOINT` | `""` (disabled) | OTLP logs endpoint. When empty, OTLP export is disabled. |
 | `OTLP_TRACES_ENDPOINT` | `""` (disabled) | OTLP traces endpoint. When empty, trace export is disabled. |
+| `OTLP_METRICS_ENDPOINT` | `""` (disabled) | OTLP metrics endpoint. When empty, metric export is disabled. |
 
 The FastStream and Redis-stream variables (`PRODUCER_POLL_INTERVAL_SECONDS`, `DUMPER_MAX_RETRIES`, `DUMPER_VISIBILITY_TIMEOUT_MS`, `SEEDER_VISIBILITY_TIMEOUT_MS`, `PUBLISHER_VISIBILITY_TIMEOUT_MS`) are removed. DBOS owns run state, retries, and recovery. The Prometheus Pushgateway (`PUSHGATEWAY_URL`) is removed; observability uses one OTLP pipeline.
 

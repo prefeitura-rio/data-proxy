@@ -16,7 +16,9 @@ def main() -> None:
         "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
         "dbos_system_schema": settings.DBOS_SYSTEM_SCHEMA,
         "enable_otlp": bool(
-            settings.OTLP_LOGS_ENDPOINT or settings.OTLP_TRACES_ENDPOINT
+            settings.OTLP_LOGS_ENDPOINT
+            or settings.OTLP_TRACES_ENDPOINT
+            or settings.OTLP_METRICS_ENDPOINT
         ),
         "otlp_logs_endpoints": [settings.OTLP_LOGS_ENDPOINT]
         if settings.OTLP_LOGS_ENDPOINT

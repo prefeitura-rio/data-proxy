@@ -153,6 +153,8 @@ observability:
   otlpLogsEndpoint: ""
   ## OTLP traces endpoint. Leave empty to disable export.
   otlpTracesEndpoint: ""
+  ## OTLP metrics endpoint. Leave empty to disable export.
+  otlpMetricsEndpoint: ""
 ## Google Cloud Platform credentials for BigQuery access.
 ## In GKE, use Workload Identity via serviceAccount.annotations instead.
 ## In minikube, set existingSecret to a Secret containing key.json.

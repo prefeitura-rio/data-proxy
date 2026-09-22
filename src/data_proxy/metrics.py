@@ -5,9 +5,27 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Literal, ParamSpec
 
-from opentelemetry.metrics import Counter, get_meter
+from opentelemetry import metrics as otel_metrics
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.metrics import Counter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
-meter = get_meter("dp")
+from .settings import settings
+
+
+def configure_metrics() -> None:
+    """Configure the OTLP metric exporter when an endpoint is set."""
+    endpoint = settings.OTLP_METRICS_ENDPOINT
+    if not endpoint:
+        return
+
+    reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint))
+    otel_metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
+
+
+configure_metrics()
+meter = otel_metrics.get_meter("dp")
 RunStatus = Literal["success", "no_changes", "failure"]
 P = ParamSpec("P")
 StatusRecorder = Callable[[RunStatus], Awaitable[None]]

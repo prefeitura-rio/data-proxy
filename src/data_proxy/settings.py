@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
+    OTLP_METRICS_ENDPOINT: str = Field(default="")
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
