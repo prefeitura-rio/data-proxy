@@ -41,6 +41,8 @@ Each configured schema contains:
 
 The cleanup CronJob runs as the `jobs` role, not as the database owner. It drops stale tables through `<schema>.drop_table_if_exists()`, a `SECURITY DEFINER` function owned by the schema owner.
 
+Application CNPG clusters set `duckdb.max_memory` from `cnpg.duckdb.maxMemory`. Keep this cap below the pod memory limit.
+
 ## Policies and S3 access
 
 The sync workflow creates schema and row conditions for application tables. See [Security](security.md) for access behavior.

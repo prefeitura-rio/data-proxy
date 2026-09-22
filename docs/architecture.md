@@ -116,7 +116,7 @@ The DBOS system database holds all sync workflow state and the `dp` application 
 
 Nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and is not used by sync workers or PostgREST writes.
 
-The Publisher commits database state, waits for standby WAL replay, refreshes both PostgREST deployments, and waits for their HTTP readiness probes before it completes publication and flushes the response cache. `/access_policy` is never response-cached.
+The Publisher commits database state, waits for standby WAL replay, refreshes both PostgREST deployments, and waits for their HTTP readiness probes before it completes publication and flushes the response cache. Publication revokes anonymous access on each schema writer. Finalization only clears the temporary object store and response cache. `/access_policy` is never response-cached.
 
 #### Sync
 

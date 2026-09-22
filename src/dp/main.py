@@ -25,7 +25,7 @@ from .kubernetes import (
     load_config,
 )
 from .log import logger, schemaname, tablename
-from .metrics import metrics
+from .metrics import RunStatus, metrics, observe_sync_run
 from .models import (
     DumpFailure,
     DumpResult,
@@ -43,7 +43,7 @@ from .postgres import connect_pg
 from .publication import configure_s3_secret, run_publication
 from .replication import current_wal_lsn, replicas_replayed
 from .s3 import clear_s3_bucket
-from .schema import initialize_schemas, revoke_anonymous_access
+from .schema import initialize_schemas
 from .settings import settings
 from .state import (
     build_table_states,
@@ -72,7 +72,7 @@ async def build_work(run_id: str) -> SyncWork:
 
 
 @DBOS.step()
-async def record_run_status(status: str) -> None:
+async def record_run_status(status: RunStatus) -> None:
     """Record one sync run status metric."""
     metrics.sync_runs_total.add(1, {"status": status})
 
@@ -104,7 +104,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
         )
 
 
-@DBOS.step()
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
 async def seed(plans: list[SyncPlan]) -> None:
     """Initialize configured schemas and policy objects for one run."""
     by_dsn: dict[str, dict[str, SchemaConfig]] = {}
@@ -153,7 +153,7 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
         )
 
 
-@DBOS.step()
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
 async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedSchema:
     """Load and publish one schema plan, then capture the commit WAL position."""
     schemaname.set(plan.schema_name)
@@ -173,7 +173,7 @@ async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedS
     return PublishedSchema(result=result, target_lsn=target_lsn)
 
 
-@DBOS.step()
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
 async def wait_replica(schema_name: str, target_lsn: str) -> None:
     """Wait until every replica has replayed the publication WAL position."""
     async with connect_pg(settings.SCHEMA_WRITERS.dsn(schema_name)) as pg_conn:
@@ -185,8 +185,8 @@ async def wait_replica(schema_name: str, target_lsn: str) -> None:
         )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=3)
-async def refresh_schema(schema_name: str, run_id: str) -> None:
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+async def restart_postgrest(schema_name: str, run_id: str) -> None:
     """Restart both PostgREST deployments and wait for their rollouts."""
     load_config()
 
@@ -229,7 +229,7 @@ async def refresh_schema(schema_name: str, run_id: str) -> None:
         await gather(*(wait_for_deployment(name) for name in names))
 
 
-@DBOS.step()
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
 async def commit_state(plan: SyncPlan, result: PublicationResult) -> None:
     """Persist committed table state for one published schema."""
     config = SyncConfig(
@@ -240,12 +240,9 @@ async def commit_state(plan: SyncPlan, result: PublicationResult) -> None:
         await write_table_states(pg_conn, states)
 
 
-@DBOS.step()
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
 async def finalize(run_id: str) -> None:
-    """Revoke anonymous access, empty the bucket, and flush the cache."""
-    async with connect_pg(settings.PG_DATABASE_URL) as pg_conn:
-        await revoke_anonymous_access(pg_conn, settings.sync_config)
-
+    """Empty the temporary object store and flush the response cache."""
     await clear_s3_bucket()
     await clear_cache()
     logger.info("Run finalized run_id=%s", run_id)
@@ -279,7 +276,7 @@ async def publish_schema(
 
     outcome = await load_and_publish(plan, failed_paths)
     await wait_replica(plan.schema_name, outcome.target_lsn)
-    await refresh_schema(plan.schema_name, run_id)
+    await restart_postgrest(plan.schema_name, run_id)
 
     await record_publish_metrics(outcome.result, plan.schema_name)
     await commit_state(plan, outcome.result)
@@ -287,7 +284,8 @@ async def publish_schema(
 
 
 @DBOS.workflow()
-async def sync_run(scheduled_at: datetime, context: object) -> None:
+@observe_sync_run(record_run_status)
+async def sync_run(scheduled_at: datetime, context: object) -> RunStatus:
     """Plan one run, fan out dumps, seed, fan out publishers, and finalize."""
     workflow_id = DBOS.workflow_id
     if workflow_id is None:
@@ -298,10 +296,8 @@ async def sync_run(scheduled_at: datetime, context: object) -> None:
 
         if not work.plans:
             logger.info("No table changes")
-            await record_run_status("no_changes")
-            return
+            return "no_changes"
 
-        await record_run_status("success")
         logger.info(
             "Run planned tasks=%d plans=%d",
             len(work.tasks),
@@ -309,6 +305,7 @@ async def sync_run(scheduled_at: datetime, context: object) -> None:
         )
 
         dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
+
         for task in work.tasks:
             handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
             dump_handles.append(handle)
@@ -316,6 +313,7 @@ async def sync_run(scheduled_at: datetime, context: object) -> None:
         dump_results: list[DumpResult] = await asyncio.gather(
             *(handle.get_result() for handle in dump_handles)
         )
+
         failed_paths = {
             path
             for result in dump_results
@@ -325,15 +323,22 @@ async def sync_run(scheduled_at: datetime, context: object) -> None:
         await seed(work.plans)
 
         publish_handles: list[WorkflowHandleAsync[set[str]]] = []
+
         for plan in work.plans:
             handle = await DBOS.enqueue_workflow_async(
-                PUBLISH_QUEUE, publish_schema, workflow_id, plan, failed_paths
+                PUBLISH_QUEUE,
+                publish_schema,
+                workflow_id,
+                plan,
+                failed_paths,
             )
+
             publish_handles.append(handle)
 
         await asyncio.gather(*(handle.get_result() for handle in publish_handles))
 
         await finalize(workflow_id)
+        return "success"
 
 
 def main() -> None:
@@ -343,24 +348,36 @@ def main() -> None:
         "application_version": settings.DBOS_APPLICATION_VERSION,
         "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
         "dbos_system_schema": settings.DBOS_SYSTEM_SCHEMA,
-        "enable_otlp": bool(settings.OTLP_LOGS_ENDPOINT),
+        "enable_otlp": bool(
+            settings.OTLP_LOGS_ENDPOINT or settings.OTLP_TRACES_ENDPOINT
+        ),
         "otlp_logs_endpoints": [settings.OTLP_LOGS_ENDPOINT]
         if settings.OTLP_LOGS_ENDPOINT
+        else [],
+        "otlp_traces_endpoints": [settings.OTLP_TRACES_ENDPOINT]
+        if settings.OTLP_TRACES_ENDPOINT
         else [],
     }
 
     DBOS(config=config)
+
     DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, PUBLISH_QUEUE])
+
     DBOS.launch()
+
     DBOS.register_queue(SYNC_QUEUE, concurrency=settings.SYNC_QUEUE_CONCURRENCY)
+
     DBOS.register_queue(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
         limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60},
     )
+
     DBOS.register_queue(
-        PUBLISH_QUEUE, worker_concurrency=settings.PUBLISH_QUEUE_WORKER_CONCURRENCY
+        PUBLISH_QUEUE,
+        worker_concurrency=settings.PUBLISH_QUEUE_WORKER_CONCURRENCY,
     )
+
     DBOS.apply_schedules(
         [
             ScheduleInput(

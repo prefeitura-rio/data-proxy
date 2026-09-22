@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
+    OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
     POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
@@ -55,6 +56,7 @@ class Settings(BaseSettings):
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
     SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
+    SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     SYNC_SCHEDULE: str = "0 2 * * *"
     SYNC_SCHEDULE_NAME: str = "sync"
 
