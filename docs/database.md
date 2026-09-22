@@ -18,8 +18,8 @@ CNPG creates and maintains the core roles. Init-db creates extensions, the `rls`
 | `anon`                   | No application table access.                                        |
 | `user`                   | Read access subject to schema and row conditions.                   |
 | `authenticator`          | PostgREST login role. CNPG keeps it `NOINHERIT` and grants membership in `anon` and `user`. |
-| `policy_writer_<schema>` | Reads and writes one schema's `access_policy` table. Created by init-db/Publisher. Cannot delete. |
-| `backup`                 | Optional CNPG-managed role that reads `access_policy` for backups. |
+| `policy_writer_<schema>` | Reads and writes one schema's `access_policy` table. Created by init-db/Publisher. Deleting a row revokes the grant. |
+| `jobs`                   | Shared maintenance role for the backup and cleanup CronJobs. It reads and prunes the governance tables, and drops stale tables through a `SECURITY DEFINER` helper. |
 
 ## Application schema
 
@@ -28,13 +28,18 @@ Each configured schema contains:
 | Object                   | Purpose                                           |
 | ------------------------ | ------------------------------------------------- |
 | `<schema>.freshness`     | Latest publication status by table and partition. |
-| `<schema>.access_policy` | Access grants.                                    |
+| `<schema>.access_policy` | Active access grants.                             |
+| `<schema>.access_log`    | Append-only audit trail of every grant change.    |
 | Synced tables            | Local PostgreSQL copies of BigQuery tables.       |
 | `<table>_bq`             | Fallback view when enabled.                       |
 
 `freshness` has one row for a full table and one row per known partition for a partitioned table.
 
-`access_policy` has a unique key on `(subject, unit_type, unit_id)`. Its metadata trigger manages `created_at` and `updated_at`.
+`access_policy` holds only active grants. It has a unique key on `(subject, unit_type, unit_id)` covering `is_admin`, and its metadata trigger manages `created_at` and `updated_at`. Revoking access deletes the row.
+
+`access_log` records every insert, update, and delete with the previous row state. Its trigger runs as the defining role so low-privilege writers are logged. The backup CronJob keeps `access_log` for `backup.accessLog.retentionDays` days.
+
+The cleanup CronJob runs as the `jobs` role, not as the database owner. It drops stale tables through `<schema>.drop_table_if_exists()`, a `SECURITY DEFINER` function owned by the schema owner.
 
 ## Policies and S3 access
 

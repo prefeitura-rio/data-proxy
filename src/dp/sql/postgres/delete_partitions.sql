@@ -17,7 +17,6 @@ WHERE {{ affected_partitions | join(' OR ') }}
 AND EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
     WHERE p.subject = current_setting({{ claim_setting }}, true)
-      AND p.is_enabled
       AND (p.is_admin OR {{ predicate }})
 )
 {% endif %}

@@ -51,4 +51,5 @@ roles = ["anon", "dp_user", "dp_auth"]
 parent_table = "'pic.people'"
 interval = "'1 day'"
 retention = "'30 days'"
+log_retention_days = 90
 clauses = "ALTER COLUMN payload SET DATA TYPE jsonb USING payload::jsonb"

@@ -1,7 +1,6 @@
 CREATE TABLE {{ schema }}.access_policy (
     subject text NOT NULL,
     is_admin boolean NOT NULL DEFAULT false,
-    is_enabled boolean NOT NULL DEFAULT true,
     unit_type text,
     unit_id text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,

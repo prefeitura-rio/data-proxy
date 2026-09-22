@@ -89,7 +89,7 @@ CNPG manages the core roles:
 | `user`                   | Authenticated read role, subject to schema and row policies.                 |
 | `authenticator`          | PostgREST login role. It is `NOINHERIT` and can switch to `anon` and `user`. |
 | `policy_writer_<schema>` | Per-schema policy service role.                                              |
-| `backup`                 | Optional role for access-policy backups.                                     |
+| `jobs`                   | Shared maintenance role for the backup and cleanup CronJobs. It cannot run DDL. |
 
 Init-db creates the `rls` schema and its functions, tables, policies, and grants. `rls.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `rls` does not grant application table access.
 
@@ -121,16 +121,15 @@ For a table with this configuration:
 ]
 ```
 
-an enabled policy row must match the user's subject and the row's unit:
+an active policy row must match the user's subject and the row's unit:
 
 ```text
 subject   = JWT preferred_username (or configured claim)
-is_enabled = true
 is_admin   = true
 OR unit_type/unit_id matches the row
 ```
 
-A missing schema claim or policy grant normally returns `200 []`. It is not an authentication failure.
+A policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or policy grant normally returns `200 []`. It is not an authentication failure.
 
 ## Seed access policy
 
@@ -140,7 +139,7 @@ Create one confidential policy-writer client per schema. Its JWT role must be:
 policy_writer_pic
 ```
 
-Do not grant this client the normal `user` role. The policy-writer role can read, insert, and update only `pic.access_policy`; it cannot delete policy rows or read application tables.
+Do not grant this client the normal `user` role. The policy-writer role can select, insert, update, and delete rows in `pic.access_policy` only, and cannot read application tables. Deleting a row revokes the grant; the change is recorded in `pic.access_log`.
 
 Use a policy-writer token and the target schema profile:
 
@@ -160,18 +159,16 @@ The policy subject must equal the configured identity claim in the end-user JWT.
 
 ### Revoke access
 
-Disable a grant instead of deleting it:
+Delete the grant:
 
 ```bash
-curl --request PATCH \
+curl --request DELETE \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
-  --header "Content-Type: application/json" \
   --header "Accept-Profile: pic" \
-  --data '{"is_enabled": false}' \
   "${BASE_URL}/access_policy?subject=eq.user-1&unit_type=eq.cras&unit_id=eq.cras_1"
 ```
 
-A later patch with `is_enabled: true` restores the grant. No resync or token refresh is required.
+The row is removed from `pic.access_policy` and its previous state is written to `pic.access_log` with `action = 'delete'`. To grant access again, insert the row again. No resync or token refresh is required.
 
 ## Read requests and fallback
 

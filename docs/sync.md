@@ -82,7 +82,7 @@ dumper:
 
 ## Schema initialization
 
-The sync workflow creates configured schemas, `access_policy` tables, policies, and `policy_writer_<schema>` roles when needed. Do not create them manually.
+The sync workflow creates configured schemas, `access_policy` tables, `access_log` audit tables, policies, triggers, and `policy_writer_<schema>` roles when needed. Do not create them manually.
 
 ## JSON and geometry
 

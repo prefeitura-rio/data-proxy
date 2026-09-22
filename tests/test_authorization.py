@@ -2,9 +2,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from psycopg import AsyncConnection
+from testcontainers.community.postgres import PostgresContainer
 
 from dp.authorization import bootstrap_table
 from dp.models import UnitMapping
+from dp.templates import render_template
+from tests.constants import HELM_SQL
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql
 
@@ -112,10 +115,10 @@ class TestAuthorization:
         assert policies == [("access_policy_scoped",)]
 
     @pytest.mark.asyncio
-    async def test_rls_hides_disabled_and_ungranted_rows(
+    async def test_rls_hides_ungranted_rows_and_revokes_on_delete(
         self, postgres: Postgres
     ) -> None:
-        """The user role sees only rows covered by an enabled unit grant."""
+        """The user role sees granted rows, and a deleted grant revokes access."""
         schema = postgres.namespace.schema
         await execute_sql(
             postgres.connection,
@@ -153,6 +156,20 @@ class TestAuthorization:
             )
         ).fetchall()
         assert rows == [("allowed",)]
+
+        await postgres.connection.execute("RESET ROLE")
+        await postgres.connection.execute(
+            f"DELETE FROM {schema}.access_policy WHERE subject = 'alice'".encode()
+        )
+        await postgres.connection.execute('SET ROLE "user"')
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/select_visible_id_cras",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert rows == []
 
     @pytest.mark.asyncio
     async def test_schema_scope_rls_hides_rows_outside_claimed_schema(
@@ -218,3 +235,264 @@ class TestAuthorization:
                 rls=[UnitMapping(column="id_cras", unit_type="cras")],
                 claim=None,
             )
+
+
+@pytest.fixture
+async def access_policy(postgres: Postgres) -> str:
+    """Create the production access_policy and access_log objects in one schema."""
+    schema = postgres.namespace.schema
+    await postgres.connection.execute(
+        render_template(
+            "postgres/init_access_policy",
+            {"schema": schema, "user_role": '"user"', "scope": "true"},
+        ).encode()
+    )
+    await postgres.connection.commit()
+    return schema
+
+
+class TestAccessPolicyLog:
+    """Tests for the access_log audit trail trigger."""
+
+    @pytest.mark.asyncio
+    async def test_log_trigger_runs_as_definer(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: the production template has been applied.
+        WHEN: the log trigger function is inspected.
+        THEN: it is SECURITY DEFINER, so low-privilege writers can be logged.
+        """
+        row = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/log_trigger_is_security_definer",
+                mapping={"schema": access_policy},
+            )
+        ).fetchone()
+        assert row == (True,)
+
+    @pytest.mark.asyncio
+    async def test_insert_logs_to_access_log(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: an access_policy table with the log trigger.
+        WHEN: a row is inserted.
+        THEN: an 'insert' log entry is created with the new row state.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('123', true, 'cras', '42')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/access_log_entries",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert rows == [("123", True, "cras", "42", "insert")]
+
+    @pytest.mark.asyncio
+    async def test_update_logs_old_state_to_access_log(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: an access_policy table with the log trigger and one grant.
+        WHEN: the grant is updated.
+        THEN: an 'update' log entry captures the previous state.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('456', false, 'escola', '7')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        await postgres.connection.execute(
+            (
+                f"UPDATE {schema}.access_policy SET is_admin = true WHERE subject = '456'"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/access_log_entries",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == ("456", False, "escola", "7", "insert")
+        assert rows[1] == ("456", False, "escola", "7", "update")
+
+    @pytest.mark.asyncio
+    async def test_delete_logs_old_state_to_access_log(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: an access_policy table with the log trigger and one grant.
+        WHEN: the grant is deleted.
+        THEN: a 'delete' log entry captures the removed state.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('789', false, 'ap', '1')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        await postgres.connection.execute(
+            f"DELETE FROM {schema}.access_policy WHERE subject = '789'".encode()
+        )
+        await postgres.connection.commit()
+
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/access_log_entries",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == ("789", False, "ap", "1", "insert")
+        assert rows[1] == ("789", False, "ap", "1", "delete")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_delete_access_policy_is_audited(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: an access_policy with one grant and the access_log trigger.
+        WHEN: the cleanup delete template runs.
+        THEN: the grant is removed and its removal is recorded in access_log.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('cleared', true, 'cras', '9')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        cleanup = render_template(
+            "cleanup_delete_access_policy",
+            {"schema": schema},
+            root=HELM_SQL,
+        )
+        await postgres.connection.execute(cleanup.encode())
+        await postgres.connection.commit()
+
+        remaining = await (
+            await postgres.connection.execute(
+                f"SELECT count(*) FROM {schema}.access_policy".encode()
+            )
+        ).fetchone()
+        assert remaining == (0,)
+
+        logged = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/access_log_entries",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert logged == [
+            ("cleared", True, "cras", "9", "insert"),
+            ("cleared", True, "cras", "9", "delete"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_prunes_access_log_after_retention(
+        self, postgres: Postgres, access_policy: str
+    ) -> None:
+        """
+        GIVEN: an access_log entry older than the retention period.
+        WHEN: the access log cleanup SQL runs.
+        THEN: only entries inside the retention window remain.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('recent', true, 'cras', '1')"
+            ).encode()
+        )
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_log "
+                f"(subject, is_admin, unit_type, unit_id, action, changed_at) "
+                f"VALUES ('stale', false, 'escola', '2', 'delete', now() - interval '100 days')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        cleanup_sql = render_template(
+            "cleanup_access_log",
+            {"schema": schema, "log_retention_days": "90"},
+            root=HELM_SQL,
+        )
+        await postgres.connection.execute(cleanup_sql.encode())
+        await postgres.connection.commit()
+
+        rows = await (
+            await execute_sql(
+                postgres.connection,
+                "postgres/access_log_entries",
+                mapping={"schema": schema},
+            )
+        ).fetchall()
+        assert [row[0] for row in rows] == ["recent"]
+
+
+class TestAccessPolicyBackup:
+    """Tests for dumping the governance tables the way the backup routine does."""
+
+    @pytest.mark.asyncio
+    async def test_backup_dumps_policy_and_log(
+        self,
+        postgres: Postgres,
+        postgres_container: PostgresContainer,
+        access_policy: str,
+    ) -> None:
+        """
+        GIVEN: an access_policy row and its access_log entry.
+        WHEN: pg_dump exports both tables the way the backup routine does.
+        THEN: both dumps succeed and contain the exported row.
+        """
+        schema = access_policy
+        await postgres.connection.execute(
+            (
+                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
+                f"VALUES ('dump', true, 'cras', '1')"
+            ).encode()
+        )
+        await postgres.connection.commit()
+
+        for table in ("access_policy", "access_log"):
+            result = postgres_container.exec(
+                [
+                    "pg_dump",
+                    f"--username={postgres_container.username}",
+                    "--dbname=test_template",
+                    "--format=plain",
+                    "--no-owner",
+                    "--no-acl",
+                    "--data-only",
+                    f"--table={schema}.{table}",
+                ]
+            )
+            assert result.exit_code == 0, result.output
+            assert "dump" in result.output.decode()

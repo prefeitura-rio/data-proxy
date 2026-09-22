@@ -49,6 +49,6 @@
 #}
 {% macro rls_unit_array_checks(rls_mappings, claim_setting, schema) -%}
 {% for mapping in rls_mappings %}
-"{{ mapping.column }}"::text = ANY(ARRAY(SELECT unit_id FROM {{ schema }}.access_policy WHERE subject = current_setting({{ claim_setting }}, true) AND is_enabled AND unit_type = '{{ mapping.unit_type }}')){% if not loop.last %} OR {% endif %}
+"{{ mapping.column }}"::text = ANY(ARRAY(SELECT unit_id FROM {{ schema }}.access_policy WHERE subject = current_setting({{ claim_setting }}, true) AND unit_type = '{{ mapping.unit_type }}')){% if not loop.last %} OR {% endif %}
 {% endfor %}
 {%- endmacro %}

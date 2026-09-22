@@ -38,7 +38,7 @@ BEGIN
 
   SELECT EXISTS(
     SELECT 1 FROM {{ schema }}.access_policy p
-    WHERE p.subject = v_subject AND p.is_enabled AND p.is_admin
+    WHERE p.subject = v_subject AND p.is_admin
   ) INTO v_is_admin;
 
   IF NOT {{ has_rls }} OR v_is_admin THEN
@@ -51,7 +51,7 @@ BEGIN
         {{ rls_mapping_values(rls_mappings) }}
       ) AS t(col, ut)
       JOIN {{ schema }}.access_policy p ON p.unit_type = t.ut
-      WHERE p.subject = v_subject AND p.is_enabled
+      WHERE p.subject = v_subject
       GROUP BY t.col
     ) filters;
 
