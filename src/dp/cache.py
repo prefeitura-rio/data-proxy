@@ -3,7 +3,7 @@
 from .settings import settings
 
 
-async def clear_response_cache(db: int = 1) -> None:
+async def clear_cache() -> None:
     """Flush the response cache database."""
-    async with settings.redis(db=db) as redis:
+    async with settings.redis(db=settings.FALLBACK_CACHE_REDIS_DB) as redis:
         await redis.flushdb()  # pyright: ignore[reportUnknownMemberType]

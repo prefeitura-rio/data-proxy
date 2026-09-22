@@ -1,15 +1,15 @@
 """BigQuery fallback view generation and cache invalidation."""
 
+from dataclasses import dataclass, field
 from typing import cast
 
 from psycopg import AsyncConnection
-from psycopg.sql import SQL, Composable, Identifier, Literal
+from psycopg.sql import Identifier, Literal
 
 from .conditions import schema_scope_condition
 from .executor import execute_sql
 from .models import SyncConfig, TableConfig
 from .settings import settings
-from .templates import render_template
 from .types import TemplateValue
 
 DUCKDB_VIEW_PREFIX = "bq_fallback_"
@@ -33,11 +33,7 @@ def pg_scalar_type(duckdb_type: str) -> str:
 
 
 def duckdb_type_for(pg_type: str) -> str:
-    """Return the DuckDB read_parquet type for one PostgreSQL column type.
-
-    PostgreSQL jsonb is read as DuckDB json, because pgduckdb cannot cast a
-    Parquet jsonb column directly.
-    """
+    """Return the DuckDB read_parquet type for one PostgreSQL column type."""
     return "json" if pg_type == "jsonb" else pg_type
 
 
@@ -46,41 +42,12 @@ def quoted_identifier(identifier: str) -> str:
     return Identifier(identifier).as_string(None)
 
 
-def rls_where_clause(schema: str, table: TableConfig) -> str | Composable:
-    """Build the BigQuery WHERE clause from the table's RLS unit mappings.
-
-    Returns an empty string when the table has no RLS.
-    """
-    if table.rls is None:
-        return ""
-
-    claim = settings.sync_config.schemas[schema].claim
-
-    if claim is None:
-        return ""
-
-    return SQL(
-        render_template(
-            "postgres/rls_where_clause",
-            {
-                "schema": Identifier(schema),
-                "claim_setting": Literal(f"app.claim_{claim}"),
-                "scope": schema_scope_condition(schema),
-                "rls_mappings": [
-                    {"column": mapping.column, "unit_type": mapping.unit_type}
-                    for mapping in table.rls
-                ],
-            },
-        )
-    )
-
-
 async def column_types_from_duckdb(
-    conn: AsyncConnection, table: TableConfig
+    pg_conn: AsyncConnection, table: TableConfig
 ) -> list[tuple[str, str]]:
     """Return (column_name, duckdb_type) pairs from the local PostgreSQL table."""
     cursor = await execute_sql(
-        conn,
+        pg_conn,
         "postgres/column_types",
         params=(table.resolved_schema, table.table_name),
     )
@@ -156,41 +123,67 @@ def bq_view_mapping(
     }
 
 
-async def create_bq_views(conn: AsyncConnection, config: SyncConfig) -> None:
+@dataclass
+class FallbackView:
+    """Pipeline state for one fallback view creation."""
+
+    pg_conn: AsyncConnection
+    schema: str
+    table: TableConfig
+    columns: list[tuple[str, str]] = field(default_factory=list)
+
+    async def discover(self) -> None:
+        """Discover column types from the local PostgreSQL table."""
+        self.columns = await column_types_from_duckdb(self.pg_conn, self.table)
+
+        if not self.columns:
+            table_name = f"{self.table.resolved_schema}.{self.table.table_name}"
+            raise RuntimeError(
+                f"DuckDB returned no columns for fallback table {table_name}"
+            )
+
+    async def function(self) -> None:
+        """Create the BigQuery fallback function."""
+        await execute_sql(
+            self.pg_conn,
+            "postgres/create_bq_function",
+            mapping=bq_function_mapping(self.schema, self.table, self.columns),
+        )
+
+    async def view(self) -> None:
+        """Create the PostgreSQL boundary view."""
+        await execute_sql(
+            self.pg_conn,
+            "postgres/create_bq_view",
+            mapping=bq_view_mapping(self.schema, self.table, self.columns),
+        )
+
+    async def grant(self) -> None:
+        """Grant select on the fallback view to the user role."""
+        await execute_sql(
+            self.pg_conn,
+            "postgres/grant_bq_select",
+            mapping={
+                "schema": Identifier(self.schema),
+                "view": Identifier(f"{self.table.table_name}_bq"),
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+            },
+        )
+
+
+async def run_fallback_views_creation(
+    pg_conn: AsyncConnection, config: SyncConfig
+) -> None:
     """Create or replace _bq views for all fallback-enabled tables."""
     for schema_name, schema_config in config.schemas.items():
         for table in schema_config.tables:
             if not table.fallback:
                 continue
 
-            columns = await column_types_from_duckdb(conn, table)
+            ctx = FallbackView(pg_conn=pg_conn, schema=schema_name, table=table)
+            await ctx.discover()
+            await ctx.function()
+            await ctx.view()
+            await ctx.grant()
 
-            if not columns:
-                table_name = f"{table.resolved_schema}.{table.table_name}"
-                raise RuntimeError(
-                    f"DuckDB returned no columns for fallback table {table_name}"
-                )
-
-            await execute_sql(
-                conn,
-                "postgres/create_bq_function",
-                mapping=bq_function_mapping(schema_name, table, columns),
-            )
-
-            await execute_sql(
-                conn,
-                "postgres/create_bq_view",
-                mapping=bq_view_mapping(schema_name, table, columns),
-            )
-
-            await execute_sql(
-                conn,
-                "postgres/grant_bq_select",
-                mapping={
-                    "schema": Identifier(schema_name),
-                    "view": Identifier(f"{table.table_name}_bq"),
-                    "user_role": Identifier(settings.AUTH_USER_ROLE),
-                },
-            )
-
-    await conn.commit()
+    await pg_conn.commit()

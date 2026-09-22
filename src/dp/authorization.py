@@ -24,7 +24,7 @@ async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> 
     )
 
 
-async def bootstrap_table(
+async def apply_table_authorization(
     pg_conn: AsyncConnection,
     schema: str,
     table_name: str,

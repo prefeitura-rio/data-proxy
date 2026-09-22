@@ -24,12 +24,6 @@ def jinja_environment(root: Path) -> Environment:
     )
 
 
-@lru_cache
-def read_template(name: str, root: Path) -> str:
-    """Read and cache a SQL template by name from one SQL directory."""
-    return (root / f"{name}.sql").read_text()
-
-
 def render_template(
     path: str,
     mapping: Mapping[str, TemplateValue],

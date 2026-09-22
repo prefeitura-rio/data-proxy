@@ -1,45 +1,44 @@
-"""Pipeline logger with context auto-injection via contextvars."""
+"""Pipeline logger built on DBOS's dbos_logger with domain context injection."""
 
 from contextvars import ContextVar
-from logging import Filter, Formatter, LogRecord, StreamHandler, getLogger
-from time import monotonic
+from logging import Filter, Formatter, LogRecord, getLogger
 from typing import override
 
-runid = ContextVar("runid", default="-")
-tablename = ContextVar("tablename", default="-")
 schemaname = ContextVar("schemaname", default="-")
+tablename = ContextVar("tablename", default="-")
+
+logger = getLogger("dbos")
 
 
-class ContextFilter(Filter):
-    """Inject run_id, table, and schema into every log record."""
+class DomainContextFilter(Filter):
+    """Inject schema and table context that DBOS does not provide."""
 
     @override
     def filter(self, record: LogRecord) -> bool:
-        record.runid = runid.get()
-        record.table = tablename.get()
         record.schema = schemaname.get()
+        record.table = tablename.get()
         return True
 
 
 class ContextFormatter(Formatter):
-    """Show [run_id=... table=... schema=...] with only non-default fields."""
+    """Show workflow ID, schema, and table context alongside the message."""
 
     @override
     def format(self, record: LogRecord) -> str:
-        runid = getattr(record, "runid", "-")
-        table = getattr(record, "table", "-")
+        workflow_id = getattr(record, "operationUUID", None)
         schema = getattr(record, "schema", "-")
+        table = getattr(record, "table", "-")
 
         parts: list[str] = []
 
-        if runid != "-":
-            parts.append(f"run_id={runid}")
-
-        if table != "-":
-            parts.append(f"table={table}")
+        if workflow_id:
+            parts.append(f"wf={workflow_id}")
 
         if schema != "-":
             parts.append(f"schema={schema}")
+
+        if table != "-":
+            parts.append(f"table={table}")
 
         prefix = f"[{' '.join(parts)}] " if parts else ""
         message = (
@@ -53,16 +52,10 @@ class ContextFormatter(Formatter):
         return message
 
 
-def elapsed_ms(started: float) -> int:
-    """Return elapsed monotonic time in milliseconds."""
-    return int((monotonic() - started) * 1000)
+formatter = ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S")
 
+for handler in logger.handlers:
+    handler.setFormatter(formatter)
 
-handler = StreamHandler()
-handler.setFormatter(ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
-
-logger = getLogger("dp")
+logger.addFilter(DomainContextFilter())
 logger.setLevel("INFO")
-logger.addFilter(ContextFilter())
-logger.addHandler(handler)
-logger.propagate = False

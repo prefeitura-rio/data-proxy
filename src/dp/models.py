@@ -10,11 +10,9 @@ from pydantic import (
     ConfigDict,
     Field,
     PositiveInt,
-    TypeAdapter,
     computed_field,
     model_validator,
 )
-from pydantic.networks import RedisDsn
 
 from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
 
@@ -45,6 +43,15 @@ class IndexConfig(BaseModel):
     columns: Annotated[list[NonEmptyString], Field(min_length=1)]
     method: Literal["btree", "gin"] = "btree"
     expressions: list[NonEmptyString] | None = None
+
+
+class RetentionConfig(BaseModel):
+    """Time-window retention. Rows older than the window are deleted periodically."""
+
+    column: NonEmptyString
+    """The time column to compare against."""
+    window: NonEmptyString
+    """PostgreSQL interval, e.g. "365 days". Rows older than this are deleted."""
 
 
 class AllSelection(BaseModel):
@@ -149,6 +156,8 @@ class Table(BaseModel):
     fallback: bool = False
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
+    retention: RetentionConfig | None = None
+    """Time-window retention. Rows older than the window are deleted periodically."""
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 
@@ -179,6 +188,7 @@ class Table(BaseModel):
         return DumpTask(
             run_id=run_id,
             table=self.name,
+            target_schema=self.resolved_schema,
             bucket_path=(
                 f"s3://{s3_bucket}/{self.resolved_schema}/"
                 f"{self.table_name}{suffix}/data.parquet"
@@ -202,26 +212,6 @@ class FullTable(Table):
         return fields
 
 
-class RedisConfig(BaseModel):
-    """Redis URLs for read and write operations."""
-
-    read: RedisDsn
-    write: RedisDsn
-
-
-class PartitioningConfig(BaseModel):
-    """pg_partman configuration for a partitioned table."""
-
-    column: NonEmptyString
-    """The column to partition by."""
-
-    interval: Literal["daily", "weekly", "monthly", "yearly"] = "daily"
-    """Partition interval for pg_partman."""
-
-    retention: NonEmptyString | None = None
-    """Retention period, e.g. "365 days". Partitions older than this are dropped."""
-
-
 class PartitionedTable(Table):
     """A table synced by diffing and reloading only its changed physical partitions."""
 
@@ -229,37 +219,13 @@ class PartitionedTable(Table):
     n: PositiveInt | None = None
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
-    partitioning: PartitioningConfig | None = None
-    """pg_partman configuration. When set, the table is natively partitioned."""
-
     @override
     def config_signature_fields(self) -> dict[str, object]:
-        """Include the strategy, partition window, and pg_partman config."""
+        """Include the strategy and the partition window."""
         fields = super().config_signature_fields()
         fields["strategy"] = self.strategy
         fields["n"] = self.n
-        fields["partitioning"] = (
-            self.partitioning.model_dump() if self.partitioning else None
-        )
         return fields
-
-    @model_validator(mode="after")
-    def validate_partitioning_implies_time_partitioned(self) -> Self:
-        """Require pg_partman partitioning only on time-partitioned tables.
-
-        ``n`` (keep last N time partitions) is the config-level indicator that
-        a table uses time-based partitioning. pg_partman only supports
-        time-based intervals, so ``partitioning`` without ``n`` is rejected.
-        The runtime check in ``physical_partitions`` enforces that ``n`` is
-        only used with BigQuery time partitions.
-        """
-        if self.partitioning is not None and self.n is None:
-            msg = (
-                "partitioning requires n (time-based partitioning)."
-                " Integer-range partitions are not supported by pg_partman."
-            )
-            raise ValueError(msg)
-        return self
 
 
 TableConfig = Annotated[
@@ -354,10 +320,10 @@ class DumpTask(BaseModel):
 
     run_id: str
     table: str
+    target_schema: str
     bucket_path: str
     selections: Annotated[list[TaskSelection], Field(min_length=1)]
     json_columns: list[str] = []
-    retry_count: int = 0
 
     @computed_field
     @property
@@ -457,19 +423,6 @@ class SyncPlan(BaseModel):
         return self
 
 
-class SeedTask(BaseModel):
-    """Request shared database preparation for one run."""
-
-    run_id: str
-
-
-class PublishTask(BaseModel):
-    """Request publication of one schema for one run."""
-
-    run_id: str
-    schema_name: str
-
-
 class TableState(BaseModel):
     """Committed state for one table."""
 
@@ -521,4 +474,8 @@ class PublicationResult(BaseModel):
     published_tables: set[str]
 
 
-task_outcome_adapter: TypeAdapter[DumpResult] = TypeAdapter(DumpResult)
+class PublishedSchema(BaseModel):
+    """Result of loading and publishing one schema, with the WAL position to await."""
+
+    result: PublicationResult
+    target_lsn: str

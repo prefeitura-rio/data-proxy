@@ -9,11 +9,11 @@ from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
-from .models import RedisConfig, SchemaWriters, SyncConfig
+from .models import SchemaWriters, SyncConfig
 
 
 class Settings(BaseSettings):
-    """Settings for the data-proxy sync pipeline."""
+    """Settings for the data-proxy DBOS sync pipeline."""
 
     model_config: ClassVar[SettingsConfigDict] = {
         "extra": "ignore",
@@ -21,38 +21,42 @@ class Settings(BaseSettings):
     }
 
     SCHEMA_WRITERS: SchemaWriters = Field(default=...)
-    S3_BUCKET: str = "test-bucket"
-    PG_DSN: str = "postgresql://test:test@localhost:5432/test"
-    REDIS: RedisConfig = RedisConfig(
-        read=RedisDsn("redis://localhost:6379/1"),
-        write=RedisDsn("redis://localhost:6379/0"),
-    )
-    SYNC_CONFIG_PATH: Path = Path("config/sync.json")
-    S3_ACCESS_KEY: str = "seaweedfs"
-    S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
-    S3_ENDPOINT: str = "localhost:8333"
-    S3_USE_SSL: bool = False
-    DUMPER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
-    SEEDER_VISIBILITY_TIMEOUT_MS: int = Field(default=900_000, gt=0)
-    PUBLISHER_VISIBILITY_TIMEOUT_MS: int = Field(default=7_200_000, gt=0)
-    PRODUCER_POLL_INTERVAL_SECONDS: int = Field(default=60, gt=0)
-    DUMPER_MAX_RETRIES: int = 3
+    AUTH_ANON_ROLE: str = "anon"
+    AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
+    AUTH_USER_ROLE: str = "user"
+    DBOS_APPLICATION_NAME: str = "data-proxy-sync"
+    DBOS_APPLICATION_VERSION: str = "0.1.0"
+    DBOS_APP_SCHEMA: str = "data-proxy"
+    DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
+    DBOS_SYSTEM_SCHEMA: str = "dbos"
     DUMPER_BATCH_BYTES: int = Field(default=629_145_600, gt=0)
     DUMPER_BATCH_MAX_PARTITIONS: int = Field(default=256, gt=0)
     DUMPER_SCRATCH_DIR: Path = Path(gettempdir())
-    AUTH_ANON_ROLE: str = "anon"
-    AUTH_USER_ROLE: str = "user"
-    AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
-    PUSHGATEWAY_URL: str = (
-        "http://data-proxy-pushgateway.data-proxy.svc.cluster.local:9091"
-    )
+    DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
+    DUMP_QUEUE_RATE_LIMIT: int = Field(default=50, gt=0)
+    DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
     FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
+    OTLP_LOGS_ENDPOINT: str = Field(default="")
+    PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
-    POSTGREST_RW_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
     POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
-    REPLICATION_WAIT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    POSTGREST_RW_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
+    PUBLISH_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
+    REDIS_READ: RedisDsn = RedisDsn("redis://localhost:6379/1")
+    REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
     REPLICATION_POLL_INTERVAL_SECONDS: int = Field(default=1, gt=0)
+    REPLICATION_WAIT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    S3_ACCESS_KEY: str = "seaweedfs"
+    S3_BUCKET: str = "test-bucket"
+    S3_ENDPOINT: str = "localhost:8333"
+    S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
+    S3_USE_SSL: bool = False
+    SYNC_CONFIG_PATH: Path = Path("config/sync.json")
+    SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
+    SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
+    SYNC_SCHEDULE: str = "0 2 * * *"
+    SYNC_SCHEDULE_NAME: str = "sync"
 
     @property
     def sync_config(self) -> SyncConfig:
@@ -66,7 +70,7 @@ class Settings(BaseSettings):
         role: Literal["read", "write"] = "write",
     ) -> Redis:
         """Return a Redis client for the selected URL."""
-        urls = {"read": self.REDIS.read, "write": self.REDIS.write}
+        urls = {"read": self.REDIS_READ, "write": self.REDIS_WRITE}
         url = urls[role]
         default_db = int((url.path or "/0").lstrip("/") or 0)
 

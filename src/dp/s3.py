@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 
+from .log import logger
 from .settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -51,3 +52,5 @@ async def clear_s3_bucket() -> None:
                 Bucket=settings.S3_BUCKET,
                 Delete={"Objects": keys},
             )
+
+    logger.info("Bucket emptied")

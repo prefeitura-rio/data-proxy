@@ -1,6 +1,5 @@
 """Kubernetes operations used by the synchronization workers."""
 
-from asyncio import gather
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from operator import attrgetter
@@ -8,9 +7,6 @@ from typing import Protocol, cast
 
 from kubernetes_asyncio import config
 from kubernetes_asyncio.client import ApiClient, AppsV1Api
-
-from .settings import settings
-from .utils import wait_for
 
 
 class DeploymentStatus(Protocol):
@@ -89,46 +85,3 @@ async def deployment_ready(read: Callable[[], Awaitable[Deployment]]) -> None:
         and status.observed_generation == metadata.generation
     ):
         raise RuntimeError("Deployment is not ready")
-
-
-async def refresh_postgrest(schema: str, revision: str) -> None:
-    """Restart both PostgREST deployments and wait for their rollouts."""
-    load_config()
-
-    async with api_client_factory() as api_client:
-        apps = apps_factory(api_client)
-        namespace = settings.KUBERNETES_NAMESPACE
-        names = [
-            expand_template(settings.POSTGREST_RO_DEPLOYMENT_TEMPLATE, schema),
-            expand_template(settings.POSTGREST_RW_DEPLOYMENT_TEMPLATE, schema),
-        ]
-        patch = {
-            "spec": {
-                "template": {
-                    "metadata": {
-                        "annotations": {"data-proxy.io/schema-cache-revision": revision}
-                    }
-                }
-            }
-        }
-
-        for name in names:
-            await apps.patch_namespaced_deployment(
-                name=name,
-                namespace=namespace,
-                body=patch,
-            )
-
-        async def wait_for_deployment(name: str) -> None:
-            await wait_for(
-                lambda: deployment_ready(
-                    lambda: apps.read_namespaced_deployment(
-                        name=name, namespace=namespace
-                    )
-                ),
-                timeout=settings.POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS,
-                interval=2,
-                message=f"PostGREST rollout did not become ready: {name}",
-            )
-
-        await gather(*(wait_for_deployment(name) for name in names))

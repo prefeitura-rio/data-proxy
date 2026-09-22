@@ -1,4 +1,3 @@
-
 {#
 {
   "kind": "macro",
@@ -12,4 +11,4 @@
 #}
 {% macro select_projection(json_columns) -%}
 SELECT *{% if json_columns %} REPLACE ({% for column in json_columns %}to_json({{ column }}) AS {{ column }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
-{%- endmacro %}
+{%- endmacro %}\n

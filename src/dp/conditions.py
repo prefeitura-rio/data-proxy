@@ -17,10 +17,7 @@ def selection_condition(
     *,
     scan: bool = False,
 ) -> Composable:
-    """Return the predicate for one selection.
-
-    Use identifiers for table predicates and Parquet expressions for scan predicates.
-    """
+    """Return the predicate for one selection."""
     match selection:
         case (
             RangeSelection(column=column, lower=lower, upper=upper)

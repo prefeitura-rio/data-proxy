@@ -3,7 +3,7 @@
   "kind": "template",
   "description": "Render the create index database operation.",
   "inputs": {
-    "name": "Index name.",
+    "index": "Index name.",
     "schema": "PostgreSQL schema that owns the target objects.",
     "table": "PostgreSQL table being read or changed.",
     "method": "Optional PostgreSQL index method clause.",
@@ -11,5 +11,5 @@
   }
 }
 #}
-CREATE INDEX IF NOT EXISTS {{ name }}
+CREATE INDEX IF NOT EXISTS {{ index }}
 ON {{ schema }}.{{ table }}{{ method }} ({{ columns | join(', ') }})

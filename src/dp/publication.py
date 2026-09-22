@@ -1,34 +1,34 @@
-"""Shadow loading and atomic table publication operations."""
+"""Shadow loading, atomic table publication, and publication orchestration."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import LiteralString, assert_never, cast
 
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Composable, Identifier, Literal
 from whenever import Instant
 
-from .authorization import bootstrap_table
+from .authorization import apply_table_authorization
 from .conditions import partition_condition, scan_condition, schema_scope_condition
-from .constants import PARTMAN_INTERVALS
 from .executor import execute_sql
-from .fallback import duckdb_type_for
+from .fallback import duckdb_type_for, run_fallback_views_creation
 from .freshness import (
-    record_table_failures,
+    record_freshness_failures,
     update_published_freshness,
     upsert_freshness,
 )
 from .log import logger
 from .models import (
-    PartitionedTable,
     PartitionedTablePlan,
-    PartitioningConfig,
     PhysicalPartition,
     PublicationDecision,
+    PublicationResult,
     SyncConfig,
     SyncPlan,
+    SyncPublicationInput,
     TableConfig,
 )
+from .schema import initialize_schemas, revoke_anonymous_access
 from .settings import settings
 from .state import emit_error
 from .utils import atomic
@@ -39,7 +39,6 @@ class ReplacePartitionsRoute:
     """Replace changed partitions in an existing table."""
 
     plan: PartitionedTablePlan
-    partman: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,9 +48,7 @@ class ShadowSwapRoute:
 
 @dataclass(frozen=True, slots=True)
 class CreateRoute:
-    """Create a new table. When partitioning is set, use pg_partman."""
-
-    partitioning: PartitioningConfig | None
+    """Create a new table."""
 
 
 async def table_exists(pg_conn: AsyncConnection, schema: str, table_name: str) -> bool:
@@ -98,12 +95,7 @@ async def insert_partition(
     select_list: list[str],
     predicate: Composable,
 ) -> None:
-    """Insert one Parquet partition into a pg_partman partitioned parent table.
-
-    pg_partman has already created the child partition. This statement inserts
-    rows from the Parquet file into the parent, and PostgreSQL routes them to
-    the correct child. ON CONFLICT DO NOTHING makes the load idempotent.
-    """
+    """Insert one Parquet partition into a partitioned parent table."""
     await execute_sql(
         pg_conn,
         "postgres/insert_partition",
@@ -119,17 +111,13 @@ async def insert_partition(
 
 
 async def cast_json_columns_to_jsonb(
-    conn: AsyncConnection,
+    pg_conn: AsyncConnection,
     schema: str,
     table_name: str,
 ) -> None:
-    """Alter every json column on a table to jsonb before loading data.
-
-    PostgreSQL rewrites the whole table for each type change, so every column
-    travels in one statement. That costs one rewrite instead of one per column.
-    """
+    """Alter every json column on a table to jsonb before loading data."""
     cursor = await execute_sql(
-        conn,
+        pg_conn,
         "postgres/json_columns",
         params=(schema, table_name),
     )
@@ -141,7 +129,7 @@ async def cast_json_columns_to_jsonb(
         return
 
     await execute_sql(
-        conn,
+        pg_conn,
         "postgres/cast_json_to_jsonb",
         mapping={
             "schema": Identifier(schema),
@@ -152,7 +140,7 @@ async def cast_json_columns_to_jsonb(
 
 
 async def create_indexes(
-    conn: AsyncConnection, table: TableConfig, table_name: str
+    pg_conn: AsyncConnection, table: TableConfig, table_name: str
 ) -> None:
     """Create every configured index on a table."""
     for index in table.indexes:
@@ -169,10 +157,10 @@ async def create_indexes(
         )
 
         await execute_sql(
-            conn,
+            pg_conn,
             "postgres/create_index",
             mapping={
-                "name": Identifier(index.name),
+                "index": Identifier(index.name),
                 "schema": Identifier(table.resolved_schema),
                 "table": Identifier(table_name),
                 "method": SQL(method),
@@ -181,19 +169,13 @@ async def create_indexes(
         )
 
 
-async def publish_table(conn: AsyncConnection, table: TableConfig) -> None:
-    """Atomically swap the shadow table into service, then create its indexes.
-
-    Indexes are created after the swap so that CREATE INDEX IF NOT EXISTS
-    does not find a stale index name from the previous live table and skip
-    creation.  The old table and its indexes are dropped by the swap before
-    the new indexes are created.
-    """
+async def publish_table(pg_conn: AsyncConnection, table: TableConfig) -> None:
+    """Atomically swap the shadow table into service, then create its indexes."""
     table_name = table.table_name
     shadow_name = f"{table_name}__next"
 
     await execute_sql(
-        conn,
+        pg_conn,
         "postgres/swap_table",
         mapping={
             "schema": Identifier(table.resolved_schema),
@@ -203,7 +185,7 @@ async def publish_table(conn: AsyncConnection, table: TableConfig) -> None:
         },
     )
 
-    await create_indexes(conn, table, table_name)
+    await create_indexes(pg_conn, table, table_name)
 
 
 async def delete_partitions(
@@ -276,12 +258,7 @@ async def load_table(
     table_name: str,
     paths: Sequence[str],
 ) -> None:
-    """Create one table from the batch files and secure it, in one transaction.
-
-    Every batch file of the run lands in the same table, so the table holds the
-    whole content when the transaction commits. The transaction is explicit,
-    because pgduckdb refuses to run inside a savepoint.
-    """
+    """Create one table from the batch files and secure it, in one transaction."""
     schema_config = config.schemas.get(table.resolved_schema)
 
     async with atomic(pg_conn):
@@ -290,7 +267,7 @@ async def load_table(
             pg_conn, table.resolved_schema, table_name
         )
 
-        await bootstrap_table(
+        await apply_table_authorization(
             pg_conn,
             table.resolved_schema,
             table_name,
@@ -317,96 +294,12 @@ async def rebuild_table(
         await create_indexes(pg_conn, table, table.table_name)
 
 
-async def create_partitioned_table(
-    pg_conn: AsyncConnection,
-    config: SyncConfig,
-    table: TableConfig,
-    partitioning: PartitioningConfig,
-    paths: Sequence[str],
-) -> None:
-    """Create a pg_partman partitioned parent from Parquet and load data.
-
-    On first creation, the Publisher builds a temporary flat table from the
-    first Parquet file to discover column types, then creates the partitioned
-    parent with LIKE, registers it with pg_partman, bootstraps RLS, and loads
-    all Parquet data into the parent.
-    """
-    schema_config = config.schemas.get(table.resolved_schema)
-    temp_name = f"{table.table_name}__schema"
-
-    await create_table_from_parquet(pg_conn, table, temp_name, paths[0])
-    await pg_conn.commit()
-
-    mapping = {
-        "schema": Identifier(table.resolved_schema),
-        "table": Identifier(table.table_name),
-        "temp": Identifier(table.resolved_schema, temp_name),
-        "parent_table": Literal(f"{table.resolved_schema}.{table.table_name}"),
-        "column": Identifier(partitioning.column),
-        "column_name": Literal(partitioning.column),
-        "interval": Literal(PARTMAN_INTERVALS[partitioning.interval]),
-        "retention": Literal(partitioning.retention or "365 days"),
-    }
-
-    async with await AsyncConnection.connect(
-        settings.PG_DSN, autocommit=True
-    ) as partman_conn:
-        await execute_sql(
-            partman_conn,
-            "postgres/create_partitioned_parent",
-            mapping=mapping,
-        )
-        await execute_sql(partman_conn, "postgres/run_partman_maintenance")
-
-    async with atomic(pg_conn):
-        await bootstrap_table(
-            pg_conn,
-            table.resolved_schema,
-            table.table_name,
-            table.rls,
-            schema_config.claim if schema_config else None,
-        )
-
-        select_list = await column_select_list(
-            pg_conn, table.resolved_schema, table.table_name
-        )
-
-        for path in paths:
-            await insert_partition(
-                pg_conn,
-                table.resolved_schema,
-                table.table_name,
-                path,
-                select_list,
-                SQL("true"),
-            )
-
-        await cast_json_columns_to_jsonb(
-            pg_conn, table.resolved_schema, table.table_name
-        )
-
-    async with atomic(pg_conn):
-        await create_indexes(pg_conn, table, table.table_name)
-
-
 async def replace_partitions(
     pg_conn: AsyncConnection,
     table: TableConfig,
     table_plan: PartitionedTablePlan,
 ) -> None:
-    """Replace every changed partition and drop every removed one in one transaction.
-
-    For pg_partman partitioned tables, the Publisher deletes rows in changed
-    and removed partitions, then inserts each changed partition's Parquet into
-    the parent table with ON CONFLICT DO NOTHING. pg_partman has already created
-    the child partitions. The delete clears old data; ON CONFLICT DO NOTHING
-    makes a retry idempotent. One transaction moves the whole table from the
-    old state to the new state.
-
-    On a full rebuild, the Publisher deletes all rows from the parent before
-    inserting. This replaces the shadow + swap path, which does not work for
-    partitioned parents.
-    """
+    """Replace every changed partition and drop every removed one in one transaction."""
     select_list = await column_select_list(
         pg_conn, table.resolved_schema, table.table_name
     )
@@ -450,19 +343,13 @@ async def prepare_table(
     plan: SyncPlan,
     partitioned: PartitionedTablePlan | None,
 ) -> PreparedTable:
-    """Prepare one table and report whether a shadow table waits for the swap.
-
-    A partitioned table that only has changed partitions replaces them in place.
-    Every other existing table loads a shadow table, because a full rebuild must
-    keep the live table readable until the swap. The first creation writes the
-    live table directly, because there is no reader to protect yet.
-    """
+    """Prepare one table and report whether a shadow table waits for the swap."""
     paths = planned_paths(plan, table.name, partitioned)
     exists = await table_exists(pg_conn, table.resolved_schema, table.table_name)
     route = decide_route(exists, table, partitioned)
 
     match route:
-        case ReplacePartitionsRoute(plan=table_plan, partman=partman):
+        case ReplacePartitionsRoute(plan=table_plan):
             if not exists:
                 message = (
                     f"Missing table {table.resolved_schema}.{table.table_name} "
@@ -470,20 +357,11 @@ async def prepare_table(
                 )
                 raise RuntimeError(message)
 
-            if partman:
-                async with await AsyncConnection.connect(
-                    settings.PG_DSN, autocommit=True
-                ) as partman_conn:
-                    await execute_sql(partman_conn, "postgres/run_partman_maintenance")
-
             await replace_partitions(pg_conn, table, table_plan)
             return PreparedTable(table=table, swap=False)
         case ShadowSwapRoute():
             await load_table(pg_conn, config, table, f"{table.table_name}__next", paths)
             return PreparedTable(table=table, swap=True)
-        case CreateRoute(partitioning=PartitioningConfig() as partman):
-            await create_partitioned_table(pg_conn, config, table, partman, paths)
-            return PreparedTable(table=table, swap=False)
         case CreateRoute():
             await rebuild_table(pg_conn, config, table, paths)
             return PreparedTable(table=table, swap=False)
@@ -491,6 +369,7 @@ async def prepare_table(
 
 async def prepare_tables(
     pg_conn: AsyncConnection,
+    state_conn: AsyncConnection,
     config: SyncConfig,
     plan: SyncPlan,
     changed: set[str],
@@ -517,8 +396,7 @@ async def prepare_tables(
             )
         except Exception:
             logger.exception("Table preparation failed table=%s", table.name)
-            async with settings.redis() as redis:
-                await emit_error(redis, "table_preparation_failed", table=table.name)
+            await emit_error(state_conn, "table_preparation_failed", table=table.name)
             continue
 
         logger.info("Table preparation completed table=%s", table.name)
@@ -527,60 +405,55 @@ async def prepare_tables(
     return prepared
 
 
-async def publish_prepared_tables(
-    pg_conn: AsyncConnection,
-    prepared: Sequence[PreparedTable],
-    plan: SyncPlan,
-    failed_partitions: dict[str, set[str]],
-    attempted_at: Instant,
-) -> set[str]:
-    """Publish prepared tables and return those that succeeded.
+@dataclass
+class TablePublication:
+    """Pipeline state for publishing one prepared table."""
 
-    Each table commits its own work, so a failure in one table keeps the tables
-    that published before it.
-    """
-    published: set[str] = set()
+    pg_conn: AsyncConnection
+    state_conn: AsyncConnection
+    table: TableConfig
+    plan: SyncPlan
+    attempted_at: Instant
+    failed_partitions: dict[str, set[str]]
+    swap: bool = False
 
-    for prepared_table in prepared:
-        table = prepared_table.table
-        logger.info("Table publication started table=%s", table.name)
+    async def publish(self) -> None:
+        """Swap the shadow table and update freshness."""
+        if self.swap:
+            await publish_table(self.pg_conn, self.table)
 
-        try:
-            if prepared_table.swap:
-                await publish_table(pg_conn, table)
+        await update_published_freshness(
+            self.pg_conn,
+            self.table,
+            self.plan,
+            self.failed_partitions.get(self.table.name, set()),
+            self.attempted_at,
+        )
 
-            await update_published_freshness(
-                pg_conn,
-                table,
-                plan,
-                failed_partitions.get(table.name, set()),
-                attempted_at,
-            )
-        except Exception:
-            logger.exception("Table publication failed table=%s", table.name)
-            await pg_conn.rollback()
+    async def commit(self) -> None:
+        """Commit the publication transaction."""
+        await self.pg_conn.commit()
 
-            async with settings.redis() as redis:
-                await emit_error(redis, "table_publication_failed", table=table.name)
+    async def fail(self) -> None:
+        """Rollback, record the failure, and commit the failure state."""
+        logger.exception("Table publication failed table=%s", self.table.name)
+        await self.pg_conn.rollback()
 
-            await record_table_failures(pg_conn, [table], plan, attempted_at)
-            await upsert_freshness(
-                pg_conn,
-                table,
-                failed_partitions.get(table.name, set()),
-                attempted_at,
-                success=False,
-            )
-            await pg_conn.commit()
+        await emit_error(
+            self.state_conn, "table_publication_failed", table=self.table.name
+        )
 
-            continue
-
-        await pg_conn.commit()
-
-        logger.info("Table publication completed table=%s", table.name)
-        published.add(table.name)
-
-    return published
+        await record_freshness_failures(
+            self.pg_conn, [self.table], self.plan, self.attempted_at
+        )
+        await upsert_freshness(
+            self.pg_conn,
+            self.table,
+            self.failed_partitions.get(self.table.name, set()),
+            self.attempted_at,
+            success=False,
+        )
+        await self.pg_conn.commit()
 
 
 @dataclass(frozen=True, slots=True)
@@ -650,11 +523,7 @@ def planned_paths(
     table: str,
     partitioned: PartitionedTablePlan | None,
 ) -> list[str]:
-    """Return ordinary or batch Parquet paths for one table.
-
-    A batch holds many partitions, so the paths of a partitioned table repeat.
-    The insertion order of the plan keeps the batches in publication order.
-    """
+    """Return ordinary or batch Parquet paths for one table."""
     match partitioned:
         case PartitionedTablePlan():
             return list(dict.fromkeys(partitioned.changed_paths.values()))
@@ -669,31 +538,237 @@ def decide_route(
     table: TableConfig,
     partitioned: PartitionedTablePlan | None,
 ) -> ReplacePartitionsRoute | ShadowSwapRoute | CreateRoute:
-    """Choose the publication route for one table.
-
-    A partitioned table managed by pg_partman always replaces partitions in
-    place, even on a full rebuild, because a partitioned parent cannot be
-    shadow-swapped. On first creation it uses CREATE so the Publisher can
-    build the partitioned parent from the Parquet schema. A partitioned table
-    without pg_partman keeps the old logic: incremental updates replace
-    partitions, full rebuilds shadow-swap.
-    """
+    """Choose the publication route for one table."""
     match (exists, table, partitioned):
-        case (
-            False,
-            PartitionedTable(partitioning=PartitioningConfig() as partman),
-            _,
-        ):
-            return CreateRoute(partitioning=partman)
-        case (
-            _,
-            PartitionedTable(partitioning=PartitioningConfig()),
-            PartitionedTablePlan() as plan,
-        ):
-            return ReplacePartitionsRoute(plan=plan, partman=True)
         case (_, _, PartitionedTablePlan(full_rebuild=False) as plan):
-            return ReplacePartitionsRoute(plan=plan, partman=False)
+            return ReplacePartitionsRoute(plan=plan)
         case (True, _, _):
             return ShadowSwapRoute()
         case _:
-            return CreateRoute(partitioning=None)
+            return CreateRoute()
+
+
+async def run_publication_batch(
+    pg_conn: AsyncConnection,
+    state_conn: AsyncConnection,
+    prepared: Sequence[PreparedTable],
+    plan: SyncPlan,
+    failed_partitions: dict[str, set[str]],
+    attempted_at: Instant,
+) -> set[str]:
+    """Publish prepared tables and return those that succeeded."""
+    published: set[str] = set()
+
+    for prepared_table in prepared:
+        table = prepared_table.table
+        logger.info("Table publication started table=%s", table.name)
+
+        ctx = TablePublication(
+            pg_conn=pg_conn,
+            state_conn=state_conn,
+            table=table,
+            plan=plan,
+            attempted_at=attempted_at,
+            failed_partitions=failed_partitions,
+            swap=prepared_table.swap,
+        )
+
+        try:
+            await ctx.publish()
+            await ctx.commit()
+        except Exception:
+            await ctx.fail()
+            continue
+
+        logger.info("Table publication completed table=%s", table.name)
+        published.add(table.name)
+
+    return published
+
+
+def empty_incremental_tables(plan: SyncPlan) -> set[str]:
+    """Return incremental tables that have no publishable data changes."""
+    return {
+        table
+        for table, table_plan in plan.partitioned_tables.items()
+        if not table_plan.full_rebuild
+        and not table_plan.changed_paths
+        and not table_plan.removed_partitions
+    }
+
+
+@dataclass
+class SyncContext:
+    """Mutable pipeline state for one sync plan publication."""
+
+    pg_conn: AsyncConnection
+    state_conn: AsyncConnection
+    config: SyncConfig
+    plan: SyncPlan
+    failed_paths: set[str] = field(default_factory=set)
+    decision: PublicationDecision | None = None
+    empty_incremental: set[str] = field(default_factory=set)
+    eligible: set[str] = field(default_factory=set)
+    attempted_at: Instant | None = None
+    published: set[str] = field(default_factory=set)
+
+    @property
+    def tables_by_name(self) -> dict[str, TableConfig]:
+        """Return a name-to-table lookup for the current config."""
+        return {table.name: table for table in self.config.tables}
+
+    def validate(self) -> None:
+        """Compute the publication decision, empty incremental, and eligible set."""
+        changed = SyncPublicationInput(
+            config=self.config, plan=self.plan
+        ).changed_tables
+        self.decision = reduce_sync_plan(self.plan, self.failed_paths)
+        self.empty_incremental = empty_incremental_tables(self.decision.plan)
+        self.eligible = changed - self.decision.blocked_tables - self.empty_incremental
+
+        logger.info(
+            "Validated sync plan schema=%s changed=%d eligible=%d",
+            self.plan.schema_name,
+            len(changed),
+            len(self.eligible),
+        )
+
+    async def prepare(self) -> None:
+        """Initialize schemas and record extraction and empty-incremental failures."""
+        if self.decision is None:
+            raise RuntimeError("validate must be called before prepare")
+
+        await initialize_schemas(self.pg_conn, self.config)
+        logger.info("Initialized database schemas")
+        self.attempted_at = Instant.now()
+
+        await self.record_extraction_failures()
+
+    async def record_extraction_failures(self) -> None:
+        """Record blocked tables and incremental plans with no successful task."""
+        if self.decision is None:
+            raise RuntimeError(
+                "validate must be called before recording extraction failures"
+            )
+        if self.attempted_at is None:
+            raise RuntimeError(
+                "prepare must be called before recording extraction failures"
+            )
+
+        tables = self.tables_by_name
+        failed_tables = self.decision.blocked_tables | self.empty_incremental
+
+        if failed_tables:
+            for table_name in sorted(failed_tables):
+                await emit_error(self.state_conn, "table_blocked", table=table_name)
+
+        partitions_by_table = {
+            table_name: self.decision.failed_partitions.get(table_name, set())
+            for table_name in self.empty_incremental
+        }
+
+        await record_freshness_failures(
+            self.pg_conn,
+            [tables[name] for name in failed_tables],
+            self.plan,
+            self.attempted_at,
+            partitions_by_table,
+        )
+
+    async def publish(self) -> None:
+        """Prepare eligible tables and publish each successful result."""
+        if self.decision is None:
+            raise RuntimeError("validate must be called before publish")
+        if self.attempted_at is None:
+            raise RuntimeError("prepare must be called before publish")
+
+        prepared = await prepare_tables(
+            self.pg_conn,
+            self.state_conn,
+            self.config,
+            self.decision.plan,
+            self.eligible,
+        )
+        logger.info("Prepared %d tables", len(prepared))
+
+        await self.record_preparation_failures(
+            {prepared_table.table.name for prepared_table in prepared}
+        )
+
+        self.published = await run_publication_batch(
+            self.pg_conn,
+            self.state_conn,
+            prepared,
+            self.decision.plan,
+            self.decision.failed_partitions,
+            self.attempted_at,
+        )
+        logger.info("Published %d changed tables", len(self.published))
+
+    async def record_preparation_failures(self, prepared_names: set[str]) -> None:
+        """Record each eligible table that did not prepare successfully."""
+        if self.attempted_at is None:
+            raise RuntimeError(
+                "prepare must be called before recording preparation failures"
+            )
+
+        tables = self.tables_by_name
+        failed = [tables[name] for name in self.eligible - prepared_names]
+
+        if failed:
+            for table in failed:
+                await emit_error(
+                    self.state_conn, "table_preparation_failed", table=table.name
+                )
+            await record_freshness_failures(
+                self.pg_conn, failed, self.plan, self.attempted_at
+            )
+
+    async def finalize(self) -> None:
+        """Create fallback views and reload PostgREST after publication."""
+        await run_fallback_views_creation(self.pg_conn, self.config)
+        logger.info("Created BigQuery fallback views")
+
+        await revoke_anonymous_access(self.pg_conn, self.config)
+        logger.info("PostgREST schema reload requested")
+
+
+async def run_publication(
+    pg_conn: AsyncConnection,
+    state_conn: AsyncConnection,
+    config: SyncConfig,
+    plan: SyncPlan,
+    failed_paths: set[str] | None = None,
+) -> PublicationResult:
+    """Run the publication pipeline for one sync plan."""
+    ctx = SyncContext(
+        pg_conn=pg_conn,
+        state_conn=state_conn,
+        config=config,
+        plan=plan,
+        failed_paths=failed_paths or set(),
+    )
+
+    ctx.validate()
+    await ctx.prepare()
+    await ctx.publish()
+    await ctx.finalize()
+
+    if ctx.decision is None:
+        raise RuntimeError("pipeline produced no decision")
+    return PublicationResult(plan=ctx.decision.plan, published_tables=ctx.published)
+
+
+async def configure_s3_secret(pg_conn: AsyncConnection) -> None:
+    """Configure DuckDB S3 credentials on a Postgres connection."""
+    await execute_sql(
+        pg_conn,
+        "postgres/configure_s3_secret",
+        mapping={
+            "s3_key_id": settings.S3_ACCESS_KEY,
+            "s3_secret_key": settings.S3_SECRET_KEY,
+            "s3_endpoint": settings.S3_ENDPOINT,
+            "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
+        },
+    )
+    await pg_conn.commit()

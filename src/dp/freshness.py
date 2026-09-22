@@ -124,7 +124,7 @@ def failure_partitions(
     return {None}
 
 
-async def record_table_failures(
+async def record_freshness_failures(
     pg_conn: AsyncConnection,
     tables: list[TableConfig],
     plan: SyncPlan,
