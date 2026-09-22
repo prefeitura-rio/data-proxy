@@ -84,7 +84,7 @@ sync:
       failedJobsHistoryLimit: 1
 migration:
   ## Image used by the HA mode migration Job.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:556f3ba
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
 ## Kubernetes ServiceAccount for the pipeline pods.
 ## Attach a Workload Identity annotation here to allow BigQuery access without
 ## a service account key file.
@@ -118,7 +118,7 @@ postgrest:
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
     ## Alpine image used by the JWKS init container.
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:556f3ba
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
   ro:
     replicas: 1
     resources:
@@ -266,7 +266,7 @@ backup:
   ## Set to true to deploy the table-level backup CronJob.
   enabled: false
   ## Nushell image with PostgreSQL client, Redis, AWS CLI, and kubectl.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:556f3ba
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
   schedule: 0 3 * * *
   startingDeadlineSeconds: 600
   activeDeadlineSeconds: 1800
@@ -288,7 +288,7 @@ cleanup:
   ## Set to true to deploy the cleanup CronJob.
   enabled: true
   ## Image used by the cleanup CronJob.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:556f3ba
+  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
   ## Cron expression that controls when the cleanup runs.
   ## Default: daily at 04:00 UTC, after the backup.
   schedule: 0 4 * * *
@@ -368,7 +368,7 @@ cnpg:
     name: data-proxy
     user: dataproxy
   init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:556f3ba
+    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
   existingSecret: ""
   ## Deployment mode: "shared" or "per-schema".
   mode: shared
