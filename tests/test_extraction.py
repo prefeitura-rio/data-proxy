@@ -7,21 +7,21 @@ from typing import NamedTuple
 
 import pytest
 
-from dp.duckdb import DuckDB
-from dp.extraction import (
+from data_proxy.dbos.steps import extract_task
+from data_proxy.duckdb import DuckDB
+from data_proxy.extraction import (
     extraction_statement,
     merge_statement,
     selection_fields,
 )
-from dp.main import extract_task
-from dp.models import (
+from data_proxy.models import (
     AllSelection,
     RangeSelection,
     RemainderSelection,
     TaskSelection,
     TimeRangeSelection,
 )
-from dp.settings import settings
+from data_proxy.settings import settings
 from tests.helpers import dump, render
 
 
@@ -149,7 +149,7 @@ class TestExtract:
             return "SELECT 1"
 
         monkeypatch.setattr(DuckDB, "connect", _connect(duckdb))
-        monkeypatch.setattr("dp.executor.render_template", record_render)
+        monkeypatch.setattr("data_proxy.executor.render_template", record_render)
         task = dump(bucket_path="s3://b/one.parquet", selections=[AllSelection()])
 
         await extract_task(task)
@@ -180,7 +180,7 @@ class TestExtract:
             return "SELECT 1"
 
         monkeypatch.setattr(DuckDB, "connect", _connect(duckdb))
-        monkeypatch.setattr("dp.executor.render_template", record_render)
+        monkeypatch.setattr("data_proxy.executor.render_template", record_render)
         monkeypatch.setattr(settings, "DUMPER_SCRATCH_DIR", tmp_path)
         task = dump(
             bucket_path="s3://b/out.parquet",

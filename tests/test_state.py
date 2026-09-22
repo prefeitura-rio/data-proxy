@@ -3,8 +3,8 @@
 import psycopg
 import pytest
 
-from dp.models import FullTable, Strategy, TableState
-from dp.state import (
+from data_proxy.models import FullTable, Strategy, TableState
+from data_proxy.state import (
     build_table_states,
     emit_error,
     read_partition_manifest,
@@ -94,7 +94,7 @@ def test_build_table_states_is_unchanged(full_table: FullTable) -> None:
     WHEN: build_table_states is called.
     THEN: it returns state for the published table only.
     """
-    from dp.models import (
+    from data_proxy.models import (
         FullTable,
         PublicationResult,
         SchemaConfig,

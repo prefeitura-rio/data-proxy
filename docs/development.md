@@ -29,7 +29,7 @@ seed --project rj-ia-desenvolvimento
 Run one sync when needed. This triggers the DBOS schedule once and waits for the run:
 
 ```bash
-kubectl -n data-proxy exec deploy/data-proxy-sync-worker -- python -m dp.trigger
+kubectl -n data-proxy exec deploy/data-proxy-sync-worker -- python -m data_proxy.trigger
 ```
 
 ## Access the API

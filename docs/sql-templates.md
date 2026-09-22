@@ -1,6 +1,6 @@
 ''# SQL Templates
 
-SQL templates live under `src/dp/sql/<target>/`. Each target is one database backend. Helm maintenance SQL lives under `helm/files/sql/helm/`.
+SQL templates live under `src/data_proxy/sql/<target>/`. Each target is one database backend. Helm maintenance SQL lives under `helm/files/sql/helm/`.
 
 ## Template headers
 

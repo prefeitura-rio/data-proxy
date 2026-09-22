@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from google.cloud.bigquery import Client, QueryJobConfig, Table
 
-from dp.bigquery.clients import BigQuery
+from data_proxy.bigquery.clients import BigQuery
 
 
 @pytest.mark.asyncio
@@ -17,7 +17,7 @@ async def test_connect_builds_and_closes_the_client() -> None:
     """
     client = MagicMock(spec=Client)
 
-    with patch("dp.bigquery.clients.Client", return_value=client) as build:
+    with patch("data_proxy.bigquery.clients.Client", return_value=client) as build:
         async with BigQuery.connect("proj") as bigquery:
             assert bigquery.client is client
 

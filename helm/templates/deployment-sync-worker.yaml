@@ -39,7 +39,7 @@ spec:
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           resources:
             {{- toYaml .Values.sync.worker.resources | nindent 12 }}
-          command: ["python", "-m", "dp.main"]
+          command: ["python", "-m", "data_proxy.dbos.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
           volumeMounts:

@@ -9,16 +9,16 @@ import pytest
 from psycopg import AsyncConnection
 from redis.asyncio import Redis
 
-from dp.cache import clear_cache
-from dp.fallback import (
+from data_proxy.cache import clear_cache
+from data_proxy.fallback import (
     column_types_from_duckdb,
     is_nested_or_json,
     pg_scalar_type,
     return_type_for,
     run_fallback_views_creation,
 )
-from dp.models import FullTable
-from dp.settings import Settings
+from data_proxy.models import FullTable
+from data_proxy.settings import Settings
 from tests.helpers import sync_config
 
 
@@ -98,7 +98,7 @@ class TestColumnTypesFromDuckDB:
     ) -> None:
         """Column types are returned as (name, type) tuples."""
         table = FullTable(name="p.app.t", resolved_schema="app")
-        with patch("dp.fallback.execute_sql") as fake_execute:
+        with patch("data_proxy.fallback.execute_sql") as fake_execute:
             fake_execute.return_value.fetchall.return_value = [
                 ("id", "VARCHAR"),
                 ("data", "STRUCT(x VARCHAR)"),
@@ -125,9 +125,10 @@ class TestFallbackMockedServices:
 
         with (
             patch(
-                "dp.fallback.column_types_from_duckdb", return_value=[("id", "VARCHAR")]
+                "data_proxy.fallback.column_types_from_duckdb",
+                return_value=[("id", "VARCHAR")],
             ),
-            patch("dp.fallback.execute_sql") as execute,
+            patch("data_proxy.fallback.execute_sql") as execute,
         ):
             await run_fallback_views_creation(pg_conn, config)
 
@@ -143,7 +144,7 @@ class TestFallbackMockedServices:
         pg_conn = AsyncMock(spec=AsyncConnection)
 
         with (
-            patch("dp.fallback.column_types_from_duckdb", return_value=[]),
+            patch("data_proxy.fallback.column_types_from_duckdb", return_value=[]),
             pytest.raises(RuntimeError, match="returned no columns"),
         ):
             await run_fallback_views_creation(pg_conn, config)
@@ -154,7 +155,7 @@ class TestFallbackMockedServices:
         config = sync_config([table])
         pg_conn = AsyncMock(spec=AsyncConnection)
 
-        with patch("dp.fallback.column_types_from_duckdb") as fake_columns:
+        with patch("data_proxy.fallback.column_types_from_duckdb") as fake_columns:
             await run_fallback_views_creation(pg_conn, config)
 
         fake_columns.assert_not_called()

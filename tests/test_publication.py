@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from psycopg.sql import SQL, Identifier
 
-from dp.conditions import partition_condition, scan_condition
-from dp.models import (
+from data_proxy.conditions import partition_condition, scan_condition
+from data_proxy.models import (
     FullTable,
     IndexConfig,
     PartitionedTable,
@@ -15,7 +15,7 @@ from dp.models import (
     RemainderSelection,
     SyncPlan,
 )
-from dp.publication import (
+from data_proxy.publication import (
     CreateRoute,
     ReplacePartitionsRoute,
     ShadowSwapRoute,
@@ -394,7 +394,7 @@ class TestPrepareTable:
             paths={table.name: ["s3://missing/data.parquet"]},
         )
 
-        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+        with patch("data_proxy.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
                 postgres.connection,

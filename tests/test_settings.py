@@ -3,8 +3,8 @@
 import pytest
 from redis.asyncio import Redis
 
-from dp.models import SchemaWriters
-from dp.settings import Settings
+from data_proxy.models import SchemaWriters
+from data_proxy.settings import Settings
 
 
 def test_redis_uses_write_url_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

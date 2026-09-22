@@ -16,10 +16,10 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
-from dp.bigquery.clients import BigQuery
-from dp.models import AllSelection, DumpTask, SchemaWriters
-from dp.settings import Settings, settings
-from dp.templates import render_template
+from data_proxy.bigquery.clients import BigQuery
+from data_proxy.models import AllSelection, DumpTask, SchemaWriters
+from data_proxy.settings import Settings, settings
+from data_proxy.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import SeaweedFS
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
@@ -31,7 +31,7 @@ Tracker = Callable[[Callable[..., object]], Callable[..., object]]
 @pytest.fixture
 def metrics_disabled() -> object:
     """Prevent metrics recording during tests."""
-    with patch("dp.metrics.record_publication_metrics"):
+    with patch("data_proxy.metrics.record_publication_metrics"):
         yield
 
 
@@ -103,7 +103,7 @@ async def dbos_conn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[psycopg.AsyncConnection]:
     """Provide an async connection to the DBOS system database with the dp schema initialized."""
-    from dp.state import ensure_app_schema
+    from data_proxy.state import ensure_app_schema
 
     url = system_db_container.get_connection_url().replace(
         "postgresql+psycopg2://", "postgresql://"

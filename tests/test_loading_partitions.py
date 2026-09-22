@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from dp.models import (
+from data_proxy.models import (
     PartitionedTable,
     PartitionedTablePlan,
     PhysicalPartition,
     RangeSelection,
     SyncPlan,
 )
-from dp.publication import (
+from data_proxy.publication import (
     PreparedTable,
     prepare_tables,
 )
@@ -150,7 +150,7 @@ class TestLoadingPrepareTablesPartitions:
         )
         await postgres.connection.commit()
 
-        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+        with patch("data_proxy.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
                 postgres.connection,
@@ -230,7 +230,7 @@ class TestLoadingPrepareTablesPartitions:
         )
         await postgres.connection.commit()
 
-        with patch("dp.publication.emit_error", new_callable=AsyncMock):
+        with patch("data_proxy.publication.emit_error", new_callable=AsyncMock):
             prepared = await prepare_tables(
                 postgres.connection,
                 postgres.connection,
@@ -283,11 +283,11 @@ class TestLoadingPrepareTablesPartitions:
         )
 
         with (
-            patch("dp.publication.table_exists", return_value=True),
-            patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.apply_table_authorization"),
-            patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.execute_sql", new_callable=AsyncMock),
+            patch("data_proxy.publication.table_exists", return_value=True),
+            patch("data_proxy.publication.column_select_list", return_value="SELECT 1"),
+            patch("data_proxy.publication.apply_table_authorization"),
+            patch("data_proxy.publication.cast_json_columns_to_jsonb"),
+            patch("data_proxy.publication.execute_sql", new_callable=AsyncMock),
         ):
             prepared = await prepare_tables(
                 postgres.connection,
@@ -327,11 +327,11 @@ class TestLoadingPrepareTablesPartitions:
             },
         )
         with (
-            patch("dp.publication.table_exists", return_value=False),
-            patch("dp.publication.column_select_list", return_value="SELECT 1"),
-            patch("dp.publication.apply_table_authorization"),
-            patch("dp.publication.cast_json_columns_to_jsonb"),
-            patch("dp.publication.execute_sql", new_callable=AsyncMock),
+            patch("data_proxy.publication.table_exists", return_value=False),
+            patch("data_proxy.publication.column_select_list", return_value="SELECT 1"),
+            patch("data_proxy.publication.apply_table_authorization"),
+            patch("data_proxy.publication.cast_json_columns_to_jsonb"),
+            patch("data_proxy.publication.execute_sql", new_callable=AsyncMock),
         ):
             prepared = await prepare_tables(
                 postgres.connection,

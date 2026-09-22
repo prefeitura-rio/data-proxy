@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from dp.s3 import clear_s3_bucket
+from data_proxy.s3 import clear_s3_bucket
 
 if TYPE_CHECKING:  # pragma: no cover
     from types_aiobotocore_s3.type_defs import ObjectTypeDef
@@ -42,7 +42,7 @@ async def test_empty_bucket_skips_objects_without_keys() -> None:
     session = MagicMock()
     session.create_client.return_value = context
 
-    with patch("dp.s3.get_session", return_value=session):
+    with patch("data_proxy.s3.get_session", return_value=session):
         await clear_s3_bucket()
 
     client.delete_objects.assert_awaited_once_with(

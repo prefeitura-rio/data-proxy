@@ -2,11 +2,11 @@
 
 import pytest
 
-from dp.models import (
+from data_proxy.models import (
     PartitionedTablePlan,
     SyncPlan,
 )
-from dp.publication import (
+from data_proxy.publication import (
     reduce_sync_plan,
 )
 from tests.helpers import partition

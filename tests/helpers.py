@@ -6,7 +6,7 @@ from typing import cast
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.sql import Composable
 
-from dp.models import (
+from data_proxy.models import (
     AllSelection,
     DumpTask,
     NonEmptyString,
@@ -20,8 +20,8 @@ from dp.models import (
     TableConfig,
     TaskSelection,
 )
-from dp.templates import render_template
-from dp.types import TemplateValue
+from data_proxy.templates import render_template
+from data_proxy.types import TemplateValue
 from tests.constants import FILES
 
 TEST_SQL_DIR = FILES.parent / "sql"

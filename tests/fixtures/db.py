@@ -17,9 +17,9 @@ from psycopg.sql import SQL
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.network import Network
 
-from dp.bigquery.config import PartitionKindConfig
-from dp.duckdb import DuckDB
-from dp.models import (
+from data_proxy.bigquery.config import PartitionKindConfig
+from data_proxy.duckdb import DuckDB
+from data_proxy.models import (
     DumpTask,
     FullTable,
     PartitionedTable,
@@ -28,9 +28,9 @@ from dp.models import (
     TaskSelection,
     UnitMapping,
 )
-from dp.settings import settings
-from dp.state import ensure_app_schema
-from dp.templates import render_template
+from data_proxy.settings import settings
+from data_proxy.state import ensure_app_schema
+from data_proxy.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import Postgres, PostgresTestNamespace, SeaweedFS
 from tests.helpers import TEST_SQL_DIR, execute_sql

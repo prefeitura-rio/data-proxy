@@ -7,14 +7,14 @@ from psycopg import AsyncConnection
 from psycopg.sql import SQL
 from whenever import Instant
 
-from dp.models import (
+from data_proxy.models import (
     FullTable,
     IndexConfig,
     PartitionedTable,
     PartitionedTablePlan,
     SyncPlan,
 )
-from dp.publication import (
+from data_proxy.publication import (
     PreparedTable,
     prepare_tables,
     run_publication,
@@ -50,9 +50,9 @@ class TestLoadingPublishPrepared:
         connection = AsyncMock(spec=AsyncConnection)
 
         with (
-            patch("dp.publication.publish_table") as publish,
-            patch("dp.freshness.execute_sql", new_callable=AsyncMock),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.publish_table") as publish,
+            patch("data_proxy.freshness.execute_sql", new_callable=AsyncMock),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication_batch(
                 connection,
@@ -92,8 +92,8 @@ class TestLoadingPublishPrepared:
         )
 
         with (
-            patch("dp.publication.publish_table") as publish,
-            patch("dp.publication.update_published_freshness") as freshness,
+            patch("data_proxy.publication.publish_table") as publish,
+            patch("data_proxy.publication.update_published_freshness") as freshness,
         ):
             result = await run_publication_batch(
                 AsyncMock(spec=AsyncConnection),
@@ -130,10 +130,11 @@ class TestLoadingPublishPrepared:
         )
         with (
             patch(
-                "dp.publication.publish_table", side_effect=[RuntimeError("boom"), None]
+                "data_proxy.publication.publish_table",
+                side_effect=[RuntimeError("boom"), None],
             ),
-            patch("dp.freshness.execute_sql", new_callable=AsyncMock),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.freshness.execute_sql", new_callable=AsyncMock),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication_batch(
                 connection,
@@ -169,19 +170,19 @@ class TestLoadingRunPublication:
         )
 
         with (
-            patch("dp.publication.initialize_schemas") as initialize,
-            patch("dp.publication.SyncContext.record_extraction_failures"),
+            patch("data_proxy.publication.initialize_schemas") as initialize,
+            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
             patch(
-                "dp.publication.prepare_tables",
+                "data_proxy.publication.prepare_tables",
                 return_value=[PreparedTable(table=config.tables[0], swap=True)],
             ),
             patch(
-                "dp.publication.run_publication_batch",
+                "data_proxy.publication.run_publication_batch",
                 return_value={"p.app.changed"},
             ) as publish,
-            patch("dp.publication.revoke_anonymous_access") as reload,
-            patch("dp.publication.run_fallback_views_creation"),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.revoke_anonymous_access") as reload,
+            patch("data_proxy.publication.run_fallback_views_creation"),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication(
                 AsyncMock(spec=AsyncConnection),
@@ -215,7 +216,7 @@ class TestLoadingRunPublication:
                 ]
             },
         )
-        with patch("dp.publication.run_fallback_views_creation"):
+        with patch("data_proxy.publication.run_fallback_views_creation"):
             result = await run_publication(
                 postgres.connection,
                 postgres.connection,
@@ -364,12 +365,12 @@ class TestLoadingRunPublication:
         config = sync_config([FullTable(name="p.app.changed")])
         plan = SyncPlan(schema_name="app")
         with (
-            patch("dp.publication.initialize_schemas"),
-            patch("dp.publication.prepare_tables", return_value=[]),
-            patch("dp.publication.run_publication_batch", return_value=set()),
-            patch("dp.publication.revoke_anonymous_access"),
-            patch("dp.publication.run_fallback_views_creation") as create_views,
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.initialize_schemas"),
+            patch("data_proxy.publication.prepare_tables", return_value=[]),
+            patch("data_proxy.publication.run_publication_batch", return_value=set()),
+            patch("data_proxy.publication.revoke_anonymous_access"),
+            patch("data_proxy.publication.run_fallback_views_creation") as create_views,
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             pg_conn = AsyncMock(spec=AsyncConnection)
             await run_publication(pg_conn, pg_conn, config, plan)
@@ -401,13 +402,15 @@ class TestLoadingRunPublication:
         )
 
         with (
-            patch("dp.publication.initialize_schemas"),
-            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
-            patch("dp.publication.record_freshness_failures") as record_failures,
-            patch("dp.publication.run_publication_batch", return_value=set()),
-            patch("dp.publication.revoke_anonymous_access"),
-            patch("dp.publication.run_fallback_views_creation"),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.initialize_schemas"),
+            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
+            patch(
+                "data_proxy.publication.record_freshness_failures"
+            ) as record_failures,
+            patch("data_proxy.publication.run_publication_batch", return_value=set()),
+            patch("data_proxy.publication.revoke_anonymous_access"),
+            patch("data_proxy.publication.run_fallback_views_creation"),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication(
                 AsyncMock(spec=AsyncConnection),
@@ -440,13 +443,13 @@ class TestLoadingRunPublication:
         )
 
         with (
-            patch("dp.publication.initialize_schemas"),
-            patch("dp.publication.SyncContext.record_extraction_failures"),
-            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
-            patch("dp.publication.run_publication_batch", return_value=set()),
-            patch("dp.publication.revoke_anonymous_access"),
-            patch("dp.publication.run_fallback_views_creation"),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.initialize_schemas"),
+            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
+            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
+            patch("data_proxy.publication.run_publication_batch", return_value=set()),
+            patch("data_proxy.publication.revoke_anonymous_access"),
+            patch("data_proxy.publication.run_fallback_views_creation"),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication(
                 AsyncMock(spec=AsyncConnection),
@@ -477,14 +480,16 @@ class TestLoadingRunPublication:
         )
 
         with (
-            patch("dp.publication.initialize_schemas"),
-            patch("dp.publication.SyncContext.record_extraction_failures"),
-            patch("dp.publication.prepare_tables", return_value=[]) as prepare,
-            patch("dp.publication.record_freshness_failures") as record_failures,
-            patch("dp.publication.run_publication_batch", return_value=set()),
-            patch("dp.publication.revoke_anonymous_access"),
-            patch("dp.publication.run_fallback_views_creation"),
-            patch("dp.publication.emit_error", new_callable=AsyncMock),
+            patch("data_proxy.publication.initialize_schemas"),
+            patch("data_proxy.publication.SyncContext.record_extraction_failures"),
+            patch("data_proxy.publication.prepare_tables", return_value=[]) as prepare,
+            patch(
+                "data_proxy.publication.record_freshness_failures"
+            ) as record_failures,
+            patch("data_proxy.publication.run_publication_batch", return_value=set()),
+            patch("data_proxy.publication.revoke_anonymous_access"),
+            patch("data_proxy.publication.run_fallback_views_creation"),
+            patch("data_proxy.publication.emit_error", new_callable=AsyncMock),
         ):
             result = await run_publication(
                 AsyncMock(spec=AsyncConnection),

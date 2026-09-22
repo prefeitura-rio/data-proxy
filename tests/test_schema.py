@@ -2,8 +2,8 @@
 
 import pytest
 
-from dp.models import FullTable, SchemaConfig, SyncConfig
-from dp.schema import initialize_schemas, revoke_anonymous_access
+from data_proxy.models import FullTable, SchemaConfig, SyncConfig
+from data_proxy.schema import initialize_schemas, revoke_anonymous_access
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql, sync_config
 

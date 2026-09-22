@@ -99,15 +99,15 @@ reportAny = false
 source = ["dp"]
 omit = [
   "*/__init__.py",
-  "src/dp/bigquery/clients.py",
-  "src/dp/constants.py",
-  "src/dp/duckdb.py",
-  "src/dp/kubernetes.py",
-  "src/dp/log.py",
-  "src/dp/metrics.py",
-  "src/dp/models.py",
-  "src/dp/settings.py",
-  "src/dp/templates.py",
+  "src/data_proxy/bigquery/clients.py",
+  "src/data_proxy/constants.py",
+  "src/data_proxy/duckdb.py",
+  "src/data_proxy/kubernetes.py",
+  "src/data_proxy/log.py",
+  "src/data_proxy/metrics.py",
+  "src/data_proxy/models.py",
+  "src/data_proxy/settings.py",
+  "src/data_proxy/templates.py",
 ]
 
 [tool.coverage.report]

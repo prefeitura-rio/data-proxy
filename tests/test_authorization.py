@@ -4,9 +4,9 @@ import pytest
 from psycopg import AsyncConnection
 from testcontainers.community.postgres import PostgresContainer
 
-from dp.authorization import apply_table_authorization
-from dp.models import UnitMapping
-from dp.templates import render_template
+from data_proxy.authorization import apply_table_authorization
+from data_proxy.models import UnitMapping
+from data_proxy.templates import render_template
 from tests.constants import HELM_SQL
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql

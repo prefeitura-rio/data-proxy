@@ -2,7 +2,7 @@
 
 import pytest
 
-from dp.metrics import RunStatus, observe_sync
+from data_proxy.metrics import RunStatus, observe_sync
 
 
 @pytest.mark.asyncio

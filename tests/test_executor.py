@@ -6,9 +6,9 @@ import pytest
 from google.cloud.bigquery import Client, QueryJobConfig
 from psycopg import AsyncConnection
 
-from dp.bigquery.clients import BigQuery
-from dp.duckdb import DuckDB
-from dp.executor import (
+from data_proxy.bigquery.clients import BigQuery
+from data_proxy.duckdb import DuckDB
+from data_proxy.executor import (
     execute,
     execute_postgres_cursor,
     execute_sql,
@@ -24,7 +24,7 @@ async def test_postgres_connection_executes_a_statement() -> None:
     """
     connection = AsyncMock(spec=AsyncConnection)
 
-    with patch("dp.executor.render_template", return_value="SELECT 1"):
+    with patch("data_proxy.executor.render_template", return_value="SELECT 1"):
         await execute_sql(connection, "postgres/table_exists")
 
     connection.execute.assert_awaited_once()
@@ -40,7 +40,7 @@ async def test_postgres_connection_rejects_executemany() -> None:
     connection = AsyncMock(spec=AsyncConnection)
 
     with (
-        patch("dp.executor.render_template", return_value="SELECT 1"),
+        patch("data_proxy.executor.render_template", return_value="SELECT 1"),
         pytest.raises(TypeError, match="cursor"),
     ):
         await execute_sql(connection, "postgres/table_exists", params=[("x",)])
@@ -55,7 +55,7 @@ async def test_postgres_cursor_executes_many_rows() -> None:
     """
     cursor = AsyncMock()
 
-    with patch("dp.executor.render_template", return_value="SELECT 1"):
+    with patch("data_proxy.executor.render_template", return_value="SELECT 1"):
         await execute_postgres_cursor(cursor, "SELECT 1", params=[("x",)])
 
     cursor.executemany.assert_awaited_once()
@@ -91,7 +91,7 @@ async def test_duckdb_template_returns_rows(duckdb: DuckDB) -> None:
     WHEN: a template is executed.
     THEN: the backend returns every row instead of a synchronous cursor.
     """
-    with patch("dp.executor.render_template", return_value="SELECT 1"):
+    with patch("data_proxy.executor.render_template", return_value="SELECT 1"):
         rows = await execute_sql(duckdb, "duckdb/describe_table")
 
     assert rows == [(1,)]
@@ -120,7 +120,7 @@ async def test_bigquery_template_returns_rows() -> None:
     job.result.return_value = [{"a": 1}]
     client.query.return_value = job
 
-    with patch("dp.executor.render_template", return_value="SELECT 1"):
+    with patch("data_proxy.executor.render_template", return_value="SELECT 1"):
         rows = await execute_sql(
             BigQuery(client=client), "bigquery/partitions", job_config=QueryJobConfig()
         )

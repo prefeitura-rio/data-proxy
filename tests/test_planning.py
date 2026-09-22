@@ -14,9 +14,9 @@ from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
 from pydantic import ValidationError
 
-from dp.bigquery.clients import BigQuery
-from dp.duckdb import DuckDB
-from dp.models import (
+from data_proxy.bigquery.clients import BigQuery
+from data_proxy.duckdb import DuckDB
+from data_proxy.models import (
     AllSelection,
     FullTable,
     IndexConfig,
@@ -31,7 +31,7 @@ from dp.models import (
     TableConfig,
     UnitMapping,
 )
-from dp.planning import (
+from data_proxy.planning import (
     build_partition_tasks,
     detect_changes,
     discover_json_columns,
@@ -43,7 +43,7 @@ from dp.planning import (
     run_planning,
     table_signature,
 )
-from dp.settings import settings
+from data_proxy.settings import settings
 from tests.helpers import planning_partition, sync_config
 
 STATE_CONN = cast("AsyncConnection[TupleRow]", MagicMock())
@@ -105,13 +105,15 @@ class TestPlanningPlanPartitioned:
             )
         }
         with (
-            patch("dp.planning.physical_partitions", return_value=("sig", current)),
             patch(
-                "dp.planning.read_partition_manifest",
+                "data_proxy.planning.physical_partitions", return_value=("sig", current)
+            ),
+            patch(
+                "data_proxy.planning.read_partition_manifest",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            patch("dp.planning.discover_json_columns", return_value=[]),
+            patch("data_proxy.planning.discover_json_columns", return_value=[]),
         ):
             plan, tasks = await plan_partitioned_table(
                 table,
@@ -145,11 +147,11 @@ class TestPlanningPlanPartitioned:
         )
         with (
             patch(
-                "dp.planning.BigQuery.connect",
+                "data_proxy.planning.BigQuery.connect",
                 new=bigquery_connect(bigquery),
             ),
             patch(
-                "dp.planning.plan_partitioned_table",
+                "data_proxy.planning.plan_partitioned_table",
                 new_callable=AsyncMock,
                 return_value=(table_plan, []),
             ),
@@ -176,10 +178,12 @@ class TestPlanningBuildSync:
         config = SyncConfig(schemas={})
         with (
             patch(
-                "dp.planning.detect_changes", new_callable=AsyncMock, return_value={}
+                "data_proxy.planning.detect_changes",
+                new_callable=AsyncMock,
+                return_value={},
             ),
             patch(
-                "dp.planning.plan_partitioned_tables",
+                "data_proxy.planning.plan_partitioned_tables",
                 new_callable=AsyncMock,
                 return_value=({}, []),
             ),
@@ -202,13 +206,13 @@ class TestPlanningBuildSync:
         task = config.tables[0].to_task("r1", "b", [AllSelection()])
         with (
             patch(
-                "dp.planning.detect_changes",
+                "data_proxy.planning.detect_changes",
                 new_callable=AsyncMock,
                 return_value={"p.app.t": "sig"},
             ),
-            patch("dp.planning.expand_config", return_value=[task]),
+            patch("data_proxy.planning.expand_config", return_value=[task]),
             patch(
-                "dp.planning.plan_partitioned_tables",
+                "data_proxy.planning.plan_partitioned_tables",
                 new_callable=AsyncMock,
                 return_value=({}, []),
             ),
@@ -243,10 +247,12 @@ class TestPlanning:
         )
         with (
             patch(
-                "dp.planning.detect_changes", new_callable=AsyncMock, return_value={}
+                "data_proxy.planning.detect_changes",
+                new_callable=AsyncMock,
+                return_value={},
             ),
             patch(
-                "dp.planning.plan_partitioned_tables",
+                "data_proxy.planning.plan_partitioned_tables",
                 new_callable=AsyncMock,
                 return_value=({"p.app.t": table_plan}, []),
             ),
@@ -334,7 +340,7 @@ class TestPlanning:
         """
         config: list[TableConfig] = [FullTable(name="p.d.t")]
         with patch(
-            "dp.planning.discover_json_columns",
+            "data_proxy.planning.discover_json_columns",
             new_callable=AsyncMock,
             return_value=[],
         ):
@@ -502,12 +508,12 @@ class TestPlanning:
         )
         with (
             patch(
-                "dp.planning.BigQuery.connect",
+                "data_proxy.planning.BigQuery.connect",
                 new=bigquery_connect(bigquery),
             ),
-            patch("dp.planning.table_modified", return_value="m"),
+            patch("data_proxy.planning.table_modified", return_value="m"),
             patch(
-                "dp.planning.read_table_signature",
+                "data_proxy.planning.read_table_signature",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
@@ -528,11 +534,11 @@ class TestPlanning:
         table = PartitionedTable(name="p.d.t")
         with (
             patch(
-                "dp.planning.physical_partitions",
+                "data_proxy.planning.physical_partitions",
                 return_value=("s", {"1": planning_partition("1", "new")}),
             ),
             patch(
-                "dp.planning.read_partition_manifest",
+                "data_proxy.planning.read_partition_manifest",
                 new_callable=AsyncMock,
                 return_value=PartitionManifest(
                     table_signature="s",
@@ -562,7 +568,7 @@ class TestPlanning:
         """
         config = sync_config([FullTable(name="p.d.t")], schema_name="d")
         with patch(
-            "dp.planning.BigQuery.connect",
+            "data_proxy.planning.BigQuery.connect",
             new=bigquery_connect(bigquery),
         ):
             plans, tasks = await plan_partitioned_tables(

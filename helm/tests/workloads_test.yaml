@@ -83,7 +83,7 @@ tests:
         template: deployment-sync-worker.yaml
       - equal:
           path: spec.template.spec.containers[0].command
-          value: [python, -m, dp.main]
+          value: [python, -m, data_proxy.dbos.main]
         template: deployment-sync-worker.yaml
       - equal:
           path: spec.replicas

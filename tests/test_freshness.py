@@ -5,13 +5,18 @@ from unittest.mock import AsyncMock, call, patch
 import pytest
 from whenever import Instant
 
-from dp.freshness import (
+from data_proxy.freshness import (
     delete_partition_freshness,
     record_freshness_failures,
     update_published_freshness,
     upsert_freshness,
 )
-from dp.models import FullTable, PartitionedTable, PartitionedTablePlan, SyncPlan
+from data_proxy.models import (
+    FullTable,
+    PartitionedTable,
+    PartitionedTablePlan,
+    SyncPlan,
+)
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, fetch_one, partition
 
@@ -308,9 +313,12 @@ class TestFreshnessTemplates:
         attempted_at = Instant.now()
 
         with (
-            patch("dp.freshness.upsert_freshness", new_callable=AsyncMock) as upsert,
             patch(
-                "dp.freshness.delete_partition_freshness", new_callable=AsyncMock
+                "data_proxy.freshness.upsert_freshness", new_callable=AsyncMock
+            ) as upsert,
+            patch(
+                "data_proxy.freshness.delete_partition_freshness",
+                new_callable=AsyncMock,
             ) as delete,
         ):
             await update_published_freshness(

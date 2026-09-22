@@ -6,20 +6,20 @@ from typing import cast
 import pytest
 from google.cloud.bigquery import Row
 
-from dp.bigquery.clients import BigQuery
-from dp.bigquery.config import (
+from data_proxy.bigquery.clients import BigQuery
+from data_proxy.bigquery.config import (
     PartitionKindConfig,
     RangeConfig,
     TimeConfig,
     TimeGranularity,
 )
-from dp.bigquery.partitions import (
+from data_proxy.bigquery.partitions import (
     PartitionNormalizer,
     parse_table_reference,
     physical_partitions,
     table_modified,
 )
-from dp.models import RangeSelection
+from data_proxy.models import RangeSelection
 
 
 @dataclass(frozen=True, slots=True)

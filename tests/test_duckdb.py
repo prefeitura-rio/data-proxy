@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from dp.duckdb import DuckDB
+from data_proxy.duckdb import DuckDB
 
 
 @pytest.mark.asyncio
