@@ -112,9 +112,9 @@ async def seed(plans: list[SyncPlan]) -> None:
     for plan in plans:
         schema_name = plan.schema_name
         dsn = settings.SCHEMA_WRITERS.dsn(schema_name)
-        by_dsn.setdefault(dsn, {})[schema_name] = (
-            settings.sync_config.schemas[schema_name]
-        )
+        by_dsn.setdefault(dsn, {})[schema_name] = settings.sync_config.schemas[
+            schema_name
+        ]
 
     for dsn, schemas in by_dsn.items():
         async with connect_pg(dsn) as pg_conn:
