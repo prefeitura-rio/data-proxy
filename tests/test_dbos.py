@@ -12,3 +12,8 @@ def test_group_schema_configs_by_dsn() -> None:
     assert dbos_utils.group_schema_configs_by_dsn(plans, config, writers) == {
         "dsn": {"alpha": config.schemas["alpha"], "beta": config.schemas["beta"]}
     }
+
+
+def test_retry_transient_excludes_validation_errors() -> None:
+    assert dbos_utils.retry_transient(RuntimeError("temporary"))
+    assert not dbos_utils.retry_transient(ValueError("invalid"))

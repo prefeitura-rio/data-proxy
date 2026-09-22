@@ -36,7 +36,7 @@ from ..state import (
     write_table_states,
 )
 from ..utils import wait_for
-from .utils import group_schema_configs_by_dsn
+from .utils import group_schema_configs_by_dsn, retry_transient
 
 
 @DBOS.step()
@@ -90,7 +90,11 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
         )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def seed_schemas(plans: list[SyncPlan]) -> None:
     """Initialize configured schemas and policy objects for one run."""
     by_dsn = group_schema_configs_by_dsn(
@@ -113,7 +117,7 @@ async def seed_schemas(plans: list[SyncPlan]) -> None:
 @DBOS.step(
     retries_allowed=True,
     max_attempts=settings.DUMP_QUEUE_MAX_ATTEMPTS,
-    should_retry=lambda error: not isinstance(error, ValueError | RuntimeError),
+    should_retry=retry_transient,
 )
 async def extract_task(task: DumpTask) -> None:
     """Extract one dump task from BigQuery to Parquet."""
@@ -134,7 +138,7 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
         )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step()
 async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedSchema:
     """Load and publish one schema plan, then capture the commit WAL position."""
     schemaname.set(plan.schema_name)
@@ -154,7 +158,11 @@ async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedS
     return PublishedSchema(result=result, target_lsn=target_lsn)
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def wait_for_replica(schema_name: str, target_lsn: str) -> None:
     """Wait until every replica has replayed the publication WAL position."""
     async with connect_pg(settings.SCHEMA_WRITERS.dsn(schema_name)) as pg_conn:
@@ -166,7 +174,11 @@ async def wait_for_replica(schema_name: str, target_lsn: str) -> None:
         )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def restart_postgrest(schema_name: str, run_id: str) -> None:
     """Restart both PostgREST deployments and wait for their rollouts."""
     load_config()
@@ -210,7 +222,11 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
         await gather(*(wait_for_deployment(name) for name in names))
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
     """Persist committed table state for one published schema."""
     config = SyncConfig(
@@ -221,7 +237,11 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
         await write_table_states(pg_conn, states)
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def finalize_run(run_id: str) -> None:
     """Empty the temporary object store and flush the response cache."""
     await clear_s3_bucket()
