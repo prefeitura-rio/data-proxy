@@ -4,31 +4,51 @@
 use std/log
 use ./lib.nu [render-sql]
 
+# Return the configured object-store endpoint with an explicit scheme.
+def endpoint-url []: nothing -> string {
+    let endpoint = $env.S3_ENDPOINT
+
+    if ($endpoint | str starts-with 'http') {
+        return $endpoint
+    }
+
+    let scheme = if ($env.S3_USE_SSL? | default 'false') == 'true' { 'https' } else { 'http' }
+
+    $'($scheme)://($endpoint)'
+}
+
+# Return the rclone remote environment for the configured backup target.
+def rclone-env []: nothing -> record {
+    let endpoint = endpoint-url
+
+    if ($endpoint | str contains 'googleapis.com') {
+        return {RCLONE_CONFIG_STORE_TYPE: 'google cloud storage', RCLONE_CONFIG_STORE_SERVICE_ACCOUNT_FILE: $env.GOOGLE_APPLICATION_CREDENTIALS, RCLONE_CONFIG_STORE_BUCKET_POLICY_ONLY: 'true'}
+    }
+
+    {
+        RCLONE_CONFIG_STORE_TYPE: 's3'
+        RCLONE_CONFIG_STORE_PROVIDER: 'Other'
+        RCLONE_CONFIG_STORE_ENDPOINT: $endpoint
+        RCLONE_CONFIG_STORE_ACCESS_KEY_ID: $env.AWS_ACCESS_KEY_ID
+        RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: $env.AWS_SECRET_ACCESS_KEY
+        RCLONE_CONFIG_STORE_FORCE_PATH_STYLE: 'true'
+        RCLONE_CONFIG_STORE_REGION: 'auto'
+        RCLONE_CONFIG_STORE_NO_CHECK_BUCKET: 'true'
+    }
+}
+
 def main []: nothing -> nothing {
     let schema = $env.SCHEMA? | default pic
     let policy_dump = '/tmp/access_policy.dump'
     let log_dump = '/tmp/access_log.dump'
     let object_date = date now | format date '%Y-%m-%d'
-    let s3_prefix = $'s3://($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date)'
-    let scheme = if ($env.S3_USE_SSL? | default 'false') == 'true' { 'https' } else { 'http' }
-    let endpoint_url = if ($env.S3_ENDPOINT | str starts-with 'http') {
-        $env.S3_ENDPOINT
-    } else {
-        $'($scheme)://($env.S3_ENDPOINT)'
-    }
+    let object_prefix = $'($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date)'
+    let remote_prefix = $'store:($object_prefix)'
 
     log info $'Backup started schema=($schema)'
 
-    try {
-        aws configure set default.s3.addressing_style path
-        aws configure set default.region auto
-    } catch {|err| error make {
-        msg: $'aws configure failed: ($err.msg)'
-        label: {
-            text: aws
-            span: (metadata $schema).span
-        }
-    } }
+    load-env {RCLONE_CONFIG: '/dev/null'}
+    load-env (rclone-env)
 
     log info $'Dumping ($schema).access_policy...'
     try {
@@ -52,24 +72,24 @@ def main []: nothing -> nothing {
         }
     } }
 
-    log info $'Uploading state dump to ($s3_prefix)/access_policy.dump...'
+    log info $'Uploading state dump to ($object_prefix)/access_policy.dump...'
     try {
-        aws s3 cp $policy_dump $'($s3_prefix)/access_policy.dump' --endpoint-url $endpoint_url
+        rclone copyto $policy_dump $'($remote_prefix)/access_policy.dump'
     } catch {|err| error make {
         msg: $'S3 upload failed for ($schema): ($err.msg)'
         label: {
-            text: aws
+            text: rclone
             span: (metadata $schema).span
         }
     } }
 
-    log info $'Uploading log dump to ($s3_prefix)/access_log.dump...'
+    log info $'Uploading log dump to ($object_prefix)/access_log.dump...'
     try {
-        aws s3 cp $log_dump $'($s3_prefix)/access_log.dump' --endpoint-url $endpoint_url
+        rclone copyto $log_dump $'($remote_prefix)/access_log.dump'
     } catch {|err| error make {
         msg: $'S3 upload failed for ($schema): ($err.msg)'
         label: {
-            text: aws
+            text: rclone
             span: (metadata $schema).span
         }
     } }

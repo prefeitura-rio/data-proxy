@@ -44,8 +44,8 @@ The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for
 Download the dump and inspect it before restoring:
 
 ```bash
-aws s3 cp \
-  "s3://<bucket>/backups/access_policy/<schema>/<date>/access_policy.dump" \
+rclone copy \
+  ":s3:<bucket>/backups/access_policy/<schema>/<date>/access_policy.dump" \
   access_policy.dump
 
 pg_restore --list access_policy.dump

@@ -88,6 +88,50 @@ tests:
                 name: data-proxy-jobs
                 key: JOBS_PASSWORD
 
+  - it: mounts GCP credentials so rclone can reach GCS
+    set:
+      backup.enabled: true
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: https://storage.googleapis.com
+      backup.s3.existingSecret: backup-s3-creds
+      gcp.existingSecret: gcp-key
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - documentSelector:
+          path: kind
+          value: CronJob
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+      - documentSelector:
+          path: kind
+          value: CronJob
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: gcp-key
+            secret:
+              secretName: gcp-key
+
+  - it: omits GCP credentials when no GCP Secret is set
+    set:
+      backup.enabled: true
+      backup.s3.bucket: backup-bucket
+      backup.s3.endpointURL: http://seaweedfs-s3:8333
+      backup.s3.existingSecret: backup-s3-creds
+      gcp.existingSecret: ""
+      syncConfig.schemas.bcadastro.tables: []
+    asserts:
+      - documentSelector:
+          path: kind
+          value: CronJob
+        notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+
   - it: uses backup S3 credentials from backup.s3.existingSecret
     set:
       backup.enabled: true

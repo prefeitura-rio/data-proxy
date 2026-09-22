@@ -78,14 +78,20 @@ spec:
                   value: {{ $root.Values.backup.accessLog.retentionDays | quote }}
                 - name: SQL_TEMPLATE_DIR
                   value: /scripts
+                {{- if $root.Values.gcp.existingSecret }}
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /gcp/key.json
+                {{- end }}
               volumeMounts:
                 - name: scripts
                   mountPath: /scripts
                   readOnly: true
+                {{- include "data-proxy.gcpVolumeMount" $root | nindent 16 }}
           volumes:
             - name: scripts
               configMap:
                 name: {{ include "data-proxy.fullname" $root }}-scripts
                 defaultMode: 0555
+            {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
 {{- end }}
 {{- end }}

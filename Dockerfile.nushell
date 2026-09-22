@@ -4,7 +4,7 @@ USER root
 RUN apk add --no-cache \
     postgresql17-client=17.11-r0 \
     redis=8.8.0-r0 \
-    aws-cli=2.34.63-r0 \
+    rclone=1.74.1-r2 \
     kubectl=1.36.1-r1 \
     minijinja-cli=2.21.0-r0
 
