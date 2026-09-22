@@ -157,6 +157,16 @@ addopts = ["--import-mode=importlib"]
 env_files = [".env.test"]
 pythonpath = ["src"]
 bdd_features_base_dir = "tests/integration/features"
+markers = [
+  "postgres: scenarios that require a PostgreSQL container",
+  "s3: scenarios that require S3-compatible object storage",
+  "redis: scenarios that require a Redis container",
+]
+filterwarnings = [
+  "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
+  "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
+  "ignore::DeprecationWarning:gherkin.gherkin_line",
+]
 
 [tool.pytest-gremlins]
 paths = ["src"]

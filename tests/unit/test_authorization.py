@@ -1,5 +1,7 @@
 """Unit tests for authorization validation."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from psycopg import AsyncConnection
 
@@ -14,12 +16,11 @@ class TestAuthorizationValidation:
     async def test_rejects_invalid_runtime_rls_value(
         self,
         invalid_rls: list[UnitMapping],
-        async_connection_double: AsyncConnection,
     ) -> None:
         """Reject an invalid runtime RLS value."""
         with pytest.raises(AssertionError):
             await apply_table_authorization(
-                async_connection_double,
+                AsyncMock(spec=AsyncConnection),
                 "app",
                 "table",
                 invalid_rls,
@@ -27,13 +28,11 @@ class TestAuthorizationValidation:
             )
 
     @pytest.mark.asyncio
-    async def test_rejects_protected_table_without_identity_claim(
-        self, async_connection_double: AsyncConnection
-    ) -> None:
+    async def test_rejects_protected_table_without_identity_claim(self) -> None:
         """Reject a protected table without an identity claim."""
         with pytest.raises(RuntimeError, match="identity claim"):
             await apply_table_authorization(
-                async_connection_double,
+                AsyncMock(spec=AsyncConnection),
                 schema="app",
                 table_name="table",
                 rls=[UnitMapping(column="unit_id", unit_type="unit")],

@@ -1,5 +1,7 @@
 """Unit tests for publication decisions and state."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -339,9 +341,10 @@ class TestSyncContextLookup:
     """Sync context lookup behavior tests."""
 
     def test_indexes_configured_tables_by_name(
-        self, async_connection_double: AsyncConnection
+        self,
     ) -> None:
         """Index every configured table by its source name."""
+        conn = AsyncMock(spec=AsyncConnection)
         config = SyncConfig(
             schemas={
                 "d": SchemaConfig(
@@ -353,8 +356,8 @@ class TestSyncContextLookup:
             }
         )
         context = SyncContext(
-            pg_conn=async_connection_double,
-            dbos_conn=async_connection_double,
+            pg_conn=conn,
+            dbos_conn=conn,
             config=config,
             plan=SyncPlan(schema_name="d"),
         )
@@ -365,9 +368,10 @@ class TestSyncContextValidation:
     """Sync context validation behavior tests."""
 
     def test_calculates_blocked_empty_and_eligible_tables(
-        self, async_connection_double: AsyncConnection
+        self,
     ) -> None:
         """Calculate blocked, empty, and eligible tables from a plan."""
+        conn = AsyncMock(spec=AsyncConnection)
         config = SyncConfig(
             schemas={
                 "d": SchemaConfig(
@@ -400,8 +404,8 @@ class TestSyncContextValidation:
             partitioned_tables={"p.d.empty": empty, "p.d.changed": changed},
         )
         context = SyncContext(
-            pg_conn=async_connection_double,
-            dbos_conn=async_connection_double,
+            pg_conn=conn,
+            dbos_conn=conn,
             config=config,
             plan=plan,
             failed_paths={"full-path"},

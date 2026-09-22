@@ -44,7 +44,7 @@ def main []: nothing -> nothing {
         procedure: $'($procedure_schema).cleanup_stale_objects'
         config: $config
         schema_argument: $schema_argument
-    } | ignore
+    }
     log info 'Application cleanup completed'
 
     log info 'DBOS state cleanup started'

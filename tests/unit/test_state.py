@@ -1,6 +1,12 @@
 """Unit tests for persisted synchronization state."""
 
-from data_proxy.models import FullTable
+from data_proxy.models import (
+    FullTable,
+    PublicationResult,
+    SchemaConfig,
+    SyncConfig,
+    SyncPlan,
+)
 from data_proxy.settings import settings
 from data_proxy.state import build_table_states, schema
 
@@ -10,14 +16,6 @@ class TestTableStateBuilder:
 
     def test_builds_state_for_published_tables(self, full_table: FullTable) -> None:
         """Build state for published tables."""
-        from data_proxy.models import (
-            FullTable,
-            PublicationResult,
-            SchemaConfig,
-            SyncConfig,
-            SyncPlan,
-        )
-
         table = FullTable(name="p.app.t", resolved_schema="app")
         config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
         plan = SyncPlan(

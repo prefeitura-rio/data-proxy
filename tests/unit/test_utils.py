@@ -6,7 +6,6 @@ import pytest
 from psycopg import AsyncConnection
 
 from data_proxy.utils import atomic, wait_for
-from tests.fixtures.unit import TransactionConnection
 
 
 class TestWaitFor:
@@ -43,24 +42,42 @@ class TestAtomic:
     """Atomic transaction behavior tests."""
 
     @pytest.mark.asyncio
-    async def test_commits_after_success(
-        self, transaction_connection: TransactionConnection
-    ) -> None:
+    async def test_commits_after_success(self) -> None:
         """Commit the connection after a successful block."""
-        connection = transaction_connection
-        async with atomic(cast("AsyncConnection", cast(object, connection))):
+        commits = 0
+        rollbacks = 0
+
+        class Connection:
+            async def commit(self) -> None:
+                nonlocal commits
+                commits += 1
+
+            async def rollback(self) -> None:
+                nonlocal rollbacks
+                rollbacks += 1
+
+        async with atomic(cast("AsyncConnection", cast("object", Connection()))):
             pass
-        assert connection.commits == 1
-        assert connection.rollbacks == 0
+        assert commits == 1
+        assert rollbacks == 0
 
     @pytest.mark.asyncio
-    async def test_rolls_back_and_reraises_failure(
-        self, transaction_connection: TransactionConnection
-    ) -> None:
+    async def test_rolls_back_and_reraises_failure(self) -> None:
         """Roll back and re-raise an exception from the block."""
-        connection = transaction_connection
+        commits = 0
+        rollbacks = 0
+
+        class Connection:
+            async def commit(self) -> None:
+                nonlocal commits
+                commits += 1
+
+            async def rollback(self) -> None:
+                nonlocal rollbacks
+                rollbacks += 1
+
         with pytest.raises(RuntimeError, match="failed"):
-            async with atomic(cast("AsyncConnection", cast(object, connection))):
+            async with atomic(cast("AsyncConnection", cast("object", Connection()))):
                 raise RuntimeError("failed")
-        assert connection.rollbacks == 1
-        assert connection.commits == 0
+        assert rollbacks == 1
+        assert commits == 0
