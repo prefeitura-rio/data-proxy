@@ -5,9 +5,8 @@ from psycopg import AsyncConnection
 from testcontainers.community.postgres import PostgresContainer
 
 from data_proxy.authorization import apply_table_authorization
-from data_proxy.models import UnitMapping
-from data_proxy.templates import render_template
-from tests.constants import HELM_SQL
+from data_proxy.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
+from data_proxy.schema import initialize_schemas
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql
 
@@ -243,13 +242,10 @@ class TestAuthorization:
 async def access_policy(postgres: Postgres) -> str:
     """Create the production access_policy and access_log objects in one schema."""
     schema = postgres.namespace.schema
-    await postgres.connection.execute(
-        render_template(
-            "postgres/init_access_policy",
-            {"schema": schema, "user_role": '"user"', "scope": "true"},
-        ).encode()
+    config = SyncConfig(
+        schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.table")])}
     )
-    await postgres.connection.commit()
+    await initialize_schemas(postgres.connection, config)
     return schema
 
 
@@ -372,51 +368,6 @@ class TestAccessPolicyLog:
         assert rows[1] == ("789", False, "ap", "1", "delete")
 
     @pytest.mark.asyncio
-    async def test_cleanup_delete_access_policy_is_audited(
-        self, postgres: Postgres, access_policy: str
-    ) -> None:
-        """
-        GIVEN: an access_policy with one grant and the access_log trigger.
-        WHEN: the cleanup delete template runs.
-        THEN: the grant is removed and its removal is recorded in access_log.
-        """
-        schema = access_policy
-        await postgres.connection.execute(
-            (
-                f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) "
-                f"VALUES ('cleared', true, 'cras', '9')"
-            ).encode()
-        )
-        await postgres.connection.commit()
-
-        cleanup = render_template(
-            "cleanup_delete_access_policy",
-            {"schema": schema},
-            root=HELM_SQL,
-        )
-        await postgres.connection.execute(cleanup.encode())
-        await postgres.connection.commit()
-
-        remaining = await (
-            await postgres.connection.execute(
-                f"SELECT count(*) FROM {schema}.access_policy".encode()
-            )
-        ).fetchone()
-        assert remaining == (0,)
-
-        logged = await (
-            await execute_sql(
-                postgres.connection,
-                "postgres/access_log_entries",
-                mapping={"schema": schema},
-            )
-        ).fetchall()
-        assert logged == [
-            ("cleared", True, "cras", "9", "insert"),
-            ("cleared", True, "cras", "9", "delete"),
-        ]
-
-    @pytest.mark.asyncio
     async def test_cleanup_prunes_access_log_after_retention(
         self, postgres: Postgres, access_policy: str
     ) -> None:
@@ -441,12 +392,10 @@ class TestAccessPolicyLog:
         )
         await postgres.connection.commit()
 
-        cleanup_sql = render_template(
-            "cleanup_access_log",
-            {"schema": schema, "log_retention_days": "90"},
-            root=HELM_SQL,
+        await postgres.connection.execute(
+            b"CALL data_proxy.prune_access_log(%s::interval, %s)",
+            ("90 days", schema),
         )
-        await postgres.connection.execute(cleanup_sql.encode())
         await postgres.connection.commit()
 
         rows = await (

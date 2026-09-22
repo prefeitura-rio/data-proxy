@@ -2,130 +2,61 @@
 # nu-lint-ignore-file: dont_mix_different_effects
 
 use std/log
-use ./lib.nu [quote-pg refresh-postgrest render-sql schema-list]
+use ./lib.nu [quote-pg]
 
-let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| error make {msg: $'Failed to open sync config: ($err.msg)', label: cleanup} }
-let dsn = $env.PG_DATABASE_URL
-let protected = [freshness access_policy access_log]
+# Call one application database maintenance procedure.
+def postgres [call: record<procedure: string, config: string, schema_argument: string>]: nothing -> string {
+    let query = [
+        $"CALL ($call.procedure)\("
+        ":'config'::jsonb, "
+        $call.schema_argument
+        ");"
+    ] | str join
 
-# Return the list of schemas to process, filtered by SCHEMA env var when set.
-load-env {
-    AWS_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
-    AWS_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
-}
-
-# Execute a SQL statement against PostgreSQL.
-def postgres [query: string, --tuples-only]: nothing -> string {
     try {
-        if $tuples_only {
-            psql --no-psqlrc --quiet -t -A -c $query
-        } else {
-            psql --no-psqlrc --quiet -c $query
+        psql --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"config=($call.config)" -c $query
+    } catch {|err| error make {
+        msg: $'PostgreSQL maintenance call failed: ($err.msg)'
+        label: {
+            text: postgres
+            span: (metadata $call.procedure).span
         }
-    } catch {|err| log error $'psql failed: ($err.msg)' }
+    } }
 }
 
-# Execute a SQL statement against the DBOS system database
-def postgres-state [query: string]: nothing -> string {
+def main []: nothing -> nothing {
+    let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
+    let config = try {
+        open $env.SYNC_CONFIG_PATH | to json
+    } catch {|err| error make {
+        msg: $'Failed to read sync config: ($err.msg)'
+        label: cleanup
+    } }
+    let scope = $env.SCHEMA?
+    let schema_argument = if $scope == null {
+        "NULL"
+    } else {
+        quote-pg $scope literal
+    }
+
+    log info 'Application cleanup started'
+    postgres {
+        procedure: $'($procedure_schema).cleanup_stale_objects'
+        config: $config
+        schema_argument: $schema_argument
+    } | ignore
+    log info 'Application cleanup completed'
+
+    log info 'DBOS state cleanup started'
+    let state_query = [$"CALL ($procedure_schema).cleanup_table_state\(" ":'config'::jsonb);"] | str join
     try {
-        psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $query
-    } catch {|err| log error $'psql (state) failed: ($err.msg)' }
-}
-
-let app_schema = $env.DBOS_APP_SCHEMA? | default "dp"
-
-log info 'Cleanup started'
-
-for schema in (schema-list $config) {
-    let configured = (
-        $config.schemas
-        | get --optional $schema
-        | get tables
-        | each {|t| $t.name | split row . | last }
-    )
-
-    let configured_fallback = (
-        $config.schemas
-        | get --optional $schema
-        | get tables
-        | where ($it.fallback? | default false)
-        | each {|t| $t.name | split row . | last }
-    )
-
-    let all = (
-        postgres --tuples-only (render-sql cleanup_list_tables.sql {
-            schema: (quote-pg $schema literal)
-        })
-        | lines
-        | str trim
-    )
-
-    let stale = (
-        $all
-        | where $it not-in $configured and $it not-in $protected
-    )
-
-    let stale_fallback = (
-        postgres --tuples-only (render-sql cleanup_list_fallback.sql {
-            schema: (quote-pg $schema literal)
-        })
-        | lines
-        | str trim
-        | where ($it | is-not-empty)
-        | where $it not-in $configured_fallback
-    )
-
-    if ($stale | is-empty) {
-        log info $'No stale tables in ($schema)'
-    } else {
-        log info $'Found ($stale | length) stale tables in ($schema)'
-
-        for table in $stale {
-            let full_name = $'($schema).($table)'
-
-            log info $'Dropping table ($full_name)'
-            (postgres (render-sql cleanup_drop_table.sql {
-                schema: (quote-pg $schema identifier)
-                table: (quote-pg $table literal)
-            }))
-
-            log info $'Deleting freshness rows for ($full_name)'
-            (postgres (render-sql cleanup_delete_freshness.sql {
-                schema: (quote-pg $schema identifier)
-                table: (quote-pg $table literal)
-            }))
-
-            log info $'Deleting table state for ($full_name)'
-            (postgres-state (render-sql cleanup_delete_table_state.sql {
-                schema: (quote-pg $app_schema identifier)
-                table: (quote-pg $table literal)
-            }))
+        psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"config=($config)" -c $state_query
+    } catch {|err| error make {
+        msg: $'PostgreSQL state cleanup call failed: ($err.msg)'
+        label: {
+            text: cleanup
+            span: (metadata $state_query).span
         }
-
-        log info $'Deleting access_policy rows for ($schema)'
-        (postgres (render-sql cleanup_delete_access_policy.sql {
-            schema: (quote-pg $schema identifier)
-        }))
-    }
-
-    if ($stale_fallback | is-empty) {
-        log info $'No stale fallback objects in ($schema)'
-    } else {
-        log info $'Found ($stale_fallback | length) stale fallback objects in ($schema)'
-
-        for table in $stale_fallback {
-            log info $'Dropping fallback objects for ($schema).($table)'
-            (postgres (render-sql cleanup_drop_fallback.sql {
-                schema: (quote-pg $schema identifier)
-                table: (quote-pg $table literal)
-            }))
-        }
-    }
-
-    if not (($stale | is-empty) and ($stale_fallback | is-empty)) {
-        log info $'Refreshing PostgREST schema cache for ($schema)'
-        refresh-postgrest $env.KUBERNETES_NAMESPACE
-    }
+    } }
+    log info 'DBOS state cleanup completed'
 }
-
-log info 'Cleanup completed'

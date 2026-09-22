@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from time import monotonic, sleep
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from urllib.request import urlopen
 
 import duckdb
@@ -24,13 +24,6 @@ from tests.constants import FILES
 from tests.fixtures.types import SeaweedFS
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
-
-
-@pytest.fixture
-def metrics_disabled() -> Iterator[None]:
-    """Prevent metrics recording during tests."""
-    with patch("data_proxy.metrics.record_publication_metrics"):
-        yield
 
 
 @pytest.fixture

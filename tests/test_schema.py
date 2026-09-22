@@ -45,6 +45,23 @@ class TestSchema:
 
         await initialize_schemas(postgres.connection, config)
 
+        query = "".join(
+            [
+                "SELECT to_regprocedure(name) ",
+                "FROM unnest(ARRAY[",
+                "'data_proxy.cleanup_stale_objects(jsonb,text)', ",
+                "'data_proxy.apply_retention(jsonb,text)', ",
+                "'data_proxy.prune_access_log(interval,text)'",
+                "]) AS names(name)",
+            ]
+        )
+        procedures = await (await postgres.connection.execute(query)).fetchall()
+        assert procedures == [
+            ("data_proxy.cleanup_stale_objects(jsonb,text)",),
+            ("data_proxy.apply_retention(jsonb,text)",),
+            ("data_proxy.prune_access_log(interval,text)",),
+        ]
+
         rows = await (
             await execute_sql(
                 postgres.connection,
@@ -123,3 +140,26 @@ class TestSchema:
             )
         ).fetchone()
         assert grant == (False,)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_objects_removes_unconfigured_tables(
+        self, postgres: Postgres
+    ) -> None:
+        schema = postgres.namespace.schema
+        config = sync_config([FullTable(name=f"p.{schema}.kept")], schema_name=schema)
+        await initialize_schemas(postgres.connection, config)
+        await postgres.connection.execute(
+            f'CREATE TABLE "{schema}".stale (id int)'.encode()
+        )
+        await postgres.connection.execute(
+            b"CALL data_proxy.cleanup_stale_objects(%s::jsonb, %s)",
+            (config.model_dump_json(), schema),
+        )
+        await postgres.connection.commit()
+
+        row = await (
+            await postgres.connection.execute(
+                b"SELECT to_regclass(%s)", (f"{schema}.stale",)
+            )
+        ).fetchone()
+        assert row == (None,)

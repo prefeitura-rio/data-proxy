@@ -40,7 +40,7 @@ Application defaults below apply outside Helm. Helm can override them.
 | `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
 | `DBOS_APPLICATION_VERSION` | `0.1.0` | DBOS application version. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | Postgres schema for DBOS system tables. |
-| `DBOS_APP_SCHEMA` | `data-proxy` | Postgres schema for table state and errors. |
+| `DBOS_APP_SCHEMA` | `data_proxy` | Postgres schema for table state and errors. |
 
 ## Sync queues and schedule
 

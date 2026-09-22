@@ -11,7 +11,6 @@ import hypothesis
 import pytest
 from hypothesis import strategies as st
 from psycopg import AsyncConnection
-from psycopg.rows import TupleRow
 from pydantic import ValidationError
 
 from data_proxy.bigquery.clients import BigQuery
@@ -44,9 +43,10 @@ from data_proxy.planning import (
     table_signature,
 )
 from data_proxy.settings import settings
+from data_proxy.types import DatabaseRow
 from tests.helpers import planning_partition, sync_config
 
-STATE_CONN = cast("AsyncConnection[TupleRow]", MagicMock())
+STATE_CONN = cast("AsyncConnection[DatabaseRow]", MagicMock())
 
 
 def in_memory_duckdb() -> DuckDB:

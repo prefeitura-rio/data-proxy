@@ -17,6 +17,16 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> No
         "postgres/init_roles",
         mapping={"rls_schema": Identifier("rls")},
     )
+    for procedure in (
+        "cleanup_stale_objects",
+        "apply_retention",
+        "prune_access_log",
+    ):
+        await execute_sql(
+            pg_conn,
+            f"postgres/{procedure}",
+            mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+        )
 
     for schema in config.schemas:
         await execute_sql(

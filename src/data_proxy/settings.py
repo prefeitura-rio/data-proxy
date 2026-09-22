@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     AUTH_USER_ROLE: str = "user"
     DBOS_APPLICATION_NAME: str = "data-proxy-sync"
     DBOS_APPLICATION_VERSION: str = "0.1.0"
-    DBOS_APP_SCHEMA: str = "data-proxy"
+    DBOS_APP_SCHEMA: str = "data_proxy"
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
     DUMPER_BATCH_BYTES: int = Field(default=629_145_600, gt=0)

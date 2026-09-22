@@ -2,7 +2,7 @@
 # nu-lint-ignore-file: dont_mix_different_effects, string_may_be_bare
 
 use std/log
-use ./lib.nu [render-sql]
+use ./lib.nu [quote-pg]
 
 # Return the configured object-store endpoint with an explicit scheme.
 def endpoint-url []: nothing -> string {
@@ -95,11 +95,13 @@ def main []: nothing -> nothing {
     } }
 
     log info $'Pruning access_log retention for ($schema)...'
+    let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
+    let query = [
+        $"CALL ($procedure_schema).prune_access_log\("
+        ":'retention'::interval, :'schema');"
+    ] | str join
     try {
-        render-sql cleanup_access_log.sql {
-            schema: $schema
-            log_retention_days: $env.ACCESS_LOG_RETENTION_DAYS
-        } | psql --no-psqlrc --quiet -v ON_ERROR_STOP=1
+        psql --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"retention=($env.ACCESS_LOG_RETENTION_DAYS) days" --set $"schema=($schema)" -c $query
     } catch {|err| error make {
         msg: $'Access log cleanup failed for ($schema): ($err.msg)'
         label: {

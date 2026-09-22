@@ -346,7 +346,7 @@ dbos:
   applicationName: data-proxy-sync
   applicationVersion: "0.1.0"
   systemSchema: dbos
-  appSchema: dp
+  appSchema: data_proxy
   cluster:
     ## Resource requests and limits for each DBOS Postgres instance pod (HA mode).
     resources:
