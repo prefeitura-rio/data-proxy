@@ -40,20 +40,20 @@ def dbos-schema []: nothing -> string {
 
 # Pause the DBOS sync schedule so no new syncs start.
 def block-syncs []: nothing -> string {
-    let schema = dbos-schema
+    let schema = quote-pg (dbos-schema) identifier
     log info 'Pausing DBOS sync schedule…'
     psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $"UPDATE ($schema).workflow_schedules SET status = 'PAUSED' WHERE schedule_name = 'sync'"
 }
 
 # Resume the DBOS sync schedule so syncs can start again.
 def unblock-syncs []: nothing -> string {
-    let schema = dbos-schema
+    let schema = quote-pg (dbos-schema) identifier
     log info 'Resuming DBOS sync schedule…'
     psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -c $"UPDATE ($schema).workflow_schedules SET status = 'ACTIVE' WHERE schedule_name = 'sync'"
 }
 
 # Wait for init-db to complete by checking access_policy table exists in target.
-def wait-for-schema [schema: string, dsn: string]: any -> error {
+def wait-for-schema [schema: string, dsn: string]: nothing -> error {
     log info $'Waiting for ($schema).access_policy in target cluster…'
     let query = $"SELECT EXISTS \(SELECT FROM pg_tables WHERE schemaname = '($schema)' AND tablename = 'access_policy'\) AND EXISTS \(SELECT FROM pg_extension WHERE extname = 'pg_duckdb'\)"
     for _ in 1..60 {
