@@ -249,7 +249,7 @@ function verifyNoAccess(): void {
     });
 }
 
-/** Waits until the producer sync restores every local load-test table. */
+/** Waits until the sync restores every local load-test table. */
 function waitForLocalTables(token: string): void {
     const deadline = Date.now() + 300_000;
     let missing = LOAD_TABLES;

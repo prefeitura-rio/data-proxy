@@ -1,7 +1,7 @@
 import http from "k6/http";
 import { Kubernetes } from "k6/x/kubernetes";
 import { check, sleep } from "k6";
-import { triggerSync, waitForJob, NAMESPACE, PRODUCER_CRONJOB } from "./lib.ts";
+import { triggerSync, waitForJob, workerPodSpec, NAMESPACE } from "./lib.ts";
 
 type K6Response = {
   status: number;
@@ -498,7 +498,7 @@ function verifyMetrics(metrics: MetricRequest[]): void {
   });
 }
 
-/** Triggers a sync and waits for the producer Job to complete. */
+/** Triggers a sync and waits for the sync Job to complete. */
 export function setup(): void {
   const k8s = new Kubernetes();
   const jobName = triggerSync(k8s);
@@ -553,14 +553,7 @@ function requirePrecondition(name: string, ok: boolean, detail: unknown): void {
 
 /** Runs one SQL statement in the application database from a short lived Job. */
 function runSqlJob(k8s: Kubernetes, label: string, statement: string): void {
-  const cronJob = k8s.get("CronJob.batch", PRODUCER_CRONJOB, NAMESPACE) as {
-    spec: {
-      jobTemplate: {
-        spec: { template: { spec: { containers: Record<string, unknown>[] } } };
-      };
-    };
-  };
-  const podSpec = cronJob.spec.jobTemplate.spec.template.spec;
+  const podSpec = workerPodSpec(k8s);
   const name = label.replace(/_/g, "-").slice(0, 40);
   const jobName = `e2e-${name}-${Date.now()}`;
 
@@ -569,10 +562,8 @@ function runSqlJob(k8s: Kubernetes, label: string, statement: string): void {
     kind: "Job",
     metadata: { name: jobName, namespace: NAMESPACE },
     spec: {
-      ...cronJob.spec.jobTemplate.spec,
       backoffLimit: 0,
       template: {
-        ...cronJob.spec.jobTemplate.spec.template,
         spec: {
           ...podSpec,
           restartPolicy: "Never",
