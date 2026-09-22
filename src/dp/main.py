@@ -34,6 +34,7 @@ from .models import (
     PublicationResult,
     PublishedSchema,
     SchemaConfig,
+    SchemaWriters,
     SyncConfig,
     SyncPlan,
     SyncWork,
@@ -55,7 +56,7 @@ from .utils import wait_for
 
 
 @DBOS.step()
-async def build_work(run_id: str) -> SyncWork:
+async def build_sync_work(run_id: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     async with (
         DuckDB.connect() as duckdb_conn,
@@ -85,6 +86,7 @@ async def record_dump_metrics(
     metrics.dump_tasks_total.add(
         1, {"table": table, "schema": schema, "status": status}
     )
+
     logger.info("Dump completed task_id=%s status=%s", task_id, status)
 
 
@@ -104,17 +106,28 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
         )
 
 
-@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
-async def seed_schemas(plans: list[SyncPlan]) -> None:
-    """Initialize configured schemas and policy objects for one run."""
+def group_schema_configs_by_dsn(
+    plans: list[SyncPlan],
+    config: SyncConfig,
+    schema_writers: SchemaWriters,
+) -> dict[str, dict[str, SchemaConfig]]:
+    """Group planned schema configurations by writer DSN."""
     by_dsn: dict[str, dict[str, SchemaConfig]] = {}
 
     for plan in plans:
         schema_name = plan.schema_name
-        dsn = settings.SCHEMA_WRITERS.dsn(schema_name)
-        by_dsn.setdefault(dsn, {})[schema_name] = settings.sync_config.schemas[
-            schema_name
-        ]
+        dsn = schema_writers.dsn(schema_name)
+        by_dsn.setdefault(dsn, {})[schema_name] = config.schemas[schema_name]
+
+    return by_dsn
+
+
+@DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
+async def seed_schemas(plans: list[SyncPlan]) -> None:
+    """Initialize configured schemas and policy objects for one run."""
+    by_dsn = group_schema_configs_by_dsn(
+        plans, settings.sync_config, settings.SCHEMA_WRITERS
+    )
 
     for dsn, schemas in by_dsn.items():
         async with connect_pg(dsn) as pg_conn:
@@ -174,7 +187,7 @@ async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedS
 
 
 @DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
-async def wait_replica(schema_name: str, target_lsn: str) -> None:
+async def wait_for_replica(schema_name: str, target_lsn: str) -> None:
     """Wait until every replica has replayed the publication WAL position."""
     async with connect_pg(settings.SCHEMA_WRITERS.dsn(schema_name)) as pg_conn:
         await wait_for(
@@ -230,7 +243,7 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
 
 
 @DBOS.step(retries_allowed=True, max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS)
-async def commit_state(plan: SyncPlan, result: PublicationResult) -> None:
+async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
     """Persist committed table state for one published schema."""
     config = SyncConfig(
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
@@ -246,6 +259,41 @@ async def finalize_run(run_id: str) -> None:
     await clear_s3_bucket()
     await clear_cache()
     logger.info("Run finalized run_id=%s", run_id)
+
+
+async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
+    """Run dump workflows and return failed object paths."""
+    dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
+    for task in tasks:
+        handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
+        dump_handles.append(handle)
+
+    dump_results: list[DumpResult] = await asyncio.gather(
+        *(handle.get_result() for handle in dump_handles)
+    )
+    return {
+        path
+        for result in dump_results
+        if (path := result.maybe_failed_path) is not None
+    }
+
+
+async def run_publish_tasks(
+    run_id: str, plans: list[SyncPlan], failed_paths: set[str]
+) -> None:
+    """Run publication workflows for every schema plan."""
+    publish_handles: list[WorkflowHandleAsync[set[str]]] = []
+    for plan in plans:
+        handle = await DBOS.enqueue_workflow_async(
+            PUBLISH_QUEUE,
+            publish_schema,
+            run_id,
+            plan,
+            failed_paths,
+        )
+        publish_handles.append(handle)
+
+    await asyncio.gather(*(handle.get_result() for handle in publish_handles))
 
 
 @DBOS.workflow()
@@ -275,11 +323,11 @@ async def publish_schema(
     schemaname.set(plan.schema_name)
 
     outcome = await load_and_publish(plan, failed_paths)
-    await wait_replica(plan.schema_name, outcome.target_lsn)
+    await wait_for_replica(plan.schema_name, outcome.target_lsn)
     await restart_postgrest(plan.schema_name, run_id)
 
     await record_publish_metrics(outcome.result, plan.schema_name)
-    await commit_state(plan, outcome.result)
+    await commit_table_state(plan, outcome.result)
     return outcome.result.published_tables
 
 
@@ -292,7 +340,7 @@ async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
         raise RuntimeError("workflow_id is not set")
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
-        work = await build_work(workflow_id)
+        work = await build_sync_work(workflow_id)
 
         if not work.plans:
             logger.info("No table changes")
@@ -304,38 +352,11 @@ async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
             len(work.plans),
         )
 
-        dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
-
-        for task in work.tasks:
-            handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
-            dump_handles.append(handle)
-
-        dump_results: list[DumpResult] = await asyncio.gather(
-            *(handle.get_result() for handle in dump_handles)
-        )
-
-        failed_paths = {
-            path
-            for result in dump_results
-            if (path := result.maybe_failed_path) is not None
-        }
+        failed_paths = await run_dump_tasks(work.tasks)
 
         await seed_schemas(work.plans)
 
-        publish_handles: list[WorkflowHandleAsync[set[str]]] = []
-
-        for plan in work.plans:
-            handle = await DBOS.enqueue_workflow_async(
-                PUBLISH_QUEUE,
-                publish_schema,
-                workflow_id,
-                plan,
-                failed_paths,
-            )
-
-            publish_handles.append(handle)
-
-        await asyncio.gather(*(handle.get_result() for handle in publish_handles))
+        await run_publish_tasks(workflow_id, work.plans, failed_paths)
 
         await finalize_run(workflow_id)
         return "success"
