@@ -35,6 +35,7 @@ in
           nushell
           sqlfluff
           typescript
+          vale
         ];
 
         languages = {
@@ -80,8 +81,8 @@ in
             ];
           };
           "dp:lint:nu" = {
-            exec = "nu-lint helm/files/*.nu";
-            execIfModified = [ "helm/files/**/*.nu" ];
+            exec = "nu-lint --config .nu-lint.toml helm/files/*.nu scripts/*.nu";
+            execIfModified = [ "helm/files/**/*.nu" "scripts/**/*.nu" ".nu-lint.toml" ];
           };
           "dp:lint:docker" = {
             exec = ''
@@ -180,6 +181,7 @@ in
         ];
 
         scripts = {
+          ci.exec = ''nu scripts/ci.nu "$@"'';
           cluster.exec = ''nu scripts/cluster.nu "$@"'';
           seed.exec = ''uv run python scripts/seed.py "$@"'';
           token.exec = "nu scripts/token.nu";

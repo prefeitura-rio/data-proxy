@@ -1,6 +1,7 @@
 # nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration, remove_hat_not_builtin, unhandled_external_error
 
 use std/log
+use ./lib.nu [poll]
 
 const KUBERNETES_VERSION = 'v1.34.7'
 const MINIKUBE_CPUS = '6'
@@ -38,7 +39,6 @@ def --wrapped hm [kubecfg: path, ...rest: string]: nothing -> string {
     }
 }
 
-# Wait for the given resources to roll out.
 def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
     for ref in $in {
         let r = $ref | parse '{namespace}/{name}' | first
@@ -79,17 +79,9 @@ def start-minikube [kubecfg: path]: nothing -> string {
     mk $kubecfg update-context
 }
 
-# Wait until the fresh Minikube control plane remains stable.
+# Check whether the Kubernetes API server readyz endpoint responds.
 def wait-for-control-plane [kubecfg: path]: nothing -> nothing {
-    mut ready = false
-    for attempt in 1..60 {
-        if (k $kubecfg get --raw /readyz | complete).exit_code == 0 {
-            $ready = true
-            break
-        }
-        sleep 5sec
-    }
-    if not $ready {
+    if not (poll {|| ((k $kubecfg get --raw /readyz | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
         error make {
             msg: 'Kubernetes API server did not become ready within 5 minutes'
             label: {
@@ -138,20 +130,11 @@ def wait-for-control-plane [kubecfg: path]: nothing -> nothing {
     }
 }
 
-# Wait until metrics-server serves the resource metrics API.
+# Check whether the metrics-server resource metrics API is available.
 def wait-for-metrics [kubecfg: path]: nothing -> nothing {
     (['kube-system/metrics-server'] | wait-for deployment $kubecfg) | ignore
 
-    mut ready = false
-    for attempt in 1..60 {
-        if (k $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0 {
-            $ready = true
-            break
-        }
-        sleep 5sec
-    }
-
-    if not $ready {
+    if not (poll {|| ((k $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
         error make {
             msg: 'metrics-server did not become ready within 5 minutes'
             label: {
@@ -245,6 +228,7 @@ def verify-platform [kubecfg: path]: nothing -> nothing {
     let after_keda_metrics = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-metrics-apiserver'
     let after_keda_webhook = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-admission-webhooks'
     let after_storage = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
+
     if $after_cnpg != $before_cnpg or $after_keda != $before_keda or $after_keda_metrics != $before_keda_metrics or $after_keda_webhook != $before_keda_webhook or $after_storage != $before_storage {
         error make {
             msg: 'CNPG or KEDA restarted during the platform stability window'
@@ -364,15 +348,13 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         | get items
         | get metadata.name
         | where $it !~ '-dbos$'
-    } catch {|err|
-        error make {
-            msg: $'Failed to read CNPG clusters: ($err.msg)'
-            label: {
-                text: clear-test-resources
-                span: (metadata $kubecfg).span
-            }
+    } catch {|err| error make {
+        msg: $'Failed to read CNPG clusters: ($err.msg)'
+        label: {
+            text: clear-test-resources
+            span: (metadata $kubecfg).span
         }
-    }
+    } }
 
     for cluster in $clusters {
         let schema = if $cluster == 'data-proxy' {
@@ -398,7 +380,20 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             | str join '; '
         )
         let cleanup = $'($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE \'($schema).%\'; DELETE FROM ($schema).freshness; DELETE FROM ($schema).access_policy;'
-        k $kubecfg -n data-proxy exec $pg -- psql $dsn -v ON_ERROR_STOP=1 -c $cleanup
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            exec
+            $pg
+            --
+            psql
+            $dsn
+            -v
+            ON_ERROR_STOP=1
+            -c
+            $cleanup
+        )
     }
 
     let dbos_clusters = (
@@ -414,8 +409,36 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
                 -o $jsonpath
         ) | str trim
         let dbos_dsn = 'postgresql://data-proxy:test-pg-pass@data-proxy-dbos-rw:5432/data-proxy'
-        k $kubecfg -n data-proxy exec $dbos_pg -- psql $dbos_dsn -v ON_ERROR_STOP=1 -c 'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            exec
+            $dbos_pg
+            --
+            psql
+            $dbos_dsn
+            -v
+            ON_ERROR_STOP=1
+            -c
+            'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
+        )
     }
+}
+
+# Check whether the k6 runner job has appeared.
+def runner-job-ready [kubecfg: path, label: string]: nothing -> bool {
+    let jobs = k $kubecfg -n data-proxy get jobs -l $label -o 'jsonpath={.items}' | str trim
+    ($jobs | is-not-empty) and ($jobs != '[]')
+}
+
+# Check whether the k6 test job completed, returning completion and failure flags.
+def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
+    let complete_path = 'jsonpath={range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
+    let phase = (k $kubecfg -n data-proxy get jobs -l $label -o $complete_path) | str trim
+    if $phase == 'True' { return {complete: true, failed: false} }
+    if $phase == 'FalseTrue' { return {complete: false, failed: true} }
+    {complete: false, failed: false}
 }
 
 # Create a configmap, apply a testrun yaml, wait for completion, and print the runner log.
@@ -460,34 +483,18 @@ def k6-run [
             }
         } }
 
-        mut rendered = $yaml
-        if $profile != '' {
-            $rendered = $rendered | str replace --all 'value: load' $'value: ($profile)'
-        }
-        if $migration_phase != '' {
-            $rendered = $rendered | str replace 'value: shared-baseline' $'value: ($migration_phase)'
-        }
+        let rendered = $yaml
+        | if $profile != '' { str replace --all 'value: load' $'value: ($profile)' } else { }
+        | if $migration_phase != '' { str replace 'value: shared-baseline' $'value: ($migration_phase)' } else { }
         $rendered | k $kubecfg apply -f -
     } else {
         k $kubecfg apply -f $yaml_path
     }
 
     let label = $'k6_cr=($testrun),runner=true'
-    let items_jsonpath = 'jsonpath={.items}'
-    let complete_jsonpath = '{range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
-    let pod_jsonpath = 'jsonpath={.items[0].metadata.name}'
 
     log info 'Waiting for the runner job to appear...'
-    mut job_ready = false
-    for attempt in 1..300 {
-        let jobs = k $kubecfg -n data-proxy get jobs -l $label -o $items_jsonpath | str trim
-        if ($jobs | is-not-empty) and ($jobs != '[]') {
-            $job_ready = true
-            break
-        }
-        sleep 1sec
-    }
-    if not $job_ready {
+    if not (poll {|| (runner-job-ready $kubecfg $label) } {interval: 1sec, max_attempts: 300}) {
         error make {
             msg: 'k6 runner Job did not appear within 5 minutes'
             label: {
@@ -498,29 +505,25 @@ def k6-run [
     }
 
     log info 'Waiting for the test to complete...'
-    mut complete = false
-    mut failed = false
-    for attempt in 1..1800 {
-        let phase = (
-            (k $kubecfg -n data-proxy get jobs -l $label -o $'jsonpath=($complete_jsonpath)')
-            | str trim
-        )
-        if $phase == 'True' {
-            $complete = true
-            break
-        }
-        if $phase == 'FalseTrue' {
-            $failed = true
-            break
-        }
-        sleep 2sec
-    }
+    let result = poll {|| (test-phase $kubecfg $label) } {interval: 2sec, max_attempts: 1800}
 
-    let pod = (k $kubecfg -n data-proxy get pods -l $label -o $pod_jsonpath)
+    let pod = (
+        (k
+            $kubecfg
+            -n
+            data-proxy
+            get
+            pods
+            -l
+            $label
+            -o
+            'jsonpath={.items[0].metadata.name}'
+        )
+    )
     let runner_log = (k $kubecfg -n data-proxy logs $pod)
     print ($runner_log | to text)
 
-    if $failed {
+    if $result.failed {
         error make {
             msg: 'k6 runner Job failed'
             label: {
@@ -529,7 +532,7 @@ def k6-run [
             }
         }
     }
-    if not $complete {
+    if not $result.complete {
         error make {
             msg: 'k6 runner Job timed out after 60 minutes'
             label: {
@@ -634,7 +637,17 @@ def "main k6 e2e" []: nothing -> nothing {
         | lines
     )
     for job in $init_jobs {
-        (k $kubecfg -n data-proxy wait --for=condition=complete $job --timeout=180s) out> /dev/null
+        (
+            (k
+                $kubecfg
+                -n
+                data-proxy
+                wait
+                --for=condition=complete
+                $job
+                --timeout=180s
+            )
+        ) out> /dev/null
     }
 
     log info 'Waiting for data-proxy deployments...'
@@ -931,6 +944,18 @@ def "main k6 migrate" []: nothing -> nothing {
     k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-settled'
 }
 
+# Check whether the CNPG cluster reports a healthy phase.
+def cnpg-healthy [kubecfg: path]: nothing -> bool {
+    let phase = try {
+        k $kubecfg -n data-proxy get cluster data-proxy -o json
+        | from json
+        | get status.phase
+    } catch {
+        ''
+    }
+    $phase == 'Cluster in healthy state'
+}
+
 # Start Minikube and install the complete local stack.
 def "main up" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
@@ -997,23 +1022,7 @@ def "main up" []: nothing -> nothing {
     ] | wait-for deployment $kubecfg
 
     log info 'Waiting for CNPG cluster...'
-    mut cluster_ready = false
-    for attempt in 1..300 {
-        let phase = try {
-            k $kubecfg -n data-proxy get cluster data-proxy -o json
-            | from json
-            | get status.phase
-        } catch {
-            ''
-        }
-        if $phase == 'Cluster in healthy state' {
-            $cluster_ready = true
-            break
-        }
-        sleep 2sec
-    }
-
-    if not $cluster_ready {
+    if not (poll {|| (cnpg-healthy $kubecfg) } {interval: 2sec, max_attempts: 300}) {
         error make {
             msg: 'CNPG cluster did not become healthy within 10 minutes'
             label: {

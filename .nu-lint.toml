@@ -1,0 +1,3 @@
+[rules]
+block_brace_spacing = "off"
+closure_brace_pipe_spacing = "off"
