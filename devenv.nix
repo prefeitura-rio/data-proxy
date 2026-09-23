@@ -98,14 +98,14 @@ in
           };
           "dp:lint:sql" = {
             exec = ''
-              sqlfluff lint --dialect postgres src/data_proxy/sql/postgres helm/files/sql/helm
-              sqlfluff lint --dialect duckdb src/data_proxy/sql/duckdb
-              sqlfluff lint --dialect bigquery src/data_proxy/sql/bigquery
+              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates/postgres
+              sqlfluff lint --dialect duckdb src/data_proxy/templates/duckdb
+              sqlfluff lint --dialect bigquery src/data_proxy/templates/bigquery
             '';
             execIfModified = [
               ".sqlfluff"
-              "helm/files/sql"
-              "src/data_proxy/sql"
+              "helm/files/templates"
+              "src/data_proxy/templates"
             ];
           };
           "dp:lint:helm" = {

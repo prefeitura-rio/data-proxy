@@ -1,42 +1,12 @@
 {#
 {
   "kind": "template",
-  "description": "Create all data_proxy maintenance procedures for application database initialization.",
+  "description": "Remove tables and fallback objects absent from the current synchronization configuration.",
   "inputs": {
-    "schema": "PostgreSQL schema for maintenance procedures."
+    "schema": "PostgreSQL schema for the procedure."
   }
 }
 #}
-CREATE SCHEMA IF NOT EXISTS {{ schema }};
-
-CREATE OR REPLACE PROCEDURE {{ schema }}.cleanup_table_state(
-    p_config jsonb
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, {{ schema }}, pg_temp
-AS $$
-BEGIN
-    DELETE FROM {{ schema }}.state AS state
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM jsonb_each(p_config -> 'schemas') AS config_schema(name, value)
-        CROSS JOIN LATERAL jsonb_array_elements(config_schema.value -> 'tables') AS config_table(value)
-        WHERE config_table.value ->> 'name' = state.table_name
-    );
-END;
-$$;
-REVOKE ALL ON PROCEDURE {{ schema }}.cleanup_table_state(jsonb) FROM public;
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
-        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
-        GRANT EXECUTE ON PROCEDURE {{ schema }}.cleanup_table_state(jsonb) TO jobs;
-    END IF;
-END;
-$$;
-
 CREATE SCHEMA IF NOT EXISTS {{ schema }};
 
 CREATE OR REPLACE PROCEDURE {{ schema }}.cleanup_stale_objects(
@@ -79,7 +49,6 @@ BEGIN
         END LOOP;
 
         FOR target_table IN
-            SELECT DISTINCT left(class.relname, -3)
             FROM pg_class AS class
             INNER JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
             WHERE namespace.nspname = target_schema
@@ -130,88 +99,6 @@ BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
         GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
         GRANT EXECUTE ON PROCEDURE {{ schema }}.cleanup_stale_objects(jsonb, text) TO jobs;
-    END IF;
-END;
-$$;
-
-CREATE SCHEMA IF NOT EXISTS {{ schema }};
-
-CREATE OR REPLACE PROCEDURE {{ schema }}.apply_retention(
-    p_config jsonb,
-    p_schema_name text DEFAULT NULL
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, {{ schema }}, pg_temp
-AS $$
-DECLARE
-    target_schema text;
-    target_table text;
-    target_column text;
-    target_window interval;
-BEGIN
-    FOR target_schema, target_table, target_column, target_window IN
-        SELECT
-            config_schema.name,
-            split_part(config_table.value ->> 'name', '.', 3),
-            config_table.value -> 'retention' ->> 'column',
-            (config_table.value -> 'retention' ->> 'window')::interval
-        FROM jsonb_each(p_config -> 'schemas') AS config_schema(name, value)
-        CROSS JOIN LATERAL jsonb_array_elements(config_schema.value -> 'tables') AS config_table(value)
-        WHERE (p_schema_name IS NULL OR config_schema.name = p_schema_name)
-          AND config_table.value ? 'retention'
-    LOOP
-        EXECUTE format(
-            'DELETE FROM %I.%I WHERE %I < now() - $1',
-            target_schema,
-            target_table,
-            target_column
-        ) USING target_window;
-    END LOOP;
-END;
-$$;
-REVOKE ALL ON PROCEDURE {{ schema }}.apply_retention(jsonb, text) FROM public;
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
-        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
-        GRANT EXECUTE ON PROCEDURE {{ schema }}.apply_retention(jsonb, text) TO jobs;
-    END IF;
-END;
-$$;
-
-CREATE SCHEMA IF NOT EXISTS {{ schema }};
-
-CREATE OR REPLACE PROCEDURE {{ schema }}.prune_access_log(
-    p_retention interval,
-    p_schema_name text DEFAULT NULL
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, {{ schema }}, pg_temp
-AS $$
-DECLARE
-    target_schema text;
-BEGIN
-    IF p_schema_name IS NULL THEN
-        RAISE EXCEPTION 'schema name is required';
-    END IF;
-
-    target_schema := p_schema_name;
-    EXECUTE format(
-        'DELETE FROM %I.access_log WHERE changed_at < now() - $1',
-        target_schema
-    ) USING p_retention;
-END;
-$$;
-REVOKE ALL ON PROCEDURE {{ schema }}.prune_access_log(interval, text) FROM public;
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
-        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
-        GRANT EXECUTE ON PROCEDURE {{ schema }}.prune_access_log(interval, text) TO jobs;
     END IF;
 END;
 $$;

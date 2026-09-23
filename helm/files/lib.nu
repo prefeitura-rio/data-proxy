@@ -39,7 +39,7 @@ export def render-sql [name: string, context: record]: nothing -> string {
 
     try {
         $context | to json | save --force $context_file
-        let template_dir = $env.SQL_TEMPLATE_DIR? | default /sql
+        let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates/postgres
         minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file
     } catch {|err| error make {
         msg: $'Failed to render SQL template ($name): ($err.msg)'

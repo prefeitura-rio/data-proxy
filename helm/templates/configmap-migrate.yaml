@@ -23,4 +23,4 @@ data:
   lib.nu: |
 {{ .Files.Get "files/lib.nu" | indent 4 }}
   grant_migration_access.sql: |
-{{ .Files.Get "files/sql/helm/grant_migration_access.sql" | indent 4 }}
+{{ .Files.Get "files/templates/postgres/grant_migration_access.sql" | indent 4 }}

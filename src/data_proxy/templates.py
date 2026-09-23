@@ -10,7 +10,7 @@ from psycopg.sql import Composable
 
 from .types import TemplateValue
 
-SQL_DIR = Path(__file__).parent / "sql"
+SQL_DIR = Path(__file__).parent / "templates"
 
 
 @lru_cache

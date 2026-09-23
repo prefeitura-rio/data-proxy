@@ -28,7 +28,7 @@ from data_proxy.templates import render_template
 from data_proxy.types import DatabaseRow, TemplateValue
 from tests.constants import FILES
 
-TEST_SQL_DIR = FILES.parent / "sql"
+TEST_SQL_DIR = FILES.parent / "templates"
 
 
 def sync_plan(

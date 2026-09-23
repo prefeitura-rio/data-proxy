@@ -136,7 +136,7 @@ def bigquery() -> Iterator[BigQuery]:
             render_template(
                 "bigquery/table_metadata",
                 {"table_name": name},
-                root=FILES.parent / "sql",
+                root=FILES.parent / "templates",
             )
         ).fetchone()
 
@@ -160,7 +160,7 @@ def bigquery() -> Iterator[BigQuery]:
         )
 
         rows = database.execute(
-            render_template("bigquery/partitions", {}, root=FILES.parent / "sql"),
+            render_template("bigquery/partitions", {}, root=FILES.parent / "templates"),
             [f"test.dataset.{name}" if name else ""],
         ).fetchall()
 

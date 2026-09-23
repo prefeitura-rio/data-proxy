@@ -33,7 +33,7 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: init-db
 data:
-{{- range $path, $_ := .Files.Glob "files/sql/helm/*.sql" }}
+{{- range $path, $_ := .Files.Glob "files/templates/postgres/*.sql" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
@@ -110,14 +110,14 @@ spec:
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
             - name: SQL_TEMPLATE_DIR
-              value: /sql/helm
+              value: /templates/postgres
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: init-db-script
               mountPath: /scripts
               readOnly: true
             - name: init-db-sql
-              mountPath: /sql/helm
+              mountPath: /templates/postgres
               readOnly: true
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
@@ -206,7 +206,7 @@ spec:
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
             - name: SQL_TEMPLATE_DIR
-              value: /sql/helm
+              value: /templates/postgres
             - name: SCHEMA
               value: {{ $schema | quote }}
           volumeMounts:
@@ -215,7 +215,7 @@ spec:
               mountPath: /scripts
               readOnly: true
             - name: init-db-sql
-              mountPath: /sql/helm
+              mountPath: /templates/postgres
               readOnly: true
       volumes:
         {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}

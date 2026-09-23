@@ -99,9 +99,11 @@ def create-access-policy []: nothing -> nothing {
 
 # Install maintenance procedures used by cleanup and retention jobs.
 def install-maintenance []: nothing -> nothing {
-    postgres (render-sql setup_maintenance.sql {
-        schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
-    })
+    let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
+
+    for procedure in [cleanup_table_state cleanup_stale_objects apply_retention prune_access_log] {
+        postgres (render-sql $'($procedure).sql' {schema: $schema})
+    }
     log info 'Installed maintenance procedures'
 }
 

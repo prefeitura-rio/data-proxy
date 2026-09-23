@@ -1,35 +1,35 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
-src/data_proxy/sql/postgres/column_types.sql
-src/data_proxy/sql/postgres/insert_error.sql
-src/data_proxy/sql/postgres/read_state.sql
-src/data_proxy/sql/postgres/upsert_state.sql
-src/data_proxy/sql/postgres/delete_partition_freshness.sql
-src/data_proxy/sql/postgres/delete_table_freshness.sql
-src/data_proxy/sql/postgres/json_columns.sql
-src/data_proxy/sql/postgres/replicas_replayed.sql
-src/data_proxy/sql/postgres/table_exists.sql
-src/data_proxy/sql/postgres/upsert_freshness.sql
+src/data_proxy/templates/postgres/column_types.sql
+src/data_proxy/templates/postgres/insert_error.sql
+src/data_proxy/templates/postgres/read_state.sql
+src/data_proxy/templates/postgres/upsert_state.sql
+src/data_proxy/templates/postgres/delete_partition_freshness.sql
+src/data_proxy/templates/postgres/delete_table_freshness.sql
+src/data_proxy/templates/postgres/json_columns.sql
+src/data_proxy/templates/postgres/replicas_replayed.sql
+src/data_proxy/templates/postgres/table_exists.sql
+src/data_proxy/templates/postgres/upsert_freshness.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
-src/data_proxy/sql/postgres/create_bq_function.sql
-src/data_proxy/sql/postgres/cast_json_to_jsonb.sql
-src/data_proxy/sql/postgres/create_index.sql
-src/data_proxy/sql/postgres/delete_partitions.sql
-src/data_proxy/sql/postgres/macros.sql
+src/data_proxy/templates/postgres/create_bq_function.sql
+src/data_proxy/templates/postgres/cast_json_to_jsonb.sql
+src/data_proxy/templates/postgres/create_index.sql
+src/data_proxy/templates/postgres/delete_partitions.sql
+src/data_proxy/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
-src/data_proxy/sql/duckdb/describe_table.sql
-src/data_proxy/sql/duckdb/setup.sql
+src/data_proxy/templates/duckdb/describe_table.sql
+src/data_proxy/templates/duckdb/setup.sql
 
 # Dynamic Jinja projection renders a long line for SQLFluff's static parser.
-src/data_proxy/sql/duckdb/write_all.sql
-src/data_proxy/sql/duckdb/write_partition.sql
-src/data_proxy/sql/duckdb/write_remainder.sql
+src/data_proxy/templates/duckdb/write_all.sql
+src/data_proxy/templates/duckdb/write_partition.sql
+src/data_proxy/templates/duckdb/write_remainder.sql
 
 # Jinja macro source and imports are validated through rendering.
-src/data_proxy/sql/duckdb/macros.sql
-helm/files/sql/helm/macros.sql
-helm/files/sql/helm/grant_migration_access.sql
-helm/files/sql/helm/grant_rls_usage.sql
-helm/files/sql/helm/grant_schema_usage_backup.sql
-src/data_proxy/sql/postgres/access_policy_check.sql
+src/data_proxy/templates/duckdb/macros.sql
+helm/files/templates/postgres/macros.sql
+helm/files/templates/postgres/grant_migration_access.sql
+helm/files/templates/postgres/grant_rls_usage.sql
+helm/files/templates/postgres/grant_schema_usage_backup.sql
+src/data_proxy/templates/postgres/access_policy_check.sql

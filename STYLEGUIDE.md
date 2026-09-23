@@ -40,7 +40,7 @@ Nushell scripts power Helm maintenance jobs and local development commands. Keep
 
 ## SQL safety
 
-SQL templates live under `src/dp/sql/<target>/`. Helm maintenance SQL lives under `helm/files/sql/helm/`. See [SQL Templates](docs/sql-templates.md) for metadata and naming rules.
+SQL templates live under `src/data_proxy/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`. See [SQL Templates](docs/sql-templates.md) for metadata and naming rules.
 
 - Use `psycopg.sql.Identifier()` and `psycopg.sql.Literal()` for Python-side SQL mappings.
 - Use prepared parameters for runtime values. Never interpolate user values into SQL text.

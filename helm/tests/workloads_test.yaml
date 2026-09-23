@@ -32,7 +32,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SQL_TEMPLATE_DIR
-            value: /sql/helm
+            value: /templates/postgres
         documentSelector:
           path: metadata.name
           value: data-proxy-init-db-0
