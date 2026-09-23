@@ -19,6 +19,16 @@ Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the
 cluster
 ```
 
+## CI chart releases
+
+CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
+
+- breaking commits use the next major version;
+- `feat` commits use the next minor version;
+- other release commits use the next patch version.
+
+Release-generated commits contain `[skip ci]`. Use `ci version` locally to inspect the calculated version without publishing a release.
+
 ## Seed BigQuery data
 
 ```bash
