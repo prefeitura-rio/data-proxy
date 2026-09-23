@@ -2,7 +2,7 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
 
-import { NAMESPACE } from "./lib.ts";
+import { NAMESPACE, triggerSync, waitForJob, waitForWorkflow } from "./lib.ts";
 
 type K6Response = {
     status: number;
@@ -156,7 +156,7 @@ function waitForTopology(k8s: Kubernetes, ha: boolean): void {
 
     waitForResource(k8s, "Pooler.postgresql.cnpg.io", `${prefix}-pooler-ro`, () => true);
 
-    for (const component of ["nginx-proxy", "postgrest-ro", "postgrest-rw"]) {
+    for (const component of ["proxy", "postgrest-ro", "postgrest-rw"]) {
         waitForResource(k8s, "Deployment.apps", `${prefix}-${component}`, (resource) =>
             resource.status?.conditions?.some((condition) => condition.type === "Available" && condition.status === "True") || false,
         );
@@ -237,6 +237,9 @@ export default function migration(): void {
     const authorized = fetchToken("user-with-access");
     const noAccess = fetchToken("user-no-access");
     waitForApi(k8s, authorized);
+    const syncJob = triggerSync(k8s);
+    waitForJob(k8s, syncJob);
+    waitForWorkflow(k8s);
     const current = localFingerprint(authorized, ha);
     const authenticated = proxyGet("/endpoint_participante_listagem?limit=10", authorized);
     const denied = proxyGet("/endpoint_participante_listagem?limit=10", noAccess);
@@ -260,14 +263,14 @@ export default function migration(): void {
         const sharedResources = [
             ["Cluster.postgresql.cnpg.io", "data-proxy"],
             ["Pooler.postgresql.cnpg.io", "data-proxy-pooler-ro"],
-            ["Deployment.apps", "data-proxy-nginx-proxy"],
+            ["Deployment.apps", "data-proxy-proxy"],
             ["Deployment.apps", "data-proxy-postgrest-ro"],
             ["Deployment.apps", "data-proxy-postgrest-rw"],
-            ["ScaledObject.keda.sh", "data-proxy-nginx-proxy"],
+            ["ScaledObject.keda.sh", "data-proxy-proxy"],
             ["ScaledObject.keda.sh", "data-proxy-postgrest-ro"],
             ["ScaledObject.keda.sh", "data-proxy-pooler-ro-autoscaler"],
             ["HorizontalPodAutoscaler.autoscaling", "data-proxy-postgrest-rw"],
-            ["Service", "data-proxy-nginx-proxy"],
+            ["Service", "data-proxy-proxy"],
             ["Service", "data-proxy-postgrest-ro"],
             ["Service", "data-proxy-postgrest-rw"],
             ["PodDisruptionBudget.policy", "data-proxy-postgrest-ro"],
@@ -285,14 +288,14 @@ export default function migration(): void {
         const haResources = [
             ["Cluster.postgresql.cnpg.io", "data-proxy-pic"],
             ["Pooler.postgresql.cnpg.io", "data-proxy-pic-pooler-ro"],
-            ["Deployment.apps", "data-proxy-pic-nginx-proxy"],
+            ["Deployment.apps", "data-proxy-pic-proxy"],
             ["Deployment.apps", "data-proxy-pic-postgrest-ro"],
             ["Deployment.apps", "data-proxy-pic-postgrest-rw"],
-            ["ScaledObject.keda.sh", "data-proxy-pic-nginx-proxy"],
+            ["ScaledObject.keda.sh", "data-proxy-pic-proxy"],
             ["ScaledObject.keda.sh", "data-proxy-pic-postgrest-ro"],
             ["ScaledObject.keda.sh", "data-proxy-pic-pooler-ro-autoscaler"],
             ["HorizontalPodAutoscaler.autoscaling", "data-proxy-pic-postgrest-rw"],
-            ["Service", "data-proxy-pic-nginx-proxy"],
+            ["Service", "data-proxy-pic-proxy"],
             ["Service", "data-proxy-pic-postgrest-ro"],
             ["Service", "data-proxy-pic-postgrest-rw"],
             ["PodDisruptionBudget.policy", "data-proxy-pic-pooler-ro"],

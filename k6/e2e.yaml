@@ -60,8 +60,10 @@ spec:
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/read
       - name: NAMESPACE
         value: data-proxy
-      - name: SYNC_WORKER
-        value: data-proxy-sync-worker
+      - name: PIPELINE
+        value: data-proxy-pipeline
+      - name: E2E_SCRIPT_CONFIGMAP
+        value: data-proxy-e2e
       - name: POSTGREST_URL
         value: http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000
       - name: PG_IMAGE

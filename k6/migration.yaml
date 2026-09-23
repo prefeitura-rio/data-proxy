@@ -65,6 +65,10 @@ spec:
         value: data-proxy.local
       - name: NAMESPACE
         value: data-proxy
+      - name: PIPELINE
+        value: data-proxy-pipeline
+      - name: E2E_SCRIPT_CONFIGMAP
+        value: data-proxy-migration
       - name: MIGRATION_PHASE
         value: shared-baseline
       - name: MIGRATION_TIMEOUT_SECONDS
