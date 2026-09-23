@@ -1,6 +1,6 @@
 # Security
 
-Data Proxy enforces access in PostgreSQL. It does not calculate business permissions in nginx or in the client.
+Data Proxy enforces access in PostgreSQL. It doesn't calculate business permissions in nginx or in the client.
 
 ## Configure the access model
 
@@ -61,7 +61,7 @@ sequenceDiagram
     I-->>C: JWT with role, schemas, and subject claim
     C->>G: Request with Bearer JWT and Accept-Profile
     G->>G: Validate JWT signature, issuer, and audience
-    alt JWT invalid or expired
+    alt JWT not valid or expired
         G-->>C: 401 Unauthorized
     else JWT valid
         G->>N: Forward request and JWT
@@ -87,11 +87,11 @@ CNPG manages the core roles:
 | ------------------------ | ---------------------------------------------------------------------------- |
 | `anon`                   | Unauthenticated PostgreSQL role with no application table access.            |
 | `user`                   | Authenticated read role, subject to schema and row policies.                 |
-| `authenticator`          | PostgREST login role. It is `NOINHERIT` and can switch to `anon` and `user`. |
+| `authenticator`          | PostgREST login role. It's `NOINHERIT` and can switch to `anon` and `user`. |
 | `policy_writer_<schema>` | Per-schema policy service role.                                              |
-| `jobs`                   | Shared maintenance role for the backup and cleanup CronJobs. It cannot run DDL. |
+| `jobs`                   | Shared maintenance role for the backup and cleanup CronJobs. It can't run DDL. |
 
-Init-db creates the `rls` schema and its functions, tables, policies, and grants. `rls.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `rls` does not grant application table access.
+Init-db creates the `rls` schema and its functions, tables, policies, and grants. `rls.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `rls` doesn't grant application table access.
 
 ## Schema and row authorization
 
@@ -129,7 +129,7 @@ is_admin   = true
 OR unit_type/unit_id matches the row
 ```
 
-A policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or policy grant normally returns `200 []`. It is not an authentication failure.
+A policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or policy grant normally returns `200 []`. It isn't an authentication error.
 
 ## Seed access policy
 
@@ -139,7 +139,7 @@ Create one confidential policy-writer client per schema. Its JWT role must be:
 policy_writer_pic
 ```
 
-Do not grant this client the normal `user` role. The policy-writer role can select, insert, update, and delete rows in `pic.access_policy` only, and cannot read application tables. Deleting a row revokes the grant; the change is recorded in `pic.access_log`.
+Don't grant this client the normal `user` role. The policy-writer role can select, insert, update, and delete rows in `pic.access_policy` only, and can't read application tables. Deleting a row revokes the grant; the change is recorded in `pic.access_log`.
 
 Use a policy-writer token and the target schema profile:
 
@@ -181,7 +181,7 @@ curl \
   "${BASE_URL}/participants?limit=20"
 ```
 
-Nginx routes reads to PostgREST-ro and writes to PostgREST-rw. Fallback does not bypass authentication or RLS:
+nginx routes reads to PostgREST-ro and writes to PostgREST-rw. Fallback doesn't bypass authentication or RLS:
 
 ```mermaid
 sequenceDiagram
@@ -211,7 +211,7 @@ sequenceDiagram
             BQ-->>DB: Rows under the same authorization context
             DB-->>P: Authorized fallback rows
             P-->>N: Fallback response
-        else fallback disabled or unavailable
+        else fallback turned off or unavailable
             P-->>N: Empty local response
         end
         N->>R: Cache only eligible non-empty response
@@ -221,14 +221,14 @@ sequenceDiagram
 
 See [Fallback](fallback.md) for cache and fallback rules. `/access_policy` is never response-cached.
 
-## Expected HTTP results
+## Expected results
 
 | Result          | Meaning                                                                   |
 | --------------- | ------------------------------------------------------------------------- |
 | `200` with rows | Token, schema, role, grants, and RLS checks passed.                       |
 | `200 []`        | The request is valid, but the schema claim or row policy exposes no rows. |
-| `401`           | The JWT is missing, invalid, expired, or cannot be used by PostgREST.     |
-| `403`           | PostgreSQL/PostgREST permission or role configuration is invalid.         |
+| `401`           | The JWT is missing, not valid, expired, or can't be used by PostgREST.     |
+| `403`           | PostgreSQL/PostgREST permission or role configuration isn't valid.         |
 | `404`           | The schema profile or requested resource is unknown.                      |
 
 ## Troubleshooting
@@ -240,7 +240,7 @@ See [Fallback](fallback.md) for cache and fallback rules. `/access_policy` is ne
 | `403` with `permission denied for schema rls` | Check `GRANT USAGE ON SCHEMA rls TO anon/user`.                                                          |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.     |
 | `404 Unknown schema profile`                  | Check `Accept-Profile` and `syncConfig.schemas`.                                                         |
-| Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; do not use the end-user role. |
+| Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; don't use the end-user role. |
 | Local and fallback results differ             | Check `X-Source` and `X-Cache`; fallback uses the same JWT and RLS rules.                                |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                 |
 

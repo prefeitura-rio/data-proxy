@@ -38,7 +38,7 @@ Use one name for each semantic role:
 - Roles: `user_role`, `anonymous_role`, `authenticator_role`, and `policy_writer_role`.
 - Predicates: `scope` for a schema predicate, `predicate` for a row or partition predicate, and `claim_setting` for a session-setting name.
 
-Do not merge values with different meanings. Do not use `name` when the object type is known. Do not use shortened aliases such as `cols` or `select_cols`.
+Don't merge values with different meanings. Don't use `name` when the object type is known. Don't use shortened aliases such as `cols` or `select_cols`.
 
 ## Runtime mappings
 
@@ -48,5 +48,5 @@ Keep SQLFluff context values close to the template family that uses them. Each v
 
 ## Macros and helpers
 
-Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`. Do not generate metadata at runtime. Do not document ordinary functions with macro metadata.
+Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata.
 ''

@@ -21,7 +21,7 @@ The Producer includes configuration in a table signature. A configuration change
 
 A partition batch contains changed partitions up to the configured size and count limits. One batch produces one Parquet file. See [Sync](sync.md).
 
-Full tables and partitioned full rebuilds publish atomically. An incremental update keeps old data for a failed existing partition and omits a failed new partition. The next run schedules failed partitions again.
+Full tables and partitioned full rebuilds publish atomically. An incremental update keeps old data for a errored existing partition and omits a errored new partition. The next run schedules errored partitions again.
 
 ## Modes
 
@@ -114,7 +114,7 @@ CNPG manages PostgreSQL instances, replication, failover, and lifecycle. In shar
 
 The DBOS system database holds all sync workflow state and the `dp` application schema (table signatures, partition manifests, errors). In single mode it runs in the shared CNPG cluster. In HA mode DBOS gets its own CNPG cluster with one primary and one replica and no pooler.
 
-Nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and is not used by pipelines or PostgREST writes.
+nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and isn't used by pipelines or PostgREST writes.
 
 The Publisher commits database state, waits for standby WAL replay, refreshes both PostgREST deployments, and waits for their HTTP readiness probes before it completes publication and flushes the response cache. Publication revokes anonymous access on each schema writer. Finalization only clears the temporary object store and response cache. `/access_policy` is never response-cached.
 
@@ -187,13 +187,13 @@ sequenceDiagram
     N-->>C: response
 ```
 
-Publication is atomic inside one schema database. It is not atomic across independent schema databases. If one schema publishes and a later schema fails, the Publisher does not commit synchronization state. A retry can publish an already-published schema again. Publication operations must remain idempotent.
+Publication is atomic inside one schema database. It isn't atomic across independent schema databases. If one schema publishes and a later schema fails, the Publisher doesn't commit synchronization state. A retry can publish an already-published schema again. Publication operations must remain idempotent.
 
 ### Mode migration
 
-A shared-to-per-schema or per-schema-to-shared change is a normal Helm upgrade. During the post-upgrade migration hook, Helm retains the source topology, initializes the target, copies each configured schema with idempotent `pg_dump`/`pg_restore`, and records the result in `data-proxy-mode-state`. A later reconciliation prunes the retained source resources.
+A shared-to-per-schema or per-schema-to-shared change is a normal Helm upgrade. During the post-upgrade migration callback, Helm retains the source topology, initializes the target, copies each configured schema with idempotent `pg_dump`/`pg_restore`, and records the result in `data-proxy-mode-state`. A later reconciliation prunes the retained source resources.
 
-A failed migration keeps the source available for retry. Do not manually delete CNPG or application resources during a transition.
+A errored migration keeps the source available for retry. Don't manually delete CNPG or application resources during a transition.
 
 ---
 

@@ -1,6 +1,6 @@
 # Backups
 
-A sync rebuilds application tables from BigQuery. It does not rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
+A sync rebuilds application tables from BigQuery. It doesn't rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
 
 ## Operation
 
@@ -17,7 +17,7 @@ The chart default prefix is:
 backups/access_policy
 ```
 
-Backups contain only access-policy and audit-log data. They do not contain PostgreSQL tables, Parquet files, or the full database.
+Backups contain only access-policy and audit-log data. They don't contain PostgreSQL tables, Parquet files, or the full database.
 
 ## Configuration
 
@@ -37,7 +37,7 @@ backup:
 
 The shared `jobs` Secret supplies the PostgreSQL maintenance-role password. The backup CronJob and the cleanup CronJob both connect as the `jobs` role, so neither runs as the database owner.
 
-The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart does not delete backup objects.
+The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart doesn't delete backup objects.
 
 ## Verify a backup
 
@@ -58,7 +58,7 @@ pg_restore --list access_policy.dump
 3. Compare it with `<schema>.access_policy`.
 4. Apply reviewed rows only.
 
-Do not load an unreviewed backup into a live policy table.
+Don't load an unreviewed backup into a live policy table.
 
 ---
 

@@ -13,7 +13,7 @@ curl \
 
 nginx routes `GET` and `HEAD` requests to PostgREST-ro, which uses the CNPG read Pooler. POST, PUT, PATCH, and DELETE requests route to PostgREST-rw, which connects directly to the current CNPG writer. This separation keeps reads replica-friendly while writes use the primary.
 
-The read and write deployments are refreshed by the Publisher after replica replay. A PostgREST deployment is not Ready until its HTTP readiness probe serves `/`.
+The read and write deployments are refreshed by the Publisher after replica replay. A PostgREST deployment isn't Ready until its HTTP readiness probe serves `/`.
 
 ## OpenAPI
 
@@ -61,7 +61,7 @@ curl \
   "${BASE_URL}/freshness?table=eq.participants"
 ```
 
-`updated_at` is the last successful publication time. `attempted_at` is the latest attempt. `status` is `success` or `failure`. A failed existing partition keeps its old data and `updated_at`; a failed new partition has no `updated_at`.
+`updated_at` is the last successful publication time. `attempted_at` is the latest attempt. `status` is `success` or `error`. A errored existing partition keeps its old data and `updated_at`; a errored new partition has no `updated_at`.
 
 See [Security](security.md) for token and access-policy setup.
 

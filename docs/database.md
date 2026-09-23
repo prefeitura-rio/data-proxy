@@ -8,7 +8,7 @@ CNPG creates and maintains the core roles. Init-db creates extensions, the `rls`
 | ------------------- | ------------------------------------------------- |
 | `postgis`           | BigQuery `GEOGRAPHY` support.                     |
 | `pg_duckdb`         | Reads Parquet files from the S3-compatible store. |
-| `rls.sync_status`   | `success` and `failure` freshness status.         |
+| `rls.sync_status`   | `success` and `error` freshness status.         |
 | `rls.pre_request()` | Mirrors JWT claims into session variables.        |
 
 ## Roles
@@ -49,7 +49,7 @@ The sync workflow creates schema and row conditions for application tables. See 
 
 The chart creates a pg_duckdb S3 secret from `S3_ACCESS_KEY` and `S3_SECRET_KEY`. The Publisher uses it to read Parquet files with `read_parquet()`.
 
-Production GCP credentials are projected into every CNPG instance through `gcp.existingSecret`. This is required because pg_duckdb fallback queries can execute on read replicas.
+Production GCP credentials are projected into every CNPG instance through `gcp.existingSecret`. This is required because pg_duckdb fallback queries can run on read replicas.
 
 ---
 

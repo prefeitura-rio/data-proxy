@@ -25,19 +25,19 @@ The task runs Helm lint, Helm unit tests, and Kubeconform for standalone and HA 
 
 ## Images
 
-The chart pins repository images in `helm/values.yaml`. Released chart values do not use `latest` for Data Proxy images.
+The chart pins repository images in `helm/values.yaml`. Released chart values don't use `latest` for Data Proxy images.
 
 ## Database storage
 
-CNPG creates one retained PostgreSQL PVC per instance. Configure the size under `cnpg.storage.size`; Kubernetes does not support PVC size reduction. Remove retained PVCs only as a separate destructive operation.
+CNPG creates one retained PostgreSQL PVC per instance. Configure the size under `cnpg.storage.size`; Kubernetes doesn't support PVC size reduction. Remove retained PVCs only as a separate destructive operation.
 
 SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL database uses pg_duckdb to read Parquet; pg_duckdb is an extension, not a separate database service.
 
 ## Database initialization and readiness
 
-The init-db hook waits for its CNPG writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. CNPG owns core database roles and memberships. Init-db owns extensions, schemas, tables, functions, RLS policies, and database S3 secrets.
+The init-db callback waits for its CNPG writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. CNPG owns core database roles and memberships. Init-db owns extensions, schemas, tables, functions, RLS policies, and database S3 secrets.
 
-PostgREST-ro and PostgREST-rw use HTTP readiness probes on `/`. A Deployment is not Ready until PostgREST is serving its configured schema.
+PostgREST-ro and PostgREST-rw use HTTP readiness probes on `/`. A Deployment isn't Ready until PostgREST is serving its configured schema.
 
 ## Istio ingress
 
@@ -95,7 +95,7 @@ helm upgrade data-proxy ./helm \
   --kube-context data-proxy
 ```
 
-The migration hook retains the source CNPG topology while Helm creates and initializes the target. It copies each configured schema with an idempotent dump/restore, waits for target initialization, and records `data-proxy-mode-state`. Run a normal reconciliation after the migration to prune retained source resources. Reverse the values-file order for HA to shared:
+The migration callback retains the source CNPG topology while Helm creates and initializes the target. It copies each configured schema with an idempotent dump/restore, waits for target initialization, and records `data-proxy-mode-state`. Run a normal reconciliation after the migration to prune retained source resources. Reverse the values-file order for HA to shared:
 
 ```sh
 helm upgrade data-proxy ./helm \
@@ -105,7 +105,7 @@ helm upgrade data-proxy ./helm \
   --kube-context data-proxy
 ```
 
-Do not delete CNPG or application resources during a transition. A failed release can be retried after the source state is inspected; preserve the source topology until the copy succeeds.
+Don't delete CNPG or application resources during a transition. A errored release can be retried after the source state is inspected; preserve the source topology until the copy succeeds.
 
 ## Versioning
 
@@ -114,9 +114,9 @@ Each repository image has an independent semantic version. Component Git tags st
 - **`app-v1.0.0`**: Publishes `data-proxy:1.0.0`.
 - **`postgres-v1.0.0`**: Publishes `data-proxy-postgres:1.0.0`.
 
-The chart pins each image version in `helm/values.yaml`. A released chart does not use `latest` for a repository image.
+The chart pins each image version in `helm/values.yaml`. A released chart doesn't use `latest` for a repository image.
 
-The Helm pipeline increments the minor version on each release. Do not change `helm/Chart.yaml` by hand. A major version change means a breaking change.
+The Helm pipeline increments the minor version on each release. Don't change `helm/Chart.yaml` by hand. A major version change means a breaking change.
 
 ---
 

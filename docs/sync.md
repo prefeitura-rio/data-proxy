@@ -28,7 +28,7 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQu
 | `claim`  | When a table uses `rls` | JWT claim matched against `access_policy.subject`.  |
 | `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
 
-The schema key is the target PostgreSQL schema. Do not add a schema field to a table entry.
+The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
 ## Table fields
 
@@ -58,7 +58,7 @@ Fallback has two gates. The chart-level fallback configuration must be enabled, 
 }
 ```
 
-When fallback is disabled for a table, the Publisher does not create its `_bq` view and nginx returns the local PostgREST response without a BigQuery fallback request. See [Fallback](fallback.md).
+When fallback is turned off for a table, the Publisher doesn't create its `_bq` view and nginx returns the local PostgREST response without a BigQuery fallback request. See [Fallback](fallback.md).
 
 ## Pipeline
 
@@ -77,7 +77,7 @@ Set `retention` on a table to delete rows older than a time window. A daily Cron
 }
 ```
 
-`column` is the time column. `window` is a PostgreSQL interval such as `90 days` or `12 months`. Enable the job with `retention.enabled: true` in the chart values. Retention is operational cleanup, so changing it does not trigger a resync.
+`column` is the time column. `window` is a PostgreSQL interval such as `90 days` or `12 months`. Enable the job with `retention.enabled: true` in the chart values. Retention is operational cleanup, so changing it doesn't trigger a resync.
 
 ## Batching
 
@@ -103,7 +103,7 @@ sync:
 
 ## Schema initialization
 
-The sync workflow creates configured schemas, `access_policy` tables, `access_log` audit tables, policies, triggers, and `policy_writer_<schema>` roles when needed. Do not create them manually.
+The sync workflow creates configured schemas, `access_policy` tables, `access_log` audit tables, policies, triggers, and `policy_writer_<schema>` roles when needed. Don't create them manually.
 
 ## JSON and geometry
 

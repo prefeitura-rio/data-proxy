@@ -11,7 +11,7 @@ devenv --profile default shell
 cluster up
 ```
 
-The script writes credentials to the ignored repository `.kubeconfig`. It does not change the user kubeconfig.
+The script writes credentials to the ignored repository `.kubeconfig`. It doesn't change the user kubeconfig.
 
 Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the pg_duckdb extension, Valkey, PostgREST, and Data Proxy.
 
@@ -19,7 +19,7 @@ Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the
 cluster
 ```
 
-## CI chart releases
+## Chart releases
 
 CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
 
@@ -42,7 +42,7 @@ Run one DBOS sync through the e2e trigger Job:
 cluster k6 e2e
 ```
 
-The standalone trigger is mounted at `/scripts` only in the temporary e2e Job; it is not part of the pipeline image.
+The standalone trigger is mounted at `/scripts` only in the temporary e2e Job; isn't part of the pipeline image.
 
 ## Access the API
 
@@ -68,7 +68,7 @@ See [Using the API](using.md).
 | `cluster k6 load`   | Runs the normal load profile.                                  |
 | `cluster k6 stress` | Runs the stepped stress profile.                               |
 
-Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior. Run `cluster k6 migrate` only after the baseline E2E is healthy. It recovers a failed transition, creates a shared baseline, validates both mode changes, and checks source-resource pruning.
+Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior. Run `cluster k6 migrate` only after the baseline E2E is healthy. It recovers a errored transition, creates a shared baseline, validates both mode changes, and checks source-resource pruning.
 
 ## Development checks
 

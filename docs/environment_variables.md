@@ -7,12 +7,12 @@ Application defaults below apply outside Helm. Helm can override them.
 | Variable | Application default | Meaning |
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
 | `PG_DATABASE_URL` | `postgresql://test:test@localhost:5432/test` | PostgreSQL DSN for the target database. |
-| `REDIS_READ` | `redis://localhost:6379/1` | Redis URL for read operations (cache, fallback). |
-| `REDIS_WRITE` | `redis://localhost:6379/0` | Redis URL for write operations. |
-| `DBOS_SYSTEM_DATABASE_URL` | — (required) | DBOS system database URL. Holds workflow state and the application state schema. |
-| `SCHEMA_WRITERS` | — (required, JSON) | JSON object mapping PostgreSQL schema names to writer DSNs. Loaded from a Secret in Helm. |
+| `REDIS_READ` | `redis://localhost:6379/1` | Redis address for read operations (cache, fallback). |
+| `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for write operations. |
+| `DBOS_SYSTEM_DATABASE_URL` |—(required) | DBOS system database address. Holds workflow state and the application state schema. |
+| `SCHEMA_WRITERS` |—(required, JSON) | JSON object mapping PostgreSQL schema names to writer DSNs. Loaded from a Secret in Helm. |
 | `SYNC_CONFIG_PATH` | `config/sync.json` | Path to the sync configuration file. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | BigQuery service-account file. Omit with Workload Identity. |
+| `GOOGLE_APPLICATION_CREDENTIALS` |—| BigQuery service-account file. Omit with Workload Identity. |
 
 ## S3
 
@@ -75,7 +75,7 @@ Application defaults below apply outside Helm. Helm can override them.
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
 | `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for PostgREST rollout refresh. |
 | `POSTGREST_RO_DEPLOYMENT_TEMPLATE` | `data-proxy-{}-postgrest-ro` | Read-only Deployment name template (`{}` = schema). |
-| `POSTGREST_RW_DEPLOYMENT_TEMPLATE` | `data-proxy-{}-postgrest-rw` | Read-write Deployment name template (`{}` = schema). |
+| `POSTGREST_RW_DEPLOYMENT_TEMPLATE` | `data-proxy-{}-postgrest-rw` | read/write Deployment name template (`{}` = schema). |
 | `POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS` | `300` | Timeout for PostgREST read-only rollout refresh. |
 | `REPLICATION_WAIT_TIMEOUT_SECONDS` | `300` | Timeout for replica WAL replay. |
 | `REPLICATION_POLL_INTERVAL_SECONDS` | `1` | Poll interval for replica WAL replay. |
@@ -84,9 +84,9 @@ Application defaults below apply outside Helm. Helm can override them.
 
 | Variable | Application default | Meaning |
 | --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `OTLP_LOGS_ENDPOINT` | `""` (disabled) | OTLP logs endpoint. When empty, OTLP export is disabled. |
-| `OTLP_TRACES_ENDPOINT` | `""` (disabled) | OTLP traces endpoint. When empty, trace export is disabled. |
-| `OTLP_METRICS_ENDPOINT` | `""` (disabled) | OTLP metrics endpoint. When empty, metric export is disabled. |
+| `OTLP_LOGS_ENDPOINT` | `""` (turned off) | OTLP logs endpoint. When empty, OTLP export is turned off. |
+| `OTLP_TRACES_ENDPOINT` | `""` (turned off) | OTLP traces endpoint. When empty, trace export is turned off. |
+| `OTLP_METRICS_ENDPOINT` | `""` (turned off) | OTLP metrics endpoint. When empty, metric export is turned off. |
 
 The FastStream and Redis-stream variables (`PRODUCER_POLL_INTERVAL_SECONDS`, `DUMPER_MAX_RETRIES`, `DUMPER_VISIBILITY_TIMEOUT_MS`, `SEEDER_VISIBILITY_TIMEOUT_MS`, `PUBLISHER_VISIBILITY_TIMEOUT_MS`) are removed. DBOS owns run state, retries, and recovery. The Prometheus Pushgateway (`PUSHGATEWAY_URL`) is removed; observability uses one OTLP pipeline.
 
