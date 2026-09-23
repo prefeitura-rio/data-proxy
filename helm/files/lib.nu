@@ -1,5 +1,26 @@
 use std/log
 
+# Log an error and raise a labeled error in one call.
+export def fail [message: string, context: record<command: string, span: record>]: nothing -> error {
+    log error $message
+    error make {
+        msg: $message
+        label: {
+            text: $context.command
+            span: $context.span
+        }
+    }
+}
+
+# Dump one PostgreSQL table to a file using pg_dump.
+export def dump-table [dsn: string, config: record<schema: string, table: string, file: string>]: nothing -> nothing {
+    try {
+        pg_dump $dsn --format=custom --no-owner --no-acl --enable-row-security --table=$"($config.schema).($config.table)" --data-only --file=$config.file
+    } catch {|err|
+        fail $"pg_dump failed for ($config.schema).($config.table): ($err.msg)" {command: dump-table, span: (metadata $config.table).span}
+    }
+}
+
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
 export def schema-list [config: record]: nothing -> list<string> {
     let all = $config.schemas | columns
@@ -23,13 +44,7 @@ export def quote-pg [value: string, kind: string]: nothing -> string {
             let escaped = $value | str replace --all "'" "''"
             $"'($escaped)'"
         }
-        _ => { error make {
-            msg: $'Unknown PostgreSQL quote kind: ($kind)'
-            label: {
-                text: quote-kind
-                span: (metadata $kind).span
-            }
-        } }
+        _ => { fail $'Unknown PostgreSQL quote kind: ($kind)' {command: quote-pg, span: (metadata $kind).span} }
     }
 }
 
@@ -41,13 +56,7 @@ export def render-sql [name: string, context: record]: nothing -> string {
         $context | to json | save --force $context_file
         let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates/postgres
         minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file
-    } catch {|err| error make {
-        msg: $'Failed to render SQL template ($name): ($err.msg)'
-        label: {
-            text: render-sql
-            span: (metadata $name).span
-        }
-    } }
+    } catch {|err| fail $'Failed to render SQL template ($name): ($err.msg)' {command: render-sql, span: (metadata $name).span} }
 }
 
 # Restart every PostgREST deployment so each instance reloads its schema cache.
