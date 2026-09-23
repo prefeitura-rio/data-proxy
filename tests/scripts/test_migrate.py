@@ -20,6 +20,10 @@ with log.open('a') as output:
     output.write(name + ' ' + ' '.join(sys.argv[1:]) + '\\n')
 if name == 'pg_dump' and os.environ.get('FAKE_PG_DUMP_FAIL') == '1':
     raise SystemExit(1)
+if name == 'pg_restore' and os.environ.get('FAKE_PG_RESTORE_FAIL') == '1':
+    raise SystemExit(1)
+if name == 'psql' and os.environ.get('FAKE_PSQL_GRANT_FAIL') == '1' and 'ON_ERROR_STOP=1' in sys.argv:
+    raise SystemExit(1)
 if name == 'pg_dump':
     file_index = sys.argv.index('--file') + 1
     Path(sys.argv[file_index]).write_bytes(b'dump')
@@ -102,6 +106,98 @@ class TestMigrateScript:
         assert "status=failed" in log
         assert "workflow_schedules" in log
         assert "status = 'ACTIVE'" in log
+
+    def test_completes_shared_to_ha_migration(self, tmp_path: Path) -> None:
+        """Complete a shared to per-schema migration."""
+        result = run_migration(
+            tmp_path,
+            {
+                "SOURCE_MODE": "shared",
+                "TARGET_MODE": "per-schema",
+                "SCHEMAS": "pic",
+                "SOURCE_DSN": "source",
+                "TARGET_DSN": "target-{schema}",
+                "AUTH_USER_ROLE": "user",
+                "DBOS_SYSTEM_DATABASE_URL": "system",
+                "SQL_TEMPLATE_DIR": str(
+                    SCRIPT.parents[2] / "helm" / "files" / "templates" / "postgres"
+                ),
+                "KUBE_CONTEXT": "",
+            },
+        )
+        log = (tmp_path / "commands.log").read_text()
+        assert result.returncode == 0
+        assert "mode=shared" in log
+        assert "status=running" in log
+        assert "direction=to-ha" in log
+        assert "mode=per-schema" in log
+        assert "status=completed" in log
+        assert "direction=to-ha" in log
+
+    def test_fails_when_restore_fails(self, tmp_path: Path) -> None:
+        """Record failure when pg_restore fails."""
+        result = run_migration(
+            tmp_path,
+            {
+                "SOURCE_MODE": "shared",
+                "TARGET_MODE": "per-schema",
+                "SCHEMAS": "pic",
+                "SOURCE_DSN": "source",
+                "TARGET_DSN": "target-{schema}",
+                "AUTH_USER_ROLE": "user",
+                "DBOS_SYSTEM_DATABASE_URL": "system",
+                "FAKE_PG_RESTORE_FAIL": "1",
+            },
+        )
+        log = (tmp_path / "commands.log").read_text()
+        assert result.returncode != 0
+        assert "status=failed" in log
+        assert "status = 'ACTIVE'" in log
+
+    def test_fails_when_access_grant_fails(self, tmp_path: Path) -> None:
+        """Record failure when the migration grant fails."""
+        result = run_migration(
+            tmp_path,
+            {
+                "SOURCE_MODE": "shared",
+                "TARGET_MODE": "per-schema",
+                "SCHEMAS": "pic",
+                "SOURCE_DSN": "source",
+                "TARGET_DSN": "target-{schema}",
+                "AUTH_USER_ROLE": "user",
+                "DBOS_SYSTEM_DATABASE_URL": "system",
+                "SQL_TEMPLATE_DIR": str(
+                    SCRIPT.parents[2] / "helm" / "files" / "templates" / "postgres"
+                ),
+                "FAKE_PSQL_GRANT_FAIL": "1",
+            },
+        )
+        log = (tmp_path / "commands.log").read_text()
+        assert result.returncode != 0
+        assert "status=failed" in log
+        assert "status = 'ACTIVE'" in log
+
+    def test_removes_dump_after_success(self, tmp_path: Path) -> None:
+        """Remove the dump file after successful migration."""
+        schema = "cleanup_test"
+        result = run_migration(
+            tmp_path,
+            {
+                "SOURCE_MODE": "per-schema",
+                "TARGET_MODE": "shared",
+                "SCHEMAS": schema,
+                "SOURCE_DSN": "source",
+                "TARGET_DSN": "target-{schema}",
+                "AUTH_USER_ROLE": "user",
+                "DBOS_SYSTEM_DATABASE_URL": "system",
+                "SQL_TEMPLATE_DIR": str(
+                    SCRIPT.parents[2] / "helm" / "files" / "templates" / "postgres"
+                ),
+                "KUBE_CONTEXT": "",
+            },
+        )
+        assert result.returncode == 0
+        assert not Path(f"/tmp/{schema}.dump").exists()  # noqa: S108
 
     def test_completes_reverse_migration(self, tmp_path: Path) -> None:
         """Complete a per-schema to shared migration."""
