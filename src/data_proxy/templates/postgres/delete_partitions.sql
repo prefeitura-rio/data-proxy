@@ -6,6 +6,7 @@
     "schema": "PostgreSQL schema that owns the target objects.",
     "table": "PostgreSQL table being read or changed.",
     "affected_partitions": "SQL-safe partition predicates joined by OR.",
+    "has_rls": "Whether to add an RLS EXISTS check to the delete.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
     "predicate": "SQL predicate applied to the selected rows."
   }

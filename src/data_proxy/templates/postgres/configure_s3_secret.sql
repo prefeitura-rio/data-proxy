@@ -10,6 +10,7 @@
   }
 }
 #}
+-- Jinja substitutes settings into the format() string literal at render time.
 SELECT duckdb.raw_query(
     format(
         'CREATE OR REPLACE SECRET s3 ('

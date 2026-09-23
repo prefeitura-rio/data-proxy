@@ -5,7 +5,7 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "table": "PostgreSQL table being read or changed.",
-    "column": "SQL-safe identifier for the partition or source column."
+    "columns": "SQL-safe column names to cast to jsonb."
   }
 }
 #}

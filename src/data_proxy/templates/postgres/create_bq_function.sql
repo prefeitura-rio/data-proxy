@@ -62,6 +62,7 @@ BEGIN
     v_where := 'WHERE ' || v_where;
   END IF;
 
+  -- The projection loop stays inline because it builds a single-line DuckDB SQL string.
   PERFORM duckdb.raw_query(
     'LOAD bigquery; ' ||
     'CREATE OR REPLACE VIEW {{ duckdb_view }} AS ' ||
@@ -70,7 +71,12 @@ BEGIN
   );
 
   RETURN QUERY
-    SELECT {% for column in columns %}r[{{ column.key }}]::{{ 'text' if column.is_json else column.pg_type }} AS {{ column.name }}{% if not loop.last %}, {% endif %}{% endfor %}
-    FROM duckdb.query('SELECT {% for column in columns %}{{ column.name }}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}') r;
+    SELECT
+{% for column in columns %}
+      r[{{ column.key }}]::{{ 'text' if column.is_json else column.pg_type }} AS {{ column.name }}{% if not loop.last %},{% endif %}
+{% endfor %}
+    FROM duckdb.query(
+      'SELECT {% for column in columns %}{{ column.name }}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}'
+    ) r;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
