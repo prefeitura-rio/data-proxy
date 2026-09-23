@@ -49,6 +49,7 @@ BEGIN
         END LOOP;
 
         FOR target_table IN
+            SELECT DISTINCT left(class.relname, -3)
             FROM pg_class AS class
             INNER JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
             WHERE namespace.nspname = target_schema
