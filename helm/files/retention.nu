@@ -1,4 +1,3 @@
-#!/usr/bin/env nu
 # nu-lint-ignore-file: dont_mix_different_effects
 
 use std/log

@@ -1,5 +1,3 @@
-#!/usr/bin/env nu
-
 use std/log
 
 # Check whether a string is non-empty.

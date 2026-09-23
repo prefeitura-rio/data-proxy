@@ -1,5 +1,3 @@
-#!/usr/bin/env nu
-
 use std/log
 use ./lib.nu [quote-pg render-sql schema-list]
 

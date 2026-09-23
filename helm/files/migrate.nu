@@ -1,10 +1,9 @@
-#!/usr/bin/env nu
 # nu-lint-ignore-file: dont_mix_different_effects, unhandled_external_error
 
 use std/log
 use ./lib.nu [quote-pg refresh-postgrest render-sql]
 
-$env.SQL_TEMPLATE_DIR = $env.SQL_TEMPLATE_DIR? | default '/scripts'
+$env.SQL_TEMPLATE_DIR = $env.SQL_TEMPLATE_DIR? | default /scripts
 
 # Wrapped kubectl with optional context selection.
 def --wrapped k [...rest: string]: nothing -> string {

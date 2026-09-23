@@ -1,5 +1,3 @@
-#!/usr/bin/env nu
-
 use std/log
 
 def main []: nothing -> nothing {
