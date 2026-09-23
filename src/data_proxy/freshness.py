@@ -115,8 +115,10 @@ def failure_partitions(
     partitions_by_table: Mapping[str, Collection[str | None]] | None,
 ) -> Collection[str | None]:
     """Return the partitions to mark failed for one table."""
-    if partitions_by_table and table.name in partitions_by_table:
-        return partitions_by_table[table.name]
+    if partitions_by_table is not None:
+        explicit = partitions_by_table.get(table.name)
+        if explicit is not None:
+            return explicit
 
     if partitioned:
         return partitioned.changed_paths.keys()
