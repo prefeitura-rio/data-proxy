@@ -1,0 +1,101 @@
+suite: Safety resources
+templates:
+  - cluster-cnpg-dbos.yaml
+  - validate-cnpg.yaml
+  - validate-s3.yaml
+  - pdb-nginx-proxy.yaml
+  - pdb-pooler.yaml
+  - pdb-postgrest-ro.yaml
+  - pdb-postgrest-rw.yaml
+  - scaledobject-schema-nginx-proxy.yaml
+  - scaledobject-schema-postgrest.yaml
+tests:
+  - it: renders the DBOS CNPG cluster in HA mode
+    set:
+      ha.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: cluster-cnpg-dbos.yaml
+      - equal:
+          path: spec.instances
+          value: 2
+        template: cluster-cnpg-dbos.yaml
+      - equal:
+          path: spec.bootstrap.initdb.database
+          value: data-proxy
+        template: cluster-cnpg-dbos.yaml
+
+  - it: does not render the DBOS CNPG cluster in shared mode
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: cluster-cnpg-dbos.yaml
+
+  - it: rejects per-schema mode without CNPG schemas
+    set:
+      cnpg.mode: per-schema
+      ha.enabled: false
+      syncConfig.schemas: {}
+      cnpg.schemas: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: cnpg.schemas must define at least one schema when cnpg.mode is per-schema
+        template: validate-cnpg.yaml
+
+  - it: rejects a SeaweedFS bucket missing from the configured bucket list
+    set:
+      seaweedfs.enabled: true
+      s3.bucket: required
+      seaweedfs.allInOne.enabled: false
+      seaweedfs.s3.createBuckets:
+        - name: other
+    asserts:
+      - failedTemplate:
+          errorMessage: the SeaweedFS bucket list must contain "required", because s3.bucket names the bucket the pipeline uses
+        template: validate-s3.yaml
+
+  - it: renders the HA proxy disruption budget
+    set:
+      ha.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pdb-nginx-proxy.yaml
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        template: pdb-nginx-proxy.yaml
+
+  - it: renders per-schema pooler and PostgREST disruption budgets
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      syncConfig.schemas.pic.tables: []
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pdb-pooler.yaml
+      - hasDocuments:
+          count: 1
+        template: pdb-postgrest-ro.yaml
+      - hasDocuments:
+          count: 1
+        template: pdb-postgrest-rw.yaml
+
+  - it: renders per-schema KEDA scalers
+    set:
+      ha.enabled: true
+      cnpg.mode: per-schema
+      syncConfig.schemas.pic.tables: []
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: scaledobject-schema-nginx-proxy.yaml
+      - hasDocuments:
+          count: 1
+        template: scaledobject-schema-postgrest.yaml
+      - equal:
+          path: spec.scaleTargetRef.kind
+          value: Deployment
+        template: scaledobject-schema-postgrest.yaml
