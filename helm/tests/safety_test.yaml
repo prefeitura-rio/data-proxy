@@ -55,7 +55,7 @@ tests:
           errorMessage: the SeaweedFS bucket list must contain "required", because s3.bucket names the bucket the pipeline uses
         template: validate-s3.yaml
 
-  - it: renders the HA proxy disruption budget
+  - it: renders the HA proxy disruption budget with identity and selector
     set:
       ha.enabled: true
     asserts:
@@ -63,9 +63,32 @@ tests:
           count: 1
         template: pdb-nginx-proxy.yaml
       - equal:
+          path: metadata.name
+          value: data-proxy-nginx-proxy
+        template: pdb-nginx-proxy.yaml
+      - equal:
           path: spec.minAvailable
           value: 1
         template: pdb-nginx-proxy.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: nginx-proxy
+        template: pdb-nginx-proxy.yaml
+
+  - it: disables HA-only safety resources in shared mode
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: pdb-nginx-proxy.yaml
+      - hasDocuments:
+          count: 0
+        template: pdb-pooler.yaml
+      - hasDocuments:
+          count: 0
+        template: scaledobject-schema-nginx-proxy.yaml
+      - hasDocuments:
+          count: 0
+        template: scaledobject-schema-postgrest.yaml
 
   - it: renders per-schema pooler and PostgREST disruption budgets
     set:
