@@ -37,3 +37,10 @@ class TestContextFormatter:
         record = logging.LogRecord("dbos", logging.INFO, "", 0, "ready", (), None)
         rendered = ContextFormatter("%(message)s").format(record)
         assert rendered.endswith("INFO ready")
+
+    def test_formats_exception_details(self) -> None:
+        """Include exception details in formatted output."""
+        record = logging.LogRecord("dbos", logging.ERROR, "", 0, "failed", (), None)
+        record.exc_info = (ValueError, ValueError("bad"), None)
+        rendered = ContextFormatter("%(message)s").format(record)
+        assert "ValueError: bad" in rendered

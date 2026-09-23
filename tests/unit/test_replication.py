@@ -17,8 +17,12 @@ class TestCurrentWalLsn:
         """Return the WAL position from a valid row."""
         cursor = AsyncMock()
         cursor.fetchone.return_value = ("0/123",)
-        monkeypatch.setattr(replication, "execute_sql", AsyncMock(return_value=cursor))
+        execute = AsyncMock(return_value=cursor)
+        monkeypatch.setattr(replication, "execute_sql", execute)
         assert await replication.current_wal_lsn(AsyncMock()) == "0/123"
+        execute.assert_awaited_once()
+        assert execute.await_args is not None
+        assert execute.await_args.args[1] == "postgres/current_wal_lsn"
 
     @pytest.mark.asyncio
     async def test_rejects_invalid_result(
@@ -42,8 +46,13 @@ class TestReplicasReplayed:
         """Complete when PostgreSQL reports caught-up replicas."""
         cursor = AsyncMock()
         cursor.fetchone.return_value = (True,)
-        monkeypatch.setattr(replication, "execute_sql", AsyncMock(return_value=cursor))
+        execute = AsyncMock(return_value=cursor)
+        monkeypatch.setattr(replication, "execute_sql", execute)
         await replication.replicas_replayed(AsyncMock(), "0/123")
+        execute.assert_awaited_once()
+        assert execute.await_args is not None
+        assert execute.await_args.args[1] == "postgres/replicas_replayed"
+        assert execute.await_args.kwargs["params"] == ("0/123",)
 
     @pytest.mark.asyncio
     async def test_rejects_lagging_replicas(
