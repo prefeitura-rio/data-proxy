@@ -26,7 +26,7 @@ def configure_metrics() -> None:
 
 configure_metrics()
 meter = otel_metrics.get_meter("data_proxy")
-RunStatus = Literal["success", "no_changes", "failure"]
+RunStatus = Literal["success", "no_changes", "error"]
 P = ParamSpec("P")
 StatusRecorder = Callable[[RunStatus], Awaitable[None]]
 SyncWorkflow = Callable[P, Awaitable[RunStatus]]
@@ -77,7 +77,7 @@ def observe_sync(
             try:
                 status = await workflow(*args, **kwargs)
             except Exception:
-                await record_status("failure")
+                await record_status("error")
                 raise
 
             await record_status(status)

@@ -12,7 +12,7 @@ from .settings import settings
 
 
 async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> None:
-    """Create one schema policy-writer role when it is missing."""
+    """Create one schema policy-writer role when it's missing."""
     await execute_sql(
         pg_conn,
         "postgres/access_policy_writer",

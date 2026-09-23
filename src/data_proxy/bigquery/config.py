@@ -28,7 +28,7 @@ class TimeGranularity(StrEnum):
     YEAR = "YEAR"
 
     def spec(self) -> TimePartitionSpec:
-        """Return the parse and step spec for this granularity."""
+        """Return the parse and step specification for this granularity."""
         fmt, unit, pattern = TIME_GRANULARITY_SPECS[self.value]
         return TimePartitionSpec(
             fmt,

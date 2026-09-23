@@ -18,7 +18,7 @@ class DeploymentStatus(Protocol):
 
 
 class DeploymentSpec(Protocol):
-    """Typed Deployment spec fields used by rollout checks."""
+    """Typed Deployment specification fields used by rollout checks."""
 
     replicas: int | None
 
@@ -84,4 +84,4 @@ async def deployment_ready(read: Callable[[], Awaitable[Deployment]]) -> None:
         and status.available_replicas == spec.replicas
         and status.observed_generation == metadata.generation
     ):
-        raise RuntimeError("Deployment is not ready")
+        raise RuntimeError("Deployment isn't ready")

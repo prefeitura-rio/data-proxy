@@ -72,7 +72,7 @@ class Settings(BaseSettings):
         *,
         role: Literal["read", "write"] = "write",
     ) -> Redis:
-        """Return a Redis client for the selected URL."""
+        """Return a Redis client for the selected address."""
         urls = {"read": self.REDIS_READ, "write": self.REDIS_WRITE}
         url = urls[role]
         default_db = int((url.path or "/0").lstrip("/") or 0)

@@ -31,7 +31,7 @@ from .steps import (
 
 
 async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
-    """Run dump workflows and return failed object paths."""
+    """Run dump workflows and return errored object paths."""
     dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
     for task in tasks:
         handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)

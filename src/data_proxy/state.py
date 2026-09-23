@@ -2,7 +2,7 @@
 
 Cross-run table signatures and partition manifests live in the ``data-proxy.state``
 table in the DBOS system database. Run-level state (plans, results, remaining
-counts) is owned by DBOS workflows and is not stored here.
+counts) is owned by DBOS workflows and isn't stored here.
 """
 
 from json import dumps

@@ -269,7 +269,7 @@ class SyncConfig(BaseModel):
 
     @model_validator(mode="after")
     def stamp_resolved_schema(self) -> Self:
-        """Assign each table's schema from the key it is nested under."""
+        """Assign each table's schema from the key it's nested under."""
         for name, schema in self.schemas.items():
             for table in schema.tables:
                 table.resolved_schema = name
@@ -287,7 +287,7 @@ class SyncConfig(BaseModel):
 
     @model_validator(mode="after")
     def reserve_freshness_table(self) -> Self:
-        """Reject source tables that conflict with freshness metadata."""
+        """Decline source tables that conflict with freshness metadata."""
         offenders = [
             table.name for table in self.tables if table.table_name == "freshness"
         ]
@@ -300,7 +300,7 @@ class SyncConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_claim_for_rls(self) -> Self:
-        """Reject rls tables nested under a schema with no claim."""
+        """Decline rls tables nested under a schema with no claim."""
         for name, schema in self.schemas.items():
             if schema.claim is not None:
                 continue
@@ -337,7 +337,7 @@ class DumpStatus(StrEnum):
     """Result status for one extraction task."""
 
     SUCCESS = "success"
-    FAILURE = "failure"
+    FAILURE = "error"
 
 
 class DumpSuccess(BaseModel):
@@ -349,12 +349,12 @@ class DumpSuccess(BaseModel):
 
     @property
     def maybe_failed_path(self) -> str | None:
-        """No failed path for a successful result."""
+        """No errored path for a successful result."""
         return None
 
 
 class DumpFailure(BaseModel):
-    """Failed extraction task result."""
+    """Errored extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -363,7 +363,7 @@ class DumpFailure(BaseModel):
 
     @property
     def maybe_failed_path(self) -> str | None:
-        """The failed Parquet path for this result."""
+        """The errored Parquet path for this result."""
         return self.failed_path
 
 
@@ -392,7 +392,7 @@ class PartitionedTablePlan(BaseModel):
             raise ValueError(msg)
 
         if self.removed_partitions.keys() & self.current_partitions.keys():
-            msg = "Removed partitions cannot exist in the current manifest"
+            msg = "Removed partitions can't exist in the current manifest"
             raise ValueError(msg)
         return self
 
@@ -420,7 +420,7 @@ class SyncPlan(BaseModel):
         ):
             raise ValueError("Sync plan signatures and non-empty paths must match")
         if self.signatures.keys() & self.partitioned_tables.keys():
-            raise ValueError("Tables cannot have ordinary and partitioned plans")
+            raise ValueError("Tables can't have ordinary and partitioned plans")
         return self
 
 
@@ -453,7 +453,7 @@ class SyncPublicationInput(BaseModel):
 
     @model_validator(mode="after")
     def require_configured_plan_tables(self) -> Self:
-        """Reject a plan that names tables absent from its configuration."""
+        """Decline a plan that names tables absent from its configuration."""
         unknown = self.changed_tables - {table.name for table in self.config.tables}
         if unknown:
             raise ValueError(f"Sync plan contains unknown tables: {sorted(unknown)}")

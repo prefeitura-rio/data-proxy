@@ -38,7 +38,7 @@ async def upsert_freshness(
                     partition,
                     updated_at,
                     attempted_datetime,
-                    "success" if success else "failure",
+                    "success" if success else "error",
                 )
                 for partition in partitions
             ],
@@ -114,7 +114,7 @@ def failure_partitions(
     partitioned: PartitionedTablePlan | None,
     partitions_by_table: Mapping[str, Collection[str | None]] | None,
 ) -> Collection[str | None]:
-    """Return the partitions to mark failed for one table."""
+    """Return the partitions to mark errored for one table."""
     if partitions_by_table is not None:
         explicit = partitions_by_table.get(table.name)
         if explicit is not None:
@@ -133,7 +133,7 @@ async def record_freshness_failures(
     attempted_at: Instant,
     partitions_by_table: Mapping[str, Collection[str | None]] | None = None,
 ) -> None:
-    """Record failed publication for a batch of tables."""
+    """Record errored publication for a batch of tables."""
     if not tables:
         return
 
@@ -151,7 +151,7 @@ async def record_freshness_failures(
                 partition,
                 None,
                 attempted_datetime,
-                "failure",
+                "error",
             )
             for partition in partitions
         )

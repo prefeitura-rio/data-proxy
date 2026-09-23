@@ -221,7 +221,7 @@ def 'main images pin' []: nothing -> nothing {
             fail $"Expected at least 4 pinned image lines, found ($pinned_count)" {command: images-pin, span: (metadata helm/values.yaml).span}
         }
         $values | save --force helm/values.yaml
-        log info $"Pinned ($pinned_count) image reference(s) in helm/values.yaml."
+        log info $"Pinned ($pinned_count) image references in helm/values.yaml."
     } catch {|err| fail $"Failed to pin Helm image values: ($err.msg)" {command: images-pin, span: (metadata helm/values.yaml).span} }
 }
 

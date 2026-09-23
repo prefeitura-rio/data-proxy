@@ -83,7 +83,7 @@ def start-minikube [kubecfg: path]: nothing -> string {
 def wait-for-control-plane [kubecfg: path]: nothing -> nothing {
     if not (poll {|| ((k $kubecfg get --raw /readyz | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
         error make {
-            msg: 'Kubernetes API server did not become ready within 5 minutes'
+            msg: "Kubernetes API server didn't become ready within 5 minutes"
             label: {
                 text: 'wait-for-control-plane'
                 span: (metadata $kubecfg).span
@@ -136,7 +136,7 @@ def wait-for-metrics [kubecfg: path]: nothing -> nothing {
 
     if not (poll {|| ((k $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
         error make {
-            msg: 'metrics-server did not become ready within 5 minutes'
+            msg: "metrics-server didn't become ready within 5 minutes"
             label: {
                 text: 'wait-for-metrics'
                 span: (metadata $kubecfg).span
@@ -432,7 +432,7 @@ def runner-job-ready [kubecfg: path, label: string]: nothing -> bool {
     ($jobs | is-not-empty) and ($jobs != '[]')
 }
 
-# Check whether the k6 test job completed, returning completion and failure flags.
+# Check whether the k6 test job completed, returning completion and error flags.
 def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
     let complete_path = 'jsonpath={range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
     let phase = (k $kubecfg -n data-proxy get jobs -l $label -o $complete_path) | str trim
@@ -496,7 +496,7 @@ def k6-run [
     log info 'Waiting for the runner job to appear...'
     if not (poll {|| (runner-job-ready $kubecfg $label) } {interval: 1sec, max_attempts: 300}) {
         error make {
-            msg: 'k6 runner Job did not appear within 5 minutes'
+            msg: "k6 runner Job didn't appear within 5 minutes"
             label: {
                 text: 'k6-run'
                 span: (metadata $testrun).span
@@ -672,7 +672,7 @@ def "main k6 e2e" []: nothing -> nothing {
     )
 }
 
-# Recover from a failed or pending migration before starting a new test.
+# Recover from a errored or pending migration before starting a new test.
 def recover-migration [kubecfg: path, repo: path]: nothing -> nothing {
     let status = (
         hm $kubecfg status data-proxy --namespace data-proxy
@@ -1024,7 +1024,7 @@ def "main up" []: nothing -> nothing {
     log info 'Waiting for CNPG cluster...'
     if not (poll {|| (cnpg-healthy $kubecfg) } {interval: 2sec, max_attempts: 300}) {
         error make {
-            msg: 'CNPG cluster did not become healthy within 10 minutes'
+            msg: "CNPG cluster didn't become healthy within 10 minutes"
             label: {
                 text: 'main up'
                 span: (metadata $kubecfg).span

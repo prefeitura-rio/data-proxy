@@ -76,7 +76,7 @@ async def record_dump_metrics(
 
 @DBOS.step()
 async def record_publish_metrics(result: PublicationResult, schema_name: str) -> None:
-    """Record publication success and failure metrics."""
+    """Record publication success and error metrics."""
     success_count = len(result.published_tables)
     if success_count:
         metrics.publish_tables_total.add(
@@ -86,7 +86,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     failure_count = len(result.plan.signatures) - success_count
     if failure_count:
         metrics.publish_tables_total.add(
-            failure_count, {"schema": schema_name, "status": "failure"}
+            failure_count, {"schema": schema_name, "status": "error"}
         )
 
 
@@ -127,7 +127,7 @@ async def extract_task(task: DumpTask) -> None:
 
 @DBOS.step()
 async def record_dump_failure(task: DumpTask, error: str) -> None:
-    """Persist one dump failure in the data_proxy.errors table."""
+    """Persist one dump error in the data_proxy.errors table."""
     async with connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await emit_error(
             pg_conn,

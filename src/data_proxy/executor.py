@@ -1,4 +1,4 @@
-"""Ports and singledispatch facade for rendered SQL execution."""
+"""Ports and singledispatch facade for rendered SQL running."""
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -28,7 +28,7 @@ async def execute(
     params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
 ) -> object:
-    """Execute SQL through a registered backend implementation."""
+    """Run SQL through a registered backend implementation."""
     raise TypeError(f"unsupported SQL connection: {type(conn).__name__}")
 
 
@@ -40,7 +40,7 @@ async def execute_postgres_connection(
     params: SQLRow | list[SQLRow] | dict[str, SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
 ) -> AsyncCursor:
-    """Execute one statement through an async PostgreSQL connection."""
+    """Run one statement through an async PostgreSQL connection."""
     match params:
         case list():
             raise TypeError("executemany requires a cursor, not a connection")
@@ -48,7 +48,7 @@ async def execute_postgres_connection(
             pass
 
     if job_config is not None:
-        raise TypeError("PostgreSQL execution does not accept job_config")
+        raise TypeError("PostgreSQL running does not accept job_config")
 
     return await conn.execute(cast(LiteralString, sql), params=params)
 
@@ -61,9 +61,9 @@ async def execute_postgres_cursor(
     params: SQLRow | list[SQLRow] | dict[str, SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
 ) -> AsyncCursor | None:
-    """Execute one or many statements through an async PostgreSQL cursor."""
+    """Run one or many statements through an async PostgreSQL cursor."""
     if job_config is not None:
-        raise TypeError("PostgreSQL execution does not accept job_config")
+        raise TypeError("PostgreSQL running does not accept job_config")
 
     match params:
         case list():
@@ -80,9 +80,9 @@ async def execute_duckdb(
     params: Sequence[SQLParam] | None = None,
     job_config: QueryJobConfig | None = None,
 ) -> list[tuple[object, ...]]:
-    """Execute one query through DuckDB and return every row."""
+    """Run one query through DuckDB and return every row."""
     if job_config is not None:
-        raise TypeError("DuckDB execution does not accept job_config")
+        raise TypeError("DuckDB running does not accept job_config")
 
     return await conn.fetchall(sql, params)
 
@@ -95,12 +95,12 @@ async def execute_bigquery(
     params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
 ) -> Sequence[Row]:
-    """Execute one query through BigQuery and return every row."""
+    """Run one query through BigQuery and return every row."""
     if params is not None:
-        raise TypeError("BigQuery execution does not accept params")
+        raise TypeError("BigQuery running does not accept params")
 
     if job_config is None:
-        raise TypeError("BigQuery execution requires job_config")
+        raise TypeError("BigQuery running requires job_config")
 
     return await conn.rows(sql, job_config)
 
@@ -163,6 +163,6 @@ async def execute_sql(
     params: SQLParams = None,
     job_config: QueryJobConfig | None = None,
 ) -> object:
-    """Render and execute one SQL template through a registered backend."""
+    """Render and run one SQL template through a registered backend."""
     sql = render_template(path, mapping or {})
     return await execute(conn, sql, params=params, job_config=job_config)

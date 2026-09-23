@@ -396,7 +396,7 @@ async def prepare_tables(
                 pg_conn, config, table, plan, partitioned
             )
         except Exception:
-            logger.exception("Table preparation failed table=%s", table.name)
+            logger.exception("Table preparation errored table=%s", table.name)
             await emit_error(dbos_conn, "table_preparation_failed", table=table.name)
             continue
 
@@ -436,8 +436,8 @@ class TablePublication:
         await self.pg_conn.commit()
 
     async def fail(self) -> None:
-        """Rollback, record the failure, and commit the failure state."""
-        logger.exception("Table publication failed table=%s", self.table.name)
+        """Rollback, record the error, and commit the error state."""
+        logger.exception("Table publication errored table=%s", self.table.name)
         await self.pg_conn.rollback()
 
         await emit_error(
@@ -468,7 +468,7 @@ class PreparedTable:
 def failed_partition_ids(
     table_plan: PartitionedTablePlan, failed_paths: set[str]
 ) -> set[str]:
-    """Return partition IDs for failed paths in one table plan."""
+    """Return partition IDs for errored paths in one table plan."""
     return {
         partition_id
         for partition_id, path in table_plan.changed_paths.items()
@@ -479,7 +479,7 @@ def failed_partition_ids(
 def apply_partition_fallback(
     table_plan: PartitionedTablePlan, failed_ids: set[str]
 ) -> None:
-    """Keep prior manifest entries and omit failed new entries."""
+    """Keep prior manifest entries and omit errored new entries."""
     for partition_id in failed_ids:
         table_plan.changed_paths.pop(partition_id, None)
         previous = table_plan.previous_partitions.get(partition_id)
@@ -707,7 +707,7 @@ class SyncContext:
         logger.info("Published %d changed tables", len(self.published))
 
     async def record_preparation_failures(self, prepared_names: set[str]) -> None:
-        """Record each eligible table that did not prepare successfully."""
+        """Record each eligible table that didn't prepare successfully."""
         if self.attempted_at is None:
             raise RuntimeError(
                 "prepare must be called before recording preparation failures"

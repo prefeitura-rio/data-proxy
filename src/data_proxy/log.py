@@ -11,7 +11,7 @@ logger = getLogger("dbos")
 
 
 class DomainContextFilter(Filter):
-    """Inject schema and table context that DBOS does not provide."""
+    """Inject schema and table context that DBOS doesn't provide."""
 
     @override
     def filter(self, record: LogRecord) -> bool:

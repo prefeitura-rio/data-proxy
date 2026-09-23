@@ -1,14 +1,5 @@
-"""Seed synthetic data into BigQuery for the data-proxy sync pipeline.
-
-Creates two tables matching the sync config schema:
-
-  endpoint_participante_listagem   — full strategy
-  protocolo_estado_diario          — partitioned strategy (partitioned by date)
-
-Idempotent: safe to re-run, tables are recreated each time.
-
-Auth: uses Application Default Credentials. Set --project to override
-the default GCP project.
+"""Seed synthetic BigQuery data for the data-proxy sync pipeline.
+Idempotent and safe to re-run.
 """
 
 from argparse import ArgumentParser

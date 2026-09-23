@@ -32,7 +32,7 @@ def main() -> None:
     DBOS.register_queue(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
-        limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60},
+        limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60.0},
     )
 
     DBOS.register_queue(
