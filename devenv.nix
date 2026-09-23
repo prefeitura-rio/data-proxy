@@ -82,7 +82,11 @@ in
           };
           "dp:lint:nu" = {
             exec = "nu-lint --config .nu-lint.toml helm/files/*.nu scripts/*.nu";
-            execIfModified = [ "helm/files/**/*.nu" "scripts/**/*.nu" ".nu-lint.toml" ];
+            execIfModified = [
+              "helm/files/**/*.nu"
+              "scripts/**/*.nu"
+              ".nu-lint.toml"
+            ];
           };
           "dp:lint:docker" = {
             exec = ''
@@ -147,6 +151,21 @@ in
             '';
             execIfModified = [ "helm" ];
           };
+          "dp:lint:docs" = {
+            exec = ''
+              vale sync --no-exit
+              vale docs/ README.md STYLEGUIDE.md src/data_proxy/ scripts/
+            '';
+            execIfModified = [
+              "docs"
+              "README.md"
+              "STYLEGUIDE.md"
+              "src"
+              "scripts"
+              ".vale.ini"
+              ".vale/styles"
+            ];
+          };
           "dp:lint".after = [
             "dp:lint:ci"
             "dp:lint:sql"
@@ -155,6 +174,7 @@ in
             "dp:lint:proxy"
             "dp:lint:nu"
             "dp:lint:docker"
+            "dp:lint:docs"
           ];
           "dp:test".after = [
             "dp:test:py"

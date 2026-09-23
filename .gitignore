@@ -21,3 +21,7 @@ todo.txt
 /nginx/build
 node_modules
 .githooks
+
+# Vale synced style packages (installed by vale sync)
+.vale/styles/Microsoft/
+.vale/styles/alex/
