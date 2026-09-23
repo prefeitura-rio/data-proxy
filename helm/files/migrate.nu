@@ -4,7 +4,7 @@
 use std/log
 use ./lib.nu [quote-pg refresh-postgrest render-sql]
 
-$env.SQL_TEMPLATE_DIR = '/scripts'
+$env.SQL_TEMPLATE_DIR = $env.SQL_TEMPLATE_DIR? | default '/scripts'
 
 # Wrapped kubectl with optional context selection.
 def --wrapped k [...rest: string]: nothing -> string {
@@ -145,7 +145,7 @@ def save-mode-state [state: record]: nothing -> nothing {
 
 # Run the migration in the given direction.
 def run-migration [direction: string]: nothing -> nothing {
-    let schemas = $env.SCHEMAS | split row ' '
+    let schemas = $env.SCHEMAS | split row ' ' | where $it != ''
 
     if ($schemas | is-empty) {
         error make {
