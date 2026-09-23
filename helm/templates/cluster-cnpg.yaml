@@ -66,19 +66,13 @@ spec:
     parameters:
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: top
-      shared_buffers: 1GB
-      work_mem: 16MB
-      maintenance_work_mem: 512MB
-      effective_cache_size: 5GB
-      max_parallel_workers_per_gather: "4"
-      random_page_cost: "1.1"
-      effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
       duckdb.postgres_role: authenticator
       duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
       duckdb.max_memory: {{ $root.Values.cnpg.duckdb.maxMemory | quote }}
+{{- include "data-proxy.cnpgParameters" $root | nindent 6 }}
   storage:
     size: {{ $root.Values.cnpg.storage.size | quote }}
     {{- with $root.Values.cnpg.storage.storageClass }}
@@ -175,19 +169,13 @@ spec:
     parameters:
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: top
-      shared_buffers: 1GB
-      work_mem: 16MB
-      maintenance_work_mem: 512MB
-      effective_cache_size: 5GB
-      max_parallel_workers_per_gather: "4"
-      random_page_cost: "1.1"
-      effective_io_concurrency: "200"
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
       duckdb.unsafe_allow_execution_inside_functions: "on"
       duckdb.postgres_role: authenticator
       duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
       duckdb.max_memory: {{ $root.Values.cnpg.duckdb.maxMemory | quote }}
+{{- include "data-proxy.cnpgParameters" $root | nindent 6 }}
   storage:
     size: {{ default $root.Values.cnpg.storage.size (dig "storage" "size" $root.Values.cnpg.storage.size $stack) | quote }}
     {{- with $root.Values.cnpg.storage.storageClass }}

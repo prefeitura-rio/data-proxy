@@ -863,3 +863,34 @@ map $http_accept_profile $postgrest_write {
 {{- end -}}
 {{- $threads | quote -}}
 {{- end }}
+
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.cnpgParameters",
+  "description": "Render tunable PostgreSQL parameters for CNPG, merging chart defaults with user overrides from .Values.cnpg.postgresql.parameters.",
+  "inputs": {
+    "context": "Helm template context with cnpg.postgresql.parameters."
+  },
+  "returns": "YAML parameters block for tunable postgresql.parameters."
+}
+*/}}
+{{- define "data-proxy.cnpgParameters" -}}
+{{- $defaults := dict
+  "shared_buffers" "1GB"
+  "work_mem" "16MB"
+  "maintenance_work_mem" "512MB"
+  "effective_cache_size" "5GB"
+  "max_parallel_workers_per_gather" "4"
+  "random_page_cost" "1.1"
+  "effective_io_concurrency" "200"
+  "max_connections" "200"
+  "max_wal_size" "4GB"
+  "min_wal_size" "1GB"
+  "wal_compression" "on"
+  "checkpoint_timeout" "15min"
+  "checkpoint_completion_target" "0.9"
+-}}
+{{- $params := mergeOverwrite $defaults (default (dict) .Values.cnpg.postgresql.parameters) -}}
+{{- toYaml $params -}}
+{{- end }}

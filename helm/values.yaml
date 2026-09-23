@@ -368,6 +368,11 @@ cnpg:
   duckdb:
     ## Maximum memory available to pg_duckdb in each application cluster.
     maxMemory: 3072MB
+  postgresql:
+    ## User-defined PostgreSQL parameters merged over chart defaults.
+    ## Chart defaults include pg_stat_statements, shared_buffers, work_mem,
+    ## duckdb settings, WAL, and checkpoint tuning. User keys override defaults.
+    parameters: {}
   pooler:
     ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
     instances: 1
