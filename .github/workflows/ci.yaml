@@ -46,46 +46,14 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      - uses: ./.github/actions/setup-devenv
       - id: filter
         env:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
-        run: |
-          matrix='{"include":['
-          first=true
-          build_images=false
-          add_image() {
-            if [ "$first" = false ]; then matrix+=','; fi
-            first=false
-            matrix+="{\"name\":\"$1\",\"dockerfile\":\"$2\",\"image\":\"ghcr.io/$GITHUB_REPOSITORY$3\",\"tag_prefix\":\"$4\"}"
-            build_images=true
-          }
-          if [ "$FORCE_FULL" = "true" ]; then
-            build_helm=true
-            add_image "Pipeline" "Dockerfile.pipeline" "-pipeline" ""
-            add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"
-            add_image "Nushell" "Dockerfile.nushell" "-nushell" ""
-            add_image "Proxy" "Dockerfile.proxy" "-proxy" ""
-          else
-            BASE="$BEFORE"
-            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
-            CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA")
-            changed() { echo "$CHANGED" | grep -Eq "$1"; }
-            build_helm=false
-            if changed '^helm/'; then build_helm=true; fi
-            if changed '^(Dockerfile\.pipeline$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Pipeline" "Dockerfile.pipeline" "-pipeline" ""; fi
-            if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Proxy" "Dockerfile.proxy" "-proxy" ""; fi
-            if changed '^Dockerfile\.nushell$'; then add_image "Nushell" "Dockerfile.nushell" "-nushell" ""; fi
-            if changed '^Dockerfile\.postgres$'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"; fi
-          fi
-          matrix+=']}'
-          {
-            echo "build_helm=$build_helm"
-            echo "build_images=$build_images"
-            echo "build_matrix<<EOF"
-            echo "$matrix"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_OUTPUT_FILE: ${{ github.output }}
+        run: devenv shell -- ci changes
   quality:
     defaults:
       run:
@@ -180,51 +148,14 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
-        run: git pull --rebase origin main
-      - name: Resolve latest image SHAs from GHCR
+        run: devenv shell -- ci git update
+      - name: Resolve latest image SHAs from registry
         id: shas
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          resolve_tag() {
-            local name="$1"
-            local filter="$2"
-            local fallback="${3:-}"
-            local tag
-
-            tag=$(gh api "orgs/prefeitura-rio/packages/container/${name}/versions" --jq ".[0].metadata.container.tags | map(select(${filter})) | .[0]" 2>/dev/null || true)
-
-            if [ -n "$tag" ] && ! echo "$tag" | grep -q '{'; then
-              echo "$tag"
-            elif [ -n "$fallback" ]; then
-              echo "$fallback"
-            else
-              echo "No matching image tag is available for ${name}" >&2
-              return 1
-            fi
-          }
-
-          pipeline=$(resolve_tag data-proxy-pipeline '. != "latest"' latest)
-          postgres=$(resolve_tag data-proxy-postgres 'test("^17-[0-9a-f]+$")')
-          nushell=$(resolve_tag data-proxy-nushell '. != "latest"' latest)
-          proxy=$(resolve_tag data-proxy-proxy '. != "latest"' latest)
-
-          {
-            echo "pipeline=$pipeline"
-            echo "postgres=$postgres"
-            echo "nushell=$nushell"
-            echo "proxy=$proxy"
-          } >> "$GITHUB_OUTPUT"
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: devenv shell -- ci images resolve
       - name: Pin image SHAs in values.yaml
-        run: |
-          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy-pipeline:\" + strenv(PIPELINE_SHA)" -i helm/values.yaml
-          yq e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
-          yq e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".fallback.proxyImage = \"ghcr.io/prefeitura-rio/data-proxy-proxy:\" + strenv(PROXY_SHA)" -i helm/values.yaml
+        run: devenv shell -- ci images pin
         env:
           PIPELINE_SHA: ${{ steps.shas.outputs.pipeline }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
@@ -232,59 +163,33 @@ jobs:
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
       - name: Read current version
         id: version
-        run: |
-          CHART_VERSION=$(yq eval '.version' helm/Chart.yaml)
-          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
-          LAST_VERSION=${LAST_TAG#helm-v}
-          BASE_VERSION="$CHART_VERSION"
-          if [ -n "$LAST_VERSION" ] && [ "$(printf '%s\n' "$BASE_VERSION" "$LAST_VERSION" | sort -V | tail -1)" = "$LAST_VERSION" ]; then
-            BASE_VERSION="$LAST_VERSION"
-          fi
-          MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
-          MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
-          NEXT="$MAJOR.$((MINOR + 1)).0"
-          {
-            echo "current=$CHART_VERSION"
-            echo "next=$NEXT"
-            echo "tag=helm-v$NEXT"
-          } >> "$GITHUB_OUTPUT"
+        run: devenv shell -- ci version
       - name: Skip if no chart or image changes since release
         id: guard
-        run: |
-          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
-          if [ -n "$LAST_TAG" ] && ! git diff --name-only "$LAST_TAG" HEAD -- helm/ | grep -v '^helm/tests/' | grep -q . && ! git diff --name-only -- helm/values.yaml | grep -q .; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Login to GHCR
+        run: devenv shell -- ci guard
+      - name: Login to registry
         if: steps.guard.outputs.skip != 'true'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: devenv shell -- ci chart login
+        env:
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_REGISTRY_USER: ${{ github.actor }}
       - name: Bump chart version
         if: steps.guard.outputs.skip != 'true'
-        run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
+        run: devenv shell -- ci chart bump
         env:
           NEXT: ${{ steps.version.outputs.next }}
       - name: Package chart
         if: steps.guard.outputs.skip != 'true'
-        run: helm package helm/ --destination ./packaged/
+        run: devenv shell -- ci chart package
       - name: Commit and tag chart release
         if: steps.guard.outputs.skip != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add helm/Chart.yaml helm/values.yaml
-          git commit -m "chore: release helm chart ${{ steps.version.outputs.next }} [skip ci]"
-          git tag helm-v${{ steps.version.outputs.next }}
-          git push origin HEAD:main
-          git push origin helm-v${{ steps.version.outputs.next }}
-      - name: Push chart
-        if: steps.guard.outputs.skip != 'true'
-        run: helm push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
-      - name: Create GitHub release
-        if: steps.guard.outputs.skip != 'true'
+        run: devenv shell -- ci chart commit
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | sed -n '2p' || true)
-          gh release create "$TAG" --title "Helm chart $TAG" ${PREV_TAG:+--notes-start-tag "$PREV_TAG"} --generate-notes
-          gh release upload "$TAG" ./packaged/*.tgz
+          NEXT: ${{ steps.version.outputs.next }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+      - name: Publish chart and release
+        if: steps.guard.outputs.skip != 'true'
+        run: devenv shell -- ci chart publish
+        env:
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
