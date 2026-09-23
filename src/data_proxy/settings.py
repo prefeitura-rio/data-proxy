@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     AUTH_ANON_ROLE: str = "anon"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     AUTH_USER_ROLE: str = "user"
-    DBOS_APPLICATION_NAME: str = "data-proxy-sync"
+    DBOS_APPLICATION_NAME: str = "data-proxy-pipeline"
     DBOS_APPLICATION_VERSION: str = "0.1.0"
     DBOS_APP_SCHEMA: str = "data_proxy"
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)

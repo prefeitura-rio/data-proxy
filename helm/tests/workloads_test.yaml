@@ -1,7 +1,7 @@
 suite: Workloads
 templates:
-  - deployment-sync-worker.yaml
-  - scaledobject-sync-worker.yaml
+  - deployment-pipeline.yaml
+  - scaledobject-pipeline.yaml
   - job-init-db.yaml
   - cronjob-backup.yaml
   - cronjob-cleanup.yaml
@@ -76,71 +76,71 @@ tests:
           path: metadata.name
           value: data-proxy-app-example-backup
 
-  - it: sync worker Deployment uses the correct image and command
+  - it: pipeline Deployment uses the correct image and command
     asserts:
       - isKind:
           of: Deployment
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - equal:
           path: spec.template.spec.containers[0].command
           value: [python, -m, data_proxy.dbos.main]
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - equal:
           path: spec.replicas
           value: 0
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
 
-  - it: sync worker carries the batch settings and a scratch volume
+  - it: pipeline carries the batch settings and a scratch volume
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMPER_BATCH_BYTES
             value: "629145600"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMPER_BATCH_MAX_PARTITIONS
             value: "256"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMPER_SCRATCH_DIR
             value: "/scratch"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DBOS_APPLICATION_NAME
-            value: "data-proxy-sync"
-        template: deployment-sync-worker.yaml
+            value: "data-proxy-pipeline"
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SYNC_SCHEDULE
             value: "0 2 * * *"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMP_QUEUE_WORKER_CONCURRENCY
             value: "4"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: scratch
             mountPath: /scratch
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.volumes
           content:
             name: scratch
             emptyDir:
               sizeLimit: 4Gi
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
 
   - it: large numeric batch settings render as plain integers
     set:
@@ -151,9 +151,9 @@ tests:
           content:
             name: DUMPER_BATCH_BYTES
             value: "1073741824"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
 
-  - it: sync worker uses the configured scratch size limit and batch size
+  - it: pipeline uses the configured scratch size limit and batch size
     set:
       sync.dumper.batchMegaBytes: 100
       sync.dumper.scratch.sizeLimit: 1Gi
@@ -164,60 +164,60 @@ tests:
           content:
             name: DUMPER_BATCH_BYTES
             value: "104857600"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMPER_SCRATCH_DIR
             value: "/work"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.volumes
           content:
             name: scratch
             emptyDir:
               sizeLimit: 1Gi
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
 
-  - it: sync worker ScaledObject keeps one warm replica and scales to at least three on the DBOS queue
+  - it: pipeline ScaledObject keeps one warm replica and scales to at least three on the DBOS queue
     asserts:
       - isKind:
           of: ScaledObject
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.idleReplicaCount
           value: 1
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.minReplicaCount
           value: 3
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.maxReplicaCount
           value: 15
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.scaleTargetRef.kind
           value: Deployment
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.triggers[0].type
           value: postgresql
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.triggers[0].metadata.connectionFromEnv
           value: AIRFLOW_CONN_AIRFLOW_DB
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.triggers[0].metadata.targetQueryValue
           value: "1.1"
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.triggers[0].metadata.activationTargetQueryValue
           value: "5"
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
 
-  - it: sync worker ScaledObject honors overrides
+  - it: pipeline ScaledObject honors overrides
     set:
       sync.worker.keda.maxReplicaCount: 9
       sync.worker.keda.minReplicaCount: 4
@@ -226,21 +226,21 @@ tests:
       - equal:
           path: spec.maxReplicaCount
           value: 9
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.minReplicaCount
           value: 4
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
       - equal:
           path: spec.pollingInterval
           value: 15
-        template: scaledobject-sync-worker.yaml
+        template: scaledobject-pipeline.yaml
 
-  - it: sync worker Deployment has topology spread constraints
+  - it: pipeline Deployment has topology spread constraints
     asserts:
       - exists:
           path: spec.template.spec.topologySpreadConstraints
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
 
   - it: cleanup CronJob runs the Nushell script and mounts sync config
     set:
@@ -355,7 +355,7 @@ tests:
           count: 0
         template: cronjob-retention.yaml
 
-  - it: sync worker renders DBOS controls and resources
+  - it: pipeline renders DBOS controls and resources
     set:
       observability.otlpLogsEndpoint: http://otel-collector:4318/v1/logs
       sync.workflowTimeoutSeconds: 1800
@@ -367,26 +367,26 @@ tests:
           content:
             name: OTLP_LOGS_ENDPOINT
             value: http://otel-collector:4318/v1/logs
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SYNC_RUN_TIMEOUT_SECONDS
             value: "1800"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMP_QUEUE_RATE_LIMIT
             value: "20"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SYNC_STEP_MAX_ATTEMPTS
             value: "4"
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml
       - equal:
           path: spec.template.spec.containers[0].resources.limits.memory
           value: 6Gi
-        template: deployment-sync-worker.yaml
+        template: deployment-pipeline.yaml

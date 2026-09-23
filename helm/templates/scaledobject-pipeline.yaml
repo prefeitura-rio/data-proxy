@@ -1,7 +1,7 @@
 {{/*
 {
   "kind": "template",
-  "description": "Render the single KEDA ScaledObject that scales the DBOS sync worker on the DBOS workflow queue.",
+  "description": "Render the single KEDA ScaledObject that scales the DBOS pipeline on the DBOS workflow queue.",
   "inputs": {
     "values": "Helm chart values used by this resource.",
     "release": "Helm release context used in resource names.",
@@ -12,14 +12,14 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-sync-worker
+  name: {{ include "data-proxy.fullname" . }}-pipeline
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sync-worker
+    app.kubernetes.io/component: pipeline
 spec:
   scaleTargetRef:
-    name: {{ include "data-proxy.fullname" . }}-sync-worker
+    name: {{ include "data-proxy.fullname" . }}-pipeline
     kind: Deployment
     apiVersion: apps/v1
   pollingInterval: {{ .Values.sync.worker.keda.pollingInterval }}

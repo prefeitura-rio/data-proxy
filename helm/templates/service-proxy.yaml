@@ -2,15 +2,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  name: {{ include "data-proxy.fullname" . }}-proxy
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nginx-proxy
+    app.kubernetes.io/component: proxy
 spec:
   selector:
     {{- include "data-proxy.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: nginx-proxy
+    app.kubernetes.io/component: proxy
   ports:
     - name: http
       port: 8080

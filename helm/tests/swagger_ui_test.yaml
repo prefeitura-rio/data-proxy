@@ -95,7 +95,7 @@ tests:
           value: data-proxy-swagger-ui
       - equal:
           path: spec.http[2].route[0].destination.host
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
 
   - it: does not add a /docs route when swagger-ui is disabled
     set:
@@ -105,7 +105,7 @@ tests:
     asserts:
       - equal:
           path: spec.http[0].route[0].destination.host
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - notExists:
           path: spec.http[0].match
 
@@ -156,9 +156,9 @@ tests:
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: nginx-proxy
+          value: proxy
         template: requestauthentication.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: nginx-proxy
+          value: proxy
         template: authorizationpolicy.yaml

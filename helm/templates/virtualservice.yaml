@@ -55,7 +55,7 @@ spec:
         uri: /
       route:
         - destination:
-            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
+            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-proxy
             port:
               number: 8080
     - name: {{ $schema }}-read
@@ -77,7 +77,7 @@ spec:
               exact: {{ $schema | quote }}
       route:
         - destination:
-            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
+            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-proxy
             port:
               number: 8080
     - name: {{ $schema }}-write
@@ -104,7 +104,7 @@ spec:
               exact: {{ $schema | quote }}
       route:
         - destination:
-            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
+            host: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-proxy
             port:
               number: 8080
     {{- end }}
@@ -116,7 +116,7 @@ spec:
     {{- else }}
     - route:
         - destination:
-            host: {{ include "data-proxy.fullname" . }}-nginx-proxy
+            host: {{ include "data-proxy.fullname" . }}-proxy
             port:
               number: 8080
       {{- with .Values.ingress.timeout }}

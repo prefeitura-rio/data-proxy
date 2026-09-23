@@ -3,11 +3,11 @@ templates:
   - cluster-cnpg.yaml
   - validate-ha.yaml
   - scaledobject-postgrest.yaml
-  - scaledobject-nginx-proxy.yaml
+  - scaledobject-proxy.yaml
   - scaledobject-pooler.yaml
   - pooler-cnpg.yaml
   - secret-cnpg-roles.yaml
-  - deployment-schema-nginx-proxy.yaml
+  - deployment-schema-proxy.yaml
 tests:
   - it: gives per-schema CPU-scaled nginx a CPU request without owning its replica count
     set:
@@ -18,28 +18,28 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
           value: 100m
-        template: deployment-schema-nginx-proxy.yaml
+        template: deployment-schema-proxy.yaml
       - notExists:
           path: spec.replicas
-        template: deployment-schema-nginx-proxy.yaml
+        template: deployment-schema-proxy.yaml
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/proxy-config"]
           pattern: "^[0-9a-f]{64}$"
-        template: deployment-schema-nginx-proxy.yaml
+        template: deployment-schema-proxy.yaml
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: sync-config
             mountPath: /config
             readOnly: true
-        template: deployment-schema-nginx-proxy.yaml
+        template: deployment-schema-proxy.yaml
       - contains:
           path: spec.template.spec.volumes
           content:
             name: sync-config
             configMap:
               name: data-proxy-sync
-        template: deployment-schema-nginx-proxy.yaml
+        template: deployment-schema-proxy.yaml
 
   - it: leaves per-schema Pooler authentication to CNPG
     set:

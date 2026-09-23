@@ -1,5 +1,5 @@
 sync:
-  image: localhost/data-proxy:local
+  image: localhost/data-proxy-pipeline:local
   imagePullPolicy: IfNotPresent
   dumper:
     visibilityTimeoutMs: 60000
@@ -109,7 +109,7 @@ syncConfig:
               unit_type: unidade
 fallback:
   cacheTtl: 5
-  nginxImage: localhost/data-proxy-nginx-proxy:local
+  proxyImage: localhost/data-proxy-proxy:local
 cnpg:
   db:
     name: data-proxy

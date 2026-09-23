@@ -98,39 +98,39 @@ tests:
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: nginx-proxy
+          value: proxy
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - equal:
           path: spec.rules[0].from[0].source.requestPrincipals[0]
           value: "*"
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - equal:
           path: spec.rules[1].to[0].operation.methods[0]
           value: GET
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - equal:
           path: spec.rules[1].to[0].operation.paths[0]
           value: /
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - equal:
           path: spec.rules[2].to[0].operation.paths[0]
           value: /health
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - hasDocuments:
           count: 1
         template: requestauthentication.yaml
@@ -140,7 +140,7 @@ tests:
         template: requestauthentication.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
 
   - it: keeps the document protected on the proxy when swagger is disabled
     set:
@@ -156,14 +156,14 @@ tests:
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - lengthEqual:
           path: spec.rules
           count: 2
         template: authorizationpolicy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
 
   - it: omits the proxy policy when the fallback is disabled
     set:
@@ -177,7 +177,7 @@ tests:
         template: authorizationpolicy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: nginx-proxy
+          value: proxy
         template: authorizationpolicy.yaml
       - hasDocuments:
           count: 1

@@ -26,11 +26,13 @@ gcloud auth application-default login
 seed --project rj-ia-desenvolvimento
 ```
 
-Run one sync when needed. This triggers the DBOS schedule once and waits for the run:
+Run one DBOS sync through the e2e trigger Job:
 
 ```bash
-kubectl -n data-proxy exec deploy/data-proxy-sync-worker -- python -m data_proxy.trigger
+cluster k6 e2e
 ```
+
+The standalone trigger is mounted at `/scripts` only in the temporary e2e Job; it is not part of the pipeline image.
 
 ## Access the API
 

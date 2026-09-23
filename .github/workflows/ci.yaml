@@ -13,7 +13,7 @@ on:
       - scripts/**
       - pyproject.toml
       - uv.lock
-      - Dockerfile
+      - Dockerfile.pipeline
       - Dockerfile.postgres
       - Dockerfile.nushell
       - Dockerfile.proxy
@@ -62,10 +62,10 @@ jobs:
           }
           if [ "$FORCE_FULL" = "true" ]; then
             build_helm=true
-            add_image "Sync pipeline" "Dockerfile" "" ""
+            add_image "Pipeline" "Dockerfile.pipeline" "-pipeline" ""
             add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"
             add_image "Nushell" "Dockerfile.nushell" "-nushell" ""
-            add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy" ""
+            add_image "Proxy" "Dockerfile.proxy" "-proxy" ""
           else
             BASE="$BEFORE"
             if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
@@ -73,8 +73,8 @@ jobs:
             changed() { echo "$CHANGED" | grep -Eq "$1"; }
             build_helm=false
             if changed '^helm/'; then build_helm=true; fi
-            if changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Sync pipeline" "Dockerfile" "" ""; fi
-            if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy" ""; fi
+            if changed '^(Dockerfile\.pipeline$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Pipeline" "Dockerfile.pipeline" "-pipeline" ""; fi
+            if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Proxy" "Dockerfile.proxy" "-proxy" ""; fi
             if changed '^Dockerfile\.nushell$'; then add_image "Nushell" "Dockerfile.nushell" "-nushell" ""; fi
             if changed '^Dockerfile\.postgres$'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"; fi
           fi
@@ -204,32 +204,32 @@ jobs:
             fi
           }
 
-          app=$(resolve_tag data-proxy '. != "latest"' latest)
+          pipeline=$(resolve_tag data-proxy-pipeline '. != "latest"' latest)
           postgres=$(resolve_tag data-proxy-postgres 'test("^17-[0-9a-f]+$")')
           nushell=$(resolve_tag data-proxy-nushell '. != "latest"' latest)
-          nginx=$(resolve_tag data-proxy-nginx-proxy '. != "latest"' latest)
+          proxy=$(resolve_tag data-proxy-proxy '. != "latest"' latest)
 
           {
-            echo "app=$app"
+            echo "pipeline=$pipeline"
             echo "postgres=$postgres"
             echo "nushell=$nushell"
-            echo "nginx=$nginx"
+            echo "proxy=$proxy"
           } >> "$GITHUB_OUTPUT"
       - name: Pin image SHAs in values.yaml
         run: |
-          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy:\" + strenv(APP_SHA)" -i helm/values.yaml
+          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy-pipeline:\" + strenv(PIPELINE_SHA)" -i helm/values.yaml
           yq e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
           yq e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
           yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(NGINX_SHA)" -i helm/values.yaml
+          yq e ".fallback.proxyImage = \"ghcr.io/prefeitura-rio/data-proxy-proxy:\" + strenv(PROXY_SHA)" -i helm/values.yaml
         env:
-          APP_SHA: ${{ steps.shas.outputs.app }}
+          PIPELINE_SHA: ${{ steps.shas.outputs.pipeline }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
-          NGINX_SHA: ${{ steps.shas.outputs.nginx }}
+          PROXY_SHA: ${{ steps.shas.outputs.proxy }}
       - name: Read current version
         id: version
         run: |

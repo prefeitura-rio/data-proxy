@@ -26,13 +26,14 @@ in
         packages = with pkgs; [
           actionlint
           hadolint
+          helmfile
           http-nu
           kubeconform
+          minijinja
           nodejs
           nu-lint
           nushell
           sqlfluff
-          minijinja
           typescript
         ];
 
@@ -84,13 +85,13 @@ in
           };
           "dp:lint:docker" = {
             exec = ''
-              hadolint Dockerfile
+              hadolint Dockerfile.pipeline
               hadolint Dockerfile.postgres
               hadolint Dockerfile.nushell
               hadolint Dockerfile.proxy
             '';
             execIfModified = [
-              "Dockerfile"
+              "Dockerfile.pipeline"
               "Dockerfile.postgres"
               "Dockerfile.nushell"
               "Dockerfile.proxy"

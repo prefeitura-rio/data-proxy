@@ -110,11 +110,11 @@ sequenceDiagram
 
 ### High Availability
 
-CNPG manages PostgreSQL instances, replication, failover, and lifecycle. In shared mode, one CNPG Cluster serves all configured schemas. In per-schema HA mode, each configured schema has its own CNPG Cluster, read Pooler, nginx proxy, and PostgREST-ro/rw pair.
+CNPG manages PostgreSQL instances, replication, failover, and lifecycle. In shared mode, one CNPG Cluster serves all configured schemas. In per-schema HA mode, each configured schema has its own CNPG Cluster, read Pooler, proxy, and PostgREST-ro/rw pair.
 
 The DBOS system database holds all sync workflow state and the `dp` application schema (table signatures, partition manifests, errors). In single mode it runs in the shared CNPG cluster. In HA mode DBOS gets its own CNPG cluster with one primary and one replica and no pooler.
 
-Nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and is not used by sync workers or PostgREST writes.
+Nginx routes `GET` and `HEAD` requests to PostgREST-ro through the CNPG read Pooler. Mutations route to PostgREST-rw, which connects directly to the current CNPG writer. The read Pooler is transaction-pooled and is not used by pipelines or PostgREST writes.
 
 The Publisher commits database state, waits for standby WAL replay, refreshes both PostgREST deployments, and waits for their HTTP readiness probes before it completes publication and flushes the response cache. Publication revokes anonymous access on each schema writer. Finalization only clears the temporary object store and response cache. `/access_policy` is never response-cached.
 

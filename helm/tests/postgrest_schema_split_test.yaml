@@ -6,7 +6,7 @@ templates:
   - deployment-schema-postgrest.yaml
   - service-schema-postgrest.yaml
   - hpa-postgrest-rw.yaml
-  - configmap-schema-nginx-proxy.yaml
+  - configmap-schema-proxy.yaml
 tests:
   - it: renders read and write workloads with role-aware DSNs
     set:
@@ -90,14 +90,14 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'postgrest_read \{ default "http://data-proxy-example-postgrest-ro.default.svc.cluster.local:3000"'
-        template: configmap-schema-nginx-proxy.yaml
+        template: configmap-schema-proxy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-example-nginx-proxy
+          value: data-proxy-example-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'default "http://data-proxy-example-postgrest-rw.default.svc.cluster.local:3000"'
-        template: configmap-schema-nginx-proxy.yaml
+        template: configmap-schema-proxy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-example-nginx-proxy
+          value: data-proxy-example-proxy

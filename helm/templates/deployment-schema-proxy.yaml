@@ -1,7 +1,7 @@
 {{/*
 {
   "kind": "template",
-  "description": "Render the per-schema nginx proxy deployment.",
+  "description": "Render the per-schema proxy deployment.",
   "inputs": {
     "values": "Helm chart values used by this resource.",
     "release": "Helm release context used in resource names.",
@@ -16,11 +16,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
+  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-proxy
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: nginx-proxy
+    app.kubernetes.io/component: proxy
     data-proxy.io/schema: {{ $schema | quote }}
 spec:
   strategy:
@@ -31,7 +31,7 @@ spec:
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" $root | nindent 6 }}
-      app.kubernetes.io/component: nginx-proxy
+      app.kubernetes.io/component: proxy
       data-proxy.io/schema: {{ $schema | quote }}
   template:
     metadata:
@@ -40,7 +40,7 @@ spec:
         checksum/sync-config: {{ $root.Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
-        app.kubernetes.io/component: nginx-proxy
+        app.kubernetes.io/component: proxy
         data-proxy.io/schema: {{ $schema | quote }}
         sidecar.istio.io/inject: {{ $root.Values.ingress.sidecarInject | quote }}
     spec:
@@ -52,11 +52,11 @@ spec:
           labelSelector:
             matchLabels:
               {{- include "data-proxy.selectorLabels" $root | nindent 14 }}
-              app.kubernetes.io/component: nginx-proxy
+              app.kubernetes.io/component: proxy
               data-proxy.io/schema: {{ $schema | quote }}
       containers:
         - name: nginx
-          image: {{ required "fallback.nginxImage must reference an image built from Dockerfile.proxy" $root.Values.fallback.nginxImage | quote }}
+          image: {{ required "fallback.proxyImage must reference an image built from Dockerfile.proxy" $root.Values.fallback.proxyImage | quote }}
           ports:
             - name: http
               containerPort: 8080
@@ -147,7 +147,7 @@ spec:
         {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}
         - name: config
           configMap:
-            name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-nginx-proxy
+            name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-proxy
         - name: webdis-config
           configMap:
             name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}-webdis

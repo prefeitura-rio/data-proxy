@@ -1,7 +1,7 @@
 {{/*
 {
   "kind": "template",
-  "description": "Render the shared nginx proxy deployment.",
+  "description": "Render the shared proxy deployment.",
   "inputs": {
     "values": "Helm chart values used by this resource.",
     "release": "Helm release context used in resource names.",
@@ -13,16 +13,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  name: {{ include "data-proxy.fullname" . }}-proxy
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nginx-proxy
+    app.kubernetes.io/component: proxy
 spec:
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: nginx-proxy
+      app.kubernetes.io/component: proxy
   template:
     metadata:
       annotations:
@@ -30,12 +30,12 @@ spec:
         checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: nginx-proxy
+        app.kubernetes.io/component: proxy
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       containers:
         - name: nginx
-          image: {{ required "fallback.nginxImage must reference an image built from Dockerfile.proxy" .Values.fallback.nginxImage | quote }}
+          image: {{ required "fallback.proxyImage must reference an image built from Dockerfile.proxy" .Values.fallback.proxyImage | quote }}
           ports:
             - name: http
               containerPort: 8080
@@ -127,7 +127,7 @@ spec:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         - name: config
           configMap:
-            name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+            name: {{ include "data-proxy.fullname" . }}-proxy
         - name: webdis-config
           configMap:
             name: {{ include "data-proxy.fullname" . }}-webdis

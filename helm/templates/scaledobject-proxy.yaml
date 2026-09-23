@@ -2,11 +2,11 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+  name: {{ include "data-proxy.fullname" . }}-proxy
   namespace: {{ .Release.Namespace }}
 spec:
   scaleTargetRef:
-    name: {{ include "data-proxy.fullname" . }}-nginx-proxy
+    name: {{ include "data-proxy.fullname" . }}-proxy
     kind: Deployment
     apiVersion: apps/v1
   minReplicaCount: 1

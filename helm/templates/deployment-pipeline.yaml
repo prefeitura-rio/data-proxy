@@ -1,7 +1,7 @@
 {{/*
 {
   "kind": "template",
-  "description": "Render the DBOS sync worker Deployment.",
+  "description": "Render the DBOS pipeline Deployment.",
   "inputs": {
     "values": "Helm chart values used by this resource.",
     "release": "Helm release context used in resource names.",
@@ -12,29 +12,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-sync-worker
+  name: {{ include "data-proxy.fullname" . }}-pipeline
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sync-worker
+    app.kubernetes.io/component: pipeline
 spec:
   replicas: 0
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: sync-worker
+      app.kubernetes.io/component: pipeline
   template:
     metadata:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: sync-worker
+        app.kubernetes.io/component: pipeline
     spec:
       restartPolicy: Always
       topologySpreadConstraints:
         {{- toYaml .Values.sync.worker.topologySpreadConstraints | nindent 8 }}
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
-        - name: sync-worker
+        - name: pipeline
           image: "{{ .Values.sync.image }}"
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           resources:

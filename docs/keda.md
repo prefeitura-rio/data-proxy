@@ -1,6 +1,6 @@
 # KEDA Scaling
 
-The DBOS sync worker is a single Deployment scaled by one ScaledObject. The trigger counts DBOS queued and running workflows in the DBOS system database and scales the worker Deployment from zero (idle) to at least three replicas.
+The DBOS pipeline is a single Deployment scaled by one ScaledObject. The trigger counts DBOS queued and running workflows in the DBOS system database and scales the worker Deployment from zero (idle) to at least three replicas.
 
 ```yaml
 triggers:
@@ -20,7 +20,7 @@ triggers:
 | -------------------------------- | ------------ | -------------------------------------------- |
 | `keda.idleReplicaCount`          | `1`          | Replicas when the DBOS queue is empty.       |
 | `keda.minReplicaCount`           | `3`          | Minimum replicas once work activates.        |
-| `keda.maxReplicaCount`           | `15`         | Maximum concurrent sync worker pods.         |
+| `keda.maxReplicaCount`           | `15`         | Maximum concurrent pipeline pods.         |
 | `keda.pollingInterval`           | `30`         | Seconds between KEDA metric checks.          |
 | `keda.cooldownPeriod`            | `60`         | Seconds before scaling down to idle.         |
 | `keda.targetQueryValue`          | `"1.1"`      | Target value for the query result.           |

@@ -1,6 +1,6 @@
-## Container image for the DBOS sync worker.
+## Container image for the DBOS pipeline.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:caa0da9
+  image: ghcr.io/prefeitura-rio/data-proxy-pipeline:caa0da9
   imagePullPolicy: IfNotPresent
   ## Cron expression for the DBOS sync schedule.
   ## Default: daily at 02:00 UTC.
@@ -24,14 +24,14 @@ sync:
       ## Size limit of the emptyDir volume that backs the scratch directory.
       sizeLimit: 4Gi
   worker:
-    ## Spread concurrent sync worker pods across nodes when possible.
+    ## Spread concurrent pipeline pods across nodes when possible.
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
         whenUnsatisfiable: ScheduleAnyway
         labelSelector:
           matchLabels:
-            app.kubernetes.io/component: sync-worker
+            app.kubernetes.io/component: pipeline
             app.kubernetes.io/instance: data-proxy
             app.kubernetes.io/name: data-proxy
     ## Maximum DBOS step retry attempts for one dump task.
@@ -62,7 +62,7 @@ sync:
       idleReplicaCount: 1
       ## Minimum replicas once work activates. We always start with at least 3 workers.
       minReplicaCount: 3
-      ## Maximum number of concurrent sync worker pods.
+      ## Maximum number of concurrent pipeline pods.
       maxReplicaCount: 15
       ## Postgres trigger query counting DBOS queued/running workflows.
       query: "SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';"
@@ -303,7 +303,7 @@ retention:
   schedule: 0 5 * * *
   ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
   startingDeadlineSeconds: 600
-## Sync worker — one DBOS Deployment scaled by a single KEDA ScaledObject that counts
+## Pipeline — one DBOS Deployment scaled by a single KEDA ScaledObject that counts
 ## DBOS queued/running workflows. Scales to zero when the queue is empty.
 ## Sync configuration rendered as sync.json and mounted into each pipeline container.
 ## See docs/sync.md for the full field reference.
@@ -343,7 +343,7 @@ ha:
 ## In single mode DBOS runs in the shared CNPG cluster. In HA mode a dedicated
 ## CNPG cluster (1 primary + 1 replica, no pooler) is rendered for DBOS.
 dbos:
-  applicationName: data-proxy-sync
+  applicationName: data-proxy-pipeline
   applicationVersion: "0.1.0"
   systemSchema: dbos
   appSchema: data_proxy
@@ -506,9 +506,9 @@ ingress:
     ## audience, typically via a shared identity-provider client scope — see docs/security.md.
     ## Leave empty to accept any valid JWT principal regardless of audience.
     audience: ""
-## BigQuery fallback with nginx proxy caching and pg_duckdb views.
+## BigQuery fallback with proxy caching and pg_duckdb views.
 ## The Publisher creates _bq views per table that has fallback: true in the
-## sync config. An nginx proxy with webdis sidecar caches responses in
+## sync config. An proxy with webdis sidecar caches responses in
 ## Valkey and falls back to _bq views when the local table returns empty.
 ## nginx receives a fallback.json map of which tables have BigQuery fallback.
 fallback:
@@ -533,12 +533,12 @@ fallback:
   ## Largest response body that is stored in the cache, in bytes. A larger one is
   ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
-  ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:556f3ba
+  ## proxy image (built from Dockerfile.proxy).
+  proxyImage: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
   ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
   ## every webdis release up to this one still frees an in-flight command.
   webdisImage: docker.io/nicolas/webdis:0.1.25
-  ## Resource requests and limits for the nginx proxy deployment.
+  ## Resource requests and limits for the proxy deployment.
   resources:
     requests:
       cpu: 100m

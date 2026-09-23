@@ -3,15 +3,15 @@ release:
   name: data-proxy
   namespace: default
 templates:
-  - configmap-nginx-proxy.yaml
-  - deployment-nginx-proxy.yaml
+  - configmap-proxy.yaml
+  - deployment-proxy.yaml
 tests:
   - it: renders env var placeholders in nginx config
     set:
-      fallback.nginxImage: example.invalid/data-proxy-fallback:test
+      fallback.proxyImage: example.invalid/data-proxy-fallback:test
       fallback.cacheRedisDb: 2
     templates:
-      - configmap-nginx-proxy.yaml
+      - configmap-proxy.yaml
     asserts:
       - matchRegex:
           path: data["webdis-write.json"]
@@ -24,53 +24,53 @@ tests:
           pattern: 'fallback_cache_ttl "\$\{CACHE_TTL\}"'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'js_fetch_max_response_buffer_size \$\{FETCH_BUFFER_SIZE\}'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'js_fetch_timeout \$\{FETCH_TIMEOUT\}'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'large_client_header_buffers \$\{LARGE_CLIENT_HEADER_BUFFERS\}'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'default "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'default "http://data-proxy-postgrest-rw.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'js_preload_object /config/sync.json'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'proxy_pass http://127.0.0.1:7379/'
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
 
   - it: sets env vars on the nginx container from helm values
     templates:
-      - deployment-nginx-proxy.yaml
+      - deployment-proxy.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value
@@ -87,7 +87,7 @@ tests:
 
   - it: overrides env vars from helm values
     templates:
-      - deployment-nginx-proxy.yaml
+      - deployment-proxy.yaml
     set:
       fallback.fetchTimeout: 30s
       fallback.largeClientHeaderBuffers: "8 128k"
@@ -101,7 +101,7 @@ tests:
 
   - it: mounts config as envsubst template
     templates:
-      - deployment-nginx-proxy.yaml
+      - deployment-proxy.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[?(@.name=="config")].mountPath

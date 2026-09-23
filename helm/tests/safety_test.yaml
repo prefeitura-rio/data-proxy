@@ -3,11 +3,11 @@ templates:
   - cluster-cnpg-dbos.yaml
   - validate-cnpg.yaml
   - validate-s3.yaml
-  - pdb-nginx-proxy.yaml
+  - pdb-proxy.yaml
   - pdb-pooler.yaml
   - pdb-postgrest-ro.yaml
   - pdb-postgrest-rw.yaml
-  - scaledobject-schema-nginx-proxy.yaml
+  - scaledobject-schema-proxy.yaml
   - scaledobject-schema-postgrest.yaml
 tests:
   - it: renders the DBOS CNPG cluster in HA mode
@@ -61,31 +61,31 @@ tests:
     asserts:
       - hasDocuments:
           count: 1
-        template: pdb-nginx-proxy.yaml
+        template: pdb-proxy.yaml
       - equal:
           path: metadata.name
-          value: data-proxy-nginx-proxy
-        template: pdb-nginx-proxy.yaml
+          value: data-proxy-proxy
+        template: pdb-proxy.yaml
       - equal:
           path: spec.minAvailable
           value: 1
-        template: pdb-nginx-proxy.yaml
+        template: pdb-proxy.yaml
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: nginx-proxy
-        template: pdb-nginx-proxy.yaml
+          value: proxy
+        template: pdb-proxy.yaml
 
   - it: disables HA-only safety resources in shared mode
     asserts:
       - hasDocuments:
           count: 0
-        template: pdb-nginx-proxy.yaml
+        template: pdb-proxy.yaml
       - hasDocuments:
           count: 0
         template: pdb-pooler.yaml
       - hasDocuments:
           count: 0
-        template: scaledobject-schema-nginx-proxy.yaml
+        template: scaledobject-schema-proxy.yaml
       - hasDocuments:
           count: 0
         template: scaledobject-schema-postgrest.yaml
@@ -114,7 +114,7 @@ tests:
     asserts:
       - hasDocuments:
           count: 1
-        template: scaledobject-schema-nginx-proxy.yaml
+        template: scaledobject-schema-proxy.yaml
       - hasDocuments:
           count: 1
         template: scaledobject-schema-postgrest.yaml

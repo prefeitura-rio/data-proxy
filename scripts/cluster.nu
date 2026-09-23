@@ -9,7 +9,6 @@ const MINIKUBE_MEMORY = '12288'
 const NAMESPACE = 'data-proxy'
 const PROFILE = 'data-proxy'
 const FALLBACK_CACHE_REDIS_DB = '1'
-const STREAMS = [dp:extract dp:prepare dp:publish]
 const TEST_BUCKET = 'test-bucket'
 const TEST_SCHEMA = 'pic'
 
@@ -266,9 +265,9 @@ def --env build-images [kubecfg: path]: nothing -> string {
     }
 
     [
-        {image: 'data-proxy:local', dockerfile: 'Dockerfile'}
+        {image: 'data-proxy-pipeline:local', dockerfile: 'Dockerfile.pipeline'}
         {image: 'localhost/data-proxy-postgres:17.0.0-local', dockerfile: 'Dockerfile.postgres'}
-        {image: 'data-proxy-nginx-proxy:local', dockerfile: 'Dockerfile.proxy'}
+        {image: 'data-proxy-proxy:local', dockerfile: 'Dockerfile.proxy'}
         {image: 'data-proxy-nushell:local', dockerfile: 'Dockerfile.nushell'}
         {image: 'localhost/k6:local', dockerfile: 'Dockerfile.k6'}
         {image: 'localhost/oidc:local', dockerfile: 'Dockerfile.oidc'}
@@ -321,8 +320,7 @@ def weed [kubecfg: path, ...commands: string]: nothing -> nothing {
     ) | ignore
 }
 
-# Empty the SeaweedFS bucket and clear Redis and Postgres so the next k6 test
-# starts from a clean baseline.
+# Empty the SeaweedFS bucket and clear response cache and database state so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
     (weed
         $kubecfg
@@ -333,7 +331,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
     let stale_jobs = (
         k $kubecfg -n data-proxy get jobs -o name
         | lines
-        | where $it =~ 'seeder|publisher'
+        | where $it =~ 'data-proxy-(e2e|sync-k6|workflow-k6)-'
     )
 
     if ($stale_jobs | is-not-empty) {
@@ -345,22 +343,6 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         (k $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $jsonpath)
         | str trim
     )
-
-    for stream in $STREAMS {
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $valkey
-            --
-            redis-cli
-            XTRIM
-            $stream
-            MAXLEN
-            0
-        )
-    }
 
     log info $'Clearing fallback response cache in Redis DB ($FALLBACK_CACHE_REDIS_DB)...'
     (k
@@ -376,50 +358,63 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         FLUSHDB
     )
 
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        exec
-        $valkey
-        --
-        sh
-        -c
-        'redis-cli --scan --pattern "dp:state:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:plans:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:results:*" | xargs -r redis-cli DEL; redis-cli --scan --pattern "dp:remaining:*" | xargs -r redis-cli DEL; redis-cli DEL dp:active'
-    )
+    let clusters = try {
+        k $kubecfg -n data-proxy get clusters -o json
+        | from json
+        | get items
+        | get metadata.name
+        | where $it !~ '-dbos$'
+    } catch {|err|
+        error make {
+            msg: $'Failed to read CNPG clusters: ($err.msg)'
+            label: {
+                text: clear-test-resources
+                span: (metadata $kubecfg).span
+            }
+        }
+    }
 
-    let pg = (k
-        $kubecfg
-        -n
-        data-proxy
-        get
-        pod
-        -l
-        cnpg.io/cluster=data-proxy
-        -l
-        cnpg.io/instanceRole=primary
-        -o
-        $jsonpath
-    ) | str trim
+    for cluster in $clusters {
+        let schema = if $cluster == 'data-proxy' {
+            $TEST_SCHEMA
+        } else {
+            $cluster | str replace 'data-proxy-' ''
+        }
+        let pg = (
+            k $kubecfg -n data-proxy get pod
+                -l $'cnpg.io/cluster=($cluster)'
+                -l cnpg.io/instanceRole=primary
+                -o $jsonpath
+        ) | str trim
+        let dsn = $'postgresql://data-proxy:test-pg-pass@($cluster)-rw:5432/data-proxy'
+        let tables = (
+            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $'SELECT tablename FROM pg_tables WHERE schemaname = \'($schema)\' AND tablename NOT IN (\'freshness\', \'access_policy\')'
+        )
 
-    let tables = (
-        k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -t -A -c "SELECT tablename FROM pg_tables WHERE schemaname = 'pic' AND tablename NOT IN ('freshness', 'access_policy')"
-    )
-
-    if ($tables | str trim | is-not-empty) {
         let drop_stmt = (
             $tables
             | lines
-            | each {|t| $'DROP TABLE IF EXISTS pic."($t | str trim)" CASCADE' }
+            | each {|table| $'DROP TABLE IF EXISTS ($schema)."($table | str trim)" CASCADE' }
             | str join '; '
         )
-        (
-            k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c $"($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
-        )
-    } else {
-        (
-            k $kubecfg -n data-proxy exec $pg -- psql postgresql://data-proxy:test-pg-pass@data-proxy-rw:5432/data-proxy -c "DELETE FROM partman.part_config WHERE parent_table LIKE 'pic.%'; DELETE FROM pic.freshness; DELETE FROM pic.access_policy;"
-        )
+        let cleanup = $'($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE \'($schema).%\'; DELETE FROM ($schema).freshness; DELETE FROM ($schema).access_policy;'
+        k $kubecfg -n data-proxy exec $pg -- psql $dsn -v ON_ERROR_STOP=1 -c $cleanup
+    }
+
+    let dbos_clusters = (
+        k $kubecfg -n data-proxy get clusters -o name
+        | lines
+        | where $it == 'cluster.postgresql.cnpg.io/data-proxy-dbos'
+    )
+    if ($dbos_clusters | is-not-empty) {
+        let dbos_pg = (
+            k $kubecfg -n data-proxy get pod
+                -l cnpg.io/cluster=data-proxy-dbos
+                -l cnpg.io/instanceRole=primary
+                -o $jsonpath
+        ) | str trim
+        let dbos_dsn = 'postgresql://data-proxy:test-pg-pass@data-proxy-dbos-rw:5432/data-proxy'
+        k $kubecfg -n data-proxy exec $dbos_pg -- psql $dbos_dsn -v ON_ERROR_STOP=1 -c 'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
     }
 }
 
@@ -444,6 +439,9 @@ def k6-run [
         $configmap
         --from-file=($script_key + '=' + $script_path)
         --from-file=lib.ts=k6/lib.ts
+        --from-file=kubernetes.ts=k6/types/kubernetes.ts
+        --from-file=trigger.py=scripts/trigger.py
+        --from-file=inspect_dbos.py=scripts/inspect_dbos.py
         --dry-run=client
         -o
         yaml
@@ -557,19 +555,19 @@ def show-status [kubecfg: path]: nothing -> nothing {
     }
 }
 
-# Rebuild and roll out the local nginx proxy image.
+# Rebuild and roll out the local proxy image.
 def refresh-proxy [kubecfg: path]: nothing -> nothing {
-    log info 'Building data-proxy-nginx-proxy:local...'
-    docker build -q -t data-proxy-nginx-proxy:local -f Dockerfile.proxy .
-    docker save -q data-proxy-nginx-proxy:local | mk $kubecfg image load -
-    k $kubecfg -n data-proxy rollout restart deployment/data-proxy-nginx-proxy out> /dev/null
+    log info 'Building data-proxy-proxy:local...'
+    docker build -q -t data-proxy-proxy:local -f Dockerfile.proxy .
+    docker save -q data-proxy-proxy:local | mk $kubecfg image load -
+    k $kubecfg -n data-proxy rollout restart deployment/data-proxy-proxy out> /dev/null
     (k
         $kubecfg
         -n
         data-proxy
         rollout
         status
-        deployment/data-proxy-nginx-proxy
+        deployment/data-proxy-proxy
         --timeout=180s
     ) out> /dev/null
 }
@@ -609,8 +607,14 @@ def "main k6 e2e" []: nothing -> nothing {
     log info 'Applying GCP secret...'
     apply-gcp-secret $kubecfg
 
-    log info 'Deleting the init-db Job so it recreates the postgres S3 secret...'
-    k $kubecfg -n data-proxy delete job data-proxy-init-db --ignore-not-found
+    log info 'Deleting init-db Jobs so they recreate PostgreSQL setup...'
+    let old_init_jobs = (
+        k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
+        | lines
+    )
+    if ($old_init_jobs | is-not-empty) {
+        k $kubecfg -n data-proxy delete ...$old_init_jobs --ignore-not-found
+    }
 
     log info 'Upgrading data-proxy release...'
     (hm
@@ -625,21 +629,20 @@ def "main k6 e2e" []: nothing -> nothing {
     )
 
     log info 'Waiting for the init-db Job...'
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        wait
-        --for=condition=complete
-        job/data-proxy-init-db
-        --timeout=180s
-    ) out> /dev/null
+    let init_jobs = (
+        k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
+        | lines
+    )
+    for job in $init_jobs {
+        (k $kubecfg -n data-proxy wait --for=condition=complete $job --timeout=180s) out> /dev/null
+    }
 
     log info 'Waiting for data-proxy deployments...'
     [
-        'data-proxy/data-proxy-nginx-proxy'
+        'data-proxy/data-proxy-proxy'
         'data-proxy/data-proxy-postgrest-ro'
         'data-proxy/data-proxy-postgrest-rw'
+        'data-proxy/data-proxy-pipeline'
     ] | wait-for deployment $kubecfg
 
     log info 'Clearing test resources...'

@@ -4,8 +4,8 @@ release:
   namespace: default
 templates:
   - virtualservice.yaml
-  - configmap-nginx-proxy.yaml
-  - configmap-schema-nginx-proxy.yaml
+  - configmap-proxy.yaml
+  - configmap-schema-proxy.yaml
 tests:
   - it: renders env var placeholders in each per-schema proxy config
     set:
@@ -16,17 +16,17 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'js_fetch_max_response_buffer_size \$\{FETCH_BUFFER_SIZE\}'
-        template: configmap-schema-nginx-proxy.yaml
+        template: configmap-schema-proxy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-example-nginx-proxy
+          value: data-proxy-example-proxy
       - notMatchRegex:
           path: data["nginx.conf"]
           pattern: '__FETCH_[A-Z_]+__'
-        template: configmap-schema-nginx-proxy.yaml
+        template: configmap-schema-proxy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-example-nginx-proxy
+          value: data-proxy-example-proxy
 
   - it: routes per-schema reads through the fallback proxy
     set:
@@ -34,7 +34,7 @@ tests:
       cnpg.schemas:
         app_pequenos_cariocas:
           instances: 3
-      fallback.nginxImage: example.invalid/data-proxy-fallback:test
+      fallback.proxyImage: example.invalid/data-proxy-fallback:test
       ingress.enabled: true
       ingress.gateway: istio-system/istio-gateway
       ingress.host: data-proxy.example.com
@@ -49,7 +49,7 @@ tests:
         template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.host
-          value: data-proxy-app-pequenos-cariocas-nginx-proxy
+          value: data-proxy-app-pequenos-cariocas-proxy
         template: virtualservice.yaml
       - equal:
           path: spec.http[1].route[0].destination.port.number
@@ -58,7 +58,7 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: '"app_pequenos_cariocas" "http://data-proxy-app-pequenos-cariocas-postgrest-ro.default.svc.cluster.local:3000";'
-        template: configmap-nginx-proxy.yaml
+        template: configmap-proxy.yaml
         documentSelector:
           path: metadata.name
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy

@@ -33,14 +33,14 @@ tests:
           path: spec.gateways[0]
           value: istio-system/istio-gateway
 
-  - it: destination points to nginx proxy on port 8080
+  - it: destination points to proxy on port 8080
     set:
       ingress.enabled: true
       ingress.host: api.example.com
     asserts:
       - equal:
           path: spec.http[0].route[0].destination.host
-          value: data-proxy-nginx-proxy
+          value: data-proxy-proxy
       - equal:
           path: spec.http[0].route[0].destination.port.number
           value: 8080

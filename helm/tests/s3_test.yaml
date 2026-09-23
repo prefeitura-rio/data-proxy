@@ -26,9 +26,9 @@ tests:
 ---
 suite: S3 wiring
 templates:
-  - deployment-sync-worker.yaml
+  - deployment-pipeline.yaml
 tests:
-  - it: points the sync worker at the in-chart SeaweedFS gateway
+  - it: points the pipeline at the in-chart SeaweedFS gateway
     set:
       s3.bucket: data-proxy
       seaweedfs.enabled: true
@@ -44,7 +44,7 @@ tests:
             name: S3_ENDPOINT
             value: RELEASE-NAME-seaweedfs-s3:8333
 
-  - it: points the sync worker at an explicit endpoint when one is set
+  - it: points the pipeline at an explicit endpoint when one is set
     set:
       s3.endpoint: minio.example.com:9000
     asserts:
