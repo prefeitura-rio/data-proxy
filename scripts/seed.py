@@ -30,8 +30,8 @@ from google.cloud.bigquery import (
     WriteDisposition,
 )
 
-from dp.log import logger
-from dp.models import SyncConfig
+from data_proxy.log import logger
+from data_proxy.models import SyncConfig
 
 type Scalar = str | None
 type NestedValue = Scalar | dict[str, "NestedValue"]
