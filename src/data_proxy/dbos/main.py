@@ -5,6 +5,7 @@ from dbos import DBOS, DBOSConfig, ScheduleInput
 from ..constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
 from ..log import logger
 from ..settings import settings
+from .utils import endpoint_list, otlp_enabled
 from .workflows import run_sync
 
 
@@ -15,17 +16,9 @@ def main() -> None:
         "application_version": settings.DBOS_APPLICATION_VERSION,
         "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
         "dbos_system_schema": settings.DBOS_SYSTEM_SCHEMA,
-        "enable_otlp": bool(
-            settings.OTLP_LOGS_ENDPOINT
-            or settings.OTLP_TRACES_ENDPOINT
-            or settings.OTLP_METRICS_ENDPOINT
-        ),
-        "otlp_logs_endpoints": [settings.OTLP_LOGS_ENDPOINT]
-        if settings.OTLP_LOGS_ENDPOINT
-        else [],
-        "otlp_traces_endpoints": [settings.OTLP_TRACES_ENDPOINT]
-        if settings.OTLP_TRACES_ENDPOINT
-        else [],
+        "enable_otlp": otlp_enabled(settings),
+        "otlp_logs_endpoints": endpoint_list(settings.OTLP_LOGS_ENDPOINT),
+        "otlp_traces_endpoints": endpoint_list(settings.OTLP_TRACES_ENDPOINT),
     }
 
     DBOS(config=config)
