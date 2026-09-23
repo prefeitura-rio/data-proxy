@@ -43,4 +43,6 @@ pytest_plugins = [
     "tests.integration.steps.loading",
     "tests.integration.steps.fallback",
     "tests.integration.steps.replication",
+    "tests.integration.steps.cache",
+    "tests.integration.steps.templates",
 ]
