@@ -105,6 +105,30 @@ tests:
           value: data-proxy-app-init-db-0
         template: job-init-db.yaml
 
+  - it: init-db SQL ConfigMap ships the four split maintenance procedure files
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: job-init-db.yaml
+      - notExists:
+          path: data.setup_maintenance.sql
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db-sql
+        template: job-init-db.yaml
+
+  - it: init-db mounts templates at /templates/postgres
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_TEMPLATE_DIR
+            value: /templates/postgres
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-init-db-0
+        template: job-init-db.yaml
+
   - it: backup does not render when disabled
     set:
       backup.enabled: false
