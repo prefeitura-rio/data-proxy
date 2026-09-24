@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the setup policy writer database operation.",
+  "description": "Create a per-schema policy-writer role, grant it to the authenticator, and allow full access on the access_policy table.",
   "inputs": {
     "policy_writer_role": "SQL-safe policy-writer role identifier.",
     "policy_writer_literal": "SQL-safe policy-writer role literal.",

@@ -107,11 +107,12 @@ def create-access-policy []: nothing -> nothing {
 
 # Install maintenance procedures used by cleanup and retention jobs.
 def install-maintenance []: nothing -> nothing {
-    let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
-
     for procedure in [cleanup_stale_objects prune_access_log] {
-        postgres (render-sql $'($procedure).sql' {schema: $schema})
+        postgres (
+            render-sql $'($procedure).sql' {schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)}
+        )
     }
+
     log info 'Installed maintenance procedures'
 }
 
@@ -133,7 +134,6 @@ def main []: nothing -> nothing {
         create-access-policy
         install-maintenance
         install-bigquery-extension
-        postgres (render-sql notify_pgrst.sql {})
 
         log info 'Database initialization completed'
     } catch {|err|

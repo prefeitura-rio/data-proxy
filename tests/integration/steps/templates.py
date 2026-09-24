@@ -13,9 +13,8 @@ from pytest_bdd import given, then, when
 from data_proxy.settings import settings
 from tests.fixtures.types import Postgres
 
-TEMPLATE_ROOT = (
-    Path(__file__).resolve().parents[3] / "helm" / "files" / "templates" / "postgres"
-)
+TEMPLATE_ROOT = Path(__file__).resolve().parents[3] / "helm" / "files" / "templates"
+
 PROCEDURES = {
     "cleanup_stale_objects": "jsonb, text",
     "prune_access_log": "interval, text",

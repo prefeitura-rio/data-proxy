@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the setup access policy database operation.",
+  "description": "Create access_policy and access_log tables with a change trigger and a scoped RLS read policy.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Application database role.",

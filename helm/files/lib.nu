@@ -54,7 +54,7 @@ export def render-sql [name: string, context: record]: nothing -> string {
 
     try {
         $context | to json | save --force $context_file
-        let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates/postgres
+        let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates
         minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file
     } catch {|err| fail $'Failed to render SQL template ($name): ($err.msg)' {command: render-sql, span: (metadata $name).span} }
 }

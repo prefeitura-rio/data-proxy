@@ -50,13 +50,13 @@ tests:
           value: data-proxy-init-db-sql
         template: job-init-db.yaml
 
-  - it: init-db mounts templates at /templates/postgres
+  - it: init-db mounts templates at /templates
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SQL_TEMPLATE_DIR
-            value: /templates/postgres
+            value: /templates
         documentSelector:
           path: metadata.name
           value: data-proxy-init-db-0

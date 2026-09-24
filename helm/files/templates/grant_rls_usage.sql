@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the grant rls usage database operation.",
+  "description": "Grant USAGE on the rls schema to the anonymous and application roles.",
   "inputs": {
     "anonymous_role": "Anonymous database role.",
     "user_role": "Application database role."

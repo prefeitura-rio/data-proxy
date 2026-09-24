@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the setup freshness database operation.",
+  "description": "Create the freshness table with a scoped RLS policy and grant read access to the application role.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Application database role.",

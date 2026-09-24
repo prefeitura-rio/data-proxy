@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the install extensions database operation."
+  "description": "Install postgis, pg_duckdb, pg_stat_statements, sqlite, and ducklake extensions, then create the rls schema and sync_status enum."
 }
 #}
 CREATE EXTENSION IF NOT EXISTS postgis;
