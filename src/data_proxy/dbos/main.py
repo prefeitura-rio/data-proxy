@@ -2,7 +2,7 @@ import threading
 
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
-from ..constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
+from ..constants import DUMP_QUEUE, SYNC_QUEUE, publish_queue
 from ..log import logger
 from ..settings import settings
 from .utils import endpoint_list, otlp_enabled
@@ -23,22 +23,21 @@ def main() -> None:
 
     DBOS(config=config)
 
-    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, PUBLISH_QUEUE])
+    publish_queues = [
+        publish_queue(schema) for schema in sorted(settings.sync_config.schemas)
+    ]
+    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, *publish_queues])
 
     DBOS.launch()
 
     DBOS.register_queue(SYNC_QUEUE, concurrency=settings.SYNC_QUEUE_CONCURRENCY)
-
     DBOS.register_queue(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
         limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60.0},
     )
-
-    DBOS.register_queue(
-        PUBLISH_QUEUE,
-        worker_concurrency=settings.PUBLISH_QUEUE_WORKER_CONCURRENCY,
-    )
+    for queue in publish_queues:
+        DBOS.register_queue(queue, concurrency=1)
 
     DBOS.apply_schedules(
         [

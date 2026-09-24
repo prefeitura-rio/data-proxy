@@ -17,7 +17,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
 from data_proxy.bigquery.clients import BigQuery
-from data_proxy.models import AllSelection, DumpTask, SchemaWriters
+from data_proxy.models import AllSelection, DumpTask
 from data_proxy.settings import Settings, settings
 from data_proxy.templates import render_template
 from tests.constants import FILES
@@ -46,14 +46,6 @@ def redis() -> MagicMock:
 
 
 @pytest.fixture
-def schema_writers() -> SchemaWriters:
-    """Return the shared schema writer configuration for tests."""
-    return SchemaWriters(
-        writers={"app": "postgresql://writer", "other": "postgresql://writer"}
-    )
-
-
-@pytest.fixture
 def standard_dump_task() -> DumpTask:
     """Return a standard dump task for tests."""
     return DumpTask(
@@ -68,12 +60,10 @@ def standard_dump_task() -> DumpTask:
 @pytest.fixture
 def test_settings(
     monkeypatch: pytest.MonkeyPatch,
-    schema_writers: SchemaWriters,
     sync_config_path: Path,
 ) -> Settings:
     """Provide settings configured with test dependency objects."""
     monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
-    monkeypatch.setattr(settings, "SCHEMA_WRITERS", schema_writers)
     return settings
 
 

@@ -19,9 +19,6 @@ Feature: Persisted synchronization state
     When I record an extraction error for "p.d.t"
     Then the latest error for "p.d.t" has reason "extraction_failed"
 
-  Scenario: Cleaning unconfigured state removes stale table state
-    When I write stale state for "p.d.stale" and clean unconfigured state
-    Then reading table "p.d.stale" has no state
 
   Scenario: Writing partitioned state round-trips through the manifest
     When I write partitioned state for "p.d.t" with one partition

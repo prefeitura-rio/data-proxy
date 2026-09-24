@@ -1,4 +1,4 @@
-"""Constants for the synchronization pipeline."""
+"""Constants for the synchronization service."""
 
 from types import MappingProxyType
 
@@ -18,5 +18,9 @@ TIME_GRANULARITY_SPECS = MappingProxyType(
 )
 
 DUMP_QUEUE = "dump"
-PUBLISH_QUEUE = "publish"
 SYNC_QUEUE = "sync"
+
+
+def publish_queue(schema: str) -> str:
+    """Return the DBOS publish queue owned by one schema."""
+    return f"publish:{schema}"

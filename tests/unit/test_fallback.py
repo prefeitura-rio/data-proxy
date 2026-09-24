@@ -166,7 +166,8 @@ class TestFallbackViewMapping:
             table = FullTable(name="p.app.people", resolved_schema="app")
             mapping = bq_function_mapping("app", table, columns)
             assert mapping["claim_setting"] == "app.claim_sub"
-            assert mapping["bq_table"] == table.name
+            assert mapping["source"] == f"bigquery_scan(''{table.name}'')"
+            assert mapping["source_prefix"] == "LOAD bigquery; "
             mapped_columns = cast("list[dict[str, object]]", mapping["columns"])
             assert len(mapped_columns) == len(columns)
             for mapped, (column, duckdb_type) in zip(

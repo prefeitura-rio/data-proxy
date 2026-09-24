@@ -1,4 +1,4 @@
-"""Data models for the sync pipeline."""
+"""Data models for the sync service."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -186,13 +186,14 @@ class Table(BaseModel):
         """Create one extraction task for the selected source rows."""
         suffix = f"/{path_suffix}" if path_suffix else ""
 
+        scratch_prefix = f"s3://{s3_bucket}/" + "tmp" + "/"
         return DumpTask(
             run_id=run_id,
             table=self.name,
             target_schema=self.resolved_schema,
             bucket_path=(
-                f"s3://{s3_bucket}/{self.resolved_schema}/"
-                f"{self.table_name}{suffix}/data.parquet"
+                scratch_prefix
+                + f"{self.resolved_schema}/{self.table_name}{suffix}/data.parquet"
             ),
             selections=selections,
             json_columns=json_columns or [],
@@ -233,21 +234,6 @@ TableConfig = Annotated[
     FullTable | PartitionedTable,
     Field(discriminator="strategy"),
 ]
-
-
-class SchemaWriters(BaseModel):
-    """Mapping from PostgreSQL schema names to writer DSNs."""
-
-    writers: dict[NonEmptyString, NonEmptyString] = Field(min_length=1)
-
-    def dsn(self, schema: str) -> str:
-        """Return the required writer DSN for a configured schema."""
-        try:
-            return self.writers[schema]
-        except KeyError as error:
-            raise RuntimeError(
-                f"Writer DSN is not configured for schema {schema!r}"
-            ) from error
 
 
 class SchemaConfig(BaseModel):
@@ -317,7 +303,7 @@ class SyncConfig(BaseModel):
 
 
 class DumpTask(BaseModel):
-    """One extraction unit: a source table or a batch of partitions, and its S3 destination."""
+    """One extraction unit and its scratch Parquet destinations."""
 
     run_id: str
     table: str
@@ -325,6 +311,19 @@ class DumpTask(BaseModel):
     bucket_path: str
     selections: Annotated[list[TaskSelection], Field(min_length=1)]
     json_columns: list[str] = []
+
+    @computed_field
+    @property
+    def output_paths(self) -> list[str]:
+        """Return one scratch Parquet path for each extraction selection."""
+        if len(self.selections) == 1:
+            return [self.bucket_path]
+
+        prefix, _, filename = self.bucket_path.rpartition("/")
+        stem = filename.removesuffix(".parquet")
+        return [
+            f"{prefix}/{stem}-{index}.parquet" for index in range(len(self.selections))
+        ]
 
     @computed_field
     @property
@@ -346,25 +345,16 @@ class DumpSuccess(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     status: Literal[DumpStatus.SUCCESS] = DumpStatus.SUCCESS
-
-    @property
-    def maybe_failed_path(self) -> str | None:
-        """No errored path for a successful result."""
-        return None
+    failed_paths: list[str] = []
 
 
 class DumpFailure(BaseModel):
-    """Errored extraction task result."""
+    """Failed extraction task result."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     status: Literal[DumpStatus.FAILURE] = DumpStatus.FAILURE
-    failed_path: str
-
-    @property
-    def maybe_failed_path(self) -> str | None:
-        """The errored Parquet path for this result."""
-        return self.failed_path
+    failed_paths: list[str]
 
 
 DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]
@@ -473,10 +463,3 @@ class PublicationResult(BaseModel):
 
     plan: SyncPlan
     published_tables: set[str]
-
-
-class PublishedSchema(BaseModel):
-    """Result of loading and publishing one schema, with the WAL position to await."""
-
-    result: PublicationResult
-    target_lsn: str

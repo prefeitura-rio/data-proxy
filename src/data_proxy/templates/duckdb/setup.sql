@@ -13,6 +13,10 @@
 -- noqa: PRS
 INSTALL httpfs;
 LOAD httpfs;
+INSTALL ducklake;
+LOAD ducklake;
+INSTALL sqlite;
+LOAD sqlite;
 INSTALL bigquery FROM community;
 LOAD bigquery;
 INSTALL postgres_scanner;

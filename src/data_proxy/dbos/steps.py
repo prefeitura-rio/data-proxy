@@ -1,10 +1,10 @@
-from asyncio import gather
-
 from dbos import DBOS
 
 from ..cache import clear_cache
 from ..duckdb import DuckDB
+from ..ducklake import expire_ducklake_snapshots, run_ducklake_publication
 from ..extraction import run_extraction
+from ..fallback import run_fallback_views_creation
 from ..kubernetes import (
     api_client_factory,
     apps_factory,
@@ -17,17 +17,13 @@ from ..metrics import RunStatus, metrics
 from ..models import (
     DumpTask,
     PublicationResult,
-    PublishedSchema,
     SyncConfig,
     SyncPlan,
     SyncWork,
 )
 from ..planning import run_planning
 from ..postgres import connect_pg
-from ..publication import configure_s3_secret, run_publication
-from ..replication import current_wal_lsn, replicas_replayed
-from ..s3 import clear_s3_bucket
-from ..schema import initialize_schemas
+from ..s3 import clear_s3_prefix
 from ..settings import settings
 from ..state import (
     build_table_states,
@@ -36,7 +32,7 @@ from ..state import (
     write_table_states,
 )
 from ..utils import wait_for
-from .utils import group_schema_configs_by_dsn, retry_transient
+from .utils import retry_transient
 
 
 @DBOS.step()
@@ -95,23 +91,24 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def seed_schemas(plans: list[SyncPlan]) -> None:
-    """Initialize configured schemas and policy objects for one run."""
-    by_dsn = group_schema_configs_by_dsn(
-        plans, settings.sync_config, settings.SCHEMA_WRITERS
-    )
+async def seed_schemas(plans: list[SyncPlan]) -> bool:
+    """Ensure configured PostgreSQL views exist and report view-set changes.
 
-    for dsn, schemas in by_dsn.items():
-        async with connect_pg(dsn) as pg_conn:
-            await initialize_schemas(
-                pg_conn,
-                SyncConfig(schemas=schemas),
-            )
+    The one-time database setup creates roles and metadata tables. This step
+    only reconciles default DuckLake views and optional BigQuery fallback views.
+    """
+    schema_changed = False
+
+    async with connect_pg(settings.PG_DATABASE_URL) as pg_conn:
+        views_changed = await run_fallback_views_creation(pg_conn, settings.sync_config)
+        schema_changed = schema_changed or views_changed
 
     for plan in plans:
         metrics.seed_runs_total.add(
             1, {"schema": plan.schema_name, "status": "success"}
         )
+
+    return schema_changed
 
 
 @DBOS.step(
@@ -138,40 +135,35 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
         )
 
 
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def expire_ducklake_catalogs(schema: str) -> None:
+    """Expire snapshots in one local publisher catalog."""
+    await expire_ducklake_snapshots({schema})
+
+
 @DBOS.step()
-async def load_and_publish(plan: SyncPlan, failed_paths: set[str]) -> PublishedSchema:
-    """Load and publish one schema plan, then capture the commit WAL position."""
+async def commit_ducklake_snapshot(
+    plan: SyncPlan, failed_paths: set[str]
+) -> PublicationResult:
+    """Commit scratch Parquet files into DuckLake for one schema plan."""
     schemaname.set(plan.schema_name)
     config = SyncConfig(
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
     )
 
     async with (
-        connect_pg(settings.SCHEMA_WRITERS.dsn(plan.schema_name)) as pg_conn,
+        connect_pg(settings.PG_DATABASE_URL) as pg_conn,
         connect_pg(settings.DBOS_SYSTEM_DATABASE_URL) as dbos_conn,
     ):
-        await configure_s3_secret(pg_conn)
-
-        result = await run_publication(pg_conn, dbos_conn, config, plan, failed_paths)
-        target_lsn = await current_wal_lsn(pg_conn)
-
-    return PublishedSchema(result=result, target_lsn=target_lsn)
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def wait_for_replica(schema_name: str, target_lsn: str) -> None:
-    """Wait until every replica has replayed the publication WAL position."""
-    async with connect_pg(settings.SCHEMA_WRITERS.dsn(schema_name)) as pg_conn:
-        await wait_for(
-            lambda: replicas_replayed(pg_conn, target_lsn),
-            timeout=settings.REPLICATION_WAIT_TIMEOUT_SECONDS,
-            interval=settings.REPLICATION_POLL_INTERVAL_SECONDS,
-            message="PostgreSQL standbys did not replay the publication WAL",
+        result = await run_ducklake_publication(
+            pg_conn, dbos_conn, config, plan, failed_paths
         )
+
+    return result
 
 
 @DBOS.step(
@@ -180,16 +172,13 @@ async def wait_for_replica(schema_name: str, target_lsn: str) -> None:
     should_retry=retry_transient,
 )
 async def restart_postgrest(schema_name: str, run_id: str) -> None:
-    """Restart both PostgREST deployments and wait for their rollouts."""
+    """Restart the PostgREST deployment and wait for its rollout."""
     load_config()
 
     async with api_client_factory() as api_client:
         apps = apps_factory(api_client)
         namespace = settings.KUBERNETES_NAMESPACE
-        names = [
-            expand_template(settings.POSTGREST_RO_DEPLOYMENT_TEMPLATE, schema_name),
-            expand_template(settings.POSTGREST_RW_DEPLOYMENT_TEMPLATE, schema_name),
-        ]
+        name = expand_template(settings.POSTGREST_DEPLOYMENT_TEMPLATE, schema_name)
         patch = {
             "spec": {
                 "template": {
@@ -200,26 +189,20 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
             }
         }
 
-        for name in names:
-            await apps.patch_namespaced_deployment(
-                name=name,
-                namespace=namespace,
-                body=patch,
-            )
+        await apps.patch_namespaced_deployment(
+            name=name,
+            namespace=namespace,
+            body=patch,
+        )
 
-        async def wait_for_deployment(name: str) -> None:
-            await wait_for(
-                lambda: deployment_ready(
-                    lambda: apps.read_namespaced_deployment(
-                        name=name, namespace=namespace
-                    )
-                ),
-                timeout=settings.POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS,
-                interval=2,
-                message=f"PostGREST rollout did not become ready: {name}",
-            )
-
-        await gather(*(wait_for_deployment(name) for name in names))
+        await wait_for(
+            lambda: deployment_ready(
+                lambda: apps.read_namespaced_deployment(name=name, namespace=namespace)
+            ),
+            timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
+            interval=2,
+            message=f"PostgREST rollout did not become ready: {name}",
+        )
 
 
 @DBOS.step(
@@ -243,7 +226,7 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
     should_retry=retry_transient,
 )
 async def finalize_run(run_id: str) -> None:
-    """Empty the temporary object store and flush the response cache."""
-    await clear_s3_bucket()
+    """Flush scratch Parquet files and the response cache."""
+    await clear_s3_prefix(settings.S3_SCRATCH_PREFIX)
     await clear_cache()
     logger.info("Run finalized run_id=%s", run_id)

@@ -41,4 +41,3 @@ class TestSyncConfigSettings:
     ) -> None:
         """Keep application settings available without a sync file read."""
         assert settings.DBOS_APP_SCHEMA == "data_proxy"
-        assert settings.SCHEMA_WRITERS is not None

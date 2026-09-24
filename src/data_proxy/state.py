@@ -30,9 +30,6 @@ def schema() -> Identifier:
 async def ensure_app_schema(pg_conn: AsyncConnection) -> None:
     """Create the application state schema and tables when absent."""
     await execute_sql(pg_conn, "postgres/init_schema", mapping={"schema": schema()})
-    await execute_sql(
-        pg_conn, "postgres/cleanup_table_state", mapping={"schema": schema()}
-    )
     await pg_conn.commit()
 
 

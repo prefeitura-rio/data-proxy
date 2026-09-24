@@ -17,9 +17,7 @@ TEMPLATE_ROOT = (
     Path(__file__).resolve().parents[3] / "helm" / "files" / "templates" / "postgres"
 )
 PROCEDURES = {
-    "cleanup_table_state": "jsonb",
     "cleanup_stale_objects": "jsonb, text",
-    "apply_retention": "jsonb, text",
     "prune_access_log": "interval, text",
 }
 
@@ -71,24 +69,12 @@ def execute_helm_maintenance_templates(template_context: TemplateScenario) -> No
     for procedure in PROCEDURES:
         sql = render_template(procedure, template_context.rendered)
         asyncio.run(template_context.postgres.connection.execute(sql.encode()))
-
-    grant = render_template(
-        "grant_migration_access",
-        {**template_context.rendered, "user_role": '"user"'},
-    )
-    asyncio.run(template_context.postgres.connection.execute(grant.encode()))
     asyncio.run(template_context.postgres.connection.commit())
 
 
 @then("the Helm maintenance procedures exist")
 def helm_maintenance_procedures_exist(template_context: TemplateScenario) -> None:
     """Verify that every rendered procedure exists in PostgreSQL."""
-    grant_sql = render_template(
-        "grant_migration_access",
-        {**template_context.rendered, "user_role": '"user"'},
-    )
-    assert "GRANT SELECT ON ALL TABLES" in grant_sql
-
     for procedure, signature in PROCEDURES.items():
         cursor = asyncio.run(
             template_context.postgres.connection.execute(

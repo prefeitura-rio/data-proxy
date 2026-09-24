@@ -204,9 +204,9 @@ def build_partition_tasks(
     ]
 
     paths = {
-        partition_id: task.bucket_path
+        partition_id: path
         for batch, task in zip(batches, tasks, strict=True)
-        for partition_id in batch
+        for partition_id, path in zip(batch, task.output_paths, strict=True)
     }
 
     return PartitionTaskBatch(paths=paths, tasks=tasks)

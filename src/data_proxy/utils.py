@@ -1,4 +1,4 @@
-"""Shared async helpers for the synchronization pipeline."""
+"""Shared async helpers for the synchronization service."""
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager

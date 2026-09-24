@@ -1,4 +1,4 @@
-"""OpenTelemetry metrics for pipeline workers."""
+"""OpenTelemetry metrics for sync workers."""
 
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
@@ -26,7 +26,7 @@ def configure_metrics() -> None:
 
 configure_metrics()
 meter = otel_metrics.get_meter("data_proxy")
-RunStatus = Literal["success", "no_changes", "error"]
+RunStatus = Literal["success", "no_changes", "failure"]
 P = ParamSpec("P")
 StatusRecorder = Callable[[RunStatus], Awaitable[None]]
 SyncWorkflow = Callable[P, Awaitable[RunStatus]]
@@ -35,7 +35,7 @@ ObservedWorkflow = Callable[P, Coroutine[object, object, None]]
 
 @dataclass(slots=True)
 class Metrics:
-    """Container for all pipeline OpenTelemetry metrics."""
+    """Container for all sync OpenTelemetry metrics."""
 
     dump_tasks_total: Counter = field(
         default_factory=lambda: meter.create_counter(
@@ -77,7 +77,7 @@ def observe_sync(
             try:
                 status = await workflow(*args, **kwargs)
             except Exception:
-                await record_status("error")
+                await record_status("failure")
                 raise
 
             await record_status(status)

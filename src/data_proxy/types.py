@@ -13,6 +13,7 @@ type TemplateValue = (
     | bool
     | Composable
     | Sequence[str]
+    | Sequence[Composable]
     | Mapping[str, TemplateValue]
     | Sequence[Mapping[str, TemplateValue]]
 )

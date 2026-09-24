@@ -120,10 +120,10 @@ class TestPartitionBatching:
                 table, current, set(current), "run", "bucket", []
             )
         assert batch.paths == {
-            "1": "s3://bucket/app/t/batches/0/data.parquet",
-            "2": "s3://bucket/app/t/batches/1/data.parquet",
-            "3": "s3://bucket/app/t/batches/2/data.parquet",
-            "4": "s3://bucket/app/t/batches/3/data.parquet",
+            "1": "s3://bucket/tmp/app/t/batches/0/data.parquet",
+            "2": "s3://bucket/tmp/app/t/batches/1/data.parquet",
+            "3": "s3://bucket/tmp/app/t/batches/2/data.parquet",
+            "4": "s3://bucket/tmp/app/t/batches/3/data.parquet",
         }
         assert [len(task.selections) for task in batch.tasks] == [1, 1, 1, 1]
 

@@ -48,6 +48,14 @@ class DuckDB:
         finally:
             await asyncify(connection.close)()
 
+    async def execute(self, sql: str, params: Sequence[object] | None = None) -> None:
+        """Execute a DuckDB statement without returning rows."""
+
+        def run() -> None:
+            self.connection.execute(sql, params)
+
+        await asyncify(run)()
+
     async def fetchall(
         self, sql: str, params: Sequence[object] | None = None
     ) -> list[DatabaseRow]:

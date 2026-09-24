@@ -8,7 +8,6 @@ from hypothesis import strategies as st
 
 from data_proxy.extraction import (
     extraction_statement,
-    merge_statement,
     selection_fields,
 )
 from data_proxy.models import (
@@ -89,9 +88,13 @@ class TestExtractionStatements:
         with pytest.raises(AssertionError):
             extraction_statement(dump(), invalid_selection, "s3://b/t")
 
-    def test_builds_merge_statement_for_scratch_directory(self) -> None:
-        """Build a merge statement for the scratch directory."""
-        template, mapping = merge_statement("/scratch", "s3://b/out")
-        assert template == "duckdb/merge_batch"
-        assert render(mapping["scratch_path"]) == "'/scratch/*.parquet'"
-        assert render(mapping["path"]) == "'s3://b/out'"
+    def test_builds_one_output_path_per_selection(self) -> None:
+        """Build separate output paths without merging selections."""
+        task = dump(
+            bucket_path="s3://b/table/batch/data.parquet",
+            selections=[AllSelection(), AllSelection()],
+        )
+        assert task.output_paths == [
+            "s3://b/table/batch/data-0.parquet",
+            "s3://b/table/batch/data-1.parquet",
+        ]

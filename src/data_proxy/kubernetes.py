@@ -65,7 +65,7 @@ api_client_factory = cast(
 
 
 def expand_template(template: str, schema: str) -> str:
-    """Expand a shared or per-schema Kubernetes resource template."""
+    """Expand a Kubernetes resource template when it has a placeholder."""
     return template.format(schema) if "{}" in template else template
 
 
@@ -84,4 +84,4 @@ async def deployment_ready(read: Callable[[], Awaitable[Deployment]]) -> None:
         and status.available_replicas == spec.replicas
         and status.observed_generation == metadata.generation
     ):
-        raise RuntimeError("Deployment isn't ready")
+        raise RuntimeError("Deployment not ready")

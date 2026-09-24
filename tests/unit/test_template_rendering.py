@@ -65,7 +65,7 @@ class TestCreateBqFunction:
     def test_creates_security_definer_function_with_bigquery_scan(self) -> None:
         """Create a SECURITY DEFINER function that scans BigQuery via DuckDB."""
         sql = render_template_text(
-            "postgres/create_bq_function",
+            "postgres/create_view_function",
             {
                 "schema": Identifier("pic"),
                 "function": Identifier("people_bq_fn"),
@@ -92,7 +92,8 @@ class TestCreateBqFunction:
                     {"column": "unit_id", "unit_type": "unit"},
                 ],
                 "duckdb_view": "bq_fallback_pic_people",
-                "bq_table": "'project.dataset.people'",
+                "source": "bigquery_scan(''project.dataset.people'')",
+                "source_prefix": "LOAD bigquery; ",
             },
         )
         assert "CREATE OR REPLACE FUNCTION" in sql
@@ -104,13 +105,51 @@ class TestCreateBqFunction:
         assert "LOAD bigquery" in sql
 
 
+class TestCreateDucklakeFunction:
+    """Create DuckLake-backed query function template behavior tests."""
+
+    def test_creates_security_definer_function_with_catalog_refresh(self) -> None:
+        """Create a SECURITY DEFINER function that attaches DuckLake on revision change."""
+        sql = render_template_text(
+            "postgres/create_view_function",
+            {
+                "schema": Identifier("pic"),
+                "function": Identifier("people_fn"),
+                "columns": [
+                    {
+                        "name": "id",
+                        "key": "'id'",
+                        "is_json": False,
+                        "pg_type": "bigint",
+                        "return_type": "bigint",
+                    },
+                ],
+                "claim_setting": "'app.claim_sub'",
+                "scope": Literal("true"),
+                "has_rls": "false",
+                "rls_mappings": [],
+                "duckdb_view": "ducklake_pic_people",
+                "source": "dl.people",
+                "catalog_local_path": "/var/lib/ducklake/catalogs/pic/catalog.sqlite",
+                "data_path": "s3://bucket/ducklake/pic",
+            },
+        )
+        assert "CREATE OR REPLACE FUNCTION" in sql
+        assert "SECURITY DEFINER" in sql
+        assert "ducklake:sqlite" in sql
+        assert "ATTACH" in sql
+        assert "duckdb.recycle_ddb" in sql
+        assert "dl.people" in sql
+        assert "bigquery_scan" not in sql
+
+
 class TestCreateBqView:
     """Create BigQuery fallback view template behavior tests."""
 
     def test_creates_view_with_column_projection(self) -> None:
         """Create a view selecting columns from the fallback function."""
         sql = render_template_text(
-            "postgres/create_bq_view",
+            "postgres/create_view",
             {
                 "schema": Identifier("pic"),
                 "view": Identifier("people_bq"),
@@ -122,131 +161,6 @@ class TestCreateBqView:
         assert "id," in sql
         assert "payload::jsonb AS payload" in sql
         assert "people_bq_fn" in sql
-
-
-class TestCastJsonToJsonb:
-    """Cast JSON to JSONB template behavior tests."""
-
-    def test_alters_each_column_to_jsonb(self) -> None:
-        """Alter each column to jsonb with USING cast."""
-        sql = render_template_text(
-            "postgres/cast_json_to_jsonb",
-            {
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-                "columns": ["payload", "metadata"],
-            },
-        )
-        assert "ALTER TABLE" in sql
-        assert "ALTER COLUMN payload" in sql
-        assert "SET DATA TYPE jsonb" in sql
-        assert "payload::jsonb" in sql
-        assert "ALTER COLUMN metadata" in sql
-        assert "metadata::jsonb" in sql
-
-
-class TestDeletePartitions:
-    """Delete partitions template behavior tests."""
-
-    def test_deletes_with_rls_exists_check(self) -> None:
-        """Delete rows with an RLS EXISTS subquery when has_rls is true."""
-        sql = render_template_text(
-            "postgres/delete_partitions",
-            {
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-                "affected_partitions": ["id >= 1", "id >= 2"],
-                "has_rls": True,
-                "claim_setting": Literal("'app.claim_sub'"),
-                "predicate": Literal("true"),
-            },
-        )
-        assert "DELETE FROM" in sql
-        assert "id >= 1 OR id >= 2" in sql
-        assert "EXISTS" in sql
-        assert "access_policy" in sql
-
-    def test_deletes_without_rls_when_has_rls_is_false(self) -> None:
-        """Delete rows without an RLS check when has_rls is false."""
-        sql = render_template_text(
-            "postgres/delete_partitions",
-            {
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-                "affected_partitions": ["id >= 1"],
-                "has_rls": False,
-                "claim_setting": Literal("'app.claim_sub'"),
-                "predicate": Literal("true"),
-            },
-        )
-        assert "DELETE FROM" in sql
-        assert "id >= 1" in sql
-        assert "EXISTS" not in sql
-
-
-class TestAppendBatch:
-    """Append batch template behavior tests."""
-
-    def test_creates_temp_inserts_and_drops(self) -> None:
-        """Create a temp table, insert, and drop it."""
-        sql = render_template_text(
-            "postgres/append_batch",
-            {
-                "temp": Identifier("_batch"),
-                "columns": ["id", "name"],
-                "path": Literal("'s3://bucket/data.parquet'"),
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-            },
-        )
-        assert "CREATE TEMP TABLE" in sql
-        assert "read_parquet" in sql
-        assert "INSERT INTO" in sql
-        assert "DROP TABLE" in sql
-
-
-class TestInsertPartition:
-    """Insert partition template behavior tests."""
-
-    def test_inserts_with_where_predicate(self) -> None:
-        """Insert rows matching a partition predicate into the target table."""
-        sql = render_template_text(
-            "postgres/insert_partition",
-            {
-                "temp": Identifier("_batch"),
-                "columns": ["id", "name"],
-                "path": Literal("'s3://bucket/data.parquet'"),
-                "predicate": "true",
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-            },
-        )
-        assert "CREATE TEMP TABLE" in sql
-        assert "WHERE true" in sql
-        assert "INSERT INTO" in sql
-        assert "ON CONFLICT DO NOTHING" in sql
-        assert "DROP TABLE" in sql
-
-
-class TestCreateIndex:
-    """Create index template behavior tests."""
-
-    def test_creates_index_with_columns(self) -> None:
-        """Create an index with the given columns and method."""
-        sql = render_template_text(
-            "postgres/create_index",
-            {
-                "index": Identifier("idx_people"),
-                "schema": Identifier("pic"),
-                "table": Identifier("people"),
-                "method": " USING gin",
-                "columns": ["id", "name"],
-            },
-        )
-        assert "CREATE INDEX IF NOT EXISTS" in sql
-        assert "idx_people" in sql
-        assert "USING gin" in sql
-        assert "id, name" in sql
 
 
 class TestDuckdbWriteAll:

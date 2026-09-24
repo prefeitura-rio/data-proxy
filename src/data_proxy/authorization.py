@@ -37,7 +37,7 @@ async def apply_table_authorization(
         "postgres/grant_select",
         mapping={
             "schema": Identifier(schema),
-            "table": Identifier(table_name),
+            "name": Identifier(table_name),
             "user_role": Identifier(settings.AUTH_USER_ROLE),
         },
     )

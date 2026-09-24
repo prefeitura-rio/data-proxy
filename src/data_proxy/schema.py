@@ -10,8 +10,12 @@ from .models import SyncConfig
 from .settings import settings
 
 
-async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> None:
-    """Create roles and application schemas before publication."""
+async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> bool:
+    """Create roles and application schemas before publication.
+
+    Returns True if any schema objects were created or changed, which would
+    require a PostgREST rollout to re-introspect the schema.
+    """
     await execute_sql(
         pg_conn,
         "postgres/init_roles",
@@ -19,7 +23,6 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> No
     )
     for procedure in (
         "cleanup_stale_objects",
-        "apply_retention",
         "prune_access_log",
     ):
         await execute_sql(
@@ -53,6 +56,7 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> No
         await ensure_schema_policy_writer(pg_conn, schema)
 
     await pg_conn.commit()
+    return True
 
 
 async def revoke_anonymous_access(pg_conn: AsyncConnection, config: SyncConfig) -> None:

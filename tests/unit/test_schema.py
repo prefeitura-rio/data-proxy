@@ -30,18 +30,17 @@ class TestInitializeSchemas:
         connection = AsyncMock()
         config = SyncConfig(schemas={"app": SchemaConfig()})
         await schema.initialize_schemas(connection, config)
-        assert [path for path, _ in calls[:4]] == [
+        assert [path for path, _ in calls[:3]] == [
             "postgres/init_roles",
             "postgres/cleanup_stale_objects",
-            "postgres/apply_retention",
             "postgres/prune_access_log",
         ]
-        assert [path for path, _ in calls[4:]] == [
+        assert [path for path, _ in calls[3:]] == [
             "postgres/init_schema",
             "postgres/init_access_policy",
         ]
-        first_mapping = cast(Mapping[str, TemplateValue], calls[4][1])
-        second_mapping = cast(Mapping[str, TemplateValue], calls[5][1])
+        first_mapping = cast(Mapping[str, TemplateValue], calls[3][1])
+        second_mapping = cast(Mapping[str, TemplateValue], calls[4][1])
         assert cast(Composable, first_mapping["schema"]).as_string(None) == '"app"'
         assert cast(Composable, second_mapping["schema"]).as_string(None) == '"app"'
         connection.commit.assert_awaited_once()

@@ -3,7 +3,7 @@ from datetime import datetime
 
 from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
 
-from ..constants import DUMP_QUEUE, PUBLISH_QUEUE
+from ..constants import DUMP_QUEUE, publish_queue
 from ..log import logger, schemaname, tablename
 from ..metrics import RunStatus, observe_sync
 from ..models import (
@@ -16,17 +16,17 @@ from ..models import (
 from ..settings import settings
 from .steps import (
     build_sync_work,
+    commit_ducklake_snapshot,
     commit_table_state,
+    expire_ducklake_catalogs,
     extract_task,
     finalize_run,
-    load_and_publish,
     record_dump_failure,
     record_dump_metrics,
     record_publish_metrics,
     record_run_status,
     restart_postgrest,
     seed_schemas,
-    wait_for_replica,
 )
 
 
@@ -40,11 +40,18 @@ async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
     dump_results: list[DumpResult] = await asyncio.gather(
         *(handle.get_result() for handle in dump_handles)
     )
-    return {
-        path
-        for result in dump_results
-        if (path := result.maybe_failed_path) is not None
-    }
+    return {path for result in dump_results for path in result.failed_paths}
+
+
+async def run_catalog_maintenance(run_id: str, plans: list[SyncPlan]) -> None:
+    """Run catalog maintenance on each schema publisher queue."""
+    handles = [
+        await DBOS.enqueue_workflow_async(
+            publish_queue(plan.schema_name), expire_catalogs, run_id, plan.schema_name
+        )
+        for plan in plans
+    ]
+    await asyncio.gather(*(handle.get_result() for handle in handles))
 
 
 async def run_publish_tasks(
@@ -54,7 +61,7 @@ async def run_publish_tasks(
     publish_handles: list[WorkflowHandleAsync[set[str]]] = []
     for plan in plans:
         handle = await DBOS.enqueue_workflow_async(
-            PUBLISH_QUEUE,
+            publish_queue(plan.schema_name),
             publish_schema,
             run_id,
             plan,
@@ -76,7 +83,7 @@ async def dump_task(task: DumpTask) -> DumpResult:
         result: DumpResult = DumpSuccess()
     except Exception as error:
         await record_dump_failure(task, str(error))
-        result = DumpFailure(failed_path=task.bucket_path)
+        result = DumpFailure(failed_paths=task.output_paths)
 
     await record_dump_metrics(
         task.task_id, task.table, task.target_schema, result.status.value
@@ -85,19 +92,23 @@ async def dump_task(task: DumpTask) -> DumpResult:
 
 
 @DBOS.workflow()
+async def expire_catalogs(run_id: str, schema: str) -> None:
+    """Expire old snapshots on one schema publisher."""
+    await expire_ducklake_catalogs(schema)
+
+
+@DBOS.workflow()
 async def publish_schema(
     run_id: str, plan: SyncPlan, failed_paths: set[str]
 ) -> set[str]:
-    """Publish one schema and commit its table state."""
+    """Publish one schema to DuckLake and commit its table state."""
     schemaname.set(plan.schema_name)
 
-    outcome = await load_and_publish(plan, failed_paths)
-    await wait_for_replica(plan.schema_name, outcome.target_lsn)
-    await restart_postgrest(plan.schema_name, run_id)
+    outcome = await commit_ducklake_snapshot(plan, failed_paths)
 
-    await record_publish_metrics(outcome.result, plan.schema_name)
-    await commit_table_state(plan, outcome.result)
-    return outcome.result.published_tables
+    await record_publish_metrics(outcome, plan.schema_name)
+    await commit_table_state(plan, outcome)
+    return outcome.published_tables
 
 
 @DBOS.workflow()
@@ -123,9 +134,15 @@ async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
 
         failed_paths = await run_dump_tasks(work.tasks)
 
-        await seed_schemas(work.plans)
+        seed_result, _ = await asyncio.gather(
+            seed_schemas(work.plans),
+            run_publish_tasks(workflow_id, work.plans, failed_paths),
+        )
+        await run_catalog_maintenance(workflow_id, work.plans)
 
-        await run_publish_tasks(workflow_id, work.plans, failed_paths)
+        if seed_result:
+            for plan in work.plans:
+                await restart_postgrest(plan.schema_name, workflow_id)
 
         await finalize_run(workflow_id)
         return "success"

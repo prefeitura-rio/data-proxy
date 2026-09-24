@@ -93,24 +93,6 @@ def record_extraction_error(
 
 
 @when(parsers.parse('I write stale state for "{table}" and clean unconfigured state'))
-def write_and_clean_stale_state(
-    state_connection: AsyncConnection,
-    table: str,
-) -> None:
-    asyncio.run(
-        write_table_states(
-            state_connection,
-            {table: TableState(strategy=Strategy.FULL, signature="stale")},
-        )
-    )
-    asyncio.run(
-        state_connection.execute(
-            b"CALL data_proxy.cleanup_table_state(%s::jsonb)",
-            ('{"schemas": {}}',),
-        )
-    )
-
-
 @then(parsers.parse('reading table "{table}" returns signature "{signature}"'))
 def read_written_signature(
     state_connection: AsyncConnection,

@@ -9,22 +9,21 @@ from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
-from .models import SchemaWriters, SyncConfig
+from .models import SyncConfig
 
 
 class Settings(BaseSettings):
-    """Settings for the data-proxy DBOS sync pipeline."""
+    """Settings for the data-proxy DBOS sync service."""
 
     model_config: ClassVar[SettingsConfigDict] = {
         "extra": "ignore",
         "env_file": ".env",
     }
 
-    SCHEMA_WRITERS: SchemaWriters = Field(default=...)
     AUTH_ANON_ROLE: str = "anon"
     AUTH_AUTHENTICATOR_ROLE: str = "authenticator"
     AUTH_USER_ROLE: str = "user"
-    DBOS_APPLICATION_NAME: str = "data-proxy-pipeline"
+    DBOS_APPLICATION_NAME: str = "data-proxy-sync"
     DBOS_APPLICATION_VERSION: str = "0.1.0"
     DBOS_APP_SCHEMA: str = "data_proxy"
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
@@ -41,19 +40,28 @@ class Settings(BaseSettings):
     OTLP_METRICS_ENDPOINT: str = Field(default="")
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
-    POSTGREST_RO_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-ro"
-    POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
-    POSTGREST_RW_DEPLOYMENT_TEMPLATE: str = "data-proxy-{}-postgrest-rw"
-    PUBLISH_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
+    POSTGREST_DEPLOYMENT_TEMPLATE: str = "data-proxy-postgrest"
+    POSTGREST_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    """PostgREST Deployment name used for conditional rollout."""
     REDIS_READ: RedisDsn = RedisDsn("redis://localhost:6379/1")
     REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
-    REPLICATION_POLL_INTERVAL_SECONDS: int = Field(default=1, gt=0)
-    REPLICATION_WAIT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     S3_ACCESS_KEY: str = "seaweedfs"
     S3_BUCKET: str = "test-bucket"
     S3_ENDPOINT: str = "localhost:8333"
     S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
     S3_USE_SSL: bool = False
+    S3_SCRATCH_PREFIX: str = "tmp"
+    # DuckLake settings for the Parquet-backed query layer.
+    DUCKLAKE_CATALOG_LOCAL_PATH: Path = Path("/var/lib/ducklake/catalogs")
+    """Stable local root for per-schema SQLite catalogs."""
+    DUCKLAKE_CATALOG_PATH: str = "ducklake"
+    """S3 prefix for all DuckLake data: catalogs and Parquet."""
+    DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
+    """Target Parquet file size for DuckLake INSERT operations."""
+    DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
+    """Age after which old DuckLake snapshots are expired and files cleaned up."""
+    EMPTY_CACHE_TTL: int = Field(default=3600, ge=0)
+    """TTL for cached empty responses, in seconds. Prevents repeated S3 reads."""
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
     SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)

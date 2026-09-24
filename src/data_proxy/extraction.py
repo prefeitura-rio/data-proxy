@@ -1,6 +1,5 @@
 """BigQuery-to-Parquet extraction statement builders and runner."""
 
-from tempfile import TemporaryDirectory
 from typing import assert_never
 
 from psycopg.sql import Composable, Identifier, Literal
@@ -15,7 +14,6 @@ from .models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from .settings import settings
 from .types import TemplateValue
 
 type StatementMapping = tuple[str, dict[str, TemplateValue]]
@@ -70,29 +68,8 @@ def extraction_statement(
             assert_never(selection)
 
 
-def merge_statement(scratch_path: str, path: str) -> StatementMapping:
-    """Return the merge template and its values."""
-    return "duckdb/merge_batch", {
-        "scratch_path": Literal(f"{scratch_path}/*.parquet"),
-        "path": Literal(path),
-    }
-
-
 async def run_extraction(task: DumpTask, duckdb_conn: DuckDB) -> None:
-    """Extract one dump task from BigQuery to Parquet via DuckDB."""
-    if len(task.selections) == 1:
-        template, mapping = extraction_statement(
-            task, task.selections[0], task.bucket_path
-        )
-        await execute_sql(duckdb_conn, template, mapping)
-        return
-
-    with TemporaryDirectory(dir=settings.DUMPER_SCRATCH_DIR) as scratch:
-        for index, selection in enumerate(task.selections):
-            template, mapping = extraction_statement(
-                task, selection, f"{scratch}/{index}.parquet"
-            )
-            await execute_sql(duckdb_conn, template, mapping)
-
-        template, mapping = merge_statement(scratch, task.bucket_path)
+    """Extract each selection to its own scratch Parquet file."""
+    for selection, path in zip(task.selections, task.output_paths, strict=True):
+        template, mapping = extraction_statement(task, selection, path)
         await execute_sql(duckdb_conn, template, mapping)

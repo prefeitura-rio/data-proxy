@@ -30,20 +30,21 @@ BEGIN
     LOOP
         schema_changed := false;
         FOR target_table IN
-            SELECT tables.tablename
-            FROM pg_tables AS tables
-            WHERE tables.schemaname = target_schema
-              AND tables.tablename NOT IN ('freshness', 'access_policy', 'access_log')
+            SELECT views.viewname
+            FROM pg_views AS views
+            WHERE views.schemaname = target_schema
+              AND views.viewname NOT IN ('freshness', 'access_policy', 'access_log')
               AND NOT EXISTS (
                   SELECT 1
                   FROM jsonb_array_elements(
                       p_config -> 'schemas' -> target_schema -> 'tables'
                   ) AS config_table(value)
-                  WHERE split_part(config_table.value ->> 'name', '.', 3) = tables.tablename
+                  WHERE split_part(config_table.value ->> 'name', '.', 3) = views.viewname
               )
         LOOP
             EXECUTE format('DELETE FROM %I.freshness WHERE "table" = $1', target_schema) USING target_table;
-            EXECUTE format('DROP TABLE IF EXISTS %I.%I CASCADE', target_schema, target_table);
+            EXECUTE format('DROP VIEW IF EXISTS %I.%I CASCADE', target_schema, target_table);
+            EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_fn');
             changed := true;
             schema_changed := true;
         END LOOP;

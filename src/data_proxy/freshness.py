@@ -38,7 +38,7 @@ async def upsert_freshness(
                     partition,
                     updated_at,
                     attempted_datetime,
-                    "success" if success else "error",
+                    "success" if success else "failure",
                 )
                 for partition in partitions
             ],
@@ -151,7 +151,7 @@ async def record_freshness_failures(
                 partition,
                 None,
                 attempted_datetime,
-                "error",
+                "failure",
             )
             for partition in partitions
         )

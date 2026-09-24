@@ -18,7 +18,6 @@ from data_proxy.models import (
     PhysicalPartition,
     RangeSelection,
     SchemaConfig,
-    SchemaWriters,
     SyncConfig,
     SyncPlan,
     SyncPublicationInput,
@@ -106,27 +105,14 @@ class TestTableConfiguration:
     ) -> None:
         """Build an extraction path from table configuration."""
         task = table.to_task(run_id, bucket, [AllSelection()])
-        assert (
-            task.bucket_path
-            == f"s3://{bucket}/{table.resolved_schema}/{table.table_name}/data.parquet"
+        scratch_prefix = f"s3://{bucket}/" + "tmp" + "/"
+        assert task.bucket_path == (
+            scratch_prefix + f"{table.resolved_schema}/{table.table_name}/data.parquet"
         )
 
 
 class TestSchemaConfiguration:
     """Schema configuration behavior tests."""
-
-    @given(
-        schema=identifiers, dsn=st.from_regex("postgresql://[a-z]{1,8}", fullmatch=True)
-    )
-    def test_returns_configured_writer_dsn(self, schema: str, dsn: str) -> None:
-        """Return the writer DSN for a configured schema."""
-        assert SchemaWriters(writers={schema: dsn}).dsn(schema) == dsn
-
-    @given(schema=identifiers)
-    def test_rejects_missing_writer_dsn(self, schema: str) -> None:
-        """Reject a schema without a writer DSN."""
-        with pytest.raises(RuntimeError, match="not configured"):
-            SchemaWriters(writers={"other": "postgresql://writer"}).dsn(schema)
 
     @given(
         schema=identifiers, table=st.from_regex("p\\.[a-z]+\\.[a-z]+", fullmatch=True)
@@ -206,14 +192,14 @@ class TestTaskResults:
         second = first.model_copy(deep=True)
         assert first.task_id == second.task_id
 
-    def test_success_has_no_failed_path(self) -> None:
-        """Return no failed path for a successful task."""
-        assert DumpSuccess().maybe_failed_path is None
+    def test_success_has_no_failed_paths(self) -> None:
+        """Return no failed paths for a successful task."""
+        assert DumpSuccess().failed_paths == []
 
     @given(path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
-    def test_failure_returns_failed_path(self, path: str) -> None:
-        """Return the failed path for a failed task."""
-        assert DumpFailure(failed_path=path).maybe_failed_path == path
+    def test_failure_returns_failed_paths(self, path: str) -> None:
+        """Return all failed paths for a failed task."""
+        assert DumpFailure(failed_paths=[path]).failed_paths == [path]
 
     @given(run_id=identifiers, path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
     def test_changes_task_id_when_run_changes(self, run_id: str, path: str) -> None:

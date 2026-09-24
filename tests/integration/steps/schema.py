@@ -109,7 +109,9 @@ def clean_schema_objects(schema_context: SchemaScenario) -> None:
     )
     asyncio.run(initialize_schemas(database.connection, config))
     asyncio.run(
-        database.connection.execute(f'CREATE TABLE "{schema}".stale (id int)'.encode())
+        database.connection.execute(
+            f'CREATE VIEW "{schema}".stale AS SELECT 1'.encode()
+        )
     )
     asyncio.run(
         database.connection.execute(
@@ -124,10 +126,14 @@ def check_maintenance_procedures(schema_context: SchemaScenario) -> None:
     database = schema_context.postgres
     cursor = asyncio.run(
         database.connection.execute(
-            "SELECT to_regprocedure('data_proxy.apply_retention(jsonb,text)')"
+            "SELECT to_regprocedure('data_proxy.cleanup_stale_objects(jsonb,text)'), to_regprocedure('data_proxy.prune_access_log(interval,text)')"
         )
     )
-    assert asyncio.run(cursor.fetchone()) == ("data_proxy.apply_retention(jsonb,text)",)
+    row = asyncio.run(cursor.fetchone())
+    assert row == (
+        "data_proxy.cleanup_stale_objects(jsonb,text)",
+        "data_proxy.prune_access_log(interval,text)",
+    )
 
 
 @then("both configured schemas exist")

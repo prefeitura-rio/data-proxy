@@ -3,20 +3,6 @@
 import asyncio
 
 import data_proxy.dbos.utils as dbos_utils
-from data_proxy.models import SchemaConfig, SchemaWriters, SyncConfig, SyncPlan
-
-
-class TestSchemaConfigurationGrouping:
-    """SchemaConfigurationGrouping behavior tests."""
-
-    def test_groups_schemas_by_shared_dsn(self) -> None:
-        """Group schemas that use the same DSN."""
-        config = SyncConfig(schemas={"alpha": SchemaConfig(), "beta": SchemaConfig()})
-        plans = [SyncPlan(schema_name="alpha"), SyncPlan(schema_name="beta")]
-        writers = SchemaWriters(writers={"alpha": "dsn", "beta": "dsn"})
-        assert dbos_utils.group_schema_configs_by_dsn(plans, config, writers) == {
-            "dsn": {"alpha": config.schemas["alpha"], "beta": config.schemas["beta"]}
-        }
 
 
 class TestTransientRetryClassification:
