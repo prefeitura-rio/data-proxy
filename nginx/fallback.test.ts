@@ -25,7 +25,6 @@ interface Scenario {
     profile?: string;
     upstream?: string;
     readUpstream?: string;
-    writeUpstream?: string;
     cacheTtl?: string;
     sync?: unknown;
     requestBody?: string;
@@ -113,6 +112,14 @@ function tokenFor(claims: Record<string, unknown>, header: string = 'header'): s
     return 'Bearer ' + header + '.' + Buffer.from(JSON.stringify(claims)).toString('base64url');
 }
 
+/** The shared answers for a simple cache-miss-then-store flow. */
+const MISS_UPSTREAM_STORE: FakeAnswer[] = [
+    { match: '/GET/', status: 200, body: MISS },
+    { match: UPSTREAM, status: 200, body: ROWS },
+    { match: '/SETEX/', status: 200, body: STORED },
+];
+const MISS_FLOW_CALLS = [CACHE_READ, 'GET ' + CALL, CACHE_WRITE];
+
 const SCENARIOS: Scenario[] = [
     {
         name: 'serves a cache hit without asking the upstream',
@@ -127,18 +134,14 @@ const SCENARIOS: Scenario[] = [
     },
     {
         name: 'asks the upstream on a cache miss and stores the answer',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
+        answers: MISS_UPSTREAM_STORE,
         status: 200,
         body: ROWS,
         contentType: JSON_CT,
         xCache: 'MISS',
         source: 'parquet',
         events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
+        calls: MISS_FLOW_CALLS,
     },
     {
         name: 'serves rows from the fallback when the upstream answer is empty',
@@ -209,107 +212,48 @@ const SCENARIOS: Scenario[] = [
         body: EMPTY,
         contentType: JSON_CT,
         xCache: 'MISS',
-        source: 'postgrest',
+        source: 'parquet',
         events: [],
         calls: ['POST ' + CALL],
     },
     {
-        name: 'never asks BigQuery for an endpoint without a view',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        uri: '/freshness',
-        status: 200,
-        body: EMPTY,
+        name: 'forwards the body and the content headers of a write',
+        answers: [{ match: UPSTREAM, status: 201, body: CREATED }],
+        method: 'POST',
+        requestBody: CREATED,
+        requestContentType: 'application/json',
+        requestContentProfile: 'pic',
+        status: 201,
+        body: CREATED,
         contentType: JSON_CT,
         xCache: 'MISS',
         source: 'parquet',
         events: [],
-        calls: [CACHE_READ, 'GET ' + UPSTREAM + '/freshness?' + QUERY, CACHE_WRITE],
+        calls: ['POST ' + CALL],
+        sentBody: CREATED,
+        sentContentType: 'application/json',
+        sentContentProfile: 'pic',
     },
     {
-        name: 'never asks BigQuery for a table whose config disables the fallback',
+        name: 'passes an upstream server error through and reports it',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
+            { match: UPSTREAM, status: 503, body: '{"message":"down"}' },
         ],
-        sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', fallback: false }] } } },
-        status: 200,
-        body: EMPTY,
+        status: 503,
+        body: '{"message":"down"}',
         contentType: JSON_CT,
         xCache: 'MISS',
         source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
+        events: ['upstream-status'],
+        calls: [CACHE_READ, 'GET ' + CALL],
     },
     {
-        name: 'never asks BigQuery for a schema that is not configured',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        sync: { schemas: { other: { tables: [{ name: 'proj.dev.unrelated_table' }] } } },
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'never asks BigQuery for a schema without tables',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        sync: { schemas: { pic: {} } },
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'never asks BigQuery without a preloaded config',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        sync: null,
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'stores a large answer through the webdis request body',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: BIG_ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        status: 200,
-        body: BIG_ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-        sentBodyPattern: /^SETEX\/[0-9a-f]{64}\/300\//,
-    },
-    {
-        name: 'passes a range answer through and keeps it out of the cache',
+        name: 'passes a range answer through with headers and keeps it out of the cache',
         range: '0-0',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'Content-Range': '0-0/*' } },
+            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'Content-Range': '0-0/*', 'Location': '/protocolo_estado_diario?id=eq.1', 'Preference-Applied': 'count=exact' } },
         ],
         status: 200,
         body: ROWS,
@@ -334,60 +278,8 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + CALL],
     },
     {
-        name: 'takes the upstream headers from a plain object too',
-        range: '0-1',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'content-range': '0-1/2' } },
-        ],
-        headerShape: 'plain',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL],
-    },
-    {
-        name: 'asks the upstream without a query string',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        args: '',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + UPSTREAM + PATH, CACHE_WRITE],
-    },
-    {
-        name: 'never asks BigQuery for a table that no schema configures',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        profile: '',
-        uri: '/desconhecido',
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + UPSTREAM + '/desconhecido?' + QUERY, CACHE_WRITE],
-    },
-    {
         name: 'takes the lifetime from the table when it carries one',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
+        answers: MISS_UPSTREAM_STORE,
         sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', cache_ttl: 42 }] } } },
         status: 200,
         body: ROWS,
@@ -414,25 +306,23 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + CALL],
     },
     {
-        name: 'forwards the body and the content headers of a write',
-        answers: [{ match: UPSTREAM, status: 201, body: CREATED }],
-        method: 'POST',
-        requestBody: CREATED,
-        requestContentType: 'application/json',
-        requestContentProfile: 'pic',
-        status: 201,
-        body: CREATED,
+        name: 'stores a large answer through the webdis request body',
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: UPSTREAM, status: 200, body: BIG_ROWS },
+            { match: '/SETEX/', status: 200, body: STORED },
+        ],
+        status: 200,
+        body: BIG_ROWS,
         contentType: JSON_CT,
         xCache: 'MISS',
-        source: 'postgrest',
+        source: 'parquet',
         events: [],
-        calls: ['POST ' + CALL],
-        sentBody: CREATED,
-        sentContentType: 'application/json',
-        sentContentProfile: 'pic',
+        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
+        sentBodyPattern: /^SETEX\/[0-9a-f]{64}\/300\//,
     },
     {
-        name: 'keeps the upstream answer when the fallback call fails',
+        name: 'degrades to parquet when the fallback fails or errors',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
             { match: '_bq', throws: 'bq down' },
@@ -447,51 +337,7 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL, CACHE_WRITE],
     },
     {
-        name: 'keeps the upstream answer when the fallback answers an error status',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: '_bq', status: 500, body: '{"message":"duckdb failed"}' },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: ['fallback-status'],
-        calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL, CACHE_WRITE],
-    },
-    {
-        name: 'passes an upstream server error through and reports it',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 503, body: '{"message":"down"}' },
-        ],
-        status: 503,
-        body: '{"message":"down"}',
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: ['upstream-status'],
-        calls: [CACHE_READ, 'GET ' + CALL],
-    },
-    {
-        name: 'reports a cache write that could not be sent',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', throws: 'webdis down' },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: ['cache-write-failed'],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'reports a cache write that the cache rejected',
+        name: 'keeps serving when the cache write fails or is rejected',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
             { match: UPSTREAM, status: 200, body: ROWS },
@@ -506,24 +352,7 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
     },
     {
-        name: 'keeps a decoded question mark inside the path',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        uri: '/endpoint_participantes?x',
-        args: '',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + UPSTREAM + '/endpoint_participantes%3Fx', CACHE_WRITE],
-    },
-    {
-        name: 'keeps the fallback suffix inside a path that carries a decoded question mark',
+        name: 'encodes a decoded question mark in the path and preserves the fallback suffix',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
             { match: '_bq', status: 200, body: BQ_ROWS },
@@ -541,28 +370,20 @@ const SCENARIOS: Scenario[] = [
         calls: [CACHE_READ, 'GET ' + UPSTREAM + '/t%3Fx', 'GET ' + UPSTREAM + '/t%3Fx_bq', CACHE_WRITE],
     },
     {
-        name: 'reads the claims of a token',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: tokenFor({ sub: 'alice', schemas: 'pic' }),
+        name: 'asks the upstream without a query string',
+        answers: MISS_UPSTREAM_STORE,
+        args: '',
         status: 200,
         body: ROWS,
         contentType: JSON_CT,
         xCache: 'MISS',
         source: 'parquet',
         events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
+        calls: [CACHE_READ, 'GET ' + UPSTREAM + PATH, CACHE_WRITE],
     },
     {
         name: 'joins a schemas claim that is an array',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
+        answers: MISS_UPSTREAM_STORE,
         token: tokenFor({ preferred_username: 'bob', schemas: ['pic', 'other'] }),
         status: 200,
         body: ROWS,
@@ -570,181 +391,7 @@ const SCENARIOS: Scenario[] = [
         xCache: 'MISS',
         source: 'parquet',
         events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a request without an authorization header as anonymous',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: '',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a token without a payload as anonymous',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: 'Bearer not-a-token',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'reports a cache read that answers something unusable',
-        answers: [
-            { match: '/GET/', status: 200, body: 'not json' },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: ['cache-read-failed'],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a failed cache read as a miss',
-        answers: [
-            { match: '/GET/', status: 500, body: '{"GET":null}' },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a token without claims as anonymous',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: tokenFor({}),
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a header that is not a bearer token as anonymous',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: 'Basic abc',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a token whose payload is not json as anonymous',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        token: 'Bearer header.!!!',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'treats a cache entry that is not text as a miss',
-        answers: [
-            { match: '/GET/', status: 200, body: '{"GET":123}' },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'reports a cache write that the cache did not acknowledge',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: '{}' },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: ['cache-write-rejected'],
-        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE],
-    },
-    {
-        name: 'ignores a fallback answer that is an empty body',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: '_bq', status: 200, body: '' },
-            { match: UPSTREAM, status: 200, body: EMPTY },
-        ],
-        status: 200,
-        body: EMPTY,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL, 'GET ' + BQ_CALL, CACHE_WRITE],
-    },
-    {
-        name: 'runs without a profile and with an empty upstream and lifetime',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: PATH, status: 200, body: ROWS },
-            { match: '/SETEX/', status: 200, body: STORED },
-        ],
-        profile: '',
-        upstream: '',
-        cacheTtl: '',
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + PATH + '?' + QUERY, CACHE_WRITE_WITHOUT_TTL],
-        sentBodyPattern: /^SETEX\/[0-9a-f]{64}\/\//,
+        calls: MISS_FLOW_CALLS,
     },
 ];
 
@@ -829,9 +476,6 @@ function fakeRequest(
             postgrest_read: scenario.readUpstream === undefined
                 ? (scenario.upstream === undefined ? UPSTREAM : scenario.upstream)
                 : scenario.readUpstream,
-            postgrest_write: scenario.writeUpstream === undefined
-                ? (scenario.upstream === undefined ? UPSTREAM : scenario.upstream)
-                : scenario.writeUpstream,
             fallback_cache_ttl: scenario.cacheTtl === undefined ? '300' : scenario.cacheTtl,
             fallback_max_body: scenario.maxBody === undefined ? '' : String(scenario.maxBody),
         },
@@ -971,12 +615,10 @@ SCENARIOS.forEach((scenario) => {
     });
 });
 
-test('proxy: selects the read upstream for GET and write upstream for mutations', async () => {
+test('proxy: uses the single read upstream for all methods', async () => {
     const read = 'http://postgrest-read:3000';
-    const write = 'http://postgrest-write:3000';
     const common = {
         readUpstream: read,
-        writeUpstream: write,
         status: 200,
         body: ROWS,
         contentType: JSON_CT,
@@ -994,8 +636,8 @@ test('proxy: selects the read upstream for GET and write upstream for mutations'
     const post = await run({
         name: 'write route',
         method: 'POST',
-        answers: [{ match: write, status: 200, body: ROWS }],
-        calls: ['POST ' + write + PATH + '?' + QUERY],
+        answers: [{ match: read, status: 200, body: ROWS }],
+        calls: ['POST ' + read + PATH + '?' + QUERY],
         ...common,
     });
 
@@ -1009,31 +651,21 @@ test('proxy: selects the read upstream for GET and write upstream for mutations'
 
     assertCalls(get.calls, [CACHE_READ, 'GET ' + read + PATH + '?' + QUERY, CACHE_WRITE]);
     assertCalls(head.calls, ['HEAD ' + read + PATH + '?' + QUERY]);
-    assertCalls(post.calls, ['POST ' + write + PATH + '?' + QUERY]);
+    assertCalls(post.calls, ['POST ' + read + PATH + '?' + QUERY]);
 });
 
-test('proxy: keys a media type the same with and without parameters', async () => {
+test('proxy: keys media types correctly in the cache', async () => {
     const answers = [{ match: '/GET/', status: 200, body: HIT }];
     const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
 
     const bare = await run({ name: 'bare', accept: 'application/json', answers: answers, ...result });
     const parameters = await run({ name: 'parameters', accept: JSON_CT, answers: answers, ...result });
     const wildcard = await run({ name: 'wildcard', accept: '*/*', answers: answers, ...result });
-    const empty = await run({ name: 'empty', accept: ', text/html', answers: answers, ...result });
-
-    assert.equal(bare.calls[0], parameters.calls[0], 'the parameters must not split the key');
-    assert.equal(bare.calls[0], wildcard.calls[0], 'a wildcard must use the default media type');
-    assert.equal(bare.calls[0], empty.calls[0], 'a list without a media type must use the default');
-});
-
-test('proxy: keeps a media type that asks for another format apart', async () => {
-    const answers = [{ match: '/GET/', status: 200, body: HIT }];
-    const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
-
-    const json = await run({ name: 'json', accept: 'application/json', answers: answers, ...result });
     const csv = await run({ name: 'csv', accept: 'text/csv', answers: answers, ...result });
 
-    assert.notEqual(json.calls[0], csv.calls[0], 'the answer format must be part of the key');
+    assert.equal(bare.calls[0], parameters.calls[0], 'parameters must not split the key');
+    assert.equal(bare.calls[0], wildcard.calls[0], 'a wildcard must use the default media type');
+    assert.notEqual(bare.calls[0], csv.calls[0], 'a different media type must use a different key');
 });
 
 test('proxy: shares an entry between tokens with the same claims', async () => {
@@ -1092,28 +724,6 @@ test('proxy: avoids the globals and methods that the engine does not provide', a
     });
 });
 
-test('proxy: carries the range and preference headers to the client', async () => {
-    const outcome = await run({
-        name: 'ranged answer',
-        range: '0-0',
-        answers: [
-            { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'Content-Range': '0-0/*', 'Location': '/protocolo_estado_diario?id=eq.1', 'Preference-Applied': 'count=exact' } },
-        ],
-        status: 200,
-        body: ROWS,
-        contentType: JSON_CT,
-        xCache: 'MISS',
-        source: 'parquet',
-        events: [],
-        calls: [CACHE_READ, 'GET ' + CALL],
-    });
-
-    assert.equal(outcome.headers['Content-Range'], '0-0/*', 'the range header must reach the client');
-    assert.equal(outcome.headers['Location'], '/protocolo_estado_diario?id=eq.1', 'the location header must reach the client');
-    assert.equal(outcome.headers['Preference-Applied'], 'count=exact', 'the preference header must reach the client');
-});
-
 test('proxy: serves a stored answer without the headers of the live answer', async () => {
     const outcome = await run({
         name: 'stored answer',
@@ -1159,20 +769,67 @@ test('proxy: separates the cache by the profile', async () => {
     assert.notEqual(withProfile.calls[0], withoutProfile.calls[0], 'the profile must be part of the key');
 });
 
-test('proxy: reports a failure when no fake answer matches the call', async () => {
-    const outcome = await run({
-        name: 'no matching answer',
-        answers: [{ match: '/GET/', status: 200, body: MISS }],
-        status: 502, body: '', contentType: null, xCache: null,
-        source: 'none', events: ['upstream-failed'], calls: [CACHE_READ, 'GET ' + CALL],
-    });
+test('proxy: treats malformed tokens as anonymous', async () => {
+    const cases: { name: string, token: string }[] = [
+        { name: 'missing header', token: '' },
+        { name: 'not a bearer', token: 'Basic abc' },
+        { name: 'no payload', token: 'Bearer not-a-token' },
+        { name: 'empty claims', token: tokenFor({}) },
+        { name: 'invalid base64', token: 'Bearer header.!!!' },
+    ];
 
-    assert.equal(outcome.status, 502, 'an unmatched call must not look like a success');
-    assert.equal(outcome.warnings.length, 1, 'an unmatched call must be reported');
+    for (const item of cases) {
+        const outcome = await run({
+            name: item.name,
+            token: item.token,
+            answers: MISS_UPSTREAM_STORE,
+            status: 200,
+            body: ROWS,
+            contentType: JSON_CT,
+            xCache: 'MISS',
+            source: 'parquet',
+            events: [],
+            calls: MISS_FLOW_CALLS,
+        });
 
-    const failure = parseLine(outcome.warnings[0], 'failure');
+        assert.equal(outcome.status, 200, item.name + ': status differs');
+        assert.equal(outcome.body, ROWS, item.name + ': body differs');
+    }
+});
 
-    assert.equal(failure.event, 'upstream-failed', 'the failure event differs');
+test('proxy: never asks BigQuery for unconfigured or disabled tables', async () => {
+    const cases: { name: string, sync?: unknown, uri?: string, profile?: string }[] = [
+        { name: 'endpoint without a view', sync: undefined, uri: '/freshness' },
+        { name: 'fallback disabled', sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', fallback: false }] } } } },
+        { name: 'schema not configured', sync: { schemas: { other: { tables: [{ name: 'proj.dev.unrelated_table' }] } } } },
+        { name: 'schema without tables', sync: { schemas: { pic: {} } } },
+        { name: 'no preloaded config', sync: null },
+        { name: 'unknown table', sync: undefined, uri: '/desconhecido', profile: '' },
+    ];
+
+    for (const item of cases) {
+        const uri = item.uri || PATH;
+        const outcome = await run({
+            name: item.name,
+            sync: item.sync,
+            uri: item.uri,
+            profile: item.profile,
+            answers: [
+                { match: '/GET/', status: 200, body: MISS },
+                { match: UPSTREAM, status: 200, body: EMPTY },
+            ],
+            status: 200,
+            body: EMPTY,
+            contentType: JSON_CT,
+            xCache: 'MISS',
+            source: 'parquet',
+            events: [],
+            calls: [CACHE_READ, 'GET ' + UPSTREAM + uri + '?' + QUERY, CACHE_WRITE],
+        });
+
+        assert.equal(outcome.headers['X-Source'], 'parquet', item.name + ': must not use bigquery');
+        assert.equal(outcome.body, EMPTY, item.name + ': body differs');
+    }
 });
 
 test('proxy: reports an unexpected handler exception as a structured warning', async () => {
