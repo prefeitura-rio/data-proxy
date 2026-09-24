@@ -1,6 +1,6 @@
 # Fallback
 
-Fallback serves an empty local `GET` from the BigQuery-backed `<table>_bq` view. Clients keep using the normal table endpoint.
+Fallback serves an empty DuckLake-backed `GET` from the BigQuery-backed `<table>_bq` view. Clients keep using the normal table endpoint.
 
 Enable it with:
 
@@ -9,51 +9,61 @@ fallback:
   enabled: true
 ```
 
-The chart deploys nginx and Valkey. nginx is the public endpoint. GET and HEAD requests use PostgREST-ro through the read Pooler; mutations use PostgREST-rw directly through the current writer. PostgREST stays the local API endpoint.
+The chart deploys Nginx and Valkey. Nginx is the public endpoint. Read requests use the PostgREST DuckLake view. Nginx only calls the `_bq` view when the DuckLake response is empty and fallback is enabled.
 
 ## Request flow
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant N as nginx
+    participant N as Nginx
     participant V as Valkey
     participant P as PostgREST
+    participant D as DuckLake Parquet
     participant B as BigQuery (_bq view)
 
-    C->>N: GET /table (JWT)
-    N->>V: cache lookup (key = method+path+query+identity)
+    C->>N: GET /table with JWT
+    N->>V: cache lookup
     alt cache hit
-        V-->>N: cached rows
-        N-->>C: 200 (from cache)
+        V-->>N: cached response
+        N-->>C: response
     else cache miss
-        V-->>N: miss
-        N->>P: GET /table (JWT forwarded)
-        P-->>N: local rows
-        alt local rows present
-            N-->>C: 200 (from local)
-        else local table empty
-            N->>P: GET /table_bq (JWT forwarded)
-            P->>B: SELECT ... FROM table_bq
-            B-->>P: fallback rows
-            P-->>N: fallback rows
-            alt fallback rows present
-                N->>V: cache store (key, rows)
-                N-->>C: 200 (from fallback)
-            else fallback empty or error
-                N-->>C: 200 (empty local response)
-            end
+        N->>P: GET /table
+        P->>D: DuckLake view query with RLS predicate
+        D-->>P: rows or empty response
+        alt DuckLake rows present
+            P-->>N: 200 with source parquet
+        else empty and fallback enabled
+            N->>P: GET /table_bq
+            P->>B: BigQuery query with RLS predicate
+            B-->>P: rows or empty response
+            P-->>N: fallback response
         end
+        N->>V: cache response
+        N-->>C: response
     end
 ```
 
-Fallback applies to reads only. The proxy doesn't cache empty, ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never read from or written to the response cache, regardless of schema profile.
+The fallback order is:
+
+```text
+Valkey cache
+→ PostgREST DuckLake view
+→ PostgREST BigQuery _bq view
+→ Valkey cache result
+```
+
+Empty JSON responses are cached for `fallback.emptyCacheTtl` seconds. The default is one hour. This avoids repeated DuckLake and SeaweedFS reads for known-empty results.
+
+Fallback applies to reads only. Nginx does not cache ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never response-cached.
 
 ## Access and cache scope
 
-nginx forwards the JWT to PostgREST. Local tables and fallback views use the same schema and row conditions.
+Nginx forwards the JWT to PostgREST. DuckLake and BigQuery functions use the same schema and row-policy predicates.
 
-Cache keys include request method, path, query, schema profile, representation headers, and identity claims. Different identities don't share entries.
+Cache keys include request method, path, query, schema profile, representation headers, and identity claims. Different identities do not share entries.
+
+Normal DuckLake responses use the `parquet` source label. BigQuery fallback responses use the BigQuery source label.
 
 Configure fallback values in [Helm Chart](helm_chart.md#bigquery-fallback). API response headers are documented in [Using the API](using.md#response-source-and-cache).
 

@@ -1,6 +1,6 @@
 # KEDA Scaling
 
-The DBOS pipeline is a single Deployment scaled by one ScaledObject. The trigger counts DBOS queued and running workflows in the DBOS system database and scales the worker Deployment from zero (idle) to at least three replicas.
+KEDA scales the DBOS sync Deployment from the DBOS system database. The sync workers share the writer catalog PVC and use schema-specific DBOS queues with global concurrency one.
 
 ```yaml
 triggers:
@@ -12,26 +12,30 @@ triggers:
       activationTargetQueryValue: "5"
 ```
 
-`connectionFromEnv` reads `AIRFLOW_CONN_AIRFLOW_DB`, which points at the DBOS system database. The query returns one unit of work per 16 queued or running workflows. `activationTargetQueryValue` activates from zero; `targetQueryValue` adds one replica per unit.
+`connectionFromEnv` reads `AIRFLOW_CONN_AIRFLOW_DB`, which points to the DBOS system database. The query scales the DBOS sync workers. The separate `data-proxy-litestream` Deployment is fixed at one replica.
 
-## Worker
+## Orchestrator and dump workers
 
-| Value                            | Helm default | Meaning                                      |
-| -------------------------------- | ------------ | -------------------------------------------- |
-| `keda.idleReplicaCount`          | `1`          | Replicas when the DBOS queue is empty.       |
-| `keda.minReplicaCount`           | `3`          | Minimum replicas once work activates.        |
-| `keda.maxReplicaCount`           | `15`         | Maximum concurrent pipeline pods.         |
-| `keda.pollingInterval`           | `30`         | Seconds between KEDA metric checks.          |
-| `keda.cooldownPeriod`            | `60`         | Seconds before scaling down to idle.         |
-| `keda.targetQueryValue`          | `"1.1"`      | Target value for the query result.           |
-| `keda.activationTargetQueryValue`| `"5"`        | Value above which KEDA activates from zero.  |
-| `dumpQueueWorkerConcurrency`     | `4`          | Per-process DBOS dump queue concurrency.     |
-| `publishQueueWorkerConcurrency`  | `4`          | Per-process DBOS publish queue concurrency.  |
-| `dumperStepMaxAttempts`          | `3`          | DBOS step retry attempts for one dump task.  |
-| `dumper.batchMegaBytes`          | `600`        | Uncompressed batch target in MiB.            |
-| `dumper.batchMaxPartitions`      | `256`        | Maximum partitions in one batch.             |
+| Value | Helm default | Meaning |
+| --- | --- | --- |
+| `keda.idleReplicaCount` | `1` | Replicas when the DBOS queue is empty. |
+| `keda.minReplicaCount` | `3` | Minimum active sync replicas. |
+| `keda.maxReplicaCount` | `15` | Maximum sync replicas. |
+| `keda.pollingInterval` | `30` | Seconds between KEDA checks. |
+| `keda.cooldownPeriod` | `60` | Seconds before scale-down. |
+| `keda.targetQueryValue` | `"1.1"` | Target query value. |
+| `keda.activationTargetQueryValue` | `"5"` | Activation threshold. |
+| `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
+| `ducklake.catalogStorage` | see values | Shared writer and reader PVC configuration. |
+| `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
+| `dumper.batchMegaBytes` | `600` | Uncompressed batch target in MiB. |
+| `dumper.batchMaxPartitions` | `256` | Maximum partitions in one batch. |
 
-Set replica count from BigQuery quota and extraction capacity.
+## Catalog replication
+
+The DBOS sync workers write the writer PVC. The single `data-proxy-litestream` Deployment replicates all writer catalogs and restores all reader catalogs. A restart restores the latest reader catalogs before PostgreSQL reads them.
+
+Publishing remains parallel across schemas because each schema has a separate SQLite catalog. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
 
 ## Configuration
 
@@ -41,7 +45,7 @@ sync:
   worker:
     dumperStepMaxAttempts: 3
     dumpQueueWorkerConcurrency: 4
-    publishQueueWorkerConcurrency: 4
+    # DBOS workers use the shared writer catalog PVC.
     keda:
       idleReplicaCount: 1
       minReplicaCount: 3
@@ -55,7 +59,7 @@ sync:
     batchMaxPartitions: 256
 ```
 
-The sync schedule is a DBOS scheduled workflow. DBOS deduplicates the schedule across worker replicas, so no separate CronJob is required. Keep one idle worker. The scheduled coordinator must reach a worker even when the queue has only one item.
+DBOS deduplicates the scheduled workflow across orchestrator replicas. Keep one idle orchestrator so a new schedule reaches a worker even when the queue is empty.
 
 ---
 

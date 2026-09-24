@@ -17,7 +17,7 @@ Workers push the current metric registry to Pushgateway after running. Push fail
 
 Workers publish structured error events to the bounded Redis Stream `dp:errors`. The stream is capped at approximately 10,000 entries. Use it to investigate failures without treating it as a durable audit log.
 
-Events include the worker, error type, message, schema or table context when available, and the run identifier. The stream is written for diagnostics; normal pipeline state stays in the application state tables and Redis keys.
+Events include the worker, error type, message, schema or table context when available, and the run identifier. The stream is written for diagnostics; normal sync state stays in the application state tables and Redis keys.
 
 ```bash
 redis-cli XREAD COUNT 20 STREAMS dp:errors 0

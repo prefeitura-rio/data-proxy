@@ -1,6 +1,6 @@
 # Security
 
-Data Proxy enforces access in PostgreSQL. It doesn't calculate business permissions in nginx or in the client.
+Data Proxy enforces access in PostgreSQL and pushes the resulting predicate into DuckDB. It does not calculate business permissions in nginx or in the client.
 
 ## Configure the access model
 
@@ -70,12 +70,13 @@ sequenceDiagram
         P->>DB: Connect using authenticator role
         P->>DB: SET LOCAL ROLE anon or user
         DB->>DB: rls.pre_request maps claims to app.claim_*
-        DB->>DB: Check schemas claim and row policy
+        DB->>DB: Check schema claim and build the RLS predicate
         alt permission or role configuration error
             DB-->>C: 403 Forbidden
         else no matching schema or access policy
             DB-->>C: 200 empty result
         else access allowed
+            DB->>DB: Scan DuckLake Parquet with the predicate
             DB-->>C: 200 authorized rows
         end
     end
@@ -202,9 +203,10 @@ sequenceDiagram
         N->>P: Forward JWT and schema profile
         P->>RP: Query through read Pooler
         RP->>DB: Run JWT role, pre_request, and RLS checks
-        alt local rows exist
-            DB-->>P: Authorized local rows
-            P-->>N: Local response
+        alt DuckLake rows exist
+            DB->>DB: Scan Parquet with the RLS predicate
+            DB-->>P: Authorized DuckLake rows
+            P-->>N: Parquet response
         else local GET empty and table fallback=true
             P->>DB: Query authorized _bq view
             DB->>BQ: Read BigQuery data
@@ -214,7 +216,7 @@ sequenceDiagram
         else fallback turned off or unavailable
             P-->>N: Empty local response
         end
-        N->>R: Cache only eligible non-empty response
+        N->>R: Cache eligible response, including empty response for one hour
         N-->>C: Response
     end
 ```

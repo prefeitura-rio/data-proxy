@@ -42,7 +42,7 @@ Run one DBOS sync through the e2e trigger Job:
 cluster k6 e2e
 ```
 
-The standalone trigger is mounted at `/scripts` only in the temporary e2e Job; isn't part of the pipeline image.
+The standalone trigger is mounted at `/scripts` only in the temporary e2e Job; isn't part of the sync image.
 
 ## Access the API
 

@@ -101,7 +101,7 @@ publisher
 producer
 sync-worker
 data-proxy
-data-proxy-pipeline
+data-proxy-sync
 data-proxy-proxy
 backends
 backend
@@ -136,7 +136,6 @@ dump_task
 publish_schema
 failover
 PVCs
-Patroni
 HAProxy
 subpaths
 subpath

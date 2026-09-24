@@ -58,7 +58,7 @@ Configure proxy values under `fallback`, including `cacheTtl`, `fetchBufferSize`
 
 HA creates one CNPG Cluster, read Pooler, PostgREST-ro/rw pair, and nginx Deployment for each schema in `syncConfig.schemas`. The `ha.schemas` list contains optional overrides only.
 
-GET and HEAD requests use PostgREST-ro through the read Pooler. Mutations use PostgREST-rw directly against the current writer. CNPG manages PostgreSQL replication and failover; no Patroni or HAProxy resources are required.
+GET and HEAD requests use PostgREST-ro through the read Pooler. Mutations use PostgREST-rw directly against the current writer. CNPG manages PostgreSQL replication and failover
 
 ```yaml
 redis:

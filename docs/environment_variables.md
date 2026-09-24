@@ -1,110 +1,89 @@
 # Environment Variables
 
-Application defaults below apply outside Helm. Helm can override them.
+Application defaults apply outside Helm. Helm sets the same values through the chart templates.
 
 ## Connections
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
+| Variable | Default | Meaning |
+| --- | --- | --- |
 | `PG_DATABASE_URL` | `postgresql://test:test@localhost:5432/test` | PostgreSQL DSN for the target database. |
-| `REDIS_READ` | `redis://localhost:6379/1` | Redis address for read operations (cache, fallback). |
-| `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for write operations. |
-| `DBOS_SYSTEM_DATABASE_URL` |—(required) | DBOS system database address. Holds workflow state and the application state schema. |
-| `SCHEMA_WRITERS` |—(required, JSON) | JSON object mapping PostgreSQL schema names to writer DSNs. Loaded from a Secret in Helm. |
-| `SYNC_CONFIG_PATH` | `config/sync.json` | Path to the sync configuration file. |
-| `GOOGLE_APPLICATION_CREDENTIALS` |—| BigQuery service-account file. Omit with Workload Identity. |
+| `REDIS_READ` | `redis://localhost:6379/1` | Redis address for cache reads. |
+| `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for cache writes. |
+| `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database address. |
+| `SYNC_CONFIG_PATH` | `config/sync.json` | Sync configuration path. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | unset | BigQuery credentials file. Omit with Workload Identity. |
 
-## S3
+## S3 and DuckLake
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `S3_BUCKET` | `test-bucket` | Parquet bucket. |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `S3_BUCKET` | `test-bucket` | SeaweedFS/S3 bucket for scratch and DuckLake data. |
 | `S3_ENDPOINT` | `localhost:8333` | S3 endpoint host and port. |
 | `S3_USE_SSL` | `false` | Use TLS for S3. |
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs` | S3 secret key. |
-
-## Dumper
-
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `DUMPER_BATCH_BYTES` | `629145600` | Uncompressed batch target in bytes. |
-| `DUMPER_BATCH_MAX_PARTITIONS` | `256` | Maximum partitions in one dump task. |
-| `DUMPER_SCRATCH_DIR` | System temporary directory | Local Parquet merge directory. |
-| `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | DBOS step retry attempts for one dump task. |
+| `S3_SCRATCH_PREFIX` | `tmp` | Temporary extraction Parquet prefix. |
+| `DUCKLAKE_CATALOG_LOCAL_PATH` | `/var/lib/ducklake/catalogs` | Local root for schema SQLite catalogs. |
+| `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for per-schema SQLite catalogs and Litestream replicas. |
+| `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
+| `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired. |
 
 ## DBOS
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `DBOS_APPLICATION_NAME` | `data-proxy-pipeline` | DBOS application name. |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
 | `DBOS_APPLICATION_VERSION` | `0.1.0` | DBOS application version. |
-| `DBOS_SYSTEM_SCHEMA` | `dbos` | Postgres schema for DBOS system tables. |
-| `DBOS_APP_SCHEMA` | `data_proxy` | Postgres schema for table state and errors. |
+| `DBOS_SYSTEM_SCHEMA` | `dbos` | DBOS metadata schema. |
+| `DBOS_APP_SCHEMA` | `data_proxy` | Application state schema. |
 
 ## Sync queues and schedule
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `SYNC_SCHEDULE` | `0 2 * * *` | Cron schedule for the DBOS `run_sync` workflow. |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SYNC_SCHEDULE` | `0 2 * * *` | DBOS schedule for `run_sync`. |
 | `SYNC_SCHEDULE_NAME` | `sync` | DBOS schedule name. |
-| `SYNC_QUEUE_CONCURRENCY` | `1` | Per-process DBOS sync queue concurrency. |
+| `SYNC_QUEUE_CONCURRENCY` | `1` | Sync workflow concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
-| `SYNC_STEP_MAX_ATTEMPTS` | `3` | Maximum attempts for safe transient DBOS steps. |
-| `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Per-process DBOS dump queue concurrency. |
-| `DUMP_QUEUE_RATE_LIMIT` | `50` | Maximum dump tasks enqueued per 60 seconds. |
-| `PUBLISH_QUEUE_WORKER_CONCURRENCY` | `4` | Per-process DBOS publish queue concurrency. |
+| `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
+| `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Dump worker concurrency. |
+| `DUMP_QUEUE_RATE_LIMIT` | `50` | Dump tasks per minute. |
 
-## Auth
+## Dumper
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DUMPER_BATCH_BYTES` | `629145600` | Uncompressed batch target in bytes. |
+| `DUMPER_BATCH_MAX_PARTITIONS` | `256` | Maximum partitions in one task. |
+| `DUMPER_SCRATCH_DIR` | system temporary directory | Local extraction scratch directory. |
+| `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
+
+## Auth and fallback
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
 | `AUTH_ANON_ROLE` | `anon` | Unauthenticated PostgreSQL role. |
 | `AUTH_USER_ROLE` | `user` | Authenticated PostgreSQL role. |
 | `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | PostgREST login role. |
+| `FALLBACK_CACHE_REDIS_DB` | `1` | Redis database for fallback responses. |
+| `EMPTY_CACHE_TTL` | `3600` | TTL for cached empty responses, in seconds. |
 
-## Fallback
+## PostgREST rollout
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `FALLBACK_CACHE_REDIS_DB` | `1` | Redis database for fallback cache. |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for conditional rollout. |
+| `POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS` | `300` | Read PostgREST rollout timeout. |
 
-## PostgREST and replication
-
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for PostgREST rollout refresh. |
-| `POSTGREST_RO_DEPLOYMENT_TEMPLATE` | `data-proxy-{}-postgrest-ro` | Read-only Deployment name template (`{}` = schema). |
-| `POSTGREST_RW_DEPLOYMENT_TEMPLATE` | `data-proxy-{}-postgrest-rw` | read/write Deployment name template (`{}` = schema). |
-| `POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS` | `300` | Timeout for PostgREST read-only rollout refresh. |
-| `REPLICATION_WAIT_TIMEOUT_SECONDS` | `300` | Timeout for replica WAL replay. |
-| `REPLICATION_POLL_INTERVAL_SECONDS` | `1` | Poll interval for replica WAL replay. |
+PostgREST rolls out when seed adds or removes views. Data-only DuckLake snapshots do not trigger a rollout.
 
 ## Observability
 
-| Variable | Application default | Meaning |
-| --------------------------------- | ----------------------------------------------------------------- | ----------- |
-| `OTLP_LOGS_ENDPOINT` | `""` (turned off) | OTLP logs endpoint. When empty, OTLP export is turned off. |
-| `OTLP_TRACES_ENDPOINT` | `""` (turned off) | OTLP traces endpoint. When empty, trace export is turned off. |
-| `OTLP_METRICS_ENDPOINT` | `""` (turned off) | OTLP metrics endpoint. When empty, metric export is turned off. |
-
-The FastStream and Redis-stream variables (`PRODUCER_POLL_INTERVAL_SECONDS`, `DUMPER_MAX_RETRIES`, `DUMPER_VISIBILITY_TIMEOUT_MS`, `SEEDER_VISIBILITY_TIMEOUT_MS`, `PUBLISHER_VISIBILITY_TIMEOUT_MS`) are removed. DBOS owns run state, retries, and recovery. The Prometheus Pushgateway (`PUSHGATEWAY_URL`) is removed; observability uses one OTLP pipeline.
-
-## Helm conversion
-
-Helm accepts the batch target as MiB:
-
-```yaml
-sync:
-  dumper:
-    batchMegaBytes: 600
-```
-
-The chart converts this value to `DUMPER_BATCH_BYTES` by multiplying it by 1048576.
-
-## Fallback
-
-Configure nginx fallback behavior with Helm values under `fallback`. See [Fallback](fallback.md) for request and cache behavior.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTLP_LOGS_ENDPOINT` | unset | OTLP logs endpoint. |
+| `OTLP_TRACES_ENDPOINT` | unset | OTLP traces endpoint. |
+| `OTLP_METRICS_ENDPOINT` | unset | OTLP metrics endpoint. |
 
 ---
 
