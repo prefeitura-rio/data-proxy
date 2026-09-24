@@ -137,7 +137,7 @@ in
             ];
           };
           "dp:test:proxy" = {
-            exec = "node --experimental-config-file=nginx/node.config.json --test nginx/fallback.test.ts";
+            exec = "node --test nginx/fallback.test.ts";
             execIfModified = [ "nginx" ];
           };
           "dp:test:helm" = {
