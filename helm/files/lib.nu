@@ -58,17 +58,3 @@ export def render-sql [name: string, context: record]: nothing -> string {
         minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file
     } catch {|err| fail $'Failed to render SQL template ($name): ($err.msg)' {command: render-sql, span: (metadata $name).span} }
 }
-
-# Restart every PostgREST deployment so each instance reloads its schema cache.
-# The read-only instance reads from a replica, where NOTIFY is never delivered.
-export def refresh-postgrest [namespace: string, --context: string]: nothing -> nothing {
-    for component in [postgrest-ro postgrest-rw] {
-        let args = if ($context | is-empty) { [] } else { [--context=($context)] }
-
-        let restarted = (kubectl ...$args --namespace $namespace rollout restart deployment --selector $"app.kubernetes.io/component=($component)" | complete)
-
-        if $restarted.exit_code != 0 {
-            log error $"PostgREST restart failed for ($component): ($restarted.stderr | str trim)"
-        }
-    }
-}
