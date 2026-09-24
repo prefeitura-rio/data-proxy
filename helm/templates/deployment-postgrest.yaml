@@ -1,14 +1,3 @@
-{{/*
-{
-  "kind": "template",
-  "description": "Render the read-only PostgREST deployment.",
-  "inputs": {
-    "values": "Helm chart values used by this resource.",
-    "release": "Helm release context used in resource names.",
-    "chart": "Helm chart metadata used in labels."
-  }
-}
-*/}}
 
 apiVersion: apps/v1
 kind: Deployment

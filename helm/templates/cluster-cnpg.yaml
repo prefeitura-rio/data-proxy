@@ -1,4 +1,3 @@
-{{/* Render the single CloudNativePG cluster. */}}
 {{- $root := . }}
 ---
 apiVersion: postgresql.cnpg.io/v1

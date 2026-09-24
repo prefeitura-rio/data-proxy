@@ -1,15 +1,4 @@
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.defaultCpuTrigger",
-  "description": "Render the defaultCpuTrigger Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.defaultCpuTrigger" -}}
 - type: cpu
   metricType: Utilization
@@ -17,17 +6,6 @@
     value: "90"
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.defaultResourceTriggers",
-  "description": "Render the defaultResourceTriggers Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.defaultResourceTriggers" -}}
 - type: cpu
   metricType: Utilization
@@ -39,17 +17,6 @@
     value: "90"
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.haTriggers",
-  "description": "Render the haTriggers Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.haTriggers" -}}
 {{- $root := .root -}}
 {{- $schema := .schema -}}
@@ -70,32 +37,10 @@
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.name",
-  "description": "Render the name Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.fullname",
-  "description": "Render the fullname Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -105,17 +50,6 @@
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.labels",
-  "description": "Render the labels Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.labels" -}}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
@@ -123,33 +57,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.selectorLabels",
-  "description": "Render the selectorLabels Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.serviceAccountName",
-  "description": "Render the serviceAccountName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- .Values.serviceAccount.name | default (include "data-proxy.fullname" .) }}
@@ -158,17 +70,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.dbSecretName",
-  "description": "Render the dbSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.dbSecretName" -}}
 {{- if .Values.cnpg.existingSecret }}
 {{- .Values.cnpg.existingSecret }}
@@ -177,17 +78,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.authenticatorSecretName",
-  "description": "Render the authenticatorSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.authenticatorSecretName" -}}
 {{- if .Values.auth.existingSecret }}
 {{- .Values.auth.existingSecret }}
@@ -204,17 +94,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.s3SecretName",
-  "description": "Render the s3SecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.s3SecretName" -}}
 {{- if .Values.s3.existingSecret }}
 {{- .Values.s3.existingSecret }}
@@ -223,17 +102,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.s3Endpoint",
-  "description": "Render the s3Endpoint Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.s3Endpoint" -}}
 {{- if .Values.s3.endpoint }}
 {{- .Values.s3.endpoint }}
@@ -248,47 +116,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisSecretName",
-  "description": "Render the redisSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.redisSecretName" -}}
 {{- required "redis.existingSecret is required" .Values.redis.existingSecret }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisPasswordKey",
-  "description": "Render the redisPasswordKey Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.redisPasswordKey" -}}
 {{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisWriterAddress",
-  "description": "Render the redisWriterAddress Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.redisWriterAddress" -}}
 {{- $address := required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
 {{- if contains ".svc." $address }}
@@ -299,17 +134,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisConfigEnv",
-  "description": "Render the redisConfigEnv Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.redisConfigEnv" -}}
 - name: REDIS_READ
   valueFrom:
@@ -323,33 +147,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       key: {{ .Values.redis.writeKey | default "REDIS_WRITE" }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.cnpgClusterName",
-  "description": "Render the cnpgClusterName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.cnpgClusterName" -}}
 {{- $root := .root -}}
 {{- include "data-proxy.fullname" $root -}}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresReadDsn",
-  "description": "Render the postgresReadDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.postgresReadDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.cnpg.db.name -}}
@@ -357,17 +159,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresWriteDsn",
-  "description": "Render the postgresWriteDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.postgresWriteDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.cnpg.db.name -}}
@@ -375,32 +166,10 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:
 postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresDsn",
-  "description": "Render the postgresDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.postgresDsn" -}}
 {{ include "data-proxy.postgresWriteDsn" . }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.appPgDsn",
-  "description": "Render the appPgDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
@@ -408,30 +177,10 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
-{{/*
-{
-  "kind": "helper",
-  "name": "data-proxy.dbosClusterName",
-  "description": "Render the DBOS CNPG cluster name for the single cluster.",
-  "inputs": {
-    "context": "Helm template context."
-  }
-}
-*/}}
 {{- define "data-proxy.dbosClusterName" -}}
 {{- include "data-proxy.fullname" . -}}
 {{- end }}
 
-{{/*
-{
-  "kind": "helper",
-  "name": "data-proxy.dbosSystemDatabaseUrl",
-  "description": "Render the DBOS system database URL for the DBOS cluster.",
-  "inputs": {
-    "context": "Helm template context."
-  }
-}
-*/}}
 {{- define "data-proxy.dbosSystemDatabaseUrl" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
@@ -439,49 +188,16 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.nginxConfigBody",
-  "description": "Render the nginxConfigBody Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.nginxConfigBody" -}}
 {{- $upstreams := .upstreams -}}
 {{- $root := .root -}}
 {{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.nginxProxyConfig",
-  "description": "Render the nginxProxyConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.nginxProxyConfig" -}}
 {{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.fallbackNginxUpstreams" .)) }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.webdisWriteConfig",
-  "description": "Render the webdisWriteConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.webdisWriteConfig" -}}
 {
   "redis_host": "{{ .Values.redis.webdisHost }}",
@@ -494,17 +210,6 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 }
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.webdisReadConfig",
-  "description": "Render the webdisReadConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.webdisReadConfig" -}}
 {
   "redis_host": "{{ .Values.redis.webdisReadHost | default .Values.redis.webdisHost }}",
@@ -517,17 +222,6 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 }
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.jwtRules",
-  "description": "Render the jwtRules Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.jwtRules" -}}
 jwtRules:
   - issuer: {{ .Values.ingress.auth.issuer | quote }}
@@ -539,17 +233,6 @@ jwtRules:
     forwardOriginalToken: true
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.fallbackNginxUpstreams",
-  "description": "Render the fallbackNginxUpstreams Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.fallbackNginxUpstreams" -}}
 map $http_accept_profile $postgrest_read {
   default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
@@ -557,18 +240,6 @@ map $http_accept_profile $postgrest_read {
 
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.litestreamConfig",
-  "description": "Render Litestream replication entries for every schema catalog.",
-  "inputs": {
-    "values": "Helm chart values used by this resource.",
-    "release": "Helm release context used in resource names."
-  },
-  "returns": "Litestream YAML configuration."
-}
-*/}}
 {{- define "data-proxy.litestreamConfig" -}}
 {{- $root := .root | default . -}}
 {{- $schemas := .schemas | default ($root.Values.sync.config.schemas) -}}
@@ -590,17 +261,6 @@ dbs:
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.litestreamRestoreScript",
-  "description": "Render the restore supervisor for all schema catalogs.",
-  "inputs": {
-    "values": "Helm chart values used by this resource."
-  },
-  "returns": "POSIX shell script."
-}
-*/}}
 {{- define "data-proxy.litestreamRestoreScript" -}}
 #!/bin/sh
 set -eu
@@ -628,17 +288,6 @@ set -eu
 wait
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.cnpgCatalogPodPatch",
-  "description": "Patch CNPG instance pods with the shared read-only catalog PVC.",
-  "inputs": {
-    "values": "Helm chart values used by this resource."
-  },
-  "returns": "Kubernetes JSON patch."
-}
-*/}}
 {{- define "data-proxy.cnpgCatalogPodPatch" -}}
 {{- $volume := dict
   "name" "ducklake-catalogs"
@@ -659,17 +308,6 @@ wait
 -}}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.appEnv",
-  "description": "Render the appEnv Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.appEnv" -}}
 - name: POSTGRES_PASSWORD
   valueFrom:
@@ -767,17 +405,6 @@ wait
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.gcpVolume",
-  "description": "Render the gcpVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.gcpVolume" -}}
 {{- if .Values.gcp.existingSecret }}
 - name: gcp-key
@@ -786,17 +413,6 @@ wait
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.gcpVolumeMount",
-  "description": "Render the gcpVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.gcpVolumeMount" -}}
 {{- if .Values.gcp.existingSecret }}
 - name: gcp-key
@@ -805,51 +421,18 @@ wait
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.syncConfigVolume",
-  "description": "Render the syncConfigVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.syncConfigVolume" -}}
 - name: sync-config
   configMap:
     name: {{ include "data-proxy.fullname" . }}-sync
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.syncConfigVolumeMount",
-  "description": "Render the syncConfigVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
   readOnly: true
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.duckdbThreads",
-  "description": "Compute duckdb.threads proportional to the CNPG memory limit: floor(GiB / 2), clamped to 1..4.",
-  "inputs": {
-    "context": "Helm template context with cnpg.resources.limits.memory."
-  },
-  "returns": "Thread count as a quoted string for the postgresql.parameters map."
-}
-*/}}
 {{- define "data-proxy.duckdbThreads" -}}
 {{- $mem := .Values.cnpg.resources.limits.memory | toString -}}
 {{- $bytes := 0 -}}
@@ -874,17 +457,6 @@ wait
 {{- $threads | quote -}}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.cnpgParameters",
-  "description": "Render tunable PostgreSQL parameters for CNPG, merging chart defaults with user overrides from .Values.cnpg.postgresql.parameters.",
-  "inputs": {
-    "context": "Helm template context with cnpg.postgresql.parameters."
-  },
-  "returns": "YAML parameters block for tunable postgresql.parameters."
-}
-*/}}
 {{- define "data-proxy.cnpgParameters" -}}
 {{- $defaults := dict
   "shared_buffers" "1GB"

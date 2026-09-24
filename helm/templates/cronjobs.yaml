@@ -115,7 +115,7 @@ data:
 {{ $root.Files.Get "files/cleanup.nu" | nindent 4 }}
   lib.nu: |
 {{ $root.Files.Get "files/lib.nu" | nindent 4 }}
-{{- range $path, $_ := $root.Files.Glob "files/templates/postgres/*.sql" }}
+{{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
   {{ base $path }}: |
 {{ $root.Files.Get $path | nindent 4 }}
 {{- end }}

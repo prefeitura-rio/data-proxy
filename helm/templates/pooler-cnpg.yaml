@@ -1,4 +1,3 @@
-{{/* Render one session-pooled read pooler for the single CNPG cluster. */}}
 {{- $root := . }}
 ---
 apiVersion: postgresql.cnpg.io/v1

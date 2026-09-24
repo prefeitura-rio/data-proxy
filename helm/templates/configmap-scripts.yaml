@@ -13,7 +13,7 @@ data:
 {{ .Files.Get "files/backup.nu" | nindent 4 }}
   lib.nu: |
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
-{{- range $path, $_ := .Files.Glob "files/templates/postgres/*.sql" }}
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}

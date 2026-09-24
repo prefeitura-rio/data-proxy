@@ -1,4 +1,3 @@
-{{/* Render Litestream configurations for the writer and reader volumes. */}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
