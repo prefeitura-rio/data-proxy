@@ -10,7 +10,6 @@ from ..kubernetes import (
     api_client_factory,
     apps_factory,
     deployment_ready,
-    expand_template,
     load_config,
 )
 from ..log import logger, schemaname
@@ -180,7 +179,7 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
     async with api_client_factory() as api_client:
         apps = apps_factory(api_client)
         namespace = settings.KUBERNETES_NAMESPACE
-        name = expand_template(settings.POSTGREST_DEPLOYMENT_TEMPLATE, schema_name)
+        name = "data-proxy-postgrest"
         patch = {
             "spec": {
                 "template": {
@@ -199,10 +198,13 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
             body=patch,
         )
 
-        await wait_for(
-            lambda: deployment_ready(
+        async def check_readiness() -> None:
+            await deployment_ready(
                 lambda: apps.read_namespaced_deployment(name=name, namespace=namespace)
-            ),
+            )
+
+        await wait_for(
+            check_readiness,
             timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
             interval=2,
             message=f"PostgREST rollout did not become ready: {name}",

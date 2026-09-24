@@ -23,48 +23,7 @@ class WorkflowView(Protocol):
     error: object
 
 
-def main() -> None:
-    """Enqueue or inspect one synchronization workflow."""
-    arguments = ArgumentParser(description="Trigger or inspect a DBOS sync workflow.")
-    arguments.add_argument(
-        "--detach",
-        action="store_true",
-        help="Enqueue and return without waiting for the result.",
-    )
-    arguments.add_argument(
-        "--workflow-id",
-        help="Inspect an existing workflow by ID instead of enqueuing a new one.",
-    )
-    arguments.add_argument(
-        "--wait",
-        action="store_true",
-        help="Wait for an existing workflow to reach a terminal state.",
-    )
-    arguments.add_argument(
-        "--timeout",
-        type=float,
-        default=float(os.environ.get("DBOS_WORKFLOW_WAIT_SECONDS", "600")),
-        help="Maximum seconds to wait when inspecting or waiting.",
-    )
-    options = arguments.parse_args()
-    detach: bool = bool(options.detach)
-    workflow_id: str | None = options.workflow_id
-    wait: bool = bool(options.wait)
-    timeout: float = float(options.timeout)
-    client = DBOSClient(
-        system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"],
-        dbos_system_schema=os.environ.get("DBOS_SYSTEM_SCHEMA", "dbos"),
-    )
-    try:
-        if workflow_id or wait:
-            _wait_for_workflow(client, workflow_id, timeout)
-        else:
-            _enqueue_workflow(client, detach)
-    finally:
-        client.destroy()
-
-
-def _enqueue_workflow(client: DBOSClient, detach: bool) -> None:
+def enqueue_workflow(client: DBOSClient, detach: bool) -> None:
     """Enqueue one synchronization workflow and optionally wait for its result."""
     options: EnqueueOptions = {
         "workflow_name": "run_sync",
@@ -79,7 +38,7 @@ def _enqueue_workflow(client: DBOSClient, detach: bool) -> None:
         raise RuntimeError(f"Synchronization finished with status: {result}")
 
 
-def _wait_for_workflow(
+def wait_for_workflow(
     client: DBOSClient, workflow_id: str | None, timeout: float
 ) -> None:
     """Wait for a selected sync workflow and fail with its DBOS error."""
@@ -106,6 +65,49 @@ def _wait_for_workflow(
                 )
         sleep(2)
     raise TimeoutError("Timed out waiting for a successful DBOS sync workflow")
+
+
+def main() -> None:
+    """Enqueue or inspect one synchronization workflow."""
+    arguments = ArgumentParser(description="Trigger or inspect a DBOS sync workflow.")
+    arguments.add_argument(
+        "--detach",
+        action="store_true",
+        help="Enqueue and return without waiting for the result.",
+    )
+    arguments.add_argument(
+        "--workflow-id",
+        help="Inspect an existing workflow by ID instead of enqueuing a new one.",
+    )
+    arguments.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for an existing workflow to reach a terminal state.",
+    )
+    arguments.add_argument(
+        "--timeout",
+        type=float,
+        default=float(os.environ.get("DBOS_WORKFLOW_WAIT_SECONDS", "600")),
+        help="Maximum seconds to wait when inspecting or waiting.",
+    )
+
+    options = arguments.parse_args()
+    detach = cast("bool", options.detach)
+    workflow_id = cast("str | None", options.workflow_id)
+    wait = cast("bool", options.wait)
+    timeout = cast("float", options.timeout)
+    client = DBOSClient(
+        system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"],
+        dbos_system_schema=os.environ.get("DBOS_SYSTEM_SCHEMA", "dbos"),
+    )
+
+    try:
+        if workflow_id or wait:
+            wait_for_workflow(client, workflow_id, timeout)
+        else:
+            enqueue_workflow(client, detach)
+    finally:
+        client.destroy()
 
 
 if __name__ == "__main__":

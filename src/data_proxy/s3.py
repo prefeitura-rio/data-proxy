@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, cast
 
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 
-from .log import logger
 from .settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -49,28 +48,3 @@ async def clear_s3_prefix(prefix: str) -> None:
                 await client.delete_objects(
                     Bucket=settings.S3_BUCKET, Delete={"Objects": keys}
                 )
-
-
-async def clear_s3_bucket() -> None:
-    """Delete every object from the configured bucket, keeping the bucket itself."""
-    endpoint = f"http{'s' if settings.S3_USE_SSL else ''}://{settings.S3_ENDPOINT}"
-
-    async with create_s3_client(get_session(), endpoint) as client:
-        paginator = client.get_paginator("list_objects_v2")
-
-        async for page in paginator.paginate(Bucket=settings.S3_BUCKET):
-            objects = page.get("Contents", [])
-
-            keys: list[ObjectIdentifierTypeDef] = [
-                {"Key": key} for obj in objects if (key := obj.get("Key")) is not None
-            ]
-
-            if not keys:
-                continue
-
-            await client.delete_objects(
-                Bucket=settings.S3_BUCKET,
-                Delete={"Objects": keys},
-            )
-
-    logger.info("Bucket emptied")

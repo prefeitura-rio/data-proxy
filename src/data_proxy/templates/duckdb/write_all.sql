@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the write all database operation.",
+  "description": "Copy an entire BigQuery table to Parquet on S3.",
   "inputs": {
     "json_columns": "SQL-safe identifiers for nested or JSON columns.",
     "bq_table": "BigQuery table reference used by DuckDB.",

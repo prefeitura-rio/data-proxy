@@ -217,18 +217,18 @@ async def physical_partitions(
     """Return the table signature and current physical partitions."""
     reference = parse_table_reference(table)
     metadata: Table = await bq_conn.get_table(table)
-    kind_cfg = partition_kind_config(metadata, table)
+    config = partition_kind_config(metadata, table)
 
-    match kind_cfg:
-        case kind_cfg if kind_cfg.kind == "range" and n is not None:
+    match config:
+        case config if config.kind == "range" and n is not None:
             msg = f"n is only supported for time-partitioned tables: {table}"
             raise ValueError(msg)
         case _:
             pass
 
-    signature = partitioned_table_signature(metadata, config_json, kind_cfg)
+    signature = partitioned_table_signature(metadata, config_json, config)
     normalizer = PartitionNormalizer(
-        kind_config=kind_cfg, table=table, signature=signature
+        kind_config=config, table=table, signature=signature
     )
 
     partitions: dict[str, PhysicalPartition] = {}

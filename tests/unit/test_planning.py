@@ -1,20 +1,16 @@
 """Tests for planning result types."""
 
 from typing import Literal
-from unittest.mock import patch
 
 import hypothesis
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from pydantic import ValidationError
 
 from data_proxy.models import (
     FullTable,
     IndexConfig,
     PartitionedTable,
     PartitionManifest,
-    RetentionConfig,
     SchemaConfig,
     SyncConfig,
     SyncWork,
@@ -24,12 +20,10 @@ from data_proxy.models import (
 from data_proxy.planning import (
     build_partition_tasks,
     find_partition_changes,
-    group_partitions,
     group_schema_plans,
     order_partition_ids,
     table_signature,
 )
-from data_proxy.settings import settings
 from tests.helpers import planning_partition
 
 
@@ -115,81 +109,14 @@ class TestPartitionBatching:
             partition_id: planning_partition(partition_id, logical_bytes=300)
             for partition_id in ("1", "2", "3", "4")
         }
-        with patch.object(settings, "DUMPER_BATCH_BYTES", 500):
-            batch = build_partition_tasks(
-                table, current, set(current), "run", "bucket", []
-            )
+        batch = build_partition_tasks(table, current, set(current), "run", "bucket", [])
         assert batch.paths == {
-            "1": "s3://bucket/tmp/app/t/batches/0/data.parquet",
-            "2": "s3://bucket/tmp/app/t/batches/1/data.parquet",
-            "3": "s3://bucket/tmp/app/t/batches/2/data.parquet",
-            "4": "s3://bucket/tmp/app/t/batches/3/data.parquet",
+            "1": "s3://bucket/tmp/app/t/batches/0/data-0.parquet",
+            "2": "s3://bucket/tmp/app/t/batches/0/data-1.parquet",
+            "3": "s3://bucket/tmp/app/t/batches/0/data-2.parquet",
+            "4": "s3://bucket/tmp/app/t/batches/0/data-3.parquet",
         }
-        assert [len(task.selections) for task in batch.tasks] == [1, 1, 1, 1]
-
-    def test_closes_batch_at_byte_target(self) -> None:
-        """Close a batch at the byte target."""
-        sizes = {"1": 300, "2": 300, "3": 300, "4": 100}
-        current = {
-            partition_id: planning_partition(partition_id, logical_bytes=size)
-            for partition_id, size in sizes.items()
-        }
-        assert group_partitions(list(sizes), current, 500, 10) == [
-            ["1"],
-            ["2"],
-            ["3", "4"],
-        ]
-
-    def test_keeps_oversized_partition_in_single_batch(self) -> None:
-        """Keep an oversized partition in one batch."""
-        current = {"1": planning_partition("1", logical_bytes=900)}
-        assert group_partitions(["1"], current, 500, 10) == [["1"]]
-
-    def test_keeps_final_underfilled_batch(self) -> None:
-        """Keep the final underfilled batch."""
-        current = {
-            partition_id: planning_partition(partition_id, logical_bytes=10)
-            for partition_id in ("1", "2", "3")
-        }
-        assert group_partitions(["1", "2", "3"], current, 500, 10) == [["1", "2", "3"]]
-
-    def test_closes_batch_at_partition_limit(self) -> None:
-        """Close a batch at the partition limit."""
-        current = {
-            partition_id: planning_partition(partition_id, logical_bytes=0)
-            for partition_id in ("1", "2", "3")
-        }
-        assert group_partitions(["1", "2", "3"], current, 500, 2) == [["1", "2"], ["3"]]
-
-    def test_returns_no_batches_without_partitions(self) -> None:
-        """Return no batches without partitions."""
-        assert group_partitions([], {}, 500, 10) == []
-
-
-class TestPartitionBatchingProperties:
-    """Generated partition batching behavior tests."""
-
-    @given(
-        sizes=st.lists(st.integers(0, 1_000), min_size=0, max_size=12),
-        target=st.integers(1, 2_000),
-        limit=st.integers(1, 12),
-    )
-    def test_preserves_partitions_within_batch_limits(
-        self, sizes: list[int], target: int, limit: int
-    ) -> None:
-        """Preserve every partition while respecting batch limits."""
-        partition_ids = [str(index) for index in range(len(sizes))]
-        current = {
-            partition_id: planning_partition(partition_id, logical_bytes=size)
-            for partition_id, size in zip(partition_ids, sizes, strict=True)
-        }
-        batches = group_partitions(partition_ids, current, target, limit)
-        flattened = [partition_id for batch in batches for partition_id in batch]
-        assert flattened == partition_ids
-        assert all(len(batch) <= limit for batch in batches)
-        for batch in batches:
-            size = sum(current[partition_id].logical_bytes for partition_id in batch)
-            assert size <= target or len(batch) == 1
+        assert [len(task.selections) for task in batch.tasks] == [4]
 
 
 class TestTableSignature:
@@ -218,9 +145,7 @@ class TestTableSignature:
                     None,
                     FullTable(
                         name="p.d.t",
-                        indexes=[
-                            IndexConfig(name="idx", columns=["col"], method="gin")
-                        ],
+                        indexes=[IndexConfig(name="idx", columns=["other"])],
                     ),
                     None,
                     True,
@@ -269,46 +194,6 @@ class TestTableSignature:
         table_y = FullTable(name="p.d.t", resolved_schema=schema_y)
         assert table_signature(table_x, None, "m") == table_signature(
             table_y, None, "m"
-        )
-
-
-class TestRetentionConfiguration:
-    """RetentionConfiguration behavior tests."""
-
-    @given(
-        column=st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True),
-        days=st.integers(1, 3650),
-    )
-    def test_accepts_retention_configuration(self, column: str, days: int) -> None:
-        """Accept a valid retention configuration."""
-        table = PartitionedTable(
-            name="p.d.t",
-            n=7,
-            retention=RetentionConfig(column=column, window=f"{days} days"),
-        )
-        assert table.retention is not None
-        assert table.retention.column == column
-        assert table.retention.window == f"{days} days"
-
-    def test_rejects_empty_retention_window(self) -> None:
-        """Reject an empty retention window."""
-        with pytest.raises(ValidationError):
-            RetentionConfig(column="created_at", window="")
-
-    @given(
-        column=st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True),
-        days=st.integers(1, 3650),
-    )
-    def test_excludes_retention_from_signature(self, column: str, days: int) -> None:
-        """Exclude retention from the table signature."""
-        without = FullTable(name="p.d.t", resolved_schema="app")
-        with_retention = FullTable(
-            name="p.d.t",
-            resolved_schema="app",
-            retention=RetentionConfig(column=column, window=f"{days} days"),
-        )
-        assert table_signature(without, None, "m") == table_signature(
-            with_retention, None, "m"
         )
 
 

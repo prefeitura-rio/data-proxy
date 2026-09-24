@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from json import dumps
 
-from more_itertools import constrained_batches
 from psycopg import AsyncConnection
 from psycopg.sql import Literal
 
@@ -28,6 +27,11 @@ from .models import (
 )
 from .settings import settings
 from .state import read_partition_manifest, read_table_signature
+
+
+def partition_sort_key(partition_id: str) -> tuple[int, int | str]:
+    """Return the publication order key with __NULL__ last."""
+    return (1, "") if not partition_id.isdigit() else (0, int(partition_id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +80,7 @@ async def expand_config(
             table.to_task(
                 sync_id,
                 s3_bucket,
+                settings.S3_SCRATCH_PREFIX,
                 [AllSelection()],
                 json_columns=json_columns,
             )
@@ -149,31 +154,7 @@ def find_partition_changes(
 
 def order_partition_ids(changed: set[str]) -> list[str]:
     """Return changed partition ids in publication order with __NULL__ last."""
-    return sorted(
-        changed,
-        key=lambda partition_id: (
-            (1, "") if not partition_id.isdigit() else (0, int(partition_id))
-        ),
-    )
-
-
-def group_partitions(
-    ordered: list[str],
-    current: dict[str, PhysicalPartition],
-    target_bytes: int,
-    max_partitions: int,
-) -> list[list[str]]:
-    """Group partitions by byte size and item count, closing before a limit is exceeded."""
-    return [
-        list(batch)
-        for batch in constrained_batches(
-            ordered,
-            max_size=target_bytes,
-            max_count=max_partitions,
-            get_len=lambda partition_id: current[partition_id].logical_bytes,
-            strict=False,
-        )
-    ]
+    return sorted(changed, key=partition_sort_key)
 
 
 def build_partition_tasks(
@@ -184,30 +165,20 @@ def build_partition_tasks(
     s3_bucket: str,
     json_columns: list[str],
 ) -> PartitionTaskBatch:
-    """Create one task and path for each batch of changed physical partitions."""
-    batches = group_partitions(
-        order_partition_ids(changed),
-        current,
-        settings.DUMPER_BATCH_BYTES,
-        settings.DUMPER_BATCH_MAX_PARTITIONS,
-    )
-
+    """Create one task and path for all changed physical partitions."""
+    ordered = order_partition_ids(changed)
     tasks = [
         table.to_task(
             sync_id,
             s3_bucket,
-            [current[partition_id].selection for partition_id in batch],
-            f"batches/{index}",
+            settings.S3_SCRATCH_PREFIX,
+            [current[partition_id].selection for partition_id in ordered],
+            "batches/0",
             json_columns,
         )
-        for index, batch in enumerate(batches)
     ]
 
-    paths = {
-        partition_id: path
-        for batch, task in zip(batches, tasks, strict=True)
-        for partition_id, path in zip(batch, task.output_paths, strict=True)
-    }
+    paths = dict(zip(ordered, tasks[0].output_paths, strict=True))
 
     return PartitionTaskBatch(paths=paths, tasks=tasks)
 

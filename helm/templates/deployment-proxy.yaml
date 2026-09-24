@@ -1,4 +1,3 @@
-{{- if not false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -126,4 +125,3 @@ spec:
           emptyDir: {}
         - name: webdis-read-runtime
           emptyDir: {}
-{{- end }}

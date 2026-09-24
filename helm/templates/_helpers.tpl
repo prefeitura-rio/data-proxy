@@ -365,8 +365,6 @@ wait
   value: {{ .Values.sync.workflowTimeoutSeconds | quote }}
 - name: DBOS_SYSTEM_DATABASE_URL
   value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
-- name: AIRFLOW_CONN_AIRFLOW_DB
-  value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
 - name: DBOS_APPLICATION_NAME
   value: {{ .Values.sync.dbos.applicationName | quote }}
 - name: DBOS_APPLICATION_VERSION

@@ -20,7 +20,6 @@ spec:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgrest
-        # The fallback proxy is the only entrance when it is enabled.
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       automountServiceAccountToken: false

@@ -18,7 +18,6 @@ from .models import (
     PublicationResult,
     SyncConfig,
     SyncPlan,
-    SyncPublicationInput,
     TableConfig,
 )
 from .settings import settings
@@ -206,7 +205,7 @@ async def run_ducklake_publication(
 ) -> PublicationResult:
     """Publish one schema sequentially into its local SQLite catalog."""
     decision = reduce_sync_plan(plan, failed_paths or set())
-    changed = SyncPublicationInput(config=config, plan=plan).changed_tables
+    changed = plan.signatures.keys() | plan.partitioned_tables.keys()
     empty = empty_incremental_tables(decision.plan)
     eligible = changed - decision.blocked_tables - empty
     tables = {table.name: table for table in config.tables}
@@ -226,8 +225,7 @@ async def run_ducklake_publication(
         await duckdb.execute(
             f"CALL dl.set_option('target_file_size', '{settings.DUCKLAKE_TARGET_FILE_SIZE}')"
         )
-        await duckdb.execute("BEGIN")
-        try:
+        async with duckdb.transaction():
             for name in sorted(eligible):
                 table = tables[name]
                 partitioned = decision.plan.partitioned_tables.get(name)
@@ -238,10 +236,6 @@ async def run_ducklake_publication(
                     partitioned,
                 )
                 published.add(name)
-            await duckdb.execute("COMMIT")
-        except Exception:
-            await duckdb.execute("ROLLBACK")
-            raise
 
     for name in published:
         await update_published_freshness(

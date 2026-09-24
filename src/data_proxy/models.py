@@ -42,17 +42,6 @@ class IndexConfig(BaseModel):
 
     name: NonEmptyString
     columns: Annotated[list[NonEmptyString], Field(min_length=1)]
-    method: Literal["btree", "gin"] = "btree"
-    expressions: list[NonEmptyString] | None = None
-
-
-class RetentionConfig(BaseModel):
-    """Time-window retention. Rows older than the window are deleted periodically."""
-
-    column: NonEmptyString
-    """The time column to compare against."""
-    window: NonEmptyString
-    """PostgreSQL interval, e.g. "365 days". Rows older than this are deleted."""
 
 
 class AllSelection(BaseModel):
@@ -157,8 +146,6 @@ class Table(BaseModel):
     fallback: bool = False
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
-    retention: RetentionConfig | None = None
-    """Time-window retention. Rows older than the window are deleted periodically."""
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 
@@ -179,6 +166,7 @@ class Table(BaseModel):
         self,
         run_id: str,
         s3_bucket: str,
+        scratch_prefix: str,
         selections: list[TaskSelection],
         path_suffix: str | None = None,
         json_columns: list[str] | None = None,
@@ -186,13 +174,13 @@ class Table(BaseModel):
         """Create one extraction task for the selected source rows."""
         suffix = f"/{path_suffix}" if path_suffix else ""
 
-        scratch_prefix = f"s3://{s3_bucket}/" + "tmp" + "/"
+        prefix = f"s3://{s3_bucket}/{scratch_prefix}/"
         return DumpTask(
             run_id=run_id,
             table=self.name,
             target_schema=self.resolved_schema,
             bucket_path=(
-                scratch_prefix
+                prefix
                 + f"{self.resolved_schema}/{self.table_name}{suffix}/data.parquet"
             ),
             selections=selections,
@@ -430,27 +418,8 @@ class SyncWork:
     tasks: list[DumpTask]
 
 
-class SyncPublicationInput(BaseModel):
-    """A configuration and schema-local plan validated together."""
-
-    config: SyncConfig
-    plan: SyncPlan
-
-    @property
-    def changed_tables(self) -> set[str]:
-        """Return every table with work in the plan."""
-        return self.plan.signatures.keys() | self.plan.partitioned_tables.keys()
-
-    @model_validator(mode="after")
-    def require_configured_plan_tables(self) -> Self:
-        """Decline a plan that names tables absent from its configuration."""
-        unknown = self.changed_tables - {table.name for table in self.config.tables}
-        if unknown:
-            raise ValueError(f"Sync plan contains unknown tables: {sorted(unknown)}")
-        return self
-
-
-class PublicationDecision(BaseModel):
+@dataclass(frozen=True, slots=True)
+class PublicationDecision:
     """Publishable plan and failures derived from extraction results."""
 
     plan: SyncPlan

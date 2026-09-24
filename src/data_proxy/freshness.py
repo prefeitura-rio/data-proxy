@@ -55,8 +55,11 @@ async def delete_partition_freshness(
     async with pg_conn.cursor() as cursor:
         await execute_sql(
             cursor,
-            "postgres/delete_partition_freshness",
-            mapping={"schema": Identifier(table.resolved_schema)},
+            "postgres/delete_freshness",
+            mapping={
+                "schema": Identifier(table.resolved_schema),
+                "partition": True,
+            },
             params=[
                 (table.table_name, table.strategy.value, partition)
                 for partition in partitions
@@ -68,7 +71,7 @@ async def delete_table_freshness(pg_conn: AsyncConnection, table: TableConfig) -
     """Delete all freshness rows for one table."""
     await execute_sql(
         pg_conn,
-        "postgres/delete_table_freshness",
+        "postgres/delete_freshness",
         mapping={"schema": Identifier(table.resolved_schema)},
         params=(table.table_name,),
     )

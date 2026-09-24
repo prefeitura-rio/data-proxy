@@ -1,4 +1,3 @@
-{{- $root := . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,7 +25,6 @@ data:
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
-{{- if not false }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -118,103 +116,3 @@ spec:
           configMap:
             name: {{ include "data-proxy.fullname" . }}-init-db-sql
             defaultMode: 0444
-{{- else }}
-{{- range $schema, $_ := $root.Values.sync.config.schemas }}
-{{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ $cluster }}-init-db-{{ $root.Release.Revision }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: init-db
-    data-proxy.io/schema: {{ $schema | quote }}
-spec:
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 300
-  template:
-    metadata:
-      labels:
-        {{- include "data-proxy.selectorLabels" $root | nindent 8 }}
-        app.kubernetes.io/component: init-db
-        data-proxy.io/schema: {{ $schema | quote }}
-    spec:
-      restartPolicy: OnFailure
-      automountServiceAccountToken: false
-      containers:
-        - name: init-db
-          image: {{ $root.Values.cnpg.init.image | quote }}
-          imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
-          command: [nu, /scripts/init-db.nu]
-          workingDir: /scripts
-          env:
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" $root }}
-                  key: POSTGRES_PASSWORD
-            - name: PG_DATABASE_URL
-              value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user $cluster $root.Values.cnpg.db.name | quote }}
-            - name: PGHOST
-              value: {{ printf "%s-rw" $cluster | quote }}
-            - name: PGPORT
-              value: "5432"
-            - name: PGDATABASE
-              value: {{ $root.Values.cnpg.db.name | quote }}
-            - name: PGUSER
-              value: {{ $root.Values.cnpg.db.user | quote }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" $root }}
-                  key: POSTGRES_PASSWORD
-            - name: AUTH_ANON_ROLE
-              value: {{ $root.Values.auth.anonRole | quote }}
-            - name: AUTH_USER_ROLE
-              value: {{ $root.Values.auth.userRole | quote }}
-            - name: AUTH_AUTHENTICATOR_ROLE
-              value: {{ $root.Values.auth.authenticatorRole | quote }}
-            - name: JOBS_ENABLED
-              value: {{ or $root.Values.jobs.backup.enabled $root.Values.jobs.cleanup.enabled | quote }}
-            - name: S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" $root }}
-                  key: S3_ACCESS_KEY
-            - name: S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" $root }}
-                  key: S3_SECRET_KEY
-            - name: S3_ENDPOINT
-              value: {{ include "data-proxy.s3Endpoint" $root | quote }}
-            - name: S3_USE_SSL
-              value: {{ $root.Values.s3.useSsl | quote }}
-            - name: SYNC_CONFIG_PATH
-              value: /config/sync.json
-            - name: SQL_TEMPLATE_DIR
-              value: /templates
-            - name: SCHEMA
-              value: {{ $schema | quote }}
-          volumeMounts:
-            {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 12 }}
-            - name: init-db-script
-              mountPath: /scripts
-              readOnly: true
-            - name: init-db-sql
-              mountPath: /templates
-              readOnly: true
-      volumes:
-        {{- include "data-proxy.syncConfigVolume" $root | nindent 8 }}
-        - name: init-db-script
-          configMap:
-            name: {{ include "data-proxy.fullname" $root }}-init-db-script
-            defaultMode: 0555
-        - name: init-db-sql
-          configMap:
-            name: {{ include "data-proxy.fullname" $root }}-init-db-sql
-            defaultMode: 0444
-{{- end }}
-{{- end }}

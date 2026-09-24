@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the write partition database operation.",
+  "description": "Copy one partition range from BigQuery to Parquet on S3.",
   "inputs": {
     "json_columns": "SQL-safe identifiers for nested or JSON columns.",
     "bq_table": "BigQuery table reference used by DuckDB.",

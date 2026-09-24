@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the revoke anon database operation.",
+  "description": "Revoke all privileges and schema usage from the anonymous role.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "anonymous_role": "Anonymous database role."

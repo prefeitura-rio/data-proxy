@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the access policy writer database operation.",
+  "description": "Create a per-schema policy-writer role and grant full access on access_policy.",
   "inputs": {
     "policy_writer_role": "Role allowed to write access-policy rows.",
     "schema": "PostgreSQL schema that owns the target objects.",

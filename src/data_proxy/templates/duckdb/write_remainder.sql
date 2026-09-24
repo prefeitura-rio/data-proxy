@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the write remainder database operation.",
+  "description": "Copy null and out-of-range rows from BigQuery to Parquet on S3.",
   "inputs": {
     "json_columns": "SQL-safe identifiers for nested or JSON columns.",
     "bq_table": "BigQuery table reference used by DuckDB.",

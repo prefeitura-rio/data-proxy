@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the partitions database operation.",
+  "description": "Query BigQuery physical partition metadata.",
   "inputs": {
     "project": "BigQuery project identifier.",
     "dataset": "BigQuery dataset identifier."

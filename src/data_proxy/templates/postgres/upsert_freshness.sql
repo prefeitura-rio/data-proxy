@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the upsert freshness database operation.",
+  "description": "Insert or update freshness metadata for one table or partition.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects."
   }

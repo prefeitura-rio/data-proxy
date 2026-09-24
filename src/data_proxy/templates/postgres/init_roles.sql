@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the init roles database operation.",
+  "description": "Create the sync_status enum in the RLS schema.",
   "inputs": {
     "rls_schema": "Schema containing row-level security support objects."
   }

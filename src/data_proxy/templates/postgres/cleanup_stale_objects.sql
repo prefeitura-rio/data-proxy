@@ -20,7 +20,7 @@ AS $$
 DECLARE
     target_schema text;
     target_table text;
-    changed boolean := false;
+
     schema_changed boolean;
 BEGIN
     FOR target_schema IN
@@ -45,7 +45,7 @@ BEGIN
             EXECUTE format('DELETE FROM %I.freshness WHERE "table" = $1', target_schema) USING target_table;
             EXECUTE format('DROP VIEW IF EXISTS %I.%I CASCADE', target_schema, target_table);
             EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_fn');
-            changed := true;
+
             schema_changed := true;
         END LOOP;
 
@@ -81,7 +81,7 @@ BEGIN
         LOOP
             EXECUTE format('DROP VIEW IF EXISTS %I.%I', target_schema, target_table || '_bq');
             EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_bq_fn');
-            changed := true;
+
             schema_changed := true;
         END LOOP;
 
@@ -89,10 +89,6 @@ BEGIN
             EXECUTE format('DELETE FROM %I.access_policy', target_schema);
         END IF;
     END LOOP;
-
-    IF changed THEN
-        PERFORM pg_notify('pgrst', 'reload schema');
-    END IF;
 END;
 $$;
 REVOKE ALL ON PROCEDURE {{ schema }}.cleanup_stale_objects(jsonb, text) FROM public;

@@ -64,11 +64,6 @@ api_client_factory = cast(
 )
 
 
-def expand_template(template: str, schema: str) -> str:
-    """Expand a Kubernetes resource template when it has a placeholder."""
-    return template.format(schema) if "{}" in template else template
-
-
 async def deployment_ready(read: Callable[[], Awaitable[Deployment]]) -> None:
     """Raise until a Deployment has all updated replicas available."""
     deployment = await read()

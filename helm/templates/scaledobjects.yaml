@@ -19,7 +19,7 @@ spec:
   triggers:
     - type: postgresql
       metadata:
-        connectionFromEnv: AIRFLOW_CONN_AIRFLOW_DB
+        connectionFromEnv: DBOS_SYSTEM_DATABASE_URL
         query: {{ .Values.sync.keda.query | quote }}
         targetQueryValue: {{ .Values.sync.keda.targetQueryValue | quote }}
         activationTargetQueryValue: {{ .Values.sync.keda.activationTargetQueryValue | quote }}
@@ -29,6 +29,9 @@ kind: ScaledObject
 metadata:
   name: {{ include "data-proxy.fullname" . }}-postgrest
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgrest
 spec:
   scaleTargetRef:
     name: {{ include "data-proxy.fullname" . }}-postgrest
@@ -50,6 +53,9 @@ kind: ScaledObject
 metadata:
   name: {{ include "data-proxy.fullname" . }}-proxy
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
 spec:
   scaleTargetRef:
     name: {{ include "data-proxy.fullname" . }}-proxy

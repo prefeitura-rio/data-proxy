@@ -7,30 +7,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from data_proxy.kubernetes import Deployment, deployment_ready, expand_template
+from data_proxy.kubernetes import Deployment, deployment_ready
 from tests.helpers import deployment_value
-
-
-class TestTemplateExpansion:
-    """Kubernetes template expansion behavior tests."""
-
-    @given(
-        template=st.from_regex("[a-z-]{1,10}", fullmatch=True),
-        schema=st.from_regex("[a-z]{1,10}", fullmatch=True),
-    )
-    def test_keeps_template_without_placeholder(
-        self, template: str, schema: str
-    ) -> None:
-        """Keep a resource template without a placeholder unchanged."""
-        assert expand_template(template, schema) == template
-
-    @given(
-        prefix=st.from_regex("[a-z-]{0,10}", fullmatch=True),
-        schema=st.from_regex("[a-z]{1,10}", fullmatch=True),
-    )
-    def test_replaces_schema_placeholder(self, prefix: str, schema: str) -> None:
-        """Replace a schema placeholder with the schema name."""
-        assert expand_template(f"{prefix}{{}}", schema) == f"{prefix}{schema}"
 
 
 class TestDeploymentReadiness:

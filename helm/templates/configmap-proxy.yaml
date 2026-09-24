@@ -1,4 +1,3 @@
-{{- if not false }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,4 +23,3 @@ data:
 {{ include "data-proxy.webdisWriteConfig" . | indent 4 }}
   webdis-read.json: |
 {{ include "data-proxy.webdisReadConfig" . | indent 4 }}
-{{- end }}

@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the setup database operation.",
+  "description": "Install DuckDB extensions and create the S3 access secret.",
   "inputs": {
     "s3_key_id": "S3 access key used by DuckDB.",
     "s3_secret_key": "S3 secret key used by DuckDB.",

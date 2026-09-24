@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the schema scope statement database operation.",
+  "description": "Enable RLS and create a schema-scoped policy on one table.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "table": "PostgreSQL table being read or changed.",

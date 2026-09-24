@@ -1,13 +1,13 @@
 {#
 {
   "kind": "template",
-  "description": "Render the access policy check database operation.",
+  "description": "Enable RLS and create a scoped access policy with per-column unit-id filters.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "table": "PostgreSQL table being read or changed.",
     "scope": "SQL predicate limiting access to the current schema.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "mapping": "Structured mapping used by the template."
+    "rls_mappings": "Unit mappings used to build the access-policy predicate."
   }
 }
 #}

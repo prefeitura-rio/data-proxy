@@ -1,8 +1,4 @@
-"""Async view of a synchronous BigQuery client.
-
-The underlying client is safe to share and concurrent calls overlap, so one
-instance may serve several tasks at once.
-"""
+"""Async view of a synchronous BigQuery client."""
 
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager

@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the describe table database operation.",
+  "description": "Describe a BigQuery table schema through DuckDB.",
   "inputs": {
     "bq_table": "BigQuery table reference used by DuckDB."
   }

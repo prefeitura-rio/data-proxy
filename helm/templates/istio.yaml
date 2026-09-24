@@ -52,7 +52,7 @@ spec:
         {{- end }}
       {{- end }}
 ---
-{{- if and .Values.ingress.auth.enabled }}
+{{- if .Values.ingress.auth.enabled }}
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -87,7 +87,7 @@ spec:
               - /health
 {{- end }}
 ---
-{{- if and .Values.ingress.auth.enabled }}
+{{- if .Values.ingress.auth.enabled }}
 apiVersion: security.istio.io/v1
 kind: RequestAuthentication
 metadata:

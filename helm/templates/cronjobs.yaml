@@ -101,7 +101,7 @@ spec:
 {{- end }}
 {{- end }}
 ---
-{{- if .Values.jobs.cleanup.enabled }}
+{{- if or .Values.jobs.backup.enabled .Values.jobs.cleanup.enabled }}
 {{- $root := . }}
 apiVersion: v1
 kind: ConfigMap
@@ -119,7 +119,10 @@ data:
   {{ base $path }}: |
 {{ $root.Files.Get $path | nindent 4 }}
 {{- end }}
+{{- end }}
 ---
+{{- if .Values.jobs.cleanup.enabled }}
+{{- $root := . }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

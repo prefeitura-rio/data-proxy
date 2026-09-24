@@ -20,7 +20,6 @@ from data_proxy.models import (
     SchemaConfig,
     SyncConfig,
     SyncPlan,
-    SyncPublicationInput,
     TableConfig,
     TimeRangeSelection,
     UnitMapping,
@@ -104,8 +103,8 @@ class TestTableConfiguration:
         self, table: TableConfig, run_id: str, bucket: str
     ) -> None:
         """Build an extraction path from table configuration."""
-        task = table.to_task(run_id, bucket, [AllSelection()])
-        scratch_prefix = f"s3://{bucket}/" + "tmp" + "/"
+        task = table.to_task(run_id, bucket, "tmp", [AllSelection()])
+        scratch_prefix = f"s3://{bucket}/tmp/"  # noqa: S108
         assert task.bucket_path == (
             scratch_prefix + f"{table.resolved_schema}/{table.table_name}/data.parquet"
         )
@@ -247,19 +246,6 @@ class TestPlanValidation:
         with pytest.raises(ValueError, match="signatures"):
             SyncPlan(schema_name="d", signatures={"p.d.t": "s"}, paths={})
 
-    def test_rejects_unknown_publication_table(self) -> None:
-        """Reject a publication plan for an unconfigured table."""
-        config = SyncConfig(
-            schemas={"d": SchemaConfig(tables=[FullTable(name="p.d.t")])}
-        )
-        plan = SyncPlan(
-            schema_name="d",
-            signatures={"p.d.other": "s"},
-            paths={"p.d.other": ["path"]},
-        )
-        with pytest.raises(ValueError, match="unknown tables"):
-            SyncPublicationInput(config=config, plan=plan)
-
     def test_rejects_empty_sync_plan_path(self) -> None:
         """Reject a sync plan with an empty path list."""
         with pytest.raises(ValueError, match="non-empty paths"):
@@ -321,16 +307,6 @@ class TestPlanValidation:
 
     def test_reports_changed_publication_tables(self) -> None:
         """Report ordinary and partitioned tables with planned changes."""
-        config = SyncConfig(
-            schemas={
-                "d": SchemaConfig(
-                    tables=[
-                        FullTable(name="p.d.full"),
-                        PartitionedTable(name="p.d.partitioned"),
-                    ]
-                )
-            }
-        )
         partitioned = PartitionedTablePlan(
             table_signature="s",
             full_rebuild=False,
@@ -344,7 +320,7 @@ class TestPlanValidation:
             paths={"p.d.full": ["path"]},
             partitioned_tables={"p.d.partitioned": partitioned},
         )
-        assert SyncPublicationInput(config=config, plan=plan).changed_tables == {
+        assert (plan.signatures.keys() | plan.partitioned_tables.keys()) == {
             "p.d.full",
             "p.d.partitioned",
         }
