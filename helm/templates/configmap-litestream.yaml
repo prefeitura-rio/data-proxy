@@ -1,0 +1,15 @@
+{{/* Render Litestream configurations for the writer and reader volumes. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-litestream
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+data:
+  litestream-write.yaml: |
+{{ include "data-proxy.litestreamConfig" (dict "root" . "localPath" .Values.ducklake.catalogWriterPath) | nindent 4 }}
+  litestream-read.yaml: |
+{{ include "data-proxy.litestreamConfig" (dict "root" . "localPath" .Values.ducklake.catalogLocalPath) | nindent 4 }}
+  restore-catalogs.sh: |
+{{ include "data-proxy.litestreamRestoreScript" . | nindent 4 }}

@@ -55,7 +55,7 @@
 {{- $schema := .schema -}}
 {{- $component := .component -}}
 {{- $override := dict -}}
-{{- range $entry := $root.Values.ha.schemas }}
+{{- range $entry := (list) }}
   {{- if eq $entry.name $schema }}
     {{- $override = $entry -}}
   {{- end }}
@@ -302,27 +302,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 {
   "kind": "macro",
-  "name": "data-proxy.schemaWritersSecretName",
-  "description": "Render the schemaWritersSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersSecretName" -}}
-{{- if .Values.schemaWriters.existingSecret }}
-{{- .Values.schemaWriters.existingSecret }}
-{{- else if .Values.cnpg.existingSecret }}
-{{- .Values.cnpg.existingSecret }}-schema-writers
-{{- else }}
-{{- include "data-proxy.fullname" . }}-schema-writers
-{{- end }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
   "name": "data-proxy.redisConfigEnv",
   "description": "Render the redisConfigEnv Helm helper.",
   "inputs": {
@@ -357,11 +336,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 */}}
 {{- define "data-proxy.cnpgClusterName" -}}
 {{- $root := .root -}}
-{{- if eq $root.Values.cnpg.mode "shared" -}}
 {{- include "data-proxy.fullname" $root -}}
-{{- else -}}
-{{- printf "%s-%s" (include "data-proxy.fullname" $root) (.schema | replace "_" "-") -}}
-{{- end -}}
 {{- end }}
 
 {{/*
@@ -418,21 +393,6 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{
 {{/*
 {
   "kind": "macro",
-  "name": "data-proxy.migrationDatabaseHost",
-  "description": "Render the migrationDatabaseHost Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.migrationDatabaseHost" -}}
-{{- include "data-proxy.fullname" . }}-rw
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
   "name": "data-proxy.appPgDsn",
   "description": "Render the appPgDsn Helm helper.",
   "inputs": {
@@ -452,18 +412,14 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {
   "kind": "helper",
   "name": "data-proxy.dbosClusterName",
-  "description": "Render the DBOS CNPG cluster name: the shared cluster in single mode, a dedicated cluster in HA mode.",
+  "description": "Render the DBOS CNPG cluster name for the single cluster.",
   "inputs": {
     "context": "Helm template context."
   }
 }
 */}}
 {{- define "data-proxy.dbosClusterName" -}}
-{{- if .Values.ha.enabled -}}
-{{- printf "%s-dbos" (include "data-proxy.fullname" .) -}}
-{{- else -}}
 {{- include "data-proxy.fullname" . -}}
-{{- end -}}
 {{- end }}
 
 {{/*
@@ -596,22 +552,111 @@ jwtRules:
 */}}
 {{- define "data-proxy.fallbackNginxUpstreams" -}}
 map $http_accept_profile $postgrest_read {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest-ro.{{ .Release.Namespace }}.svc.cluster.local:3000";
-  {{- if eq .Values.cnpg.mode "per-schema" }}
-  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
-  {{- end }}
-  {{- end }}
-}
-map $http_accept_profile $postgrest_write {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest-rw.{{ .Release.Namespace }}.svc.cluster.local:3000";
-  {{- if eq .Values.cnpg.mode "per-schema" }}
-  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-rw.{{ $.Release.Namespace }}.svc.cluster.local:3000";
-  {{- end }}
-  {{- end }}
+  default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
 }
 
+{{- end }}
+
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.litestreamConfig",
+  "description": "Render Litestream replication entries for every schema catalog.",
+  "inputs": {
+    "values": "Helm chart values used by this resource.",
+    "release": "Helm release context used in resource names."
+  },
+  "returns": "Litestream YAML configuration."
+}
+*/}}
+{{- define "data-proxy.litestreamConfig" -}}
+{{- $root := .root | default . -}}
+{{- $schemas := .schemas | default ($root.Values.sync.config.schemas) -}}
+{{- $localPath := .localPath | default $root.Values.ducklake.catalogLocalPath -}}
+{{- if eq (len $schemas) 0 }}
+dbs: []
+{{- else }}
+dbs:
+{{- range $schema, $_ := $schemas }}
+  - path: {{ printf "%s/%s/catalog.sqlite" $localPath $schema | quote }}
+    replica:
+      type: s3
+      bucket: {{ $root.Values.s3.bucket | quote }}
+      path: {{ printf "%s/%s/catalog.sqlite" $root.Values.ducklake.catalogPath $schema | quote }}
+      endpoint: {{ printf "%s://%s" (ternary "https" "http" (eq $root.Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" $root) | quote }}
+      access-key-id: ${S3_ACCESS_KEY}
+      secret-access-key: ${S3_SECRET_KEY}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.litestreamRestoreScript",
+  "description": "Render the restore supervisor for all schema catalogs.",
+  "inputs": {
+    "values": "Helm chart values used by this resource."
+  },
+  "returns": "POSIX shell script."
+}
+*/}}
+{{- define "data-proxy.litestreamRestoreScript" -}}
+#!/bin/sh
+set -eu
+{{- $schemas := .Values.sync.config.schemas }}
+{{- range $schema, $_ := $schemas }}
+(
+  db={{ printf "%s/%s/catalog.sqlite" $.Values.ducklake.catalogLocalPath $schema }}
+  dir={{ printf "%s/%s" $.Values.ducklake.catalogLocalPath $schema }}
+  while true; do
+    tmp="${db}.restore"
+    rm -f "$tmp"
+    if litestream restore -if-replica-exists -config /projected/litestream-read.yaml -o "$tmp" "$db"; then
+      if [ -f "$tmp" ]; then
+        mkdir -p "$dir"
+        mv "$tmp" "$db"
+      fi
+    fi
+    if [ -f "$db" ]; then
+      exec litestream restore -f -config /projected/litestream-read.yaml "$db"
+    fi
+    sleep 5
+  done
+) &
+{{- end }}
+wait
+{{- end }}
+
+{{/*
+{
+  "kind": "macro",
+  "name": "data-proxy.cnpgCatalogPodPatch",
+  "description": "Patch CNPG instance pods with the shared read-only catalog PVC.",
+  "inputs": {
+    "values": "Helm chart values used by this resource."
+  },
+  "returns": "Kubernetes JSON patch."
+}
+*/}}
+{{- define "data-proxy.cnpgCatalogPodPatch" -}}
+{{- $volume := dict
+  "name" "ducklake-catalogs"
+  "persistentVolumeClaim" (dict
+    "claimName" (printf "%s-catalog-reader" (include "data-proxy.fullname" .))
+    "readOnly" true
+  )
+-}}
+{{- $mount := dict
+  "name" "ducklake-catalogs"
+  "mountPath" .Values.ducklake.catalogLocalPath
+  "readOnly" true
+-}}
+{{- list
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $volume)
+  (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $mount)
+  | toJson
+-}}
 {{- end }}
 
 {{/*
@@ -640,6 +685,8 @@ map $http_accept_profile $postgrest_write {
   value: {{ include "data-proxy.s3Endpoint" . | quote }}
 - name: S3_USE_SSL
   value: {{ .Values.s3.useSsl | quote }}
+- name: S3_SCRATCH_PREFIX
+  value: tmp
 - name: S3_ACCESS_KEY
   valueFrom:
     secretKeyRef:
@@ -650,22 +697,32 @@ map $http_accept_profile $postgrest_write {
     secretKeyRef:
       name: {{ include "data-proxy.s3SecretName" . }}
       key: S3_SECRET_KEY
+- name: DUCKLAKE_CATALOG_LOCAL_PATH
+  value: {{ .Values.ducklake.catalogLocalPath | quote }}
+- name: DUCKLAKE_CATALOG_PATH
+  value: {{ .Values.ducklake.catalogPath | quote }}
+- name: DUCKLAKE_TARGET_FILE_SIZE
+  value: {{ .Values.ducklake.targetFileSize | quote }}
+- name: DUCKLAKE_SNAPSHOT_EXPIRATION
+  value: {{ .Values.ducklake.snapshotExpiration | quote }}
+- name: EMPTY_CACHE_TTL
+  value: {{ .Values.fallback.emptyCacheTtl | quote }}
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
 - name: FALLBACK_CACHE_REDIS_DB
   value: {{ .Values.fallback.cacheRedisDb | quote }}
 - name: DUMPER_BATCH_BYTES
-  value: {{ .Values.sync.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
+  value: "0"
 - name: DUMPER_BATCH_MAX_PARTITIONS
-  value: {{ .Values.sync.dumper.batchMaxPartitions | quote }}
+  value: {{ .Values.sync.dumpTaskFileLimit | quote }}
 - name: DUMPER_SCRATCH_DIR
-  value: {{ .Values.sync.dumper.scratch.mountPath | quote }}
+  value: /tmp
 - name: DUMP_QUEUE_MAX_ATTEMPTS
-  value: {{ .Values.sync.worker.dumperStepMaxAttempts | quote }}
+  value: {{ .Values.sync.dumpStepMaxAttempts | quote }}
 - name: DUMP_QUEUE_RATE_LIMIT
-  value: {{ .Values.sync.worker.dumpQueueRateLimit | quote }}
+  value: {{ .Values.sync.dumpQueueRateLimit | quote }}
 - name: SYNC_STEP_MAX_ATTEMPTS
-  value: {{ .Values.sync.worker.stepMaxAttempts | quote }}
+  value: {{ .Values.sync.stepMaxAttempts | quote }}
 - name: SYNC_RUN_TIMEOUT_SECONDS
   value: {{ .Values.sync.workflowTimeoutSeconds | quote }}
 - name: DBOS_SYSTEM_DATABASE_URL
@@ -673,13 +730,13 @@ map $http_accept_profile $postgrest_write {
 - name: AIRFLOW_CONN_AIRFLOW_DB
   value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
 - name: DBOS_APPLICATION_NAME
-  value: {{ .Values.dbos.applicationName | quote }}
+  value: {{ .Values.sync.dbos.applicationName | quote }}
 - name: DBOS_APPLICATION_VERSION
-  value: {{ .Values.dbos.applicationVersion | quote }}
+  value: {{ .Values.sync.dbos.applicationVersion | quote }}
 - name: DBOS_SYSTEM_SCHEMA
-  value: {{ .Values.dbos.systemSchema | quote }}
+  value: {{ .Values.sync.dbos.systemSchema | quote }}
 - name: DBOS_APP_SCHEMA
-  value: {{ .Values.dbos.appSchema | quote }}
+  value: {{ .Values.sync.dbos.appSchema | quote }}
 - name: OTLP_LOGS_ENDPOINT
   value: {{ .Values.observability.otlpLogsEndpoint | quote }}
 - name: OTLP_TRACES_ENDPOINT
@@ -689,37 +746,24 @@ map $http_accept_profile $postgrest_write {
 - name: SYNC_SCHEDULE
   value: {{ .Values.sync.schedule | quote }}
 - name: DUMP_QUEUE_WORKER_CONCURRENCY
-  value: {{ .Values.sync.worker.dumpQueueWorkerConcurrency | quote }}
-- name: PUBLISH_QUEUE_WORKER_CONCURRENCY
-  value: {{ .Values.sync.worker.publishQueueWorkerConcurrency | quote }}
+  value: {{ .Values.sync.dumpQueueWorkerConcurrency | quote }}
 - name: SYNC_QUEUE_CONCURRENCY
-  value: {{ .Values.sync.queue.concurrency | quote }}
+  value: {{ .Values.sync.queueConcurrency | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
   value: {{ .Values.auth.userRole | quote }}
 - name: AUTH_AUTHENTICATOR_ROLE
   value: {{ .Values.auth.authenticatorRole | quote }}
-- name: SCHEMA_WRITERS
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.schemaWritersSecretName" . }}
-      key: writers.json
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
-- name: POSTGREST_RO_DEPLOYMENT_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RW_DEPLOYMENT_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS
+- name: POSTGREST_DEPLOYMENT_TEMPLATE
+  value: {{ printf "%s-postgrest" (include "data-proxy.fullname" .) | quote }}
+- name: POSTGREST_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
-- name: REPLICATION_WAIT_TIMEOUT_SECONDS
-  value: "300"
-- name: REPLICATION_POLL_INTERVAL_SECONDS
-  value: "1"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
-  value: /gcp/key.json
+  value: {{ .Values.gcp.mountPath | quote }}
 {{- end }}
 {{- end }}
 
@@ -756,7 +800,7 @@ map $http_accept_profile $postgrest_write {
 {{- define "data-proxy.gcpVolumeMount" -}}
 {{- if .Values.gcp.existingSecret }}
 - name: gcp-key
-  mountPath: /gcp
+  mountPath: {{ dir .Values.gcp.mountPath }}
   readOnly: true
 {{- end }}
 {{- end }}
@@ -792,40 +836,6 @@ map $http_accept_profile $postgrest_write {
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
-  readOnly: true
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWritersVolume",
-  "description": "Render the schemaWritersVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersVolume" -}}
-- name: schema-writers
-  secret:
-    secretName: {{ include "data-proxy.schemaWritersSecretName" . }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWritersVolumeMount",
-  "description": "Render the schemaWritersVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersVolumeMount" -}}
-- name: schema-writers
-  mountPath: /config/schema-writers
   readOnly: true
 {{- end }}
 

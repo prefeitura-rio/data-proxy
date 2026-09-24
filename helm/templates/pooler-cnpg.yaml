@@ -1,16 +1,5 @@
-{{/*
-{
-  "kind": "template",
-  "description": "Render the CloudNativePG connection pooler.",
-  "inputs": {
-    "values": "Helm chart values used by this resource.",
-    "release": "Helm release context used in resource names.",
-    "chart": "Helm chart metadata used in labels."
-  }
-}
-*/}}
+{{/* Render one session-pooled read pooler for the single CNPG cluster. */}}
 {{- $root := . }}
-{{- if eq $root.Values.cnpg.mode "shared" }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
@@ -32,49 +21,7 @@ spec:
           resources:
             {{- toYaml $root.Values.cnpg.pooler.resources | nindent 12 }}
   pgbouncer:
-    poolMode: transaction
+    poolMode: session
     parameters:
       max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
       default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
-{{- else if eq $root.Values.cnpg.mode "per-schema" }}
-{{- range $schema, $_ := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Pooler
-metadata:
-  name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}-pooler-ro
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: pgbouncer
-    data-proxy.io/schema: {{ $schema | quote }}
-spec:
-  cluster:
-    name: {{ include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
-  instances: {{ if $root.Values.ha.enabled }}{{ $root.Values.cnpg.pooler.autoscaling.minReplicaCount }}{{ else }}{{ $root.Values.cnpg.pooler.instances }}{{ end }}
-  type: ro
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/component: pgbouncer
-        data-proxy.io/schema: {{ $schema | quote }}
-    spec:
-      containers:
-        - name: pgbouncer
-          resources:
-            {{- toYaml $root.Values.cnpg.pooler.resources | nindent 12 }}
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: DoNotSchedule
-          labelSelector:
-            matchLabels:
-              app.kubernetes.io/component: pgbouncer
-              data-proxy.io/schema: {{ $schema | quote }}
-  pgbouncer:
-    poolMode: transaction
-    parameters:
-      max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
-      default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
-{{- end }}
-{{- end }}

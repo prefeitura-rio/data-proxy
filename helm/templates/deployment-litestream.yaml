@@ -1,0 +1,88 @@
+{{- $schemas := .Values.sync.config.schemas -}}
+{{- if gt (len $schemas) 0 }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-litestream
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litestream
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: litestream
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: litestream
+    spec:
+      restartPolicy: Always
+      serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      containers:
+        - name: restore
+          image: {{ .Values.ducklake.litestream.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/projected/restore-catalogs.sh"]
+          env:
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_SECRET_KEY
+          volumeMounts:
+            - name: reader-catalogs
+              mountPath: {{ .Values.ducklake.catalogLocalPath }}
+            - name: projected
+              mountPath: /projected
+              readOnly: true
+        - name: replicate
+          image: {{ .Values.ducklake.litestream.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              until
+              {{- range $schema, $_ := $schemas }}
+              [ -f {{ $.Values.ducklake.catalogWriterPath }}/{{ $schema }}/catalog.sqlite ] &&
+              {{- end }}
+              true; do sleep 1; done;
+              exec litestream replicate -config /projected/litestream-write.yaml
+          env:
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_SECRET_KEY
+          volumeMounts:
+            - name: writer-catalogs
+              mountPath: {{ .Values.ducklake.catalogWriterPath }}
+            - name: projected
+              mountPath: /projected
+              readOnly: true
+      volumes:
+        - name: writer-catalogs
+          persistentVolumeClaim:
+            claimName: {{ include "data-proxy.fullname" . }}-catalog-writer
+        - name: reader-catalogs
+          persistentVolumeClaim:
+            claimName: {{ include "data-proxy.fullname" . }}-catalog-reader
+        - name: projected
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-litestream
+{{- end }}

@@ -1,7 +1,7 @@
 {{/*
 {
   "kind": "template",
-  "description": "Render the DBOS pipeline Deployment.",
+  "description": "Render the DBOS sync Deployment.",
   "inputs": {
     "values": "Helm chart values used by this resource.",
     "release": "Helm release context used in resource names.",
@@ -12,46 +12,42 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-pipeline
+  name: {{ include "data-proxy.fullname" . }}-sync
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: pipeline
+    app.kubernetes.io/component: sync
 spec:
-  replicas: 0
+  replicas: {{ .Values.sync.replicas | default 1 }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: pipeline
+      app.kubernetes.io/component: sync
   template:
     metadata:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: pipeline
+        app.kubernetes.io/component: sync
     spec:
       restartPolicy: Always
-      topologySpreadConstraints:
-        {{- toYaml .Values.sync.worker.topologySpreadConstraints | nindent 8 }}
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
-        - name: pipeline
+        - name: sync
           image: "{{ .Values.sync.image }}"
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           resources:
-            {{- toYaml .Values.sync.worker.resources | nindent 12 }}
+            {{- toYaml .Values.sync.resources | nindent 12 }}
           command: ["python", "-m", "data_proxy.dbos.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
-            {{- include "data-proxy.schemaWritersVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
-            - name: scratch
-              mountPath: {{ .Values.sync.dumper.scratch.mountPath }}
+            - name: catalogs
+              mountPath: {{ .Values.ducklake.catalogLocalPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
-        {{- include "data-proxy.schemaWritersVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
-        - name: scratch
-          emptyDir:
-            sizeLimit: {{ .Values.sync.dumper.scratch.sizeLimit }}
+        - name: catalogs
+          persistentVolumeClaim:
+            claimName: {{ include "data-proxy.fullname" . }}-catalog-writer

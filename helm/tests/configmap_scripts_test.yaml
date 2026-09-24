@@ -4,9 +4,9 @@ templates:
 tests:
   - it: ships the backup script that the backup CronJob runs
     set:
-      cleanup.enabled: true
-      backup.enabled: true
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.cleanup.enabled: true
+      jobs.backup.enabled: true
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
           path: kind
@@ -27,9 +27,9 @@ tests:
 
   - it: renders when backup is enabled and cleanup is disabled
     set:
-      cleanup.enabled: false
-      backup.enabled: true
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.cleanup.enabled: false
+      jobs.backup.enabled: true
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - hasDocuments:
           count: 1
@@ -38,9 +38,9 @@ tests:
 
   - it: does not render when cleanup and backup are disabled
     set:
-      cleanup.enabled: false
-      backup.enabled: false
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.cleanup.enabled: false
+      jobs.backup.enabled: false
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - hasDocuments:
           count: 0

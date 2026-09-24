@@ -9,7 +9,7 @@
   }
 }
 */}}
-{{- if not .Values.ha.enabled }}
+{{- if not false }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

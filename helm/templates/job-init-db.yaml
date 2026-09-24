@@ -37,7 +37,7 @@ data:
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
-{{- if not .Values.ha.enabled }}
+{{- if not false }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -92,7 +92,7 @@ spec:
             - name: AUTH_AUTHENTICATOR_ROLE
               value: {{ .Values.auth.authenticatorRole | quote }}
             - name: JOBS_ENABLED
-              value: {{ or .Values.backup.enabled .Values.cleanup.enabled | quote }}
+              value: {{ or .Values.jobs.backup.enabled .Values.jobs.cleanup.enabled | quote }}
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -130,7 +130,7 @@ spec:
             name: {{ include "data-proxy.fullname" . }}-init-db-sql
             defaultMode: 0444
 {{- else }}
-{{- range $schema, $_ := $root.Values.syncConfig.schemas }}
+{{- range $schema, $_ := $root.Values.sync.config.schemas }}
 {{- $cluster := include "data-proxy.cnpgClusterName" (dict "root" $root "schema" $schema) }}
 ---
 apiVersion: batch/v1
@@ -188,7 +188,7 @@ spec:
             - name: AUTH_AUTHENTICATOR_ROLE
               value: {{ $root.Values.auth.authenticatorRole | quote }}
             - name: JOBS_ENABLED
-              value: {{ or $root.Values.backup.enabled $root.Values.cleanup.enabled | quote }}
+              value: {{ or $root.Values.jobs.backup.enabled $root.Values.jobs.cleanup.enabled | quote }}
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:

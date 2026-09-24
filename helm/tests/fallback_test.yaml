@@ -45,13 +45,13 @@ tests:
           value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000"'
+          pattern: 'default "http://data-proxy-postgrest.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest-rw.default.svc.cluster.local:3000"'
+          pattern: 'default "http://data-proxy-postgrest.default.svc.cluster.local:3000"'
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy

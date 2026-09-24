@@ -1,18 +1,23 @@
 sync:
-  image: gcr.io/proj/data-proxy:1.0.0
+  image: gcr.io/proj/data-proxy-sync:1.0.0
   imagePullPolicy: IfNotPresent
-
-  producer:
-    schedule: "0 2 * * *"
+  schedule: "0 2 * * *"
+  config:
+    schemas:
+      app_pequenos_cariocas:
+        claim: preferred_username
+        tables:
+          - name: rj-proj.dev.endpoint_participante_listagem
+            strategy: full
+            rls:
+              - column: id_unidade
+                unit_type: unidade
 
 cnpg:
   db:
     name: data-proxy
     user: data-proxy
   instances: 2
-  autoscaling:
-    minReplicaCount: 2
-    maxReplicaCount: 3
   resources:
     requests:
       cpu: 500m
@@ -27,29 +32,14 @@ s3:
 postgrest:
   proxyUri: https://api.example.com
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
-  ro:
-    replicas: 1
-    resources: {}
-    keda:
-      minReplicaCount: 1
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 300
-      triggers: []
-  rw:
-    replicas: 1
-    resources: {}
-    hpa:
-      minReplicas: 1
-      maxReplicas: 3
-      targetCPUUtilizationPercentage: 90
-pooler:
-    instances: 1
-    poolSize: 20
-    maxClientConns: 100
-    autoscaling:
-      minReplicaCount: 1
-      maxReplicaCount: 3
+  replicas: 1
+  resources: {}
+  keda:
+    minReplicaCount: 1
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 300
+    triggers: []
 
 redis:
   existingSecret: data-proxy-redis
@@ -64,20 +54,6 @@ auth:
   jwtRoleClaim: $.role
   rlsSchema: rls
 
-syncConfig:
-  schemas:
-    app_pequenos_cariocas:
-      claim: preferred_username
-      tables:
-        - name: rj-proj.dev.endpoint_participante_listagem
-          strategy: full
-          rls:
-            - column: id_unidade
-              unit_type: unidade
-          indexes:
-            - name: idx_pl_id_unidade
-              columns: [id_unidade]
-
 ingress:
   enabled: true
   gateway: "istio-system/istio-gateway"
@@ -85,9 +61,5 @@ ingress:
 
 seaweedfs:
   s3:
-    credentials:
-      admin:
-        accessKey: s3-access-key
-        secretKey: s3-secret
     createBuckets:
       - name: prod-bucket

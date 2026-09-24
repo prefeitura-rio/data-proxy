@@ -9,27 +9,28 @@
   }
 }
 */}}
-{{- if not (eq .Values.cnpg.mode "per-schema") }}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
+  name: {{ include "data-proxy.fullname" . }}-postgrest
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest-ro
+    app.kubernetes.io/component: postgrest
 spec:
+  replicas: {{ .Values.postgrest.replicas | default 1 }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: postgrest-ro
+      app.kubernetes.io/component: postgrest
   template:
     metadata:
       annotations:
-        checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
+        checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: postgrest-ro
+        app.kubernetes.io/component: postgrest
         # The fallback proxy is the only entrance when it is enabled.
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
@@ -98,7 +99,7 @@ spec:
             - name: PGRST_DB_CHANNEL_ENABLED
               value: "false"
             - name: PGRST_DB_SCHEMAS
-              value: {{ append (keys (.Values.syncConfig.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
+              value: {{ append (keys (.Values.sync.config.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY
@@ -135,8 +136,7 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
-          {{- with .Values.postgrest.ro.resources }}
+          {{- with .Values.postgrest.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-{{- end }}

@@ -93,6 +93,22 @@ def main []: nothing -> nothing {
         }
     } }
 
+    log info $'Backing up DuckLake catalog for ($schema)...'
+    let catalog_path = $'($env.DUCKLAKE_CATALOG_PATH)/($schema)/catalog.sqlite'
+    if ($catalog_path | path exists) {
+        try {
+            rclone copyto $catalog_path $'($remote_prefix)/catalog.sqlite'
+        } catch {|err| error make {
+            msg: $'Catalog upload failed for ($schema): ($err.msg)'
+            label: {
+                text: rclone
+                span: (metadata $schema).span
+            }
+        } }
+    } else {
+        log warning $'Catalog not found at ($catalog_path), skipping'
+    }
+
     log info $'Pruning access_log retention for ($schema)...'
     let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
     let query = [

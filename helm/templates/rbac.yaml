@@ -1,13 +1,13 @@
-{{/* CNPG manages its own RBAC. */}}
+{{/* Sync workers need RBAC to restart PostgREST deployments. */}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-publisher
+  name: {{ include "data-proxy.fullname" . }}-sync
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: publisher
+    app.kubernetes.io/component: sync
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -19,66 +19,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-publisher
+  name: {{ include "data-proxy.fullname" . }}-sync
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: publisher
+    app.kubernetes.io/component: sync
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "data-proxy.fullname" . }}-publisher
+  name: {{ include "data-proxy.fullname" . }}-sync
 subjects:
   - kind: ServiceAccount
     name: {{ include "data-proxy.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
-
-{{/* The migration Job needs a dedicated SA. */}}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-migrate
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: migrate
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-migrate
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: migrate
-rules:
-  - apiGroups: ["postgresql.cnpg.io"]
-    resources: ["clusters"]
-    verbs: ["get", "list"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
-  - apiGroups: ["batch"]
-    resources: ["cronjobs"]
-    verbs: ["get", "patch"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["create", "get", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-migrate
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: migrate
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "data-proxy.fullname" . }}-migrate
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "data-proxy.fullname" . }}-migrate
     namespace: {{ .Release.Namespace }}

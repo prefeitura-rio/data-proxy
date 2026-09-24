@@ -9,7 +9,7 @@
   }
 }
 */}}
-{{- if not .Values.ha.enabled }}
+{{- if not false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,7 +27,7 @@ spec:
     metadata:
       annotations:
         checksum/proxy-config: {{ printf "%s%s" (include "data-proxy.nginxProxyConfig" .) (include "data-proxy.webdisWriteConfig" .) | sha256sum }}
-        checksum/sync-config: {{ .Values.syncConfig | toJson | sha256sum }}
+        checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: proxy
@@ -42,6 +42,8 @@ spec:
           env:
             - name: CACHE_TTL
               value: {{ toString .Values.fallback.cacheTtl | quote }}
+            - name: EMPTY_CACHE_TTL
+              value: {{ toString .Values.fallback.emptyCacheTtl | quote }}
             - name: MAX_BODY
               value: {{ toString .Values.fallback.maxCacheBodyBytes | quote }}
             - name: FETCH_BUFFER_SIZE

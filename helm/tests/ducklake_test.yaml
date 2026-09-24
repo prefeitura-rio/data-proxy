@@ -1,0 +1,140 @@
+suite: DuckLake stateless architecture
+templates:
+  - cluster-cnpg.yaml
+  - pooler-cnpg.yaml
+  - deployment-proxy.yaml
+  - deployment-postgrest.yaml
+  - deployment-sync.yaml
+  - configmap-litestream.yaml
+  - deployment-litestream.yaml
+  - pvc-catalogs.yaml
+tests:
+  - it: renders one CNPG cluster with DuckLake PostgreSQL parameters
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.instances
+          value: 1
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters.shared_buffers
+          value: 1GB
+        template: cluster-cnpg.yaml
+  - it: uses session pooling for DuckLake attachments
+    asserts:
+      - equal:
+          path: spec.pgbouncer.poolMode
+          value: session
+        template: pooler-cnpg.yaml
+  - it: mounts the writer catalog PVC into DBOS sync workers
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: catalogs
+            persistentVolumeClaim:
+              claimName: data-proxy-catalog-writer
+        template: deployment-sync.yaml
+  - it: runs one Litestream workload with reader and writer containers
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: restore
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: replicate
+        template: deployment-litestream.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: writer-catalogs
+            persistentVolumeClaim:
+              claimName: data-proxy-catalog-writer
+        template: deployment-litestream.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: reader-catalogs
+            persistentVolumeClaim:
+              claimName: data-proxy-catalog-reader
+        template: deployment-litestream.yaml
+  - it: renders one Litestream entry per schema
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - matchRegex:
+          path: data["litestream-write.yaml"]
+          pattern: "replica:\\n"
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["litestream-write.yaml"]
+          pattern: "ducklake/app/catalog.sqlite"
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["litestream-read.yaml"]
+          pattern: "catalogs/app/catalog.sqlite"
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["restore-catalogs.sh"]
+          pattern: "catalogs/app/catalog.sqlite"
+        template: configmap-litestream.yaml
+  - it: requires and uses the shared RWX catalog volume
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: pvc-catalogs.yaml
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteMany
+        template: pvc-catalogs.yaml
+      - equal:
+          path: spec.storageClassName
+          value: minikube-rwx
+        template: pvc-catalogs.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-catalog-writer
+        documentIndex: 0
+        template: pvc-catalogs.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-catalog-reader
+        documentIndex: 1
+        template: pvc-catalogs.yaml
+  - it: configures one-hour empty response caching
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EMPTY_CACHE_TTL
+            value: "3600"
+        template: deployment-proxy.yaml

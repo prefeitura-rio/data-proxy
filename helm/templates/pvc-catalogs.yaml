@@ -1,0 +1,23 @@
+{{- $schemas := .Values.sync.config.schemas -}}
+{{- if gt (len $schemas) 0 }}
+{{- $storageClass := required "ducklake.litestream.storage.storageClass is required when sync schemas are configured" .Values.ducklake.litestream.storage.storageClass -}}
+{{- range $kind := (list "writer" "reader") }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-catalog-%s" (include "data-proxy.fullname" $) $kind }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: catalog-storage
+    data-proxy.io/catalog-role: {{ $kind }}
+spec:
+  accessModes:
+    - {{ $.Values.ducklake.litestream.storage.accessMode | quote }}
+  storageClassName: {{ $storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ $.Values.ducklake.litestream.storage.size | quote }}
+{{- end }}
+{{- end }}

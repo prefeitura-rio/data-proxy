@@ -1,6 +1,6 @@
 suite: PostgREST
 templates:
-  - deployment-postgrest-ro.yaml
+  - deployment-postgrest.yaml
 tests:
   - it: fetches and validates JWKS before PostgREST starts
     set:
@@ -34,22 +34,23 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
 
-  - it: uses HTTP readiness probe for shared PostgREST-ro
+  - it: uses HTTP readiness probe for shared PostgREST
     asserts:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
           value: /
-        template: deployment-postgrest-ro.yaml
+        template: deployment-postgrest.yaml
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: http
-        template: deployment-postgrest-ro.yaml
-      - notExists:
+        template: deployment-postgrest.yaml
+      - equal:
           path: spec.replicas
+          value: 1
 
   - it: rolls PostgREST when syncConfig changes
     set:
-      syncConfig.schemas.bcadastro.tables:
+      sync.config.schemas.bcadastro.tables:
         - name: proj.dataset.cpf
           strategy: full
     asserts:
@@ -57,9 +58,9 @@ tests:
           path: spec.template.metadata.annotations["checksum/sync-config"]
           pattern: "^[0-9a-f]{64}$"
 
-  - it: derives PGRST_DB_SCHEMAS from syncConfig.schemas
+  - it: derives PGRST_DB_SCHEMAS from sync.config.schemas
     set:
-      syncConfig.schemas:
+      sync.config.schemas:
         zeta_schema:
           tables:
             - name: proj.dataset.z

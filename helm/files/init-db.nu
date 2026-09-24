@@ -43,7 +43,17 @@ def install-extensions []: nothing -> nothing {
     log info 'Installed extensions'
 }
 
-# Create per-schema freshness tables with RLS policies
+def configure-ducklake []: nothing -> nothing {
+    postgres (render-sql configure_ducklake.sql {
+        s3_key_id: $env.S3_ACCESS_KEY
+        s3_secret_key: $env.S3_SECRET_KEY
+        s3_endpoint: $env.S3_ENDPOINT
+        s3_use_ssl: $env.S3_USE_SSL
+    })
+    log info 'Configured persistent DuckLake S3 secret'
+}
+
+# Create freshness tables with RLS policies
 def create-schemas-and-freshness []: nothing -> nothing {
     for schema in (schema-list $config) {
         (postgres (render-sql setup_freshness.sql {
@@ -69,7 +79,7 @@ def create-pre-request []: nothing -> nothing {
     log info 'Created pre_request function'
 }
 
-# Create per-schema access_policy tables with triggers and RLS policies
+# Create access_policy tables with triggers and RLS policies
 def create-access-policy []: nothing -> nothing {
     for schema in (schema-list $config) {
         (postgres (render-sql setup_access_policy.sql {
@@ -99,7 +109,7 @@ def create-access-policy []: nothing -> nothing {
 def install-maintenance []: nothing -> nothing {
     let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 
-    for procedure in [cleanup_table_state cleanup_stale_objects apply_retention prune_access_log] {
+    for procedure in [cleanup_stale_objects prune_access_log] {
         postgres (render-sql $'($procedure).sql' {schema: $schema})
     }
     log info 'Installed maintenance procedures'
@@ -117,6 +127,7 @@ def main []: nothing -> nothing {
     try {
         wait-for-postgres
         install-extensions
+        configure-ducklake
         create-schemas-and-freshness
         create-pre-request
         create-access-policy

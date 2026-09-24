@@ -1,4 +1,4 @@
-{{- if or .Values.cleanup.enabled .Values.backup.enabled }}
+{{- if or .Values.jobs.cleanup.enabled .Values.jobs.backup.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

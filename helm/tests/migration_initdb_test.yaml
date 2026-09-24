@@ -1,47 +1,8 @@
-suite: Migration and init-db Jobs
+suite: Init-db Job
 templates:
-  - job-migrate.yaml
   - job-init-db.yaml
-  - cronjob-backup.yaml
+  - cronjobs.yaml
 tests:
-  - it: renders the migration Job when switching to per-schema mode
-    set:
-      cnpg.mode: per-schema
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: job-migrate.yaml
-      - isKind:
-          of: Job
-        template: job-migrate.yaml
-      - equal:
-          path: spec.template.spec.restartPolicy
-          value: OnFailure
-        template: job-migrate.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: TARGET_MODE
-            value: per-schema
-        template: job-migrate.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SOURCE_MODE
-            value: ""
-        template: job-migrate.yaml
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: scripts
-            mountPath: /scripts
-            readOnly: true
-        template: job-migrate.yaml
-      - equal:
-          path: spec.template.spec.containers[0].command
-          value: ["/usr/bin/nu", "/scripts/migrate.nu"]
-        template: job-migrate.yaml
-
   - it: init-db renders script and SQL ConfigMaps
     asserts:
       - hasDocuments:
@@ -60,7 +21,7 @@ tests:
           value: data-proxy-init-db-sql
         template: job-init-db.yaml
 
-  - it: init-db mounts both ConfigMaps in shared mode
+  - it: init-db mounts both ConfigMaps
     asserts:
       - equal:
           path: spec.template.spec.volumes[1].name
@@ -77,35 +38,7 @@ tests:
           value: data-proxy-init-db-0
         template: job-init-db.yaml
 
-  - it: init-db creates per-schema Jobs in HA mode
-    set:
-      ha.enabled: true
-      syncConfig.schemas:
-        app: {}
-        other: {}
-    asserts:
-      - hasDocuments:
-          count: 4
-        template: job-init-db.yaml
-
-  - it: init-db per-schema Job carries the schema env var
-    set:
-      ha.enabled: true
-      cnpg.mode: per-schema
-      syncConfig.schemas:
-        app: {}
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SCHEMA
-            value: app
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-init-db-0
-        template: job-init-db.yaml
-
-  - it: init-db SQL ConfigMap ships the four split maintenance procedure files
+  - it: init-db SQL ConfigMap ships maintenance procedure files
     asserts:
       - hasDocuments:
           count: 3
@@ -131,8 +64,9 @@ tests:
 
   - it: backup does not render when disabled
     set:
-      backup.enabled: false
+      jobs.backup.enabled: false
+      jobs.cleanup.enabled: false
     asserts:
       - hasDocuments:
           count: 0
-        template: cronjob-backup.yaml
+        template: cronjobs.yaml

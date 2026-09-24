@@ -1,0 +1,195 @@
+{{- if .Values.jobs.backup.enabled }}
+{{- $root := . }}
+{{- range $schema, $_ := .Values.sync.config.schemas }}
+{{- $backupName := printf "%s-%s-backup" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $backupName }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: backup
+    data-proxy.io/schema: {{ $schema | quote }}
+spec:
+  schedule: {{ $root.Values.jobs.backup.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.jobs.backup.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ $root.Values.jobs.backup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $root.Values.jobs.backup.ttlSecondsAfterFinished }}
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: backup
+            data-proxy.io/schema: {{ $schema | quote }}
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: {{ $root.Values.jobs.image | quote }}
+              command: [nu, /scripts/backup.nu]
+              workingDir: /scripts
+              env:
+                - name: SCHEMA
+                  value: {{ $schema | quote }}
+                - name: PGHOST
+                  value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: {{ $root.Values.cnpg.db.name | quote }}
+                - name: PGUSER
+                  value: jobs
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.jobsSecretName" $root }}
+                      key: JOBS_PASSWORD
+                - name: BACKUP_PREFIX
+                  value: {{ $root.Values.jobs.backup.prefix | quote }}
+                - name: S3_BUCKET
+                  value: {{ required "jobs.backup.s3.bucket is required when backup is enabled" $root.Values.jobs.backup.s3.bucket | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ required "jobs.backup.s3.endpointURL is required when backup is enabled" $root.Values.jobs.backup.s3.endpointURL | quote }}
+                - name: S3_USE_SSL
+                  value: "true"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "jobs.backup.s3.existingSecret is required when backup is enabled" $root.Values.jobs.backup.s3.existingSecret }}
+                      key: S3_ACCESS_KEY
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "jobs.backup.s3.existingSecret is required when backup is enabled" $root.Values.jobs.backup.s3.existingSecret }}
+                      key: S3_SECRET_KEY
+                - name: ACCESS_LOG_RETENTION_DAYS
+                  value: {{ $root.Values.jobs.backup.accessLog.retentionDays | quote }}
+                - name: DUCKLAKE_CATALOG_PATH
+                  value: {{ $root.Values.ducklake.catalogLocalPath | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
+                {{- if $root.Values.gcp.existingSecret }}
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: {{ $root.Values.gcp.mountPath | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: catalogs
+                  mountPath: {{ $root.Values.ducklake.catalogLocalPath }}
+                  readOnly: true
+                {{- include "data-proxy.gcpVolumeMount" $root | nindent 16 }}
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-scripts
+                defaultMode: 0555
+            - name: catalogs
+              persistentVolumeClaim:
+                claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
+                readOnly: true
+            {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
+{{- end }}
+{{- end }}
+---
+{{- if .Values.jobs.cleanup.enabled }}
+{{- $root := . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" $root }}-scripts
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+data:
+  cleanup.nu: |
+{{ $root.Files.Get "files/cleanup.nu" | nindent 4 }}
+  lib.nu: |
+{{ $root.Files.Get "files/lib.nu" | nindent 4 }}
+{{- range $path, $_ := $root.Files.Glob "files/templates/postgres/*.sql" }}
+  {{ base $path }}: |
+{{ $root.Files.Get $path | nindent 4 }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" $root }}-cleanup
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: cleanup
+spec:
+  schedule: {{ $root.Values.jobs.cleanup.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.jobs.cleanup.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: cleanup
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: {{ $root.Values.jobs.image | quote }}
+              imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+              command: [nu, /scripts/cleanup.nu]
+              workingDir: /scripts
+              env:
+                - name: PG_DATABASE_URL
+                  value: {{ include "data-proxy.appPgDsn" $root | quote }}
+                - name: SYNC_CONFIG_PATH
+                  value: /config/sync.json
+                - name: DBOS_APP_SCHEMA
+                  value: {{ $root.Values.sync.dbos.appSchema | quote }}
+                - name: S3_BUCKET
+                  value: {{ $root.Values.s3.bucket | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+                - name: S3_USE_SSL
+                  value: {{ $root.Values.s3.useSsl | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_SECRET_KEY
+                - name: DUCKLAKE_CATALOG_PATH
+                  value: {{ $root.Values.ducklake.catalogPath | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: sync-config
+                  mountPath: /config
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-scripts
+                defaultMode: 0555
+            - name: sync-config
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-sync
+{{- end }}

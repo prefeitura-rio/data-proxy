@@ -1,185 +1,121 @@
 suite: Istio Security
 templates:
-  - requestauthentication.yaml
-  - authorizationpolicy.yaml
+  - istio.yaml
 tests:
   - it: does not render when ingress is disabled
+    set:
+      ingress.enabled: false
     asserts:
       - hasDocuments:
           count: 0
+        template: istio.yaml
 
   - it: does not render when auth is disabled
     set:
       ingress.enabled: true
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: renders both resources when ingress and auth are enabled
-    set:
-      ingress.enabled: true
-      ingress.host: api.example.com
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      ingress.auth.enabled: false
     asserts:
       - hasDocuments:
           count: 1
-        template: requestauthentication.yaml
-      - hasDocuments:
-          count: 1
-        template: authorizationpolicy.yaml
+        template: istio.yaml
 
   - it: RequestAuthentication uses configured issuer and jwks and forwards the token
-    template: requestauthentication.yaml
     set:
       ingress.enabled: true
       ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      ingress.auth.issuer: https://issuer.example.com
+      ingress.auth.jwksUri: https://jwks.example.com
+      ingress.auth.audience: api.example.com
     asserts:
       - isKind:
           of: RequestAuthentication
+        documentSelector:
+          path: kind
+          value: RequestAuthentication
+        template: istio.yaml
       - equal:
           path: spec.jwtRules[0].issuer
-          value: "https://auth.example.com"
+          value: https://issuer.example.com
+        documentSelector:
+          path: kind
+          value: RequestAuthentication
+        template: istio.yaml
       - equal:
           path: spec.jwtRules[0].jwksUri
-          value: "https://auth.example.com/protocol/openid-connect/certs"
+          value: https://jwks.example.com
+        documentSelector:
+          path: kind
+          value: RequestAuthentication
+        template: istio.yaml
+      - equal:
+          path: spec.jwtRules[0].audiences[0]
+          value: api.example.com
+        documentSelector:
+          path: kind
+          value: RequestAuthentication
+        template: istio.yaml
       - equal:
           path: spec.jwtRules[0].forwardOriginalToken
           value: true
-      - notExists:
-          path: spec.jwtRules[0].audiences
+        documentSelector:
+          path: kind
+          value: RequestAuthentication
+        template: istio.yaml
 
-  - it: RequestAuthentication sets audiences when configured
-    template: requestauthentication.yaml
+  - it: AuthorizationPolicy allows authenticated requests and health
     set:
       ingress.enabled: true
       ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      ingress.auth.audience: "data-proxy"
-    asserts:
-      - equal:
-          path: spec.jwtRules[0].audiences
-          value:
-            - data-proxy
-
-  - it: AuthorizationPolicy allows any valid JWT principal
-    template: authorizationpolicy.yaml
-    set:
-      ingress.enabled: true
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
+      ingress.auth.issuer: https://issuer.example.com
+      ingress.auth.jwksUri: https://jwks.example.com
     asserts:
       - isKind:
           of: AuthorizationPolicy
+        documentSelector:
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
       - equal:
           path: spec.action
           value: ALLOW
+        documentSelector:
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
       - equal:
           path: spec.rules[0].from[0].source.requestPrincipals[0]
           value: "*"
-      - notExists:
-          path: spec.rules[0].when
-
-  - it: covers the fallback proxy when it is enabled
-    set:
-      ingress.enabled: true
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      swaggerUi.enabled: true
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: authorizationpolicy.yaml
-      - equal:
-          path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: proxy
-        template: authorizationpolicy.yaml
         documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - equal:
-          path: spec.rules[0].from[0].source.requestPrincipals[0]
-          value: "*"
-        template: authorizationpolicy.yaml
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
       - equal:
           path: spec.rules[1].to[0].operation.methods[0]
           value: GET
-        template: authorizationpolicy.yaml
         documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
+      - equal:
+          path: spec.rules[1].to[0].operation.paths[0]
+          value: /health
+        documentSelector:
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
+
+  - it: AuthorizationPolicy allows unauthenticated Swagger UI when enabled
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: https://issuer.example.com
+      ingress.auth.jwksUri: https://jwks.example.com
+      swaggerUi.enabled: true
+    asserts:
       - equal:
           path: spec.rules[1].to[0].operation.paths[0]
           value: /
-        template: authorizationpolicy.yaml
         documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - equal:
-          path: spec.rules[2].to[0].operation.paths[0]
-          value: /health
-        template: authorizationpolicy.yaml
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - hasDocuments:
-          count: 1
-        template: requestauthentication.yaml
-      - equal:
-          path: spec.jwtRules[0].issuer
-          value: "https://auth.example.com"
-        template: requestauthentication.yaml
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-
-  - it: keeps the document protected on the proxy when swagger is disabled
-    set:
-      ingress.enabled: true
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-      swaggerUi.enabled: false
-    asserts:
-      - equal:
-          path: spec.rules[1].to[0].operation.paths[0]
-          value: /health
-        template: authorizationpolicy.yaml
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - lengthEqual:
-          path: spec.rules
-          count: 2
-        template: authorizationpolicy.yaml
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-
-  - it: omits the proxy policy when the fallback is disabled
-    set:
-      ingress.enabled: true
-      ingress.auth.enabled: true
-      ingress.auth.issuer: "https://auth.example.com"
-      ingress.auth.jwksUri: "https://auth.example.com/protocol/openid-connect/certs"
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: authorizationpolicy.yaml
-      - equal:
-          path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: proxy
-        template: authorizationpolicy.yaml
-      - hasDocuments:
-          count: 1
-        template: requestauthentication.yaml
-
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml

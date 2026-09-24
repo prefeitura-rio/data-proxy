@@ -45,17 +45,4 @@ def main []: nothing -> nothing {
         schema_argument: $schema_argument
     }
     log info 'Application cleanup completed'
-
-    log info 'DBOS state cleanup started'
-    let state_query = [$"CALL ($procedure_schema).cleanup_table_state\(" ":'config'::jsonb);"] | str join
-    try {
-        psql $env.DBOS_SYSTEM_DATABASE_URL --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"config=($config)" -c $state_query
-    } catch {|err| error make {
-        msg: $'PostgreSQL state cleanup call failed: ($err.msg)'
-        label: {
-            text: cleanup
-            span: (metadata $state_query).span
-        }
-    } }
-    log info 'DBOS state cleanup completed'
 }

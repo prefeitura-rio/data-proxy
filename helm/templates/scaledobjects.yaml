@@ -1,0 +1,94 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-sync
+    kind: Deployment
+    apiVersion: apps/v1
+  pollingInterval: {{ .Values.sync.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.sync.keda.cooldownPeriod }}
+  idleReplicaCount: {{ .Values.sync.keda.idleReplicaCount }}
+  minReplicaCount: {{ .Values.sync.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.sync.keda.maxReplicaCount }}
+  triggers:
+    - type: postgresql
+      metadata:
+        connectionFromEnv: AIRFLOW_CONN_AIRFLOW_DB
+        query: {{ .Values.sync.keda.query | quote }}
+        targetQueryValue: {{ .Values.sync.keda.targetQueryValue | quote }}
+        activationTargetQueryValue: {{ .Values.sync.keda.activationTargetQueryValue | quote }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-postgrest
+    kind: Deployment
+    apiVersion: apps/v1
+  minReplicaCount: {{ .Values.postgrest.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.postgrest.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.postgrest.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.postgrest.keda.cooldownPeriod }}
+  triggers:
+{{- if gt (len (.Values.postgrest.keda.triggers | default list)) 0 }}
+{{ toYaml .Values.postgrest.keda.triggers | nindent 4 }}
+{{- else }}
+{{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
+{{- end }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "data-proxy.fullname" . }}-proxy
+    kind: Deployment
+    apiVersion: apps/v1
+  minReplicaCount: 1
+  maxReplicaCount: {{ .Values.fallback.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.fallback.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.fallback.autoscaling.cooldownPeriod }}
+  triggers:
+{{- if gt (len (.Values.fallback.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.fallback.autoscaling.triggers | nindent 4 }}
+{{- else }}
+{{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
+{{- end }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-pooler-ro-autoscaler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  scaleTargetRef:
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Pooler
+    name: {{ include "data-proxy.fullname" . }}-pooler-ro
+  minReplicaCount: {{ .Values.cnpg.pooler.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.cnpg.pooler.autoscaling.maxReplicaCount }}
+  pollingInterval: {{ .Values.cnpg.pooler.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.cnpg.pooler.autoscaling.cooldownPeriod }}
+  triggers:
+{{- if gt (len (.Values.cnpg.pooler.autoscaling.triggers | default list)) 0 }}
+{{ toYaml .Values.cnpg.pooler.autoscaling.triggers | nindent 4 }}
+{{- else }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "90"
+{{- end }}

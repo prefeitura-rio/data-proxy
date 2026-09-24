@@ -1,84 +1,87 @@
 suite: Backup CronJob
 templates:
-  - cronjob-backup.yaml
+  - cronjobs.yaml
 tests:
   - it: does not render when backup is disabled
+    set:
+      jobs.backup.enabled: false
+      jobs.cleanup.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
   - it: renders one schema backup with the configured schedule and image
     set:
-      backup.enabled: true
-      backup.schedule: "30 4 * * *"
-      backup.image: postgres:17-alpine
-      backup.prefix: backups/access_policy
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.schedule: "30 4 * * *"
+      jobs.image: postgres:17-alpine
+      jobs.backup.prefix: backups/access_policy
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         isKind:
           of: CronJob
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         equal:
           path: metadata.name
           value: data-proxy-bcadastro-backup
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         equal:
           path: spec.schedule
           value: "30 4 * * *"
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
           value: postgres:17-alpine
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[0]
           pattern: '^nu$'
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[1]
           value: /scripts/backup.nu
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
           value: data-proxy-scripts
 
   - it: connects as the shared jobs role
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: PGUSER
             value: jobs
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -90,24 +93,24 @@ tests:
 
   - it: mounts GCP credentials so rclone can reach GCS
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
       gcp.existingSecret: gcp-key
-      syncConfig.schemas.bcadastro.tables: []
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: GOOGLE_APPLICATION_CREDENTIALS
             value: /gcp/key.json
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes
           content:
@@ -117,32 +120,32 @@ tests:
 
   - it: omits GCP credentials when no GCP Secret is set
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: http://seaweedfs-s3:8333
-      backup.s3.existingSecret: backup-s3-creds
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: http://seaweedfs-s3:8333
+      jobs.backup.s3.existingSecret: backup-s3-creds
       gcp.existingSecret: ""
-      syncConfig.schemas.bcadastro.tables: []
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         notContains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: GOOGLE_APPLICATION_CREDENTIALS
 
-  - it: uses backup S3 credentials from backup.s3.existingSecret
+  - it: uses backup S3 credentials from jobs.backup.s3.existingSecret
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-bcadastro-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:

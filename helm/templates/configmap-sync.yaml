@@ -7,4 +7,4 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
 data:
   sync.json: |
-    {{ .Values.syncConfig | toJson | nindent 4 }}
+    {{ .Values.sync.config | toJson | nindent 4 }}

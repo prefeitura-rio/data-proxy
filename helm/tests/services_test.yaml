@@ -1,34 +1,47 @@
 suite: Always-on services
 templates:
-  - service-postgrest-ro.yaml
+  - services.yaml
 tests:
-  - it: postgrest service is rendered as ClusterIP on port 3000 in shared mode
+  - it: postgrest service is rendered as ClusterIP on port 3000
     asserts:
-      - hasDocuments:
-          count: 1
-        template: service-postgrest-ro.yaml
       - equal:
           path: spec.type
           value: ClusterIP
-        template: service-postgrest-ro.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: services.yaml
       - equal:
           path: spec.ports[0].port
           value: 3000
-        template: service-postgrest-ro.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: services.yaml
 
   - it: postgrest service selects the postgrest component
     asserts:
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
-          value: postgrest-ro
-        template: service-postgrest-ro.yaml
+          value: postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: services.yaml
 
-  - it: postgrest service is not rendered in per-schema mode
-    set:
-      cnpg.mode: per-schema
-      cnpg.schemas:
-        app_example: {}
+  - it: proxy service is rendered with http and redis ports
     asserts:
-      - hasDocuments:
-          count: 0
-        template: service-postgrest-ro.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: services.yaml
+      - equal:
+          path: spec.ports[1].port
+          value: 7379
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: services.yaml

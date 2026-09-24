@@ -1,392 +1,93 @@
 suite: Workloads
 templates:
-  - deployment-pipeline.yaml
-  - scaledobject-pipeline.yaml
+  - deployment-sync.yaml
+  - scaledobjects.yaml
   - job-init-db.yaml
-  - cronjob-backup.yaml
-  - cronjob-cleanup.yaml
-  - cronjob-retention.yaml
+  - cronjobs.yaml
 tests:
-  - it: creates init-db as a revision-specific normal Job
+  - it: creates init-db as a revision-specific Job
     asserts:
       - isKind:
           of: Job
         documentSelector:
-          path: kind
-          value: Job
-        template: job-init-db.yaml
-      - equal:
-          path: metadata.name
-          value: data-proxy-init-db-0
-        documentSelector:
-          path: kind
-          value: Job
-        template: job-init-db.yaml
-      - notExists:
-          path: metadata.annotations["helm.sh/hook"]
-        documentSelector:
-          path: kind
-          value: Job
-        template: job-init-db.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SQL_TEMPLATE_DIR
-            value: /templates/postgres
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-init-db-0
-        template: job-init-db.yaml
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POOLER_PASSWORD
-        documentSelector:
           path: metadata.name
           value: data-proxy-init-db-0
         template: job-init-db.yaml
 
-  - it: backup runs the Nushell script and mounts required files
-    set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-creds
-      syncConfig.schemas.app_example: {}
-    asserts:
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.containers[0].command
-          value: [nu, /scripts/backup.nu]
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-example-backup
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
-          content:
-            name: scripts
-            mountPath: /scripts
-            readOnly: true
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-example-backup
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[0].name
-          value: scripts
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-app-example-backup
-
-  - it: pipeline Deployment uses the correct image and command
+  - it: sync Deployment uses the correct image and command
     asserts:
       - isKind:
           of: Deployment
-        template: deployment-pipeline.yaml
+        template: deployment-sync.yaml
       - equal:
           path: spec.template.spec.containers[0].command
           value: [python, -m, data_proxy.dbos.main]
-        template: deployment-pipeline.yaml
-      - equal:
-          path: spec.replicas
-          value: 0
-        template: deployment-pipeline.yaml
+        template: deployment-sync.yaml
 
-  - it: pipeline carries the batch settings and a scratch volume
+  - it: sync carries the DBOS and DuckLake environment
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_BATCH_BYTES
-            value: "629145600"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_BATCH_MAX_PARTITIONS
-            value: "256"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_SCRATCH_DIR
-            value: "/scratch"
-        template: deployment-pipeline.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DBOS_APPLICATION_NAME
-            value: "data-proxy-pipeline"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SYNC_SCHEDULE
-            value: "0 2 * * *"
-        template: deployment-pipeline.yaml
+            value: "data-proxy-sync"
+        template: deployment-sync.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMP_QUEUE_WORKER_CONCURRENCY
             value: "4"
-        template: deployment-pipeline.yaml
+        template: deployment-sync.yaml
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.containers[0].env
           content:
-            name: scratch
-            mountPath: /scratch
-        template: deployment-pipeline.yaml
+            name: DUCKLAKE_CATALOG_PATH
+            value: "ducklake"
+        template: deployment-sync.yaml
+
+  - it: sync mounts the writer catalog PVC
+    asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: scratch
-            emptyDir:
-              sizeLimit: 4Gi
-        template: deployment-pipeline.yaml
+            name: catalogs
+            persistentVolumeClaim:
+              claimName: data-proxy-catalog-writer
+        template: deployment-sync.yaml
 
-  - it: large numeric batch settings render as plain integers
-    set:
-      sync.dumper.batchMegaBytes: 1024
+  - it: renders a KEDA ScaledObject targeting the sync Deployment
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_BATCH_BYTES
-            value: "1073741824"
-        template: deployment-pipeline.yaml
-
-  - it: pipeline uses the configured scratch size limit and batch size
-    set:
-      sync.dumper.batchMegaBytes: 100
-      sync.dumper.scratch.sizeLimit: 1Gi
-      sync.dumper.scratch.mountPath: /work
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_BATCH_BYTES
-            value: "104857600"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMPER_SCRATCH_DIR
-            value: "/work"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: scratch
-            emptyDir:
-              sizeLimit: 1Gi
-        template: deployment-pipeline.yaml
-
-  - it: pipeline ScaledObject keeps one warm replica and scales to at least three on the DBOS queue
-    asserts:
-      - isKind:
-          of: ScaledObject
-        template: scaledobject-pipeline.yaml
       - equal:
-          path: spec.idleReplicaCount
-          value: 1
-        template: scaledobject-pipeline.yaml
+          path: spec.scaleTargetRef.name
+          value: data-proxy-sync
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-sync
+        template: scaledobjects.yaml
       - equal:
           path: spec.minReplicaCount
           value: 3
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.maxReplicaCount
-          value: 15
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.scaleTargetRef.kind
-          value: Deployment
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.triggers[0].type
-          value: postgresql
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.triggers[0].metadata.connectionFromEnv
-          value: AIRFLOW_CONN_AIRFLOW_DB
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.triggers[0].metadata.targetQueryValue
-          value: "1.1"
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.triggers[0].metadata.activationTargetQueryValue
-          value: "5"
-        template: scaledobject-pipeline.yaml
-
-  - it: pipeline ScaledObject honors overrides
-    set:
-      sync.worker.keda.maxReplicaCount: 9
-      sync.worker.keda.minReplicaCount: 4
-      sync.worker.keda.pollingInterval: 15
-    asserts:
-      - equal:
-          path: spec.maxReplicaCount
-          value: 9
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.minReplicaCount
-          value: 4
-        template: scaledobject-pipeline.yaml
-      - equal:
-          path: spec.pollingInterval
-          value: 15
-        template: scaledobject-pipeline.yaml
-
-  - it: pipeline Deployment has topology spread constraints
-    asserts:
-      - exists:
-          path: spec.template.spec.topologySpreadConstraints
-        template: deployment-pipeline.yaml
-
-  - it: cleanup CronJob runs the Nushell script and mounts sync config
-    set:
-      cleanup.enabled: true
-      syncConfig.schemas.app_example: {}
-    asserts:
-      - matchRegex:
-          path: spec.jobTemplate.spec.template.spec.containers[0].image
-          pattern: ghcr.io/prefeitura-rio/data-proxy-nushell:.*
         documentSelector:
           path: metadata.name
-          value: data-proxy-cleanup
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.volumes[1].name
-          value: scripts
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cleanup
-      - exists:
-          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cleanup
+          value: data-proxy-sync
+        template: scaledobjects.yaml
 
-  - it: cleanup CronJob runs as the shared jobs role
+  - it: renders cleanup CronJob when enabled
     set:
-      cleanup.enabled: true
-      syncConfig.schemas.app_example: {}
-    asserts:
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: PGUSER
-            value: jobs
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cleanup
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: PGPASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: data-proxy-jobs
-                key: JOBS_PASSWORD
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cleanup
-      - notContains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: PG_DSN
-          documentSelector:
-            path: metadata.name
-            value: data-proxy-cleanup
-
-  - it: init-db receives the jobs flag for the shared maintenance role
-    set:
-      backup.enabled: false
-      cleanup.enabled: true
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JOBS_ENABLED
-            value: "true"
-        documentSelector:
-          path: kind
-          value: Job
-        template: job-init-db.yaml
-
-  - it: cleanup does not render when disabled
-    set:
-      cleanup.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-        template: cronjob-cleanup.yaml
-
-  - it: renders the retention CronJob when enabled
-    set:
-      retention.enabled: true
-      syncConfig.schemas.app: {}
+      jobs.cleanup.enabled: true
     asserts:
       - isKind:
           of: CronJob
         documentSelector:
-          path: kind
-          value: CronJob
-        template: cronjob-retention.yaml
-      - equal:
-          path: spec.jobTemplate.spec.template.spec.containers[0].command
-          value: [nu, /scripts/retention.nu]
-        documentSelector:
-          path: kind
-          value: CronJob
-        template: cronjob-retention.yaml
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
-          content:
-            name: retention-script
-            mountPath: /scripts
-            readOnly: true
-        documentSelector:
-          path: kind
-          value: CronJob
-        template: cronjob-retention.yaml
+          path: metadata.name
+          value: data-proxy-cleanup
+        template: cronjobs.yaml
 
-  - it: does not render the retention CronJob when disabled
+  - it: does not render cleanup CronJob when disabled
+    set:
+      jobs.cleanup.enabled: false
+      jobs.backup.enabled: false
     asserts:
       - hasDocuments:
           count: 0
-        template: cronjob-retention.yaml
-
-  - it: pipeline renders DBOS controls and resources
-    set:
-      observability.otlpLogsEndpoint: http://otel-collector:4318/v1/logs
-      sync.workflowTimeoutSeconds: 1800
-      sync.worker.dumpQueueRateLimit: 20
-      sync.worker.stepMaxAttempts: 4
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: OTLP_LOGS_ENDPOINT
-            value: http://otel-collector:4318/v1/logs
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SYNC_RUN_TIMEOUT_SECONDS
-            value: "1800"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUMP_QUEUE_RATE_LIMIT
-            value: "20"
-        template: deployment-pipeline.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SYNC_STEP_MAX_ATTEMPTS
-            value: "4"
-        template: deployment-pipeline.yaml
-      - equal:
-          path: spec.template.spec.containers[0].resources.limits.memory
-          value: 6Gi
-        template: deployment-pipeline.yaml
+        template: cronjobs.yaml

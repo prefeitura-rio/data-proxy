@@ -1,0 +1,105 @@
+{{- if .Values.ingress.enabled }}
+{{- $root := . }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "data-proxy.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ingress.gateway }}
+  hosts:
+    - {{ .Values.ingress.host | quote }}
+  http:
+    {{- if .Values.swaggerUi.enabled }}
+    - name: docs-redirect
+      match:
+        - uri:
+            exact: /docs
+      redirect:
+        redirectCode: 302
+        uri: /docs/
+    - name: docs
+      match:
+        - uri:
+            prefix: /docs/
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: {{ include "data-proxy.fullname" . }}-swagger-ui
+            port:
+              number: 8080
+    {{- end }}
+    - route:
+        - destination:
+            host: {{ include "data-proxy.fullname" . }}-proxy
+            port:
+              number: 8080
+      {{- with .Values.ingress.timeout }}
+      timeout: {{ . }}
+      {{- end }}
+      {{- if gt (int .Values.ingress.retries.attempts) 0 }}
+      retries:
+        attempts: {{ .Values.ingress.retries.attempts }}
+        {{- with .Values.ingress.retries.perTryTimeout }}
+        perTryTimeout: {{ . }}
+        {{- end }}
+        {{- with .Values.ingress.retries.retryOn }}
+        retryOn: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+---
+{{- if and .Values.ingress.auth.enabled }}
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: proxy
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - "*"
+    {{- if .Values.swaggerUi.enabled }}
+    - to:
+        - operation:
+            methods:
+              - GET
+            paths:
+              - /
+    {{- end }}
+    - to:
+        - operation:
+            methods:
+              - GET
+            paths:
+              - /health
+{{- end }}
+---
+{{- if and .Values.ingress.auth.enabled }}
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: proxy
+  {{- include "data-proxy.jwtRules" . | nindent 2 }}
+{{- end }}
+{{- end }}

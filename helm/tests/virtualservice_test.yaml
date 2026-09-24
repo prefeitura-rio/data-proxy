@@ -1,6 +1,6 @@
 suite: Istio VirtualService
 templates:
-  - virtualservice.yaml
+  - istio.yaml
 tests:
   - it: does not render when ingress is disabled
     asserts:

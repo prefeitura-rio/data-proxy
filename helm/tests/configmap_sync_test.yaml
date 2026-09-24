@@ -14,7 +14,7 @@ tests:
 
   - it: sync.json contains configured table entries
     set:
-      syncConfig.schemas.my_schema.tables:
+      sync.config.schemas.my_schema.tables:
         - name: proj.dataset.my_table
           strategy: full
     asserts:
@@ -24,7 +24,7 @@ tests:
 
   - it: sync.json carries the cache lifetime of a table
     set:
-      syncConfig.schemas.my_schema.tables:
+      sync.config.schemas.my_schema.tables:
         - name: proj.dataset.my_table
           strategy: full
           cache_ttl: 600

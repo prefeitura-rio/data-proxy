@@ -1,22 +1,5 @@
-{{/*
-{
-  "kind": "template",
-  "description": "Render the CloudNativePG database cluster.",
-  "inputs": {
-    "values": "Helm chart values used by this resource.",
-    "release": "Helm release context used in resource names.",
-    "chart": "Helm chart metadata used in labels."
-  }
-}
-*/}}
+{{/* Render the single CloudNativePG cluster. */}}
 {{- $root := . }}
-{{- $files := .Files }}
-{{- $state := lookup "v1" "ConfigMap" $root.Release.Namespace (printf "%s-mode-state" (include "data-proxy.fullname" $root)) }}
-{{- $previous := "" }}
-{{- if $state }}
-{{- $previous = $state.data.mode | default "" }}
-{{- end }}
-{{- if or (eq $root.Values.cnpg.mode "shared") (and (eq $root.Values.cnpg.mode "per-schema") (eq $previous "shared")) }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -26,6 +9,11 @@ metadata:
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: postgres
+  {{- $schemas := $root.Values.sync.config.schemas }}
+  {{- if gt (len $schemas) 0 }}
+  annotations:
+    cnpg.io/podPatch: {{ include "data-proxy.cnpgCatalogPodPatch" $root | quote }}
+  {{- end }}
 spec:
   imageName: {{ $root.Values.cnpg.image | quote }}
   env:
@@ -35,14 +23,23 @@ spec:
     - name: GOOGLE_APPLICATION_CREDENTIALS
       value: /projected/gcp-key.json
     {{- end }}
-  {{- if $root.Values.gcp.existingSecret }}
+  {{- if or (gt (len $schemas) 0) $root.Values.gcp.existingSecret }}
   projectedVolumeTemplate:
     sources:
+      - configMap:
+          name: {{ include "data-proxy.fullname" $root }}-litestream
+          items:
+            - key: litestream-read.yaml
+              path: litestream-read.yaml
+            - key: restore-catalogs.sh
+              path: restore-catalogs.sh
+      {{- if $root.Values.gcp.existingSecret }}
       - secret:
           name: {{ $root.Values.gcp.existingSecret | quote }}
           items:
             - key: key.json
               path: gcp-key.json
+      {{- end }}
   {{- end }}
   bootstrap:
     initdb:
@@ -104,10 +101,10 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
-          {{- range $schema := sortAlpha (keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas)) }}
+          {{- range $schema := sortAlpha (keys ($root.Values.sync.config.schemas)) }}
           - {{ printf "policy_writer_%s" $schema | quote }}
           {{- end }}
-      {{- if or $root.Values.backup.enabled $root.Values.cleanup.enabled }}
+      {{- if or $root.Values.jobs.backup.enabled $root.Values.jobs.cleanup.enabled }}
       - name: jobs
         ensure: present
         login: true
@@ -115,109 +112,3 @@ spec:
         passwordSecret:
           name: {{ include "data-proxy.jobsSecretName" $root }}
       {{- end }}
-
-{{- end }}
-
-{{- if or (eq $root.Values.cnpg.mode "per-schema") (and (eq $root.Values.cnpg.mode "shared") (eq $previous "per-schema")) }}
-{{- range $schema, $stack := (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas) }}
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata:
-  name: {{ include "data-proxy.fullname" $root }}-{{ $schema | replace "_" "-" }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: postgres
-    data-proxy.io/schema: {{ $schema | quote }}
-spec:
-  imageName: {{ $root.Values.cnpg.image | quote }}
-  env:
-    - name: HOME
-      value: /var/lib/postgresql/data
-    {{- if $root.Values.gcp.existingSecret }}
-    - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: /projected/gcp-key.json
-    {{- end }}
-  {{- if $root.Values.gcp.existingSecret }}
-  projectedVolumeTemplate:
-    sources:
-      - secret:
-          name: {{ $root.Values.gcp.existingSecret | quote }}
-          items:
-            - key: key.json
-              path: gcp-key.json
-  {{- end }}
-  bootstrap:
-    initdb:
-      database: {{ $root.Values.cnpg.db.name | quote }}
-      owner: {{ $root.Values.cnpg.db.user | quote }}
-      encoding: UTF8
-      postInitApplicationSQL: []
-  instances: {{ default $root.Values.cnpg.instances $stack.instances | int }}
-  resources:
-    requests:
-      cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}
-      memory: {{ $root.Values.cnpg.resources.requests.memory | quote }}
-    limits:
-      cpu: {{ $root.Values.cnpg.resources.limits.cpu | quote }}
-      memory: {{ $root.Values.cnpg.resources.limits.memory | quote }}
-  postgresql:
-    shared_preload_libraries:
-      - pg_duckdb
-      - pg_stat_statements
-    parameters:
-      pg_stat_statements.max: "10000"
-      pg_stat_statements.track: top
-      duckdb.allow_unsigned_extensions: "on"
-      duckdb.allow_community_extensions: "on"
-      duckdb.unsafe_allow_execution_inside_functions: "on"
-      duckdb.postgres_role: authenticator
-      duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
-      duckdb.max_memory: {{ $root.Values.cnpg.duckdb.maxMemory | quote }}
-{{- include "data-proxy.cnpgParameters" $root | nindent 6 }}
-  storage:
-    size: {{ default $root.Values.cnpg.storage.size (dig "storage" "size" $root.Values.cnpg.storage.size $stack) | quote }}
-    {{- with $root.Values.cnpg.storage.storageClass }}
-    storageClass: {{ . | quote }}
-    {{- end }}
-  managed:
-    roles:
-      - name: {{ $root.Values.cnpg.db.user | quote }}
-        ensure: present
-        superuser: true
-        login: true
-        passwordSecret:
-          name: {{ include "data-proxy.dbSecretName" $root }}
-      - name: {{ $root.Values.auth.anonRole | quote }}
-        ensure: present
-        login: false
-        bypassrls: false
-      - name: {{ $root.Values.auth.userRole | quote }}
-        ensure: present
-        login: false
-        bypassrls: false
-      - name: {{ $root.Values.auth.authenticatorRole | quote }}
-        ensure: present
-        login: true
-        bypassrls: false
-        inherit: false
-        passwordSecret:
-          name: {{ include "data-proxy.authenticatorSecretName" $root }}
-        inRoles:
-          - {{ $root.Values.auth.anonRole | quote }}
-          - {{ $root.Values.auth.userRole | quote }}
-          {{- range $schema := sortAlpha (keys (default $root.Values.cnpg.schemas $root.Values.syncConfig.schemas)) }}
-          - {{ printf "policy_writer_%s" $schema | quote }}
-          {{- end }}
-      {{- if or $root.Values.backup.enabled $root.Values.cleanup.enabled }}
-      - name: jobs
-        ensure: present
-        login: true
-        bypassrls: false
-        passwordSecret:
-          name: {{ include "data-proxy.jobsSecretName" $root }}
-      {{- end }}
-
-{{- end }}
-{{- end }}

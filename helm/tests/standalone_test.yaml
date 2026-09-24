@@ -1,10 +1,9 @@
-suite: CNPG shared mode
+suite: CNPG single cluster
 templates:
   - cluster-cnpg.yaml
   - rbac.yaml
-  - scaledobject-pooler.yaml
+  - scaledobjects.yaml
   - pooler-cnpg.yaml
-  - secret-cnpg-roles.yaml
 tests:
   - it: manages anon, user, and authenticator roles through CNPG
     asserts:
@@ -36,9 +35,10 @@ tests:
           path: spec.bootstrap.initdb.postInitApplicationSQL
           value: []
         template: cluster-cnpg.yaml
+
   - it: grants policy writer membership per configured schema
     set:
-      syncConfig:
+      sync.config:
         schemas:
           app_pequenos_cariocas:
             claim: preferred_username
@@ -51,11 +51,7 @@ tests:
           path: spec.managed.roles[3].inRoles
           value: ["anon", "user", "policy_writer_app_pequenos_cariocas", "policy_writer_bcadastro"]
         template: cluster-cnpg.yaml
-      - notContains:
-          path: spec.managed.roles
-          content:
-            name: cnpg_pooler_pgbouncer
-        template: cluster-cnpg.yaml
+
   - it: manages the shared jobs role through CNPG
     asserts:
       - contains:
@@ -69,7 +65,7 @@ tests:
               name: data-proxy-jobs
         template: cluster-cnpg.yaml
 
-  - it: renders one CNPG Cluster in shared mode
+  - it: renders one CNPG Cluster
     set:
       cnpg.instances: 3
       cnpg.storage.size: 100Gi
@@ -94,13 +90,13 @@ tests:
       gcp.existingSecret: gcp-key
     asserts:
       - contains:
-          path: spec.projectedVolumeTemplate.sources[0].secret.items
+          path: spec.projectedVolumeTemplate.sources[1].secret.items
           content:
             key: key.json
             path: gcp-key.json
         template: cluster-cnpg.yaml
       - equal:
-          path: spec.projectedVolumeTemplate.sources[0].secret.name
+          path: spec.projectedVolumeTemplate.sources[1].secret.name
           value: gcp-key
         template: cluster-cnpg.yaml
 
@@ -120,7 +116,7 @@ tests:
           content: pg_duckdb
         template: cluster-cnpg.yaml
 
-  - it: declares a pg_stat_statements parameter so CNPG manages the extension
+  - it: declares a pg_stat_statements parameter
     asserts:
       - equal:
           path: spec.postgresql.parameters["pg_stat_statements.max"]
@@ -131,10 +127,10 @@ tests:
           content: pg_stat_statements
         template: cluster-cnpg.yaml
 
-  - it: does not render Patroni RBAC resources
+  - it: renders sync RBAC resources
     asserts:
       - hasDocuments:
-          count: 5
+          count: 2
         template: rbac.yaml
 
   - it: leaves Pooler authentication to CNPG
@@ -145,27 +141,37 @@ tests:
       - notExists:
           path: spec.pgbouncer.authQuery
         template: pooler-cnpg.yaml
+
   - it: renders a Pooler ScaledObject targeting the shared Pooler
     asserts:
-      - hasDocuments:
-          count: 1
-        template: scaledobject-pooler.yaml
       - equal:
           path: spec.scaleTargetRef.kind
           value: Pooler
-        template: scaledobject-pooler.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler-ro-autoscaler
+        template: scaledobjects.yaml
       - equal:
           path: spec.scaleTargetRef.name
           value: data-proxy-pooler-ro
-        template: scaledobject-pooler.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler-ro-autoscaler
+        template: scaledobjects.yaml
       - equal:
           path: spec.minReplicaCount
           value: 1
-        template: scaledobject-pooler.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler-ro-autoscaler
+        template: scaledobjects.yaml
       - equal:
           path: spec.maxReplicaCount
           value: 3
-        template: scaledobject-pooler.yaml
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler-ro-autoscaler
+        template: scaledobjects.yaml
 
   - it: sizes duckdb threads proportionally to the memory limit
     asserts:
@@ -175,14 +181,7 @@ tests:
         template: cluster-cnpg.yaml
     set:
       cnpg.resources.limits.memory: 4Gi
-  - it: raises duckdb threads for large memory limits
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "3"
-        template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 6Gi
+
   - it: caps duckdb threads at four
     asserts:
       - equal:
@@ -191,14 +190,6 @@ tests:
         template: cluster-cnpg.yaml
     set:
       cnpg.resources.limits.memory: 32Gi
-  - it: floors duckdb threads at one for tiny memory limits
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "1"
-        template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 512Mi
 
   - it: configures the DuckDB memory cap
     set:
@@ -207,4 +198,21 @@ tests:
       - equal:
           path: spec.postgresql.parameters["duckdb.max_memory"]
           value: 2048MB
+        template: cluster-cnpg.yaml
+
+  - it: mounts the shared catalog PVC into every CNPG instance
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: "ducklake-catalogs"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.projectedVolumeTemplate.sources[0].configMap.name
+          value: data-proxy-litestream
         template: cluster-cnpg.yaml

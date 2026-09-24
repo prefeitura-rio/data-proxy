@@ -1,0 +1,43 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-pooler-ro
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: pgbouncer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgrest
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgrest
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: proxy
