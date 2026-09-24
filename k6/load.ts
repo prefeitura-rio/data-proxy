@@ -31,7 +31,7 @@ const API_URL = __ENV.BASE_URL || "http://istio-ingressgateway.istio-ingress.svc
 const OIDC_TOKEN_URL = __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
 const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
-const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
+const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
 const TOKEN_REFRESH_SECONDS = 30;
 const FALLBACK_OFFSET_MAX = 20;
@@ -83,14 +83,14 @@ const loadRequestFailed = new Rate("load_request_failed");
 
 const sourceDuration = {
     cache: new Trend("cache_duration_ms"),
-    postgrest: new Trend("postgrest_duration_ms"),
+    parquet: new Trend("parquet_duration_ms"),
     bigquery: new Trend("bigquery_duration_ms"),
 };
 
 const sourceThresholds = {
     load_request_failed: ["rate<0.01"],
     cache_duration_ms: ["p(95)<50"],
-    postgrest_duration_ms: ["p(95)<300"],
+    parquet_duration_ms: ["p(95)<300"],
     bigquery_duration_ms: ["p(95)<4000"],
 };
 
@@ -333,7 +333,7 @@ function pickRoute(clientId: string): Route {
 /** Records the response latency under its proxy source. */
 function recordSourceDuration(response: K6Response): void {
     const source = response.headers["X-Source"] || response.headers["x-source"];
-    if (source === "cache" || source === "postgrest" || source === "bigquery") {
+    if (source === "cache" || source === "parquet" || source === "bigquery") {
         sourceDuration[source].add(response.timings.duration);
     }
 }

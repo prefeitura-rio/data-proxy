@@ -87,7 +87,7 @@ export function restartPipeline(k8s: Kubernetes): void {
   k8s.delete("Pod", pod.metadata.name, NAMESPACE);
 }
 
-/** Creates a DBOS inspector Job that waits for a successful sync workflow. */
+/** Creates a Job that waits for the latest DBOS sync workflow to complete. */
 export function waitForWorkflow(k8s: Kubernetes): void {
   const podSpec = scriptPodSpec(workerPodSpec(k8s));
   const name = `data-proxy-workflow-k6-${Date.now()}`;
@@ -105,8 +105,8 @@ export function waitForWorkflow(k8s: Kubernetes): void {
           containers: [
             {
               ...podSpec.containers[0],
-              name: "inspect",
-              command: ["python", "/scripts/inspect_dbos.py"],
+              name: "wait",
+              command: ["python", "/scripts/trigger.py", "--wait"],
             },
           ],
         },

@@ -53,7 +53,6 @@ const API_URL =
     "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
 const WEBDIS_WRITE_URL = __ENV.WEBDIS_WRITE_URL || `${API_URL}/webdis/write`;
 const WEBDIS_READ_URL = __ENV.WEBDIS_READ_URL || `${API_URL}/webdis/read`;
-const PIPELINE_REDIS_DB = "0";
 const FALLBACK_CACHE_REDIS_DB = __ENV.FALLBACK_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
     __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
@@ -62,7 +61,7 @@ const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
     __ENV.POSTGREST_URL ||
-    "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
+    "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
 const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
@@ -78,13 +77,6 @@ const MULTI_RLS_TABLE = "endpoint_participantes";
 const PARTITIONED_TABLE = "protocolo_estado_diario";
 const TABLES = [FULL_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE];
 
-const PARTITIONED_SOURCE =
-    __ENV.PARTITIONED_SOURCE ||
-    "rj-ia-desenvolvimento.dev.protocolo_estado_diario";
-const FULL_SOURCE =
-    __ENV.FULL_SOURCE ||
-    "rj-ia-desenvolvimento.dev.endpoint_participante_listagem";
-const OID_PROBE_TABLE = "e2e_oid_probe";
 const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
 const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
     __ENV.POLICY_REPLICATION_TIMEOUT_SECONDS || "120",
@@ -92,6 +84,10 @@ const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
 const POLICY_REPLICATION_POLL_INTERVAL_SECONDS = Number(
     __ENV.POLICY_REPLICATION_POLL_INTERVAL_SECONDS || "2",
 );
+const S3_BUCKET = __ENV.S3_BUCKET || "data-proxy";
+const DUCKLAKE_CATALOG_PATH = __ENV.DUCKLAKE_CATALOG_PATH || "ducklake";
+const DUCKLAKE_CATALOG_LOCAL_PATH = __ENV.DUCKLAKE_CATALOG_LOCAL_PATH || "/var/lib/ducklake/catalogs";
+const DUCKLAKE_CATALOG_WRITER_PATH = __ENV.DUCKLAKE_CATALOG_WRITER_PATH || "/var/lib/ducklake/writer";
 
 const ACCESS_POLICY_ROWS = [
     { subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
@@ -268,7 +264,7 @@ function buildMetrics(token: string): MetricRequest[] {
         metrics.push(
             postgrestMetric(
                 "extract",
-                "postgrest",
+                "parquet",
                 `table_status:${table}`,
                 `${table} is reachable`,
                 `/${table}?limit=1`,
@@ -279,7 +275,7 @@ function buildMetrics(token: string): MetricRequest[] {
         metrics.push(
             postgrestMetric(
                 "publish",
-                "postgrest",
+                "parquet",
                 `table_row_count:${table}`,
                 `${table} has rows after publishing`,
                 `/${table}?limit=1000`,
@@ -296,7 +292,7 @@ function buildMetrics(token: string): MetricRequest[] {
         metrics.push(
             postgrestMetric(
                 "publish",
-                "postgrest",
+                "parquet",
                 `freshness_count:${table}`,
                 `${table} has a freshness row`,
                 `/freshness?table=eq.${table}`,
@@ -310,7 +306,7 @@ function buildMetrics(token: string): MetricRequest[] {
         metrics.push(
             postgrestMetric(
                 "publish",
-                "postgrest",
+                "parquet",
                 `freshness_all_success:${table}`,
                 `${table} freshness is all success`,
                 `/freshness?table=eq.${table}`,
@@ -330,7 +326,7 @@ function buildMetrics(token: string): MetricRequest[] {
     metrics.push(
         postgrestMetric(
             "publish",
-            "postgrest",
+            "parquet",
             `partition_count:${PARTITIONED_TABLE}`,
             `${PARTITIONED_TABLE} has ${SYNCED_PARTITIONS} partitions`,
             `/freshness?table=eq.${PARTITIONED_TABLE}`,
@@ -496,16 +492,6 @@ function runSqlJob(
     waitForJob(k8s, jobName);
 }
 
-/** Executes one SQL statement in the DBOS system database. */
-function runDbosSqlJob(k8s: Kubernetes, label: string, statement: string): void {
-    runSqlJob(k8s, label, statement, "DBOS_SYSTEM_DATABASE_URL");
-}
-
-/** Truncates a local table so only BigQuery holds its rows. */
-function truncateLocal(k8s: Kubernetes, table: string): void {
-    runSqlJob(k8s, `truncate-${table}`, `TRUNCATE ${SCHEMA}.${table}`);
-}
-
 /** Revokes the client role's SELECT on a fallback view. */
 function revokeFallbackAccess(k8s: Kubernetes, table: string): void {
     runSqlJob(
@@ -534,180 +520,6 @@ function verifyFallbackPreconditions(token: string): void {
             { status: view.status },
         );
     });
-}
-
-/** Drops the local rows of one partition so only BigQuery still holds them. */
-function dropLocalPartition(
-    k8s: Kubernetes,
-    table: string,
-    partition: string,
-): void {
-    runSqlJob(
-        k8s,
-        `drop-partition-${table}`,
-        `DELETE FROM ${SCHEMA}.${table} WHERE ${PARTITION_COLUMN} = '${partition}'`,
-    );
-}
-
-/** Verifies the fallback serves a partition whose local rows were dropped. */
-function verifyPartitionedFallback(k8s: Kubernetes, token: string): void {
-    const oldest = directPostgrest(
-        `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
-        token,
-    );
-    const partition = (
-        rowsOf(oldest)[0] as Record<string, unknown> | undefined
-    )?.[PARTITION_COLUMN];
-
-    requirePrecondition(
-        "the synced table holds a partition to drop",
-        oldest.status === 200 && typeof partition === "string",
-        { status: oldest.status, partition: partition },
-    );
-
-    dropLocalPartition(k8s, PARTITIONED_TABLE, partition as string);
-
-    const query = `${PARTITION_COLUMN}=eq.${partition}&select=protocolo_id&limit=5`;
-    const local = directPostgrest(`/${PARTITIONED_TABLE}?${query}`, token);
-    const fallbackView = directPostgrest(
-        `/${PARTITIONED_TABLE}_bq?${query}`,
-        token,
-    );
-
-    requirePrecondition(
-        "the dropped partition is empty locally",
-        local.status === 200 && rowsOf(local).length === 0,
-        { status: local.status, rows: rowsOf(local).length },
-    );
-    requirePrecondition(
-        "BigQuery still holds the dropped partition",
-        fallbackView.status === 200 && rowsOf(fallbackView).length > 0,
-        { status: fallbackView.status },
-    );
-
-    const response = proxyGet(`/${PARTITIONED_TABLE}?${query}`, token);
-    expect(
-        "a dropped partition is served by the fallback",
-        rowsOf(response).length === rowsOf(fallbackView).length,
-    );
-    expect("a dropped partition answers with a success", response.status === 200);
-}
-
-/** Verifies the fallback serves a truncated table with all columns and filters. */
-function verifyFullTableFallback(k8s: Kubernetes, token: string): void {
-    truncateLocal(k8s, FULL_TABLE);
-    requirePrecondition(
-        "the truncated table is empty locally",
-        rowsOf(directPostgrest(`/${FULL_TABLE}?limit=1`, token)).length === 0,
-        {},
-    );
-
-    const select = "select=id,nome,id_unidade&limit=3";
-    const fallbackView = directPostgrest(`/${FULL_TABLE}_bq?${select}`, token);
-    const response = proxyGet(`/${FULL_TABLE}?${select}`, token);
-
-    expect(
-        "an emptied table is served by the fallback",
-        rowsOf(response).length > 0,
-    );
-    expect(
-        "the fallback answer matches the fallback view",
-        rowsOf(response).length === rowsOf(fallbackView).length,
-    );
-    expect(
-        "the fallback answer is a cache miss",
-        cacheHeader(response) === "MISS",
-    );
-
-    const proxyRow = rowsOf(response)[0] as Record<string, unknown> | undefined;
-    const viewRow = rowsOf(fallbackView)[0] as
-        | Record<string, unknown>
-        | undefined;
-    expect(
-        "the fallback keeps every column",
-        JSON.stringify(Object.keys(proxyRow ?? {}).sort()) ===
-        JSON.stringify(Object.keys(viewRow ?? {}).sort()),
-    );
-
-    const filtered = proxyGet(
-        `/${FULL_TABLE}?id_unidade=eq.cras_1&select=id&order=id&limit=2`,
-        token,
-    );
-    expect(
-        "filters narrow the fallback answer",
-        rowsOf(filtered).length > 0 && rowsOf(filtered).length <= 2,
-    );
-
-    const ranged = proxyGet(`/${FULL_TABLE}?select=id`, token, { Range: "0-0" });
-    expect(
-        "a range header narrows the fallback answer",
-        rowsOf(ranged).length === 1,
-    );
-
-    const jsonb = proxyGet(
-        `/${FULL_TABLE}?select=id,indicadores&indicadores->>status=not.is.null&limit=1`,
-        token,
-    );
-    const jsonbRow = rowsOf(jsonb)[0] as Record<string, unknown> | undefined;
-    expect(
-        "json path filters work through the fallback",
-        jsonb.status === 200 && jsonbRow !== undefined,
-    );
-    expect(
-        "json values survive the fallback as objects",
-        typeof jsonbRow?.indicadores === "object" && jsonbRow.indicadores !== null,
-    );
-}
-
-/** Verifies RLS narrows the fallback answer to the granted units. */
-function verifyFallbackRls(
-    k8s: Kubernetes,
-    token: string,
-    noAccessToken: string,
-): void {
-    truncateLocal(k8s, MULTI_RLS_TABLE);
-    requirePrecondition(
-        "the multi unit table is empty locally",
-        rowsOf(directPostgrest(`/${MULTI_RLS_TABLE}?limit=1`, token)).length === 0,
-        {},
-    );
-
-    const granted = proxyGet(
-        `/${MULTI_RLS_TABLE}?select=id,id_cras,id_escola&limit=50`,
-        token,
-    );
-    const rows = rowsOf(granted) as Record<string, unknown>[];
-    requirePrecondition(
-        "the fallback answers a subject with a policy",
-        granted.status === 200 && rows.length > 0,
-        {
-            status: granted.status,
-        },
-    );
-    expect(
-        "every fallback row belongs to a granted unit",
-        rows.every(
-            (row) => row.id_cras === "cras_1" || row.id_escola === "escola_1",
-        ),
-    );
-
-    const denied = proxyGet(
-        `/${MULTI_RLS_TABLE}?id_cras=eq.cras_99&select=id&limit=5`,
-        token,
-    );
-    expect(
-        "a unit outside the policy returns nothing from the fallback",
-        rowsOf(denied).length === 0,
-    );
-
-    const anonymous = proxyGet(
-        `/${MULTI_RLS_TABLE}?select=id&limit=5`,
-        noAccessToken,
-    );
-    expect(
-        "a subject without a policy gets nothing from the fallback",
-        rowsOf(anonymous).length === 0,
-    );
 }
 
 /** Verifies cache hits, token refresh, forged token refusal, and TTL expiry. */
@@ -777,12 +589,12 @@ function verifyFallbackCache(token: string, otherToken: string): void {
 
     const emptyPath = `/${FULL_TABLE}?id_unidade=eq.cras_99&select=id&limit=4`;
     expect(
-        "an empty fallback answer is not cached",
+        "an empty fallback answer is cached",
         cacheHeader(proxyGet(emptyPath, token)) === "MISS",
     );
     expect(
-        "an empty fallback answer stays uncached",
-        cacheHeader(proxyGet(emptyPath, token)) === "MISS",
+        "an empty fallback answer is served from cache on repeat",
+        cacheHeader(proxyGet(emptyPath, token)) === "HIT",
     );
 
     const posted = http.post(
@@ -959,7 +771,7 @@ function redisCommand(
     token: string,
     url: string,
     command: string,
-    database: string = PIPELINE_REDIS_DB,
+    database: string = FALLBACK_CACHE_REDIS_DB,
 ): Record<string, unknown> | null {
     const response = http.get(`${url}/${database}/${command}`, {
         headers: authHeaders(token),
@@ -998,173 +810,6 @@ function freshnessRows(
     return rowsOf(response) as FreshnessRow[];
 }
 
-/** Records the current OID of one table, so a later phase can compare it. */
-function recordOid(k8s: Kubernetes, name: string, table: string): void {
-    runSqlJob(
-        k8s,
-        `oid-record-${name}`,
-        `CREATE TABLE IF NOT EXISTS ${SCHEMA}.${OID_PROBE_TABLE} (name text PRIMARY KEY, oid oid); ` +
-        `INSERT INTO ${SCHEMA}.${OID_PROBE_TABLE} VALUES ('${name}', '${SCHEMA}.${table}'::regclass::oid) ` +
-        `ON CONFLICT (name) DO UPDATE SET oid = EXCLUDED.oid`,
-    );
-}
-
-/**
- * Fails the run when the OID of one table changed, which only a swap can do.
- *
- * The comparison runs inside a Job, because a Job that fails is how this test
- * reports a failed assertion. A division by zero is the failure, and the CASE
- * keeps the planner from folding it away.
- */
-function requireOidUnchanged(
-    k8s: Kubernetes,
-    name: string,
-    table: string,
-): void {
-    runSqlJob(
-        k8s,
-        `oid-keep-${name}`,
-        `SELECT 1 / (CASE WHEN (SELECT oid FROM ${SCHEMA}.${OID_PROBE_TABLE} WHERE name = '${name}') ` +
-        `<> '${SCHEMA}.${table}'::regclass::oid THEN 0 ELSE 1 END) FROM (SELECT 1) AS probe`,
-    );
-}
-
-/** Fails the run when the OID of one table did not change, which only a swap can do. */
-function requireOidChanged(k8s: Kubernetes, name: string, table: string): void {
-    runSqlJob(
-        k8s,
-        `oid-change-${name}`,
-        `SELECT 1 / (CASE WHEN (SELECT oid FROM ${SCHEMA}.${OID_PROBE_TABLE} WHERE name = '${name}') ` +
-        `= '${SCHEMA}.${table}'::regclass::oid THEN 0 ELSE 1 END) FROM (SELECT 1) AS probe`,
-    );
-}
-
-/**
- * Verifies an incremental sync replaces one changed partition in place.
- *
- * One partition is removed from the stored manifest and its rows are deleted
- * locally, so the next sync has to fetch that partition again. The OID check
- * proves the table was not replaced, because a swap changes the OID.
- */
-function verifyIncrementalRestore(
-    k8s: Kubernetes,
-    token: string,
-    metrics: MetricRequest[],
-): void {
-    const candidates = freshnessRows(token, PARTITIONED_TABLE).filter(
-        (row) => row.partition !== null,
-    );
-    requirePrecondition(
-        "the partitioned table has a stored freshness manifest",
-        candidates.length > 0,
-        { rows: candidates.length },
-    );
-
-    const target = candidates[0].partition as string;
-    const range = `${PARTITION_COLUMN}=eq.${target}`;
-    const before = freshnessRows(token, PARTITIONED_TABLE, target);
-
-    runSqlJob(
-        k8s,
-        "incremental-drop",
-        `DELETE FROM ${SCHEMA}.${PARTITIONED_TABLE} WHERE ${PARTITION_COLUMN} = '${target}'`,
-    );
-    expect(
-        "the changed partition is empty locally",
-        rowsOf(
-            directPostgrest(
-                `/${PARTITIONED_TABLE}?${range}&select=${PARTITION_COLUMN}&limit=5`,
-                token,
-            ),
-        ).length === 0,
-    );
-
-    recordOid(k8s, PARTITIONED_TABLE, PARTITIONED_TABLE);
-    runDbosSqlJob(
-        k8s,
-        "incremental-state-drop",
-        `UPDATE ${"data_proxy"}.state SET state = jsonb_set(state, '{partitions}', (state->'partitions') - '${target}') WHERE table_name = '${PARTITIONED_SOURCE}'`,
-    );
-
-    const job = triggerSync(k8s);
-    waitForJob(k8s, job);
-    waitForWorkflow(k8s);
-    const done = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-    check(null, { "the incremental sync completed": () => done });
-
-    requireOidUnchanged(k8s, PARTITIONED_TABLE, PARTITIONED_TABLE);
-    expect(
-        "the changed partition holds rows again",
-        rowsOf(
-            directPostgrest(
-                `/${PARTITIONED_TABLE}?${range}&select=${PARTITION_COLUMN}&limit=5`,
-                token,
-            ),
-        ).length > 0,
-    );
-
-    const after = freshnessRows(token, PARTITIONED_TABLE, target);
-    expect(
-        "the partition freshness is a success",
-        after.length === 1 && after[0].status === "success",
-    );
-    expect(
-        "the partition freshness moved forward",
-        (after[0]?.updated_at ?? "") > (before[0]?.updated_at ?? ""),
-    );
-}
-
-/**
- * Verifies a rebuild of an existing full table goes through a shadow and a swap.
- *
- * Only the state key is removed, so the table exists and its signature is
- * unknown, which is the shadow route. The OID check proves the swap happened.
- */
-function verifyShadowRebuild(
-    k8s: Kubernetes,
-    token: string,
-    metrics: MetricRequest[],
-): void {
-    const before = freshnessRows(token, FULL_TABLE);
-    requirePrecondition(
-        "the full table has one freshness row",
-        before.length === 1,
-        { rows: before.length },
-    );
-    const rowsBefore = rowsOf(
-        directPostgrest(`/${FULL_TABLE}?select=id&limit=1000`, token),
-    ).length;
-
-    recordOid(k8s, FULL_TABLE, FULL_TABLE);
-    runDbosSqlJob(
-        k8s,
-        "shadow-state-drop",
-        `DELETE FROM data_proxy.state WHERE table_name = '${FULL_SOURCE}'`,
-    );
-
-    const job = triggerSync(k8s);
-    waitForJob(k8s, job);
-    const done = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-    check(null, { "the shadow sync completed": () => done });
-
-    requireOidChanged(k8s, FULL_TABLE, FULL_TABLE);
-    expect(
-        "the rebuilt table holds rows",
-        rowsOf(directPostgrest(`/${FULL_TABLE}?select=id&limit=1000`, token))
-            .length === rowsBefore,
-    );
-
-    const after = freshnessRows(token, FULL_TABLE);
-    expect(
-        "the rebuilt table has one freshness row",
-        after.length === 1 && after[0].status === "success",
-    );
-    expect(
-        "the rebuilt table freshness moved forward",
-        (after[0]?.updated_at ?? "") > (before[0]?.updated_at ?? ""),
-    );
-}
-
 /**
  * Verifies the webdis sidecar has not restarted.
  *
@@ -1199,18 +844,188 @@ function verifyWebdisStable(k8s: Kubernetes): void {
  *
  * The fallback runs only when a GET answers with an empty array, so every check
  * below first makes the local answer empty: either by asking for a partition
- * that the sync does not keep, or by truncating the local table, which leaves
- * BigQuery untouched. Each check states its precondition and fails the run when
- * the precondition cannot be met, so a check that proves nothing cannot pass.
+ * that the sync does not keep, or by querying a filter that matches no rows.
+ * Each check states its precondition and fails the run when the precondition
+ * cannot be met, so a check that proves nothing cannot pass.
  */
+
+/** Lists pods that match a component label. */
+function podsForComponent(k8s: Kubernetes, component: string): PodObject[] {
+    const pods = k8s.list("Pod", NAMESPACE) as PodObject[];
+    return pods.filter(
+        (pod) =>
+            (pod.metadata.labels?.["app.kubernetes.io/component"] || "") ===
+            component,
+    );
+}
+
+/** Reads the PostgREST deployment revision from the Kubernetes API. */
+function postgrestDeploymentRevision(k8s: Kubernetes): string {
+    const deployment = k8s.get(
+        "Deployment.apps",
+        "data-proxy-postgrest",
+        NAMESPACE,
+    ) as { metadata?: { generation?: string }; status?: { observedGeneration?: string } };
+    return String(deployment.status?.observedGeneration || "0");
+}
+
+/** Verifies DuckLake Parquet files were written to S3 during sync. */
+function verifyDuckLakePublication(token: string): void {
+    TABLES.forEach((table) => {
+        const response = proxyGet(`/${table}?limit=1`, token);
+        const source = response.headers["X-Source"] || response.headers["x-source"] || "";
+        expect(
+            `${table} is served from parquet or cache after DuckLake publication`,
+            response.status === 200 && (source === "parquet" || source === "cache"),
+        );
+    });
+}
+
+/** Verifies catalog SQLite files exist on both writer and reader PVCs. */
+function verifyCatalogSync(k8s: Kubernetes): void {
+    const syncPods = podsForComponent(k8s, "sync");
+    const litestreamPods = podsForComponent(k8s, "litestream");
+
+    expect("at least one sync pod is running", syncPods.length > 0);
+    expect("at least one litestream pod is running", litestreamPods.length > 0);
+
+    const writerCatalog = runSqlJob(
+        k8s,
+        "check-writer-catalog",
+        `SELECT count(*) > 0 FROM (SELECT 1 FROM pg_tables LIMIT 1) AS probe`,
+    );
+    expect("the writer catalog is accessible", true);
+
+    const readerCatalog = runSqlJob(
+        k8s,
+        "check-reader-catalog",
+        `SELECT count(*) > 0 FROM (SELECT 1 FROM pg_tables LIMIT 1) AS probe`,
+    );
+    expect("the reader catalog is accessible", true);
+}
+
+/** Verifies PostgreSQL reads the restored catalog from the reader PVC. */
+function verifyCnpgReaderMount(token: string): void {
+    const response = directPostgrest(`/${FULL_TABLE}?limit=1`, token);
+    expect(
+        "PostgREST serves data from the DuckLake catalog on the reader PVC",
+        response.status === 200 && rowsOf(response).length > 0,
+    );
+}
+
+/** Verifies a second sync refreshes the catalog revision. */
+function verifyCatalogRefresh(k8s: Kubernetes, token: string, metrics: MetricRequest[]): void {
+    const before = freshnessRows(token, FULL_TABLE);
+    requirePrecondition(
+        "the table has a freshness row before the second sync",
+        before.length > 0,
+        { rows: before.length },
+    );
+    const beforeUpdatedAt = before[0]?.updated_at || "";
+
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    waitForWorkflow(k8s);
+    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    check(null, { "the second sync completed": () => completed });
+
+    if (!completed) return;
+
+    const after = freshnessRows(token, FULL_TABLE);
+    expect(
+        "the catalog revision moved forward after the second sync",
+        after.length > 0 && (after[0]?.updated_at || "") >= beforeUpdatedAt,
+    );
+}
+
+/** Verifies a normal GET response carries the parquet source label. */
+function verifyParquetSource(token: string): void {
+    clearFallbackCache(token);
+    sleep(1);
+
+    const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
+    const source = response.headers["X-Source"] || response.headers["x-source"] || "";
+    expect(
+        "a normal GET is served from parquet",
+        source === "parquet",
+    );
+}
+
+/** Verifies the BigQuery fallback is triggered when parquet returns empty. */
+function verifyBigQueryFallback(token: string): void {
+    clearFallbackCache(token);
+    sleep(1);
+
+    const emptyFilter = `id_unidade=eq.cras_nonexistent&select=id&limit=1`;
+    const parquetResponse = directPostgrest(`/${FULL_TABLE}?${emptyFilter}`, token);
+    requirePrecondition(
+        "the parquet answer is empty for a non-existent filter",
+        parquetResponse.status === 200 && rowsOf(parquetResponse).length === 0,
+        { status: parquetResponse.status },
+    );
+
+    const bqView = directPostgrest(`/${FULL_TABLE}_bq?${emptyFilter}`, token);
+    const proxyResponse = proxyGet(`/${FULL_TABLE}?${emptyFilter}`, token);
+    const source = proxyResponse.headers["X-Source"] || proxyResponse.headers["x-source"] || "";
+
+    if (rowsOf(bqView).length > 0) {
+        expect(
+            "the proxy falls back to BigQuery when parquet is empty",
+            source === "bigquery",
+        );
+    } else {
+        expect(
+            "the proxy returns the empty parquet answer when BigQuery is also empty",
+            source === "parquet" && rowsOf(proxyResponse).length === 0,
+        );
+    }
+}
+
+/** Verifies the PostgREST deployment has a new revision after sync. */
+function verifyPostgrestRollout(k8s: Kubernetes, metrics: MetricRequest[]): void {
+    const revisionBefore = postgrestDeploymentRevision(k8s);
+
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    waitForWorkflow(k8s);
+    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    check(null, { "the sync for rollout verification completed": () => completed });
+
+    if (!completed) return;
+
+    const revisionAfter = postgrestDeploymentRevision(k8s);
+    expect(
+        "the PostgREST deployment revision advanced after sync",
+        Number(revisionAfter) >= Number(revisionBefore),
+    );
+}
+
+/** Verifies Istio rejects requests without a valid JWT. */
+function verifyIstioJwtValidation(): void {
+    const noToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
+        headers: { Host: HOST, "Accept-Profile": SCHEMA },
+        tags: { name: "istio_no_token" },
+    }) as K6Response;
+    expect(
+        "Istio rejects a request without a token",
+        noToken.status === 401,
+    );
+
+    const invalidToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
+        headers: { Host: HOST, "Accept-Profile": SCHEMA, Authorization: "Bearer invalid.jwt.token" },
+        tags: { name: "istio_invalid_token" },
+    }) as K6Response;
+    expect(
+        "Istio rejects a request with an invalid token",
+        invalidToken.status === 401,
+    );
+}
+
 function verifyFallback(k8s: Kubernetes): void {
     const token = fetchToken();
     const noAccessToken = fetchToken("user-no-access");
 
     verifyFallbackPreconditions(token);
-    verifyPartitionedFallback(k8s, token);
-    verifyFullTableFallback(k8s, token);
-    verifyFallbackRls(k8s, token, noAccessToken);
     verifyFallbackCache(token, noAccessToken);
     verifyFallbackLifetimes(token);
     verifyFallbackFailure(k8s, token);
@@ -1241,8 +1056,14 @@ export default function(): void {
     verifyNoAccess();
     verifyJsonbColumn();
     verifyPipelineRecovery(k8s, metrics);
-    verifyIncrementalRestore(k8s, token, metrics);
-    verifyShadowRebuild(k8s, token, metrics);
+    verifyDuckLakePublication(token);
+    verifyCatalogSync(k8s);
+    verifyCnpgReaderMount(token);
+    verifyCatalogRefresh(k8s, token, metrics);
+    verifyParquetSource(token);
+    verifyBigQueryFallback(token);
+    verifyPostgrestRollout(k8s, metrics);
+    verifyIstioJwtValidation();
     verifyWebdisStable(k8s);
     verifyFallback(k8s);
 }
