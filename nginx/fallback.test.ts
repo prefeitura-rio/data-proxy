@@ -68,7 +68,6 @@ const QUERY = 'id_unidade=eq.cras_1';
 
 const CACHE_READ = /^GET http:\/\/127\.0\.0\.1:7380\/GET\/[0-9a-f]{64}$/;
 const CACHE_WRITE = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/(300|3600)\//;
-const CACHE_WRITE_WITHOUT_TTL = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/\//;
 const CACHE_WRITE_WITH_TABLE_TTL = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/42\//;
 
 const CACHE_READ_ROOT = 'http://127.0.0.1:7380/';
@@ -846,7 +845,7 @@ test('proxy: reports an unexpected handler exception as a structured warning', a
         requestText: '',
         headersOut: {},
         variables: { args: QUERY, fallback_pgrst: UPSTREAM, fallback_cache_ttl: '300', fallback_max_body: '' },
-        log: () => {},
+        log: () => { },
         warn: (message: string) => { warnings.push(message); },
         return: (status: number, body: string) => { response.status = status; response.body = body; },
     };
