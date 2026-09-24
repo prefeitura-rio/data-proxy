@@ -1,12 +1,12 @@
 {#
 {
   "kind": "template",
-  "description": "Render the create bq view database operation.",
+  "description": "Create a PostgreSQL view that wraps a query function with column projection.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
-    "view": "PostgreSQL view being created or granted.",
-    "columns": "SQL-safe column expressions for the view projection.",
-    "function": "PostgreSQL function being created or called."
+    "view": "PostgreSQL view being created.",
+    "function": "PostgreSQL function being called.",
+    "columns": "SQL-safe column expressions for the view projection."
   }
 }
 #}
