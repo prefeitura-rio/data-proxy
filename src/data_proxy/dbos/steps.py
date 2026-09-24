@@ -1,4 +1,5 @@
 from dbos import DBOS
+from whenever import Instant
 
 from ..cache import clear_cache
 from ..duckdb import DuckDB
@@ -174,6 +175,7 @@ async def commit_ducklake_snapshot(
 async def restart_postgrest(schema_name: str, run_id: str) -> None:
     """Restart the PostgREST deployment and wait for its rollout."""
     load_config()
+    logger.info("Restarting PostgREST schema=%s run_id=%s", schema_name, run_id)
 
     async with api_client_factory() as api_client:
         apps = apps_factory(api_client)
@@ -183,7 +185,9 @@ async def restart_postgrest(schema_name: str, run_id: str) -> None:
             "spec": {
                 "template": {
                     "metadata": {
-                        "annotations": {"data-proxy.io/schema-cache-revision": run_id}
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": Instant.now().format_iso(),
+                        }
                     }
                 }
             }
