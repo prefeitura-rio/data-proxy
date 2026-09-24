@@ -61,7 +61,7 @@ spec:
       - name: NAMESPACE
         value: data-proxy
       - name: PIPELINE
-        value: data-proxy-pipeline
+        value: data-proxy-sync
       - name: E2E_SCRIPT_CONFIGMAP
         value: data-proxy-e2e
       - name: POSTGREST_URL

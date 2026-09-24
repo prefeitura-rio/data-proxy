@@ -8,11 +8,11 @@ import type {
 declare const __ENV: Record<string, string | undefined>;
 
 export const NAMESPACE = __ENV.NAMESPACE || "data-proxy";
-export const PIPELINE = __ENV.PIPELINE || "data-proxy-pipeline";
+export const PIPELINE = __ENV.PIPELINE || "data-proxy-sync";
 export const E2E_SCRIPT_CONFIGMAP =
   __ENV.E2E_SCRIPT_CONFIGMAP || "data-proxy-e2e";
 
-/** Returns the pipeline pod spec, used as a template for one-off Jobs. */
+/** Returns the sync pod spec, used as a template for one-off Jobs. */
 export function workerPodSpec(k8s: Kubernetes): KubernetesPodSpec {
   const deployment = k8s.get(
     "Deployment.apps",
@@ -22,7 +22,7 @@ export function workerPodSpec(k8s: Kubernetes): KubernetesPodSpec {
   return deployment.spec.template.spec;
 }
 
-/** Adds the standalone e2e scripts to a pipeline pod spec. */
+/** Adds the standalone e2e scripts to a sync pod spec. */
 function scriptPodSpec(podSpec: KubernetesPodSpec): KubernetesPodSpec {
   const scriptVolume = {
     name: "e2e-scripts",
@@ -47,7 +47,7 @@ function scriptPodSpec(podSpec: KubernetesPodSpec): KubernetesPodSpec {
 export function triggerSync(k8s: Kubernetes, detached = false): string {
   const podSpec = scriptPodSpec(workerPodSpec(k8s));
   const container = podSpec.containers[0];
-  const name = `data-proxy-pipeline-k6-${Date.now()}`;
+  const name = `data-proxy-sync-k6-${Date.now()}`;
   k8s.create({
     apiVersion: "batch/v1",
     kind: "Job",
@@ -75,15 +75,15 @@ export function triggerSync(k8s: Kubernetes, detached = false): string {
   return name;
 }
 
-/** Restarts one running pipeline pod to exercise DBOS recovery. */
+/** Restarts one running sync pod to exercise DBOS recovery. */
 export function restartPipeline(k8s: Kubernetes): void {
   const pods = k8s.list("Pod", NAMESPACE) as Array<{
     metadata: { name: string; labels?: Record<string, string> };
   }>;
   const pod = pods.find(
-    (item) => item.metadata.labels?.["app.kubernetes.io/component"] === "pipeline",
+    (item) => item.metadata.labels?.["app.kubernetes.io/component"] === "sync",
   );
-  if (!pod) throw new Error("No pipeline pod is available for recovery");
+  if (!pod) throw new Error("No sync pod is available for recovery");
   k8s.delete("Pod", pod.metadata.name, NAMESPACE);
 }
 

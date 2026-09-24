@@ -69,7 +69,7 @@ interface LogFields {
     answer?: string;
 }
 
-type AnswerSource = "cache" | "postgrest" | "bigquery" | "none";
+type AnswerSource = "cache" | "parquet" | "bigquery" | "none";
 type LogLevel = "info" | "warn";
 
 interface SyncTable {
@@ -404,12 +404,16 @@ async function writeCache(
     ctx: RequestContext,
     key: string,
     body: string,
+    isEmptyBody = false,
 ): Promise<boolean> {
     try {
+        const ttl = isEmptyBody
+            ? r.variables.empty_cache_ttl || "3600"
+            : ctx.cacheTtl;
         const encoded = encodeURIComponent(body);
         const res = await ngx.fetch(WEBDIS_WRITE + "/", {
             method: "POST",
-            body: "SETEX/" + key + "/" + ctx.cacheTtl + "/" + encoded,
+            body: "SETEX/" + key + "/" + ttl + "/" + encoded,
         });
         const text = await res.text();
         const answer = JSON.parse(text).SETEX;
@@ -529,7 +533,13 @@ async function fetchAnswer(
         }
     }
 
-    return { response: response, source: "postgrest", leading: true };
+    return {
+        response: response,
+        source: ctx.method === "GET" || ctx.method === "HEAD"
+            ? "parquet"
+            : "parquet",
+        leading: true,
+    };
 }
 
 /**
@@ -626,7 +636,6 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
             !skipsCache(ctx.uri) &&
             reply.status === 200 &&
             !ctx.headers["Range"] &&
-            !isEmpty(reply.body) &&
             cacheable(reply)
         ) {
             if (ctx.maxBody > 0 && reply.body.length > ctx.maxBody) {
@@ -634,7 +643,7 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
                     bytes: reply.body.length,
                 });
             } else {
-                await writeCache(r, ctx, key, reply.body);
+                await writeCache(r, ctx, key, reply.body, isEmpty(reply.body));
             }
         }
 

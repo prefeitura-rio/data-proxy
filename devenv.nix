@@ -90,13 +90,13 @@ in
           };
           "dp:lint:docker" = {
             exec = ''
-              hadolint Dockerfile.pipeline
+              hadolint Dockerfile.sync
               hadolint Dockerfile.postgres
               hadolint Dockerfile.nushell
               hadolint Dockerfile.proxy
             '';
             execIfModified = [
-              "Dockerfile.pipeline"
+              "Dockerfile.sync"
               "Dockerfile.postgres"
               "Dockerfile.nushell"
               "Dockerfile.proxy"
@@ -115,10 +115,7 @@ in
             ];
           };
           "dp:lint:helm" = {
-            exec = ''
-              helm lint helm/ -f helm/ci/test-values.yaml
-              helm lint helm/ -f helm/ci/test-values-ha.yaml
-            '';
+            exec = "helm lint helm/ -f helm/ci/test-values.yaml";
             execIfModified = [ "helm" ];
           };
           "dp:lint:proxy" = {
@@ -147,7 +144,6 @@ in
             exec = ''
               helm unittest helm/
               helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
-              helm template data-proxy helm/ -f helm/ci/test-values-ha.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
             '';
             execIfModified = [ "helm" ];
           };

@@ -33,3 +33,7 @@ helm/files/templates/postgres/grant_migration_access.sql
 helm/files/templates/postgres/grant_rls_usage.sql
 helm/files/templates/postgres/grant_schema_usage_backup.sql
 src/data_proxy/templates/postgres/access_policy_check.sql
+src/data_proxy/templates/postgres/create_ducklake_function.sql
+src/data_proxy/templates/postgres/drop_ducklake_objects.sql
+src/data_proxy/templates/postgres/describe_bq_table.sql
+helm/files/templates/postgres/configure_ducklake.sql

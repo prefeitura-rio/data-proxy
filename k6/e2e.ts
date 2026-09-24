@@ -260,7 +260,7 @@ function postgrestMetric(
     };
 }
 
-/** Builds the set of pipeline metrics that verify the sync completed. */
+/** Builds the set of sync metrics that verify the sync completed. */
 function buildMetrics(token: string): MetricRequest[] {
     const metrics: MetricRequest[] = [];
 
@@ -363,7 +363,7 @@ function executeMetrics(metrics: MetricRequest[]): K6Response[] {
     return responses;
 }
 
-/** Polls the pipeline metrics once and reports whether the sync is complete. */
+/** Polls the sync metrics once and reports whether the sync is complete. */
 function pollOnce(metrics: MetricRequest[]): boolean {
     const responses = executeMetrics(metrics);
 
@@ -380,7 +380,7 @@ function pollOnce(metrics: MetricRequest[]): boolean {
     return published;
 }
 
-/** Verifies every pipeline metric with a k6 check. */
+/** Verifies every sync metric with a k6 check. */
 function verifyMetrics(metrics: MetricRequest[]): void {
     const responses = executeMetrics(metrics);
 
@@ -928,7 +928,7 @@ function verifyCoalescing(token: string): void {
     );
 }
 
-/** Restarts the pipeline during a detached workflow and verifies recovery. */
+/** Restarts the sync service during a detached workflow and verifies recovery. */
 function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void {
   const job = triggerSync(k8s, true);
   waitForJob(k8s, job);
@@ -936,10 +936,10 @@ function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void
   restartPipeline(k8s);
   waitForWorkflow(k8s);
   const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-  check(null, { "the pipeline recovered after restart": () => completed });
+  check(null, { "the sync service recovered after restart": () => completed });
 }
 
-/** Waits until the pipeline reports successful freshness checks. */
+/** Waits until the sync service reports successful freshness checks. */
 function waitForPipeline(
     metrics: MetricRequest[],
     timeoutSeconds: number,
@@ -971,7 +971,7 @@ function redisCommand(
         : null;
 }
 
-/** Clears cached table responses without touching pipeline streams. */
+/** Clears cached table responses without touching sync streams. */
 function clearFallbackCache(token: string): void {
     const answer = redisCommand(
         token,
@@ -1218,7 +1218,7 @@ function verifyFallback(k8s: Kubernetes): void {
     verifyCoalescing(token);
 }
 
-/** Waits for the pipeline, then verifies every route it can reach. */
+/** Waits for the sync service, then verifies every route it can reach. */
 export default function(): void {
     const k8s = new Kubernetes();
     const token = fetchToken();
@@ -1226,7 +1226,7 @@ export default function(): void {
 
     const completed = waitForPipeline(metrics, 600);
     check(null, {
-        "the pipeline completed before the deadline": () => completed,
+        "the sync service completed before the deadline": () => completed,
     });
 
     if (!completed) {
