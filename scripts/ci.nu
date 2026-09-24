@@ -50,10 +50,10 @@ def 'main changes' []: nothing -> nothing {
     let specs = [
         {
             name: Pipeline
-            dockerfile: Dockerfile.pipeline
-            suffix: -pipeline
+            dockerfile: Dockerfile.sync
+            suffix: -sync
             tag_prefix: ""
-            pattern: '^Dockerfile\.pipeline$|^src/|^pyproject\.toml$|^uv\.lock$'
+            pattern: '^Dockerfile\.sync$|^src/|^pyproject\.toml$|^uv\.lock$'
         }
         {
             name: Proxy
@@ -115,8 +115,8 @@ def resolve-image [entry: record<name: string, filter: string, fallback: string>
 # Resolve the latest image tags and write the resolved outputs.
 def 'main images resolve' []: nothing -> nothing {
     log info 'Resolving latest image tags from GHCR...'
-    write-output pipeline (
-        resolve-image {name: (configured-image PIPELINE_IMAGE data-proxy-pipeline) filter: '!= "latest"' fallback: latest}
+    write-output sync (
+        resolve-image {name: (configured-image SYNC_IMAGE data-proxy-sync) filter: '!= "latest"' fallback: latest}
     )
     write-output postgres (
         resolve-image {name: (configured-image POSTGRES_IMAGE data-proxy-postgres) filter: 'test("^17-[0-9a-f]+$")' fallback: ""}
@@ -188,7 +188,7 @@ def 'main version' []: nothing -> nothing {
 # Pin image tags in the chart values file.
 def 'main images pin' []: nothing -> nothing {
     log info 'Pinning image tags in helm/values.yaml...'
-    let pipeline_image = configured-image PIPELINE_IMAGE data-proxy-pipeline
+    let sync_image = configured-image SYNC_IMAGE data-proxy-sync
     let postgres_image = configured-image POSTGRES_IMAGE data-proxy-postgres
     let nushell_image = configured-image NUSHELL_IMAGE data-proxy-nushell
     let proxy_image = configured-image PROXY_IMAGE data-proxy-proxy
@@ -197,8 +197,8 @@ def 'main images pin' []: nothing -> nothing {
             open helm/values.yaml --raw
             | lines
             | each {|line|
-                if $line =~ '^  image: .*data-proxy-pipeline:' {
-                    $"  image: ($ci.registry)/(ci-repository-owner)/($pipeline_image):($env.PIPELINE_SHA)"
+                if $line =~ '^  image: .*data-proxy-sync:' {
+                    $"  image: ($ci.registry)/(ci-repository-owner)/($sync_image):($env.PIPELINE_SHA)"
                 } else if $line =~ '^  image: .*data-proxy-postgres:' {
                     $"  image: ($ci.registry)/(ci-repository-owner)/($postgres_image):($env.PG_SHA)"
                 } else if $line =~ '^\s+image: .*data-proxy-nushell:' {
@@ -212,7 +212,7 @@ def 'main images pin' []: nothing -> nothing {
             | str join (char nl)
         ) ++ (char nl)
         let pinned_count = $values | lines | where {
-            ($it =~ $"($pipeline_image):($env.PIPELINE_SHA)")
+            ($it =~ $"($sync_image):($env.PIPELINE_SHA)")
             or ($it =~ $"($postgres_image):($env.PG_SHA)")
             or ($it =~ $"($nushell_image):($env.NU_SHA)")
             or ($it =~ $"($proxy_image):($env.PROXY_SHA)")

@@ -1,4 +1,4 @@
-"""Seed synthetic BigQuery data for the data-proxy sync pipeline.
+"""Seed synthetic BigQuery data for the data-proxy sync service.
 Idempotent and safe to re-run.
 """
 

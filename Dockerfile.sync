@@ -5,7 +5,11 @@ WORKDIR /app
 RUN useradd --create-home --uid 10001 appuser
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev && .venv/bin/python -c "import duckdb; conn = duckdb.connect(); conn.execute('INSTALL httpfs'); conn.execute('INSTALL bigquery FROM community'); conn.execute('INSTALL postgres');"
+RUN uv sync --frozen --no-dev
+
+# Install DuckDB extensions at build time so runtime pods do not need network access.
+COPY scripts/install_extensions.py scripts/install_extensions.py
+RUN .venv/bin/python scripts/install_extensions.py
 
 COPY src/ src/
 RUN chown -R appuser:appuser /app

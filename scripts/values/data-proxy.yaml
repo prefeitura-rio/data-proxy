@@ -1,5 +1,5 @@
 sync:
-  image: localhost/data-proxy-pipeline:local
+  image: localhost/data-proxy-sync:local
   imagePullPolicy: IfNotPresent
   dumper:
     visibilityTimeoutMs: 60000

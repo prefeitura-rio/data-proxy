@@ -249,7 +249,7 @@ def --env build-images [kubecfg: path]: nothing -> string {
     }
 
     [
-        {image: 'data-proxy-pipeline:local', dockerfile: 'Dockerfile.pipeline'}
+        {image: 'data-proxy-sync:local', dockerfile: 'Dockerfile.sync'}
         {image: 'localhost/data-proxy-postgres:17.0.0-local', dockerfile: 'Dockerfile.postgres'}
         {image: 'data-proxy-proxy:local', dockerfile: 'Dockerfile.proxy'}
         {image: 'data-proxy-nushell:local', dockerfile: 'Dockerfile.nushell'}
@@ -591,7 +591,7 @@ def "main k6 stress" []: nothing -> nothing {
     k6-run $kubecfg 'data-proxy-k6' 'load.ts' 'k6/load.ts' 'data-proxy-load' 'k6/load.yaml' --profile 'stress'
 }
 
-# Run the e2e test (triggers sync, seeds RLS, validates pipeline).
+# Run the e2e test (triggers sync, seeds RLS, validates the sync service).
 def "main k6 e2e" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
 
@@ -655,7 +655,7 @@ def "main k6 e2e" []: nothing -> nothing {
         'data-proxy/data-proxy-proxy'
         'data-proxy/data-proxy-postgrest-ro'
         'data-proxy/data-proxy-postgrest-rw'
-        'data-proxy/data-proxy-pipeline'
+        'data-proxy/data-proxy-sync'
     ] | wait-for deployment $kubecfg
 
     log info 'Clearing test resources...'
