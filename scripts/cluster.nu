@@ -370,7 +370,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         ) | str trim
         let dsn = $'postgresql://data-proxy:test-pg-pass@($cluster)-rw:5432/data-proxy'
         let tables = (
-            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $'SELECT tablename FROM pg_tables WHERE schemaname = \'($schema)\' AND tablename NOT IN (\'freshness\', \'access_policy\')'
+            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $'SELECT tablename FROM pg_tables WHERE schemaname = \'($schema)\' AND tablename NOT IN (\'access_policy\')'
         )
 
         let drop_stmt = (
@@ -379,7 +379,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             | each {|table| $'DROP TABLE IF EXISTS ($schema)."($table | str trim)" CASCADE' }
             | str join '; '
         )
-        let cleanup = $'($drop_stmt); DELETE FROM partman.part_config WHERE parent_table LIKE \'($schema).%\'; DELETE FROM ($schema).freshness; DELETE FROM ($schema).access_policy;'
+        let cleanup = $'($drop_stmt); DELETE FROM ($schema).access_policy;'
         (k
             $kubecfg
             -n
@@ -464,7 +464,6 @@ def k6-run [
         --from-file=lib.ts=k6/lib.ts
         --from-file=kubernetes.ts=k6/types/kubernetes.ts
         --from-file=trigger.py=scripts/trigger.py
-        --from-file=inspect_dbos.py=scripts/inspect_dbos.py
         --dry-run=client
         -o
         yaml
@@ -653,8 +652,7 @@ def "main k6 e2e" []: nothing -> nothing {
     log info 'Waiting for data-proxy deployments...'
     [
         'data-proxy/data-proxy-proxy'
-        'data-proxy/data-proxy-postgrest-ro'
-        'data-proxy/data-proxy-postgrest-rw'
+        'data-proxy/data-proxy-postgrest'
         'data-proxy/data-proxy-sync'
     ] | wait-for deployment $kubecfg
 

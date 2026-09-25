@@ -31,12 +31,12 @@ postgrest:
       maxReplicas: 3
       targetCPUUtilizationPercentage: 70
 pooler:
-    instances: 1
-    poolSize: 20
-    maxClientConns: 100
-    autoscaling:
-      minReplicaCount: 1
-      maxReplicaCount: 3
+  instances: 1
+  poolSize: 20
+  maxClientConns: 100
+  autoscaling:
+    minReplicaCount: 1
+    maxReplicaCount: 3
 s3:
   bucket: test-bucket
   useSsl: "false"
@@ -133,8 +133,6 @@ cnpg:
     limits:
       cpu: "4"
       memory: 4Gi
-partman:
-  schedule: '*/30 * * * *'
 ingress:
   sidecarInject: true
   enabled: true

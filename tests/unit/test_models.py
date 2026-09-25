@@ -151,13 +151,6 @@ class TestSchemaConfiguration:
             == "people"
         )
 
-    def test_rejects_reserved_freshness_table(self) -> None:
-        """Reject a source table named freshness."""
-        with pytest.raises(ValueError, match="reserved"):
-            SyncConfig(
-                schemas={"one": SchemaConfig(tables=[FullTable(name="p.d.freshness")])}
-            )
-
     def test_rejects_rls_without_schema_claim(self) -> None:
         """Reject RLS tables without an identity claim."""
         with pytest.raises(ValueError, match="no claim"):

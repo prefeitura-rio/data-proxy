@@ -58,7 +58,7 @@
 }
 #}
 {% macro column_projection(columns) -%}
-{% for column in columns %}{% if column.is_json %}to_json({{ column.name }}) AS {{ column.name }}{% else %}{{ column.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+{% for column in columns %}{% if column.is_json and not column.raw_json %}to_json({{ column.name }}) AS {{ column.name }}{% else %}{{ column.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
 {%- endmacro %}
 
 {#

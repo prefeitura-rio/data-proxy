@@ -33,7 +33,7 @@ BEGIN
             SELECT tables.tablename
             FROM pg_tables AS tables
             WHERE tables.schemaname = target_schema
-              AND tables.tablename NOT IN ('freshness', 'access_policy', 'access_log')
+              AND tables.tablename NOT IN ('access_policy', 'access_log')
               AND NOT EXISTS (
                   SELECT 1
                   FROM jsonb_array_elements(
@@ -42,7 +42,6 @@ BEGIN
                   WHERE split_part(config_table.value ->> 'name', '.', 3) = tables.tablename
               )
         LOOP
-            EXECUTE format('DELETE FROM %I.freshness WHERE "table" = $1', target_schema) USING target_table;
             EXECUTE format('DROP TABLE IF EXISTS %I.%I CASCADE', target_schema, target_table);
             changed := true;
             schema_changed := true;

@@ -14,8 +14,6 @@ from .models import (
 
 def selection_condition(
     selection: RangeSelection | TimeRangeSelection | RemainderSelection,
-    *,
-    scan: bool = False,
 ) -> Composable:
     """Return the predicate for one selection."""
     match selection:
@@ -29,7 +27,7 @@ def selection_condition(
         case _:  # pragma: no cover
             assert_never(selection)
 
-    column_value = SQL("r[{}]").format(Literal(column)) if scan else Identifier(column)
+    column_value = Identifier(column)
 
     if predicate_kind == "remainder":
         return SQL("({} IS NULL OR {} < {} OR {} >= {})").format(
@@ -44,11 +42,6 @@ def selection_condition(
 def partition_condition(partition: PhysicalPartition) -> Composable:
     """Return the SQL predicate that matches one partition."""
     return selection_condition(partition.selection)
-
-
-def scan_condition(partition: PhysicalPartition) -> Composable:
-    """Return the SQL predicate that selects one partition from a batch scan."""
-    return selection_condition(partition.selection, scan=True)
 
 
 def schema_scope_condition(schema: str) -> Composable:

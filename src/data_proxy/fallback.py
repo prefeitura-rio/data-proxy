@@ -81,6 +81,7 @@ def bq_function_mapping(
             "name": Identifier(column).as_string(None),
             "key": Literal(column).as_string(None),
             "is_json": is_nested_or_json(duckdb_type),
+            "raw_json": False,
             "pg_type": pg_scalar_type(duckdb_type),
             "return_type": return_type_for(duckdb_type),
         }
@@ -137,12 +138,15 @@ def ducklake_function_mapping(
             "name": Identifier(column).as_string(None),
             "key": Literal(column).as_string(None),
             "is_json": is_nested_or_json(duckdb_type),
+            "raw_json": True,
             "pg_type": pg_scalar_type(duckdb_type),
             "return_type": return_type_for(duckdb_type),
         }
         for column, duckdb_type in columns
     ]
+
     claim = settings.sync_config.schemas[schema].claim or "sub"
+
     return {
         "schema": Identifier(schema),
         "function": Identifier(f"{table_name}_fn"),
@@ -173,6 +177,7 @@ def ducklake_view_mapping(
         )
         for column, duckdb_type in columns
     ]
+
     return {
         "schema": Identifier(schema),
         "view": Identifier(table.table_name),
@@ -272,7 +277,7 @@ async def run_fallback_views_creation(
     changed = managed_existing != desired
     removed = managed_existing - desired
     for schema_name, view_name in removed:
-        if view_name in {"access_policy", "freshness", "access_log", "state"}:
+        if view_name in {"access_policy", "access_log", "state"}:
             continue
         base_name = view_name.removesuffix("_bq")
         await execute_sql(

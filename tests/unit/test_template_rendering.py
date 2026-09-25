@@ -74,6 +74,7 @@ class TestCreateBqFunction:
                         "name": "id",
                         "key": "'id'",
                         "is_json": False,
+                        "raw_json": False,
                         "pg_type": "bigint",
                         "return_type": "bigint",
                     },
@@ -81,6 +82,7 @@ class TestCreateBqFunction:
                         "name": "payload",
                         "key": "'payload'",
                         "is_json": True,
+                        "raw_json": False,
                         "pg_type": "jsonb",
                         "return_type": "text",
                     },
@@ -120,6 +122,7 @@ class TestCreateDucklakeFunction:
                         "name": "id",
                         "key": "'id'",
                         "is_json": False,
+                        "raw_json": True,
                         "pg_type": "bigint",
                         "return_type": "bigint",
                     },
@@ -137,10 +140,38 @@ class TestCreateDucklakeFunction:
         assert "CREATE OR REPLACE FUNCTION" in sql
         assert "SECURITY DEFINER" in sql
         assert "ducklake:sqlite" in sql
-        assert "ATTACH" in sql
-        assert "duckdb.recycle_ddb" in sql
+        assert "ATTACH IF NOT EXISTS" in sql
         assert "dl.people" in sql
         assert "bigquery_scan" not in sql
+
+    def test_does_not_double_encode_json_columns(self) -> None:
+        """Select JSON columns directly without to_json() since Parquet stores them as text."""
+        sql = render_template_text(
+            "postgres/create_view_function",
+            {
+                "schema": Identifier("pic"),
+                "function": Identifier("people_fn"),
+                "columns": [
+                    {
+                        "name": "payload",
+                        "key": "'payload'",
+                        "is_json": True,
+                        "raw_json": True,
+                        "pg_type": "jsonb",
+                        "return_type": "text",
+                    },
+                ],
+                "claim_setting": "'app.claim_sub'",
+                "scope": Literal("true"),
+                "has_rls": "false",
+                "rls_mappings": [],
+                "duckdb_view": "ducklake_pic_people",
+                "source": "dl.people",
+                "catalog_local_path": "/var/lib/ducklake/catalogs/pic/catalog.sqlite",
+                "data_path": "s3://bucket/ducklake/pic",
+            },
+        )
+        assert "to_json" not in sql
 
 
 class TestCreateBqView:

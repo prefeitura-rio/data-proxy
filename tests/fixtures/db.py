@@ -33,7 +33,7 @@ from data_proxy.state import ensure_app_schema
 from data_proxy.templates import render_template
 from tests.constants import FILES
 from tests.fixtures.types import Postgres, PostgresTestNamespace, SeaweedFS
-from tests.helpers import TEST_SQL_DIR, execute_sql
+from tests.helpers import TEST_SQL_DIR
 
 
 @pytest.fixture
@@ -188,11 +188,6 @@ async def postgres(
     )
     settings.DBOS_SYSTEM_DATABASE_URL = dsn
     await ensure_app_schema(connection)
-    await execute_sql(
-        connection,
-        "postgres/create_freshness_table",
-        mapping={"schema": namespace.schema},
-    )
     await connection.set_autocommit(False)
     try:
         yield Postgres(connection=connection, dsn=dsn, namespace=namespace)
@@ -234,24 +229,6 @@ async def duckdb_raw_query_stub(postgres: Postgres) -> AsyncIterator[None]:
         )
         assert await cursor.fetchall() == [(1,)]
         await postgres.connection.commit()
-
-
-@pytest.fixture
-async def freshness_tables(
-    postgres: Postgres,
-) -> tuple[FullTable, PartitionedTable, str]:
-    """Create freshness metadata in one isolated test schema."""
-    schema = postgres.namespace.schema
-    await execute_sql(
-        postgres.connection,
-        "postgres/create_freshness_table",
-        mapping={"schema": schema},
-    )
-    return (
-        FullTable(name=f"p.{schema}.full", resolved_schema=schema),
-        PartitionedTable(name=f"p.{schema}.partitioned", resolved_schema=schema),
-        schema,
-    )
 
 
 @pytest.fixture(name="duckdb")

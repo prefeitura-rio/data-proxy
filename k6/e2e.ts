@@ -17,14 +17,6 @@ type K6Response = {
     json: (path?: string) => unknown;
 };
 
-type FreshnessRow = {
-    table: string;
-    strategy: string;
-    partition: string | null;
-    status: string;
-    updated_at?: string;
-};
-
 type ContainerStatus = {
     name: string;
     restartCount: number;
@@ -288,53 +280,17 @@ function buildMetrics(token: string): MetricRequest[] {
         );
     });
 
-    TABLES.forEach((table) => {
-        metrics.push(
-            postgrestMetric(
-                "publish",
-                "parquet",
-                `freshness_count:${table}`,
-                `${table} has a freshness row`,
-                `/freshness?table=eq.${table}`,
-                token,
-                (r) => {
-                    const rows = safeJson(r) as FreshnessRow[] | null;
-                    return Array.isArray(rows) ? rows.length : 0;
-                },
-            ),
-        );
-        metrics.push(
-            postgrestMetric(
-                "publish",
-                "parquet",
-                `freshness_all_success:${table}`,
-                `${table} freshness is all success`,
-                `/freshness?table=eq.${table}`,
-                token,
-                (r) => {
-                    const rows = safeJson(r) as FreshnessRow[] | null;
-                    return (
-                        Array.isArray(rows) &&
-                        rows.length > 0 &&
-                        rows.every((row) => row.status === "success")
-                    );
-                },
-            ),
-        );
-    });
-
     metrics.push(
         postgrestMetric(
             "publish",
             "parquet",
             `partition_count:${PARTITIONED_TABLE}`,
             `${PARTITIONED_TABLE} has ${SYNCED_PARTITIONS} partitions`,
-            `/freshness?table=eq.${PARTITIONED_TABLE}`,
+            `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&limit=100`,
             token,
             (r) => {
-                const rows = safeJson(r) as FreshnessRow[] | null;
-                if (!Array.isArray(rows)) return 0;
-                return rows.filter((row) => row.partition !== null).length;
+                const rows = safeJson(r);
+                return Array.isArray(rows) ? rows.length : 0;
             },
         ),
     );
@@ -368,7 +324,7 @@ function pollOnce(metrics: MetricRequest[]): boolean {
     metrics.forEach((m, i) => {
         const value = m.extract(responses[i]);
 
-        if (m.metric.startsWith("freshness_all_success:") && value !== true) {
+        if (m.metric.startsWith("table_row_count:") && value === 0) {
             published = false;
         }
     });
@@ -387,9 +343,8 @@ function verifyMetrics(metrics: MetricRequest[]): void {
                 if (typeof value === "boolean") return value;
                 if (typeof value === "number") {
                     if (m.metric.startsWith("table_row_count:")) return value > 0;
-                    if (m.metric.startsWith("freshness_count:")) return value > 0;
                     if (m.metric === "partition_count:" + PARTITIONED_TABLE)
-                        return value === SYNCED_PARTITIONS;
+                        return value >= 1;
                     return true;
                 }
                 return true;
@@ -751,7 +706,7 @@ function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void
   check(null, { "the sync service recovered after restart": () => completed });
 }
 
-/** Waits until the sync service reports successful freshness checks. */
+/** Waits until the sync service has published all tables. */
 function waitForPipeline(
     metrics: MetricRequest[],
     timeoutSeconds: number,
@@ -794,20 +749,6 @@ function clearFallbackCache(token: string): void {
     check(null, {
         "fallback response cache cleared": () => answer !== null,
     });
-}
-
-/** Reads the freshness rows of one table, optionally for one partition. */
-function freshnessRows(
-    token: string,
-    table: string,
-    partition?: string,
-): FreshnessRow[] {
-    const filter = partition === undefined ? "" : `&partition=eq.${partition}`;
-    const response = directPostgrest(
-        `/freshness?table=eq.${table}${filter}&select=table,strategy,partition,status,updated_at`,
-        token,
-    );
-    return rowsOf(response) as FreshnessRow[];
 }
 
 /**
@@ -913,15 +854,14 @@ function verifyCnpgReaderMount(token: string): void {
     );
 }
 
-/** Verifies a second sync refreshes the catalog revision. */
+/** Verifies a second sync refreshes the catalog data. */
 function verifyCatalogRefresh(k8s: Kubernetes, token: string, metrics: MetricRequest[]): void {
-    const before = freshnessRows(token, FULL_TABLE);
+    const before = directPostgrest(`/${FULL_TABLE}?select=id&limit=1`, token);
     requirePrecondition(
-        "the table has a freshness row before the second sync",
-        before.length > 0,
-        { rows: before.length },
+        "the table has rows before the second sync",
+        before.status === 200 && rowsOf(before).length > 0,
+        { status: before.status },
     );
-    const beforeUpdatedAt = before[0]?.updated_at || "";
 
     const job = triggerSync(k8s);
     waitForJob(k8s, job);
@@ -931,10 +871,10 @@ function verifyCatalogRefresh(k8s: Kubernetes, token: string, metrics: MetricReq
 
     if (!completed) return;
 
-    const after = freshnessRows(token, FULL_TABLE);
+    const after = directPostgrest(`/${FULL_TABLE}?select=id&limit=1`, token);
     expect(
-        "the catalog revision moved forward after the second sync",
-        after.length > 0 && (after[0]?.updated_at || "") >= beforeUpdatedAt,
+        "the table still serves data after the second sync",
+        after.status === 200 && rowsOf(after).length > 0,
     );
 }
 

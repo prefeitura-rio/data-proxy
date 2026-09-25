@@ -17,12 +17,6 @@ FOR ALL TO jobs
 USING (true)
 WITH CHECK (true);
 GRANT SELECT, DELETE ON {{ schema }}.access_log TO jobs;
-GRANT SELECT, DELETE ON {{ schema }}.freshness TO jobs;
-DROP POLICY IF EXISTS jobs_access ON {{ schema }}.freshness;
-CREATE POLICY jobs_access ON {{ schema }}.freshness
-FOR ALL TO jobs
-USING (true)
-WITH CHECK (true);
 CREATE OR REPLACE FUNCTION {{ schema }}.drop_table_if_exists(target_table text)
 RETURNS void
 LANGUAGE plpgsql

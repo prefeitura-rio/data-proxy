@@ -24,7 +24,7 @@ const FORWARDED_RESPONSE_HEADERS = [
 
 const DEFAULT_MEDIA_TYPE = "application/json";
 const JSON_TYPE = "application/json; charset=utf-8";
-const DEFAULT_NO_FALLBACK_PATHS = ["/freshness", "/access_policy"];
+const DEFAULT_NO_FALLBACK_PATHS = ["/access_policy"];
 const DEFAULT_NO_CACHE_PATHS = ["/access_policy"];
 
 interface CacheKeyParts {

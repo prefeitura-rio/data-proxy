@@ -798,7 +798,7 @@ test('proxy: treats malformed tokens as anonymous', async () => {
 
 test('proxy: never asks BigQuery for unconfigured or disabled tables', async () => {
     const cases: { name: string, sync?: unknown, uri?: string, profile?: string }[] = [
-        { name: 'endpoint without a view', sync: undefined, uri: '/freshness' },
+        { name: 'endpoint without a view', sync: undefined, uri: '/access_policy' },
         { name: 'fallback disabled', sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', fallback: false }] } } } },
         { name: 'schema not configured', sync: { schemas: { other: { tables: [{ name: 'proj.dev.unrelated_table' }] } } } },
         { name: 'schema without tables', sync: { schemas: { pic: {} } } },

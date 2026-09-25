@@ -1,6 +1,6 @@
 # Database Schema
 
-CNPG creates and maintains the core roles. Init-db installs extensions, creates the `rls` schema, creates configured application schemas, and creates policy and freshness metadata.
+CNPG creates and maintains the core roles. Init-db installs extensions, creates the `rls` schema, creates configured application schemas, and creates access policy metadata.
 
 ## Shared objects
 
@@ -8,7 +8,7 @@ CNPG creates and maintains the core roles. Init-db installs extensions, creates 
 | --- | --- |
 | `postgis` | BigQuery `GEOGRAPHY` support. |
 | `pg_duckdb` | Executes DuckDB scans and reads SeaweedFS Parquet. |
-| `rls.sync_status` | Synchronization success and error status. |
+
 | `rls.pre_request()` | Mirrors JWT claims into PostgreSQL session settings. |
 
 ## Roles
@@ -27,7 +27,6 @@ Each configured schema contains metadata and views:
 
 | Object | Purpose |
 | --- | --- |
-| `<schema>.freshness` | Latest publication status by table and partition. |
 | `<schema>.access_policy` | Active access grants. |
 | `<schema>.access_log` | Append-only audit trail of grant changes. |
 | `<schema>.<table>` | PostgreSQL view over the DuckLake-backed function. |
@@ -37,7 +36,6 @@ Each configured schema contains metadata and views:
 
 PostgreSQL does not contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
 
-`freshness` has one row for a full table and one row per known partition for a partitioned table. `access_policy` holds active grants, and `access_log` records grant changes.
 
 ## DuckLake storage
 

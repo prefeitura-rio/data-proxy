@@ -5,7 +5,6 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl=7.88.1-10+deb12u15 \
     postgresql-17-postgis-3=3.6.4+dfsg-2.pgdg12+1 \
-    postgresql-17-partman=5.5.0-1.pgdg12+1 && \
   apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN groupmod --gid 998 tape && \

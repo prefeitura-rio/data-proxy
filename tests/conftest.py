@@ -38,7 +38,6 @@ pytest_plugins = [
     "tests.integration.steps.state",
     "tests.integration.steps.schema",
     "tests.integration.steps.authorization",
-    "tests.integration.steps.freshness",
     "tests.integration.steps.cache",
     "tests.integration.steps.templates",
 ]

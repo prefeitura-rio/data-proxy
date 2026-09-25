@@ -9,11 +9,9 @@ curl \
   "${BASE_URL}/participants?select=id_cras,name&limit=20"
 ```
 
-## Read and write routing
+## Request routing
 
-nginx routes `GET` and `HEAD` requests to PostgREST-ro, which uses the CNPG read Pooler. POST, PUT, PATCH, and DELETE requests route to PostgREST-rw, which connects directly to the current CNPG writer. This separation keeps reads replica-friendly while writes use the primary.
-
-The read and write deployments are refreshed by the Publisher after replica replay. A PostgREST deployment isn't Ready until its HTTP readiness probe serves `/`.
+nginx routes all requests to the single PostgREST deployment, which connects through the CNPG session-mode read Pooler. The PostgREST deployment is refreshed after sync when the view set changes. It is not Ready until its HTTP readiness probe serves `/`.
 
 ## OpenAPI
 
@@ -43,25 +41,12 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 When fallback is enabled, read responses include:
 
-| Header     | Values                                   |
-| ---------- | ---------------------------------------- |
-| `X-Source` | `cache`, `postgrest`, `bigquery`, `none` |
-| `X-Cache`  | `HIT`, `MISS`                            |
+| Header     | Values                                  |
+| ---------- | --------------------------------------- |
+| `X-Source` | `cache`, `parquet`, `bigquery`, `none` |
+| `X-Cache`  | `HIT`, `MISS`                           |
 
 Use these headers for troubleshooting, not authorization.
-
-## Freshness
-
-Each schema exposes `freshness`:
-
-```bash
-curl \
-  --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/freshness?table=eq.participants"
-```
-
-`updated_at` is the last successful publication time. `attempted_at` is the latest attempt. `status` is `success` or `error`. A errored existing partition keeps its old data and `updated_at`; a errored new partition has no `updated_at`.
 
 See [Security](security.md) for token and access-policy setup.
 

@@ -2,7 +2,7 @@
 
 from typing import assert_never
 
-from psycopg.sql import Composable, Identifier, Literal
+from psycopg.sql import Identifier, Literal
 
 from .duckdb import DuckDB
 from .executor import execute_sql
@@ -16,36 +16,10 @@ from .models import (
 )
 from .types import TemplateValue
 
-type StatementMapping = tuple[str, dict[str, TemplateValue]]
 
-
-def selection_fields(selection: TaskSelection) -> dict[str, str | Composable]:
-    """Return the column and bound literals encoded by one task selection."""
-    match selection:
-        case AllSelection():
-            return {}
-        case (
-            RangeSelection(column=column, lower=lower, upper=upper)
-            | TimeRangeSelection(column=column, lower=lower, upper=upper)
-        ):
-            return {
-                "column": Identifier(column),
-                "lower": Literal(lower),
-                "upper": Literal(upper),
-            }
-        case RemainderSelection(column=column, start=start, end=end):
-            return {
-                "column": Identifier(column),
-                "lower": Literal(start),
-                "upper": Literal(end),
-            }
-        case _:
-            assert_never(selection)
-
-
-def extraction_statement(
+def build_extraction_query(
     task: DumpTask, selection: TaskSelection, path: str
-) -> StatementMapping:
+) -> tuple[str, dict[str, TemplateValue]]:
     """Return one extraction template and its values."""
     mapping: dict[str, TemplateValue] = {
         "bq_table": Literal(task.table),
@@ -55,14 +29,26 @@ def extraction_statement(
         ],
     }
 
-    mapping |= selection_fields(selection)
-
     match selection:
         case AllSelection():
             return "duckdb/write_all", mapping
-        case RangeSelection() | TimeRangeSelection():
+        case (
+            RangeSelection(column=column, lower=lower, upper=upper)
+            | TimeRangeSelection(column=column, lower=lower, upper=upper)
+        ):
+            mapping |= {
+                "column": Identifier(column),
+                "lower": Literal(lower),
+                "upper": Literal(upper),
+            }
+
             return "duckdb/write_partition", mapping
-        case RemainderSelection():
+        case RemainderSelection(column=column, start=start, end=end):
+            mapping |= {
+                "column": Identifier(column),
+                "lower": Literal(start),
+                "upper": Literal(end),
+            }
             return "duckdb/write_remainder", mapping
         case _:  # pragma: no cover
             assert_never(selection)
@@ -71,5 +57,5 @@ def extraction_statement(
 async def run_extraction(task: DumpTask, duckdb_conn: DuckDB) -> None:
     """Extract each selection to its own scratch Parquet file."""
     for selection, path in zip(task.selections, task.output_paths, strict=True):
-        template, mapping = extraction_statement(task, selection, path)
+        template, mapping = build_extraction_query(task, selection, path)
         await execute_sql(duckdb_conn, template, mapping)

@@ -53,10 +53,10 @@ def configure-ducklake []: nothing -> nothing {
     log info 'Configured persistent DuckLake S3 secret'
 }
 
-# Create freshness tables with RLS policies
-def create-schemas-and-freshness []: nothing -> nothing {
+# Create application schemas
+def create-schemas []: nothing -> nothing {
     for schema in (schema-list $config) {
-        (postgres (render-sql setup_freshness.sql {
+        (postgres (render-sql setup_access_policy.sql {
             schema: (quote-pg $schema identifier)
             user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
             rls_schema: (quote-pg rls identifier)
@@ -64,7 +64,7 @@ def create-schemas-and-freshness []: nothing -> nothing {
         }))
     }
 
-    log info 'Created schemas and freshness tables'
+    log info 'Created schemas and access policy tables'
 }
 
 # Create the pre_request function that mirrors JWT claims into session variables
@@ -129,7 +129,7 @@ def main []: nothing -> nothing {
         wait-for-postgres
         install-extensions
         configure-ducklake
-        create-schemas-and-freshness
+        create-schemas
         create-pre-request
         create-access-policy
         install-maintenance

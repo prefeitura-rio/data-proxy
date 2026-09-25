@@ -6,10 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from data_proxy.extraction import (
-    extraction_statement,
-    selection_fields,
-)
+from data_proxy.extraction import build_extraction_query
 from data_proxy.models import (
     AllSelection,
     RangeSelection,
@@ -48,45 +45,32 @@ STATEMENT_CASES = [
 ]
 
 
-class TestSelectionFields:
-    """SelectionFields behavior tests."""
-
-    @given(case=st.sampled_from(STATEMENT_CASES))
-    def test_encodes_selection_bounds_and_column(self, case: StatementCase) -> None:
-        """Encode bounds and columns for a selection."""
-        fields = selection_fields(case.selection)
-        if isinstance(case.selection, AllSelection):
-            assert fields == {}
-            return
-        assert set(fields) == {"column", "lower", "upper"}
-
-    def test_rejects_unknown_selection_type(
-        self, invalid_selection: TaskSelection
-    ) -> None:
-        """Reject an unknown selection type."""
-        with pytest.raises(AssertionError):
-            selection_fields(invalid_selection)
-
-
 class TestExtractionStatements:
-    """ExtractionStatements behavior tests."""
+    """Extraction statement behavior tests."""
 
     @given(case=st.sampled_from(STATEMENT_CASES))
-    def test_selects_template_for_each_selection_type(
+    def test_selects_template_and_encodes_bounds_for_each_selection_type(
         self, case: StatementCase
     ) -> None:
-        """Select the extraction template for each selection type."""
+        """Select the extraction template and encode column and bounds."""
         task = dump(selections=[case.selection])
-        template, mapping = extraction_statement(task, case.selection, "s3://b/t")
+        template, mapping = build_extraction_query(task, case.selection, "s3://b/t")
         assert template == case.template
         assert render(mapping["path"]) == "'s3://b/t'"
+
+        if isinstance(case.selection, AllSelection):
+            assert "column" not in mapping
+            assert "lower" not in mapping
+            assert "upper" not in mapping
+        else:
+            assert {"column", "lower", "upper"}.issubset(mapping.keys())
 
     def test_rejects_unknown_selection_in_statement_builder(
         self, invalid_selection: TaskSelection
     ) -> None:
         """Reject an unknown selection in the statement builder."""
         with pytest.raises(AssertionError):
-            extraction_statement(dump(), invalid_selection, "s3://b/t")
+            build_extraction_query(dump(), invalid_selection, "s3://b/t")
 
     def test_builds_one_output_path_per_selection(self) -> None:
         """Build separate output paths without merging selections."""

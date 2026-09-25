@@ -4,11 +4,9 @@ from hypothesis import given
 
 from data_proxy.conditions import (
     partition_condition,
-    scan_condition,
     schema_scope_condition,
 )
 from data_proxy.models import (
-    PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
@@ -16,7 +14,6 @@ from data_proxy.models import (
 from tests.helpers import partition_for, render
 from tests.strategies import (
     identifiers,
-    physical_partitions,
     range_selections,
     remainder_selections,
     time_selections,
@@ -50,14 +47,6 @@ class TestSelectionConditions:
         assert "IS NULL" in rendered
         assert str(selection.start) in rendered
         assert str(selection.end) in rendered
-
-    @given(partition=physical_partitions())
-    def test_renders_scan_columns_as_record_access(
-        self, partition: PhysicalPartition
-    ) -> None:
-        """Render scan predicates against Parquet record columns."""
-        rendered = render(scan_condition(partition))
-        assert f"r['{partition.selection.column}']" in rendered
 
     @given(schema=identifiers)
     def test_renders_schema_scope_claim(self, schema: str) -> None:

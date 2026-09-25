@@ -260,19 +260,6 @@ class SyncConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def reserve_freshness_table(self) -> Self:
-        """Decline source tables that conflict with freshness metadata."""
-        offenders = [
-            table.name for table in self.tables if table.table_name == "freshness"
-        ]
-
-        if offenders:
-            message = f"Table name 'freshness' is reserved: {sorted(offenders)}"
-            raise ValueError(message)
-
-        return self
-
-    @model_validator(mode="after")
     def require_claim_for_rls(self) -> Self:
         """Decline rls tables nested under a schema with no claim."""
         for name, schema in self.schemas.items():

@@ -7,7 +7,7 @@ BigQuery is the source of truth. The sync service extracts data to Parquet in Se
 PostgreSQL stores metadata only:
 
 - roles and grants;
-- `access_policy`, `access_log`, and `freshness`;
+- `access_policy` and `access_log`;
 - PostgreSQL views and `SECURITY DEFINER` functions;
 - DBOS workflow state.
 
@@ -44,7 +44,7 @@ SeaweedFS LTX replica
 → pg_duckdb
 ```
 
-The restore container writes the reader volume. PostgreSQL and pg_duckdb open it read-only. A reused PostgreSQL session refreshes its DuckLake attachment when the catalog revision changes.
+The restore container writes the reader volume. PostgreSQL and pg_duckdb open it read-only. pg_duckdb re-reads the catalog file on every query.
 
 There is one active writer per schema catalog. Publishing is parallel across schemas and sequential within each schema queue.
 

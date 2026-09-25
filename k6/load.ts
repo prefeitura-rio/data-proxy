@@ -35,6 +35,7 @@ const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest.data-p
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
 const TOKEN_REFRESH_SECONDS = 30;
 const FALLBACK_OFFSET_MAX = 20;
+const PARTITION_COLUMN = "protocolo_data_referencia_particicao";
 
 const CLIENT_IDS = ["user-with-access", "user-cras-2", "user-escola-3"];
 const LOAD_TABLES = ["endpoint_participante_listagem", "endpoint_participantes", "protocolo_estado_diario"];
@@ -133,14 +134,6 @@ const ROUTES: Route[] = [
     },
     {
         profile: "pic",
-        path: "/freshness?table=eq.endpoint_participante_listagem",
-        name: "pic_freshness",
-        weight: 10,
-        clients: CLIENT_IDS,
-        checkBody: (body: unknown): boolean => Array.isArray(body),
-    },
-    {
-        profile: "pic",
         path: "/endpoint_participantes?id_cras=eq.cras_1&limit=20",
         name: "projeto_endpoint_participantes_cras_1",
         weight: 20,
@@ -185,14 +178,6 @@ const ROUTES: Route[] = [
         name: "projeto_protocolo_estado_diario_cras_2",
         weight: 15,
         clients: ["user-cras-2"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
-    },
-    {
-        profile: "pic",
-        path: "/freshness?table=eq.protocolo_estado_diario",
-        name: "projeto_freshness",
-        weight: 10,
-        clients: CLIENT_IDS,
         checkBody: (body: unknown): boolean => Array.isArray(body),
     },
 ];
@@ -273,11 +258,11 @@ function waitForLocalTables(token: string): void {
 /** Returns the two days immediately before the oldest local protocol partition. */
 function fallbackDates(token: string): string[] {
     const response = http.get(
-        `${POSTGREST_URL}/freshness?table=eq.protocolo_estado_diario&select=partition&order=partition.asc&limit=1`,
+        `${POSTGREST_URL}/protocolo_estado_diario?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
         { headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "pic" }, tags: { name: "load_setup:fallback_dates" } },
     ) as K6Response;
-    const rows = response.json() as { partition?: string }[];
-    const partition = rows[0]?.partition || "";
+    const rows = response.json() as Record<string, unknown>[];
+    const partition = String(rows[0]?.[PARTITION_COLUMN] || "");
     if (response.status !== 200 || !/^\d{8}$/.test(partition)) {
         throw new Error(`Could not discover oldest local protocol partition: ${response.body}`);
     }

@@ -31,29 +31,12 @@ DECLARE
   v_is_admin boolean;
   v_unit_ids text[];
   v_where text;
-{% if catalog_local_path is defined %}
-  catalog_revision text;
-  attached_revision text;
-{% endif %}
 BEGIN
 {% if catalog_local_path is defined %}
-  SELECT coalesce(to_char(max(updated_at), 'YYYY-MM-DD"T"HH24:MI:SS.USOF'), '0')
-  INTO catalog_revision
-  FROM {{ schema }}.freshness;
-  attached_revision := current_setting(
-    'app.ducklake_revision_{{ schema }}', true
+  PERFORM duckdb.raw_query(
+    'ATTACH IF NOT EXISTS ''ducklake:sqlite:{{ catalog_local_path }}'' AS dl '
+    || '(DATA_PATH ''{{ data_path }}'', READ_ONLY)'
   );
-
-  IF attached_revision IS DISTINCT FROM catalog_revision THEN
-    PERFORM duckdb.raw_query('CALL duckdb.recycle_ddb()');
-    PERFORM duckdb.raw_query(
-      'ATTACH ''ducklake:sqlite:{{ catalog_local_path }}'' AS dl '
-      || '(DATA_PATH ''{{ data_path }}'', READ_ONLY)'
-    );
-    PERFORM set_config(
-      'app.ducklake_revision_{{ schema }}', catalog_revision, false
-    );
-  END IF;
 
 {% endif %}
   v_subject := current_setting('{{ claim_setting }}', true);

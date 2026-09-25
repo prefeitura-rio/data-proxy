@@ -5,12 +5,10 @@ from pathlib import Path
 from typing import assert_never
 
 from psycopg import AsyncConnection
-from whenever import Instant
 
 from .catalog import CatalogPaths
 from .conditions import partition_condition
 from .duckdb import DuckDB
-from .freshness import update_published_freshness
 from .models import (
     PartitionedTablePlan,
     PhysicalPartition,
@@ -209,7 +207,6 @@ async def run_ducklake_publication(
     empty = empty_incremental_tables(decision.plan)
     eligible = changed - decision.blocked_tables - empty
     tables = {table.name: table for table in config.tables}
-    attempted_at = Instant.now()
 
     for name in decision.blocked_tables | empty:
         await emit_error(dbos_conn, "table_blocked", table=name)
@@ -237,14 +234,6 @@ async def run_ducklake_publication(
                 )
                 published.add(name)
 
-    for name in published:
-        await update_published_freshness(
-            pg_conn,
-            tables[name],
-            decision.plan,
-            decision.failed_partitions.get(name, set()),
-            attempted_at,
-        )
     await pg_conn.commit()
 
     return PublicationResult(plan=decision.plan, published_tables=published)

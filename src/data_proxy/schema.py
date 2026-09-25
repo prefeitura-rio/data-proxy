@@ -16,11 +16,6 @@ async def initialize_schemas(pg_conn: AsyncConnection, config: SyncConfig) -> bo
     Returns True if any schema objects were created or changed, which would
     require a PostgREST rollout to re-introspect the schema.
     """
-    await execute_sql(
-        pg_conn,
-        "postgres/init_roles",
-        mapping={"rls_schema": Identifier("rls")},
-    )
     for procedure in (
         "cleanup_stale_objects",
         "prune_access_log",
