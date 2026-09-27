@@ -6,7 +6,9 @@ import {
     waitForJob,
     restartPipeline,
     waitForWorkflow,
+    waitForWorkflowRunning,
     workerPodSpec,
+    deploymentPodSpec,
     NAMESPACE,
 } from "./lib.ts";
 
@@ -202,6 +204,39 @@ function verifyNoAccess(): void {
     });
 }
 
+/** Verifies that an authorized user cannot see rows from another unit. */
+function verifyAuthorizedRows(token: string): void {
+    const response = proxyGet(
+        `/${FULL_TABLE}?select=id_unidade&limit=100`,
+        token,
+    );
+    const rows = rowsOf(response) as Array<Record<string, unknown>>;
+    expect(
+        "authorized user receives rows",
+        response.status === 200 && rows.length > 0,
+    );
+    expect(
+        "authorized user receives only permitted units",
+        rows.every((row) => row.id_unidade === "cras_1"),
+    );
+
+    const multi = proxyGet(
+        `/${MULTI_RLS_TABLE}?select=id_cras,id_escola&limit=100`,
+        token,
+    );
+    const multiRows = rowsOf(multi) as Array<Record<string, unknown>>;
+    expect(
+        "multi-RLS table returns rows",
+        multi.status === 200 && multiRows.length > 0,
+    );
+    expect(
+        "multi-RLS rows match an authorized unit",
+        multiRows.every(
+            (row) => row.id_cras === "cras_1" || row.id_escola === "escola_1",
+        ),
+    );
+}
+
 /** Verifies that jsonb columns and json path filters work through the proxy. */
 function verifyJsonbColumn(): void {
     const token = fetchToken();
@@ -324,7 +359,16 @@ function pollOnce(metrics: MetricRequest[]): boolean {
     metrics.forEach((m, i) => {
         const value = m.extract(responses[i]);
 
+        if (m.metric.startsWith("table_status:") && value !== 200) {
+            published = false;
+        }
         if (m.metric.startsWith("table_row_count:") && value === 0) {
+            published = false;
+        }
+        if (
+            m.metric === "partition_count:" + PARTITIONED_TABLE &&
+            (typeof value !== "number" || value < SYNCED_PARTITIONS)
+        ) {
             published = false;
         }
     });
@@ -340,17 +384,34 @@ function verifyMetrics(metrics: MetricRequest[]): void {
         const value = m.extract(responses[i]);
         check(null, {
             [m.label]: () => {
-                if (typeof value === "boolean") return value;
-                if (typeof value === "number") {
-                    if (m.metric.startsWith("table_row_count:")) return value > 0;
-                    if (m.metric === "partition_count:" + PARTITIONED_TABLE)
-                        return value >= 1;
-                    return true;
+                if (m.metric.startsWith("table_status:")) return value === 200;
+                if (m.metric.startsWith("table_row_count:")) {
+                    return typeof value === "number" && value > 0;
                 }
-                return true;
+                if (m.metric === "partition_count:" + PARTITIONED_TABLE) {
+                    return typeof value === "number" && value >= SYNCED_PARTITIONS;
+                }
+                return false;
             },
         });
     });
+}
+
+/** Verifies that an unchanged source does not change published state. */
+function verifyNoChangeRun(k8s: Kubernetes, token: string): void {
+    const snapshotBefore = snapshotValue(token);
+    const revisionBefore = postgrestDeploymentRevision(k8s);
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    waitForWorkflow(k8s, "no_changes");
+
+    const snapshotAfter = snapshotValue(token);
+    const revisionAfter = postgrestDeploymentRevision(k8s);
+    expect("an unchanged sync preserves the snapshot", snapshotAfter === snapshotBefore);
+    expect(
+        "an unchanged sync does not restart PostgREST",
+        revisionAfter === revisionBefore,
+    );
 }
 
 /** Triggers a sync and waits for the sync Job to complete. */
@@ -358,7 +419,7 @@ export function setup(): void {
     const k8s = new Kubernetes();
     const jobName = triggerSync(k8s);
     waitForJob(k8s, jobName);
-    waitForWorkflow(k8s);
+    waitForWorkflow(k8s, "success");
 }
 
 /** Sends a GET through the proxy with auth headers and optional extras. */
@@ -392,6 +453,21 @@ function rowsOf(r: K6Response): unknown[] {
     return Array.isArray(body) ? body : [];
 }
 
+/** Reads the current DuckLake snapshot through the exposed RPC. */
+function snapshotValue(token: string): string {
+    const response = directPostgrest(
+        "/rpc/ducklake_latest_snapshot",
+        token,
+    );
+    const body = safeJson(response);
+    requirePrecondition(
+        "the current DuckLake snapshot is readable",
+        response.status === 200 && body !== null,
+        { status: response.status },
+    );
+    return JSON.stringify(body);
+}
+
 /** Asserts a named condition and logs it as a fallback verification step. */
 function expect(name: string, ok: boolean): void {
     check(null, { [name]: () => ok });
@@ -407,14 +483,13 @@ function requirePrecondition(name: string, ok: boolean, detail: unknown): void {
     }
 }
 
-/** Runs one SQL statement in the application database from a short lived Job. */
-function runSqlJob(
+/** Runs one shell command from a short-lived Job with selected pod mounts. */
+function runCommandJob(
     k8s: Kubernetes,
     label: string,
-    statement: string,
-    databaseVariable: "PG_DATABASE_URL" | "DBOS_SYSTEM_DATABASE_URL" = "PG_DATABASE_URL",
+    command: string,
+    podSpec = workerPodSpec(k8s),
 ): void {
-    const podSpec = workerPodSpec(k8s);
     const name = label.replace(/_/g, "-").slice(0, 40);
     const jobName = `e2e-${name}-${Date.now()}`;
 
@@ -433,10 +508,7 @@ function runSqlJob(
                             name: name,
                             image: PG_IMAGE,
                             command: ["/bin/sh"],
-                            args: [
-                                "-c",
-                                `psql "$${databaseVariable}" -v ON_ERROR_STOP=1 -c ${JSON.stringify(statement)}`,
-                            ],
+                            args: ["-c", command],
                             env: podSpec.containers[0].env,
                         },
                     ],
@@ -445,6 +517,20 @@ function runSqlJob(
         },
     });
     waitForJob(k8s, jobName);
+}
+
+/** Runs one SQL statement in a database from a short-lived Job. */
+function runSqlJob(
+    k8s: Kubernetes,
+    label: string,
+    statement: string,
+    databaseVariable: "PG_DATABASE_URL" | "DBOS_SYSTEM_DATABASE_URL" = "PG_DATABASE_URL",
+): void {
+    runCommandJob(
+        k8s,
+        label,
+        `psql "$${databaseVariable}" -v ON_ERROR_STOP=1 -c ${JSON.stringify(statement)}`,
+    );
 }
 
 /** Revokes the client role's SELECT on a fallback view. */
@@ -699,9 +785,9 @@ function verifyCoalescing(token: string): void {
 function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void {
   const job = triggerSync(k8s, true);
   waitForJob(k8s, job);
-  sleep(3);
+  waitForWorkflowRunning(k8s);
   restartPipeline(k8s);
-  waitForWorkflow(k8s);
+  waitForWorkflow(k8s, "success");
   const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
   check(null, { "the sync service recovered after restart": () => completed });
 }
@@ -830,19 +916,21 @@ function verifyCatalogSync(k8s: Kubernetes): void {
     expect("at least one sync pod is running", syncPods.length > 0);
     expect("at least one litestream pod is running", litestreamPods.length > 0);
 
-    const writerCatalog = runSqlJob(
+    runCommandJob(
         k8s,
         "check-writer-catalog",
-        `SELECT count(*) > 0 FROM (SELECT 1 FROM pg_tables LIMIT 1) AS probe`,
+        `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
+        workerPodSpec(k8s),
     );
-    expect("the writer catalog is accessible", true);
+    expect("the writer catalog is present", true);
 
-    const readerCatalog = runSqlJob(
+    runCommandJob(
         k8s,
         "check-reader-catalog",
-        `SELECT count(*) > 0 FROM (SELECT 1 FROM pg_tables LIMIT 1) AS probe`,
+        `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
+        deploymentPodSpec(k8s, "data-proxy-litestream"),
     );
-    expect("the reader catalog is accessible", true);
+    expect("the reader catalog is present", true);
 }
 
 /** Verifies PostgreSQL reads the restored catalog from the reader PVC. */
@@ -851,30 +939,6 @@ function verifyCnpgReaderMount(token: string): void {
     expect(
         "PostgREST serves data from the DuckLake catalog on the reader PVC",
         response.status === 200 && rowsOf(response).length > 0,
-    );
-}
-
-/** Verifies a second sync refreshes the catalog data. */
-function verifyCatalogRefresh(k8s: Kubernetes, token: string, metrics: MetricRequest[]): void {
-    const before = directPostgrest(`/${FULL_TABLE}?select=id&limit=1`, token);
-    requirePrecondition(
-        "the table has rows before the second sync",
-        before.status === 200 && rowsOf(before).length > 0,
-        { status: before.status },
-    );
-
-    const job = triggerSync(k8s);
-    waitForJob(k8s, job);
-    waitForWorkflow(k8s);
-    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-    check(null, { "the second sync completed": () => completed });
-
-    if (!completed) return;
-
-    const after = directPostgrest(`/${FULL_TABLE}?select=id&limit=1`, token);
-    expect(
-        "the table still serves data after the second sync",
-        after.status === 200 && rowsOf(after).length > 0,
     );
 }
 
@@ -891,52 +955,51 @@ function verifyParquetSource(token: string): void {
     );
 }
 
-/** Verifies the BigQuery fallback is triggered when parquet returns empty. */
+/** Verifies the BigQuery fallback is triggered for an unsynced partition. */
 function verifyBigQueryFallback(token: string): void {
     clearFallbackCache(token);
     sleep(1);
 
-    const emptyFilter = `id_unidade=eq.cras_nonexistent&select=id&limit=1`;
-    const parquetResponse = directPostgrest(`/${FULL_TABLE}?${emptyFilter}`, token);
+    const localOldest = directPostgrest(
+        `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
+        token,
+    );
+    const localRows = rowsOf(localOldest);
     requirePrecondition(
-        "the parquet answer is empty for a non-existent filter",
-        parquetResponse.status === 200 && rowsOf(parquetResponse).length === 0,
-        { status: parquetResponse.status },
+        "the local partitioned table has an oldest partition",
+        localOldest.status === 200 && localRows.length > 0,
+        { status: localOldest.status },
     );
 
-    const bqView = directPostgrest(`/${FULL_TABLE}_bq?${emptyFilter}`, token);
-    const proxyResponse = proxyGet(`/${FULL_TABLE}?${emptyFilter}`, token);
+    const oldest = String(
+        (localRows[0] as Record<string, unknown>)[PARTITION_COLUMN] || "",
+    );
+    const filter = `${PARTITION_COLUMN}=lt.${oldest}&select=protocolo_id&limit=1`;
+    const parquetResponse = directPostgrest(
+        `/${PARTITIONED_TABLE}?${filter}`,
+        token,
+    );
+    const bqView = directPostgrest(`/${PARTITIONED_TABLE}_bq?${filter}`, token);
+    requirePrecondition(
+        "an older partition is absent from parquet",
+        parquetResponse.status === 200 && rowsOf(parquetResponse).length === 0,
+        { status: parquetResponse.status, oldest },
+    );
+    requirePrecondition(
+        "the older partition exists in BigQuery",
+        bqView.status === 200 && rowsOf(bqView).length > 0,
+        { status: bqView.status, oldest },
+    );
+
+    const proxyResponse = proxyGet(`/${PARTITIONED_TABLE}?${filter}`, token);
     const source = proxyResponse.headers["X-Source"] || proxyResponse.headers["x-source"] || "";
-
-    if (rowsOf(bqView).length > 0) {
-        expect(
-            "the proxy falls back to BigQuery when parquet is empty",
-            source === "bigquery",
-        );
-    } else {
-        expect(
-            "the proxy returns the empty parquet answer when BigQuery is also empty",
-            source === "parquet" && rowsOf(proxyResponse).length === 0,
-        );
-    }
-}
-
-/** Verifies the PostgREST deployment has a new revision after sync. */
-function verifyPostgrestRollout(k8s: Kubernetes, metrics: MetricRequest[]): void {
-    const revisionBefore = postgrestDeploymentRevision(k8s);
-
-    const job = triggerSync(k8s);
-    waitForJob(k8s, job);
-    waitForWorkflow(k8s);
-    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-    check(null, { "the sync for rollout verification completed": () => completed });
-
-    if (!completed) return;
-
-    const revisionAfter = postgrestDeploymentRevision(k8s);
     expect(
-        "the PostgREST deployment revision advanced after sync",
-        Number(revisionAfter) >= Number(revisionBefore),
+        "the proxy falls back to BigQuery for an unsynced partition",
+        proxyResponse.status === 200 && source === "bigquery",
+    );
+    expect(
+        "the fallback returns BigQuery rows",
+        rowsOf(proxyResponse).length === rowsOf(bqView).length,
     );
 }
 
@@ -990,19 +1053,19 @@ export default function(): void {
 
     seedAccessPolicy();
     waitForAccessPolicyReplication(token);
+    verifyNoChangeRun(k8s, token);
     clearFallbackCache(token);
     sleep(2);
     verifyMetrics(metrics);
     verifyNoAccess();
+    verifyAuthorizedRows(token);
     verifyJsonbColumn();
     verifyPipelineRecovery(k8s, metrics);
     verifyDuckLakePublication(token);
     verifyCatalogSync(k8s);
     verifyCnpgReaderMount(token);
-    verifyCatalogRefresh(k8s, token, metrics);
     verifyParquetSource(token);
     verifyBigQueryFallback(token);
-    verifyPostgrestRollout(k8s, metrics);
     verifyIstioJwtValidation();
     verifyWebdisStable(k8s);
     verifyFallback(k8s);

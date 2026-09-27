@@ -107,6 +107,21 @@ export const options = {
     thresholds: sourceThresholds,
 };
 
+function authorizedRows(
+    field: string,
+    allowed: string[],
+): (body: unknown) => boolean {
+    return (body: unknown): boolean => {
+        if (!Array.isArray(body)) return false;
+        return body.every(
+            (row) =>
+                typeof row === "object" &&
+                row !== null &&
+                allowed.includes(String((row as Record<string, unknown>)[field])),
+        );
+    };
+}
+
 const ACCESS_POLICY_ROWS = [{ subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
 { subject: "user-1", unit_type: "cras", unit_id: "cras_1" },
 { subject: "user-1", unit_type: "escola", unit_id: "escola_1" },
@@ -122,7 +137,7 @@ const ROUTES: Route[] = [
         name: "pic_endpoint_participante_listagem_cras_1",
         weight: 30,
         clients: ["user-with-access"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_unidade", ["cras_1"]),
     },
     {
         profile: "pic",
@@ -130,7 +145,7 @@ const ROUTES: Route[] = [
         name: "pic_endpoint_participante_listagem_cras_2",
         weight: 30,
         clients: ["user-cras-2"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_unidade", ["cras_2"]),
     },
     {
         profile: "pic",
@@ -138,7 +153,7 @@ const ROUTES: Route[] = [
         name: "projeto_endpoint_participantes_cras_1",
         weight: 20,
         clients: ["user-with-access"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_cras", ["cras_1"]),
     },
     {
         profile: "pic",
@@ -146,7 +161,7 @@ const ROUTES: Route[] = [
         name: "projeto_endpoint_participantes_cras_2",
         weight: 20,
         clients: ["user-cras-2"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_cras", ["cras_2"]),
     },
     {
         profile: "pic",
@@ -154,7 +169,7 @@ const ROUTES: Route[] = [
         name: "projeto_endpoint_participantes_escola_1",
         weight: 15,
         clients: ["user-with-access"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_escola", ["escola_1"]),
     },
     {
         profile: "pic",
@@ -162,7 +177,7 @@ const ROUTES: Route[] = [
         name: "projeto_endpoint_participantes_escola_3",
         weight: 30,
         clients: ["user-escola-3"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_escola", ["escola_3"]),
     },
     {
         profile: "pic",
@@ -170,7 +185,7 @@ const ROUTES: Route[] = [
         name: "projeto_protocolo_estado_diario_cras_1",
         weight: 15,
         clients: ["user-with-access"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_unidade", ["cras_1"]),
     },
     {
         profile: "pic",
@@ -178,7 +193,7 @@ const ROUTES: Route[] = [
         name: "projeto_protocolo_estado_diario_cras_2",
         weight: 15,
         clients: ["user-cras-2"],
-        checkBody: (body: unknown): boolean => Array.isArray(body),
+        checkBody: authorizedRows("id_unidade", ["cras_2"]),
     },
 ];
 

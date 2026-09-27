@@ -13,13 +13,20 @@ export const E2E_SCRIPT_CONFIGMAP =
   __ENV.E2E_SCRIPT_CONFIGMAP || "data-proxy-e2e";
 
 /** Returns the sync pod spec, used as a template for one-off Jobs. */
-export function workerPodSpec(k8s: Kubernetes): KubernetesPodSpec {
+export function deploymentPodSpec(
+  k8s: Kubernetes,
+  deploymentName: string,
+): KubernetesPodSpec {
   const deployment = k8s.get(
     "Deployment.apps",
-    PIPELINE,
+    deploymentName,
     NAMESPACE,
   ) as KubernetesDeployment;
   return deployment.spec.template.spec;
+}
+
+export function workerPodSpec(k8s: Kubernetes): KubernetesPodSpec {
+  return deploymentPodSpec(k8s, PIPELINE);
 }
 
 /** Adds the standalone e2e scripts to a sync pod spec. */
@@ -88,7 +95,10 @@ export function restartPipeline(k8s: Kubernetes): void {
 }
 
 /** Creates a Job that waits for the latest DBOS sync workflow to complete. */
-export function waitForWorkflow(k8s: Kubernetes): void {
+export function waitForWorkflow(
+  k8s: Kubernetes,
+  expectedStatus?: "success" | "no_changes",
+): void {
   const podSpec = scriptPodSpec(workerPodSpec(k8s));
   const name = `data-proxy-workflow-k6-${Date.now()}`;
   k8s.create({
@@ -106,7 +116,41 @@ export function waitForWorkflow(k8s: Kubernetes): void {
             {
               ...podSpec.containers[0],
               name: "wait",
-              command: ["python", "/scripts/trigger.py", "--wait"],
+              command: [
+                "python",
+                "/scripts/trigger.py",
+                "--wait",
+                ...(expectedStatus ? ["--expect-status", expectedStatus] : []),
+              ],
+            },
+          ],
+        },
+      },
+    },
+  });
+  waitForJob(k8s, name);
+}
+
+/** Creates a Job that waits until the latest DBOS workflow is running. */
+export function waitForWorkflowRunning(k8s: Kubernetes): void {
+  const podSpec = scriptPodSpec(workerPodSpec(k8s));
+  const name = `data-proxy-running-k6-${Date.now()}`;
+  k8s.create({
+    apiVersion: "batch/v1",
+    kind: "Job",
+    metadata: { name, namespace: NAMESPACE },
+    spec: {
+      backoffLimit: 0,
+      ttlSecondsAfterFinished: 300,
+      template: {
+        spec: {
+          ...podSpec,
+          restartPolicy: "Never",
+          containers: [
+            {
+              ...podSpec.containers[0],
+              name: "running",
+              command: ["python", "/scripts/trigger.py", "--expect-running"],
             },
           ],
         },
