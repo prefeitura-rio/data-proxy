@@ -104,7 +104,7 @@ in
           };
           "dp:lint:sql" = {
             exec = ''
-              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates/postgres
+              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates
               sqlfluff lint --dialect duckdb src/data_proxy/templates/duckdb
               sqlfluff lint --dialect bigquery src/data_proxy/templates/bigquery
             '';
@@ -128,7 +128,7 @@ in
             ];
           };
           "dp:test:py" = {
-            exec = "uv run pytest --cov=dp --cov-report=term-missing";
+            exec = "uv run pytest";
             execIfModified = [
               "src"
               "tests"

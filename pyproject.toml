@@ -15,12 +15,12 @@ dependencies = [
   "asyncer>=0.0.18",
   "whenever>=0.10.5",
   "aiobotocore>=3.9.0",
-  "kubernetes-asyncio==36.1.0",
   "jinja2>=3.1",
   "tenacity>=9.1.4",
   "more-itertools>=10.0.0",
   "opentelemetry-sdk>=1.44.0",
   "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+  "lightkube==1.0.1",
 ]
 
 [dependency-groups]
@@ -33,7 +33,6 @@ dev = [
   "pytest-asyncio>=0.24.0",
   "pytest-bdd==8.1.0",
   "pytest-env>=1.1.5",
-  "pytest-cov>=6.0.0",
   "pytest-gremlins>=1.9.0",
   "pytest>=8.0.0",
   "ruff>=0.9.3",
@@ -99,26 +98,6 @@ extraPaths = ["src", "."]
 reportPrivateUsage = false
 reportAny = false
 
-
-[tool.coverage.run]
-source = ["data_proxy"]
-omit = [
-  "*/__init__.py",
-  "src/data_proxy/bigquery/clients.py",
-  "src/data_proxy/constants.py",
-  "src/data_proxy/duckdb.py",
-  "src/data_proxy/kubernetes.py",
-  "src/data_proxy/log.py",
-  "src/data_proxy/metrics.py",
-  "src/data_proxy/models.py",
-  "src/data_proxy/settings.py",
-  "src/data_proxy/templates.py",
-]
-
-[tool.coverage.report]
-show_missing = true
-exclude_lines = ["if __name__ == .__main__.", "pragma: no cover"]
-fail_under = 100
 
 [tool.vulture]
 ignore_decorators = [

@@ -80,7 +80,7 @@ Run the relevant canonical devenv tasks before completing a change:
 devenv --profile default tasks run dp:lint dp:test
 ```
 
-Use `devenv tasks` to inspect the individual checks. See [Development](docs/development.md) for local workflow details. The task group covers Python, Nushell, SQL, Helm, Docker, proxy, type, complexity, inactive-code, coverage, and unit-test checks.
+Use `devenv tasks` to inspect the individual checks. See [Development](docs/development.md) for local workflow details. The task group covers Python, Nushell, SQL, Helm, Docker, proxy, type, complexity, inactive-code, and unit-test checks.
 
 ## Documentation
 
