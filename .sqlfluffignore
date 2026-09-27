@@ -18,8 +18,9 @@ src/data_proxy/templates/postgres/delete_partitions.sql
 src/data_proxy/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
-src/data_proxy/templates/duckdb/describe_table.sql
+src/data_proxy/templates/duckdb/describe_source.sql
 src/data_proxy/templates/duckdb/setup.sql
+src/data_proxy/templates/bigquery/partitions.sql
 
 # Dynamic Jinja projection renders a long line for SQLFluff's static parser.
 src/data_proxy/templates/duckdb/write_all.sql

@@ -11,6 +11,6 @@
 }
 #}
 DROP VIEW IF EXISTS {{ schema }}.{{ view }};
-DROP VIEW IF EXISTS {{ schema }}.{{ view }}_bq;
+DROP VIEW IF EXISTS {{ schema }}.{{ bq_view }};
 DROP FUNCTION IF EXISTS {{ schema }}.{{ function }}();
 DROP FUNCTION IF EXISTS {{ schema }}.{{ bq_function }}();

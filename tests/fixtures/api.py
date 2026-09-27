@@ -17,7 +17,6 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
 from data_proxy.bigquery.clients import BigQuery
-from data_proxy.models import AllSelection, DumpTask
 from data_proxy.settings import Settings, settings
 from data_proxy.templates import render_template
 from tests.constants import FILES
@@ -43,18 +42,6 @@ def redis() -> MagicMock:
     client.__aexit__ = AsyncMock(return_value=None)
     client.flushdb = AsyncMock()
     return client
-
-
-@pytest.fixture
-def standard_dump_task() -> DumpTask:
-    """Return a standard dump task for tests."""
-    return DumpTask(
-        run_id="r1",
-        table="p.d.t",
-        target_schema="test",
-        bucket_path="s3://b/t",
-        selections=[AllSelection()],
-    )
 
 
 @pytest.fixture
@@ -84,6 +71,7 @@ async def dbos_conn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[psycopg.AsyncConnection]:
     """Provide an async connection to the DBOS system database with the data_proxy schema initialized."""
+    from data_proxy.postgres import Postgres
     from data_proxy.state import ensure_app_schema
 
     url = system_db_container.get_connection_url().replace(
@@ -91,7 +79,7 @@ async def dbos_conn(
     )
     monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", url)
     conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
-    await ensure_app_schema(conn)
+    await ensure_app_schema(Postgres(connection=conn))
     await conn.execute(
         SQL("TRUNCATE {}.state, {}.errors").format(
             Identifier(settings.DBOS_APP_SCHEMA), Identifier(settings.DBOS_APP_SCHEMA)

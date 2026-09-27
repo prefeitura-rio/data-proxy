@@ -1,21 +1,29 @@
 """Unit tests for BigQuery partition metadata and normalization."""
 
 from datetime import UTC, datetime
-from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from google.cloud.bigquery import Row
 from hypothesis import given
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
+from data_proxy.bigquery.clients import BigQuery
 from data_proxy.bigquery.config import (
     PartitionKindConfig,
     RangeConfig,
     TimeConfig,
     TimeGranularity,
 )
-from data_proxy.bigquery.partitions import PartitionNormalizer, parse_table_reference
+from data_proxy.bigquery.partitions import (
+    PartitionNormalizer,
+    parse_table_reference,
+    partition_rows,
+    physical_partitions,
+)
 from data_proxy.models import (
+    PartitionMetadata,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
@@ -26,20 +34,122 @@ from tests.helpers import metadata_row
 class TestPartitionMetadata:
     """PartitionMetadata behavior tests."""
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("values", "field"),
+        [
+            ((123, datetime(2025, 1, 1, tzinfo=UTC), 128), "partition_id"),
+            (("1", "not a timestamp", 128), "last_modified_time"),
+            (("1", datetime(2025, 1, 1, tzinfo=UTC), "128"), "logical_bytes"),
+        ],
+        ids=[
+            "partition-id-is-not-text",
+            "modified-time-is-not-datetime",
+            "bytes-is-not-int",
+        ],
+    )
+    async def test_rejects_invalid_partition_query_rows(
+        self, values: tuple[str | int | datetime, ...], field: str
+    ) -> None:
+        """Reject driver rows with values that do not match the query schema."""
+        conn = AsyncMock(spec=BigQuery)
+        conn.query.return_value = [
+            Row(
+                values,
+                {
+                    "partition_id": 0,
+                    "last_modified_time": 1,
+                    "logical_bytes": 2,
+                },
+            )
+        ]
+
+        with pytest.raises(ValidationError, match=field):
+            await partition_rows(conn, "project", "dataset", "table")
+
     def test_defaults_missing_logical_bytes_to_zero(self) -> None:
-        """Default missing logical bytes to zero."""
-        row = cast("Row", cast("object", {"logical_bytes": None}))
-        assert PartitionNormalizer.logical_bytes(row) == 0
+        """Default missing logical bytes to zero during normalization."""
+        row = PartitionMetadata(
+            partition_id="0",
+            last_modified_time=datetime(2025, 1, 1, tzinfo=UTC),
+            logical_bytes=None,
+        )
+        partition = PartitionNormalizer(
+            RangeConfig(field="id", start=0, end=10, interval=10),
+            "p.d.t",
+            "signature",
+        ).normalize(row)
+
+        assert partition is not None
+        assert partition.logical_bytes == 0
+
+    @pytest.mark.asyncio
+    async def test_partition_rows_validate_bigquery_rows(self) -> None:
+        """Convert a BigQuery row to its validated metadata model."""
+        conn = AsyncMock(spec=BigQuery)
+        conn.query.return_value = [
+            Row(
+                ("20250101", datetime(2025, 1, 1, tzinfo=UTC), 128),
+                {
+                    "partition_id": 0,
+                    "last_modified_time": 1,
+                    "logical_bytes": 2,
+                },
+            )
+        ]
+
+        rows = await partition_rows(conn, "project", "dataset", "table")
+
+        assert rows == [
+            PartitionMetadata(
+                partition_id="20250101",
+                last_modified_time=datetime(2025, 1, 1, tzinfo=UTC),
+                logical_bytes=128,
+            )
+        ]
 
     def test_rejects_unknown_partition_kind(
-        self, invalid_partition_row: Row, invalid_kind_config: PartitionKindConfig
+        self, invalid_kind_config: PartitionKindConfig
     ) -> None:
         """Reject an unknown partition kind."""
         normalizer = PartitionNormalizer(
             kind_config=invalid_kind_config, table="p.d.t", signature="sig"
         )
+        row = PartitionMetadata(
+            partition_id="0",
+            last_modified_time=datetime(2025, 1, 1, tzinfo=UTC),
+            logical_bytes=128,
+        )
         with pytest.raises(AssertionError):
-            normalizer.normalize(invalid_partition_row)
+            normalizer.normalize(row)
+
+
+class TestPhysicalPartitions:
+    """Physical partition discovery behavior tests."""
+
+    @pytest.mark.asyncio
+    async def test_limits_time_partitions_to_latest_n(self, bigquery: BigQuery) -> None:
+        """Keep only the latest time partitions when n is configured."""
+        signature, partitions = await physical_partitions(
+            bigquery,
+            "test.dataset.time_day",
+            "{}",
+            n=2,
+        )
+
+        assert signature
+        assert set(partitions) == {"20250102", "20250103"}
+
+    @pytest.mark.asyncio
+    async def test_rejects_n_for_range_partitions(self, bigquery: BigQuery) -> None:
+        """Reject a retention count for range-partitioned tables."""
+        with pytest.raises(ValueError, match="only supported"):
+            await physical_partitions(
+                bigquery,
+                "test.dataset.range_buckets",
+                "{}",
+                n=1,
+            )
 
 
 class TestTableReference:

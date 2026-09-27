@@ -1,11 +1,12 @@
 """Unit tests for asynchronous transaction and readiness helpers."""
 
-from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from psycopg import AsyncConnection
 
-from data_proxy.utils import atomic, wait_for
+from data_proxy.postgres import Postgres
+from data_proxy.utils import wait_for
 
 
 class TestWaitFor:
@@ -44,40 +45,22 @@ class TestAtomic:
     @pytest.mark.asyncio
     async def test_commits_after_success(self) -> None:
         """Commit the connection after a successful block."""
-        commits = 0
-        rollbacks = 0
+        connection = AsyncMock(spec=AsyncConnection)
 
-        class Connection:
-            async def commit(self) -> None:
-                nonlocal commits
-                commits += 1
-
-            async def rollback(self) -> None:
-                nonlocal rollbacks
-                rollbacks += 1
-
-        async with atomic(cast("AsyncConnection", cast("object", Connection()))):
+        async with Postgres(connection=connection).atomic():
             pass
-        assert commits == 1
-        assert rollbacks == 0
+
+        connection.commit.assert_awaited_once()
+        connection.rollback.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_rolls_back_and_reraises_failure(self) -> None:
         """Roll back and re-raise an exception from the block."""
-        commits = 0
-        rollbacks = 0
-
-        class Connection:
-            async def commit(self) -> None:
-                nonlocal commits
-                commits += 1
-
-            async def rollback(self) -> None:
-                nonlocal rollbacks
-                rollbacks += 1
+        connection = AsyncMock(spec=AsyncConnection)
 
         with pytest.raises(RuntimeError, match="failed"):
-            async with atomic(cast("AsyncConnection", cast("object", Connection()))):
+            async with Postgres(connection=connection).atomic():
                 raise RuntimeError("failed")
-        assert rollbacks == 1
-        assert commits == 0
+
+        connection.rollback.assert_awaited_once()
+        connection.commit.assert_not_awaited()

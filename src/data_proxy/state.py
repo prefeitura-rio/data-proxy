@@ -6,37 +6,28 @@ counts) is owned by DBOS workflows and isn't stored here.
 """
 
 from json import dumps
-from typing import cast
 
-from psycopg import AsyncConnection
-from psycopg.sql import Identifier
+from psycopg.rows import TupleRow
 
-from .executor import execute_sql
-from .models import (
-    PartitionManifest,
-    PublicationResult,
-    SyncConfig,
-    TableState,
-)
-from .settings import settings
-from .utils import atomic
+from .executor import Executor
+from .models import PublicationResult, SyncConfig, TableState
+from .postgres import Postgres
+from .schema import schema
+from .types import PostgresParams
 
 
-def schema() -> Identifier:
-    """Return the application state schema as a SQL identifier."""
-    return Identifier(settings.DBOS_APP_SCHEMA)
-
-
-async def ensure_app_schema(pg_conn: AsyncConnection) -> None:
+async def ensure_app_schema(pg_conn: Postgres) -> None:
     """Create the application state schema and tables when absent."""
-    await execute_sql(pg_conn, "postgres/init_schema", mapping={"schema": schema()})
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
+        "postgres/init_schema",
+        mapping={"schema": schema()},
+    )
     await pg_conn.commit()
 
 
-async def emit_error(pg_conn: AsyncConnection, reason: str, **fields: str) -> None:
-    """Persist one structured error event in the data-proxy.errors table."""
-    await execute_sql(
-        pg_conn,
+async def emit_error(pg_conn: Postgres, reason: str, **fields: str) -> None:
+    """Persist one structured error event in the data_proxy.errors table."""
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
         "postgres/insert_error",
         mapping={"schema": schema()},
         params={"reason": reason, "fields": dumps(fields, default=str)},
@@ -44,59 +35,43 @@ async def emit_error(pg_conn: AsyncConnection, reason: str, **fields: str) -> No
     await pg_conn.commit()
 
 
-async def read_table_state(pg_conn: AsyncConnection, table: str) -> TableState | None:
+async def read_table_state(pg_conn: Postgres, table: str) -> TableState | None:
     """Read committed state for one table."""
-    cursor = await execute_sql(
-        pg_conn,
+    rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
         "postgres/read_state",
         mapping={"schema": schema()},
         params={"table_name": table},
+        expect=tuple[str],
     )
-    row = cast("tuple[str, ...] | None", await cursor.fetchone())
 
-    if row is None:
+    if not rows:
         return None
 
-    return TableState.model_validate_json(row[0])
+    return TableState.model_validate_json(rows[0][0])
 
 
-async def read_table_signature(pg_conn: AsyncConnection, table: str) -> str | None:
+async def read_table_signature(pg_conn: Postgres, table: str) -> str | None:
     """Read the committed signature for one table."""
     state = await read_table_state(pg_conn, table)
     return state.signature if state is not None else None
 
 
-async def read_partition_manifest(
-    pg_conn: AsyncConnection, table: str
-) -> PartitionManifest | None:
-    """Read a partition manifest from unified table state."""
-    state = await read_table_state(pg_conn, table)
+async def write_table_state(pg_conn: Postgres, table: str, state: TableState) -> None:
+    """Upsert committed state for one table.
 
-    if state is None or state.partitions is None:
-        return None
-
-    return PartitionManifest(
-        table_signature=state.signature, partitions=state.partitions
-    )
-
-
-async def write_table_state(
-    pg_conn: AsyncConnection, table: str, state: TableState
-) -> None:
-    """Upsert committed state for one table."""
-    await execute_sql(
-        pg_conn,
+    This does not commit; the caller is responsible for committing the
+    transaction, typically through ``write_table_states``.
+    """
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
         "postgres/upsert_state",
         mapping={"schema": schema()},
         params={"table_name": table, "state": state.model_dump_json()},
     )
 
 
-async def write_table_states(
-    pg_conn: AsyncConnection, states: dict[str, TableState]
-) -> None:
+async def write_table_states(pg_conn: Postgres, states: dict[str, TableState]) -> None:
     """Commit state for every table atomically."""
-    async with atomic(pg_conn):
+    async with pg_conn.atomic():
         for table, state in states.items():
             await write_table_state(pg_conn, table, state)
 

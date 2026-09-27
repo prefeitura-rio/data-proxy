@@ -37,6 +37,31 @@ Combine filters with `&`. PostgREST applies them with AND. RLS filters rows befo
 
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`.
 
+## DuckLake change feed
+
+Each configured table exposes a read-only RPC named `ducklake_changes_<table>` in its target schema. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  --get "${BASE_URL}/rpc/ducklake_changes_participants" \
+  --data-urlencode "start_snapshot=12" \
+  --data-urlencode "end_snapshot=15"
+```
+
+Use the schema RPC `ducklake_latest_snapshot` to get the current cursor before or after reading a range:
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  --request POST \
+  "${BASE_URL}/rpc/ducklake_latest_snapshot"
+```
+
+Snapshot bounds are inclusive. Deleted rows are returned as preimages. The same schema scope and row-level policy apply to change rows, including deleted preimages. Snapshot history is retained for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
+
 ## Response source and cache
 
 When fallback is enabled, read responses include:

@@ -1,22 +1,24 @@
 """BigQuery physical partition query and normalization helpers."""
 
-from collections.abc import Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import assert_never, cast
+from typing import assert_never
 
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row, Table
 from whenever import PlainDateTime
 
-from ..executor import execute_sql
+from ..executor import Executor
 from ..models import (
+    PartitionMetadata,
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
     TimeRangeSelection,
 )
+from ..types import BigQueryParams
 from .clients import BigQuery
 from .config import (
     PartitionKindConfig,
@@ -45,14 +47,14 @@ class PartitionNormalizer:
     table: str
     signature: str
 
-    def normalize(self, row: Row) -> PhysicalPartition | None:
-        """Normalize one BigQuery metadata row into partition state."""
-        partition_id = cast("str", row["partition_id"])
+    def normalize(self, row: PartitionMetadata) -> PhysicalPartition | None:
+        """Normalize one validated BigQuery metadata row into partition state."""
+        partition_id = row.partition_id
         if partition_id == "__UNPARTITIONED__":
             msg = f"Unsupported BigQuery partition {partition_id}: {self.table}"
             raise ValueError(msg)
 
-        modified = self.modified(row)
+        modified = row.last_modified_time
         if modified is None:
             msg = f"Missing partition modification time {partition_id}: {self.table}"
             raise TypeError(msg)
@@ -60,35 +62,19 @@ class PartitionNormalizer:
         partition_signature = sha256(
             f"{partition_id}:{modified.isoformat()}:{self.signature}".encode()
         ).hexdigest()
+        logical_bytes = row.logical_bytes or 0
 
-        logical_bytes = self.logical_bytes(row)
-
-        match self.kind_config.kind:
-            case "time":
+        match self.kind_config:
+            case TimeConfig() as config:
                 return self.normalize_time(
-                    partition_id,
-                    partition_signature,
-                    cast("TimeConfig", self.kind_config),
-                    logical_bytes,
+                    partition_id, partition_signature, config, logical_bytes
                 )
-            case "range":
+            case RangeConfig() as config:
                 return self.normalize_range(
-                    partition_id,
-                    partition_signature,
-                    cast("RangeConfig", self.kind_config),
-                    logical_bytes,
+                    partition_id, partition_signature, config, logical_bytes
                 )
             case _:
-                assert_never(self.kind_config.kind)
-
-    def modified(self, row: Row) -> datetime | None:
-        """Extract last_modified_time from a BigQuery row."""
-        return cast("datetime | None", row["last_modified_time"])
-
-    @staticmethod
-    def logical_bytes(row: Row) -> int:
-        """Extract logical_bytes from a BigQuery row as an integer."""
-        return cast("int | None", row["logical_bytes"]) or 0
+                assert_never(self.kind_config)
 
     def normalize_time(
         self,
@@ -196,16 +182,17 @@ async def partition_rows(
     project: str,
     dataset: str,
     table_name: str,
-) -> Iterable[Row]:
-    """Return grouped physical partition metadata rows."""
-    return await execute_sql(
-        bq_conn,
+) -> list[PartitionMetadata]:
+    """Return validated physical partition metadata rows."""
+    rows = await Executor[BigQueryParams, Sequence[Row]](conn=bq_conn).query(
         "bigquery/partitions",
         {"project": project, "dataset": dataset},
-        job_config=QueryJobConfig(
+        params=QueryJobConfig(
             query_parameters=[ScalarQueryParameter("table_name", "STRING", table_name)]
         ),
+        expect=Row,
     )
+    return [PartitionMetadata.model_validate(dict(row.items())) for row in rows]
 
 
 async def physical_partitions(

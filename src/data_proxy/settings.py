@@ -4,7 +4,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
@@ -31,7 +31,18 @@ class Settings(BaseSettings):
     DUCKLAKE_CATALOG_LOCAL_PATH: Path = Path("/var/lib/ducklake/catalogs")
     DUCKLAKE_CATALOG_PATH: str = "ducklake"
     DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
+    DUCKLAKE_MAX_COMPACTED_FILES: int = Field(default=10, gt=0)
+    DUCKLAKE_REWRITE_DELETE_THRESHOLD: float = Field(default=0.95, gt=0, le=1)
     DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
+
+    @field_validator("DUCKLAKE_SNAPSHOT_EXPIRATION")
+    @classmethod
+    def validate_snapshot_expiration(cls, v: str) -> str:
+        """Require a positive integer followed by d (days)."""
+        if not v.endswith("d") or not v[:-1].isdigit() or int(v[:-1]) <= 0:
+            raise ValueError("DUCKLAKE_SNAPSHOT_EXPIRATION must be like '7d'")
+        return v
+
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=50, gt=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
@@ -48,6 +59,7 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: str = "seaweedfs"
     S3_BUCKET: str = "test-bucket"
     S3_ENDPOINT: str = "localhost:8333"
+    S3_REGION: str = "us-east-1"
     S3_SCRATCH_PREFIX: str = "tmp"
     S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
     S3_USE_SSL: bool = False

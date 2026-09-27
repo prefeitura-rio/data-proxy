@@ -13,12 +13,13 @@
     "duckdb_view": "DuckDB intermediate view name.",
     "source": "FROM clause body: bigquery_scan(...) or dl.table.",
     "source_prefix": "Optional string prepended to the raw query (e.g. 'LOAD bigquery; ').",
-    "catalog_local_path": "Local SQLite catalog path (DuckLake only).",
+    "catalog_local_path": "Local filesystem path to the SQLite catalog file (DuckLake only).",
     "data_path": "S3 data path for the DuckLake attachment (DuckLake only)."
   }
 }
 #}
-{% from "postgres/macros.sql" import rls_where_clause, column_projection, return_query_select, duckdb_query_select %}
+-- noqa: disable=PRS,LT05
+{% from "postgres/macros.sql" import rls_where_clause, column_projection, return_query_select, duckdb_query_select, ducklake_attach %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS TABLE(
 {% for column in columns %}
@@ -33,10 +34,7 @@ DECLARE
   v_where text;
 BEGIN
 {% if catalog_local_path is defined %}
-  PERFORM duckdb.raw_query(
-    'ATTACH IF NOT EXISTS ''ducklake:sqlite:{{ catalog_local_path }}'' AS dl '
-    || '(DATA_PATH ''{{ data_path }}'', READ_ONLY)'
-  );
+{{ ducklake_attach(catalog_local_path, data_path) }}
 
 {% endif %}
   v_subject := current_setting('{{ claim_setting }}', true);

@@ -26,7 +26,7 @@ def create_s3_client(
         endpoint_url=endpoint,
         aws_access_key_id=settings.S3_ACCESS_KEY,
         aws_secret_access_key=settings.S3_SECRET_KEY,
-        region_name="us-east-1",
+        region_name=settings.S3_REGION,
     )
 
 

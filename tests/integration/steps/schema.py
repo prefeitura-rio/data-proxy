@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import cast
+from typing import TypedDict
 
 from psycopg import AsyncConnection, AsyncCursor
 from pytest_bdd import given, then, when
@@ -13,6 +13,13 @@ from data_proxy.state import ensure_app_schema
 from data_proxy.types import DatabaseRow
 from tests.fixtures.types import Postgres
 from tests.helpers import execute_sql
+
+
+class StateSchemaResult(TypedDict):
+    """Schema fixture data shared by the state-table scenarios."""
+
+    schema: str
+    connection: AsyncConnection
 
 
 @dataclass
@@ -58,7 +65,7 @@ def initialize_two_schemas(schema_context: SchemaScenario) -> None:
             other: SchemaConfig(tables=[FullTable(name=f"p.{other}.two")]),
         }
     )
-    asyncio.run(initialize_schemas(database.connection, config))
+    asyncio.run(initialize_schemas(database.backend, config))
     schema_context.other_schema = other
 
 
@@ -74,7 +81,7 @@ def initialize_one_schema(schema_context: SchemaScenario) -> None:
     config = SyncConfig(
         schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.one")])}
     )
-    asyncio.run(initialize_schemas(database.connection, config))
+    asyncio.run(initialize_schemas(database.backend, config))
     after = asyncio.run(
         fetch_fixture_rows(
             database, "postgres/role_memberships", {"role": "authenticator"}
@@ -97,7 +104,7 @@ def revoke_schema_access(schema_context: SchemaScenario) -> None:
             {"schema": schema},
         )
     )
-    asyncio.run(revoke_anonymous_access(database.connection, config))
+    asyncio.run(revoke_anonymous_access(database.backend, config))
 
 
 @when("I create a stale table and clean schema objects")
@@ -107,7 +114,7 @@ def clean_schema_objects(schema_context: SchemaScenario) -> None:
     config = SyncConfig(
         schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.kept")])}
     )
-    asyncio.run(initialize_schemas(database.connection, config))
+    asyncio.run(initialize_schemas(database.backend, config))
     asyncio.run(
         database.connection.execute(
             f'CREATE VIEW "{schema}".stale AS SELECT 1'.encode()
@@ -199,7 +206,7 @@ def clean_stale_fallback(schema_context: SchemaScenario) -> None:
     config = SyncConfig(
         schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.kept")])}
     )
-    asyncio.run(initialize_schemas(database.connection, config))
+    asyncio.run(initialize_schemas(database.backend, config))
     asyncio.run(
         database.connection.execute(
             f'CREATE VIEW "{schema}".stale_table_bq AS SELECT 1'.encode()
@@ -227,22 +234,22 @@ def check_stale_fallback_removed(schema_context: SchemaScenario) -> None:
 
 
 @when("I initialize the application state schema", target_fixture="state_schema_result")
-def init_state_schema(schema_context: SchemaScenario) -> dict[str, object]:
+def init_state_schema(schema_context: SchemaScenario) -> StateSchemaResult:
     database = schema_context.postgres
-    asyncio.run(ensure_app_schema(database.connection))
+    asyncio.run(ensure_app_schema(database.backend))
     return {"schema": database.namespace.schema, "connection": database.connection}
 
 
 @then("the state table exists")
-def check_state_table(state_schema_result: dict[str, object]) -> None:
-    conn = cast("AsyncConnection", state_schema_result["connection"])
+def check_state_table(state_schema_result: StateSchemaResult) -> None:
+    conn = state_schema_result["connection"]
     cursor = asyncio.run(conn.execute(b"SELECT to_regclass(%s)", ("data_proxy.state",)))
     assert asyncio.run(cursor.fetchone()) is not None
 
 
 @then("the errors table exists")
-def check_errors_table(state_schema_result: dict[str, object]) -> None:
-    conn = cast("AsyncConnection", state_schema_result["connection"])
+def check_errors_table(state_schema_result: StateSchemaResult) -> None:
+    conn = state_schema_result["connection"]
     cursor = asyncio.run(
         conn.execute(b"SELECT to_regclass(%s)", ("data_proxy.errors",))
     )

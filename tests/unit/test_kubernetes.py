@@ -1,130 +1,236 @@
-"""Unit tests for Kubernetes template and readiness logic."""
+"""Tests for Kubernetes Deployment updates."""
 
-from types import SimpleNamespace
-from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
+from lightkube import AsyncClient
+from lightkube.models.apps_v1 import DeploymentSpec, DeploymentStatus
+from lightkube.models.core_v1 import PodTemplateSpec
+from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
+from lightkube.resources.apps_v1 import Deployment
+from lightkube.types import PatchType
+from pydantic import JsonValue
 
-from data_proxy.kubernetes import Deployment, deployment_ready
-from tests.helpers import deployment_value
+from data_proxy.kubernetes import check_postgrest_rollout, patch_restart_annotation
 
 
-class TestDeploymentReadiness:
-    """Deployment readiness behavior tests."""
+def rollout_deployment(
+    status: DeploymentStatus | None,
+    metadata: ObjectMeta | None,
+    replicas: int | None,
+) -> Deployment:
+    """Build one Deployment status for readiness checks."""
+    return Deployment(
+        metadata=metadata,
+        spec=DeploymentSpec(
+            selector=LabelSelector(),
+            template=PodTemplateSpec(),
+            replicas=replicas,
+        ),
+        status=status,
+    )
 
-    @given(missing=st.integers(1, 7))
+
+class TestPatchRestartAnnotation:
+    """Restart annotation patch behavior tests."""
+
     @pytest.mark.asyncio
-    async def test_rejects_missing_deployment_fields(self, missing: int) -> None:
-        """Reject a deployment with any required field missing."""
-        deployment = cast(
-            Deployment,
-            cast(
-                object,
-                SimpleNamespace(
-                    status=None
-                    if missing & 1
-                    else SimpleNamespace(
-                        updated_replicas=1, available_replicas=1, observed_generation=1
-                    ),
-                    spec=None if missing & 2 else SimpleNamespace(replicas=1),
-                    metadata=None if missing & 4 else SimpleNamespace(generation=1),
-                ),
-            ),
+    async def test_patches_only_the_restart_annotation(self) -> None:
+        """Send the strategic merge patch with the expected payload."""
+
+        class RecordingPatcher:
+            resource: type[Deployment] | None = None
+            name: str | None = None
+            payload: dict[str, JsonValue] | None = None
+            namespace: str | None = None
+            patch_type: PatchType | None = None
+
+            async def patch(
+                self,
+                res: type[Deployment],
+                name: str,
+                obj: dict[str, JsonValue],
+                *,
+                namespace: str | None = None,
+                patch_type: PatchType = PatchType.STRATEGIC,
+            ) -> Deployment:
+                self.resource = res
+                self.name = name
+                self.payload = obj
+                self.namespace = namespace
+                self.patch_type = patch_type
+                return Deployment(
+                    spec=DeploymentSpec(
+                        selector=LabelSelector(),
+                        template=PodTemplateSpec(),
+                    )
+                )
+
+        client = RecordingPatcher()
+        await patch_restart_annotation(
+            client, "data-proxy-postgrest", "app", "2025-01-01T00:00:00Z"
         )
-        with pytest.raises(RuntimeError, match="not ready"):
-            await deployment_ready(lambda: deployment_value(deployment))
 
-    @given(replicas=st.integers(0, 10))
+        assert client.resource is Deployment
+        assert client.name == "data-proxy-postgrest"
+        assert client.payload == {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": "2025-01-01T00:00:00Z"
+                        }
+                    }
+                }
+            }
+        }
+        assert client.namespace == "app"
+        assert client.patch_type == PatchType.STRATEGIC
+
+
+class TestCheckPostgrestRollout:
+    """PostgREST rollout readiness tests."""
+
     @pytest.mark.asyncio
-    async def test_rejects_stale_updated_replicas(self, replicas: int) -> None:
-        """Reject a deployment with stale updated replicas."""
-        deployment = cast(
-            Deployment,
-            cast(
-                object,
-                SimpleNamespace(
-                    status=SimpleNamespace(
-                        updated_replicas=replicas + 1,
-                        available_replicas=replicas,
-                        observed_generation=1,
-                    ),
-                    spec=SimpleNamespace(replicas=replicas),
-                    metadata=SimpleNamespace(generation=1),
-                ),
+    async def test_returns_when_deployment_is_fully_updated(self) -> None:
+        """Accept matching replica counts and generation."""
+        client = AsyncMock(spec=AsyncClient)
+        client.get.return_value = rollout_deployment(
+            DeploymentStatus(
+                updatedReplicas=3,
+                availableReplicas=3,
+                observedGeneration=8,
             ),
+            ObjectMeta(generation=8),
+            3,
         )
-        with pytest.raises(RuntimeError, match="not ready"):
-            await deployment_ready(lambda: deployment_value(deployment))
 
-    @given(generation=st.integers(0, 10))
+        await check_postgrest_rollout(client, "deployment", "app")
+
     @pytest.mark.asyncio
-    async def test_rejects_stale_observed_generation(self, generation: int) -> None:
-        """Reject a deployment with a stale observed generation."""
-        deployment = cast(
-            Deployment,
-            cast(
-                object,
-                SimpleNamespace(
-                    status=SimpleNamespace(
-                        updated_replicas=1,
-                        available_replicas=1,
-                        observed_generation=generation,
-                    ),
-                    spec=SimpleNamespace(replicas=1),
-                    metadata=SimpleNamespace(generation=generation + 1),
-                ),
+    @pytest.mark.parametrize(
+        "deployment",
+        [
+            pytest.param(
+                rollout_deployment(None, ObjectMeta(generation=8), 3),
+                id="missing-status",
             ),
-        )
-        with pytest.raises(RuntimeError, match="not ready"):
-            await deployment_ready(lambda: deployment_value(deployment))
-
-    @given(replicas=st.integers(0, 10), generation=st.integers(0, 10))
-    @pytest.mark.asyncio
-    async def test_accepts_matching_status(
-        self, replicas: int, generation: int
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=3,
+                        observedGeneration=8,
+                    ),
+                    None,
+                    3,
+                ),
+                id="missing-metadata",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=3,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=8),
+                    None,
+                ),
+                id="missing-desired-replicas",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=3,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=None),
+                    3,
+                ),
+                id="missing-generation",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=2,
+                        availableReplicas=3,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="updated-replicas-differ",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=2,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="available-replicas-differ",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=3,
+                        observedGeneration=7,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="generation-differs",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=None,
+                        availableReplicas=3,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="updated-replicas-missing",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=None,
+                        observedGeneration=8,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="available-replicas-missing",
+            ),
+            pytest.param(
+                rollout_deployment(
+                    DeploymentStatus(
+                        updatedReplicas=3,
+                        availableReplicas=3,
+                        observedGeneration=None,
+                    ),
+                    ObjectMeta(generation=8),
+                    3,
+                ),
+                id="observed-generation-missing",
+            ),
+        ],
+    )
+    async def test_raises_when_deployment_is_not_ready(
+        self, deployment: Deployment
     ) -> None:
-        """Accept a deployment whose status matches its specification."""
-        deployment = cast(
-            Deployment,
-            cast(
-                object,
-                SimpleNamespace(
-                    status=SimpleNamespace(
-                        updated_replicas=replicas,
-                        available_replicas=replicas,
-                        observed_generation=generation,
-                    ),
-                    spec=SimpleNamespace(replicas=replicas),
-                    metadata=SimpleNamespace(generation=generation),
-                ),
-            ),
-        )
-        await deployment_ready(lambda: deployment_value(deployment))
+        """Reject missing status values and any rollout mismatch."""
+        client = AsyncMock(spec=AsyncClient)
+        client.get.return_value = deployment
 
-    @given(replicas=st.integers(0, 10), available=st.integers(0, 10))
-    @pytest.mark.asyncio
-    async def test_rejects_unavailable_replicas(
-        self, replicas: int, available: int
-    ) -> None:
-        """Reject a deployment whose available replicas do not match."""
-        if available == replicas:
-            return
-        deployment = cast(
-            Deployment,
-            cast(
-                object,
-                SimpleNamespace(
-                    status=SimpleNamespace(
-                        updated_replicas=replicas,
-                        available_replicas=available,
-                        observed_generation=1,
-                    ),
-                    spec=SimpleNamespace(replicas=replicas),
-                    metadata=SimpleNamespace(generation=1),
-                ),
-            ),
-        )
-        with pytest.raises(RuntimeError, match="not ready"):
-            await deployment_ready(lambda: deployment_value(deployment))
+        with pytest.raises(RuntimeError, match="Deployment not ready"):
+            await check_postgrest_rollout(client, "deployment", "app")

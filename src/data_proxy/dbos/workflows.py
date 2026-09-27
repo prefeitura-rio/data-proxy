@@ -5,20 +5,19 @@ from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
 
 from ..constants import DUMP_QUEUE, publish_queue
 from ..log import logger, schemaname, tablename
-from ..metrics import RunStatus, observe_sync
+from ..metrics import observe
 from ..models import (
-    DumpFailure,
     DumpResult,
-    DumpSuccess,
+    DumpStatus,
     DumpTask,
     SyncPlan,
 )
 from ..settings import settings
+from ..types import RunStatus
 from .steps import (
     build_sync_work,
     commit_ducklake_snapshot,
     commit_table_state,
-    expire_ducklake_catalogs,
     extract_task,
     finalize_run,
     record_dump_failure,
@@ -41,17 +40,6 @@ async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
         *(handle.get_result() for handle in dump_handles)
     )
     return {path for result in dump_results for path in result.failed_paths}
-
-
-async def run_catalog_maintenance(run_id: str, plans: list[SyncPlan]) -> None:
-    """Run catalog maintenance on each schema publisher queue."""
-    handles = [
-        await DBOS.enqueue_workflow_async(
-            publish_queue(plan.schema_name), expire_catalogs, run_id, plan.schema_name
-        )
-        for plan in plans
-    ]
-    await asyncio.gather(*(handle.get_result() for handle in handles))
 
 
 async def run_publish_tasks(
@@ -80,21 +68,15 @@ async def dump_task(task: DumpTask) -> DumpResult:
 
     try:
         await extract_task(task)
-        result: DumpResult = DumpSuccess()
+        result: DumpResult = DumpResult()
     except Exception as error:
         await record_dump_failure(task, str(error))
-        result = DumpFailure(failed_paths=task.output_paths)
+        result = DumpResult(status=DumpStatus.FAILURE, failed_paths=task.output_paths)
 
     await record_dump_metrics(
         task.task_id, task.table, task.target_schema, result.status.value
     )
     return result
-
-
-@DBOS.workflow()
-async def expire_catalogs(run_id: str, schema: str) -> None:
-    """Expire old snapshots on one schema publisher."""
-    await expire_ducklake_catalogs(schema)
 
 
 @DBOS.workflow()
@@ -112,7 +94,7 @@ async def publish_schema(
 
 
 @DBOS.workflow()
-@observe_sync(record_run_status)
+@observe(record_run_status)
 async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
     """Plan one run, fan out dumps, seed, fan out publishers, and finalize."""
     workflow_id = DBOS.workflow_id
@@ -138,7 +120,6 @@ async def run_sync(scheduled_at: datetime, context: object) -> RunStatus:
             seed_schemas(work.plans),
             run_publish_tasks(workflow_id, work.plans, failed_paths),
         )
-        await run_catalog_maintenance(workflow_id, work.plans)
 
         if seed_result:
             for plan in work.plans:

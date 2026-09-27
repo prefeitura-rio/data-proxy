@@ -1,11 +1,11 @@
 {#
 {
   "kind": "template",
-  "description": "Describe a BigQuery table schema through DuckDB.",
+  "description": "Describe an existing DuckLake table.",
   "inputs": {
-    "bq_table": "BigQuery table reference used by DuckDB."
+    "table": "SQL-safe DuckLake table identifier."
   }
 }
 #}
--- noqa: PRS
-DESCRIBE SELECT * FROM bigquery_scan({{ bq_table }})
+-- noqa: disable=PRS
+DESCRIBE dl.{{ table }}

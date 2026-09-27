@@ -1,4 +1,4 @@
-"""BDD scenarios for runtime Helm SQL template rendering."""
+"""BDD scenarios for SQL template execution against PostgreSQL."""
 
 from pytest_bdd import scenarios
 

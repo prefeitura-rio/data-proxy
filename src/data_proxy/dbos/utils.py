@@ -21,4 +21,10 @@ def otlp_enabled(application_settings: Settings) -> bool:
 
 def retry_transient(error: BaseException) -> bool:
     """Retry backend failures but not input validation errors."""
-    return isinstance(error, Exception) and not isinstance(error, ValueError)
+    match error:
+        case ValueError():
+            return False
+        case Exception():
+            return True
+        case _:
+            return False

@@ -59,7 +59,7 @@ def production_access_policy_schema(postgres: Postgres) -> str:
     config = SyncConfig(
         schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.table")])}
     )
-    asyncio.run(initialize_schemas(postgres.connection, config))
+    asyncio.run(initialize_schemas(postgres.backend, config))
     return schema
 
 
@@ -81,7 +81,7 @@ def apply_unprotected_authorization(
     )
     asyncio.run(
         apply_table_authorization(
-            database.connection,
+            database.backend,
             database.namespace.schema,
             authorization_context.table,
             None,
@@ -114,7 +114,7 @@ def apply_protected_authorization(
     )
     asyncio.run(
         apply_table_authorization(
-            database.connection,
+            database.backend,
             database.namespace.schema,
             authorization_context.table,
             [UnitMapping(column="id_cras", unit_type="cras")],
@@ -201,7 +201,7 @@ def setup_protected_visible_table(
     )
     asyncio.run(
         apply_table_authorization(
-            postgres.connection,
+            postgres.backend,
             schema,
             "visible",
             [UnitMapping(column="id_cras", unit_type="cras")],
@@ -271,6 +271,45 @@ def check_protected_empty(
     assert rows == []
 
 
+@when('I set up a protected table with multiple RLS mappings for "alice"')
+def setup_multi_rls_table(postgres: Postgres, access_policy_schema: str) -> None:
+    """Create rows covered by separate CRAS and school grants."""
+    schema = access_policy_schema
+    asyncio.run(
+        postgres.connection.execute(
+            f"CREATE TABLE {schema}.multi_visible (id_cras text, id_escola text)".encode()
+        )
+    )
+    asyncio.run(
+        postgres.connection.execute(
+            f"INSERT INTO {schema}.multi_visible VALUES ('cras_allowed', 'other'), ('other', 'escola_allowed'), ('denied', 'denied')".encode()
+        )
+    )
+    asyncio.run(
+        postgres.connection.execute(
+            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('alice', false, 'cras', 'cras_allowed'), ('alice', false, 'escola', 'escola_allowed'), ('admin', true, NULL, NULL)".encode()
+        )
+    )
+    asyncio.run(
+        postgres.connection.execute(
+            f'GRANT USAGE ON SCHEMA {schema} TO "user"'.encode()
+        )
+    )
+    asyncio.run(
+        apply_table_authorization(
+            postgres.backend,
+            schema,
+            "multi_visible",
+            [
+                UnitMapping(column="id_cras", unit_type="cras"),
+                UnitMapping(column="id_escola", unit_type="escola"),
+            ],
+            "preferred_username",
+        )
+    )
+    asyncio.run(postgres.connection.commit())
+
+
 @when("I apply authorization to a schema-scoped table")
 def apply_scoped_authorization(postgres: Postgres) -> None:
     schema = postgres.namespace.schema
@@ -290,7 +329,7 @@ def apply_scoped_authorization(postgres: Postgres) -> None:
     )
     asyncio.run(postgres.connection.commit())
     asyncio.run(
-        apply_table_authorization(postgres.connection, schema, "scoped", None, None)
+        apply_table_authorization(postgres.backend, schema, "scoped", None, None)
     )
     asyncio.run(postgres.connection.commit())
     asyncio.run(
@@ -339,6 +378,53 @@ def check_scoped_empty(postgres: Postgres) -> None:
         )
     )
     assert rows == []
+
+
+@then("alice sees only rows matching one of her unit grants")
+def check_multi_rls_rows(postgres: Postgres, access_policy_schema: str) -> None:
+    """Verify that either RLS mapping can authorize one row."""
+    asyncio.run(postgres.connection.execute(b'SET ROLE "user"'))
+    asyncio.run(
+        postgres.connection.execute(b"SET app.claim_preferred_username = 'alice'")
+    )
+    asyncio.run(
+        postgres.connection.execute(
+            f"SET app.claim_schemas = '{access_policy_schema}'".encode()
+        )
+    )
+    cursor = asyncio.run(
+        postgres.connection.execute(
+            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible ORDER BY id_cras".encode()
+        )
+    )
+    assert asyncio.run(cursor.fetchall()) == [
+        ("cras_allowed", "other"),
+        ("other", "escola_allowed"),
+    ]
+
+    asyncio.run(postgres.connection.execute(b"RESET ROLE"))
+    asyncio.run(postgres.connection.execute(b'SET ROLE "user"'))
+    asyncio.run(
+        postgres.connection.execute(b"SET app.claim_preferred_username = 'admin'")
+    )
+    cursor = asyncio.run(
+        postgres.connection.execute(
+            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible ORDER BY id_cras".encode()
+        )
+    )
+    assert asyncio.run(cursor.fetchall()) == [
+        ("cras_allowed", "other"),
+        ("denied", "denied"),
+        ("other", "escola_allowed"),
+    ]
+
+    asyncio.run(postgres.connection.execute(b"RESET app.claim_preferred_username"))
+    cursor = asyncio.run(
+        postgres.connection.execute(
+            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible".encode()
+        )
+    )
+    assert asyncio.run(cursor.fetchall()) == []
 
 
 @then("the access-log trigger is a security definer")

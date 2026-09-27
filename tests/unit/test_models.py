@@ -9,10 +9,14 @@ from pydantic import ValidationError
 
 from data_proxy.models import (
     AllSelection,
-    DumpFailure,
-    DumpSuccess,
+    DuckLakePartition,
+    DuckLakePartitionTransform,
+    DuckLakeTableConfig,
+    DumpResult,
+    DumpStatus,
     DumpTask,
     FullTable,
+    PartitionChange,
     PartitionedTable,
     PartitionedTablePlan,
     PhysicalPartition,
@@ -75,6 +79,32 @@ class TestSelectionValidation:
 
 class TestTableConfiguration:
     """Table configuration behavior tests."""
+
+    def test_stores_partitioning_under_ducklake_settings(self) -> None:
+        """Store custom partition transforms in the nested DuckLake key."""
+        table = FullTable(
+            name="p.d.events",
+            ducklake=DuckLakeTableConfig(
+                partitioning=[
+                    DuckLakePartition(
+                        column="event_time",
+                        transform=DuckLakePartitionTransform.MONTH,
+                    )
+                ]
+            ),
+        )
+
+        assert table.ducklake.partitioning is not None
+        assert table.ducklake.partitioning[0].transform == "month"
+        assert "ducklake" in table.config_signature_fields()
+
+    def test_rejects_table_level_encryption(self) -> None:
+        """Require encryption to be configured on the schema."""
+        with pytest.raises(ValueError, match="schema scope"):
+            FullTable(
+                name="p.d.events",
+                ducklake=DuckLakeTableConfig(encrypted=True),
+            )
 
     def test_returns_source_table_name(self) -> None:
         """Return the unqualified source table name."""
@@ -140,17 +170,6 @@ class TestSchemaConfiguration:
                 }
             )
 
-    def test_accepts_non_reserved_table_name(self) -> None:
-        """Accept a source table with a non-reserved name."""
-        assert (
-            SyncConfig(
-                schemas={"one": SchemaConfig(tables=[FullTable(name="p.d.people")])}
-            )
-            .tables[0]
-            .table_name
-            == "people"
-        )
-
     def test_rejects_rls_without_schema_claim(self) -> None:
         """Reject RLS tables without an identity claim."""
         with pytest.raises(ValueError, match="no claim"):
@@ -184,14 +203,12 @@ class TestTaskResults:
         second = first.model_copy(deep=True)
         assert first.task_id == second.task_id
 
-    def test_success_has_no_failed_paths(self) -> None:
-        """Return no failed paths for a successful task."""
-        assert DumpSuccess().failed_paths == []
-
     @given(path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
     def test_failure_returns_failed_paths(self, path: str) -> None:
         """Return all failed paths for a failed task."""
-        assert DumpFailure(failed_paths=[path]).failed_paths == [path]
+        assert DumpResult(
+            status=DumpStatus.FAILURE, failed_paths=[path]
+        ).failed_paths == [path]
 
     @given(run_id=identifiers, path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
     def test_changes_task_id_when_run_changes(self, run_id: str, path: str) -> None:
@@ -223,15 +240,21 @@ class TestTaskResults:
 class TestPlanValidation:
     """Synchronization plan validation behavior tests."""
 
-    def test_rejects_changed_path_without_current_partition(self) -> None:
-        """Reject a changed path absent from the current manifest."""
-        with pytest.raises(ValueError, match="Changed partition paths"):
+    def test_rejects_add_partition_without_current_partition(self) -> None:
+        """Reject an add partition absent from the current manifest."""
+        with pytest.raises(ValueError, match="Add/update partitions"):
             PartitionedTablePlan(
                 table_signature="s",
                 full_rebuild=False,
                 current_partitions={},
-                changed_paths={"1": "path"},
-                removed_partitions={},
+                changes={
+                    "1": PartitionChange(
+                        kind="add",
+                        partition_id="1",
+                        path="path",
+                        current=partition("1"),
+                    )
+                },
             )
 
     def test_rejects_mismatched_sync_plan_paths(self) -> None:
@@ -250,8 +273,7 @@ class TestPlanValidation:
             table_signature="s",
             full_rebuild=False,
             current_partitions={},
-            changed_paths={},
-            removed_partitions={},
+            changes={},
         )
         with pytest.raises(ValueError, match="ordinary and partitioned"):
             SyncPlan(
@@ -261,30 +283,24 @@ class TestPlanValidation:
                 partitioned_tables={"p.d.t": partitioned},
             )
 
-    def test_accepts_previous_partition_marked_changed(self) -> None:
-        """Accept a previous partition that is listed as changed."""
+    def test_accepts_previous_partition_on_update_change(self) -> None:
+        """Accept a previous partition on an update change."""
         physical = partition("1")
         plan = PartitionedTablePlan(
             table_signature="s",
             full_rebuild=False,
             current_partitions={"1": physical},
-            changed_paths={"1": "path"},
-            previous_partitions={"1": physical},
-            removed_partitions={},
+            changes={
+                "1": PartitionChange(
+                    kind="update",
+                    partition_id="1",
+                    path="path",
+                    previous=physical,
+                    current=physical,
+                )
+            },
         )
-        assert plan.previous_partitions == {"1": physical}
-
-    def test_rejects_previous_partition_not_marked_changed(self) -> None:
-        """Reject a previous partition that is absent from changed paths."""
-        with pytest.raises(ValueError, match="Previous partitions"):
-            PartitionedTablePlan(
-                table_signature="s",
-                full_rebuild=False,
-                current_partitions={"1": partition("1")},
-                changed_paths={},
-                previous_partitions={"1": partition("1")},
-                removed_partitions={},
-            )
+        assert plan.changes["1"].previous == physical
 
     def test_rejects_removed_partition_in_current_manifest(self) -> None:
         """Reject a partition marked as both current and removed."""
@@ -294,8 +310,13 @@ class TestPlanValidation:
                 table_signature="s",
                 full_rebuild=False,
                 current_partitions={"0": physical},
-                changed_paths={},
-                removed_partitions={"0": physical},
+                changes={
+                    "0": PartitionChange(
+                        kind="remove",
+                        partition_id="0",
+                        previous=physical,
+                    )
+                },
             )
 
     def test_reports_changed_publication_tables(self) -> None:
@@ -304,8 +325,7 @@ class TestPlanValidation:
             table_signature="s",
             full_rebuild=False,
             current_partitions={},
-            changed_paths={},
-            removed_partitions={},
+            changes={},
         )
         plan = SyncPlan(
             schema_name="d",

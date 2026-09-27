@@ -2,19 +2,21 @@
 
 from typing import assert_never
 
-from psycopg import AsyncConnection
+from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
 from .conditions import schema_scope_condition
-from .executor import execute_sql
+from .executor import Executor
 from .models import UnitMapping
+from .postgres import Postgres
 from .settings import settings
+from .types import PostgresParams
 
 
-async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> None:
+async def ensure_schema_policy_writer(pg_conn: Postgres, schema: str) -> None:
     """Create one schema policy-writer role when it's missing."""
-    await execute_sql(
-        pg_conn,
+    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    await executor.execute(
         "postgres/access_policy_writer",
         mapping={
             "schema": Identifier(schema),
@@ -25,19 +27,19 @@ async def ensure_schema_policy_writer(pg_conn: AsyncConnection, schema: str) -> 
 
 
 async def apply_table_authorization(
-    pg_conn: AsyncConnection,
+    pg_conn: Postgres,
     schema: str,
     table_name: str,
     rls: list[UnitMapping] | None,
     claim: str | None,
 ) -> None:
     """Apply table grants and optional row-level security."""
-    await execute_sql(
-        pg_conn,
+    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    await executor.execute(
         "postgres/grant_select",
         mapping={
             "schema": Identifier(schema),
-            "name": Identifier(table_name),
+            "object": Identifier(table_name),
             "user_role": Identifier(settings.AUTH_USER_ROLE),
         },
     )
@@ -47,8 +49,7 @@ async def apply_table_authorization(
             if claim is None:
                 message = f"Schema {schema} has no configured identity claim for RLS"
                 raise RuntimeError(message)
-            await execute_sql(
-                pg_conn,
+            await executor.execute(
                 "postgres/access_policy_check",
                 mapping={
                     "schema": Identifier(schema),
@@ -62,8 +63,7 @@ async def apply_table_authorization(
                 },
             )
         case None:
-            await execute_sql(
-                pg_conn,
+            await executor.execute(
                 "postgres/schema_scope_statement",
                 mapping={
                     "schema": Identifier(schema),

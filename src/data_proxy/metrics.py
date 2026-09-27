@@ -1,9 +1,8 @@
 """OpenTelemetry metrics for sync workers."""
 
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Literal, ParamSpec
 
 from opentelemetry import metrics as otel_metrics
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -12,6 +11,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from .settings import settings
+from .types import ObservedWorkflow, StatusRecorder, SyncWorkflow
 
 
 def configure_metrics() -> None:
@@ -26,11 +26,6 @@ def configure_metrics() -> None:
 
 configure_metrics()
 meter = otel_metrics.get_meter("data_proxy")
-RunStatus = Literal["success", "no_changes", "failure"]
-P = ParamSpec("P")
-StatusRecorder = Callable[[RunStatus], Awaitable[None]]
-SyncWorkflow = Callable[P, Awaitable[RunStatus]]
-ObservedWorkflow = Callable[P, Coroutine[object, object, None]]
 
 
 @dataclass(slots=True)
@@ -62,11 +57,9 @@ class Metrics:
 metrics = Metrics()
 
 
-def observe_sync(
+def observe[**P](
     record_status: StatusRecorder,
-) -> Callable[
-    [Callable[P, Awaitable[RunStatus]]], Callable[P, Coroutine[object, object, None]]
-]:
+) -> Callable[[SyncWorkflow[P]], ObservedWorkflow[P]]:
     """Record one terminal status for a sync workflow."""
 
     def decorate(

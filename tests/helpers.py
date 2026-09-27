@@ -2,18 +2,16 @@
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import cast
 
-from google.cloud.bigquery import Row
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.sql import Composable
 
-from data_proxy.kubernetes import Deployment
 from data_proxy.models import (
     AllSelection,
     DumpTask,
     NonEmptyString,
     PartitionedTablePlan,
+    PartitionMetadata,
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,
@@ -123,9 +121,11 @@ def planning_partition(
     )
 
 
-def render(value: object) -> str:
-    """Render a mapping value expected to be a Psycopg SQL object3 object."""
-    return cast(Composable, value).as_string(None)
+def render(value: TemplateValue) -> str:
+    """Render one composable SQL mapping value."""
+    if not isinstance(value, Composable):
+        raise TypeError("Expected a Psycopg SQL composition")
+    return value.as_string(None)
 
 
 async def execute_sql(
@@ -133,12 +133,10 @@ async def execute_sql(
     path: str,
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
-    params: tuple[object, ...] = (),
 ) -> AsyncCursor[DatabaseRow]:
     """Execute a SQL fixture template, commit it, and return the cursor."""
     cursor = await connection.execute(
-        render_template(path, mapping or {}, root=TEST_SQL_DIR),
-        params,
+        render_template(path, mapping or {}, root=TEST_SQL_DIR)
     )
     await connection.commit()
     return cursor
@@ -149,10 +147,9 @@ async def fetch_all(
     path: str,
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
-    params: tuple[object, ...] = (),
 ) -> list[DatabaseRow]:
     """Execute a SQL fixture template and return every row."""
-    cursor = await execute_sql(connection, path, mapping=mapping, params=params)
+    cursor = await execute_sql(connection, path, mapping=mapping)
     return await cursor.fetchall()
 
 
@@ -161,10 +158,9 @@ async def fetch_one(
     path: str,
     *,
     mapping: Mapping[str, TemplateValue] | None = None,
-    params: tuple[object, ...] = (),
 ) -> DatabaseRow | None:
     """Execute a SQL fixture template and return one row."""
-    cursor = await execute_sql(connection, path, mapping=mapping, params=params)
+    cursor = await execute_sql(connection, path, mapping=mapping)
     return await cursor.fetchone()
 
 
@@ -173,20 +169,14 @@ def metadata_row(
     logical_bytes: int,
     modified: datetime | None = None,
     missing_modified: bool = False,
-) -> Row:
-    """Build one BigQuery partition metadata row."""
+) -> PartitionMetadata:
+    """Build one validated BigQuery partition metadata row."""
     if modified is None:
         modified = datetime(2025, 1, 1, tzinfo=UTC)
-    return cast(
-        Row,
-        cast(
-            object,
-            {
-                "partition_id": partition_id,
-                "last_modified_time": None if missing_modified else modified,
-                "logical_bytes": logical_bytes,
-            },
-        ),
+    return PartitionMetadata(
+        partition_id=partition_id,
+        last_modified_time=None if missing_modified else modified,
+        logical_bytes=logical_bytes,
     )
 
 
@@ -202,8 +192,3 @@ def partition_for(
         signature="signature",
         selection=selection,
     )
-
-
-async def deployment_value(value: Deployment) -> Deployment:
-    """Return a deployment from a readiness test double."""
-    return value

@@ -19,6 +19,7 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | --- | --- | --- |
 | `S3_BUCKET` | `test-bucket` | SeaweedFS/S3 bucket for scratch and DuckLake data. |
 | `S3_ENDPOINT` | `localhost:8333` | S3 endpoint host and port. |
+| `S3_REGION` | `us-east-1` | S3 region name. |
 | `S3_USE_SSL` | `false` | Use TLS for S3. |
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs` | S3 secret key. |
@@ -26,7 +27,9 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `DUCKLAKE_CATALOG_LOCAL_PATH` | `/var/lib/ducklake/catalogs` | Local root for schema SQLite catalogs. |
 | `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for per-schema SQLite catalogs and Litestream replicas. |
 | `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
-| `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired. |
+| `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired and files become eligible for cleanup. |
+| `DUCKLAKE_MAX_COMPACTED_FILES` | `10` | Maximum compacted files per table in one maintenance call. |
+| `DUCKLAKE_REWRITE_DELETE_THRESHOLD` | `0.95` | Minimum deleted fraction for rewriting a data file. |
 
 ## DBOS
 

@@ -1,20 +1,27 @@
 """Tests for planning result types."""
 
 from typing import Literal
+from unittest.mock import AsyncMock
 
 import hypothesis
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import data_proxy.planning as planning
+from data_proxy.bigquery.clients import BigQuery
+from data_proxy.duckdb import DuckDB
 from data_proxy.models import (
+    DuckLakeTableConfig,
     FullTable,
-    IndexConfig,
+    PartitionChange,
     PartitionedTable,
-    PartitionManifest,
     SchemaConfig,
+    Strategy,
     SyncConfig,
     SyncWork,
     TableConfig,
+    TableState,
     UnitMapping,
 )
 from data_proxy.planning import (
@@ -22,19 +29,27 @@ from data_proxy.planning import (
     find_partition_changes,
     group_schema_plans,
     order_partition_ids,
+    partition_sort_key,
     table_signature,
 )
+from data_proxy.postgres import Postgres
 from tests.helpers import planning_partition
 
 
-class TestSyncWork:
-    """SyncWork behavior tests."""
+class TestPlanningContext:
+    """Planning context behavior tests."""
 
-    def test_starts_with_empty_plans_and_tasks(self) -> None:
-        """Start with empty plans and tasks."""
-        work = SyncWork(plans=[], tasks=[])
-        assert work.plans == []
-        assert work.tasks == []
+    def test_returns_empty_work_when_no_changes_exist(self) -> None:
+        """Do not create plans or tasks when nothing changed."""
+        context = planning.PlanningContext(
+            pg_conn=AsyncMock(spec=Postgres),
+            duckdb_conn=AsyncMock(spec=DuckDB),
+            config=SyncConfig(schemas={}),
+            sync_id="run",
+            bucket="bucket",
+        )
+
+        assert context.group() == SyncWork(plans=[], tasks=[])
 
 
 class TestPartitionChanges:
@@ -51,41 +66,94 @@ class TestPartitionChanges:
     ) -> None:
         """Detect new, unchanged, rebuilt, and removed partitions."""
         current = {partition_id: planning_partition(partition_id, "new")}
-        expected: tuple[bool, set[str], set[str]]
         if scenario == "new":
             stored = None
-            expected = (True, {partition_id}, set())
+            expected_kinds: dict[str, str] = {partition_id: "add"}
+            expected_ids: set[str] = {partition_id}
         elif scenario == "unchanged":
-            stored = PartitionManifest(
-                table_signature="s",
+            stored = TableState(
+                strategy=Strategy.FULL,
+                signature="s",
                 partitions={partition_id: planning_partition(partition_id, "new")},
             )
-            expected = (False, set(), set())
+            expected_kinds = {}
+            expected_ids = set()
         elif scenario == "rebuild":
-            stored = PartitionManifest(
-                table_signature="old",
+            stored = TableState(
+                strategy=Strategy.FULL,
+                signature="old",
                 partitions={partition_id: planning_partition(partition_id)},
             )
-            expected = (True, {partition_id}, set())
+            expected_kinds = {partition_id: "update"}
+            expected_ids = {partition_id}
         else:
             removed_id = str(int(partition_id) + 1)
-            stored = PartitionManifest(
-                table_signature="s",
+            stored = TableState(
+                strategy=Strategy.FULL,
+                signature="s",
                 partitions={removed_id: planning_partition(removed_id)},
             )
-            expected = (False, {partition_id}, {removed_id})
+            expected_kinds = {partition_id: "add", removed_id: "remove"}
+            expected_ids = {partition_id, removed_id}
+
         result = find_partition_changes(current, stored, "s")
-        assert (result.full_rebuild, result.changed, result.removed) == expected
+        assert set(result) == expected_ids
+        assert {pid: c.kind for pid, c in result.items()} == expected_kinds
 
     def test_ignores_logical_bytes_when_signature_unchanged(self) -> None:
         """Ignore logical-byte changes when the signature is unchanged."""
-        stored = PartitionManifest(
-            table_signature="s", partitions={"1": planning_partition("1", "sig")}
+        stored = TableState(
+            strategy=Strategy.FULL,
+            signature="s",
+            partitions={"1": planning_partition("1", "sig")},
         )
         result = find_partition_changes(
             {"1": planning_partition("1", "sig", logical_bytes=999)}, stored, "s"
         )
-        assert (result.full_rebuild, result.changed) == (False, set())
+        assert result == {}
+
+
+class TestRemovalOnlyPartitionPlanning:
+    """Partition planning behavior when source partitions disappear."""
+
+    @pytest.mark.asyncio
+    async def test_plans_removed_partitions_without_extracting_empty_batch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Return a deletion plan and no extraction tasks when all rows disappear."""
+        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        previous = planning_partition("1", "old")
+        stored = TableState(
+            strategy=Strategy.FULL,
+            signature="signature",
+            partitions={"1": previous},
+        )
+        physical = AsyncMock(return_value=("signature", {}))
+        read_manifest = AsyncMock(return_value=stored)
+        discover_columns = AsyncMock(return_value=[])
+        monkeypatch.setattr(planning, "physical_partitions", physical)
+        monkeypatch.setattr(planning, "read_table_state", read_manifest)
+        monkeypatch.setattr(planning, "discover_json_columns", discover_columns)
+
+        plan, tasks = await planning.plan_partitioned_table(
+            AsyncMock(spec=BigQuery),
+            AsyncMock(spec=Postgres),
+            AsyncMock(spec=DuckDB),
+            table,
+            "run",
+            "bucket",
+        )
+
+        assert plan is not None
+        assert plan.changes == {
+            "1": PartitionChange(
+                kind="remove",
+                partition_id="1",
+                previous=previous,
+            )
+        }
+        assert tasks == []
+        discover_columns.assert_not_awaited()
 
 
 class TestPartitionBatching:
@@ -99,8 +167,14 @@ class TestPartitionBatching:
             "2": planning_partition("2"),
             "__NULL__": planning_partition("__NULL__"),
         }
-        batch = build_partition_tasks(table, current, set(current), "run", "bucket", [])
-        assert list(batch.paths) == ["2", "10", "__NULL__"]
+        changes = find_partition_changes(current, None, "s")
+        changes, _ = build_partition_tasks(table, current, changes, "run", "bucket", [])
+        ordered_adds = sorted(
+            (c.partition_id for c in changes.values() if c.kind == "add"),
+            key=partition_sort_key,
+        )
+        assert ordered_adds == ["2", "10", "__NULL__"]
+        assert all(c.path for c in changes.values())
 
     def test_builds_paths_and_tasks_for_changed_partitions(self) -> None:
         """Build paths and tasks for changed partitions."""
@@ -109,14 +183,17 @@ class TestPartitionBatching:
             partition_id: planning_partition(partition_id, logical_bytes=300)
             for partition_id in ("1", "2", "3", "4")
         }
-        batch = build_partition_tasks(table, current, set(current), "run", "bucket", [])
-        assert batch.paths == {
+        changes = find_partition_changes(current, None, "s")
+        changes, task = build_partition_tasks(
+            table, current, changes, "run", "bucket", []
+        )
+        assert {pid: change.path for pid, change in changes.items()} == {
             "1": "s3://bucket/tmp/app/t/batches/0/data-0.parquet",
             "2": "s3://bucket/tmp/app/t/batches/0/data-1.parquet",
             "3": "s3://bucket/tmp/app/t/batches/0/data-2.parquet",
             "4": "s3://bucket/tmp/app/t/batches/0/data-3.parquet",
         }
-        assert [len(task.selections) for task in batch.tasks] == [4]
+        assert len(task.selections) == 4
 
 
 class TestTableSignature:
@@ -139,13 +216,11 @@ class TestTableSignature:
                     True,
                 ),
                 (
-                    FullTable(
-                        name="p.d.t", indexes=[IndexConfig(name="idx", columns=["col"])]
-                    ),
+                    FullTable(name="p.d.t", ducklake=DuckLakeTableConfig(sort=["col"])),
                     None,
                     FullTable(
                         name="p.d.t",
-                        indexes=[IndexConfig(name="idx", columns=["other"])],
+                        ducklake=DuckLakeTableConfig(sort=["other"]),
                     ),
                     None,
                     True,

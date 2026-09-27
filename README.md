@@ -7,7 +7,7 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 ## Documentation
 
 - [Architecture](docs/architecture.md)—serving layer, sync pipeline, and deployment modes.
-- [Sync](docs/sync.md)—`sync.json`, table strategies, partition batches, and indexes.
+- [Sync](docs/sync.md)—`sync.json`, table strategies, partition batches, and DuckLake sort keys.
 - [Using the API](docs/using.md)—PostgREST profiles, queries, and response headers.
 - [Security](docs/security.md)—JWT roles, schema conditions, row conditions, and grant writes.
 - [BigQuery Fallback](docs/fallback.md)—fallback reads and identity-aware caching.

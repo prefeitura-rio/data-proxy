@@ -3,23 +3,31 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
+from urllib.parse import quote
 
-from psycopg import AsyncConnection
+from psycopg.sql import Composable, Identifier, Literal
 
 from .catalog import CatalogPaths
 from .conditions import partition_condition
 from .duckdb import DuckDB
+from .executor import Executor
 from .models import (
+    DuckLakePartition,
+    DuckLakePartitionTransform,
     PartitionedTablePlan,
     PhysicalPartition,
-    PublicationDecision,
     PublicationResult,
+    RangeSelection,
+    RemainderSelection,
     SyncConfig,
     SyncPlan,
     TableConfig,
+    TimeRangeSelection,
 )
+from .postgres import Postgres
 from .settings import settings
 from .state import emit_error
+from .types import DatabaseRow, DuckDBParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +43,7 @@ class DuckLakePaths:
         catalog = CatalogPaths.for_schema(schema).local
         return cls(
             catalog=catalog,
-            data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+            data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
         )
 
 
@@ -45,7 +53,11 @@ def planned_paths(
     """Return scratch paths for one table."""
     match partitioned:
         case PartitionedTablePlan():
-            return list(dict.fromkeys(partitioned.changed_paths.values()))
+            return [
+                change.path
+                for change in partitioned.changes.values()
+                if change.kind in ("add", "update")
+            ]
         case None:
             return plan.paths.get(table, [])
         case _:
@@ -57,83 +69,275 @@ def empty_incremental_tables(plan: SyncPlan) -> set[str]:
     return {
         name
         for name, table_plan in plan.partitioned_tables.items()
-        if not table_plan.full_rebuild
-        and not table_plan.changed_paths
-        and not table_plan.removed_partitions
+        if not table_plan.full_rebuild and not table_plan.changes
     }
 
 
-def reduce_sync_plan(plan: SyncPlan, failed_paths: set[str]) -> PublicationDecision:
+def failed_partition_ids(
+    table_plan: PartitionedTablePlan, failed_paths: set[str]
+) -> set[str]:
+    """Return the partitions whose extraction output failed."""
+    return {
+        partition_id
+        for partition_id, change in table_plan.changes.items()
+        if change.kind in ("add", "update") and change.path in failed_paths
+    }
+
+
+def restore_partition(table_plan: PartitionedTablePlan, partition_id: str) -> None:
+    """Roll one partition back to its previous state."""
+    change = table_plan.changes.pop(partition_id)
+    previous = change.previous
+    match previous:
+        case None:
+            table_plan.current_partitions.pop(partition_id, None)
+        case PhysicalPartition():
+            table_plan.current_partitions[partition_id] = previous
+
+
+def plan_publication(
+    plan: SyncPlan, failed_paths: set[str]
+) -> tuple[SyncPlan, set[str], dict[str, set[str]]]:
     """Remove failed extraction outputs from a publication plan."""
     reduced = plan.model_copy(deep=True)
     blocked = {
-        table for table, paths in plan.paths.items() if failed_paths.intersection(paths)
+        table
+        for table, paths in plan.paths.items()
+        if any(path in failed_paths for path in paths)
     }
+
     failed_partitions: dict[str, set[str]] = {}
 
     for table, table_plan in reduced.partitioned_tables.items():
-        failed_ids = {
-            partition_id
-            for partition_id, path in table_plan.changed_paths.items()
-            if path in failed_paths
-        }
+        failed_ids = failed_partition_ids(table_plan, failed_paths)
+
         if not failed_ids:
             continue
+
         failed_partitions[table] = failed_ids
+
         if table_plan.full_rebuild:
             blocked.add(table)
         else:
             for partition_id in failed_ids:
-                table_plan.changed_paths.pop(partition_id, None)
-                previous = table_plan.previous_partitions.get(partition_id)
-                if previous is None:
-                    table_plan.current_partitions.pop(partition_id, None)
-                else:
-                    table_plan.current_partitions[partition_id] = previous
+                restore_partition(table_plan, partition_id)
 
-    return PublicationDecision(
-        plan=reduced, blocked_tables=blocked, failed_partitions=failed_partitions
+    return reduced, blocked, failed_partitions
+
+
+def custom_partitioning_expression(partitions: list[DuckLakePartition]) -> str:
+    """Render configured DuckLake partition transforms."""
+    expressions: list[str] = []
+    for partition in partitions:
+        column = Identifier(partition.column).as_string(None)
+        match partition.transform:
+            case DuckLakePartitionTransform.IDENTITY:
+                expressions.append(column)
+            case DuckLakePartitionTransform.BUCKET:
+                expressions.append(f"bucket({partition.buckets}, {column})")
+            case DuckLakePartitionTransform.YEAR:
+                expressions.append(f"year({column})")
+            case DuckLakePartitionTransform.MONTH:
+                expressions.append(f"month({column})")
+            case DuckLakePartitionTransform.DAY:
+                expressions.append(f"day({column})")
+            case DuckLakePartitionTransform.HOUR:
+                expressions.append(f"hour({column})")
+            case _:
+                assert_never(partition.transform)
+    return ", ".join(expressions)
+
+
+def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
+    """Return the source partition column, if any partitions exist."""
+    if not partitioned.current_partitions:
+        return None
+    selection = next(iter(partitioned.current_partitions.values())).selection
+    match selection:
+        case TimeRangeSelection(column=column):
+            return Identifier(column).as_string(None)
+        case RangeSelection(column=column):
+            return Identifier(column).as_string(None)
+        case RemainderSelection(column=column):
+            return Identifier(column).as_string(None)
+        case _:
+            assert_never(selection)
+
+
+async def evolve_table_schema(
+    duckdb_conn: DuckDB, table_name: str, parquet_path: str
+) -> None:
+    """Apply the source schema to an existing table.
+
+    The source schema is authoritative: removed columns are dropped and any
+    type change goes directly to DuckDB, which fails when the cast is invalid.
+    """
+    existing_rows = await Executor[DuckDBParams, list[DatabaseRow]](
+        conn=duckdb_conn
+    ).query(
+        "duckdb/describe_table",
+        mapping={"table": Identifier(table_name)},
+        expect=tuple[str, str],
     )
 
+    source_rows = await Executor[DuckDBParams, list[DatabaseRow]](
+        conn=duckdb_conn
+    ).query(
+        "duckdb/describe_parquet",
+        params=[parquet_path],
+        expect=tuple[str, str],
+    )
 
-def identifier(value: str) -> str:
-    """Quote a DuckDB identifier."""
-    return '"' + value.replace('"', '""') + '"'
+    existing = {row[0]: row[1] for row in existing_rows}
+    source = {row[0]: row[1] for row in source_rows}
+
+    alterations: list[dict[str, str]] = [
+        {
+            "operation": "drop",
+            "column": Identifier(column).as_string(None),
+            "type": "",
+        }
+        for column in sorted(existing.keys() - source.keys())
+    ]
+
+    for column, source_type in source.items():
+        existing_type = existing.get(column)
+
+        if existing_type is None:
+            alterations.append(
+                {
+                    "operation": "add",
+                    "column": Identifier(column).as_string(None),
+                    "type": source_type,
+                }
+            )
+            continue
+
+        if existing_type.upper() == source_type.upper():
+            continue
+
+        alterations.append(
+            {
+                "operation": "promote",
+                "column": Identifier(column).as_string(None),
+                "type": source_type,
+            }
+        )
+
+    for alteration in alterations:
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+            "duckdb/alter_column",
+            mapping={
+                "table": Identifier(table_name),
+                "alterations": [alteration],
+            },
+        )
+
+
+async def current_sort(duckdb_conn: DuckDB, table_name: str) -> list[str]:
+    """Return the active DuckLake sort columns for a table."""
+    rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
+        "duckdb/get_sort",
+        params=[table_name],
+        expect=tuple[str],
+    )
+
+    return [row[0].strip('"') for row in rows]
+
+
+async def table_exists(duckdb_conn: DuckDB, table_name: str) -> bool:
+    """Return whether a DuckLake table already exists."""
+    rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
+        "duckdb/table_exists",
+        params=[table_name],
+        expect=tuple[int],
+    )
+
+    return bool(rows and rows[0][0] > 0)
+
+
+def validate_sort_columns(table: TableConfig, source_columns: set[str]) -> None:
+    """Fail when configured sort columns are not in the source schema."""
+    unknown = set(table.ducklake.sort or []) - source_columns
+    if unknown:
+        raise ValueError(f"Unknown DuckLake sort columns: {', '.join(sorted(unknown))}")
+
+
+async def apply_sort(
+    duckdb_conn: DuckDB,
+    name: Composable,
+    table: TableConfig,
+    path: str,
+    existing: bool,
+) -> None:
+    """Set or reset the DuckLake sort order to match the configuration."""
+    configured_sort = table.ducklake.sort or []
+    if configured_sort:
+        source_rows = await Executor[DuckDBParams, list[DatabaseRow]](
+            conn=duckdb_conn
+        ).query(
+            "duckdb/describe_parquet",
+            params=[path],
+            expect=tuple[str, str],
+        )
+        validate_sort_columns(table, {row[0] for row in source_rows})
+
+    active_sort = await current_sort(duckdb_conn, table.table_name) if existing else []
+
+    if active_sort != configured_sort and (configured_sort or existing):
+        sort_columns = ", ".join(
+            Identifier(column).as_string(None) for column in configured_sort
+        )
+
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+            "duckdb/set_sorted_by",
+            mapping={"table": name, "sort_columns": sort_columns},
+        )
+
+
+async def apply_partitioning(
+    duckdb_conn: DuckDB,
+    name: Composable,
+    table: TableConfig,
+    partitioned: PartitionedTablePlan | None,
+    existing: bool,
+) -> None:
+    """Set or reset DuckLake partitioning to match the configuration."""
+    if table.ducklake.partitioning:
+        partitioning = custom_partitioning_expression(table.ducklake.partitioning)
+    elif partitioned is not None:
+        partitioning = source_partition_column(partitioned)
+    else:
+        partitioning = None
+
+    if partitioning is not None or (existing and partitioned is None):
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+            "duckdb/set_partitioned_by",
+            mapping={"table": name, "partitioning": partitioning or ""},
+        )
 
 
 async def ensure_table(
-    duckdb: DuckDB,
+    duckdb_conn: DuckDB,
     table: TableConfig,
     path: str,
     partitioned: PartitionedTablePlan | None,
 ) -> None:
-    """Create a missing DuckLake table from the first scratch file."""
-    name = identifier(table.table_name)
-    exists = await duckdb.fetchall(
-        "SELECT count(*) FROM dl.ducklake_table WHERE table_name = ?",
-        [table.table_name],
-    )
-    if exists and int(str(exists[0][0])) > 0:
-        return
+    """Create or evolve a DuckLake table and apply sort and partitioning."""
+    name = Identifier(table.table_name)
+    existing = await table_exists(duckdb_conn, table.table_name)
 
-    await duckdb.execute(
-        f"CREATE TABLE IF NOT EXISTS dl.{name} AS SELECT * FROM read_parquet(?) LIMIT 0",
-        [path],
-    )
+    if existing:
+        await evolve_table_schema(duckdb_conn, table.table_name, path)
+    else:
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+            "duckdb/create_table",
+            mapping={"table": name},
+            params=[path],
+        )
 
-    columns = [column for index in table.indexes for column in (index.columns or [])]
-    if columns:
-        order = ", ".join(identifier(column) for column in dict.fromkeys(columns))
-        await duckdb.execute(f"ALTER TABLE dl.{name} SET SORTED BY ({order})")
-
-    if partitioned is not None and partitioned.current_partitions:
-        first = next(iter(partitioned.current_partitions.values()))
-        selection = first.selection
-        column = getattr(selection, "column", None)
-        if isinstance(column, str):
-            await duckdb.execute(
-                f"ALTER TABLE dl.{name} SET PARTITIONED BY ({identifier(column)})"
-            )
+    await apply_sort(duckdb_conn, name, table, path, existing)
+    await apply_partitioning(duckdb_conn, name, table, partitioned, existing)
 
 
 def delete_predicate(partition: PhysicalPartition) -> str:
@@ -141,99 +345,150 @@ def delete_predicate(partition: PhysicalPartition) -> str:
     return partition_condition(partition).as_string(None)
 
 
+def affected_predicates(partitioned: PartitionedTablePlan) -> list[str]:
+    """Return delete predicates for changed and removed partitions."""
+    predicates: list[str] = []
+
+    for change in partitioned.changes.values():
+        physical = change.current or change.previous
+
+        if physical is not None:
+            predicates.append(delete_predicate(physical))
+
+    return predicates
+
+
+async def delete_existing_rows(
+    duckdb_conn: DuckDB,
+    name: Composable,
+    partitioned: PartitionedTablePlan | None,
+) -> None:
+    """Delete rows that the new files replace."""
+    if partitioned is None or partitioned.full_rebuild:
+        predicate = ""
+    else:
+        predicates = affected_predicates(partitioned)
+
+        if not predicates:
+            return
+
+        predicate = " OR ".join(predicates)
+
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/delete_partition",
+        mapping={"table": name, "predicate": predicate},
+    )
+
+
 async def commit_table(
-    duckdb: DuckDB,
+    duckdb_conn: DuckDB,
     table: TableConfig,
     paths: list[str],
     partitioned: PartitionedTablePlan | None,
 ) -> None:
     """Replace or append scratch files in one DuckLake transaction."""
-    if not paths:
+    if not paths and (
+        partitioned is None
+        or (not partitioned.full_rebuild and not partitioned.changes)
+    ):
         return
 
-    name = identifier(table.table_name)
-    await ensure_table(duckdb, table, paths[0], partitioned)
+    name = Identifier(table.table_name)
+    if paths:
+        await ensure_table(duckdb_conn, table, paths[0], partitioned)
 
-    if partitioned is None or partitioned.full_rebuild:
-        await duckdb.execute(f"DELETE FROM dl.{name}")
-    else:
-        affected = list(partitioned.changed_paths) + list(
-            partitioned.removed_partitions
-        )
-        for partition_id in affected:
-            physical = partitioned.current_partitions.get(
-                partition_id
-            ) or partitioned.removed_partitions.get(partition_id)
-            if physical is not None:
-                await duckdb.execute(
-                    f"DELETE FROM dl.{name} WHERE {delete_predicate(physical)}"
-                )
+    await delete_existing_rows(duckdb_conn, name, partitioned)
 
-    for path in paths:
-        await duckdb.execute(
-            f"INSERT INTO dl.{name} SELECT * FROM read_parquet(?)", [path]
+    if paths:
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+            "duckdb/insert_parquet",
+            mapping={"table": name},
+            params=[paths],
         )
 
 
-async def expire_ducklake_snapshots(schemas: set[str]) -> None:
-    """Expire old DuckLake snapshots and clean unreferenced Parquet files."""
-    age = settings.DUCKLAKE_SNAPSHOT_EXPIRATION
-    interval = f"{age.removesuffix('d')} days"
-    for schema in sorted(schemas):
-        paths = DuckLakePaths.for_schema(schema)
-        paths.catalog.parent.mkdir(parents=True, exist_ok=True)
-        async with DuckDB.connect() as duckdb:
-            await duckdb.execute(
-                f"ATTACH 'ducklake:sqlite:{paths.catalog}' AS dl (DATA_PATH '{paths.data}', DATA_INLINING_ROW_LIMIT 0)"
-            )
-            await duckdb.execute(
-                f"CALL ducklake_expire_snapshots('dl', older_than => now() - INTERVAL '{interval}')"
-            )
-            await duckdb.execute(
-                f"CALL ducklake_cleanup_old_files('dl', older_than => now() - INTERVAL '{interval}')"
-            )
+async def attach_catalog(
+    duckdb_conn: DuckDB, paths: DuckLakePaths, encrypted: bool
+) -> None:
+    """Attach one per-schema DuckLake catalog for writing."""
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/attach",
+        mapping={
+            "catalog": Literal(f"ducklake:sqlite:{paths.catalog}"),
+            "data_path": Literal(paths.data),
+            "encrypted": encrypted,
+        },
+    )
 
 
-async def run_ducklake_publication(
-    pg_conn: AsyncConnection,
-    dbos_conn: AsyncConnection,
+async def configure_catalog(
+    duckdb_conn: DuckDB, paths: DuckLakePaths, encrypted: bool
+) -> None:
+    """Attach one per-schema DuckLake catalog and set its file-size option."""
+    await attach_catalog(duckdb_conn, paths, encrypted)
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/set_option",
+        mapping={
+            "option": "target_file_size",
+            "value": Literal(settings.DUCKLAKE_TARGET_FILE_SIZE),
+        },
+    )
+
+
+async def emit_blocked_errors(
+    pg_conn: Postgres, blocked: set[str], empty: set[str]
+) -> None:
+    """Record one blocked-table error for each table that will not publish."""
+    for name in blocked | empty:
+        await emit_error(pg_conn, "table_blocked", table=name)
+
+
+async def publish_tables(
+    duckdb_conn: DuckDB,
     config: SyncConfig,
     plan: SyncPlan,
-    failed_paths: set[str] | None = None,
-) -> PublicationResult:
-    """Publish one schema sequentially into its local SQLite catalog."""
-    decision = reduce_sync_plan(plan, failed_paths or set())
-    changed = plan.signatures.keys() | plan.partitioned_tables.keys()
-    empty = empty_incremental_tables(decision.plan)
-    eligible = changed - decision.blocked_tables - empty
+    eligible: set[str],
+) -> set[str]:
+    """Commit eligible tables into one attached DuckLake catalog."""
     tables = {table.name: table for table in config.tables}
-
-    for name in decision.blocked_tables | empty:
-        await emit_error(dbos_conn, "table_blocked", table=name)
-
-    paths = DuckLakePaths.for_schema(plan.schema_name)
     published: set[str] = set()
 
+    for name in sorted(eligible):
+        table = tables[name]
+        partitioned = plan.partitioned_tables.get(name)
+        await commit_table(
+            duckdb_conn,
+            table,
+            planned_paths(plan, name, partitioned),
+            partitioned,
+        )
+        published.add(name)
+    return published
+
+
+async def publish_schema(
+    duckdb_conn: DuckDB,
+    pg_conn: Postgres,
+    config: SyncConfig,
+    plan: SyncPlan,
+    failed_paths: set[str],
+) -> PublicationResult:
+    """Publish one schema sequentially into its local SQLite catalog."""
+    reduced_plan, blocked_tables, _failed = plan_publication(plan, failed_paths)
+    changed = plan.signatures.keys() | plan.partitioned_tables.keys()
+    empty = empty_incremental_tables(reduced_plan)
+    eligible = changed - blocked_tables - empty
+
+    await emit_blocked_errors(pg_conn, blocked_tables, empty)
+
+    paths = DuckLakePaths.for_schema(plan.schema_name)
     paths.catalog.parent.mkdir(parents=True, exist_ok=True)
-    async with DuckDB.connect() as duckdb:
-        await duckdb.execute(
-            f"ATTACH 'ducklake:sqlite:{paths.catalog}' AS dl (DATA_PATH '{paths.data}', DATA_INLINING_ROW_LIMIT 0)"
-        )
-        await duckdb.execute(
-            f"CALL dl.set_option('target_file_size', '{settings.DUCKLAKE_TARGET_FILE_SIZE}')"
-        )
-        async with duckdb.transaction():
-            for name in sorted(eligible):
-                table = tables[name]
-                partitioned = decision.plan.partitioned_tables.get(name)
-                await commit_table(
-                    duckdb,
-                    table,
-                    planned_paths(decision.plan, name, partitioned),
-                    partitioned,
-                )
-                published.add(name)
 
-    await pg_conn.commit()
+    await configure_catalog(
+        duckdb_conn,
+        paths,
+        config.schemas[plan.schema_name].ducklake.encrypted,
+    )
+    published = await publish_tables(duckdb_conn, config, reduced_plan, eligible)
 
-    return PublicationResult(plan=decision.plan, published_tables=published)
+    return PublicationResult(plan=reduced_plan, published_tables=published)

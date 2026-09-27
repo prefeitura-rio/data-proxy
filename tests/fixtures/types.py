@@ -6,6 +6,8 @@ from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import Identifier
 
+from data_proxy.postgres import Postgres as Pg
+
 
 @dataclass(frozen=True, slots=True)
 class Postgres:
@@ -14,6 +16,11 @@ class Postgres:
     connection: AsyncConnection
     dsn: str
     namespace: PostgresTestNamespace
+
+    @property
+    def backend(self) -> Pg:
+        """Return the application Postgres backend wrapping this connection."""
+        return Pg(connection=self.connection)
 
 
 @dataclass(frozen=True, slots=True)

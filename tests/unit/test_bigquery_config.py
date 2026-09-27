@@ -73,6 +73,16 @@ class TestRangeConfiguration:
         with pytest.raises(ValueError, match="Incomplete"):
             range_config(metadata, "p.d.t")
 
+    def test_rejects_non_string_range_field(self) -> None:
+        """Reject non-string partition fields returned by the SDK."""
+        metadata = RangePartitioning(
+            field=123,
+            range_=PartitionRange(start=0, end=10, interval=1),
+        )
+
+        with pytest.raises(ValueError, match="Incomplete"):
+            range_config(metadata, "p.d.t")
+
     @given(field=identifiers, bounds=ordered_bounds())
     def test_rejects_invalid_range_metadata(
         self, field: str, bounds: tuple[int, int]
@@ -110,6 +120,11 @@ class TestTimeConfiguration:
         """Reject time metadata without an explicit field."""
         with pytest.raises(ValueError, match="Ingestion-time"):
             time_config(TimePartitioning(field=None), "p.d.t")
+
+    def test_rejects_non_string_time_field(self) -> None:
+        """Reject a non-string time field returned by the SDK."""
+        with pytest.raises(ValueError, match="field"):
+            time_config(TimePartitioning(field=123), "p.d.t")
 
     @given(
         field=identifiers, granularity=st.sampled_from(["WEEK", "MINUTE", "UNKNOWN"])

@@ -88,30 +88,33 @@ def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
     end = partitioning.range_.end
     interval = partitioning.range_.interval
 
-    if not field or end is None or interval is None:
-        raise ValueError(f"Incomplete range partition metadata: {table}")
+    match field:
+        case str() if field and end is not None and interval is not None:
+            pass
+        case _:
+            raise ValueError(f"Incomplete range partition metadata: {table}")
 
     try:
-        return RangeConfig(
-            field=cast("str", field), start=start, end=end, interval=interval
-        )
+        return RangeConfig(field=field, start=start, end=end, interval=interval)
     except ValueError as error:
         raise ValueError(f"Invalid range partition metadata: {table}") from error
 
 
 def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
     """Return validated time-partition configuration from metadata."""
-    if partitioning.field is None:
+    field = partitioning.field
+    if field is None:
         raise ValueError(
             f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
         )
 
+    if not isinstance(field, str) or not field:
+        raise ValueError(f"Invalid time partition field: {table}")
+
     raw = partitioning.type_ or TimeGranularity.DAY
 
     try:
-        return TimeConfig(
-            field=cast("str", partitioning.field), granularity=TimeGranularity(raw)
-        )
+        return TimeConfig(field=field, granularity=TimeGranularity(raw))
     except ValueError as error:
         raise ValueError(
             f"Unsupported time partition granularity {raw}: {table}"

@@ -4,7 +4,7 @@ A DuckDB connection serves one query at a time, so concurrent calls on one
 instance serialize. Open one instance per concurrent task to run in parallel.
 """
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -15,7 +15,7 @@ from psycopg.sql import Literal
 
 from .settings import settings
 from .templates import render_template
-from .types import DatabaseRow
+from .types import DatabaseRow, DuckDBParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,31 +48,31 @@ class DuckDB:
         finally:
             await asyncify(connection.close)()
 
-    async def execute(self, sql: str, params: Sequence[object] | None = None) -> None:
-        """Execute a DuckDB statement without returning rows."""
+    async def execute(self, sql: str, *, params: DuckDBParams | None = None) -> None:
+        """Run one statement."""
 
         def run() -> None:
             self.connection.execute(sql, params)
 
         await asyncify(run)()
 
-    async def fetchall(
-        self, sql: str, params: Sequence[object] | None = None
+    async def query(
+        self, sql: str, *, params: DuckDBParams | None = None
     ) -> list[DatabaseRow]:
         """Run one query and return every row."""
 
-        def whole() -> list[DatabaseRow]:
+        def run() -> list[DatabaseRow]:
             return self.connection.execute(sql, params).fetchall()
 
-        return await asyncify(whole)()
+        return await asyncify(run)()
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[None]:
         """Commit on success and roll back on exception."""
-        await self.execute("BEGIN")
+        await self.execute("BEGIN", params=None)
         try:
             yield
         except Exception:
-            await self.execute("ROLLBACK")
+            await self.execute("ROLLBACK", params=None)
             raise
-        await self.execute("COMMIT")
+        await self.execute("COMMIT", params=None)

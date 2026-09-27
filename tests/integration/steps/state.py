@@ -15,10 +15,10 @@ from data_proxy.models import (
     SyncPlan,
     TableState,
 )
+from data_proxy.postgres import Postgres
 from data_proxy.state import (
     build_table_states,
     emit_error,
-    read_partition_manifest,
     read_table_signature,
     read_table_state,
     write_table_states,
@@ -32,8 +32,8 @@ def written_table() -> str | None:
 
 
 @given("an empty application state database", target_fixture="state_connection")
-def empty_state_database(dbos_conn: AsyncConnection) -> AsyncConnection:
-    return dbos_conn
+def empty_state_database(dbos_conn: AsyncConnection) -> Postgres:
+    return Postgres(connection=dbos_conn)
 
 
 @when(
@@ -43,7 +43,7 @@ def empty_state_database(dbos_conn: AsyncConnection) -> AsyncConnection:
     target_fixture="written_table",
 )
 def write_full_table_state(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
     signature: str,
 ) -> str:
@@ -58,7 +58,7 @@ def write_full_table_state(
 
 @when(parsers.parse('I replace table "{table}" signature "{old}" with "{new}"'))
 def replace_table_state(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
     old: str,
     new: str,
@@ -79,7 +79,7 @@ def replace_table_state(
 
 @when(parsers.parse('I record an extraction error for "{table}"'))
 def record_extraction_error(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
 ) -> None:
     asyncio.run(
@@ -95,7 +95,7 @@ def record_extraction_error(
 @when(parsers.parse('I write stale state for "{table}" and clean unconfigured state'))
 @then(parsers.parse('reading table "{table}" returns signature "{signature}"'))
 def read_written_signature(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
     signature: str,
     written_table: str | None = None,
@@ -107,7 +107,7 @@ def read_written_signature(
 
 @then(parsers.parse('reading table "{table}" has no state'))
 def read_missing_state(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
 ) -> None:
     assert asyncio.run(read_table_state(state_connection, table)) is None
@@ -115,12 +115,12 @@ def read_missing_state(
 
 @then(parsers.parse('the latest error for "{table}" has reason "{reason}"'))
 def read_latest_error(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
     reason: str,
 ) -> None:
     cursor = asyncio.run(
-        state_connection.execute(
+        state_connection.connection.execute(
             b"SELECT reason, fields FROM data_proxy.errors ORDER BY id DESC LIMIT 1"
         )
     )
@@ -135,7 +135,7 @@ def read_latest_error(
     target_fixture="partitioned_table",
 )
 def write_partitioned_state(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
 ) -> str:
     physical = partition("1")
@@ -152,13 +152,14 @@ def write_partitioned_state(
     parsers.parse('reading the partition manifest for "{table}" returns the partition')
 )
 def check_partition_manifest(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     table: str,
     partitioned_table: str,
 ) -> None:
     assert partitioned_table == table
-    manifest = asyncio.run(read_partition_manifest(state_connection, table))
+    manifest = asyncio.run(read_table_state(state_connection, table))
     assert manifest is not None
+    assert manifest.partitions is not None
     assert "1" in manifest.partitions
 
 
@@ -167,7 +168,7 @@ def check_partition_manifest(
     target_fixture="unpublished_table",
 )
 def write_two_states(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     published: str,
     unpublished: str,
 ) -> str:
@@ -187,7 +188,7 @@ def write_two_states(
     parsers.parse('I build table states for only "{published}"'),
 )
 def build_states_for_published(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     published: str,
 ) -> None:
     schema = published.split(".")[1]
@@ -205,7 +206,7 @@ def build_states_for_published(
 
 @then(parsers.parse('state for "{unpublished}" keeps its original signature'))
 def check_unpublished_state(
-    state_connection: AsyncConnection,
+    state_connection: Postgres,
     unpublished: str,
     unpublished_table: str,
 ) -> None:

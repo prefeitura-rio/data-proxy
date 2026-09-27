@@ -7,12 +7,13 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQu
   "schemas": {
     "my_schema": {
       "claim": "preferred_username",
+      "ducklake": { "encrypted": false },
       "tables": [
         {
           "name": "project.dataset.events",
           "strategy": "partitioned",
           "n": 7,
-          "indexes": [{ "name": "idx_events_unit", "columns": ["unit_id"] }],
+          "ducklake": { "sort": ["event_time", "unit_id"] },
           "rls": [{ "column": "unit_id", "unit_type": "unit" }]
         }
       ]
@@ -27,6 +28,7 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQu
 | -------- | ----------------------- | --------------------------------------------------- |
 | `claim`  | When a table uses `rls` | JWT claim matched against `access_policy.subject`.  |
 | `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
+| `ducklake` | No                    | Schema-level DuckLake settings, including `encrypted`. |
 
 The schema key is the target PostgreSQL schema. Do not add a schema field to a table entry.
 
@@ -40,7 +42,8 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 | `fallback`  | No       | Enables the `_bq` fallback view. Default: `true`.                                     |
 | `cache_ttl` | No       | Fallback cache lifetime in seconds.                                                   |
 | `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                         |
-| `indexes`   | No       | DuckLake sort columns. These are rendered as `SET SORTED BY`, not PostgreSQL indexes. |
+| `ducklake` | No | Table-level DuckLake settings, including `sort` and `partitioning`. |
+| `ducklake` | No | Table-level DuckLake settings, including custom partition transforms. |
 
 ## Pipeline
 
@@ -54,10 +57,32 @@ The scheduled `run_sync` workflow performs these steps:
 6. DBOS sync workers insert scratch Parquet into DuckLake and commit the writer catalog volume.
 7. Litestream replicates writer catalog WAL changes to SeaweedFS.
 8. Litestream restore updates the reader catalog volume.
-9. Expire old DuckLake snapshots and clean unreferenced data files.
-10. Flush scratch objects and Valkey.
+9. Expire snapshots older than seven days.
+10. Merge up to the configured number of adjacent files.
+11. Rewrite files only when the deleted fraction reaches the configured threshold.
+12. Clean scheduled and orphaned files older than seven days.
+13. Flush scratch objects and Valkey.
 
-Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
+Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog. Maintenance runs on the same schema writer.
+
+## DuckLake partitioning and encryption
+
+DuckLake partitioning follows the source partition column by default. A table can override it with transforms such as:
+
+```json
+"ducklake": {
+  "partitioning": [
+    { "column": "event_time", "transform": "month" },
+    { "column": "unit_id", "transform": "bucket", "buckets": 16 }
+  ]
+}
+```
+
+Changing a table transform triggers a full table rewrite before the new layout is published. Encryption is configured only under the schema-level `ducklake.encrypted` setting. Table-level encryption is rejected because DuckLake encryption is catalog scoped.
+
+## Schema evolution
+
+Before publication, the writer compares each incoming Parquet schema with the existing DuckLake table. It adds new nullable columns and applies only lossless type promotions. It rejects removed columns, renames, and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files are not rewritten for these schema changes.
 
 ## Catalog lifecycle
 

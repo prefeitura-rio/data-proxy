@@ -8,9 +8,8 @@ from typing import LiteralString, cast
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from psycopg.sql import Composable
 
+from .constants import SQL_DIR
 from .types import TemplateValue
-
-SQL_DIR = Path(__file__).parent / "templates"
 
 
 @lru_cache

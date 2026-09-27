@@ -1,6 +1,7 @@
 """Data models for the sync service."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
 from typing import Annotated, ClassVar, Literal, Self, override
@@ -9,13 +10,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     PositiveInt,
     computed_field,
     model_validator,
 )
 
 from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
-from .types import JsonValue
 
 NonEmptyString = Annotated[str, Field(min_length=1)]
 BigQueryTableName = Annotated[
@@ -37,11 +38,61 @@ class UnitMapping(BaseModel):
     unit_type: NonEmptyString
 
 
-class IndexConfig(BaseModel):
-    """Index definition for a synced table."""
+class DuckLakePartitionTransform(StrEnum):
+    """DuckLake partition transforms supported by sync configuration."""
 
-    name: NonEmptyString
-    columns: Annotated[list[NonEmptyString], Field(min_length=1)]
+    IDENTITY = "identity"
+    BUCKET = "bucket"
+    YEAR = "year"
+    MONTH = "month"
+    DAY = "day"
+    HOUR = "hour"
+
+
+class DuckLakePartition(BaseModel):
+    """One custom DuckLake partition transform."""
+
+    column: NonEmptyString
+    transform: DuckLakePartitionTransform = DuckLakePartitionTransform.IDENTITY
+    buckets: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def validate_buckets(self) -> Self:
+        """Require buckets only for the bucket transform."""
+        if self.transform == DuckLakePartitionTransform.BUCKET:
+            if self.buckets is None:
+                raise ValueError("Bucket partition transforms require buckets")
+        elif self.buckets is not None:
+            raise ValueError("Only bucket partition transforms accept buckets")
+        return self
+
+
+class DuckLakeSchemaConfig(BaseModel):
+    """Schema-level DuckLake settings."""
+
+    encrypted: bool = False
+
+
+class DuckLakeTableConfig(BaseModel):
+    """Table-level DuckLake settings."""
+
+    partitioning: list[DuckLakePartition] | None = None
+    sort: list[NonEmptyString] | None = None
+    encrypted: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_sort(self) -> Self:
+        """Reject an explicitly empty sort configuration."""
+        if self.sort == []:
+            raise ValueError("DuckLake sort must contain at least one column")
+        return self
+
+    @model_validator(mode="after")
+    def reject_encryption(self) -> Self:
+        """Require encryption to be configured at schema scope."""
+        if self.encrypted is not None:
+            raise ValueError("DuckLake encryption must be configured at schema scope")
+        return self
 
 
 class AllSelection(BaseModel):
@@ -121,6 +172,16 @@ TaskSelection = Annotated[
 ]
 
 
+class PartitionMetadata(BaseModel):
+    """Validated fields returned by the BigQuery partition metadata query."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(strict=True, extra="forbid")
+
+    partition_id: str
+    last_modified_time: datetime | None
+    logical_bytes: int | None
+
+
 class PhysicalPartition(BaseModel):
     """Normalized state and extraction selection for one physical BigQuery partition."""
 
@@ -142,10 +203,10 @@ class Table(BaseModel):
 
     name: BigQueryTableName
     rls: list[UnitMapping] | None = None
-    indexes: list[IndexConfig] = []
     fallback: bool = False
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
+    ducklake: DuckLakeTableConfig = DuckLakeTableConfig()
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
 
@@ -159,7 +220,7 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "rls": [r.model_dump() for r in self.rls] if self.rls else None,
-            "indexes": [i.model_dump() for i in self.indexes] if self.indexes else None,
+            "ducklake": self.ducklake.model_dump(),
         }
 
     def to_task(
@@ -228,6 +289,7 @@ class SchemaConfig(BaseModel):
     """A PostgreSQL schema: its tables and, if any use RLS, its access claim."""
 
     claim: NonEmptyString | None = None
+    ducklake: DuckLakeSchemaConfig = DuckLakeSchemaConfig()
     tables: list[TableConfig] = []
 
 
@@ -314,25 +376,30 @@ class DumpStatus(StrEnum):
     FAILURE = "error"
 
 
-class DumpSuccess(BaseModel):
-    """Successful extraction task result."""
+class DumpResult(BaseModel):
+    """Result of one extraction task."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    status: Literal[DumpStatus.SUCCESS] = DumpStatus.SUCCESS
+    status: DumpStatus = DumpStatus.SUCCESS
     failed_paths: list[str] = []
 
-
-class DumpFailure(BaseModel):
-    """Failed extraction task result."""
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    status: Literal[DumpStatus.FAILURE] = DumpStatus.FAILURE
-    failed_paths: list[str]
+    @model_validator(mode="after")
+    def require_failed_paths_on_failure(self) -> Self:
+        """Require at least one failed path when the status is failure."""
+        if self.status == DumpStatus.FAILURE and not self.failed_paths:
+            raise ValueError("Failed extraction must have failed paths")
+        return self
 
 
-DumpResult = Annotated[DumpSuccess | DumpFailure, Field(discriminator="status")]
+class PartitionChange(BaseModel):
+    """One partition change: addition, update, or removal."""
+
+    kind: Literal["add", "update", "remove"]
+    partition_id: str
+    path: str = ""
+    previous: PhysicalPartition | None = None
+    current: PhysicalPartition | None = None
 
 
 class PartitionedTablePlan(BaseModel):
@@ -341,32 +408,23 @@ class PartitionedTablePlan(BaseModel):
     table_signature: str
     full_rebuild: bool
     current_partitions: dict[str, PhysicalPartition]
-    changed_paths: dict[str, str]
-    previous_partitions: dict[str, PhysicalPartition] = {}
-    removed_partitions: dict[str, PhysicalPartition]
+    changes: dict[str, PartitionChange]
 
     @model_validator(mode="after")
     def validate_partition_sets(self) -> Self:
-        """Require changed and removed IDs to match their respective manifests."""
-        if not self.changed_paths.keys() <= self.current_partitions.keys():
-            msg = "Changed partition paths must exist in the current manifest"
-            raise ValueError(msg)
-
-        if not self.previous_partitions.keys() <= self.changed_paths.keys():
-            msg = "Previous partitions must be changed partitions"
-            raise ValueError(msg)
-
-        if self.removed_partitions.keys() & self.current_partitions.keys():
-            msg = "Removed partitions can't exist in the current manifest"
-            raise ValueError(msg)
+        """Require add/update changes to exist in the current manifest and removes to not."""
+        for change in self.changes.values():
+            if change.kind in ("add", "update"):
+                if change.partition_id not in self.current_partitions:
+                    msg = "Add/update partitions must exist in the current manifest"
+                    raise ValueError(msg)
+            elif (
+                change.kind == "remove"
+                and change.partition_id in self.current_partitions
+            ):
+                msg = "Removed partitions can't exist in the current manifest"
+                raise ValueError(msg)
         return self
-
-
-class PartitionManifest(BaseModel):
-    """Committed physical partition state for one source table."""
-
-    table_signature: str
-    partitions: dict[str, PhysicalPartition]
 
 
 class SyncPlan(BaseModel):
@@ -403,15 +461,6 @@ class SyncWork:
 
     plans: list[SyncPlan]
     tasks: list[DumpTask]
-
-
-@dataclass(frozen=True, slots=True)
-class PublicationDecision:
-    """Publishable plan and failures derived from extraction results."""
-
-    plan: SyncPlan
-    blocked_tables: set[str]
-    failed_partitions: dict[str, set[str]]
 
 
 class PublicationResult(BaseModel):

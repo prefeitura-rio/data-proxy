@@ -3,7 +3,6 @@
 import asyncio
 import secrets
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -12,7 +11,6 @@ from urllib.parse import urlsplit, urlunsplit
 import duckdb
 import psycopg
 import pytest
-from google.cloud.bigquery import Row
 from psycopg.sql import SQL
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.network import Network
@@ -21,13 +19,13 @@ from data_proxy.bigquery.config import PartitionKindConfig
 from data_proxy.duckdb import DuckDB
 from data_proxy.models import (
     DumpTask,
-    FullTable,
-    PartitionedTable,
-    PartitionedTablePlan,
-    PhysicalPartition,
     TaskSelection,
     UnitMapping,
 )
+from data_proxy.models import (
+    Table as TableModel,
+)
+from data_proxy.postgres import Postgres as Pg
 from data_proxy.settings import settings
 from data_proxy.state import ensure_app_schema
 from data_proxy.templates import render_template
@@ -39,59 +37,10 @@ from tests.helpers import TEST_SQL_DIR
 @pytest.fixture
 def invalid_rls() -> list[UnitMapping]:
     """Return an invalid runtime RLS value for guard tests."""
-    return cast("list[UnitMapping]", cast(object, "invalid"))
-
-
-@pytest.fixture
-def invalid_partition_plan() -> PartitionedTablePlan:
-    """Return an invalid partition plan for guard tests."""
-    return cast("PartitionedTablePlan", cast(object, "invalid"))
-
-
-@pytest.fixture
-def invalid_physical_partition() -> PhysicalPartition:
-    """Return a physical partition with an invalid selection."""
-    return cast(
-        "PhysicalPartition",
-        cast(object, SimpleNamespace(selection=object())),
-    )
-
-
-@pytest.fixture
-def invalid_dump_task() -> DumpTask:
-    """Return a dump task with an invalid selection."""
-    return cast(
-        DumpTask,
-        cast(
-            object,
-            type(
-                "InvalidTask",
-                (),
-                {
-                    "table": "p.d.t",
-                    "bucket_path": "s3://b",
-                    "json_columns": [],
-                    "selections": [object()],
-                },
-            )(),
-        ),
-    )
-
-
-@pytest.fixture
-def invalid_partition_row() -> Row:
-    """Return an invalid partition row for guard tests."""
-    return cast(
-        "Row",
-        cast(
-            object,
-            {
-                "partition_id": "1",
-                "last_modified_time": datetime.now(UTC),
-                "logical_bytes": 0,
-            },
-        ),
-    )
+    rls = TableModel.model_construct(rls="invalid").rls
+    if rls is None:
+        raise AssertionError("invalid RLS fixture must contain a value")
+    return rls
 
 
 @pytest.fixture
@@ -103,19 +52,14 @@ def invalid_kind_config() -> PartitionKindConfig:
 @pytest.fixture
 def invalid_selection() -> TaskSelection:
     """Return an unknown task selection for guard tests."""
-    return cast("TaskSelection", object())
-
-
-@pytest.fixture
-def full_table() -> FullTable:
-    """Return a full table in the app schema for tests."""
-    return FullTable(name="p.app.t", resolved_schema="app")
-
-
-@pytest.fixture
-def partitioned_table() -> PartitionedTable:
-    """Return a partitioned table in the app schema for tests."""
-    return PartitionedTable(name="p.app.t", resolved_schema="app")
+    task = DumpTask.model_construct(
+        run_id="r",
+        table="p.d.t",
+        target_schema="d",
+        bucket_path="s3://b/t.parquet",
+        selections=[object()],
+    )
+    return task.selections[0]
 
 
 @pytest.fixture(scope="session")
@@ -187,7 +131,7 @@ async def postgres(
         ).encode()
     )
     settings.DBOS_SYSTEM_DATABASE_URL = dsn
-    await ensure_app_schema(connection)
+    await ensure_app_schema(Pg(connection=connection))
     await connection.set_autocommit(False)
     try:
         yield Postgres(connection=connection, dsn=dsn, namespace=namespace)
@@ -213,7 +157,8 @@ async def duckdb_raw_query_stub(postgres: Postgres) -> AsyncIterator[None]:
     )
     row = await cursor.fetchone()
     assert row is not None
-    definition = cast(str, row[0])
+    definition = row[0]
+    assert isinstance(definition, str)
     try:
         yield
     finally:

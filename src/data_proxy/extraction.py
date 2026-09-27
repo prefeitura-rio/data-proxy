@@ -5,7 +5,7 @@ from typing import assert_never
 from psycopg.sql import Identifier, Literal
 
 from .duckdb import DuckDB
-from .executor import execute_sql
+from .executor import Executor
 from .models import (
     AllSelection,
     DumpTask,
@@ -14,7 +14,7 @@ from .models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from .types import TemplateValue
+from .types import DatabaseRow, DuckDBParams, TemplateValue
 
 
 def build_extraction_query(
@@ -41,7 +41,6 @@ def build_extraction_query(
                 "lower": Literal(lower),
                 "upper": Literal(upper),
             }
-
             return "duckdb/write_partition", mapping
         case RemainderSelection(column=column, start=start, end=end):
             mapping |= {
@@ -54,8 +53,9 @@ def build_extraction_query(
             assert_never(selection)
 
 
-async def run_extraction(task: DumpTask, duckdb_conn: DuckDB) -> None:
+async def run_extraction(duckdb_conn: DuckDB, task: DumpTask) -> None:
     """Extract each selection to its own scratch Parquet file."""
+    executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb_conn)
     for selection, path in zip(task.selections, task.output_paths, strict=True):
         template, mapping = build_extraction_query(task, selection, path)
-        await execute_sql(duckdb_conn, template, mapping)
+        await executor.execute(template, mapping)

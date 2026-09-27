@@ -35,8 +35,10 @@ Use one name for each semantic role:
 - PostgreSQL objects: `schema`, `table`, `view`, `function`, `policy`, and `index`.
 - Columns: `column` for one column and `columns` for a collection.
 - Paths: `path` for one path. Use `source` and `target` for two endpoints. Use `scratch_path` for temporary storage.
-- Roles: `user_role`, `anonymous_role`, `authenticator_role`, and `policy_writer_role`.
+- SQL roles: `user_role`, `anonymous_role`, `authenticator_role`, and `policy_writer_role`.
 - Predicates: `scope` for a schema predicate, `predicate` for a row or partition predicate, and `claim_setting` for a session-setting name.
+
+Match the SQL semantic to the name shape: use `table` for a SQL-safe identifier, `table_name` for a SQL literal or a prepared-statement parameter. Never use bare `name` when the object type is known.
 
 Don't merge values with different meanings. Don't use `name` when the object type is known. Don't use shortened aliases such as `cols` or `select_cols`.
 

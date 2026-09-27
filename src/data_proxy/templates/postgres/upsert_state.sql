@@ -3,7 +3,7 @@
   "kind": "template",
   "description": "Upsert committed state for one table into data-proxy.state.",
   "inputs": {
-    "schema": "PostgreSQL schema that holds application state (default data-proxy)."
+    "schema": "PostgreSQL schema that holds application state (set by DBOS_APP_SCHEMA)."
   }
 }
 #}

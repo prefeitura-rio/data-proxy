@@ -17,6 +17,19 @@
 {% endfor %}
 {%- endmacro %}
 
+{#
+{
+  "kind": "macro",
+  "name": "postgres.rls_where_clause",
+  "description": "Render the PL/pgSQL branch that builds the row-level security predicate.",
+  "inputs": {
+    "schema": "PostgreSQL schema that owns access_policy.",
+    "has_rls": "Enable the row-level security branch.",
+    "rls_mappings": "Unit mappings used to build the access-policy predicate."
+  },
+  "returns": "A PL/pgSQL IF block assigning v_where."
+}
+#}
 {% macro rls_where_clause(schema, has_rls, rls_mappings) -%}
   IF NOT {{ has_rls }} OR v_is_admin THEN
     v_where := '';
@@ -40,10 +53,42 @@
   END IF;
 {%- endmacro %}
 
+{#
+{
+  "kind": "macro",
+  "name": "postgres.rls_unit_array_checks",
+  "description": "Render per-column IN checks against access_policy for the scoped policy.",
+  "inputs": {
+    "rls_mappings": "Unit mappings used to build the access-policy predicate.",
+    "claim_setting": "PostgreSQL session setting containing the current claim.",
+    "schema": "PostgreSQL schema that owns access_policy."
+  },
+  "returns": "A SQL predicate over access_policy."
+}
+#}
 {% macro rls_unit_array_checks(rls_mappings, claim_setting, schema) -%}
 {% for mapping in rls_mappings %}
 "{{ mapping.column }}"::text IN (SELECT unit_id FROM {{ schema }}.access_policy WHERE subject = current_setting({{ claim_setting }}, true) AND unit_type = '{{ mapping.unit_type }}'){% if not loop.last %} OR {% endif %}
 {% endfor %}
+{%- endmacro %}
+
+{#
+{
+  "kind": "macro",
+  "name": "postgres.ducklake_attach",
+  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog.",
+  "inputs": {
+    "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
+    "data_path": "S3 data path for the DuckLake attachment."
+  },
+  "returns": "A PL/pgSQL PERFORM duckdb.raw_query statement."
+}
+#}
+{% macro ducklake_attach(catalog_local_path, data_path) -%}
+  PERFORM duckdb.raw_query(
+    'ATTACH IF NOT EXISTS ''ducklake:sqlite:{{ catalog_local_path }}'' AS dl '
+    || '(DATA_PATH ''{{ data_path }}'', READ_ONLY)'
+  );
 {%- endmacro %}
 
 {#
