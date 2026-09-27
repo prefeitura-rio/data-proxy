@@ -72,20 +72,20 @@ tests:
           value: data-proxy-sync
         template: scaledobjects.yaml
 
-  - it: renders cleanup CronJob when enabled
+  - it: renders maintenance CronJob when enabled
     set:
-      jobs.cleanup.enabled: true
+      jobs.maintenance.enabled: true
     asserts:
       - isKind:
           of: CronJob
         documentSelector:
           path: metadata.name
-          value: data-proxy-cleanup
+          value: data-proxy-maintenance
         template: cronjobs.yaml
 
-  - it: does not render cleanup CronJob when disabled
+  - it: does not render maintenance CronJob when disabled
     set:
-      jobs.cleanup.enabled: false
+      jobs.maintenance.enabled: false
       jobs.backup.enabled: false
     asserts:
       - hasDocuments:

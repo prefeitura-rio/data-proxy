@@ -101,7 +101,7 @@ spec:
 {{- end }}
 {{- end }}
 ---
-{{- if or .Values.jobs.backup.enabled .Values.jobs.cleanup.enabled }}
+{{- if or .Values.jobs.backup.enabled .Values.jobs.maintenance.enabled }}
 {{- $root := . }}
 apiVersion: v1
 kind: ConfigMap
@@ -111,29 +111,29 @@ metadata:
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
 data:
-  cleanup.nu: |
-{{ $root.Files.Get "files/cleanup.nu" | nindent 4 }}
+  maintenance.nu: |
+{{ $root.Files.Get "files/maintenance.nu" | nindent 4 }}
   lib.nu: |
 {{ $root.Files.Get "files/lib.nu" | nindent 4 }}
-{{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
-  {{ base $path }}: |
+{{- range $path, $_ := $root.Files.Glob "files/templates/**/*.sql" }}
+  {{ base (dir $path) }}/{{ base $path }}: |
 {{ $root.Files.Get $path | nindent 4 }}
 {{- end }}
 {{- end }}
 ---
-{{- if .Values.jobs.cleanup.enabled }}
+{{- if .Values.jobs.maintenance.enabled }}
 {{- $root := . }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "data-proxy.fullname" $root }}-cleanup
+  name: {{ include "data-proxy.fullname" $root }}-maintenance
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: cleanup
+    app.kubernetes.io/component: maintenance
 spec:
-  schedule: {{ $root.Values.jobs.cleanup.schedule | quote }}
-  startingDeadlineSeconds: {{ $root.Values.jobs.cleanup.startingDeadlineSeconds }}
+  schedule: {{ $root.Values.jobs.maintenance.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.jobs.maintenance.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
@@ -144,14 +144,14 @@ spec:
         metadata:
           labels:
             {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
-            app.kubernetes.io/component: cleanup
+            app.kubernetes.io/component: maintenance
         spec:
           restartPolicy: Never
           containers:
-            - name: cleanup
+            - name: maintenance
               image: {{ $root.Values.jobs.image | quote }}
               imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
-              command: [nu, /scripts/cleanup.nu]
+              command: [nu, /scripts/maintenance.nu]
               workingDir: /scripts
               env:
                 - name: PG_DATABASE_URL
@@ -178,6 +178,14 @@ spec:
                       key: S3_SECRET_KEY
                 - name: DUCKLAKE_CATALOG_PATH
                   value: {{ $root.Values.ducklake.catalogPath | quote }}
+                - name: DUCKLAKE_CATALOG_LOCAL_PATH
+                  value: {{ $root.Values.ducklake.catalogLocalPath | quote }}
+                - name: DUCKLAKE_SNAPSHOT_EXPIRATION
+                  value: {{ $root.Values.ducklake.snapshotExpiration | quote }}
+                - name: DUCKLAKE_MAX_COMPACTED_FILES
+                  value: {{ $root.Values.ducklake.maxCompactedFiles | quote }}
+                - name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
+                  value: {{ $root.Values.ducklake.rewriteDeleteThreshold | quote }}
                 - name: SQL_TEMPLATE_DIR
                   value: /scripts
               volumeMounts:
@@ -187,6 +195,9 @@ spec:
                 - name: sync-config
                   mountPath: /config
                   readOnly: true
+                - name: catalogs
+                  mountPath: {{ $root.Values.ducklake.catalogLocalPath }}
+                  readOnly: true
           volumes:
             - name: scripts
               configMap:
@@ -195,4 +206,8 @@ spec:
             - name: sync-config
               configMap:
                 name: {{ include "data-proxy.fullname" $root }}-sync
+            - name: catalogs
+              persistentVolumeClaim:
+                claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
+                readOnly: true
 {{- end }}

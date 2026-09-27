@@ -5,7 +5,7 @@ tests:
   - it: does not render when backup is disabled
     set:
       jobs.backup.enabled: false
-      jobs.cleanup.enabled: false
+      jobs.maintenance.enabled: false
     asserts:
       - hasDocuments:
           count: 0

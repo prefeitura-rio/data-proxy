@@ -103,7 +103,7 @@ spec:
           {{- range $schema := sortAlpha (keys ($root.Values.sync.config.schemas)) }}
           - {{ printf "policy_writer_%s" $schema | quote }}
           {{- end }}
-      {{- if or $root.Values.jobs.backup.enabled $root.Values.jobs.cleanup.enabled }}
+      {{- if or $root.Values.jobs.backup.enabled $root.Values.jobs.maintenance.enabled }}
       - name: jobs
         ensure: present
         login: true

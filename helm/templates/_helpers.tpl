@@ -343,6 +343,10 @@ wait
   value: {{ .Values.ducklake.targetFileSize | quote }}
 - name: DUCKLAKE_SNAPSHOT_EXPIRATION
   value: {{ .Values.ducklake.snapshotExpiration | quote }}
+- name: DUCKLAKE_MAX_COMPACTED_FILES
+  value: {{ .Values.ducklake.maxCompactedFiles | quote }}
+- name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
+  value: {{ .Values.ducklake.rewriteDeleteThreshold | quote }}
 - name: EMPTY_CACHE_TTL
   value: {{ .Values.fallback.emptyCacheTtl | quote }}
 - name: SYNC_CONFIG_PATH

@@ -4,7 +4,7 @@ templates:
 tests:
   - it: ships the backup script that the backup CronJob runs
     set:
-      jobs.cleanup.enabled: true
+      jobs.maintenance.enabled: true
       jobs.backup.enabled: true
       sync.config.schemas.bcadastro.tables: []
     asserts:
@@ -25,9 +25,9 @@ tests:
         isNotNull:
           path: data["backup.nu"]
 
-  - it: renders when backup is enabled and cleanup is disabled
+  - it: renders when backup is enabled and maintenance is disabled
     set:
-      jobs.cleanup.enabled: false
+      jobs.maintenance.enabled: false
       jobs.backup.enabled: true
       sync.config.schemas.bcadastro.tables: []
     asserts:
@@ -36,9 +36,9 @@ tests:
       - isKind:
           of: ConfigMap
 
-  - it: does not render when cleanup and backup are disabled
+  - it: does not render when maintenance and backup are disabled
     set:
-      jobs.cleanup.enabled: false
+      jobs.maintenance.enabled: false
       jobs.backup.enabled: false
       sync.config.schemas.bcadastro.tables: []
     asserts:

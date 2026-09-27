@@ -21,8 +21,8 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: init-db
 data:
-{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
-  {{ base $path }}: |
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+  {{ base (dir $path) }}/{{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
 ---
@@ -79,7 +79,7 @@ spec:
             - name: AUTH_AUTHENTICATOR_ROLE
               value: {{ .Values.auth.authenticatorRole | quote }}
             - name: JOBS_ENABLED
-              value: {{ or .Values.jobs.backup.enabled .Values.jobs.cleanup.enabled | quote }}
+              value: {{ or .Values.jobs.backup.enabled .Values.jobs.maintenance.enabled | quote }}
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:

@@ -141,6 +141,10 @@ ducklake:
   targetFileSize: 512MB
   ## Expire snapshots older than this duration during finalization.
   snapshotExpiration: 7d
+  ## Maximum compacted files produced by one maintenance call per table.
+  maxCompactedFiles: 10
+  ## Rewrite files when this fraction of rows is deleted.
+  rewriteDeleteThreshold: 0.95
   ## Litestream configuration for catalog replication.
   litestream:
     image: litestream/litestream:0.5.12
@@ -208,7 +212,7 @@ redis:
   webdisPort: 6379
   webdisReadHost: redis-reader
   webdisReadPort: 6379
-## Maintenance jobs: backup and cleanup.
+## Maintenance jobs: backup and maintenance.
 jobs:
   ## Existing Secret with username, password, and JOBS_PASSWORD.
   existingSecret: ""
@@ -228,8 +232,8 @@ jobs:
       existingSecret: ""
     accessLog:
       retentionDays: 90
-  ## Stale object cleanup CronJob.
-  cleanup:
+  ## Stale-object cleanup and DuckLake maintenance CronJob.
+  maintenance:
     enabled: true
     schedule: 0 4 * * *
     startingDeadlineSeconds: 600
