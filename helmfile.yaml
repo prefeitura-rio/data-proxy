@@ -15,21 +15,15 @@ repositories:
     url: https://istio-release.storage.googleapis.com/charts
   - name: bedag
     url: https://bedag.github.io/helm-charts/
+  - name: cloudpirates
+    url: https://cloudpirates-io.github.io/helm-charts/
 
 releases:
   - name: cnpg
     namespace: cnpg-system
     createNamespace: true
     chart: cnpg/cloudnative-pg
-    version: 0.23.2
-    values:
-      - resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
+    version: 0.24.0
     wait: true
     timeout: 900
 
@@ -38,39 +32,16 @@ releases:
     createNamespace: true
     chart: oci://registry-1.docker.io/cloudpirates/valkey
     version: 0.17.0
-    values:
-      - scripts/values/valkey.yaml
     wait: true
     timeout: 900
+    values:
+        - scripts/values/valkey.yaml
 
   - name: keda
     namespace: keda
     createNamespace: true
     chart: keda/keda
     version: 2.18.3
-    values:
-      - resources:
-          operator:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          metricServer:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          webhooks:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
     wait: true
     timeout: 900
 
@@ -94,40 +65,41 @@ releases:
     namespace: istio-system
     chart: istio/istiod
     version: 1.27.1
-    needs:
-      - istio-system/istio-base
     wait: true
     timeout: 900
+    needs:
+        - istio-system/istio-base
 
   - name: istio-ingressgateway
     namespace: istio-ingress
     createNamespace: true
     chart: istio/gateway
     version: 1.27.1
+    wait: true
+    timeout: 900
     needs:
       - istio-system/istio-base
       - istio-system/istiod
     values:
       - service:
           type: NodePort
-    wait: true
-    timeout: 900
 
   - name: data-proxy-gateway
     namespace: istio-system
     chart: bedag/raw
-    values:
-      - scripts/values/gateway.yaml
+    wait: true
+    timeout: 900
     needs:
       - istio-ingress/istio-ingressgateway
-    wait: true
-    timeout: 900
-
-  - name: oidc
-    namespace: data-proxy
-    createNamespace: true
-    chart: bedag/raw
     values:
-      - scripts/values/oidc.yaml
+      - scripts/values/gateway.yaml
+
+  - name: keycloak
+    namespace: keycloak
+    createNamespace: true
+    chart: cloudpirates/keycloak
+    version: 0.21.41
     wait: true
     timeout: 900
+    values:
+      - scripts/values/keycloak.yaml

@@ -1,11 +1,22 @@
 FROM docker.io/library/nginx:stable
 
 RUN apt-get update \
- && apt-get install -y nginx-module-njs nodejs npm \
+ && apt-get install -y --no-install-recommends \
+    nginx-module-njs=1.30.5+1.0.1-1~trixie \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+
+COPY --from=docker.io/library/node:24-slim /usr/local/bin/node /usr/local/bin/node
+
+COPY --from=docker.io/library/node:24-slim /usr/local/bin/npx /usr/local/bin/npx
+
+COPY --from=docker.io/library/node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
 COPY nginx/tsconfig.json nginx/tsconfig.build.json nginx/fallback.ts nginx/
+
 RUN npm install --no-save njs-types@1.0.0 typescript@7.0.2 \
  && ./node_modules/.bin/tsc -p nginx/tsconfig.build.json \
  && rm -rf /build

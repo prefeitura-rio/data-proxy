@@ -1,4 +1,4 @@
-{{- if or .Values.jobs.maintenance.enabled .Values.jobs.backup.enabled }}
+{{- if or .Values.jobs.maintenance.enabled .Values.jobs.backup.enabled .Values.sync.recovery.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,8 +13,14 @@ data:
 {{ .Files.Get "files/backup.nu" | nindent 4 }}
   lib.nu: |
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
+  recover-workflows.nu: |
+{{ .Files.Get "files/recover-workflows.nu" | nindent 4 }}
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
 {{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
-  {{ base (dir $path) }}/{{ base $path }}: |
+  {{ base (dir $path) }}_{{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
 {{- end }}

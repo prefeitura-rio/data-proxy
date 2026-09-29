@@ -10,15 +10,12 @@ export def fail [message: string, context: record<command: string, span: record>
 }
 
 # Poll a readiness check until it returns true or attempts are exhausted.
-export def poll [
-    check: closure
-    config: record<interval: duration, max_attempts: int>
-]: nothing -> bool {
-    if $config.max_attempts == 0 { return false }
-    if (do $check) { return true }
-    sleep $config.interval
-    poll $check {
-        interval: $config.interval
-        max_attempts: ($config.max_attempts - 1)
+export def poll [check: closure, config: record<interval: duration, max_attempts: int>]: nothing -> bool {
+    mut attempts = $config.max_attempts
+    while $attempts > 0 {
+        if (do $check) { return true }
+        sleep $config.interval
+        $attempts -= 1
     }
+    false
 }

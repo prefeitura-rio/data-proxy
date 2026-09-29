@@ -75,7 +75,7 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-pooler-ro-autoscaler
+  name: {{ include "data-proxy.fullname" . }}-pooler-autoscaler
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
@@ -84,7 +84,7 @@ spec:
   scaleTargetRef:
     apiVersion: postgresql.cnpg.io/v1
     kind: Pooler
-    name: {{ include "data-proxy.fullname" . }}-pooler-ro
+    name: {{ include "data-proxy.fullname" . }}-pooler
   minReplicaCount: {{ .Values.cnpg.pooler.autoscaling.minReplicaCount }}
   maxReplicaCount: {{ .Values.cnpg.pooler.autoscaling.maxReplicaCount }}
   pollingInterval: {{ .Values.cnpg.pooler.autoscaling.pollingInterval }}

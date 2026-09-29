@@ -71,35 +71,37 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.dbSecretName" -}}
-{{- if .Values.cnpg.existingSecret }}
-{{- .Values.cnpg.existingSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-cnpg-data-proxy
-{{- end }}
+{{- include "data-proxy.fullname" . }}-cnpg-superuser
 {{- end }}
 
 {{- define "data-proxy.authenticatorSecretName" -}}
-{{- if .Values.auth.existingSecret }}
-{{- .Values.auth.existingSecret }}
-{{- else }}
 {{- printf "%s-cnpg-authenticator" (include "data-proxy.fullname" .) }}
-{{- end }}
-{{- end }}
-
-{{- define "data-proxy.jobsSecretName" -}}
-{{- if .Values.jobs.existingSecret }}
-{{- .Values.jobs.existingSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-jobs
-{{- end }}
 {{- end }}
 
 {{- define "data-proxy.s3SecretName" -}}
-{{- if .Values.s3.existingSecret }}
-{{- .Values.s3.existingSecret }}
-{{- else }}
 {{- include "data-proxy.fullname" . }}-s3
 {{- end }}
+
+{{- define "data-proxy.s3CredentialsChecksum" -}}
+{{- $s3Name := include "data-proxy.s3SecretName" . -}}
+{{- $s3 := lookup "v1" "Secret" .Release.Namespace $s3Name -}}
+{{- $accessKey := "data-proxy" -}}
+{{- $secretKey := "" -}}
+{{- if $s3 -}}
+{{- if hasKey $s3.data "S3_ACCESS_KEY" -}}
+{{- $accessKey = index $s3.data "S3_ACCESS_KEY" | b64dec -}}
+{{- end -}}
+{{- if hasKey $s3.data "S3_SECRET_KEY" -}}
+{{- $secretKey = index $s3.data "S3_SECRET_KEY" | b64dec -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.s3.accessKey -}}
+{{- $accessKey = .Values.s3.accessKey -}}
+{{- end -}}
+{{- if .Values.s3.secretKey -}}
+{{- $secretKey = .Values.s3.secretKey -}}
+{{- end -}}
+{{- printf "%s:%s" $accessKey $secretKey | sha256sum -}}
 {{- end }}
 
 {{- define "data-proxy.s3Endpoint" -}}
@@ -117,7 +119,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.redisSecretName" -}}
-{{- required "redis.existingSecret is required" .Values.redis.existingSecret }}
+{{- .Values.redis.existingSecret | default (printf "%s-redis" (include "data-proxy.fullname" .)) }}
 {{- end }}
 
 {{- define "data-proxy.redisPasswordKey" -}}
@@ -156,14 +158,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pooler:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.postgresWriteDsn" -}}
 {{- $role := .Values.auth.authenticatorRole -}}
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.postgresDsn" -}}
@@ -174,7 +176,7 @@ postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.dbosClusterName" -}}
@@ -185,7 +187,7 @@ postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.dbosClusterName" . -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.nginxConfigBody" -}}
@@ -264,23 +266,23 @@ dbs:
 {{- define "data-proxy.litestreamRestoreScript" -}}
 #!/bin/sh
 set -eu
+umask 022
 {{- $schemas := .Values.sync.config.schemas }}
 {{- range $schema, $_ := $schemas }}
 (
   db={{ printf "%s/%s/catalog.sqlite" $.Values.ducklake.catalogLocalPath $schema }}
   dir={{ printf "%s/%s" $.Values.ducklake.catalogLocalPath $schema }}
   while true; do
-    tmp="${db}.restore"
-    rm -f "$tmp"
-    if litestream restore -if-replica-exists -config /projected/litestream-read.yaml -o "$tmp" "$db"; then
-      if [ -f "$tmp" ]; then
-        mkdir -p "$dir"
-        mv "$tmp" "$db"
-      fi
+    mkdir -p "$dir"
+    chmod 755 "$dir"
+    if [ -f "$db" ] && [ ! -f "${db}-txid" ]; then
+      rm -f "$db" "${db}-wal" "${db}-shm"
     fi
     if [ -f "$db" ]; then
+      chmod 644 "$db" "${db}-txid"
       exec litestream restore -f -config /projected/litestream-read.yaml "$db"
     fi
+    litestream restore -if-replica-exists -f -config /projected/litestream-read.yaml "$db" || true
     sleep 5
   done
 ) &
@@ -309,11 +311,11 @@ wait
 {{- end }}
 
 {{- define "data-proxy.appEnv" -}}
-- name: POSTGRES_PASSWORD
+- name: PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "data-proxy.dbSecretName" . }}
-      key: POSTGRES_PASSWORD
+      key: password
 - name: PG_DATABASE_URL
   value: {{ include "data-proxy.appPgDsn" . | quote }}
 {{ include "data-proxy.redisConfigEnv" . }}
@@ -393,7 +395,7 @@ wait
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
   value: {{ .Values.auth.userRole | quote }}
-- name: AUTH_AUTHENTICATOR_ROLE
+- name: AUTH_POSTGREST_ROLE
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}

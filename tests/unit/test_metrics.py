@@ -1,47 +1,42 @@
 """Tests for workflow metric observation."""
 
+from typing import Literal
+
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 
 from data_proxy.metrics import observe
-from data_proxy.types import RunStatus
 
 
 class TestObserveSync:
     """ObserveSync behavior tests."""
 
-    @given(status=st.sampled_from(["success", "no_changes"]))
     @pytest.mark.asyncio
-    async def test_records_success_and_no_change_statuses(
-        self, status: RunStatus
-    ) -> None:
-        """Record successful and no-change statuses."""
-        recorded: list[RunStatus] = []
+    async def test_records_success_for_completed_workflow(self) -> None:
+        """Record success when the workflow completes without an exception."""
+        recorded: list[str] = []
 
-        async def record(value: RunStatus) -> None:
+        async def record(value: Literal["success", "failure"]) -> None:
             recorded.append(value)
 
         @observe(record)
-        async def workflow() -> RunStatus:
-            return status
+        async def workflow() -> None:
+            return
 
         assert await workflow() is None
-        assert recorded == [status]
+        assert recorded == ["success"]
 
     @pytest.mark.asyncio
     async def test_preserves_workflow_arguments(self) -> None:
         """Forward positional and keyword arguments to the decorated workflow."""
-        recorded: list[RunStatus] = []
+        recorded: list[str] = []
         calls: list[tuple[int, bool]] = []
 
-        async def record(value: RunStatus) -> None:
+        async def record(value: Literal["success", "failure"]) -> None:
             recorded.append(value)
 
         @observe(record)
-        async def workflow(count: int, *, dry_run: bool) -> RunStatus:
+        async def workflow(count: int, *, dry_run: bool) -> None:
             calls.append((count, dry_run))
-            return "success"
 
         await workflow(3, dry_run=True)
 
@@ -51,13 +46,13 @@ class TestObserveSync:
     @pytest.mark.asyncio
     async def test_records_failure_before_reraising(self) -> None:
         """Record failure before re-raising the exception."""
-        recorded: list[RunStatus] = []
+        recorded: list[str] = []
 
-        async def record(value: RunStatus) -> None:
+        async def record(value: Literal["success", "failure"]) -> None:
             recorded.append(value)
 
         @observe(record)
-        async def workflow() -> RunStatus:
+        async def workflow() -> None:
             raise RuntimeError("failed")
 
         with pytest.raises(RuntimeError, match="failed"):

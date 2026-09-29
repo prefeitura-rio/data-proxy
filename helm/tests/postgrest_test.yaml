@@ -5,14 +5,14 @@ tests:
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs
-      postgrest.jwksFetch.image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
+      postgrest.jwksFetch.image: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
+          value: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
       - equal:
           path: spec.template.spec.initContainers[0].command
-          value: [/usr/bin/nu, -c]
+          value: [/usr/local/bin/nu, -c]
       - equal:
           path: spec.template.spec.initContainers[0].env[0]
           value:
@@ -34,14 +34,10 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
 
-  - it: uses HTTP readiness probe for shared PostgREST
+  - it: uses TCP readiness probe for authenticated PostgREST
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
-          value: /
-        template: deployment-postgrest.yaml
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
           value: http
         template: deployment-postgrest.yaml
       - equal:
@@ -50,7 +46,7 @@ tests:
 
   - it: rolls PostgREST when syncConfig changes
     set:
-      sync.config.schemas.bcadastro.tables:
+      sync.config.schemas.test.tables:
         - name: proj.dataset.cpf
           strategy: full
     asserts:
@@ -124,7 +120,7 @@ tests:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
           value: "true"
 
-  - it: waits for the CNPG authenticator role before PostgREST starts
+  - it: waits for the CNPG postgrest role before PostgREST starts
     set:
       postgrest.jwtSecret: test-secret
     asserts:
@@ -132,7 +128,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: PGUSER
-            value: authenticator
+            value: postgrest
       - contains:
           path: spec.template.spec.initContainers[0].env
           content:

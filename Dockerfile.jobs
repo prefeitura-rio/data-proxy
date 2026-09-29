@@ -1,0 +1,18 @@
+FROM docker.io/debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl=8.14.1-2+deb13u5 \
+    ca-certificates=20250419 \
+    xz-utils=5.8.1-1+deb13u1 \
+    postgresql-client-17=17.11-0+deb13u1 \
+    rclone=1.60.1+dfsg-4 \
+    && curl -fsSL https://github.com/mitsuhiko/minijinja/releases/download/2.24.0/minijinja-cli-x86_64-unknown-linux-gnu.tar.xz | tar xJ -C /usr/local/bin --strip-components=1 \
+    && curl -fsSL https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin --strip-components=1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker.io/duckdb/duckdb:1.5.4 /duckdb /usr/local/bin/duckdb
+COPY --from=registry.k8s.io/kubectl:v1.34.7 /bin/kubectl /usr/local/bin/kubectl
+
+RUN useradd --create-home --uid 1000 nushell
+USER nushell
+RUN duckdb -c "INSTALL httpfs; INSTALL ducklake; INSTALL sqlite;"

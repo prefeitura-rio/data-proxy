@@ -18,6 +18,9 @@ spec:
       app.kubernetes.io/component: litestream
   template:
     metadata:
+      annotations:
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
+        checksum/litestream-config: {{ include (print $.Template.BasePath "/configmap-litestream.yaml") . | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: litestream

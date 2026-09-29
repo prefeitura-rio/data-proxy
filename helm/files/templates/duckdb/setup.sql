@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Install DuckDB extensions and create the S3 access secret.",
+  "description": "Load DuckDB extensions and create the S3 access secret.",
   "inputs": {
     "s3_key_id": "S3 access key used by DuckDB.",
     "s3_secret_key": "S3 secret key used by DuckDB.",
@@ -11,11 +11,8 @@
 }
 #}
 -- noqa: PRS
-INSTALL httpfs;
 LOAD httpfs;
-INSTALL ducklake;
 LOAD ducklake;
-INSTALL sqlite;
 LOAD sqlite;
 CREATE SECRET (
     TYPE s3,

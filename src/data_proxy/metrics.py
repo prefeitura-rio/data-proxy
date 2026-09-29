@@ -1,6 +1,6 @@
 """OpenTelemetry metrics for sync workers."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import wraps
 
@@ -11,7 +11,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from .settings import settings
-from .types import ObservedWorkflow, StatusRecorder, SyncWorkflow
+from .types import StatusRecorder
 
 
 def configure_metrics() -> None:
@@ -57,23 +57,19 @@ class Metrics:
 metrics = Metrics()
 
 
-def observe[**P](
-    record_status: StatusRecorder,
-) -> Callable[[SyncWorkflow[P]], ObservedWorkflow[P]]:
-    """Record one terminal status for a sync workflow."""
+def observe[**P](record_status: StatusRecorder):
+    """Record success or failure for a void workflow."""
 
-    def decorate(
-        workflow: SyncWorkflow[P],
-    ) -> ObservedWorkflow[P]:
+    def decorate(workflow: Callable[P, Awaitable[None]]):
         @wraps(workflow)
         async def observed(*args: P.args, **kwargs: P.kwargs) -> None:
             try:
-                status = await workflow(*args, **kwargs)
+                await workflow(*args, **kwargs)
             except Exception:
                 await record_status("failure")
                 raise
 
-            await record_status(status)
+            await record_status("success")
 
         return observed
 

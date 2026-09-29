@@ -26,6 +26,7 @@ def main() -> None:
     publish_queues = [
         publish_queue(schema) for schema in sorted(settings.sync_config.schemas)
     ]
+
     DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, *publish_queues])
 
     DBOS.launch()
@@ -36,6 +37,7 @@ def main() -> None:
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
         limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60.0},
     )
+
     for queue in publish_queues:
         DBOS.register_queue(queue, concurrency=1)
 

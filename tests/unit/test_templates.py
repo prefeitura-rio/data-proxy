@@ -66,6 +66,17 @@ class TestTemplateRendering:
         with pytest.raises(UndefinedError):
             render_template("query", {}, root=tmp_path)
 
+    def test_quotes_hyphenated_bigquery_project_in_nested_query(self) -> None:
+        rendered = render_template(
+            "postgres/describe_bq_table",
+            {"bq_table": Literal("rj-ia-desenvolvimento.dev.test_table")},
+        )
+
+        assert "bigquery_scan('rj-ia-desenvolvimento.dev.test_table')" in rendered
+        assert (
+            "bigquery_scan('''rj-ia-desenvolvimento.dev.test_table''')" not in rendered
+        )
+
 
 # ---------------------------------------------------------------------------
 # DuckDB DuckLake template execution

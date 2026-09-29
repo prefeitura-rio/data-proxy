@@ -1,8 +1,4 @@
-"""DBOS sync workflow trigger and inspection command.
-
-Enqueue a sync workflow, optionally wait for its result, or inspect
-a previously enqueued workflow by ID.
-"""
+"""DBOS sync workflow trigger and inspection command"""
 
 import os
 from argparse import ArgumentParser
@@ -32,20 +28,19 @@ def enqueue_workflow(client: DBOSClient, detach: bool) -> None:
         "workflow_name": "run_sync",
         "queue_name": SYNC_QUEUE,
     }
-    handle = cast("WorkflowHandle[str]", client.enqueue(options, datetime.now(UTC), {}))
+    handle = cast(
+        "WorkflowHandle[None]", client.enqueue(options, datetime.now(UTC), {})
+    )
     print(handle.workflow_id, flush=True)
     if detach:
         return
-    result: str = handle.get_result()
-    if result not in {"success", "no_changes"}:
-        raise RuntimeError(f"Synchronization finished with status: {result}")
+    handle.get_result()
 
 
 def wait_for_workflow(
     client: DBOSClient,
     workflow_id: str | None,
     timeout: float,
-    expected_status: str | None = None,
 ) -> None:
     """Wait for a selected sync workflow and fail with its DBOS error."""
     deadline = monotonic() + timeout
@@ -57,19 +52,14 @@ def wait_for_workflow(
             limit=1,
             sort_desc=True,
             load_input=False,
-            load_output=True,
+            load_output=False,
         )
         if workflows:
             workflow = cast("WorkflowView", cast(object, workflows[0]))
             status = workflow.status
             if status == "SUCCESS":
-                if expected_status is None or workflow.output == expected_status:
-                    print(workflow.workflow_id)
-                    return
-                if workflow_id is not None:
-                    raise RuntimeError(
-                        f"Workflow {workflow.workflow_id} returned {workflow.output!r}, expected {expected_status!r}"
-                    )
+                print(workflow.workflow_id)
+                return
             if workflow_id is not None and status in {
                 "ERROR",
                 "CANCELLED",
@@ -140,11 +130,6 @@ def main() -> None:
     )
 
     arguments.add_argument(
-        "--expect-status",
-        choices=["success", "no_changes"],
-        help="Require this successful workflow result when waiting.",
-    )
-    arguments.add_argument(
         "--expect-running",
         action="store_true",
         help="Wait until the selected workflow is non-terminal.",
@@ -155,7 +140,6 @@ def main() -> None:
     workflow_id = cast("str | None", options.workflow_id)
     wait = cast("bool", options.wait)
     timeout = cast("float", options.timeout)
-    expected_status = cast("str | None", options.expect_status)
     expect_running = cast("bool", options.expect_running)
     client = DBOSClient(
         system_database_url=os.environ["DBOS_SYSTEM_DATABASE_URL"],
@@ -166,7 +150,7 @@ def main() -> None:
         if expect_running:
             wait_for_running_workflow(client, workflow_id, timeout)
         elif workflow_id or wait:
-            wait_for_workflow(client, workflow_id, timeout, expected_status)
+            wait_for_workflow(client, workflow_id, timeout)
         else:
             enqueue_workflow(client, detach)
     finally:

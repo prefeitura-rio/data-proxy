@@ -3,7 +3,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
-  name: {{ include "data-proxy.fullname" $root }}-pooler-ro
+  name: {{ include "data-proxy.fullname" $root }}-pooler
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -12,7 +12,7 @@ spec:
   cluster:
     name: {{ include "data-proxy.fullname" $root }}
   instances: {{ $root.Values.cnpg.pooler.instances }}
-  type: ro
+  type: rw
   template:
     spec:
       containers:

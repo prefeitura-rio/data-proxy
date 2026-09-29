@@ -1,7 +1,7 @@
 """Pipeline logger built on DBOS's dbos_logger with domain context injection."""
 
 from contextvars import ContextVar
-from logging import Filter, Formatter, LogRecord, getLogger
+from logging import Filter, Formatter, LogRecord, StreamHandler, getLogger
 from typing import override
 
 schemaname = ContextVar("schemaname", default="-")
@@ -52,10 +52,9 @@ class ContextFormatter(Formatter):
         return message
 
 
-formatter = ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S")
-
-for handler in logger.handlers:
-    handler.setFormatter(formatter)
-
+handler = StreamHandler()
+handler.setFormatter(ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
+logger.addHandler(handler)
 logger.addFilter(DomainContextFilter())
+logger.propagate = False
 logger.setLevel("INFO")

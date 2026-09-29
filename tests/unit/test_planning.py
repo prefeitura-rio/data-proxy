@@ -210,7 +210,7 @@ class TestTableSignature:
                     None,
                     FullTable(
                         name="p.d.t",
-                        rls=[UnitMapping(column="id", unit_type="cras")],
+                        rls=[UnitMapping(column="id", unit_type="region")],
                     ),
                     None,
                     True,

@@ -1,6 +1,6 @@
 """Shared type aliases and protocols used across Data Proxy modules."""
 
-from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Literal, LiteralString, Protocol
 
@@ -14,10 +14,7 @@ type PostgresParams = tuple[DatabaseValue, ...] | dict[str, DatabaseValue]
 type DuckDBValue = DatabaseValue | Sequence[str]
 type DuckDBParams = Sequence[DuckDBValue]
 type BigQueryParams = QueryJobConfig
-type RunStatus = Literal["success", "no_changes", "failure"]
-type StatusRecorder = Callable[[RunStatus], Awaitable[None]]
-type SyncWorkflow[**P] = Callable[P, Awaitable[RunStatus]]
-type ObservedWorkflow[**P] = Callable[P, Coroutine[object, object, None]]
+type StatusRecorder = Callable[[Literal["success", "failure"]], Awaitable[None]]
 type TemplateValue = (
     str
     | bool

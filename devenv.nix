@@ -27,7 +27,6 @@ in
           actionlint
           hadolint
           helmfile
-          http-nu
           kubeconform
           minijinja
           nodejs
@@ -92,13 +91,13 @@ in
             exec = ''
               hadolint Dockerfile.sync
               hadolint Dockerfile.postgres
-              hadolint Dockerfile.nushell
+              hadolint Dockerfile.jobs
               hadolint Dockerfile.proxy
             '';
             execIfModified = [
               "Dockerfile.sync"
               "Dockerfile.postgres"
-              "Dockerfile.nushell"
+              "Dockerfile.jobs"
               "Dockerfile.proxy"
             ];
           };

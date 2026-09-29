@@ -1,3 +1,5 @@
+from typing import Literal
+
 from dbos import DBOS
 from whenever import Instant
 
@@ -26,31 +28,39 @@ from ..state import (
     ensure_app_schema,
     write_table_states,
 )
-from ..types import RunStatus
 from .utils import retry_transient
 
 
 @DBOS.step()
 async def build_sync_work(run_id: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
+    logger.info("Planning started run_id=%s", run_id)
     async with (
         DuckDB.connect() as duckdb_conn,
         Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
     ):
         await ensure_app_schema(pg_conn)
-        return await run_planning(
+        work = await run_planning(
             pg_conn,
             duckdb_conn,
             settings.sync_config,
             run_id,
             settings.S3_BUCKET,
         )
+    logger.info(
+        "Planning completed run_id=%s tasks=%d plans=%d",
+        run_id,
+        len(work.tasks),
+        len(work.plans),
+    )
+    return work
 
 
 @DBOS.step()
-async def record_run_status(status: RunStatus) -> None:
+async def record_run_status(status: Literal["success", "failure"]) -> None:
     """Record one sync run status metric."""
     metrics.sync_runs_total.add(1, {"status": status})
+    logger.info("Sync terminal status=%s", status)
 
 
 @DBOS.step()
@@ -92,6 +102,7 @@ async def seed_schemas(plans: list[SyncPlan]) -> bool:
     The one-time database setup creates roles and metadata tables. This step
     only reconciles default DuckLake views and optional BigQuery fallback views.
     """
+    logger.info("Schema seeding started plans=%d", len(plans))
     schema_changed = False
 
     async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
@@ -103,6 +114,11 @@ async def seed_schemas(plans: list[SyncPlan]) -> bool:
             1, {"schema": plan.schema_name, "status": "success"}
         )
 
+    logger.info(
+        "Schema seeding completed plans=%d views_changed=%s",
+        len(plans),
+        schema_changed,
+    )
     return schema_changed
 
 
@@ -113,13 +129,18 @@ async def seed_schemas(plans: list[SyncPlan]) -> bool:
 )
 async def extract_task(task: DumpTask) -> None:
     """Extract one dump task from BigQuery to Parquet."""
+    logger.info(
+        "Extraction started task_id=%s paths=%d", task.task_id, len(task.output_paths)
+    )
     async with DuckDB.connect() as duckdb_conn:
         await run_extraction(duckdb_conn, task)
+    logger.info("Extraction completed task_id=%s", task.task_id)
 
 
 @DBOS.step()
 async def record_dump_failure(task: DumpTask, error: str) -> None:
     """Persist one dump error in the data_proxy.errors table."""
+    logger.error("Extraction failed task_id=%s error=%s", task.task_id, error)
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await emit_error(
             pg_conn,
@@ -136,6 +157,7 @@ async def commit_ducklake_snapshot(
 ) -> PublicationResult:
     """Commit scratch Parquet files into DuckLake for one schema plan."""
     schemaname.set(plan.schema_name)
+    logger.info("DuckLake commit started failed_paths=%d", len(failed_paths))
     config = SyncConfig(
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
     )
@@ -152,6 +174,9 @@ async def commit_ducklake_snapshot(
             failed_paths,
         )
 
+    logger.info(
+        "DuckLake commit completed published_tables=%d", len(result.published_tables)
+    )
     return result
 
 
@@ -181,8 +206,10 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
     )
     states = build_table_states(result, config)
+    logger.info("State commit started tables=%d", len(states))
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await write_table_states(pg_conn, states)
+    logger.info("State commit completed tables=%d", len(states))
 
 
 @DBOS.step(
@@ -192,6 +219,7 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
 )
 async def finalize_run(run_id: str) -> None:
     """Flush scratch Parquet files and the response cache."""
+    logger.info("Finalization started run_id=%s", run_id)
     await clear_s3_prefix(settings.S3_SCRATCH_PREFIX)
     await clear_cache()
-    logger.info("Run finalized run_id=%s", run_id)
+    logger.info("Finalization completed run_id=%s", run_id)
