@@ -63,8 +63,8 @@ interface Outcome {
 }
 
 const UPSTREAM = 'http://pgrst:3000';
-const PATH = '/protocolo_estado_diario';
-const QUERY = 'id_unidade=eq.cras_1';
+const PATH = '/partitioned_table';
+const QUERY = 'unit_id=eq.unit_1';
 
 const CACHE_READ = /^GET http:\/\/127\.0\.0\.1:7380\/GET\/[0-9a-f]{64}$/;
 const CACHE_WRITE = /^POST http:\/\/127\.0\.0\.1:7379\/SETEX\/[0-9a-f]{64}\/(300|3600)\//;
@@ -76,10 +76,10 @@ const CACHE_WRITE_ROOT = 'http://127.0.0.1:7379/';
 /** The sync configuration the harness preloads; it lists the paths these tests use. */
 const DEFAULT_SYNC = {
     schemas: {
-        pic: {
+        test: {
             tables: [
-                { name: 'proj.dev.protocolo_estado_diario' },
-                { name: 'proj.dev.endpoint_participantes' },
+                { name: 'proj.dev.partitioned_table' },
+                { name: 'proj.dev.multi_rls_table' },
                 { name: 'proj.dev.t' },
             ],
         },
@@ -221,7 +221,7 @@ const SCENARIOS: Scenario[] = [
         method: 'POST',
         requestBody: CREATED,
         requestContentType: 'application/json',
-        requestContentProfile: 'pic',
+        requestContentProfile: 'test',
         status: 201,
         body: CREATED,
         contentType: JSON_CT,
@@ -231,7 +231,7 @@ const SCENARIOS: Scenario[] = [
         calls: ['POST ' + CALL],
         sentBody: CREATED,
         sentContentType: 'application/json',
-        sentContentProfile: 'pic',
+        sentContentProfile: 'test',
     },
     {
         name: 'passes an upstream server error through and reports it',
@@ -252,7 +252,7 @@ const SCENARIOS: Scenario[] = [
         range: '0-0',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
-            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'Content-Range': '0-0/*', 'Location': '/protocolo_estado_diario?id=eq.1', 'Preference-Applied': 'count=exact' } },
+            { match: UPSTREAM, status: 200, body: ROWS, headers: { 'Content-Range': '0-0/*', 'Location': '/partitioned_table?id=eq.1', 'Preference-Applied': 'count=exact' } },
         ],
         status: 200,
         body: ROWS,
@@ -279,7 +279,7 @@ const SCENARIOS: Scenario[] = [
     {
         name: 'takes the lifetime from the table when it carries one',
         answers: MISS_UPSTREAM_STORE,
-        sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', cache_ttl: 42 }] } } },
+        sync: { schemas: { test: { tables: [{ name: 'proj.dev.partitioned_table', cache_ttl: 42 }] } } },
         status: 200,
         body: ROWS,
         contentType: JSON_CT,
@@ -383,7 +383,7 @@ const SCENARIOS: Scenario[] = [
     {
         name: 'joins a schemas claim that is an array',
         answers: MISS_UPSTREAM_STORE,
-        token: tokenFor({ preferred_username: 'bob', schemas: ['pic', 'other'] }),
+        token: tokenFor({ preferred_username: 'bob', schemas: ['test', 'other'] }),
         status: 200,
         body: ROWS,
         contentType: JSON_CT,
@@ -455,7 +455,7 @@ function fakeRequest(
 ): unknown {
     const headersIn: Record<string, string> = {};
     const token = scenario.token === undefined ? 'Bearer secret-token' : scenario.token;
-    const profile = scenario.profile === undefined ? 'pic' : scenario.profile;
+    const profile = scenario.profile === undefined ? 'test' : scenario.profile;
 
     if (token) { headersIn['Authorization'] = token; }
     if (profile) { headersIn['Accept-Profile'] = profile; }
@@ -799,9 +799,9 @@ test('proxy: treats malformed tokens as anonymous', async () => {
 test('proxy: never asks BigQuery for unconfigured or disabled tables', async () => {
     const cases: { name: string, sync?: unknown, uri?: string, profile?: string }[] = [
         { name: 'endpoint without a view', sync: undefined, uri: '/access_policy' },
-        { name: 'fallback disabled', sync: { schemas: { pic: { tables: [{ name: 'proj.dev.protocolo_estado_diario', fallback: false }] } } } },
+        { name: 'fallback disabled', sync: { schemas: { test: { tables: [{ name: 'proj.dev.partitioned_table', fallback: false }] } } } },
         { name: 'schema not configured', sync: { schemas: { other: { tables: [{ name: 'proj.dev.unrelated_table' }] } } } },
-        { name: 'schema without tables', sync: { schemas: { pic: {} } } },
+        { name: 'schema without tables', sync: { schemas: { test: {} } } },
         { name: 'no preloaded config', sync: null },
         { name: 'unknown table', sync: undefined, uri: '/desconhecido', profile: '' },
     ];

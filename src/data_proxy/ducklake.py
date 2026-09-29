@@ -46,6 +46,10 @@ class DuckLakePaths:
             data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
         )
 
+    def prepare_catalog_directory(self) -> None:
+        self.catalog.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        self.catalog.parent.chmod(0o755)
+
 
 def planned_paths(
     plan: SyncPlan, table: str, partitioned: PartitionedTablePlan | None
@@ -482,7 +486,7 @@ async def publish_schema(
     await emit_blocked_errors(pg_conn, blocked_tables, empty)
 
     paths = DuckLakePaths.for_schema(plan.schema_name)
-    paths.catalog.parent.mkdir(parents=True, exist_ok=True)
+    paths.prepare_catalog_directory()
 
     await configure_catalog(
         duckdb_conn,

@@ -4,19 +4,19 @@ sync:
   schedule: "0 2 * * *"
   config:
     schemas:
-      app_pequenos_cariocas:
+      test:
         claim: preferred_username
         tables:
-          - name: rj-proj.dev.endpoint_participante_listagem
+          - name: rj-ia-desenvolvimento.dev.full_table
             strategy: full
             rls:
-              - column: id_unidade
-                unit_type: unidade
+              - column: unit_id
+                unit_type: unit
 
 cnpg:
   db:
     name: data-proxy
-    user: data-proxy
+    user: admin
   instances: 2
   resources:
     requests:
@@ -50,7 +50,7 @@ redis:
 auth:
   anonRole: anon
   userRole: user
-  authenticatorRole: authenticator
+  authenticatorRole: postgrest
   jwtRoleClaim: $.role
   rlsSchema: rls
 

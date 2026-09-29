@@ -29,7 +29,7 @@ Feature: PostgreSQL authorization
     When I query the scoped table with a non-matching schema claim
     Then the scoped table shows no visible rows
 
-  Scenario: Multiple RLS mappings, admin access, and missing claims are enforced
+  Scenario: Multiple RLS mappings and missing claims are enforced
     Given a production access-policy schema
     When I set up a protected table with multiple RLS mappings for "alice"
     Then alice sees only rows matching one of her unit grants

@@ -92,7 +92,7 @@ def apply_unprotected_through_templates(template_context: TemplateScenario) -> N
             mapping={
                 "schema": database.namespace.schema,
                 "table": "table",
-                "columns": "id_cras text",
+                "columns": "region_id text",
             },
         )
     )
@@ -119,7 +119,7 @@ def apply_protected_through_templates(template_context: TemplateScenario) -> Non
             mapping={
                 **mapping,
                 "table": "table",
-                "columns": "id_cras text",
+                "columns": "region_id text",
             },
         )
     )
@@ -133,7 +133,7 @@ def apply_protected_through_templates(template_context: TemplateScenario) -> Non
             database.backend,
             database.namespace.schema,
             "table",
-            [UnitMapping(column="id_cras", unit_type="cras")],
+            [UnitMapping(column="region_id", unit_type="region")],
             "preferred_username",
         )
     )

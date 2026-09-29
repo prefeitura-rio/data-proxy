@@ -49,7 +49,7 @@ spec:
       - name: API_HOST
         value: data-proxy.local
       - name: ACCEPT_PROFILE
-        value: pic
+        value: test
       - name: K6_PROFILE
         value: load
       - name: VUS

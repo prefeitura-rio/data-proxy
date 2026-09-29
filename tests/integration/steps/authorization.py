@@ -75,7 +75,7 @@ def apply_unprotected_authorization(
             mapping={
                 "schema": database.namespace.schema,
                 "table": authorization_context.table,
-                "columns": "id_cras text",
+                "columns": "region_id text",
             },
         )
     )
@@ -103,7 +103,7 @@ def apply_protected_authorization(
             mapping={
                 **mapping,
                 "table": authorization_context.table,
-                "columns": "id_cras text",
+                "columns": "region_id text",
             },
         )
     )
@@ -117,7 +117,7 @@ def apply_protected_authorization(
             database.backend,
             database.namespace.schema,
             authorization_context.table,
-            [UnitMapping(column="id_cras", unit_type="cras")],
+            [UnitMapping(column="region_id", unit_type="region")],
             "preferred_username",
         )
     )
@@ -189,7 +189,7 @@ def setup_protected_visible_table(
         execute_sql(
             postgres.connection,
             "postgres/create_table",
-            mapping={"schema": schema, "table": "visible", "columns": "id_cras text"},
+            mapping={"schema": schema, "table": "visible", "columns": "region_id text"},
         )
     )
     asyncio.run(
@@ -204,7 +204,7 @@ def setup_protected_visible_table(
             postgres.backend,
             schema,
             "visible",
-            [UnitMapping(column="id_cras", unit_type="cras")],
+            [UnitMapping(column="region_id", unit_type="region")],
             "preferred_username",
         )
     )
@@ -235,7 +235,7 @@ def check_protected_visible(
     rows = asyncio.run(
         fetch_fixture_rows(
             postgres,
-            "postgres/select_visible_id_cras",
+            "postgres/select_visible_region_id",
             {"schema": access_policy_schema},
         )
     )
@@ -264,7 +264,7 @@ def check_protected_empty(
     rows = asyncio.run(
         fetch_fixture_rows(
             postgres,
-            "postgres/select_visible_id_cras",
+            "postgres/select_visible_region_id",
             {"schema": access_policy_schema},
         )
     )
@@ -277,17 +277,17 @@ def setup_multi_rls_table(postgres: Postgres, access_policy_schema: str) -> None
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"CREATE TABLE {schema}.multi_visible (id_cras text, id_escola text)".encode()
+            f"CREATE TABLE {schema}.multi_visible (region_id text, group_id text)".encode()
         )
     )
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.multi_visible VALUES ('cras_allowed', 'other'), ('other', 'escola_allowed'), ('denied', 'denied')".encode()
+            f"INSERT INTO {schema}.multi_visible VALUES ('region_allowed', 'other'), ('other', 'group_allowed'), ('denied', 'denied')".encode()
         )
     )
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('alice', false, 'cras', 'cras_allowed'), ('alice', false, 'escola', 'escola_allowed'), ('admin', true, NULL, NULL)".encode()
+            f"INSERT INTO {schema}.access_policy (subject, unit_type, unit_id) VALUES ('alice', 'region', 'region_allowed'), ('alice', 'group', 'group_allowed')".encode()
         )
     )
     asyncio.run(
@@ -301,8 +301,8 @@ def setup_multi_rls_table(postgres: Postgres, access_policy_schema: str) -> None
             schema,
             "multi_visible",
             [
-                UnitMapping(column="id_cras", unit_type="cras"),
-                UnitMapping(column="id_escola", unit_type="escola"),
+                UnitMapping(column="region_id", unit_type="region"),
+                UnitMapping(column="group_id", unit_type="group"),
             ],
             "preferred_username",
         )
@@ -394,12 +394,12 @@ def check_multi_rls_rows(postgres: Postgres, access_policy_schema: str) -> None:
     )
     cursor = asyncio.run(
         postgres.connection.execute(
-            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible ORDER BY id_cras".encode()
+            f"SELECT region_id, group_id FROM {access_policy_schema}.multi_visible ORDER BY region_id".encode()
         )
     )
     assert asyncio.run(cursor.fetchall()) == [
-        ("cras_allowed", "other"),
-        ("other", "escola_allowed"),
+        ("other", "group_allowed"),
+        ("region_allowed", "other"),
     ]
 
     asyncio.run(postgres.connection.execute(b"RESET ROLE"))
@@ -409,19 +409,15 @@ def check_multi_rls_rows(postgres: Postgres, access_policy_schema: str) -> None:
     )
     cursor = asyncio.run(
         postgres.connection.execute(
-            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible ORDER BY id_cras".encode()
+            f"SELECT region_id, group_id FROM {access_policy_schema}.multi_visible ORDER BY region_id".encode()
         )
     )
-    assert asyncio.run(cursor.fetchall()) == [
-        ("cras_allowed", "other"),
-        ("denied", "denied"),
-        ("other", "escola_allowed"),
-    ]
+    assert asyncio.run(cursor.fetchall()) == []
 
     asyncio.run(postgres.connection.execute(b"RESET app.claim_preferred_username"))
     cursor = asyncio.run(
         postgres.connection.execute(
-            f"SELECT id_cras, id_escola FROM {access_policy_schema}.multi_visible".encode()
+            f"SELECT region_id, group_id FROM {access_policy_schema}.multi_visible".encode()
         )
     )
     assert asyncio.run(cursor.fetchall()) == []
@@ -450,7 +446,7 @@ def insert_policy_grant_123(
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('123', true, 'cras', '42')".encode()
+            f"INSERT INTO {schema}.access_policy (subject, unit_type, unit_id) VALUES ('123', 'region', '42')".encode()
         )
     )
     asyncio.run(postgres.connection.commit())
@@ -466,7 +462,7 @@ def check_insert_log(
             postgres, "postgres/access_log_entries", {"schema": access_policy_schema}
         )
     )
-    assert rows == [("123", True, "cras", "42", "insert")]
+    assert rows == [("123", "region", "42", "insert")]
 
 
 @when('I insert and update the access-policy grant for "456"')
@@ -477,13 +473,13 @@ def insert_and_update_grant(
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('456', false, 'escola', '7')".encode()
+            f"INSERT INTO {schema}.access_policy (subject, unit_type, unit_id) VALUES ('456', 'group', '7')".encode()
         )
     )
     asyncio.run(postgres.connection.commit())
     asyncio.run(
         postgres.connection.execute(
-            f"UPDATE {schema}.access_policy SET is_admin = true WHERE subject = '456'".encode()
+            f"UPDATE {schema}.access_policy SET unit_id = '8' WHERE subject = '456'".encode()
         )
     )
     asyncio.run(postgres.connection.commit())
@@ -500,8 +496,8 @@ def check_update_log(
         )
     )
     assert len(rows) == 2
-    assert rows[0] == ("456", False, "escola", "7", "insert")
-    assert rows[1] == ("456", False, "escola", "7", "update")
+    assert rows[0] == ("456", "group", "7", "insert")
+    assert rows[1] == ("456", "group", "7", "update")
 
 
 @when('I insert and delete the access-policy grant for "789"')
@@ -512,7 +508,7 @@ def insert_and_delete_grant(
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('789', false, 'ap', '1')".encode()
+            f"INSERT INTO {schema}.access_policy (subject, unit_type, unit_id) VALUES ('789', 'ap', '1')".encode()
         )
     )
     asyncio.run(postgres.connection.commit())
@@ -535,8 +531,8 @@ def check_delete_log(
         )
     )
     assert len(rows) == 2
-    assert rows[0] == ("789", False, "ap", "1", "insert")
-    assert rows[1] == ("789", False, "ap", "1", "delete")
+    assert rows[0] == ("789", "ap", "1", "insert")
+    assert rows[1] == ("789", "ap", "1", "delete")
 
 
 @when('I insert a recent access-policy grant for "recent"')
@@ -547,7 +543,7 @@ def insert_recent_grant(
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_policy (subject, is_admin, unit_type, unit_id) VALUES ('recent', true, 'cras', '1')".encode()
+            f"INSERT INTO {schema}.access_policy (subject, unit_type, unit_id) VALUES ('recent', 'region', '1')".encode()
         )
     )
     asyncio.run(postgres.connection.commit())
@@ -561,7 +557,7 @@ def insert_stale_log(
     schema = access_policy_schema
     asyncio.run(
         postgres.connection.execute(
-            f"INSERT INTO {schema}.access_log (subject, is_admin, unit_type, unit_id, action, changed_at) VALUES ('stale', false, 'escola', '2', 'delete', now() - interval '100 days')".encode()
+            f"INSERT INTO {schema}.access_log (subject, unit_type, unit_id, action, changed_at) VALUES ('stale', 'group', '2', 'delete', now() - interval '100 days')".encode()
         )
     )
     asyncio.run(postgres.connection.commit())

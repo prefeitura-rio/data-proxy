@@ -6,7 +6,7 @@ Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/participants?select=id_cras,name&limit=20"
+  "${BASE_URL}/participants?select=region_id,name&limit=20"
 ```
 
 ## Request routing

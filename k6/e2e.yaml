@@ -69,6 +69,12 @@ spec:
         value: data-proxy-e2e
       - name: POSTGREST_URL
         value: http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000
+      - name: OIDC_TOKEN_URL
+        value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
+      - name: OIDC_USER_CLIENT_ID
+        value: user
+      - name: OIDC_ANON_CLIENT_ID
+        value: anon
       - name: PG_IMAGE
         value: localhost/data-proxy-postgres:17.0.0-local
       - name: CACHE_TTL_SECONDS
@@ -82,11 +88,11 @@ spec:
       - name: MAX_DURATION
         value: "25m"
       - name: PARTITIONED_SOURCE
-        value: rj-ia-desenvolvimento.dev.protocolo_estado_diario
+        value: rj-ia-desenvolvimento.dev.partitioned_table
       - name: K8S_SA_TOKEN_PATH
         value: /var/run/secrets/kubernetes.io/serviceaccount/token
       - name: FULL_SOURCE
-        value: rj-ia-desenvolvimento.dev.endpoint_participante_listagem
+        value: rj-ia-desenvolvimento.dev.full_table
       - name: S3_BUCKET
         value: data-proxy
       - name: DUCKLAKE_CATALOG_PATH

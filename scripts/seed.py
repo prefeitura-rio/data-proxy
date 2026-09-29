@@ -1,6 +1,4 @@
-"""Seed synthetic BigQuery data for the data-proxy sync service.
-Idempotent and safe to re-run.
-"""
+"""Seed synthetic BigQuery data for the data-proxy sync service."""
 
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -29,16 +27,17 @@ type NestedValue = Scalar | dict[str, "NestedValue"]
 type Row = dict[str, NestedValue]
 
 
-DEFAULT_UNIDADES = ["cras_1", "cras_2", "cras_3", "cras_4", "cras_5"]
-DEFAULT_ESTADOS = ["ATIVO", "INATIVO", "SUSPENSO"]
+UNIT_IDS = ["unit_1", "unit_2", "unit_3", "unit_4", "unit_5"]
+REGION_IDS = ["region_1", "region_2", "region_3"]
+GROUP_IDS = ["group_1", "group_2", "group_3"]
+STATUSES = ["active", "inactive", "pending"]
 
 
 @dataclass
 class Config:
     project: str | None
     dataset: str
-    n_participantes: int
-    protocolos_por_participante: tuple[int, int]
+    n_rows: int
     partition_days: int
     seed: int
     sync_config: Path
@@ -54,27 +53,19 @@ def parse_args() -> Config:
     parser.add_argument(
         "--dataset",
         default=environ.get("BQ_DATASET", "dev"),
-        help="BigQuery dataset for both tables",
+        help="BigQuery dataset for all tables",
     )
     parser.add_argument(
-        "--n-participantes",
+        "--n-rows",
         type=int,
         default=500,
-        help="Number of participants to generate",
-    )
-    parser.add_argument(
-        "--protocolos-por-participante",
-        type=int,
-        nargs=2,
-        default=[1, 3],
-        metavar=("MIN", "MAX"),
-        help="Range of protocolos per participant",
+        help="Number of rows to generate per table",
     )
     parser.add_argument(
         "--partition-days",
         type=int,
         default=7,
-        help="Number of partition days for the window table",
+        help="Number of partition days for the partitioned table",
     )
     parser.add_argument(
         "--seed",
@@ -86,7 +77,7 @@ def parse_args() -> Config:
         "--sync-config",
         type=Path,
         default=Path("config/sync.test.json"),
-        help="Sync configuration that lists the development tables",
+        help="Sync configuration that lists the test tables",
     )
 
     args = parser.parse_args()
@@ -94,73 +85,53 @@ def parse_args() -> Config:
     return Config(
         project=cast("str | None", args.project),
         dataset=cast(str, args.dataset),
-        n_participantes=cast(int, args.n_participantes),
-        protocolos_por_participante=cast(
-            "tuple[int, int]",
-            tuple(cast("list[int]", args.protocolos_por_participante)),
-        ),
+        n_rows=cast(int, args.n_rows),
         partition_days=cast(int, args.partition_days),
         seed=cast(int, args.seed),
         sync_config=cast(Path, args.sync_config),
     )
 
 
-def build_participantes(n: int) -> list[Row]:
+def build_full_table_rows(n: int) -> list[Row]:
+    return [
+        {
+            "id": str(i + 1),
+            "name": f"Row {uuid4().hex[:8]}",
+            "unit_id": choice(UNIT_IDS),
+            "metadata": {
+                "status": choice(STATUSES),
+                "tags": choice([None, "alpha", "beta", "gamma"]),
+            },
+        }
+        for i in range(n)
+    ]
+
+
+def build_multi_rls_table_rows(n: int) -> list[Row]:
+    return [
+        {
+            "id": str(i + 1),
+            "name": f"Row {uuid4().hex[:8]}",
+            "region_id": choice(REGION_IDS),
+            "group_id": choice(GROUP_IDS),
+        }
+        for i in range(n)
+    ]
+
+
+def build_partitioned_table_rows(n: int, max_days: int) -> list[Row]:
     rows: list[Row] = []
+    now = datetime.now(tz=UTC).date()
     for i in range(n):
-        birth = datetime.now(tz=UTC).date() - timedelta(days=randint(365, 365 * 18))
+        ref_date = now - timedelta(days=randint(0, max_days - 1))
         rows.append(
             {
                 "id": str(i + 1),
-                "nome": f"Participante {uuid4().hex[:8]}",
-                "cpf": (
-                    f"{randint(100, 999):03d}"
-                    f"{randint(100, 999):03d}"
-                    f"{randint(100, 999):03d}"
-                    f"{randint(10, 99):02d}"
-                ),
-                "data_nascimento": birth.isoformat(),
-                "id_unidade": choice(DEFAULT_UNIDADES),
-                "indicadores": {
-                    "status": choice(DEFAULT_ESTADOS),
-                    "secretaria": choice(["smas", "sme", "sms"]),
-                    "smas": {
-                        "acesso_alimentacao": choice([None, "regular", "irregular"]),
-                        "cadunico_atualizado": choice([None, "regular", "irregular"]),
-                    },
-                    "sme": {
-                        "frequencia_escolar": choice([None, "regular", "irregular"]),
-                        "matriculado_creche": choice([None, "sim", "nao"]),
-                    },
-                    "sms": {
-                        "consultas_pre_natal": choice([None, "regular", "irregular"]),
-                        "vacinacao_pentavalente": choice(
-                            [None, "regular", "irregular"]
-                        ),
-                    },
-                },
+                "date": ref_date.isoformat(),
+                "status": choice(STATUSES),
+                "unit_id": choice(UNIT_IDS),
             }
         )
-    return rows
-
-
-def build_protocolos(
-    n: int, max_days: int, protocolos_range: tuple[int, int]
-) -> list[Row]:
-    rows: list[Row] = []
-    now = datetime.now(tz=UTC).date()
-    for _ in range(n):
-        n_prot = randint(*protocolos_range)
-        for _ in range(n_prot):
-            ref_date = now - timedelta(days=randint(0, max_days - 1))
-            rows.append(
-                {
-                    "protocolo_id": f"P-{uuid4().hex[:12]}",
-                    "protocolo_data_referencia_particicao": ref_date.isoformat(),
-                    "estado": choice(DEFAULT_ESTADOS),
-                    "id_unidade": choice(DEFAULT_UNIDADES),
-                }
-            )
     return rows
 
 
@@ -171,15 +142,14 @@ def load_table(
     schema: list[SchemaField],
     time_partitioning: TimePartitioning | None = None,
 ) -> None:
-    full_table_id = table_ref
     job_config = LoadJobConfig(
         schema=schema,
         time_partitioning=time_partitioning,
         write_disposition=WriteDisposition.WRITE_TRUNCATE,
     )
-    job = client.load_table_from_json(rows, full_table_id, job_config=job_config)
+    job = client.load_table_from_json(rows, table_ref, job_config=job_config)
     job.result()
-    logger.info("Rows loaded rows=%d table=%s", len(rows), full_table_id)
+    logger.info("Rows loaded rows=%d table=%s", len(rows), table_ref)
 
 
 def main() -> None:
@@ -191,14 +161,14 @@ def main() -> None:
     sync_config = SyncConfig.model_validate_json(cfg.sync_config.read_text())
     table_refs = {table.name for table in sync_config.tables}
     required_tables = {
-        "rj-ia-desenvolvimento.dev.endpoint_participante_listagem",
-        "rj-ia-desenvolvimento.dev.protocolo_estado_diario",
-        "rj-ia-desenvolvimento.dev.endpoint_participantes",
+        "rj-ia-desenvolvimento.dev.full_table",
+        "rj-ia-desenvolvimento.dev.partitioned_table",
+        "rj-ia-desenvolvimento.dev.multi_rls_table",
     }
     missing_tables = required_tables - table_refs
     if missing_tables:
         raise ValueError(
-            f"sync config is missing development tables: {sorted(missing_tables)}"
+            f"sync config is missing test tables: {sorted(missing_tables)}"
         )
 
     def table_ref(table_name: str) -> str:
@@ -211,117 +181,62 @@ def main() -> None:
 
     client.create_dataset(cfg.dataset, exists_ok=True)
 
-    participantes = build_participantes(cfg.n_participantes)
+    full_rows = build_full_table_rows(cfg.n_rows)
     load_table(
         client,
-        table_ref("endpoint_participante_listagem"),
-        participantes,
+        table_ref("full_table"),
+        full_rows,
         schema=[
             SchemaField("id", "STRING", mode="REQUIRED"),
-            SchemaField("nome", "STRING", mode="REQUIRED"),
-            SchemaField("cpf", "STRING", mode="REQUIRED"),
-            SchemaField("data_nascimento", "DATE", mode="REQUIRED"),
-            SchemaField("id_unidade", "STRING", mode="REQUIRED"),
+            SchemaField("name", "STRING", mode="REQUIRED"),
+            SchemaField("unit_id", "STRING", mode="REQUIRED"),
             SchemaField(
-                "indicadores",
+                "metadata",
                 "RECORD",
                 mode="NULLABLE",
                 fields=[
                     SchemaField("status", "STRING", mode="NULLABLE"),
-                    SchemaField("secretaria", "STRING", mode="NULLABLE"),
-                    SchemaField(
-                        "smas",
-                        "RECORD",
-                        mode="NULLABLE",
-                        fields=[
-                            SchemaField(
-                                "acesso_alimentacao", "STRING", mode="NULLABLE"
-                            ),
-                            SchemaField(
-                                "cadunico_atualizado", "STRING", mode="NULLABLE"
-                            ),
-                        ],
-                    ),
-                    SchemaField(
-                        "sme",
-                        "RECORD",
-                        mode="NULLABLE",
-                        fields=[
-                            SchemaField(
-                                "frequencia_escolar", "STRING", mode="NULLABLE"
-                            ),
-                            SchemaField(
-                                "matriculado_creche", "STRING", mode="NULLABLE"
-                            ),
-                        ],
-                    ),
-                    SchemaField(
-                        "sms",
-                        "RECORD",
-                        mode="NULLABLE",
-                        fields=[
-                            SchemaField(
-                                "consultas_pre_natal", "STRING", mode="NULLABLE"
-                            ),
-                            SchemaField(
-                                "vacinacao_pentavalente", "STRING", mode="NULLABLE"
-                            ),
-                        ],
-                    ),
+                    SchemaField("tags", "STRING", mode="NULLABLE"),
                 ],
             ),
         ],
     )
 
-    protocolos = build_protocolos(
-        cfg.n_participantes,
-        cfg.partition_days,
-        cfg.protocolos_por_participante,
-    )
+    partitioned_rows = build_partitioned_table_rows(cfg.n_rows, cfg.partition_days)
     load_table(
         client,
-        table_ref("protocolo_estado_diario"),
-        protocolos,
+        table_ref("partitioned_table"),
+        partitioned_rows,
         schema=[
-            SchemaField("protocolo_id", "STRING", mode="REQUIRED"),
-            SchemaField(
-                "protocolo_data_referencia_particicao", "DATE", mode="REQUIRED"
-            ),
-            SchemaField("estado", "STRING", mode="REQUIRED"),
-            SchemaField("id_unidade", "STRING", mode="REQUIRED"),
+            SchemaField("id", "STRING", mode="REQUIRED"),
+            SchemaField("date", "DATE", mode="REQUIRED"),
+            SchemaField("status", "STRING", mode="REQUIRED"),
+            SchemaField("unit_id", "STRING", mode="REQUIRED"),
         ],
         time_partitioning=TimePartitioning(
             type_=TimePartitioningType.DAY,
-            field="protocolo_data_referencia_particicao",
+            field="date",
         ),
     )
 
-    participantes_extra: list[Row] = [
-        {
-            "id": str(i + 1),
-            "nome": f"Participante {uuid4().hex[:8]}",
-            "id_cras": choice(DEFAULT_UNIDADES),
-            "id_escola": f"escola_{randint(1, 5)}",
-        }
-        for i in range(cfg.n_participantes)
-    ]
+    multi_rls_rows = build_multi_rls_table_rows(cfg.n_rows)
     load_table(
         client,
-        table_ref("endpoint_participantes"),
-        participantes_extra,
+        table_ref("multi_rls_table"),
+        multi_rls_rows,
         schema=[
             SchemaField("id", "STRING", mode="REQUIRED"),
-            SchemaField("nome", "STRING", mode="REQUIRED"),
-            SchemaField("id_cras", "STRING", mode="REQUIRED"),
-            SchemaField("id_escola", "STRING", mode="REQUIRED"),
+            SchemaField("name", "STRING", mode="REQUIRED"),
+            SchemaField("region_id", "STRING", mode="REQUIRED"),
+            SchemaField("group_id", "STRING", mode="REQUIRED"),
         ],
     )
 
     logger.info(
-        "Seed completed participantes=%d protocolos=%d units=%d",
-        len(participantes),
-        len(protocolos),
-        len(DEFAULT_UNIDADES),
+        "Seed completed full=%d partitioned=%d multi_rls=%d",
+        len(full_rows),
+        len(partitioned_rows),
+        len(multi_rls_rows),
     )
 
 

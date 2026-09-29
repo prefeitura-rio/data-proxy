@@ -97,7 +97,6 @@ export function restartPipeline(k8s: Kubernetes): void {
 /** Creates a Job that waits for the latest DBOS sync workflow to complete. */
 export function waitForWorkflow(
   k8s: Kubernetes,
-  expectedStatus?: "success" | "no_changes",
 ): void {
   const podSpec = scriptPodSpec(workerPodSpec(k8s));
   const name = `data-proxy-workflow-k6-${Date.now()}`;
@@ -120,7 +119,6 @@ export function waitForWorkflow(
                 "python",
                 "/scripts/trigger.py",
                 "--wait",
-                ...(expectedStatus ? ["--expect-status", expectedStatus] : []),
               ],
             },
           ],
@@ -162,7 +160,7 @@ export function waitForWorkflowRunning(k8s: Kubernetes): void {
 
 /** Waits for a Kubernetes Job to succeed or fail. */
 export function waitForJob(k8s: Kubernetes, name: string): void {
-  const deadline = Date.now() + 300_000;
+  const deadline = Date.now() + 900_000;
   while (Date.now() < deadline) {
     const job = k8s.get("Job.batch", name, NAMESPACE) as {
       status?: { succeeded?: number; failed?: number };

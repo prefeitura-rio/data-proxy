@@ -35,10 +35,10 @@ const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest.data-p
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
 const TOKEN_REFRESH_SECONDS = 30;
 const FALLBACK_OFFSET_MAX = 20;
-const PARTITION_COLUMN = "protocolo_data_referencia_particicao";
+const PARTITION_COLUMN = "date";
 
-const CLIENT_IDS = ["user-with-access", "user-cras-2", "user-escola-3"];
-const LOAD_TABLES = ["endpoint_participante_listagem", "endpoint_participantes", "protocolo_estado_diario"];
+const CLIENT_IDS = ["user", "user", "user"];
+const LOAD_TABLES = ["full_table", "multi_rls_table", "partitioned_table"];
 
 const PROFILES: Record<string, Profile> = {
     smoke: {
@@ -122,78 +122,78 @@ function authorizedRows(
     };
 }
 
-const ACCESS_POLICY_ROWS = [{ subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
-{ subject: "user-1", unit_type: "cras", unit_id: "cras_1" },
-{ subject: "user-1", unit_type: "escola", unit_id: "escola_1" },
-{ subject: "user-cras-2", unit_type: "unidade", unit_id: "cras_2" },
-{ subject: "user-cras-2", unit_type: "cras", unit_id: "cras_2" },
-{ subject: "user-escola-3", unit_type: "escola", unit_id: "escola_3" },
+const ACCESS_POLICY_ROWS = [{ subject: "user-1", unit_type: "unit", unit_id: "unit_1" },
+{ subject: "user-1", unit_type: "region", unit_id: "unit_1" },
+{ subject: "user-1", unit_type: "group", unit_id: "group_1" },
+{ subject: "user", unit_type: "unit", unit_id: "unit_2" },
+{ subject: "user", unit_type: "region", unit_id: "unit_2" },
+{ subject: "user", unit_type: "group", unit_id: "group_3" },
 ];
 
 const ROUTES: Route[] = [
     {
-        profile: "pic",
-        path: "/endpoint_participante_listagem?id_unidade=eq.cras_1&limit=20",
-        name: "pic_endpoint_participante_listagem_cras_1",
+        profile: "test",
+        path: "/full_table?unit_id=eq.unit_1&limit=20",
+        name: "test_full_table_unit_1",
         weight: 30,
-        clients: ["user-with-access"],
-        checkBody: authorizedRows("id_unidade", ["cras_1"]),
+        clients: ["user"],
+        checkBody: authorizedRows("unit_id", ["unit_1"]),
     },
     {
-        profile: "pic",
-        path: "/endpoint_participante_listagem?id_unidade=eq.cras_2&limit=20",
-        name: "pic_endpoint_participante_listagem_cras_2",
+        profile: "test",
+        path: "/full_table?unit_id=eq.unit_2&limit=20",
+        name: "test_full_table_unit_2",
         weight: 30,
-        clients: ["user-cras-2"],
-        checkBody: authorizedRows("id_unidade", ["cras_2"]),
+        clients: ["user"],
+        checkBody: authorizedRows("unit_id", ["unit_2"]),
     },
     {
-        profile: "pic",
-        path: "/endpoint_participantes?id_cras=eq.cras_1&limit=20",
-        name: "projeto_endpoint_participantes_cras_1",
+        profile: "test",
+        path: "/multi_rls_table?region_id=eq.unit_1&limit=20",
+        name: "projeto_multi_rls_table_unit_1",
         weight: 20,
-        clients: ["user-with-access"],
-        checkBody: authorizedRows("id_cras", ["cras_1"]),
+        clients: ["user"],
+        checkBody: authorizedRows("region_id", ["unit_1"]),
     },
     {
-        profile: "pic",
-        path: "/endpoint_participantes?id_cras=eq.cras_2&limit=20",
-        name: "projeto_endpoint_participantes_cras_2",
+        profile: "test",
+        path: "/multi_rls_table?region_id=eq.unit_2&limit=20",
+        name: "projeto_multi_rls_table_unit_2",
         weight: 20,
-        clients: ["user-cras-2"],
-        checkBody: authorizedRows("id_cras", ["cras_2"]),
+        clients: ["user"],
+        checkBody: authorizedRows("region_id", ["unit_2"]),
     },
     {
-        profile: "pic",
-        path: "/endpoint_participantes?id_escola=eq.escola_1&limit=20",
-        name: "projeto_endpoint_participantes_escola_1",
+        profile: "test",
+        path: "/multi_rls_table?group_id=eq.group_1&limit=20",
+        name: "projeto_multi_rls_table_group_1",
         weight: 15,
-        clients: ["user-with-access"],
-        checkBody: authorizedRows("id_escola", ["escola_1"]),
+        clients: ["user"],
+        checkBody: authorizedRows("group_id", ["group_1"]),
     },
     {
-        profile: "pic",
-        path: "/endpoint_participantes?id_escola=eq.escola_3&limit=20",
-        name: "projeto_endpoint_participantes_escola_3",
+        profile: "test",
+        path: "/multi_rls_table?group_id=eq.group_3&limit=20",
+        name: "projeto_multi_rls_table_group_3",
         weight: 30,
-        clients: ["user-escola-3"],
-        checkBody: authorizedRows("id_escola", ["escola_3"]),
+        clients: ["user"],
+        checkBody: authorizedRows("group_id", ["group_3"]),
     },
     {
-        profile: "pic",
-        path: "/protocolo_estado_diario?id_unidade=eq.cras_1&limit=20&order=protocolo_data_referencia_particicao.desc",
-        name: "projeto_protocolo_estado_diario_cras_1",
+        profile: "test",
+        path: "/partitioned_table?unit_id=eq.unit_1&limit=20&order=date.desc",
+        name: "projeto_partitioned_table_unit_1",
         weight: 15,
-        clients: ["user-with-access"],
-        checkBody: authorizedRows("id_unidade", ["cras_1"]),
+        clients: ["user"],
+        checkBody: authorizedRows("unit_id", ["unit_1"]),
     },
     {
-        profile: "pic",
-        path: "/protocolo_estado_diario?id_unidade=eq.cras_2&limit=20&order=protocolo_data_referencia_particicao.desc",
-        name: "projeto_protocolo_estado_diario_cras_2",
+        profile: "test",
+        path: "/partitioned_table?unit_id=eq.unit_2&limit=20&order=date.desc",
+        name: "projeto_partitioned_table_unit_2",
         weight: 15,
-        clients: ["user-cras-2"],
-        checkBody: authorizedRows("id_unidade", ["cras_2"]),
+        clients: ["user"],
+        checkBody: authorizedRows("unit_id", ["unit_2"]),
     },
 ];
 
@@ -221,7 +221,7 @@ function seedAccessPolicy(): void {
     const headers = {
         Authorization: `Bearer ${token.token}`,
         Host: HOST,
-        "Accept-Profile": "pic",
+        "Accept-Profile": "test",
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",
     };
@@ -239,8 +239,8 @@ function seedAccessPolicy(): void {
 function verifyNoAccess(): void {
     const token = fetchToken("user-no-access");
     const response = http.get(
-        `${API_URL}/endpoint_participante_listagem?limit=1`,
-        { headers: { Authorization: `Bearer ${token.token}`, Host: HOST, "Accept-Profile": "pic" }, tags: { name: "no_access_check" } },
+        `${API_URL}/full_table?limit=1`,
+        { headers: { Authorization: `Bearer ${token.token}`, Host: HOST, "Accept-Profile": "test" }, tags: { name: "no_access_check" } },
     ) as K6Response;
     const body = response.json();
     check(response, {
@@ -257,7 +257,7 @@ function waitForLocalTables(token: string): void {
     while (Date.now() < deadline) {
         missing = LOAD_TABLES.filter((table) => {
             const response = http.get(`${POSTGREST_URL}/${table}?limit=1`, {
-                headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "pic" },
+                headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "test" },
                 tags: { name: `load_setup:${table}` },
             }) as K6Response;
             const body = response.json();
@@ -273,8 +273,8 @@ function waitForLocalTables(token: string): void {
 /** Returns the two days immediately before the oldest local protocol partition. */
 function fallbackDates(token: string): string[] {
     const response = http.get(
-        `${POSTGREST_URL}/protocolo_estado_diario?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
-        { headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "pic" }, tags: { name: "load_setup:fallback_dates" } },
+        `${POSTGREST_URL}/partitioned_table?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
+        { headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "test" }, tags: { name: "load_setup:fallback_dates" } },
     ) as K6Response;
     const rows = response.json() as Record<string, unknown>[];
     const partition = String(rows[0]?.[PARTITION_COLUMN] || "");
@@ -357,9 +357,9 @@ function request(route: Route, token: string): void {
 function requestFallbackPair(clientId: string, token: string, dates: string[]): void {
     const date = dates[Math.floor(Math.random() * dates.length)];
     const offset = Math.floor(Math.random() * FALLBACK_OFFSET_MAX);
-    const path = `/protocolo_estado_diario?protocolo_data_referencia_particicao=eq.${date}&select=protocolo_id&limit=20&offset=${offset}`;
+    const path = `/partitioned_table?date=eq.${date}&select=id&limit=20&offset=${offset}`;
     const params = {
-        headers: { Authorization: `Bearer ${token}`, Host: HOST, "Accept-Profile": "pic" },
+        headers: { Authorization: `Bearer ${token}`, Host: HOST, "Accept-Profile": "test" },
         tags: { name: `bigquery_protocol:${clientId}` },
     };
     const first = http.get(`${API_URL}${path}`, params) as K6Response;
@@ -384,7 +384,7 @@ export default function(data: SetupData): void {
     const vu = (__VU - 1) % CLIENT_IDS.length;
     const clientId = CLIENT_IDS[vu];
     const token = ensureToken(clientId, data.tokens[vu]);
-    if (clientId !== "user-escola-3" && Math.random() < 0.25) {
+    if (clientId !== "user" && Math.random() < 0.25) {
         requestFallbackPair(clientId, token.token, data.fallbackDates);
     } else {
         request(pickRoute(clientId), token.token);

@@ -67,7 +67,7 @@ redis:
 ha:
   enabled: true
   schemas:
-    - name: bcadastro
+    - name: test
       postgrest:
         triggers: []
       fallback:
@@ -81,31 +81,6 @@ The Redis Secret contains a JSON value under `REDIS`:
 ```
 
 An empty PostgreSQL trigger list uses CPU. Empty PostgREST and nginx trigger lists use CPU and memory. Redis has no autoscaler unless custom triggers are supplied.
-
-## Migrate between modes
-
-Use two values files. Keep the shared local values first and the HA overlay second:
-
-```sh
-helm upgrade data-proxy ./helm \
-  --namespace data-proxy \
-  --values scripts/values/data-proxy.yaml \
-  --values scripts/values/data-proxy-ha.yaml \
-  --kubeconfig .kubeconfig \
-  --kube-context data-proxy
-```
-
-The migration callback retains the source CNPG topology while Helm creates and initializes the target. It copies each configured schema with an idempotent dump/restore, waits for target initialization, and records `data-proxy-mode-state`. Run a normal reconciliation after the migration to prune retained source resources. Reverse the values-file order for HA to shared:
-
-```sh
-helm upgrade data-proxy ./helm \
-  --namespace data-proxy \
-  --values scripts/values/data-proxy.yaml \
-  --kubeconfig .kubeconfig \
-  --kube-context data-proxy
-```
-
-Don't delete CNPG or application resources during a transition. A errored release can be retried after the source state is inspected; preserve the source topology until the copy succeeds.
 
 ## Versioning
 

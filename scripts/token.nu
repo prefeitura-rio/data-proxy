@@ -24,7 +24,7 @@ def main []: nothing -> nothing {
         -d
         grant_type=client_credentials
         -d
-        client_id=user-with-access
+        client_id=user
         -d
         client_secret=test-secret
     ]
@@ -42,5 +42,5 @@ def main []: nothing -> nothing {
     print "
 # Test RLS:
 kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80 >/tmp/data-proxy-api-port-forward.log 2>&1 &"
-    print $"curl -s http://localhost:3111/endpoint_participante_listagem -H 'Host: data-proxy.local' -H 'Accept-Profile: pic' -H \"Authorization: Bearer ($token)\""
+    print $"curl -s http://localhost:3111/full_table -H 'Host: data-proxy.local' -H 'Accept-Profile: test' -H \"Authorization: Bearer ($token)\""
 }

@@ -191,7 +191,7 @@ function decodeJWT(header: string): { sub: string; schemas: string } {
             : claims.schemas || "";
 
         return { sub: sub, schemas: schemas };
-    } catch {
+    } catch (error) {
         return { sub: "anon", schemas: "" };
     }
 }

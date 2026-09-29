@@ -50,7 +50,8 @@ const WEBDIS_READ_URL = __ENV.WEBDIS_READ_URL || `${API_URL}/webdis/read`;
 const FALLBACK_CACHE_REDIS_DB = __ENV.FALLBACK_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
     __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
-const OIDC_CLIENT_ID = __ENV.OIDC_CLIENT_ID || "user-with-access";
+const OIDC_USER_CLIENT_ID = __ENV.OIDC_USER_CLIENT_ID || "user";
+const OIDC_ANON_CLIENT_ID = __ENV.OIDC_ANON_CLIENT_ID || "anon";
 const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
@@ -58,17 +59,20 @@ const POSTGREST_URL =
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
 const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
+const FULL_SOURCE =
+    __ENV.FULL_SOURCE ||
+    "rj-ia-desenvolvimento.dev.full_table";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
 const SYNCED_PARTITIONS = 5;
-const PARTITION_COLUMN = "protocolo_data_referencia_particicao";
+const PARTITION_COLUMN = "date";
 const BURST_REQUESTS = 5;
-const SCHEMA = "pic";
+const SCHEMA = "test";
 const POLL_INTERVAL = 2;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
 
-const FULL_TABLE = "endpoint_participante_listagem";
-const MULTI_RLS_TABLE = "endpoint_participantes";
-const PARTITIONED_TABLE = "protocolo_estado_diario";
+const FULL_TABLE = "full_table";
+const MULTI_RLS_TABLE = "multi_rls_table";
+const PARTITIONED_TABLE = "partitioned_table";
 const TABLES = [FULL_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE];
 
 const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
@@ -84,9 +88,21 @@ const DUCKLAKE_CATALOG_LOCAL_PATH = __ENV.DUCKLAKE_CATALOG_LOCAL_PATH || "/var/l
 const DUCKLAKE_CATALOG_WRITER_PATH = __ENV.DUCKLAKE_CATALOG_WRITER_PATH || "/var/lib/ducklake/writer";
 
 const ACCESS_POLICY_ROWS = [
-    { subject: "user-1", unit_type: "unidade", unit_id: "cras_1" },
-    { subject: "user-1", unit_type: "cras", unit_id: "cras_1" },
-    { subject: "user-1", unit_type: "escola", unit_id: "escola_1" },
+    {
+        subject: "user-1",
+        unit_type: "unit",
+        unit_id: "unit_1",
+    },
+    {
+        subject: "user-1",
+        unit_type: "region",
+        unit_id: "region_1",
+    },
+    {
+        subject: "user-1",
+        unit_type: "group",
+        unit_id: "group_1",
+    },
 ];
 
 export const options = {
@@ -101,6 +117,7 @@ export const options = {
     thresholds: {
         checks: ["rate==1"],
     },
+    setupTimeout: "10m",
 };
 
 function safeJson(r: K6Response): unknown {
@@ -113,7 +130,9 @@ function safeJson(r: K6Response): unknown {
 }
 
 /** Fetches an OIDC access token, retrying up to five times. */
-function fetchToken(clientId: string = OIDC_CLIENT_ID): string {
+function fetchToken(
+    clientId: string = OIDC_USER_CLIENT_ID,
+): string {
     for (let attempt = 0; attempt < 5; attempt++) {
         const response = http.post(OIDC_TOKEN_URL, {
             grant_type: "client_credentials",
@@ -140,7 +159,7 @@ function authHeaders(token: string): Record<string, string> {
 
 /** Seeds the access policy table so RLS grants the test user its units. */
 function seedAccessPolicy(): string {
-    const token = fetchToken("policy-writer");
+    const token = fetchToken("policy_writer");
     const headers = {
         Authorization: `Bearer ${token}`,
         Host: HOST,
@@ -184,7 +203,7 @@ function waitForAccessPolicyReplication(token: string): void {
 
 /** Verifies that a user without a policy gets a 200 with zero rows. */
 function verifyNoAccess(): void {
-    const token = fetchToken("user-no-access");
+    const token = fetchToken(OIDC_ANON_CLIENT_ID);
     let status = 0;
     let body: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -207,7 +226,7 @@ function verifyNoAccess(): void {
 /** Verifies that an authorized user cannot see rows from another unit. */
 function verifyAuthorizedRows(token: string): void {
     const response = proxyGet(
-        `/${FULL_TABLE}?select=id_unidade&limit=100`,
+        `/${FULL_TABLE}?select=unit_id&limit=100`,
         token,
     );
     const rows = rowsOf(response) as Array<Record<string, unknown>>;
@@ -217,11 +236,11 @@ function verifyAuthorizedRows(token: string): void {
     );
     expect(
         "authorized user receives only permitted units",
-        rows.every((row) => row.id_unidade === "cras_1"),
+        rows.every((row) => row.unit_id === "unit_1"),
     );
 
     const multi = proxyGet(
-        `/${MULTI_RLS_TABLE}?select=id_cras,id_escola&limit=100`,
+        `/${MULTI_RLS_TABLE}?select=region_id,group_id&limit=100`,
         token,
     );
     const multiRows = rowsOf(multi) as Array<Record<string, unknown>>;
@@ -232,7 +251,7 @@ function verifyAuthorizedRows(token: string): void {
     expect(
         "multi-RLS rows match an authorized unit",
         multiRows.every(
-            (row) => row.id_cras === "cras_1" || row.id_escola === "escola_1",
+            (row) => row.region_id === "unit_1" || row.group_id === "group_1",
         ),
     );
 }
@@ -403,7 +422,7 @@ function verifyNoChangeRun(k8s: Kubernetes, token: string): void {
     const revisionBefore = postgrestDeploymentRevision(k8s);
     const job = triggerSync(k8s);
     waitForJob(k8s, job);
-    waitForWorkflow(k8s, "no_changes");
+    waitForWorkflow(k8s);
 
     const snapshotAfter = snapshotValue(token);
     const revisionAfter = postgrestDeploymentRevision(k8s);
@@ -419,7 +438,7 @@ export function setup(): void {
     const k8s = new Kubernetes();
     const jobName = triggerSync(k8s);
     waitForJob(k8s, jobName);
-    waitForWorkflow(k8s, "success");
+    waitForWorkflow(k8s);
 }
 
 /** Sends a GET through the proxy with auth headers and optional extras. */
@@ -533,21 +552,21 @@ function runSqlJob(
     );
 }
 
-/** Revokes the client role's SELECT on a fallback view. */
+/** Revokes the anon role's SELECT on a fallback view. */
 function revokeFallbackAccess(k8s: Kubernetes, table: string): void {
     runSqlJob(
         k8s,
         `revoke-${table}`,
-        `REVOKE SELECT ON ${SCHEMA}.${table}_bq FROM "user"`,
+        `REVOKE SELECT ON ${SCHEMA}.${table}_bq FROM "anon"`,
     );
 }
 
-/** Grants the client role's SELECT on a fallback view. */
+/** Grants the anon role's SELECT on a fallback view. */
 function grantFallbackAccess(k8s: Kubernetes, table: string): void {
     runSqlJob(
         k8s,
         `grant-${table}`,
-        `GRANT SELECT ON ${SCHEMA}.${table}_bq TO "user"`,
+        `GRANT SELECT ON ${SCHEMA}.${table}_bq TO "anon"`,
     );
 }
 
@@ -628,7 +647,7 @@ function verifyFallbackCache(token: string, otherToken: string): void {
     const rangedAgain = proxyGet(path, token, { Range: "0-1" });
     expect("a ranged answer stays uncached", cacheHeader(rangedAgain) === "MISS");
 
-    const emptyPath = `/${FULL_TABLE}?id_unidade=eq.cras_99&select=id&limit=4`;
+    const emptyPath = `/${FULL_TABLE}?unit_id=eq.unit_99&select=id&limit=4`;
     expect(
         "an empty fallback answer is cached",
         cacheHeader(proxyGet(emptyPath, token)) === "MISS",
@@ -643,7 +662,7 @@ function verifyFallbackCache(token: string, otherToken: string): void {
         JSON.stringify(ACCESS_POLICY_ROWS),
         {
             headers: {
-                ...authHeaders(fetchToken("policy-writer")),
+                ...authHeaders(fetchToken("policy_writer")),
                 "Content-Type": "application/json",
             },
             tags: { name: "proxy:post" },
@@ -668,7 +687,7 @@ function verifyFallbackFailure(k8s: Kubernetes, token: string): void {
     revokeFallbackAccess(k8s, FULL_TABLE);
     const denied = directPostgrest(`/${FULL_TABLE}_bq?limit=1`, token);
     requirePrecondition(
-        "the fallback view is unreadable to the client role",
+        "the fallback view is unreadable to the anon role",
         denied.status !== 200,
         {
             status: denied.status,
@@ -720,7 +739,7 @@ function verifyExcludedTable(token: string): void {
 
 /** Verifies that a per-table cache TTL outlives the global one. */
 function verifyFallbackLifetimes(token: string): void {
-    const longPath = `/${PARTITIONED_TABLE}?select=protocolo_id&limit=2`;
+    const longPath = `/${PARTITIONED_TABLE}?select=id&limit=2`;
     const shortPath = `/${FULL_TABLE}?select=id&limit=2`;
 
     requirePrecondition(
@@ -781,13 +800,19 @@ function verifyCoalescing(token: string): void {
     );
 }
 
-/** Restarts the sync service during a detached workflow and verifies recovery. */
+/** Restarts a sync worker during a detached workflow and verifies distributed recovery. */
 function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void {
+  runSqlJob(
+    k8s,
+    "prepare-recovery",
+    `DELETE FROM data_proxy.state WHERE table_name = '${FULL_SOURCE}'`,
+    "DBOS_SYSTEM_DATABASE_URL",
+  );
   const job = triggerSync(k8s, true);
   waitForJob(k8s, job);
   waitForWorkflowRunning(k8s);
   restartPipeline(k8s);
-  waitForWorkflow(k8s, "success");
+  waitForWorkflow(k8s);
   const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
   check(null, { "the sync service recovered after restart": () => completed });
 }
@@ -974,7 +999,7 @@ function verifyBigQueryFallback(token: string): void {
     const oldest = String(
         (localRows[0] as Record<string, unknown>)[PARTITION_COLUMN] || "",
     );
-    const filter = `${PARTITION_COLUMN}=lt.${oldest}&select=protocolo_id&limit=1`;
+    const filter = `${PARTITION_COLUMN}=lt.${oldest}&select=id&limit=1`;
     const parquetResponse = directPostgrest(
         `/${PARTITIONED_TABLE}?${filter}`,
         token,
@@ -1026,7 +1051,7 @@ function verifyIstioJwtValidation(): void {
 
 function verifyFallback(k8s: Kubernetes): void {
     const token = fetchToken();
-    const noAccessToken = fetchToken("user-no-access");
+    const noAccessToken = fetchToken(OIDC_ANON_CLIENT_ID);
 
     verifyFallbackPreconditions(token);
     verifyFallbackCache(token, noAccessToken);
@@ -1039,6 +1064,7 @@ function verifyFallback(k8s: Kubernetes): void {
 /** Waits for the sync service, then verifies every route it can reach. */
 export default function(): void {
     const k8s = new Kubernetes();
+    seedAccessPolicy();
     const token = fetchToken();
     const metrics = buildMetrics(token);
 
@@ -1051,7 +1077,6 @@ export default function(): void {
         return;
     }
 
-    seedAccessPolicy();
     waitForAccessPolicyReplication(token);
     verifyNoChangeRun(k8s, token);
     clearFallbackCache(token);
