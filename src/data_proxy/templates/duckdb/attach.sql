@@ -12,6 +12,7 @@
 -- noqa: disable=PRS
 ATTACH {{ catalog }} AS dl (
     DATA_PATH {{ data_path }},
-    DATA_INLINING_ROW_LIMIT 0{% if encrypted %},
+    DATA_INLINING_ROW_LIMIT 0,
+    BUSY_TIMEOUT 5000{% if encrypted %},
     ENCRYPTED{% endif %}
 )

@@ -252,6 +252,9 @@ dbs: []
 dbs:
 {{- range $schema, $_ := $schemas }}
   - path: {{ printf "%s/%s/catalog.sqlite" $localPath $schema | quote }}
+    busy-timeout: 5s
+    monitor-interval: 2s
+    checkpoint-interval: 5m
     replica:
       type: s3
       bucket: {{ $root.Values.s3.bucket | quote }}
@@ -259,6 +262,7 @@ dbs:
       endpoint: {{ printf "%s://%s" (ternary "https" "http" (eq $root.Values.s3.useSsl "true")) (include "data-proxy.s3Endpoint" $root) | quote }}
       access-key-id: ${S3_ACCESS_KEY}
       secret-access-key: ${S3_SECRET_KEY}
+      sync-interval: 5s
 {{- end }}
 {{- end }}
 {{- end }}

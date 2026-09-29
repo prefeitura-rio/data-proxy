@@ -57,7 +57,9 @@ async def run_publish_tasks(
         len(plans),
         len(failed_paths),
     )
+
     publish_handles: list[WorkflowHandleAsync[set[str]]] = []
+
     for plan in plans:
         handle = await DBOS.enqueue_workflow_async(
             publish_queue(plan.schema_name),
@@ -66,11 +68,13 @@ async def run_publish_tasks(
             plan,
             failed_paths,
         )
+
         publish_handles.append(handle)
 
     published = await asyncio.gather(
         *(handle.get_result() for handle in publish_handles)
     )
+
     logger.info(
         "Publish tasks completed plans=%d published_tables=%d",
         len(published),
