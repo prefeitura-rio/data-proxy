@@ -5,7 +5,7 @@ templates:
   - scaledobjects.yaml
   - pooler-cnpg.yaml
 tests:
-  - it: manages anon, user, and authenticator roles through CNPG
+  - it: manages anon, user, and postgrest roles through CNPG
     asserts:
       - equal:
           path: spec.managed.roles[1].name
@@ -21,7 +21,7 @@ tests:
         template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[3].name
-          value: "authenticator"
+          value: "postgrest"
         template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[3].inherit
@@ -33,36 +33,26 @@ tests:
         template: cluster-cnpg.yaml
       - equal:
           path: spec.bootstrap.initdb.postInitApplicationSQL
-          value: []
+          value:
+            - CREATE EXTENSION IF NOT EXISTS postgis;
+            - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+            - CREATE SCHEMA IF NOT EXISTS rls;
         template: cluster-cnpg.yaml
 
   - it: grants policy writer membership per configured schema
     set:
       sync.config:
         schemas:
-          app_pequenos_cariocas:
+          test:
             claim: preferred_username
             tables: []
-          bcadastro:
+          test2:
             claim: preferred_username
             tables: []
     asserts:
       - equal:
           path: spec.managed.roles[3].inRoles
-          value: ["anon", "user", "policy_writer_app_pequenos_cariocas", "policy_writer_bcadastro"]
-        template: cluster-cnpg.yaml
-
-  - it: manages the shared jobs role through CNPG
-    asserts:
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: jobs
-            ensure: present
-            login: true
-            bypassrls: false
-            passwordSecret:
-              name: data-proxy-jobs
+          value: ["anon", "user"]
         template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster
@@ -149,29 +139,43 @@ tests:
           value: Pooler
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler-ro-autoscaler
+          value: data-proxy-pooler-autoscaler
         template: scaledobjects.yaml
       - equal:
           path: spec.scaleTargetRef.name
-          value: data-proxy-pooler-ro
+          value: data-proxy-pooler
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler-ro-autoscaler
+          value: data-proxy-pooler-autoscaler
         template: scaledobjects.yaml
       - equal:
           path: spec.minReplicaCount
           value: 1
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler-ro-autoscaler
+          value: data-proxy-pooler-autoscaler
         template: scaledobjects.yaml
       - equal:
           path: spec.maxReplicaCount
           value: 3
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler-ro-autoscaler
+          value: data-proxy-pooler-autoscaler
         template: scaledobjects.yaml
+
+  - it: creates one read-write Pooler
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pooler-cnpg.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-pooler
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.type
+          value: rw
+        template: pooler-cnpg.yaml
 
   - it: sizes duckdb threads proportionally to the memory limit
     asserts:

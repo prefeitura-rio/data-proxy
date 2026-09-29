@@ -32,7 +32,7 @@ tests:
           value: 1
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler-ro
+          value: data-proxy-pooler
         template: pdbs.yaml
 
   - it: renders PostgREST KEDA scaler

@@ -11,18 +11,17 @@
 #}
 CREATE TABLE IF NOT EXISTS {{ schema }}.access_policy (
     subject text NOT NULL,
-    is_admin boolean NOT NULL DEFAULT false,
     unit_type text,
     unit_id text,
-    UNIQUE (subject, unit_type, unit_id) INCLUDE (is_admin)
+    UNIQUE (subject, unit_type, unit_id)
 );
 ALTER TABLE {{ schema }}.access_policy ENABLE ROW LEVEL SECURITY;
 
+GRANT USAGE ON SCHEMA {{ schema }} TO {{ user_role }};
 GRANT SELECT ON {{ schema }}.access_policy TO {{ user_role }};
 
 CREATE TABLE IF NOT EXISTS {{ schema }}.access_log (
     subject text NOT NULL,
-    is_admin boolean NOT NULL,
     unit_type text,
     unit_id text,
     action text NOT NULL,
@@ -39,14 +38,14 @@ SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        INSERT INTO {{ schema }}.access_log (subject, is_admin, unit_type, unit_id, action)
-        VALUES (OLD.subject, OLD.is_admin, OLD.unit_type, OLD.unit_id, 'delete');
+        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
+        VALUES (OLD.subject, OLD.unit_type, OLD.unit_id, 'delete');
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO {{ schema }}.access_log (subject, is_admin, unit_type, unit_id, action)
-        VALUES (OLD.subject, OLD.is_admin, OLD.unit_type, OLD.unit_id, 'update');
+        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
+        VALUES (OLD.subject, OLD.unit_type, OLD.unit_id, 'update');
     ELSIF TG_OP = 'INSERT' THEN
-        INSERT INTO {{ schema }}.access_log (subject, is_admin, unit_type, unit_id, action)
-        VALUES (NEW.subject, NEW.is_admin, NEW.unit_type, NEW.unit_id, 'insert');
+        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
+        VALUES (NEW.subject, NEW.unit_type, NEW.unit_id, 'insert');
     END IF;
     RETURN COALESCE(NEW, OLD);
 END;

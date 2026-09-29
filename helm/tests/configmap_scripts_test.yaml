@@ -6,7 +6,7 @@ tests:
     set:
       jobs.maintenance.enabled: true
       jobs.backup.enabled: true
-      sync.config.schemas.bcadastro.tables: []
+      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: kind
@@ -25,11 +25,20 @@ tests:
         isNotNull:
           path: data["backup.nu"]
 
+  - it: ships the workflow recovery script
+    set:
+      jobs.maintenance.enabled: false
+      jobs.backup.enabled: false
+      sync.config.schemas.test.tables: []
+    asserts:
+      - isNotNull:
+          path: data["recover-workflows.nu"]
+
   - it: renders when backup is enabled and maintenance is disabled
     set:
       jobs.maintenance.enabled: false
       jobs.backup.enabled: true
-      sync.config.schemas.bcadastro.tables: []
+      sync.config.schemas.test.tables: []
     asserts:
       - hasDocuments:
           count: 1
@@ -40,7 +49,8 @@ tests:
     set:
       jobs.maintenance.enabled: false
       jobs.backup.enabled: false
-      sync.config.schemas.bcadastro.tables: []
+      sync.recovery.enabled: false
+      sync.config.schemas.test.tables: []
     asserts:
       - hasDocuments:
           count: 0

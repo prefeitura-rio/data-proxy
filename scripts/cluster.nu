@@ -10,8 +10,7 @@ const MINIKUBE_MEMORY = '12288'
 const NAMESPACE = 'data-proxy'
 const PROFILE = 'data-proxy'
 const FALLBACK_CACHE_REDIS_DB = '1'
-const TEST_BUCKET = 'test-bucket'
-const TEST_SCHEMA = 'pic'
+const TEST_SCHEMA = 'test'
 
 # Path to the repository git-root.
 def git-root []: nothing -> string {
@@ -252,9 +251,8 @@ def --env build-images [kubecfg: path]: nothing -> string {
         {image: 'data-proxy-sync:local', dockerfile: 'Dockerfile.sync'}
         {image: 'localhost/data-proxy-postgres:17.0.0-local', dockerfile: 'Dockerfile.postgres'}
         {image: 'data-proxy-proxy:local', dockerfile: 'Dockerfile.proxy'}
-        {image: 'data-proxy-nushell:local', dockerfile: 'Dockerfile.nushell'}
+        {image: 'data-proxy-jobs:local', dockerfile: 'Dockerfile.jobs'}
         {image: 'localhost/k6:local', dockerfile: 'Dockerfile.k6'}
-        {image: 'localhost/oidc:local', dockerfile: 'Dockerfile.oidc'}
     ]
     | each {|img|
         log info $'Building ($img.image)...'
@@ -279,39 +277,7 @@ def apply-gcp-secret [kubecfg: path]: nothing -> string {
     | k $kubecfg apply -f -
 }
 
-# Run weed shell commands inside the SeaweedFS all-in-one pod.
-def weed [kubecfg: path, ...commands: string]: nothing -> nothing {
-    let jsonpath = 'jsonpath={.items[0].metadata.name}'
-
-    let pod = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pod
-            -l
-            app.kubernetes.io/component=seaweedfs-all-in-one
-            -o
-            $jsonpath
-        )
-        | str trim
-    )
-
-    ($commands
-        | str join (char nl)
-        | kubectl --kubeconfig=($kubecfg) --context=($PROFILE) -n data-proxy exec -i $pod -- weed shell -master=localhost:9333
-    ) | ignore
-}
-
-# Empty the SeaweedFS bucket and clear response cache and database state so the next k6 test starts from a clean baseline.
 def clear-test-resources [kubecfg: path]: nothing -> nothing {
-    (weed
-        $kubecfg
-        's3.bucket.delete -name test-bucket'
-        's3.bucket.create -name test-bucket'
-    )
-
     let stale_jobs = (
         k $kubecfg -n data-proxy get jobs -o name
         | lines
@@ -368,9 +334,10 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
                 -l cnpg.io/instanceRole=primary
                 -o $jsonpath
         ) | str trim
-        let dsn = $'postgresql://data-proxy:test-pg-pass@($cluster)-rw:5432/data-proxy'
+        let dsn = $'postgresql://admin:test-pg-pass@($cluster)-rw:5432/data-proxy'
+        let query = "SELECT tablename FROM pg_tables WHERE schemaname = \x27" + $schema + "\x27 AND tablename NOT IN (\x27access_policy\x27, \x27access_log\x27)"
         let tables = (
-            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $'SELECT tablename FROM pg_tables WHERE schemaname = \'($schema)\' AND tablename NOT IN (\'access_policy\')'
+            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $query
         )
 
         let drop_stmt = (
@@ -394,6 +361,43 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
             -c
             $cleanup
         )
+
+        if $cluster == 'data-proxy' {
+            let state_tables_exist = (
+                k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c "SELECT to_regclass('data_proxy.state') IS NOT NULL AND to_regclass('data_proxy.errors') IS NOT NULL"
+                | str trim
+            )
+            if $state_tables_exist == 't' {
+                (k
+                    $kubecfg
+                    -n
+                    data-proxy
+                    exec
+                    $pg
+                    --
+                    psql
+                    $dsn
+                    -v
+                    ON_ERROR_STOP=1
+                    -c
+                    'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
+                )
+            }
+            (k
+                $kubecfg
+                -n
+                data-proxy
+                exec
+                $pg
+                --
+                psql
+                $dsn
+                -v
+                ON_ERROR_STOP=1
+                -c
+                "UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED');"
+            )
+        }
     }
 
     let dbos_clusters = (
@@ -408,7 +412,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
                 -l cnpg.io/instanceRole=primary
                 -o $jsonpath
         ) | str trim
-        let dbos_dsn = 'postgresql://data-proxy:test-pg-pass@data-proxy-dbos-rw:5432/data-proxy'
+        let dbos_dsn = 'postgresql://admin:test-pg-pass@data-proxy-dbos-rw:5432/data-proxy'
         (k
             $kubecfg
             -n
@@ -436,9 +440,13 @@ def runner-job-ready [kubecfg: path, label: string]: nothing -> bool {
 def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
     let complete_path = 'jsonpath={range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
     let phase = (k $kubecfg -n data-proxy get jobs -l $label -o $complete_path) | str trim
-    if $phase == 'True' { return {complete: true, failed: false} }
-    if $phase == 'FalseTrue' { return {complete: false, failed: true} }
-    {complete: false, failed: false}
+    if $phase == 'True' {
+        {complete: true, failed: false}
+    } else if $phase == 'FalseTrue' {
+        {complete: false, failed: true}
+    } else {
+        {complete: false, failed: false}
+    }
 }
 
 # Create a configmap, apply a testrun yaml, wait for completion, and print the runner log.
@@ -450,7 +458,6 @@ def k6-run [
     testrun: string
     yaml_path: path
     --profile: string = ''
-    --migration-phase: string = ''
 ]: nothing -> nothing {
     log info $'Creating configmap ($configmap)...'
     (k
@@ -473,7 +480,7 @@ def k6-run [
     k $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
 
     log info $'Applying testrun ($testrun)...'
-    if ($profile != '') or ($migration_phase != '') {
+    if $profile != '' {
         let yaml = try { open --raw $yaml_path } catch {|err| error make {
             msg: $'Failed to open ($yaml_path): ($err.msg)'
             label: {
@@ -481,11 +488,7 @@ def k6-run [
                 span: (metadata $yaml_path).span
             }
         } }
-
-        let rendered = $yaml
-        | if $profile != '' { str replace --all 'value: load' $'value: ($profile)' } else { }
-        | if $migration_phase != '' { str replace 'value: shared-baseline' $'value: ($migration_phase)' } else { }
-        $rendered | k $kubecfg apply -f -
+        ($yaml | str replace --all 'value: load' $'value: ($profile)') | k $kubecfg apply -f -
     } else {
         k $kubecfg apply -f $yaml_path
     }
@@ -504,7 +507,12 @@ def k6-run [
     }
 
     log info 'Waiting for the test to complete...'
-    let result = poll {|| (test-phase $kubecfg $label) } {interval: 2sec, max_attempts: 1800}
+    let deadline = (date now) + 60min
+    mut phase_result = (test-phase $kubecfg $label)
+    while (date now) < $deadline and not $phase_result.complete {
+        sleep 2sec
+        $phase_result = (test-phase $kubecfg $label)
+    }
 
     let pod = (
         (k
@@ -522,7 +530,7 @@ def k6-run [
     let runner_log = (k $kubecfg -n data-proxy logs $pod)
     print ($runner_log | to text)
 
-    if $result.failed {
+    if $phase_result.failed {
         error make {
             msg: 'k6 runner Job failed'
             label: {
@@ -531,7 +539,7 @@ def k6-run [
             }
         }
     }
-    if not $result.complete {
+    if not $phase_result.complete {
         error make {
             msg: 'k6 runner Job timed out after 60 minutes'
             label: {
@@ -630,6 +638,18 @@ def "main k6 e2e" []: nothing -> nothing {
         $'($repo)/scripts/values/data-proxy.yaml'
     )
 
+    log info 'Restarting sync to load the rebuilt image...'
+    k $kubecfg -n data-proxy rollout restart deployment/data-proxy-sync out> /dev/null
+    (k
+        $kubecfg
+        -n
+        data-proxy
+        rollout
+        status
+        deployment/data-proxy-sync
+        --timeout=180s
+    ) out> /dev/null
+
     log info 'Waiting for the init-db Job...'
     let init_jobs = (
         k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
@@ -668,278 +688,6 @@ def "main k6 e2e" []: nothing -> nothing {
         'data-proxy-e2e'
         'k6/e2e.yaml'
     )
-}
-
-# Recover from a errored or pending migration before starting a new test.
-def recover-migration [kubecfg: path, repo: path]: nothing -> nothing {
-    let status = (
-        hm $kubecfg status data-proxy --namespace data-proxy
-        | lines
-        | first
-        | split words
-        | last
-        | str trim
-    )
-    let mode = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            configmap
-            data-proxy-mode-state
-            -o
-            jsonpath='{.data.mode}'
-        )
-        | str trim
-    )
-    let state = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            configmap
-            data-proxy-mode-state
-            -o
-            jsonpath='{.data.status}'
-        )
-        | str trim
-    )
-
-    if $status == 'deployed' and $mode == 'shared' and $state == 'completed' {
-        return
-    }
-
-    if $status != 'deployed' {
-        let direction = (
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                get
-                configmap
-                data-proxy-mode-state
-                -o
-                jsonpath='{.data.direction}'
-            )
-            | str trim
-        )
-        let revision = (
-            hm $kubecfg history data-proxy --namespace data-proxy
-            | lines
-            | last
-            | split words
-            | first
-            | into int
-        )
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            delete
-            secret
-            $'sh.helm.release.v1.data-proxy.v($revision)'
-            --ignore-not-found
-        )
-
-        if $direction == 'to-ha' {
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                patch
-                configmap
-                data-proxy-mode-state
-                --type
-                merge
-                -p
-                '{"data":{"mode":"per-schema","status":"completed","direction":"to-ha"}}'
-            )
-            (
-                (hm
-                    $kubecfg
-                    upgrade
-                    --take-ownership
-                    data-proxy
-                    $'($repo)/helm'
-                    --namespace
-                    data-proxy
-                    --values
-                    $'($repo)/scripts/values/data-proxy.yaml'
-                    --values
-                    $'($repo)/scripts/values/data-proxy-ha.yaml'
-                )
-            ) | ignore
-            (
-                (hm
-                    $kubecfg
-                    upgrade
-                    data-proxy
-                    $'($repo)/helm'
-                    --namespace
-                    data-proxy
-                    --values
-                    $'($repo)/scripts/values/data-proxy.yaml'
-                )
-            ) | ignore
-        } else {
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                patch
-                configmap
-                data-proxy-mode-state
-                --type
-                merge
-                -p
-                '{"data":{"mode":"shared","status":"completed","direction":"none"}}'
-            )
-            (
-                (hm
-                    $kubecfg
-                    upgrade
-                    data-proxy
-                    $'($repo)/helm'
-                    --namespace
-                    data-proxy
-                    --values
-                    $'($repo)/scripts/values/data-proxy.yaml'
-                )
-            ) | ignore
-        }
-    }
-}
-
-# Validate published data through a full shared → HA → shared migration round trip.
-def "main k6 migrate" []: nothing -> nothing {
-    let kubecfg = git-root | path join .kubeconfig
-    let repo = git-root
-
-    recover-migration $kubecfg $repo
-
-    main k6 e2e
-
-    log info 'Validating the shared baseline...'
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        delete
-        configmap
-        data-proxy-migration-fingerprint
-        --ignore-not-found
-    )
-    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-baseline'
-
-    log info 'Upgrading data-proxy to HA...'
-    (
-        (hm
-            $kubecfg
-            upgrade
-            data-proxy
-            $'($repo)/helm'
-            --namespace
-            data-proxy
-            --values
-            $'($repo)/scripts/values/data-proxy.yaml'
-            --values
-            $'($repo)/scripts/values/data-proxy-ha.yaml'
-        )
-    ) | ignore
-    let ha_job = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            jobs
-            -l
-            app.kubernetes.io/component=migrate
-            --sort-by=.metadata.creationTimestamp
-            -o
-            name
-        )
-        | lines
-        | last
-        | str trim
-    )
-    k $kubecfg -n data-proxy wait --for=condition=complete $ha_job --timeout=6m
-    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha'
-
-    log info 'Reconciling settled HA topology...'
-    (
-        (hm
-            $kubecfg
-            upgrade
-            data-proxy
-            $'($repo)/helm'
-            --namespace
-            data-proxy
-            --values
-            $'($repo)/scripts/values/data-proxy.yaml'
-            --values
-            $'($repo)/scripts/values/data-proxy-ha.yaml'
-        )
-    ) | ignore
-    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'ha-settled'
-
-    log info 'Downgrading data-proxy to shared mode...'
-    (
-        (hm
-            $kubecfg
-            upgrade
-            data-proxy
-            $'($repo)/helm'
-            --namespace
-            data-proxy
-            --values
-            $'($repo)/scripts/values/data-proxy.yaml'
-        )
-    ) | ignore
-    let shared_job = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            jobs
-            -l
-            app.kubernetes.io/component=migrate
-            --sort-by=.metadata.creationTimestamp
-            -o
-            name
-        )
-        | lines
-        | last
-        | str trim
-    )
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        wait
-        --for=condition=complete
-        $shared_job
-        --timeout=6m
-    )
-    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-return'
-
-    log info 'Reconciling settled shared topology...'
-    (
-        (hm
-            $kubecfg
-            upgrade
-            data-proxy
-            $'($repo)/helm'
-            --namespace
-            data-proxy
-            --values
-            $'($repo)/scripts/values/data-proxy.yaml'
-        )
-    ) | ignore
-    k6-run $kubecfg 'data-proxy-migration' 'migration.ts' 'k6/migration.ts' 'data-proxy-migration' 'k6/migration.yaml' --migration-phase 'shared-settled'
 }
 
 # Check whether the CNPG cluster reports a healthy phase.
@@ -985,6 +733,8 @@ def "main up" []: nothing -> nothing {
         k $kubecfg -n data-proxy create secret generic data-proxy-redis
             '--from-literal=REDIS_PASSWORD=valkey-local'
             '--from-literal=password=valkey-local'
+            '--from-literal=REDIS_READ=redis://:valkey-local@data-proxy-valkey.data-proxy.svc.cluster.local:6379/1'
+            '--from-literal=REDIS_WRITE=redis://:valkey-local@data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379/0'
             '--from-literal=REDIS={"read":"redis://:valkey-local@data-proxy-valkey:6379/1","write":"redis://:valkey-local@data-proxy-valkey:6379/0"}'
             --dry-run=client -o yaml
     ) | k $kubecfg apply -f -
@@ -1014,10 +764,7 @@ def "main up" []: nothing -> nothing {
     )
 
     log info 'Waiting for data-proxy deployments...'
-    [
-        data-proxy/oidc
-        data-proxy/data-proxy-swagger-ui
-    ] | wait-for deployment $kubecfg
+    [data-proxy/data-proxy-swagger-ui] | wait-for deployment $kubecfg
 
     log info 'Waiting for CNPG cluster...'
     if not (poll {|| (cnpg-healthy $kubecfg) } {interval: 2sec, max_attempts: 300}) {
@@ -1029,13 +776,6 @@ def "main up" []: nothing -> nothing {
             }
         }
     }
-
-    log info 'Creating the SeaweedFS test bucket...'
-    (weed
-        $kubecfg
-        's3.bucket.delete -name test-bucket'
-        's3.bucket.create -name test-bucket'
-    )
 
     show-status $kubecfg
 }
