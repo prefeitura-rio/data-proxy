@@ -22,6 +22,8 @@ spec:
     - name: GOOGLE_APPLICATION_CREDENTIALS
       value: /projected/gcp-key.json
     {{- end }}
+    - name: CURL_CA_BUNDLE
+      value: /etc/ssl/certs/ca-certificates.crt
   {{- if or (gt (len $schemas) 0) $root.Values.gcp.existingSecret }}
   projectedVolumeTemplate:
     sources:
@@ -46,7 +48,10 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
-      postInitApplicationSQL: []
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+        - CREATE SCHEMA IF NOT EXISTS rls;
   instances: {{ $root.Values.cnpg.instances | int }}
   resources:
     requests:
@@ -64,8 +69,9 @@ spec:
       pg_stat_statements.track: top
       duckdb.allow_unsigned_extensions: "on"
       duckdb.allow_community_extensions: "on"
+      duckdb.extension_directory: /usr/local/lib/pg_duckdb/extensions
       duckdb.unsafe_allow_execution_inside_functions: "on"
-      duckdb.postgres_role: authenticator
+      duckdb.postgres_role: postgrest
       duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
       duckdb.max_memory: {{ $root.Values.cnpg.duckdb.maxMemory | quote }}
 {{- include "data-proxy.cnpgParameters" $root | nindent 6 }}
@@ -100,14 +106,3 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
-          {{- range $schema := sortAlpha (keys ($root.Values.sync.config.schemas)) }}
-          - {{ printf "policy_writer_%s" $schema | quote }}
-          {{- end }}
-      {{- if or $root.Values.jobs.backup.enabled $root.Values.jobs.maintenance.enabled }}
-      - name: jobs
-        ensure: present
-        login: true
-        bypassrls: false
-        passwordSecret:
-          name: {{ include "data-proxy.jobsSecretName" $root }}
-      {{- end }}

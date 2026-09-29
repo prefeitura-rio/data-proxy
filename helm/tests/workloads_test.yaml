@@ -1,6 +1,7 @@
 suite: Workloads
 templates:
   - deployment-sync.yaml
+  - deployment-recovery.yaml
   - scaledobjects.yaml
   - job-init-db.yaml
   - cronjobs.yaml
@@ -44,6 +45,38 @@ tests:
             name: DUCKLAKE_CATALOG_PATH
             value: "ducklake"
         template: deployment-sync.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DBOS__VMID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+        template: deployment-sync.yaml
+
+  - it: renders the workflow recovery Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+        template: deployment-recovery.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [nu, /scripts/recover-workflows.nu]
+        template: deployment-recovery.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DBOS_RECOVERY_GRACE_SECONDS
+            value: "120"
+        template: deployment-recovery.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_TEMPLATE_DIR
+            value: /scripts
+        template: deployment-recovery.yaml
+
 
   - it: sync mounts the writer catalog PVC
     asserts:

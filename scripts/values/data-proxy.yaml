@@ -4,16 +4,48 @@ sync:
   dumper:
     visibilityTimeoutMs: 60000
     batchMegaBytes: 60000
-migration:
-  image: localhost/data-proxy-nushell:local
+  recovery:
+    enabled: true
+    intervalSeconds: 30
+    graceSeconds: 120
+  config:
+    schemas:
+      test:
+        claim: preferred_username
+        tables:
+          - name: rj-ia-desenvolvimento.dev.full_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.multi_rls_table
+            strategy: full
+            rls:
+              - column: region_id
+                unit_type: region
+              - column: group_id
+                unit_type: group
+          - name: rj-ia-desenvolvimento.dev.partitioned_table
+            strategy: partitioned
+            n: 5
+            partitioning:
+              column: date
+              interval: daily
+              retention: 365 days
+            cache_ttl: 600
+            rls:
+              - column: unit_id
+                unit_type: unit
+jobs:
+  image: localhost/data-proxy-jobs:local
 serviceAccount:
   create: true
   name: data-proxy
 postgrest:
   proxyUri: http://localhost:3111
-  jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
+  jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
   jwksFetch:
-    image: localhost/data-proxy-nushell:local
+    image: localhost/data-proxy-jobs:local
   ro:
     replicas: 1
     resources: {}
@@ -30,13 +62,6 @@ postgrest:
       minReplicas: 1
       maxReplicas: 3
       targetCPUUtilizationPercentage: 70
-pooler:
-  instances: 1
-  poolSize: 20
-  maxClientConns: 100
-  autoscaling:
-    minReplicaCount: 1
-    maxReplicaCount: 3
 s3:
   bucket: test-bucket
   useSsl: "false"
@@ -79,57 +104,40 @@ swaggerUi:
 worker:
   keda:
     lagCount: "7"
-syncConfig:
-  schemas:
-    pic:
-      claim: preferred_username
-      tables:
-        - name: rj-ia-desenvolvimento.dev.endpoint_participante_listagem
-          strategy: full
-          rls:
-            - column: id_unidade
-              unit_type: unidade
-        - name: rj-ia-desenvolvimento.dev.endpoint_participantes
-          strategy: full
-          rls:
-            - column: id_cras
-              unit_type: cras
-            - column: id_escola
-              unit_type: escola
-        - name: rj-ia-desenvolvimento.dev.protocolo_estado_diario
-          strategy: partitioned
-          "n": 5
-          partitioning:
-            column: protocolo_data_referencia_particicao
-            interval: daily
-            retention: 365 days
-          cache_ttl: 600
-          rls:
-            - column: id_unidade
-              unit_type: unidade
+ducklake:
+  litestream:
+    storage:
+      storageClass: standard
 fallback:
   cacheTtl: 5
   proxyImage: localhost/data-proxy-proxy:local
 cnpg:
+  pooler:
+    instances: 1
+    poolSize: 20
+    maxClientConns: 100
+    autoscaling:
+      minReplicaCount: 1
+      maxReplicaCount: 3
   db:
     name: data-proxy
-    user: data-proxy
+    user: admin
   password: test-pg-pass
   authenticatorPassword: test-auth-pass
   init:
-    image: localhost/data-proxy-nushell:local
+    image: localhost/data-proxy-jobs:local
   mode: shared
-  instances: 2
+  instances: 1
   image: localhost/data-proxy-postgres:17.0.0-local
   storage:
     size: 2Gi
   autoscaling:
-    minReplicaCount: 2
+    minReplicaCount: 1
     maxReplicaCount: 3
   resources:
     requests:
       cpu: 500m
-      memory: 500Mi
+      memory: 1Gi
     limits:
       cpu: "4"
       memory: 4Gi
@@ -145,6 +153,6 @@ ingress:
     retryOn: "503"
   auth:
     enabled: true
-    issuer: http://oidc.data-proxy.svc.cluster.local:8080
-    jwksUri: http://oidc.data-proxy.svc.cluster.local:8080/jwks.json
+    issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
+    jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
     audience: dev

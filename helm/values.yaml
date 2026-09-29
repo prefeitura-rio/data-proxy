@@ -21,9 +21,21 @@ sync:
   ## Maximum attempts for safe transient DBOS steps.
   stepMaxAttempts: 3
   ## Maximum dump tasks enqueued per 60 seconds.
-  dumpQueueRateLimit: 50
+  dumpQueueRateLimit: 240
   ## Per-process concurrency for the DBOS dump queue.
   dumpQueueWorkerConcurrency: 4
+  ## Recovery of DBOS workflows owned by terminated sync pods.
+  recovery:
+    enabled: true
+    intervalSeconds: 30
+    graceSeconds: 120
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
   ## Resource requests and limits for each sync worker pod.
   resources:
     requests:
@@ -89,7 +101,7 @@ postgrest:
   aggregatesEnabled: true
   ## Init container that fetches and validates the JWKS before PostgREST starts.
   jwksFetch:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
+    image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   replicas: 1
   resources:
     requests:
@@ -214,10 +226,8 @@ redis:
   webdisReadPort: 6379
 ## Maintenance jobs: backup and maintenance.
 jobs:
-  ## Existing Secret with username, password, and JOBS_PASSWORD.
-  existingSecret: ""
   ## Shared image for maintenance jobs.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
+  image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   ## Backup CronJob: exports access_policy, access_log, and restored catalogs.
   backup:
     enabled: false
@@ -241,7 +251,7 @@ jobs:
 auth:
   anonRole: anon
   userRole: user
-  authenticatorRole: authenticator
+  authenticatorRole: postgrest
   existingSecret: ""
   jwtRoleClaim: $.role
   rlsSchema: rls
@@ -270,9 +280,9 @@ cnpg:
       triggers: []
   db:
     name: data-proxy
-    user: data-proxy
+    user: admin
   init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
+    image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   existingSecret: ""
   instances: 1
   autoscaling:
