@@ -21,17 +21,17 @@
 {
   "kind": "macro",
   "name": "postgres.rls_where_clause",
-  "description": "Render the PL/pgSQL branch that builds the row-level security predicate.",
+  "description": "Render the PL/pgSQL block that builds the row-level security predicate.",
   "inputs": {
     "schema": "PostgreSQL schema that owns access_policy.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate."
   },
-  "returns": "A PL/pgSQL IF block assigning v_where."
+  "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
 {% macro rls_where_clause(schema, has_rls, rls_mappings) -%}
-  IF NOT {{ has_rls }} OR v_is_admin THEN
+  IF NOT {{ has_rls }} THEN
     v_where := '';
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where

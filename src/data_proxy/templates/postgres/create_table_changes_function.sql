@@ -4,12 +4,11 @@
   "description": "Render a read-only DuckLake table change-feed function.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the function.",
-    "function": "PostgreSQL function being created.",
+    "function": "PostgreSQL function being created or called.",
     "table_name": "SQL literal table name passed to dl.table_changes.",
     "duckdb_view": "DuckDB intermediate view name.",
     "columns": "Structured SQL-safe column metadata.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "scope": "SQL predicate limiting access to the current schema.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
     "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
@@ -35,25 +34,12 @@ RETURNS TABLE(
 ) AS $$
 DECLARE
   v_subject text;
-  v_schemas text;
-  v_is_admin boolean;
-  v_unit_ids text[];
   v_where text;
   v_end_snapshot bigint;
 BEGIN
 {{ ducklake_attach(catalog_local_path, data_path) }}
 
   v_subject := current_setting('{{ claim_setting }}', true);
-  v_schemas := current_setting('app.claim_schemas', true);
-
-  IF NOT ({{ scope }}) THEN
-    RETURN;
-  END IF;
-
-  SELECT EXISTS(
-    SELECT 1 FROM {{ schema }}.access_policy p
-    WHERE p.subject = v_subject AND p.is_admin
-  ) INTO v_is_admin;
 
 {{ rls_where_clause(schema, has_rls, rls_mappings) }}
 

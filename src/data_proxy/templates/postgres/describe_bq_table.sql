@@ -9,5 +9,7 @@
 #}
 SELECT *
 FROM duckdb.query(
-    'DESCRIBE SELECT * FROM bigquery_scan(''{{ bq_table }}'')'
+    $duck$
+    DESCRIBE SELECT * FROM bigquery_scan({{ bq_table }})
+    $duck$
 )

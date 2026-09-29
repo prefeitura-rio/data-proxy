@@ -4,8 +4,7 @@
   "description": "Render a read-only DuckLake current-snapshot function.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the function.",
-    "function": "PostgreSQL function being created.",
-    "scope": "SQL predicate limiting access to the current schema.",
+    "function": "PostgreSQL function being created or called.",
     "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
     "data_path": "S3 data path for the DuckLake attachment.",
     "user_role": "Role allowed to execute the function."
@@ -16,10 +15,6 @@
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS bigint AS $$
 BEGIN
-  IF NOT ({{ scope }}) THEN
-    RETURN NULL;
-  END IF;
-
 {{ ducklake_attach(catalog_local_path, data_path) }}
 
   RETURN (

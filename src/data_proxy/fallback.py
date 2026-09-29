@@ -4,7 +4,6 @@ from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
 from .catalog import CatalogPaths
-from .conditions import schema_scope_condition
 from .constants import DUCKDB_VIEW_PREFIX, PROTECTED_VIEW_NAMES
 from .executor import Executor
 from .models import SyncConfig, TableConfig
@@ -44,7 +43,9 @@ async def column_types_from_duckdb(
     pg_conn: Postgres, table: TableConfig
 ) -> list[tuple[str, str]]:
     """Return column names and DuckDB types for the configured BigQuery table."""
-    rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
+    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    await executor.execute("postgres/load_bigquery")
+    rows = await executor.query(
         "postgres/describe_bq_table",
         mapping={"bq_table": Literal(table.name)},
         expect=tuple[str, str],
@@ -83,7 +84,7 @@ def bq_function_mapping(
     table: TableConfig,
     columns: list[tuple[str, str]],
 ) -> dict[str, TemplateValue]:
-    """Return mappings for the CREATE OR REPLACE FUNCTION template."""
+    """Return mappings for the BigQuery fallback function template."""
     table_name = table.table_name
     fn_name = f"{table_name}_bq_fn"
     duckdb_view = f"{DUCKDB_VIEW_PREFIX}{schema}_{table_name}"
@@ -95,10 +96,8 @@ def bq_function_mapping(
         "function": Identifier(fn_name),
         "columns": column_context,
         "claim_setting": f"app.claim_{claim}",
-        "scope": schema_scope_condition(schema),
         "duckdb_view": duckdb_view,
         "source": f"bigquery_scan(''{table.name}'')",
-        "source_prefix": "LOAD bigquery; ",
         "has_rls": "true" if table.rls else "false",
         "rls_mappings": [
             {"column": str(mapping.column), "unit_type": str(mapping.unit_type)}
@@ -146,7 +145,6 @@ def ducklake_function_mapping(
         "function": Identifier(f"{table_name}_fn"),
         "columns": column_context,
         "claim_setting": f"app.claim_{claim}",
-        "scope": schema_scope_condition(schema),
         "duckdb_view": f"ducklake_{schema}_{table_name}",
         "source": f"dl.{quoted_identifier(table_name)}",
         "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
@@ -272,7 +270,6 @@ def table_changes_function_mapping(
         "duckdb_view": f"ducklake_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim}",
-        "scope": schema_scope_condition(schema),
         "has_rls": "true" if table.rls else "false",
         "rls_mappings": [
             {"column": str(mapping.column), "unit_type": str(mapping.unit_type)}
@@ -304,7 +301,6 @@ async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> No
         mapping={
             "schema": Identifier(schema),
             "function": Identifier("ducklake_latest_snapshot"),
-            "scope": schema_scope_condition(schema),
             "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
             "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
             "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -335,7 +331,7 @@ async def create_table_views(
         raise RuntimeError(f"DuckDB returned no columns for table {table_name}")
 
     await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
-        "postgres/create_view_function",
+        "postgres/create_view_function_ducklake",
         mapping=ducklake_function_mapping(schema, table, columns),
     )
 
@@ -351,7 +347,7 @@ async def create_table_views(
 
     if table.fallback:
         await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
-            "postgres/create_view_function",
+            "postgres/create_view_function_bigquery",
             mapping=bq_function_mapping(schema, table, columns),
         )
 
