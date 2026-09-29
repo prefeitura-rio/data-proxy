@@ -28,7 +28,7 @@ spec:
         - name: fetch-jwks
           image: {{ .Values.postgrest.jwksFetch.image }}
           command:
-            - /usr/bin/nu
+            - /usr/local/bin/nu
             - -c
           args:
             - |
@@ -40,13 +40,13 @@ spec:
             - name: jwks
               mountPath: /etc/postgrest
         {{- end }}
-        - name: wait-for-authenticator
+        - name: wait-for-postgres
           image: {{ .Values.cnpg.init.image | quote }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
-          command: ["/usr/bin/nu", "-c"]
+          command: ["/usr/local/bin/nu", "-c"]
           args:
             - |
-{{ .Files.Get "files/wait-for-authenticator.nu" | nindent 14 }}
+{{ .Files.Get "files/wait-for-postgres.nu" | nindent 14 }}
           env:
             - name: PGHOST
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
@@ -75,7 +75,7 @@ spec:
             - name: http
               containerPort: 3000
           env:
-            - name: PGRST_AUTHENTICATOR_PASSWORD
+            - name: PGRST_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "data-proxy.authenticatorSecretName" . }}
@@ -119,8 +119,7 @@ spec:
               readOnly: true
             {{- end }}
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
