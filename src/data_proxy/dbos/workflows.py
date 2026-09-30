@@ -25,6 +25,7 @@ from .steps import (
     record_run_status,
     restart_postgrest,
     seed_schemas,
+    wait_for_reader_snapshot,
 )
 
 
@@ -120,6 +121,9 @@ async def publish_schema(
     )
 
     outcome = await commit_ducklake_snapshot(plan, failed_paths)
+
+    if outcome.snapshot_id is not None:
+        await wait_for_reader_snapshot(plan.schema_name, outcome.snapshot_id)
 
     await record_publish_metrics(outcome, plan.schema_name)
     await commit_table_state(plan, outcome)

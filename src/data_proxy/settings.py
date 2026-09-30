@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POSTGREST_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
+    READER_SNAPSHOT_POLL_SECONDS: float = Field(default=1.0, gt=0)
+    READER_SNAPSHOT_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0)
     REDIS_READ: RedisDsn = RedisDsn("redis://localhost:6379/1")
     REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
     S3_ACCESS_KEY: str = "seaweedfs"

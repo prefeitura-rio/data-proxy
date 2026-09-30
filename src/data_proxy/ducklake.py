@@ -1,10 +1,15 @@
 """Publish scratch Parquet files into per-schema DuckLake catalogs."""
 
+import asyncio
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
 from urllib.parse import quote
 
+import psycopg
+from psycopg.rows import TupleRow
 from psycopg.sql import Composable, Identifier, Literal
 
 from .catalog import CatalogPaths
@@ -27,7 +32,7 @@ from .models import (
 from .postgres import Postgres
 from .settings import settings
 from .state import emit_error
-from .types import DatabaseRow, DuckDBParams
+from .types import DatabaseRow, DuckDBParams, PostgresParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +475,57 @@ async def publish_tables(
     return published
 
 
+async def current_snapshot_id(duckdb_conn: DuckDB) -> int:
+    """Return the current snapshot ID of the attached DuckLake catalog."""
+    rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
+        "duckdb/current_snapshot",
+        expect=tuple[int],
+    )
+    return rows[0][0]
+
+
+async def reader_snapshot(pg_conn: Postgres, schema_name: str) -> int | None:
+    """Return the snapshot the reader catalog has applied, or None when unavailable."""
+    try:
+        rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
+            "postgres/reader_snapshot",
+            mapping={"schema": Identifier(schema_name)},
+            expect=tuple[int | None],
+        )
+    except psycopg.Error:
+        await pg_conn.rollback()
+        return None
+
+    await pg_conn.commit()
+    return rows[0][0]
+
+
+async def wait_for_reader(
+    read_snapshot: Callable[[], Awaitable[int | None]],
+    snapshot_id: int,
+    *,
+    timeout: float,
+    interval: float,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Wait until the reader catalog has applied at least the given snapshot."""
+    deadline = clock() + timeout
+
+    while True:
+        current = await read_snapshot()
+
+        if current is not None and current >= snapshot_id:
+            return
+
+        if clock() >= deadline:
+            raise TimeoutError(
+                f"Reader missed snapshot {snapshot_id} for {timeout:g} seconds"
+            )
+
+        await sleep(interval)
+
+
 async def publish_schema(
     duckdb_conn: DuckDB,
     pg_conn: Postgres,
@@ -495,4 +551,8 @@ async def publish_schema(
     )
     published = await publish_tables(duckdb_conn, config, reduced_plan, eligible)
 
-    return PublicationResult(plan=reduced_plan, published_tables=published)
+    return PublicationResult(
+        plan=reduced_plan,
+        published_tables=published,
+        snapshot_id=await current_snapshot_id(duckdb_conn) if published else None,
+    )

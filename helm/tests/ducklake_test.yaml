@@ -22,6 +22,18 @@ tests:
           path: spec.postgresql.parameters.shared_buffers
           value: 1GB
         template: cluster-cnpg.yaml
+  - it: mounts the reader catalog PVC read-write in CNPG
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: minikube-rwx
+    asserts:
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: 'persistentVolumeClaim[^}]*"readOnly":false'
+        template: cluster-cnpg.yaml
   - it: restarts sync pods when Secret data changes
     asserts:
       - matchRegex:
@@ -126,7 +138,11 @@ tests:
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["restore-catalogs.sh"]
-          pattern: "chmod 755"
+          pattern: "chmod 777"
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["restore-catalogs.sh"]
+          pattern: "chmod 666"
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["restore-catalogs.sh"]
@@ -134,7 +150,7 @@ tests:
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["restore-catalogs.sh"]
-          pattern: "umask 022"
+          pattern: "umask 000"
         template: configmap-litestream.yaml
   - it: requires and uses the shared RWX catalog volume
     set:
@@ -165,9 +181,9 @@ tests:
           value: data-proxy-catalog-reader
         documentIndex: 1
         template: pvc-catalogs.yaml
-  - it: configures one-hour empty response caching
+  - it: does not configure empty response caching
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: EMPTY_CACHE_TTL

@@ -5,7 +5,7 @@ from whenever import Instant
 
 from ..cache import clear_cache
 from ..duckdb import DuckDB
-from ..ducklake import publish_schema
+from ..ducklake import publish_schema, reader_snapshot, wait_for_reader
 from ..extraction import run_extraction
 from ..kubernetes import restart_postgrest as restart_postgrest_deployment
 from ..log import logger, schemaname
@@ -178,6 +178,28 @@ async def commit_ducklake_snapshot(
         "DuckLake commit completed published_tables=%d", len(result.published_tables)
     )
     return result
+
+
+@DBOS.step()
+async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
+    """Wait until the reader catalog has applied the committed DuckLake snapshot."""
+    logger.info(
+        "Reader wait started schema=%s snapshot_id=%d", schema_name, snapshot_id
+    )
+    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+
+        async def read_snapshot() -> int | None:
+            return await reader_snapshot(pg_conn, schema_name)
+
+        await wait_for_reader(
+            read_snapshot,
+            snapshot_id,
+            timeout=settings.READER_SNAPSHOT_TIMEOUT_SECONDS,
+            interval=settings.READER_SNAPSHOT_POLL_SECONDS,
+        )
+    logger.info(
+        "Reader wait completed schema=%s snapshot_id=%d", schema_name, snapshot_id
+    )
 
 
 @DBOS.step(
