@@ -16,13 +16,7 @@ type DuckDBParams = Sequence[DuckDBValue]
 type BigQueryParams = QueryJobConfig
 type StatusRecorder = Callable[[Literal["success", "failure"]], Awaitable[None]]
 type TemplateValue = (
-    str
-    | bool
-    | Composable
-    | Sequence[str]
-    | Sequence[Composable]
-    | Mapping[str, TemplateValue]
-    | Sequence[Mapping[str, TemplateValue]]
+    str | bool | Composable | Sequence[TemplateValue] | Mapping[str, TemplateValue]
 )
 
 

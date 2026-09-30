@@ -1,6 +1,6 @@
 """Substitute mapping into a cached SQL template and return the final SQL."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import LiteralString, cast
@@ -23,6 +23,19 @@ def jinja_environment(root: Path) -> Environment:
     )
 
 
+def to_sql(value: TemplateValue) -> TemplateValue:
+    """Convert composables, including those nested in lists and mappings, to SQL."""
+    match value:
+        case Composable():
+            return value.as_string(None)
+        case str() | bool():
+            return value
+        case Mapping():
+            return {key: to_sql(item) for key, item in value.items()}
+        case Sequence():
+            return [to_sql(item) for item in value]
+
+
 def render_template(
     path: str,
     mapping: Mapping[str, TemplateValue],
@@ -30,15 +43,7 @@ def render_template(
     root: Path = SQL_DIR,
 ) -> LiteralString:
     """Render one strict Jinja SQL template with composable values converted to SQL."""
-    rendered: dict[str, TemplateValue] = {}
-
-    for key, value in mapping.items():
-        match value:
-            case Composable():
-                rendered[key] = value.as_string(None)
-            case _:
-                rendered[key] = value
-
+    rendered = {key: to_sql(value) for key, value in mapping.items()}
     template = jinja_environment(root).get_template(f"{path}.sql").render(rendered)
 
     return cast("LiteralString", template)
