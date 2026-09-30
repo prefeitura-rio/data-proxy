@@ -35,7 +35,7 @@ def main() -> None:
     DBOS.register_queue(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
-        limiter={"limit": settings.DUMP_QUEUE_RATE_LIMIT, "period": 60.0},
+        limiter=settings.dump_queue_limiter,
     )
 
     for queue in publish_queues:

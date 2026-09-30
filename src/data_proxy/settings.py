@@ -4,6 +4,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import ClassVar, Literal
 
+from dbos._queue import QueueRateLimit
 from pydantic import Field, field_validator
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
     DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
-    DUMP_QUEUE_RATE_LIMIT: int = Field(default=50, gt=0)
+    DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
@@ -59,6 +60,14 @@ class Settings(BaseSettings):
     SYNC_SCHEDULE: str = "0 2 * * *"
     SYNC_SCHEDULE_NAME: str = "sync"
     SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
+
+    @cached_property
+    def dump_queue_limiter(self) -> QueueRateLimit | None:
+        """Return the dump queue rate limiter configuration, or None when disabled."""
+        if self.DUMP_QUEUE_RATE_LIMIT <= 0:
+            return None
+
+        return {"limit": self.DUMP_QUEUE_RATE_LIMIT, "period": 60.0}
 
     @field_validator("DUCKLAKE_SNAPSHOT_EXPIRATION")
     @classmethod

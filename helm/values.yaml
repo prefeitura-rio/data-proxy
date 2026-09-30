@@ -21,7 +21,7 @@ sync:
   ## Maximum attempts for safe transient DBOS steps.
   stepMaxAttempts: 3
   ## Maximum dump tasks enqueued per 60 seconds.
-  dumpQueueRateLimit: 240
+  dumpQueueRateLimit: 0
   ## Per-process concurrency for the DBOS dump queue.
   dumpQueueWorkerConcurrency: 4
   ## Recovery of DBOS workflows owned by terminated sync pods.
