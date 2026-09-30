@@ -32,3 +32,14 @@ tests:
       - matchRegex:
           path: data["sync.json"]
           pattern: '"cache_ttl":600'
+
+  - it: sync.json keeps the time-partition limit as n
+    set:
+      sync.config.schemas.my_schema.tables:
+        - name: proj.dataset.my_table
+          strategy: partitioned
+          n: 4
+    asserts:
+      - matchRegex:
+          path: data["sync.json"]
+          pattern: '"n":4'

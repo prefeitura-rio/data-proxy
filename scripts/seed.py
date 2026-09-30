@@ -64,7 +64,7 @@ def parse_args() -> Config:
     parser.add_argument(
         "--partition-days",
         type=int,
-        default=7,
+        default=8,
         help="Number of partition days for the partitioned table",
     )
     parser.add_argument(

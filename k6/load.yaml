@@ -48,11 +48,15 @@ spec:
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
         value: data-proxy.local
-      - name: ACCEPT_PROFILE
-        value: test
+      - name: OIDC_TOKEN_URL
+        value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
+      - name: OIDC_USER_CLIENT_ID
+        value: user
+      - name: OIDC_NO_POLICY_CLIENT_ID
+        value: no_policy
+      - name: OIDC_POLICY_WRITER_CLIENT_ID
+        value: policy_writer
+      - name: OIDC_CLIENT_SECRET
+        value: test-secret
       - name: K6_PROFILE
         value: load
-      - name: VUS
-        value: "2"
-      - name: DURATION
-        value: 30s

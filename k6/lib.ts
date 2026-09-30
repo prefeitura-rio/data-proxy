@@ -3,7 +3,7 @@ import { Kubernetes } from "k6/x/kubernetes";
 import type {
   KubernetesDeployment,
   KubernetesPodSpec,
-} from "./kubernetes.ts";
+} from "k6/x/kubernetes";
 
 declare const __ENV: Record<string, string | undefined>;
 

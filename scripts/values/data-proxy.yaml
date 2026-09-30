@@ -1,4 +1,5 @@
 sync:
+  replicas: 2
   image: localhost/data-proxy-sync:local
   imagePullPolicy: IfNotPresent
   dumper:
@@ -8,6 +9,8 @@ sync:
     enabled: true
     intervalSeconds: 30
     graceSeconds: 120
+  keda:
+    idleReplicaCount: 2
   config:
     schemas:
       test:
@@ -27,7 +30,9 @@ sync:
                 unit_type: group
           - name: rj-ia-desenvolvimento.dev.partitioned_table
             strategy: partitioned
-            n: 5
+            fallbacks:
+              - bigquery
+            "n": 4
             partitioning:
               column: date
               interval: daily
@@ -101,16 +106,13 @@ gcp:
   existingSecret: gcp-key
 swaggerUi:
   enabled: true
-worker:
-  keda:
-    lagCount: "7"
 ducklake:
   litestream:
     storage:
       storageClass: standard
-fallback:
+proxy:
   cacheTtl: 5
-  proxyImage: localhost/data-proxy-proxy:local
+  image: localhost/data-proxy-proxy:local
 cnpg:
   pooler:
     instances: 1

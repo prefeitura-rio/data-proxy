@@ -1,4 +1,5 @@
 import http from "k6/http";
+import type { RequestParams, Response as K6Response } from "k6/http";
 import { Kubernetes } from "k6/x/kubernetes";
 import { check, sleep } from "k6";
 import {
@@ -12,13 +13,6 @@ import {
     NAMESPACE,
 } from "./lib.ts";
 
-type K6Response = {
-    status: number;
-    body: string;
-    headers: Record<string, string>;
-    json: (path?: string) => unknown;
-};
-
 type ContainerStatus = {
     name: string;
     restartCount: number;
@@ -30,14 +24,11 @@ type PodObject = {
 };
 
 interface MetricRequest {
-    stage: string;
-    source: string;
     metric: string;
     label: string;
-    method: string;
     url: string;
-    params: Record<string, string | object>;
-    extract: (r: K6Response) => unknown;
+    params: RequestParams;
+    extract: (response: K6Response) => unknown;
 }
 
 declare const __ENV: Record<string, string | undefined>;
@@ -46,24 +37,23 @@ const API_URL =
     __ENV.BASE_URL ||
     "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
 const WEBDIS_WRITE_URL = __ENV.WEBDIS_WRITE_URL || `${API_URL}/webdis/write`;
-const WEBDIS_READ_URL = __ENV.WEBDIS_READ_URL || `${API_URL}/webdis/read`;
-const FALLBACK_CACHE_REDIS_DB = __ENV.FALLBACK_CACHE_REDIS_DB || "1";
+const PROXY_CACHE_REDIS_DB = __ENV.PROXY_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
-    __ENV.OIDC_TOKEN_URL || "http://oidc.data-proxy.svc.cluster.local:8080/token";
+    __ENV.OIDC_TOKEN_URL ||
+    "http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token";
 const OIDC_USER_CLIENT_ID = __ENV.OIDC_USER_CLIENT_ID || "user";
-const OIDC_ANON_CLIENT_ID = __ENV.OIDC_ANON_CLIENT_ID || "anon";
+const OIDC_NO_POLICY_CLIENT_ID = __ENV.OIDC_NO_POLICY_CLIENT_ID || "no_policy";
 const OIDC_CLIENT_SECRET = __ENV.OIDC_CLIENT_SECRET || "test-secret";
 const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
     __ENV.POSTGREST_URL ||
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
-const EXCLUDED_TABLE = __ENV.EXCLUDED_TABLE || "";
 const FULL_SOURCE =
     __ENV.FULL_SOURCE ||
     "rj-ia-desenvolvimento.dev.full_table";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
-const SYNCED_PARTITIONS = 5;
+const SYNCED_PARTITIONS = 4;
 const PARTITION_COLUMN = "date";
 const BURST_REQUESTS = 5;
 const SCHEMA = "test";
@@ -82,24 +72,22 @@ const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
 const POLICY_REPLICATION_POLL_INTERVAL_SECONDS = Number(
     __ENV.POLICY_REPLICATION_POLL_INTERVAL_SECONDS || "2",
 );
-const S3_BUCKET = __ENV.S3_BUCKET || "data-proxy";
-const DUCKLAKE_CATALOG_PATH = __ENV.DUCKLAKE_CATALOG_PATH || "ducklake";
-const DUCKLAKE_CATALOG_LOCAL_PATH = __ENV.DUCKLAKE_CATALOG_LOCAL_PATH || "/var/lib/ducklake/catalogs";
-const DUCKLAKE_CATALOG_WRITER_PATH = __ENV.DUCKLAKE_CATALOG_WRITER_PATH || "/var/lib/ducklake/writer";
+const DUCKLAKE_CATALOG_LOCAL_PATH =
+    __ENV.DUCKLAKE_CATALOG_LOCAL_PATH || "/var/lib/ducklake/catalogs";
 
 const ACCESS_POLICY_ROWS = [
     {
-        subject: "user-1",
+        subject: "test_user_1",
         unit_type: "unit",
         unit_id: "unit_1",
     },
     {
-        subject: "user-1",
+        subject: "test_user_1",
         unit_type: "region",
         unit_id: "region_1",
     },
     {
-        subject: "user-1",
+        subject: "test_user_1",
         unit_type: "group",
         unit_id: "group_1",
     },
@@ -117,7 +105,7 @@ export const options = {
     thresholds: {
         checks: ["rate==1"],
     },
-    setupTimeout: "10m",
+    setupTimeout: "15m",
 };
 
 function safeJson(r: K6Response): unknown {
@@ -158,7 +146,7 @@ function authHeaders(token: string): Record<string, string> {
 }
 
 /** Seeds the access policy table so RLS grants the test user its units. */
-function seedAccessPolicy(): string {
+function seedAccessPolicy(): void {
     const token = fetchToken("policy_writer");
     const headers = {
         Authorization: `Bearer ${token}`,
@@ -181,7 +169,6 @@ function seedAccessPolicy(): string {
     check(null, {
         "access_policy seeded": () => status === 201 || status === 409,
     });
-    return token;
 }
 
 /** Waits until the seeded policy authorizes the user through the read path. */
@@ -203,9 +190,11 @@ function waitForAccessPolicyReplication(token: string): void {
 
 /** Verifies that a user without a policy gets a 200 with zero rows. */
 function verifyNoAccess(): void {
-    const token = fetchToken(OIDC_ANON_CLIENT_ID);
+    const token = fetchToken(OIDC_NO_POLICY_CLIENT_ID);
     let status = 0;
     let body: unknown = null;
+    let source = "";
+    let snapshot = "";
     for (let attempt = 0; attempt < 3; attempt++) {
         const response = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
             headers: authHeaders(token),
@@ -213,6 +202,8 @@ function verifyNoAccess(): void {
         }) as K6Response;
         status = response.status;
         body = safeJson(response);
+        source = sourceHeader(response);
+        snapshot = snapshotHeader(response);
         if (status === 200) break;
         sleep(1);
     }
@@ -220,7 +211,23 @@ function verifyNoAccess(): void {
         "user without policy gets 200": () => status === 200,
         "no-access returns zero rows": () =>
             Array.isArray(body) && body.length === 0,
+        "no-access queries no source": () => source === "",
+        "no-access response omits the DuckLake snapshot": () => snapshot === "",
     });
+
+    const fallback = proxyGet(`/${PARTITIONED_TABLE}?limit=1`, token);
+    expect(
+        "no-access fallback request returns zero rows",
+        fallback.status === 200 && rowsOf(fallback).length === 0,
+    );
+    expect(
+        "no-access fallback request queries no source",
+        sourceHeader(fallback) === "",
+    );
+    expect(
+        "no-access fallback response omits the DuckLake snapshot",
+        snapshotHeader(fallback) === "",
+    );
 }
 
 /** Verifies that an authorized user cannot see rows from another unit. */
@@ -251,7 +258,7 @@ function verifyAuthorizedRows(token: string): void {
     expect(
         "multi-RLS rows match an authorized unit",
         multiRows.every(
-            (row) => row.region_id === "unit_1" || row.group_id === "group_1",
+            (row) => row.region_id === "region_1" || row.group_id === "group_1",
         ),
     );
 }
@@ -264,7 +271,7 @@ function verifyJsonbColumn(): void {
     let filterBody: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
         const response = http.get(
-            `${API_URL}/${FULL_TABLE}?indicadores->>status=not.is.null&limit=1`,
+            `${API_URL}/${FULL_TABLE}?metadata->>status=not.is.null&limit=1`,
             { headers: authHeaders(token), tags: { name: "json_path_filter" } },
         ) as K6Response;
         filterStatus = response.status;
@@ -282,20 +289,15 @@ function verifyJsonbColumn(): void {
 
 /** Builds a PostgREST metric request that reads a path through the proxy. */
 function postgrestMetric(
-    stage: string,
-    source: string,
     metric: string,
     label: string,
     path: string,
     token: string,
-    extract: (r: K6Response) => unknown,
+    extract: (response: K6Response) => unknown,
 ): MetricRequest {
     return {
-        stage,
-        source,
         metric,
         label,
-        method: "GET",
         url: `${API_URL}${path}`,
         params: { headers: authHeaders(token), tags: { name: metric } },
         extract,
@@ -309,25 +311,21 @@ function buildMetrics(token: string): MetricRequest[] {
     TABLES.forEach((table) => {
         metrics.push(
             postgrestMetric(
-                "extract",
-                "parquet",
                 `table_status:${table}`,
                 `${table} is reachable`,
                 `/${table}?limit=1`,
                 token,
-                (r) => r.status,
+                (response) => response.status,
             ),
         );
         metrics.push(
             postgrestMetric(
-                "publish",
-                "parquet",
                 `table_row_count:${table}`,
                 `${table} has rows after publishing`,
                 `/${table}?limit=1000`,
                 token,
-                (r) => {
-                    const body = safeJson(r);
+                (response) => {
+                    const body = safeJson(response);
                     return Array.isArray(body) ? body.length : 0;
                 },
             ),
@@ -336,14 +334,12 @@ function buildMetrics(token: string): MetricRequest[] {
 
     metrics.push(
         postgrestMetric(
-            "publish",
-            "parquet",
             `partition_count:${PARTITIONED_TABLE}`,
             `${PARTITIONED_TABLE} has ${SYNCED_PARTITIONS} partitions`,
             `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&limit=100`,
             token,
-            (r) => {
-                const rows = safeJson(r);
+            (response) => {
+                const rows = safeJson(response);
                 return Array.isArray(rows) ? rows.length : 0;
             },
         ),
@@ -354,19 +350,7 @@ function buildMetrics(token: string): MetricRequest[] {
 
 /** Fires every metric request and returns the responses in order. */
 function executeMetrics(metrics: MetricRequest[]): K6Response[] {
-    const responses: K6Response[] = [];
-    metrics.forEach((m) => {
-        if (m.method === "GET") {
-            responses.push(http.get(m.url, m.params) as K6Response);
-        } else {
-            responses.push(
-                http.post(m.url, JSON.stringify(m.params), {
-                    headers: { "Content-Type": "application/json" },
-                }) as K6Response,
-            );
-        }
-    });
-    return responses;
+    return metrics.map((metric) => http.get(metric.url, metric.params));
 }
 
 /** Polls the sync metrics once and reports whether the sync is complete. */
@@ -454,16 +438,41 @@ function proxyGet(
 }
 
 /** Sends a GET directly to PostgREST, bypassing the proxy. */
-function directPostgrest(path: string, token: string): K6Response {
+function directPostgrest(
+    path: string,
+    token: string,
+    extra: Record<string, string> = {},
+): K6Response {
     return http.get(`${POSTGREST_URL}${path}`, {
-        headers: { Authorization: `Bearer ${token}`, "Accept-Profile": SCHEMA },
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Accept-Profile": SCHEMA,
+            ...extra,
+        },
         tags: { name: `postgrest:${path.split("?")[0]}` },
     }) as K6Response;
 }
 
-/** Reads the X-Cache header from a response, handling case variants. */
+/** Reads one response header, handling case variants. */
+function headerOf(r: K6Response, name: string): string {
+    const wanted = name.toLowerCase();
+    const key = Object.keys(r.headers).find((k) => k.toLowerCase() === wanted);
+    return key ? r.headers[key] : "";
+}
+
+/** Reads the X-Cache header from a response. */
 function cacheHeader(r: K6Response): string {
-    return r.headers["X-Cache"] || r.headers["x-cache"] || "";
+    return headerOf(r, "X-Cache");
+}
+
+/** Reads the sources that served a response, from the X-Source header. */
+function sourceHeader(r: K6Response): string {
+    return headerOf(r, "X-Source");
+}
+
+/** Reads the DuckLake snapshot a response was read from. */
+function snapshotHeader(r: K6Response): string {
+    return headerOf(r, "X-DuckLake-Snapshot");
 }
 
 /** Extracts the rows from a JSON array response, or an empty array. */
@@ -487,7 +496,7 @@ function snapshotValue(token: string): string {
     return JSON.stringify(body);
 }
 
-/** Asserts a named condition and logs it as a fallback verification step. */
+/** Asserts a named condition and logs it as a verification step. */
 function expect(name: string, ok: boolean): void {
     check(null, { [name]: () => ok });
 }
@@ -497,7 +506,7 @@ function requirePrecondition(name: string, ok: boolean, detail: unknown): void {
     check(null, { [name]: () => ok });
     if (!ok) {
         throw new Error(
-            `fallback precondition failed: ${name}: ${JSON.stringify(detail)}`,
+            `precondition failed: ${name}: ${JSON.stringify(detail)}`,
         );
     }
 }
@@ -529,6 +538,7 @@ function runCommandJob(
                             command: ["/bin/sh"],
                             args: ["-c", command],
                             env: podSpec.containers[0].env,
+                            volumeMounts: podSpec.containers[0].volumeMounts,
                         },
                     ],
                 },
@@ -552,43 +562,13 @@ function runSqlJob(
     );
 }
 
-/** Revokes the anon role's SELECT on a fallback view. */
-function revokeFallbackAccess(k8s: Kubernetes, table: string): void {
-    runSqlJob(
-        k8s,
-        `revoke-${table}`,
-        `REVOKE SELECT ON ${SCHEMA}.${table}_bq FROM "anon"`,
-    );
-}
-
-/** Grants the anon role's SELECT on a fallback view. */
-function grantFallbackAccess(k8s: Kubernetes, table: string): void {
-    runSqlJob(
-        k8s,
-        `grant-${table}`,
-        `GRANT SELECT ON ${SCHEMA}.${table}_bq TO "anon"`,
-    );
-}
-
-/** Verifies that every configured table has a fallback view that returns rows. */
-function verifyFallbackPreconditions(token: string): void {
-    TABLES.forEach((table) => {
-        const view = directPostgrest(`/${table}_bq?limit=1`, token);
-        requirePrecondition(
-            `fallback view answers for ${table}`,
-            view.status === 200 && rowsOf(view).length > 0,
-            { status: view.status },
-        );
-    });
-}
-
 /** Verifies cache hits, token refresh, forged token refusal, and TTL expiry. */
-function verifyFallbackCache(token: string, otherToken: string): void {
+function verifyProxyCache(token: string, otherToken: string): void {
     const path = `/${FULL_TABLE}?select=id&limit=4`;
 
     const first = proxyGet(path, token);
     requirePrecondition(
-        "the first fallback answer is served",
+        "the first answer is served",
         cacheHeader(first) === "MISS" && rowsOf(first).length > 0,
         {
             cache: cacheHeader(first),
@@ -649,12 +629,16 @@ function verifyFallbackCache(token: string, otherToken: string): void {
 
     const emptyPath = `/${FULL_TABLE}?unit_id=eq.unit_99&select=id&limit=4`;
     expect(
-        "an empty fallback answer is cached",
+        "an empty answer is not cached",
         cacheHeader(proxyGet(emptyPath, token)) === "MISS",
     );
     expect(
-        "an empty fallback answer is served from cache on repeat",
-        cacheHeader(proxyGet(emptyPath, token)) === "HIT",
+        "an empty answer stays uncached on repeat",
+        cacheHeader(proxyGet(emptyPath, token)) === "MISS",
+    );
+    expect(
+        "a cache hit keeps the source of the stored answer",
+        sourceHeader(proxyGet(path, token)) === sourceHeader(first),
     );
 
     const posted = http.post(
@@ -680,65 +664,8 @@ function verifyFallbackCache(token: string, otherToken: string): void {
     );
 }
 
-/** Verifies the proxy falls back to the local table when the view is unreadable. */
-function verifyFallbackFailure(k8s: Kubernetes, token: string): void {
-    const path = `/${FULL_TABLE}?select=id&order=id&limit=2`;
-
-    revokeFallbackAccess(k8s, FULL_TABLE);
-    const denied = directPostgrest(`/${FULL_TABLE}_bq?limit=1`, token);
-    requirePrecondition(
-        "the fallback view is unreadable to the anon role",
-        denied.status !== 200,
-        {
-            status: denied.status,
-        },
-    );
-
-    const response = proxyGet(path, token);
-    const local = directPostgrest(path, token);
-    expect(
-        "an unreadable fallback keeps the request successful",
-        response.status === 200,
-    );
-    expect(
-        "an unreadable fallback returns the local answer",
-        JSON.stringify(rowsOf(response)) === JSON.stringify(rowsOf(local)),
-    );
-
-    grantFallbackAccess(k8s, FULL_TABLE);
-    const restored = directPostgrest(`/${FULL_TABLE}_bq?limit=1`, token);
-    expect(
-        "the fallback is readable again",
-        restored.status === 200 && rowsOf(restored).length > 0,
-    );
-    expect(
-        "the fallback answers again",
-        rowsOf(proxyGet(path, token)).length > 0,
-    );
-}
-
-/** Verifies that a table without a fallback view is served from the local path. */
-function verifyExcludedTable(token: string): void {
-    if (!EXCLUDED_TABLE) {
-        return;
-    }
-
-    const view = directPostgrest(`/${EXCLUDED_TABLE}_bq?limit=1`, token);
-    expect(
-        `the excluded table ${EXCLUDED_TABLE} has no fallback view`,
-        view.status !== 200,
-    );
-
-    const proxiedResult = proxyGet(`/${EXCLUDED_TABLE}?limit=1`, token);
-    const local = directPostgrest(`/${EXCLUDED_TABLE}?limit=1`, token);
-    expect(
-        "the excluded table is served by the local path",
-        JSON.stringify(rowsOf(proxiedResult)) === JSON.stringify(rowsOf(local)),
-    );
-}
-
 /** Verifies that a per-table cache TTL outlives the global one. */
-function verifyFallbackLifetimes(token: string): void {
+function verifyProxyLifetimes(token: string): void {
     const longPath = `/${PARTITIONED_TABLE}?select=id&limit=2`;
     const shortPath = `/${FULL_TABLE}?select=id&limit=2`;
 
@@ -802,19 +729,19 @@ function verifyCoalescing(token: string): void {
 
 /** Restarts a sync worker during a detached workflow and verifies distributed recovery. */
 function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void {
-  runSqlJob(
-    k8s,
-    "prepare-recovery",
-    `DELETE FROM data_proxy.state WHERE table_name = '${FULL_SOURCE}'`,
-    "DBOS_SYSTEM_DATABASE_URL",
-  );
-  const job = triggerSync(k8s, true);
-  waitForJob(k8s, job);
-  waitForWorkflowRunning(k8s);
-  restartPipeline(k8s);
-  waitForWorkflow(k8s);
-  const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
-  check(null, { "the sync service recovered after restart": () => completed });
+    runSqlJob(
+        k8s,
+        "prepare-recovery",
+        `DELETE FROM data_proxy.state WHERE table_name = '${FULL_SOURCE}'`,
+        "DBOS_SYSTEM_DATABASE_URL",
+    );
+    const job = triggerSync(k8s, true);
+    waitForJob(k8s, job);
+    waitForWorkflowRunning(k8s);
+    restartPipeline(k8s);
+    waitForWorkflow(k8s);
+    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    check(null, { "the sync service recovered after restart": () => completed });
 }
 
 /** Waits until the sync service has published all tables. */
@@ -837,7 +764,7 @@ function redisCommand(
     token: string,
     url: string,
     command: string,
-    database: string = FALLBACK_CACHE_REDIS_DB,
+    database: string = PROXY_CACHE_REDIS_DB,
 ): Record<string, unknown> | null {
     const response = http.get(`${url}/${database}/${command}`, {
         headers: authHeaders(token),
@@ -850,15 +777,15 @@ function redisCommand(
 }
 
 /** Clears cached table responses without touching sync streams. */
-function clearFallbackCache(token: string): void {
+function clearProxyCache(token: string): void {
     const answer = redisCommand(
         token,
         WEBDIS_WRITE_URL,
         "FLUSHDB",
-        FALLBACK_CACHE_REDIS_DB,
+        PROXY_CACHE_REDIS_DB,
     );
     check(null, {
-        "fallback response cache cleared": () => answer !== null,
+        "proxy response cache cleared": () => answer !== null,
     });
 }
 
@@ -891,16 +818,6 @@ function verifyWebdisStable(k8s: Kubernetes): void {
     );
 }
 
-/**
- * Verifies the BigQuery fallback end to end.
- *
- * The fallback runs only when a GET answers with an empty array, so every check
- * below first makes the local answer empty: either by asking for a partition
- * that the sync does not keep, or by querying a filter that matches no rows.
- * Each check states its precondition and fails the run when the precondition
- * cannot be met, so a check that proves nothing cannot pass.
- */
-
 /** Lists pods that match a component label. */
 function podsForComponent(k8s: Kubernetes, component: string): PodObject[] {
     const pods = k8s.list("Pod", NAMESPACE) as PodObject[];
@@ -921,14 +838,23 @@ function postgrestDeploymentRevision(k8s: Kubernetes): string {
     return String(deployment.status?.observedGeneration || "0");
 }
 
-/** Verifies DuckLake Parquet files were written to S3 during sync. */
+/** Verifies every table is served by the sources its configuration allows. */
 function verifyDuckLakePublication(token: string): void {
+    const expected: Record<string, string> = {
+        [FULL_TABLE]: "ducklake",
+        [MULTI_RLS_TABLE]: "ducklake",
+        [PARTITIONED_TABLE]: "ducklake+bigquery",
+    };
+
     TABLES.forEach((table) => {
         const response = proxyGet(`/${table}?limit=1`, token);
-        const source = response.headers["X-Source"] || response.headers["x-source"] || "";
         expect(
-            `${table} is served from parquet or cache after DuckLake publication`,
-            response.status === 200 && (source === "parquet" || source === "cache"),
+            `${table} is served by ${expected[table]} after DuckLake publication`,
+            response.status === 200 && sourceHeader(response) === expected[table],
+        );
+        expect(
+            `${table} reports the DuckLake snapshot it read`,
+            /^[0-9]+$/.test(snapshotHeader(response)),
         );
     });
 }
@@ -967,27 +893,28 @@ function verifyCnpgReaderMount(token: string): void {
     );
 }
 
-/** Verifies a normal GET response carries the parquet source label. */
-function verifyParquetSource(token: string): void {
-    clearFallbackCache(token);
+/** Verifies a table without fallback reports DuckLake as its only source. */
+function verifyDuckLakeSource(token: string): void {
+    clearProxyCache(token);
     sleep(1);
 
     const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
-    const source = response.headers["X-Source"] || response.headers["x-source"] || "";
     expect(
-        "a normal GET is served from parquet",
-        source === "parquet",
+        "a table without fallback is served from DuckLake only",
+        response.status === 200 && sourceHeader(response) === "ducklake",
     );
 }
 
-/** Verifies the BigQuery fallback is triggered for an unsynced partition. */
-function verifyBigQueryFallback(token: string): void {
-    clearFallbackCache(token);
+/** Verifies partitions outside DuckLake are served from BigQuery. */
+function verifyBigQueryRows(token: string): void {
+    clearProxyCache(token);
     sleep(1);
 
+    const pinned = { "X-DuckLake-Snapshot": snapshotValue(token) };
     const localOldest = directPostgrest(
         `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
         token,
+        pinned,
     );
     const localRows = rowsOf(localOldest);
     requirePrecondition(
@@ -999,33 +926,141 @@ function verifyBigQueryFallback(token: string): void {
     const oldest = String(
         (localRows[0] as Record<string, unknown>)[PARTITION_COLUMN] || "",
     );
-    const filter = `${PARTITION_COLUMN}=lt.${oldest}&select=id&limit=1`;
-    const parquetResponse = directPostgrest(
+    const filter =
+        `${PARTITION_COLUMN}=lt.${oldest}&select=id,${PARTITION_COLUMN},unit_id&limit=20`;
+    const local = directPostgrest(
         `/${PARTITIONED_TABLE}?${filter}`,
         token,
-    );
-    const bqView = directPostgrest(`/${PARTITIONED_TABLE}_bq?${filter}`, token);
-    requirePrecondition(
-        "an older partition is absent from parquet",
-        parquetResponse.status === 200 && rowsOf(parquetResponse).length === 0,
-        { status: parquetResponse.status, oldest },
+        pinned,
     );
     requirePrecondition(
-        "the older partition exists in BigQuery",
-        bqView.status === 200 && rowsOf(bqView).length > 0,
-        { status: bqView.status, oldest },
+        "an older partition is absent from DuckLake",
+        local.status === 200 && rowsOf(local).length === 0,
+        { status: local.status, oldest },
     );
 
-    const proxyResponse = proxyGet(`/${PARTITIONED_TABLE}?${filter}`, token);
-    const source = proxyResponse.headers["X-Source"] || proxyResponse.headers["x-source"] || "";
+    const response = proxyGet(`/${PARTITIONED_TABLE}?${filter}`, token);
+    const rows = rowsOf(response) as Array<Record<string, unknown>>;
     expect(
-        "the proxy falls back to BigQuery for an unsynced partition",
-        proxyResponse.status === 200 && source === "bigquery",
+        "an older partition is served from BigQuery",
+        response.status === 200 && sourceHeader(response) === "ducklake+bigquery",
     );
     expect(
-        "the fallback returns BigQuery rows",
-        rowsOf(proxyResponse).length === rowsOf(bqView).length,
+        "the BigQuery rows belong to the older partition",
+        rows.length > 0 &&
+        rows.every((row) => String(row[PARTITION_COLUMN]) < oldest),
     );
+    expect(
+        "BigQuery fallback rows obey RLS",
+        rows.length > 0 && rows.every((row) => row.unit_id === "unit_1"),
+    );
+}
+
+/** Reads the number of rows per partition through the proxy. */
+function rowsPerPartition(
+    token: string,
+    extra: Record<string, string> = {},
+): { response: K6Response; counts: Map<string, number> } {
+    const response = proxyGet(
+        `/${PARTITIONED_TABLE}?select=${PARTITION_COLUMN},count()&order=${PARTITION_COLUMN}.asc`,
+        token,
+        extra,
+    );
+    const counts = new Map<string, number>();
+    (rowsOf(response) as Array<Record<string, unknown>>).forEach((row) => {
+        counts.set(String(row[PARTITION_COLUMN]), Number(row.count));
+    });
+    return { response, counts };
+}
+
+/**
+ * Verifies a table split in half between DuckLake and BigQuery.
+ *
+ * The seeded table has twice as many partitions as the sync keeps. DuckLake
+ * holds the newest half and BigQuery serves the older half.
+ */
+function verifySplitSources(token: string): void {
+    clearProxyCache(token);
+    sleep(1);
+
+    const all = rowsPerPartition(token);
+    const ducklake = rowsPerPartition(token, {
+        "X-DuckLake-Snapshot": snapshotValue(token),
+    });
+    const allDates = [...all.counts.keys()].sort();
+    const ducklakeDates = [...ducklake.counts.keys()].sort();
+    const bigqueryDates = allDates.filter((date) => !ducklake.counts.has(date));
+
+    expect(
+        "the split table is served by DuckLake and BigQuery",
+        all.response.status === 200 &&
+        sourceHeader(all.response) === "ducklake+bigquery",
+    );
+    expect(
+        "the pinned split table is served by DuckLake only",
+        ducklake.response.status === 200 &&
+        sourceHeader(ducklake.response) === "ducklake",
+    );
+    requirePrecondition(
+        "the split table has partitions",
+        allDates.length > 0 && ducklakeDates.length > 0,
+        { all: allDates.length, ducklake: ducklakeDates.length },
+    );
+    expect(
+        "DuckLake holds half of the partitions",
+        ducklakeDates.length * 2 === allDates.length,
+    );
+    expect(
+        "BigQuery serves the other half of the partitions",
+        bigqueryDates.length === ducklakeDates.length,
+    );
+    expect(
+        "DuckLake holds the newest partitions",
+        bigqueryDates.every((date) => date < ducklakeDates[0]),
+    );
+    expect(
+        "the combined answer keeps the DuckLake rows unchanged",
+        ducklakeDates.every((date) => all.counts.get(date) === ducklake.counts.get(date)),
+    );
+    expect(
+        "the BigQuery partitions have rows",
+        bigqueryDates.every((date) => (all.counts.get(date) || 0) > 0),
+    );
+}
+
+/** Verifies a client can pin a DuckLake snapshot version. */
+function verifySnapshotVersion(token: string): void {
+    const path = `/${FULL_TABLE}?select=id&order=id&limit=5`;
+    const latest = proxyGet(path, token);
+    const snapshot = snapshotHeader(latest);
+    requirePrecondition(
+        "the latest answer names its snapshot",
+        latest.status === 200 && /^[0-9]+$/.test(snapshot),
+        { status: latest.status, snapshot },
+    );
+
+    const pinned = proxyGet(path, token, { "X-DuckLake-Snapshot": snapshot });
+    expect("a pinned version is served", pinned.status === 200);
+    expect(
+        "a pinned version is read from DuckLake only",
+        sourceHeader(pinned) === "ducklake",
+    );
+    expect(
+        "a pinned version reports that version",
+        snapshotHeader(pinned) === snapshot,
+    );
+    expect(
+        "the latest version returns the same rows as the default request",
+        JSON.stringify(rowsOf(pinned)) === JSON.stringify(rowsOf(latest)),
+    );
+
+    const unknown = proxyGet(path, token, {
+        "X-DuckLake-Snapshot": String(Number(snapshot) + 1000),
+    });
+    expect("an unknown version is not found", unknown.status === 404);
+
+    const invalid = proxyGet(path, token, { "X-DuckLake-Snapshot": "latest" });
+    expect("a version that is not a number is rejected", invalid.status === 400);
 }
 
 /** Verifies Istio rejects requests without a valid JWT. */
@@ -1036,7 +1071,7 @@ function verifyIstioJwtValidation(): void {
     }) as K6Response;
     expect(
         "Istio rejects a request without a token",
-        noToken.status === 401,
+        noToken.status === 403,
     );
 
     const invalidToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
@@ -1049,15 +1084,13 @@ function verifyIstioJwtValidation(): void {
     );
 }
 
-function verifyFallback(k8s: Kubernetes): void {
+/** Verifies the proxy cache, its lifetimes, and request coalescing. */
+function verifyProxy(): void {
     const token = fetchToken();
-    const noAccessToken = fetchToken(OIDC_ANON_CLIENT_ID);
+    const noAccessToken = fetchToken(OIDC_NO_POLICY_CLIENT_ID);
 
-    verifyFallbackPreconditions(token);
-    verifyFallbackCache(token, noAccessToken);
-    verifyFallbackLifetimes(token);
-    verifyFallbackFailure(k8s, token);
-    verifyExcludedTable(token);
+    verifyProxyCache(token, noAccessToken);
+    verifyProxyLifetimes(token);
     verifyCoalescing(token);
 }
 
@@ -1079,7 +1112,7 @@ export default function(): void {
 
     waitForAccessPolicyReplication(token);
     verifyNoChangeRun(k8s, token);
-    clearFallbackCache(token);
+    clearProxyCache(token);
     sleep(2);
     verifyMetrics(metrics);
     verifyNoAccess();
@@ -1089,9 +1122,11 @@ export default function(): void {
     verifyDuckLakePublication(token);
     verifyCatalogSync(k8s);
     verifyCnpgReaderMount(token);
-    verifyParquetSource(token);
-    verifyBigQueryFallback(token);
+    verifyDuckLakeSource(token);
+    verifyBigQueryRows(token);
+    verifySplitSources(token);
+    verifySnapshotVersion(token);
     verifyIstioJwtValidation();
     verifyWebdisStable(k8s);
-    verifyFallback(k8s);
+    verifyProxy();
 }

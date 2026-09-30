@@ -9,7 +9,7 @@ const MINIKUBE_DISK = '40g'
 const MINIKUBE_MEMORY = '12288'
 const NAMESPACE = 'data-proxy'
 const PROFILE = 'data-proxy'
-const FALLBACK_CACHE_REDIS_DB = '1'
+const PROXY_CACHE_REDIS_DB = '1'
 const TEST_SCHEMA = 'test'
 
 # Path to the repository git-root.
@@ -294,7 +294,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         | str trim
     )
 
-    log info $'Clearing fallback response cache in Redis DB ($FALLBACK_CACHE_REDIS_DB)...'
+    log info $'Clearing proxy response cache in Redis DB ($PROXY_CACHE_REDIS_DB)...'
     (k
         $kubecfg
         -n
@@ -304,7 +304,7 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
         --
         redis-cli
         -n
-        $FALLBACK_CACHE_REDIS_DB
+        $PROXY_CACHE_REDIS_DB
         FLUSHDB
     )
 
@@ -469,7 +469,6 @@ def k6-run [
         $configmap
         --from-file=($script_key + '=' + $script_path)
         --from-file=lib.ts=k6/lib.ts
-        --from-file=kubernetes.ts=k6/types/kubernetes.ts
         --from-file=trigger.py=scripts/trigger.py
         --dry-run=client
         -o

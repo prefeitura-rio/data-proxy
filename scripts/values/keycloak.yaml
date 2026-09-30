@@ -29,6 +29,7 @@ realm:
           "serviceAccountsEnabled": true,
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
+          "defaultClientScopes": ["web-origins", "acr", "roles", "email"],
           "protocolMappers": [
             {
               "name": "role",
@@ -49,7 +50,71 @@ realm:
               "protocolMapper": "oidc-hardcoded-claim-mapper",
               "config": {
                 "claim.name": "preferred_username",
-                "claim.value": "user-1",
+                "claim.value": "test_user_1",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "no_policy",
+          "name": "no_policy",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": ["web-origins", "acr", "roles", "email"],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "user",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_user_2",
                 "jsonType.label": "String",
                 "access.token.claim": "true",
                 "id.token.claim": "true",
@@ -109,7 +174,7 @@ realm:
               "protocolMapper": "oidc-hardcoded-claim-mapper",
               "config": {
                 "claim.name": "preferred_username",
-                "claim.value": "user",
+                "claim.value": "anonymous",
                 "jsonType.label": "String",
                 "access.token.claim": "true"
               }
@@ -165,7 +230,7 @@ realm:
               "protocolMapper": "oidc-hardcoded-claim-mapper",
               "config": {
                 "claim.name": "preferred_username",
-                "claim.value": "policy-writer",
+                "claim.value": "test_policy_writer",
                 "jsonType.label": "String",
                 "access.token.claim": "true"
               }

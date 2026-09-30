@@ -59,8 +59,6 @@ spec:
         value: data-proxy.local
       - name: WEBDIS_WRITE_URL
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/write
-      - name: WEBDIS_READ_URL
-        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/read
       - name: NAMESPACE
         value: data-proxy
       - name: PIPELINE
@@ -73,13 +71,13 @@ spec:
         value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
       - name: OIDC_USER_CLIENT_ID
         value: user
-      - name: OIDC_ANON_CLIENT_ID
-        value: anon
+      - name: OIDC_NO_POLICY_CLIENT_ID
+        value: no_policy
       - name: PG_IMAGE
         value: localhost/data-proxy-postgres:17.0.0-local
       - name: CACHE_TTL_SECONDS
         value: "5"
-      - name: FALLBACK_CACHE_REDIS_DB
+      - name: PROXY_CACHE_REDIS_DB
         value: "1"
       - name: POLICY_REPLICATION_TIMEOUT_SECONDS
         value: "120"
@@ -87,17 +85,9 @@ spec:
         value: "2"
       - name: MAX_DURATION
         value: "25m"
-      - name: PARTITIONED_SOURCE
-        value: rj-ia-desenvolvimento.dev.partitioned_table
       - name: K8S_SA_TOKEN_PATH
         value: /var/run/secrets/kubernetes.io/serviceaccount/token
       - name: FULL_SOURCE
         value: rj-ia-desenvolvimento.dev.full_table
-      - name: S3_BUCKET
-        value: data-proxy
-      - name: DUCKLAKE_CATALOG_PATH
-        value: ducklake
       - name: DUCKLAKE_CATALOG_LOCAL_PATH
         value: /var/lib/ducklake/catalogs
-      - name: DUCKLAKE_CATALOG_WRITER_PATH
-        value: /var/lib/ducklake/writer
