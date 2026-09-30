@@ -8,4 +8,4 @@
   }
 }
 #}
-CALL {{ schema }}.cleanup_stale_objects(:config::jsonb, {{ schema_argument }})
+CALL {{ schema }}.cleanup_stale_objects(:'config'::jsonb, {{ schema_argument }})

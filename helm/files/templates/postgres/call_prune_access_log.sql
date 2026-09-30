@@ -7,4 +7,4 @@
   }
 }
 #}
-CALL {{ schema }}.prune_access_log(:retention::interval, :schema)
+CALL {{ schema }}.prune_access_log(:'retention'::interval, :'schema')
