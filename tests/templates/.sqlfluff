@@ -1,0 +1,7 @@
+[sqlfluff:templater:jinja:context]
+catalog = /tmp/catalog.sqlite
+data_path = s3://bucket/ducklake/pic
+first = s3://bucket/first.parquet
+second = s3://bucket/second.parquet
+endpoint = silo:9000
+dbos_schema = dbos

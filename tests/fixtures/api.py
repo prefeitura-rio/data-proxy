@@ -19,8 +19,8 @@ from testcontainers.core.network import Network
 from data_proxy.bigquery.clients import BigQuery
 from data_proxy.settings import Settings, settings
 from data_proxy.templates import render_template
-from tests.constants import FILES
-from tests.fixtures.types import SeaweedFS
+from tests.constants import FILES, TEST_SQL_DIR
+from tests.fixtures.types import Silo
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -111,11 +111,7 @@ def bigquery() -> Iterator[BigQuery]:
         """Return metadata for one preseeded table."""
         name = table.replace(":", ".")
         row = database.execute(
-            render_template(
-                "bigquery/table_metadata",
-                {"table_name": name},
-                root=FILES.parent / "templates",
-            )
+            render_template("bigquery/table_metadata", {}, root=TEST_SQL_DIR), [name]
         ).fetchone()
 
         if row is None:
@@ -138,7 +134,7 @@ def bigquery() -> Iterator[BigQuery]:
         )
 
         rows = database.execute(
-            render_template("bigquery/partitions", {}, root=FILES.parent / "templates"),
+            render_template("bigquery/partitions", {}, root=TEST_SQL_DIR),
             [f"test.dataset.{name}" if name else ""],
         ).fetchall()
 
@@ -165,10 +161,10 @@ def container_network() -> Iterator[Network]:
 
 
 @pytest.fixture(scope="session")
-def seaweedfs(
+def silo(
     container_network: Network,
     tmp_path_factory: pytest.TempPathFactory,
-) -> Iterator[SeaweedFS]:
+) -> Iterator[Silo]:
     """Provide Silo object storage populated with the Parquet test fixtures."""
     credentials = tmp_path_factory.mktemp("silo")
     (credentials / "access_key").write_text("minioadmin")
@@ -210,10 +206,21 @@ def seaweedfs(
         if fixture.name == "people_partition_10.parquet":
             client.fput_object("test-bucket", "app/people/data.parquet", str(fixture))
     try:
-        yield SeaweedFS(
+        yield Silo(
             container.get_container_host_ip(),
             container.get_exposed_port(9000),
             client,
         )
+    finally:
+        container.stop()
+
+
+@pytest.fixture(scope="session")
+def valkey() -> Iterator[tuple[str, int]]:
+    """Provide a real Valkey endpoint for cache integration tests."""
+    container = DockerContainer("valkey/valkey:8-alpine").with_exposed_ports(6379)
+    container.start()
+    try:
+        yield container.get_container_host_ip(), int(container.get_exposed_port(6379))
     finally:
         container.stop()

@@ -1,3 +1,9 @@
+{#
+{
+  "kind": "template",
+  "description": "Emulate the BigQuery table metadata in DuckDB. Parameters: one table name."
+}
+#}
 SELECT struct_pack(
     table_name := table_name,
     table_type := table_type,
@@ -10,4 +16,4 @@ SELECT struct_pack(
     modified := modified
 ) AS metadata
 FROM table_metadata
-WHERE table_name = '{{ table_name }}'
+WHERE table_name = ?

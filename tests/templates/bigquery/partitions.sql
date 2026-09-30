@@ -1,3 +1,9 @@
+{#
+{
+  "kind": "template",
+  "description": "Emulate the BigQuery partition listing in DuckDB. Parameters: one table name."
+}
+#}
 SELECT struct_pack(
     partition_id := partition_id,
     last_modified_time := MAX(last_modified_time),

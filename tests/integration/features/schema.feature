@@ -18,15 +18,10 @@ Feature: PostgreSQL schema lifecycle
     Then anonymous schema usage is disabled
     And anonymous table access is disabled
 
-  Scenario: Cleaning schema objects removes stale tables
-    When I create a stale table and clean schema objects
-    Then the stale table does not exist
-
-  Scenario: Cleaning schema objects removes stale fallback views
-    When I create a stale fallback view and clean schema objects
-    Then the stale fallback view does not exist
+  Scenario: Cleaning schema objects removes stale views
+    When I create a stale view and clean schema objects
+    Then the stale view does not exist
 
   Scenario: Initializing the application state schema creates state and errors tables
     When I initialize the application state schema
-    Then the state table exists
-    And the errors table exists
+    Then the state and errors tables exist

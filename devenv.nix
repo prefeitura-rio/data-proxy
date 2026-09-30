@@ -103,14 +103,16 @@ in
           };
           "dp:lint:sql" = {
             exec = ''
-              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates
-              sqlfluff lint --dialect duckdb src/data_proxy/templates/duckdb
+              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates tests/templates/postgres
+              sqlfluff lint --dialect duckdb src/data_proxy/templates/duckdb tests/templates/duckdb tests/templates/bigquery
               sqlfluff lint --dialect bigquery src/data_proxy/templates/bigquery
             '';
             execIfModified = [
               ".sqlfluff"
+              ".sqlfluffignore"
               "helm/files/templates"
               "src/data_proxy/templates"
+              "tests/templates"
             ];
           };
           "dp:lint:helm" = {
@@ -118,10 +120,10 @@ in
             execIfModified = [ "helm" ];
           };
           "dp:lint:proxy" = {
-            exec = "tsc -p nginx";
+            exec = "tsc -p proxy";
             after = [ "dp:types" ];
             execIfModified = [
-              "nginx"
+              "proxy"
               "package.json"
               "package-lock.json"
             ];
@@ -136,8 +138,8 @@ in
             ];
           };
           "dp:test:proxy" = {
-            exec = "node --test nginx/fallback.test.ts";
-            execIfModified = [ "nginx" ];
+            exec = "node --test proxy/proxy.test.ts";
+            execIfModified = [ "proxy" ];
           };
           "dp:test:helm" = {
             exec = ''

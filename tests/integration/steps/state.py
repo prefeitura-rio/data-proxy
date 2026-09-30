@@ -157,10 +157,11 @@ def check_partition_manifest(
     partitioned_table: str,
 ) -> None:
     assert partitioned_table == table
-    manifest = asyncio.run(read_table_state(state_connection, table))
-    assert manifest is not None
-    assert manifest.partitions is not None
-    assert "1" in manifest.partitions
+    assert asyncio.run(read_table_state(state_connection, table)) == TableState(
+        strategy=Strategy.PARTITIONED,
+        signature="sig",
+        partitions={"1": partition("1")},
+    )
 
 
 @when(

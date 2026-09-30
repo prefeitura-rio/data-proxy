@@ -1,38 +1,31 @@
 """Integration steps for SQL template execution against PostgreSQL.
 
-These steps exercise Postgres SQL templates through the application's
-high-level functions (ensure_app_schema, apply_table_authorization) against
-a real PostgreSQL instance. Step phrases are unique to avoid collisions
-with the schema and authorization step modules.
+These steps exercise view reconciliation and S3 cleanup against real
+PostgreSQL and Silo instances.
 """
 
 import asyncio
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import TypedDict
 
 import pytest
-from psycopg import AsyncConnection
-from pytest_bdd import given, then, when
+from pytest_bdd import given, parsers, then, when
 
-from data_proxy.authorization import apply_table_authorization
-from data_proxy.fallback import reconcile_views
-from data_proxy.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
+from data_proxy.models import (
+    FullTable,
+    SchemaConfig,
+    SyncConfig,
+    TableConfig,
+)
+from data_proxy.postgres import Postgres as PgBackend
 from data_proxy.s3 import clear_s3_prefix
 from data_proxy.schema import initialize_schemas
 from data_proxy.settings import settings
-from data_proxy.state import ensure_app_schema
-from data_proxy.types import DatabaseRow
-from tests.fixtures.types import Postgres, SeaweedFS
-from tests.helpers import execute_sql
-
-
-class StateSchemaResult(TypedDict):
-    """Schema fixture data shared by the template scenarios."""
-
-    schema: str
-    connection: AsyncConnection
+from data_proxy.sources import stages
+from data_proxy.sources.views import reconcile_views
+from tests.fixtures.types import Postgres, Silo
+from tests.helpers import fetch_all, function_exists, relation_exists
 
 
 @dataclass
@@ -40,15 +33,7 @@ class TemplateScenario:
     postgres: Postgres
 
 
-async def fetch_fixture_rows(
-    database: Postgres, path: str, mapping: dict[str, str]
-) -> list[DatabaseRow]:
-    """Execute a SQL fixture template and return every row."""
-    cursor = await execute_sql(database.connection, path, mapping=mapping)
-    return await cursor.fetchall()
-
-
-def _set_sync_config(
+def set_sync_config(
     monkeypatch: pytest.MonkeyPatch, config: SyncConfig, tmp_path: Path
 ) -> None:
     """Point settings at one config file and invalidate the cached property."""
@@ -64,148 +49,33 @@ def fresh_postgres_schema(postgres: Postgres) -> TemplateScenario:
     return TemplateScenario(postgres=postgres)
 
 
-@given(
-    "a fresh PostgreSQL authorization schema for templates",
-    target_fixture="template_context",
-)
-def fresh_authorization_schema(postgres: Postgres) -> TemplateScenario:
-    """Provide one isolated PostgreSQL authorization schema."""
-    return TemplateScenario(postgres=postgres)
-
-
-@when("I execute the init_schema template", target_fixture="template_state_result")
-def execute_init_schema(template_context: TemplateScenario) -> StateSchemaResult:
-    """Execute the init_schema template through ensure_app_schema."""
+def reconcile(
+    template_context: TemplateScenario,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: list[tuple[str, str]],
+    fallbacks: list[str],
+) -> None:
+    """Reconcile one table whose BigQuery source reports the given columns."""
     database = template_context.postgres
-    asyncio.run(ensure_app_schema(database.backend))
-    return {"schema": database.namespace.schema, "connection": database.connection}
-
-
-@when("I apply authorization to an unprotected table through templates")
-def apply_unprotected_through_templates(template_context: TemplateScenario) -> None:
-    """Apply authorization to an unprotected table through templates."""
-    database = template_context.postgres
-    asyncio.run(
-        execute_sql(
-            database.connection,
-            "postgres/create_table",
-            mapping={
-                "schema": database.namespace.schema,
-                "table": "table",
-                "columns": "region_id text",
-            },
-        )
-    )
-    asyncio.run(
-        apply_table_authorization(
-            database.backend,
-            database.namespace.schema,
-            "table",
-            None,
-            None,
-        )
+    schema = database.namespace.schema
+    config = SyncConfig(
+        schemas={
+            schema: SchemaConfig(
+                tables=[FullTable(name=f"p.{schema}.people", fallbacks=fallbacks)]
+            )
+        }
     )
 
+    async def source_columns(
+        pg_conn: PgBackend, table: TableConfig
+    ) -> list[tuple[str, str]]:
+        return columns
 
-@when("I apply authorization to a protected table through templates")
-def apply_protected_through_templates(template_context: TemplateScenario) -> None:
-    """Apply authorization to a protected table through templates."""
-    database = template_context.postgres
-    mapping = {"schema": database.namespace.schema}
-    asyncio.run(
-        execute_sql(
-            database.connection,
-            "postgres/create_table",
-            mapping={
-                **mapping,
-                "table": "table",
-                "columns": "region_id text",
-            },
-        )
-    )
-    asyncio.run(
-        execute_sql(
-            database.connection, "postgres/create_access_policy", mapping=mapping
-        )
-    )
-    asyncio.run(
-        apply_table_authorization(
-            database.backend,
-            database.namespace.schema,
-            "table",
-            [UnitMapping(column="region_id", unit_type="region")],
-            "preferred_username",
-        )
-    )
-
-
-@then("the state table exists from the template")
-def check_state_table(template_state_result: StateSchemaResult) -> None:
-    """Verify the state table exists."""
-    conn = template_state_result["connection"]
-    cursor = asyncio.run(conn.execute(b"SELECT to_regclass(%s)", ("data_proxy.state",)))
-    assert asyncio.run(cursor.fetchone()) is not None
-
-
-@then("the errors table exists from the template")
-def check_errors_table(template_state_result: StateSchemaResult) -> None:
-    """Verify the errors table exists."""
-    conn = template_state_result["connection"]
-    cursor = asyncio.run(
-        conn.execute(b"SELECT to_regclass(%s)", ("data_proxy.errors",))
-    )
-    assert asyncio.run(cursor.fetchone()) is not None
-
-
-@then("the table has the schema-scoped policy from the template")
-def check_schema_scoped_policy(template_context: TemplateScenario) -> None:
-    """Verify the table has the schema-scoped policy."""
-    database = template_context.postgres
-    rows = asyncio.run(
-        fetch_fixture_rows(
-            database,
-            "postgres/policy_names",
-            {
-                "schema": database.namespace.schema,
-                "table": "table",
-            },
-        )
-    )
-    assert rows == [("schema_scoped",)]
-
-
-@then("the user role has select access from the template")
-def check_user_select_access(template_context: TemplateScenario) -> None:
-    """Verify the user role has select access."""
-    database = template_context.postgres
-    rows = asyncio.run(
-        fetch_fixture_rows(
-            database,
-            "postgres/select_grants",
-            {
-                "schema": database.namespace.schema,
-                "table": "table",
-            },
-        )
-    )
-    assert rows == [("user",)]
-
-
-@then("the table has the access-policy policy from the template")
-def check_access_policy(template_context: TemplateScenario) -> None:
-    """Verify the table has the access-policy policy."""
-    database = template_context.postgres
-    rows = asyncio.run(
-        fetch_fixture_rows(
-            database,
-            "postgres/policy_names",
-            {
-                "schema": database.namespace.schema,
-                "table": "table",
-            },
-        )
-    )
-    assert rows == [("access_policy_scoped",)]
+    set_sync_config(monkeypatch, config, tmp_path)
+    monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
+    asyncio.run(initialize_schemas(database.backend, config))
+    asyncio.run(reconcile_views(database.backend, config))
 
 
 @when("I reconcile DuckLake views for one table")
@@ -214,77 +84,56 @@ def reconcile_ducklake_views(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Reconcile DuckLake views for one table with mocked column types."""
-    import data_proxy.fallback as fallback
-
-    database = template_context.postgres
-    schema = database.namespace.schema
-    config = SyncConfig(
-        schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.people")])}
+    """Reconcile DuckLake views for one table with two source columns."""
+    reconcile(
+        template_context,
+        monkeypatch,
+        tmp_path,
+        [("cpf", "BIGINT"), ("name", "VARCHAR")],
+        [],
     )
 
-    _set_sync_config(monkeypatch, config, tmp_path)
-    asyncio.run(initialize_schemas(database.backend, config))
 
-    async def mock_column_types(
-        pg_conn: object, table: object
-    ) -> list[tuple[str, str]]:
-        return [("cpf", "BIGINT"), ("name", "VARCHAR")]
-
-    monkeypatch.setattr(fallback, "column_types_from_duckdb", mock_column_types)
-    asyncio.run(reconcile_views(database.backend, config))
-
-
-@then("the DuckLake view exists")
-def check_ducklake_view(template_context: TemplateScenario) -> None:
-    database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regclass(%s)",
-            (f"{schema}.people",),
-        )
+@when(
+    parsers.parse(
+        'I reconcile DuckLake views for one table with the columns "{columns}"'
     )
-    assert asyncio.run(cursor.fetchone()) is not None
-
-
-@then("the DuckLake query function exists")
-def check_ducklake_function(template_context: TemplateScenario) -> None:
-    database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regprocedure(%s)",
-            (f"{schema}.people_fn()",),
-        )
+)
+def reconcile_with_columns(
+    template_context: TemplateScenario,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: str,
+) -> None:
+    """Reconcile DuckLake views for one table with the listed source columns."""
+    reconcile(
+        template_context,
+        monkeypatch,
+        tmp_path,
+        [(name, kind) for name, kind in (c.split(" ") for c in columns.split(", "))],
+        [],
     )
-    assert asyncio.run(cursor.fetchone()) is not None
 
 
-@then("the change-feed function exists")
-def check_change_feed_function(template_context: TemplateScenario) -> None:
-    database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regprocedure(%s)",
-            (f"{schema}.ducklake_changes_people(bigint, bigint)",),
-        )
+@when(
+    parsers.parse(
+        'I reconcile DuckLake views for one table with the "{fallback}" fallback'
     )
-    assert asyncio.run(cursor.fetchone()) is not None
-
-
-@then("the snapshot function exists")
-def check_snapshot_function(template_context: TemplateScenario) -> None:
-    database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regprocedure(%s)",
-            (f"{schema}.ducklake_latest_snapshot()",),
-        )
+)
+def reconcile_with_fallback(
+    template_context: TemplateScenario,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fallback: str,
+) -> None:
+    """Reconcile DuckLake views for one table that falls back to one source."""
+    reconcile(
+        template_context,
+        monkeypatch,
+        tmp_path,
+        [("cpf", "BIGINT"), ("name", "VARCHAR")],
+        [fallback],
     )
-    assert asyncio.run(cursor.fetchone()) is not None
 
 
 @when("I reconcile DuckLake views with an empty config")
@@ -298,45 +147,60 @@ def reconcile_empty_config(
     schema = database.namespace.schema
     config = SyncConfig(schemas={schema: SchemaConfig(tables=[])})
 
-    _set_sync_config(monkeypatch, config, tmp_path)
+    set_sync_config(monkeypatch, config, tmp_path)
     asyncio.run(reconcile_views(database.backend, config))
 
 
-@then("the DuckLake view does not exist")
-def check_ducklake_view_gone(template_context: TemplateScenario) -> None:
+@then(parsers.re(r'the view "(?P<view>[^"]+)" (?P<state>exists|does not exist)$'))
+def check_view(template_context: TemplateScenario, view: str, state: str) -> None:
     database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regclass(%s)",
-            (f"{schema}.people",),
-        )
-    )
-    assert asyncio.run(cursor.fetchone()) == (None,)
+    found = asyncio.run(relation_exists(database, database.namespace.schema, view))
+    assert found is (state == "exists")
 
 
-@then("the DuckLake query function does not exist")
-def check_ducklake_function_gone(template_context: TemplateScenario) -> None:
+@then(
+    parsers.re(r'the function "(?P<signature>[^"]+)" (?P<state>exists|does not exist)$')
+)
+def check_function(
+    template_context: TemplateScenario, signature: str, state: str
+) -> None:
     database = template_context.postgres
-    schema = database.namespace.schema
-    cursor = asyncio.run(
-        database.connection.execute(
-            b"SELECT to_regprocedure(%s)",
-            (f"{schema}.people_fn()",),
+    found = asyncio.run(function_exists(database, database.namespace.schema, signature))
+    assert found is (state == "exists")
+
+
+@then(parsers.parse('the application function "{signature}" exists'))
+def check_application_function(
+    template_context: TemplateScenario, signature: str
+) -> None:
+    database = template_context.postgres
+    assert asyncio.run(function_exists(database, settings.DBOS_APP_SCHEMA, signature))
+
+
+@then(parsers.parse('the view "{view}" has the columns "{columns}"'))
+def check_view_columns(
+    template_context: TemplateScenario, view: str, columns: str
+) -> None:
+    database = template_context.postgres
+    rows = asyncio.run(
+        fetch_all(
+            database,
+            "postgres/view_columns",
+            params={"schema_name": database.namespace.schema, "table_name": view},
         )
     )
-    assert asyncio.run(cursor.fetchone()) == (None,)
+    assert [row[0] for row in rows] == columns.split(", ")
 
 
 @when("I upload objects to S3 under a test prefix")
 def upload_s3_objects(
     template_context: TemplateScenario,
-    seaweedfs: SeaweedFS,
+    silo: Silo,
 ) -> None:
-    """Upload two objects to SeaweedFS under a test prefix."""
+    """Upload two objects to Silo under a test prefix."""
     for name in ("a", "b"):
         data = BytesIO(f"data-{name}".encode())
-        seaweedfs.client.put_object(
+        silo.client.put_object(
             "test-bucket", f"tmp/test/{name}.parquet", data, data.getbuffer().nbytes
         )
 
@@ -344,10 +208,10 @@ def upload_s3_objects(
 @when("I clear the S3 prefix")
 def clear_s3_prefix_step(
     monkeypatch: pytest.MonkeyPatch,
-    seaweedfs: SeaweedFS,
+    silo: Silo,
 ) -> None:
     """Clear the test prefix from S3."""
-    monkeypatch.setattr(settings, "S3_ENDPOINT", f"{seaweedfs.host}:{seaweedfs.port}")
+    monkeypatch.setattr(settings, "S3_ENDPOINT", f"{silo.host}:{silo.port}")
     monkeypatch.setattr(settings, "S3_USE_SSL", False)
     monkeypatch.setattr(settings, "S3_ACCESS_KEY", "minioadmin")
     monkeypatch.setattr(settings, "S3_SECRET_KEY", "minioadmin")
@@ -355,7 +219,7 @@ def clear_s3_prefix_step(
 
 
 @then("the S3 objects are gone")
-def check_s3_objects_gone(seaweedfs: SeaweedFS) -> None:
+def check_s3_objects_gone(silo: Silo) -> None:
     """Verify no objects remain under the test prefix."""
-    objects = list(seaweedfs.client.list_objects("test-bucket", prefix="tmp/test/"))
+    objects = list(silo.client.list_objects("test-bucket", prefix="tmp/test/"))
     assert objects == []

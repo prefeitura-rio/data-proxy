@@ -1,3 +1,12 @@
+{#
+{
+  "kind": "template",
+  "description": "Create the pg_duckdb S3 secret for the Silo test storage.",
+  "inputs": {
+    "endpoint": "Silo host and port."
+  }
+}
+#}
 SELECT duckdb.raw_query(
     'CREATE OR REPLACE SECRET silo_s3 ('
     || 'TYPE S3, KEY_ID ''minioadmin'', SECRET ''minioadmin'', '

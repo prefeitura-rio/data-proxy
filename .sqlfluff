@@ -27,6 +27,12 @@ scratch_path = "'s3://bucket/scratch.parquet'"
 temp = _batch
 predicate = true
 
+app_schema = data_proxy
+dl_function = people_dl_fn
+bq_function = people_bq_fn
+source_table = "'project.dataset.people'"
+fallback = true
+fallbacks = [{"name":"bigquery","function":"\"people_bq_fn\""}]
 has_rls = false
 claim_setting = "'app.claim_sub'"
 affected_partitions = "id >= 1"
