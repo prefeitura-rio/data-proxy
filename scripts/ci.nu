@@ -60,7 +60,7 @@ def 'main changes' []: nothing -> nothing {
             dockerfile: Dockerfile.proxy
             suffix: -proxy
             tag_prefix: ""
-            pattern: '^nginx/|^Dockerfile\.proxy$'
+            pattern: '^proxy/|^Dockerfile\.proxy$'
         }
         {
             name: Jobs
@@ -203,8 +203,8 @@ def 'main images pin' []: nothing -> nothing {
                     $"  image: ($ci.registry)/(ci-repository-owner)/($postgres_image):($env.PG_SHA)"
                 } else if $line =~ '^\s+image: .*data-proxy-jobs:' {
                     $"  image: ($ci.registry)/(ci-repository-owner)/($jobs_image):($env.NU_SHA)"
-                } else if $line =~ '^  proxyImage:' {
-                    $"  proxyImage: ($ci.registry)/(ci-repository-owner)/($proxy_image):($env.PROXY_SHA)"
+                } else if $line =~ '^  image: .*data-proxy-proxy:' {
+                    $"  image: ($ci.registry)/(ci-repository-owner)/($proxy_image):($env.PROXY_SHA)"
                 } else {
                     $line
                 }

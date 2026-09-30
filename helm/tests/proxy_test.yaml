@@ -162,8 +162,8 @@ tests:
 
   - it: wires the fetch keepalive settings to the chart values
     set:
-      fallback.fetchKeepalive: 8
-      fallback.fetchKeepaliveTimeout: 30s
+      proxy.fetchKeepalive: 8
+      proxy.fetchKeepaliveTimeout: 30s
     asserts:
       - equal:
           path: spec.template.spec.containers[0].env[?(@.name=="FETCH_KEEPALIVE")].value

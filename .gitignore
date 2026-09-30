@@ -18,7 +18,7 @@ gke_gcloud_auth_plugin_cache
 todo.txt
 .coverage*
 .testmondata*
-/nginx/build
+/proxy/build
 node_modules
 .githooks
 

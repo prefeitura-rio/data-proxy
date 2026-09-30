@@ -6,5 +6,5 @@
     "types": [],
     "outDir": "/etc/nginx"
   },
-  "include": ["fallback.ts"]
+  "include": ["proxy.ts"]
 }

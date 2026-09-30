@@ -23,27 +23,25 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: {{ required "fallback.proxyImage must reference an image built from Dockerfile.proxy" .Values.fallback.proxyImage | quote }}
+          image: {{ required "proxy.image must reference an image built from Dockerfile.proxy" .Values.proxy.image | quote }}
           ports:
             - name: http
               containerPort: 8080
           env:
             - name: CACHE_TTL
-              value: {{ toString .Values.fallback.cacheTtl | quote }}
-            - name: EMPTY_CACHE_TTL
-              value: {{ toString .Values.fallback.emptyCacheTtl | quote }}
+              value: {{ toString .Values.proxy.cacheTtl | quote }}
             - name: MAX_BODY
-              value: {{ toString .Values.fallback.maxCacheBodyBytes | quote }}
+              value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
             - name: FETCH_BUFFER_SIZE
-              value: {{ toString .Values.fallback.fetchBufferSize | quote }}
+              value: {{ toString .Values.proxy.fetchBufferSize | quote }}
             - name: FETCH_TIMEOUT
-              value: {{ toString .Values.fallback.fetchTimeout | quote }}
+              value: {{ toString .Values.proxy.fetchTimeout | quote }}
             - name: FETCH_KEEPALIVE
-              value: {{ toString .Values.fallback.fetchKeepalive | quote }}
+              value: {{ toString .Values.proxy.fetchKeepalive | quote }}
             - name: FETCH_KEEPALIVE_TIMEOUT
-              value: {{ toString .Values.fallback.fetchKeepaliveTimeout | quote }}
+              value: {{ toString .Values.proxy.fetchKeepaliveTimeout | quote }}
             - name: LARGE_CLIENT_HEADER_BUFFERS
-              value: {{ toString .Values.fallback.largeClientHeaderBuffers | quote }}
+              value: {{ toString .Values.proxy.largeClientHeaderBuffers | quote }}
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: config
@@ -55,12 +53,12 @@ spec:
               port: http
             initialDelaySeconds: 3
             periodSeconds: 3
-          {{- with .Values.fallback.resources }}
+          {{- with .Values.proxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         - name: webdis-write
-          image: {{ .Values.fallback.webdisImage }}
+          image: {{ .Values.proxy.webdisImage }}
           command: ["/bin/sh", "-ec"]
           args:
             - |
@@ -82,12 +80,12 @@ spec:
               readOnly: true
             - name: webdis-write-runtime
               mountPath: /run/webdis-write
-          {{- with .Values.fallback.webdisResources }}
+          {{- with .Values.proxy.webdisResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         - name: webdis-read
-          image: {{ .Values.fallback.webdisImage }}
+          image: {{ .Values.proxy.webdisImage }}
           command: ["/bin/sh", "-ec"]
           args:
             - |
@@ -109,7 +107,7 @@ spec:
               readOnly: true
             - name: webdis-read-runtime
               mountPath: /run/webdis-read
-          {{- with .Values.fallback.webdisResources }}
+          {{- with .Values.proxy.webdisResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}

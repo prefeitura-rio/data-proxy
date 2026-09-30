@@ -1,4 +1,4 @@
-suite: BigQuery fallback
+suite: Proxy config
 release:
   name: data-proxy
   namespace: default
@@ -8,8 +8,8 @@ templates:
 tests:
   - it: renders env var placeholders in nginx config
     set:
-      fallback.proxyImage: example.invalid/data-proxy-fallback:test
-      fallback.cacheRedisDb: 2
+      proxy.image: example.invalid/data-proxy-proxy:test
+      proxy.cacheRedisDb: 2
     templates:
       - configmap-proxy.yaml
     asserts:
@@ -21,7 +21,7 @@ tests:
           value: data-proxy-webdis
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'fallback_cache_ttl "\$\{CACHE_TTL\}"'
+          pattern: 'proxy_cache_ttl "\$\{CACHE_TTL\}"'
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy
@@ -68,6 +68,40 @@ tests:
           path: metadata.name
           value: data-proxy-proxy
 
+  - it: loads the proxy script
+    templates:
+      - configmap-proxy.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_import proxy\.js;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'js_content proxy\.handle;'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$proxy_cache_ttl "\$\{CACHE_TTL\}"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+
+  - it: allows browsers to pin a snapshot version
+    templates:
+      - configmap-proxy.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'Access-Control-Allow-Headers "[^"]*X-DuckLake-Snapshot'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+
   - it: sets env vars on the nginx container from helm values
     templates:
       - deployment-proxy.yaml
@@ -89,8 +123,8 @@ tests:
     templates:
       - deployment-proxy.yaml
     set:
-      fallback.fetchTimeout: 30s
-      fallback.largeClientHeaderBuffers: "8 128k"
+      proxy.fetchTimeout: 30s
+      proxy.largeClientHeaderBuffers: "8 128k"
     asserts:
       - equal:
           path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value

@@ -8,7 +8,7 @@ on:
       - .github/actions/**
       - src/**
       - tests/**
-      - nginx/**
+      - proxy/**
       - helm/**
       - scripts/**
       - pyproject.toml

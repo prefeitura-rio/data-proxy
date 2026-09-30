@@ -205,7 +205,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
   "redis_host": "{{ .Values.redis.webdisHost }}",
   "redis_port": {{ .Values.redis.webdisPort }},
   "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.fallback.cacheRedisDb }},
+  "database": {{ .Values.proxy.cacheRedisDb }},
   "http_port": 7379,
   "daemonize": false,
   "logfile": "/dev/stdout"
@@ -217,7 +217,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
   "redis_host": "{{ .Values.redis.webdisReadHost | default .Values.redis.webdisHost }}",
   "redis_port": {{ .Values.redis.webdisReadPort | default .Values.redis.webdisPort }},
   "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.fallback.cacheRedisDb }},
+  "database": {{ .Values.proxy.cacheRedisDb }},
   "http_port": 7380,
   "daemonize": false,
   "logfile": "/dev/stdout"
@@ -270,7 +270,7 @@ dbs:
 {{- define "data-proxy.litestreamRestoreScript" -}}
 #!/bin/sh
 set -eu
-umask 022
+umask 000
 {{- $schemas := .Values.sync.config.schemas }}
 {{- range $schema, $_ := $schemas }}
 (
@@ -278,12 +278,12 @@ umask 022
   dir={{ printf "%s/%s" $.Values.ducklake.catalogLocalPath $schema }}
   while true; do
     mkdir -p "$dir"
-    chmod 755 "$dir"
+    chmod 777 "$dir"
     if [ -f "$db" ] && [ ! -f "${db}-txid" ]; then
       rm -f "$db" "${db}-wal" "${db}-shm"
     fi
     if [ -f "$db" ]; then
-      chmod 644 "$db" "${db}-txid"
+      chmod 666 "$db" "${db}-txid"
       exec litestream restore -f -config /projected/litestream-read.yaml "$db"
     fi
     litestream restore -if-replica-exists -f -config /projected/litestream-read.yaml "$db" || true
@@ -299,13 +299,13 @@ wait
   "name" "ducklake-catalogs"
   "persistentVolumeClaim" (dict
     "claimName" (printf "%s-catalog-reader" (include "data-proxy.fullname" .))
-    "readOnly" true
+    "readOnly" false
   )
 -}}
 {{- $mount := dict
   "name" "ducklake-catalogs"
   "mountPath" .Values.ducklake.catalogLocalPath
-  "readOnly" true
+  "readOnly" false
 -}}
 {{- list
   (dict "op" "add" "path" "/spec/volumes/-" "value" $volume)
@@ -353,12 +353,10 @@ wait
   value: {{ .Values.ducklake.maxCompactedFiles | quote }}
 - name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
   value: {{ .Values.ducklake.rewriteDeleteThreshold | quote }}
-- name: EMPTY_CACHE_TTL
-  value: {{ .Values.fallback.emptyCacheTtl | quote }}
 - name: SYNC_CONFIG_PATH
   value: /config/sync.json
-- name: FALLBACK_CACHE_REDIS_DB
-  value: {{ .Values.fallback.cacheRedisDb | quote }}
+- name: PROXY_CACHE_REDIS_DB
+  value: {{ .Values.proxy.cacheRedisDb | quote }}
 - name: DUMPER_BATCH_BYTES
   value: "0"
 - name: DUMPER_BATCH_MAX_PARTITIONS

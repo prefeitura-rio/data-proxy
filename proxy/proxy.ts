@@ -12,6 +12,7 @@ const FORWARDED_HEADERS = [
     "Range",
     "Accept",
     "Content-Type",
+    "X-DuckLake-Snapshot",
 ];
 
 const FORWARDED_RESPONSE_HEADERS = [
@@ -20,11 +21,14 @@ const FORWARDED_RESPONSE_HEADERS = [
     "Location",
     "Preference-Applied",
     "WWW-Authenticate",
+    "X-Source",
+    "X-DuckLake-Snapshot",
 ];
+
+const CACHED_RESPONSE_HEADERS = ["X-Source", "X-DuckLake-Snapshot"];
 
 const DEFAULT_MEDIA_TYPE = "application/json";
 const JSON_TYPE = "application/json; charset=utf-8";
-const DEFAULT_NO_FALLBACK_PATHS = ["/access_policy"];
 const DEFAULT_NO_CACHE_PATHS = ["/access_policy"];
 
 interface CacheKeyParts {
@@ -43,43 +47,43 @@ interface ProxyResponse {
     headers: Record<string, string>;
 }
 
+interface CachedAnswer {
+    body: string;
+    headers: Record<string, string>;
+}
+
 interface RequestContext extends CacheKeyParts {
     upstream: string;
     cacheTtl: string;
-    fallback: boolean;
     maxBody: number;
     body: string;
     started: number;
-    noFallbackPaths: string[];
     noCachePaths: string[];
 }
 
 interface SharedAnswer {
     response: ProxyResponse | null;
-    source: AnswerSource;
+    source: string;
     leading: boolean;
 }
 
 interface LogFields {
     status?: number;
-    source?: AnswerSource;
+    source?: string;
     bytes?: number;
     key?: string;
     error?: string;
     answer?: string;
 }
 
-type AnswerSource = "cache" | "parquet" | "bigquery" | "none";
 type LogLevel = "info" | "warn";
 
 interface SyncTable {
     name: string;
-    fallback?: boolean;
     cache_ttl?: number;
 }
 
 interface TableEntry {
-    fallback: boolean;
     cacheTtl?: number;
 }
 
@@ -89,42 +93,21 @@ interface SyncSchema {
 
 interface SyncConfig {
     schemas?: Record<string, SyncSchema>;
-    noFallbackPaths?: string[];
     noCachePaths?: string[];
 }
 
 interface ProxyConfig {
-    fallbackMap: Record<string, TableEntry>;
-    noFallbackPaths: string[];
+    tables: Record<string, TableEntry>;
     noCachePaths: string[];
-}
-
-interface FallbackResolver {
-    source: AnswerSource;
-    shouldTry(ctx: RequestContext, response: ProxyResponse): boolean;
-    resolve(r: NginxHTTPRequest, ctx: RequestContext): Promise<ProxyResponse | null>;
 }
 
 declare const sync: SyncConfig | undefined;
 
 const inFlight: Record<string, Promise<SharedAnswer>> = {};
 
-const fallbackResolvers: FallbackResolver[] = [
-    {
-        source: "bigquery",
-        shouldTry: (ctx, response) =>
-            ctx.method === "GET" &&
-            ctx.fallback &&
-            response.status === 200 &&
-            isEmpty(response.body),
-        resolve: queryFallback,
-    },
-];
-
 let cachedSync: SyncConfig | undefined;
 let cachedConfig: ProxyConfig = {
-    fallbackMap: {},
-    noFallbackPaths: DEFAULT_NO_FALLBACK_PATHS,
+    tables: {},
     noCachePaths: DEFAULT_NO_CACHE_PATHS,
 };
 
@@ -300,15 +283,16 @@ function hashKey(parts: CacheKeyParts): string {
         parts.headers["Range"] || "",
         parts.headers["Prefer"] || "",
         normalizeAccept(parts.headers["Accept"] || ""),
+        parts.headers["X-DuckLake-Snapshot"] || "",
     ]);
 
     return crypto.createHash("sha256").update(input).digest("hex");
 }
 
 /**
- * Builds the fallback lookup from the preloaded sync config.
+ * Builds the table lookup from the preloaded sync config.
  */
-function buildFallbackMap(config: SyncConfig | undefined): Record<string, TableEntry> {
+function buildTableMap(config: SyncConfig | undefined): Record<string, TableEntry> {
     const map: Record<string, TableEntry> = {};
 
     if (!config || !config.schemas) {
@@ -324,10 +308,7 @@ function buildFallbackMap(config: SyncConfig | undefined): Record<string, TableE
         for (let i = 0; i < tables.length; i++) {
             const table = tables[i];
             const parts = table.name.split(".");
-            map[parts[parts.length - 1]] = {
-                fallback: table.fallback !== false,
-                cacheTtl: table.cache_ttl,
-            };
+            map[parts[parts.length - 1]] = { cacheTtl: table.cache_ttl };
         }
     }
 
@@ -339,8 +320,7 @@ function buildFallbackMap(config: SyncConfig | undefined): Record<string, TableE
  */
 function buildProxyConfig(config: SyncConfig | undefined): ProxyConfig {
     return {
-        fallbackMap: buildFallbackMap(config),
-        noFallbackPaths: (config && config.noFallbackPaths) || DEFAULT_NO_FALLBACK_PATHS,
+        tables: buildTableMap(config),
         noCachePaths: (config && config.noCachePaths) || DEFAULT_NO_CACHE_PATHS,
     };
 }
@@ -361,17 +341,9 @@ function proxyConfig(): ProxyConfig {
 }
 
 /**
- * Returns whether the table in a request has BigQuery fallback enabled.
+ * Returns the configured entry of the table in a request, if any.
  */
-function tableFor(
-    uri: string,
-    map: Record<string, TableEntry>,
-    noFallbackPaths: string[],
-): TableEntry | null {
-    if (matchesPrefix(uri, noFallbackPaths)) {
-        return null;
-    }
-
+function tableFor(uri: string, map: Record<string, TableEntry>): TableEntry | null {
     const name = uri.split("?")[0].split("/")[1];
 
     return map[name] ?? null;
@@ -387,8 +359,8 @@ function requestContext(
     const jwt = decodeJWT(r.headersIn["Authorization"] || "");
     const upstream = r.variables.postgrest_read || "";
     const profile = r.headersIn["Accept-Profile"] || "";
-    const table = tableFor(r.uri, config.fallbackMap, config.noFallbackPaths);
-    const lifetime = r.variables.fallback_cache_ttl || "";
+    const table = tableFor(r.uri, config.tables);
+    const lifetime = r.variables.proxy_cache_ttl || "";
 
     return {
         method: r.method,
@@ -400,11 +372,9 @@ function requestContext(
         headers: buildHeaders(r),
         upstream: upstream,
         cacheTtl: table?.cacheTtl ? String(table.cacheTtl) : lifetime,
-        fallback: table?.fallback ?? false,
-        maxBody: Number(r.variables.fallback_max_body || "0"),
+        maxBody: Number(r.variables.proxy_max_body || "0"),
         body: r.requestText || "",
         started: Date.now(),
-        noFallbackPaths: config.noFallbackPaths,
         noCachePaths: config.noCachePaths,
     };
 }
@@ -444,13 +414,13 @@ function log(
 }
 
 /**
- * Returns the cached body for a key.
+ * Returns the cached answer for a key: the body and the headers that describe it.
  */
 async function readCache(
     r: NginxHTTPRequest,
     ctx: RequestContext,
     key: string,
-): Promise<string | null> {
+): Promise<CachedAnswer | null> {
     try {
         const res = await ngx.fetch(WEBDIS_READ + "/GET/" + key);
 
@@ -462,7 +432,11 @@ async function readCache(
         const data = JSON.parse(text);
 
         if (data.GET && typeof data.GET === "string") {
-            return data.GET;
+            const stored = JSON.parse(data.GET);
+
+            if (stored && typeof stored.body === "string") {
+                return { body: stored.body, headers: stored.headers || {} };
+            }
         }
     } catch (e) {
         log(r, ctx, "warn", "cache-read-failed", { key: key, error: String(e) });
@@ -540,40 +514,7 @@ async function queryUpstream(
 }
 
 /**
- * Queries the BigQuery endpoint that backs the table.
- */
-async function queryFallback(
-    r: NginxHTTPRequest,
-    ctx: RequestContext,
-): Promise<ProxyResponse | null> {
-    try {
-        const res = await ngx.fetch(upstreamUrl(ctx, ctx.uri + "_bq"), {
-            method: "GET",
-            headers: ctx.headers,
-        });
-
-        if (res.status !== 200) {
-            log(r, ctx, "warn", "fallback-status", { status: res.status });
-            return null;
-        }
-
-        const body = await res.text();
-
-        if (isEmpty(body)) {
-            return null;
-        }
-
-        return { status: 200, body: body, headers: responseHeaders(res) };
-    } catch (e) {
-        log(r, ctx, "warn", "fallback-failed", { error: String(e) });
-    }
-
-    return null;
-}
-
-/**
- * Reads the cache, queries the upstream, and escalates through the fallback
- * resolver chain when the upstream answer is empty.
+ * Reads the cache, then queries the upstream when the cache has no answer.
  */
 async function fetchAnswer(
     r: NginxHTTPRequest,
@@ -585,7 +526,7 @@ async function fetchAnswer(
 
         if (cached !== null) {
             return {
-                response: { status: 200, body: cached, headers: {} },
+                response: { status: 200, body: cached.body, headers: cached.headers },
                 source: "cache",
                 leading: true,
             };
@@ -598,19 +539,9 @@ async function fetchAnswer(
         return { response: null, source: "none", leading: true };
     }
 
-    for (let i = 0; i < fallbackResolvers.length; i++) {
-        const resolver = fallbackResolvers[i];
-        if (resolver.shouldTry(ctx, response)) {
-            const fallback = await resolver.resolve(r, ctx);
-            if (fallback !== null) {
-                return { response: fallback, source: resolver.source, leading: true };
-            }
-        }
-    }
-
     return {
         response: response,
-        source: "parquet",
+        source: "upstream",
         leading: true,
     };
 }
@@ -645,6 +576,10 @@ async function answer(
 
 /**
  * Writes the response to the cache when it is cacheable.
+ *
+ * An empty answer is never stored: it can mean that access was denied, that the
+ * data is not published yet, or that the policy changed, and each of those can
+ * change before the entry expires.
  */
 async function maybeCache(
     r: NginxHTTPRequest,
@@ -660,6 +595,7 @@ async function maybeCache(
         result.response === null ||
         result.response.status !== 200 ||
         !!ctx.headers["Range"] ||
+        isEmpty(result.response.body) ||
         !cacheable(result.response)
     ) {
         return;
@@ -674,11 +610,33 @@ async function maybeCache(
         return;
     }
 
-    const ttl = isEmpty(reply.body)
-        ? (r.variables.empty_cache_ttl || "3600")
-        : ctx.cacheTtl;
+    const headers: Record<string, string> = {};
 
-    await writeCache(r, ctx, key, reply.body, ttl);
+    CACHED_RESPONSE_HEADERS.forEach((name) => {
+        if (reply.headers[name]) {
+            headers[name] = reply.headers[name];
+        }
+    });
+
+    await writeCache(
+        r,
+        ctx,
+        key,
+        JSON.stringify({ body: reply.body, headers: headers }),
+        ctx.cacheTtl,
+    );
+}
+
+/**
+ * Names where an answer came from for the log: the cache, or the sources that
+ * PostgREST reports in `X-Source`.
+ */
+function loggedSource(result: SharedAnswer): string {
+    if (result.source === "cache" || result.response === null) {
+        return result.source;
+    }
+
+    return result.response.headers["X-Source"] || result.source;
 }
 
 /**
@@ -699,12 +657,11 @@ function sendResponse(
         r.headersOut["Content-Type"] = JSON_TYPE;
     }
 
-    r.headersOut["X-Source"] = result.source;
     r.headersOut["X-Cache"] = result.source === "cache" ? "HIT" : "MISS";
 
     log(r, ctx, "info", "request", {
         status: reply.status,
-        source: result.source,
+        source: loggedSource(result),
         bytes: reply.body.length,
     });
 
@@ -712,8 +669,7 @@ function sendResponse(
 }
 
 /**
- * Serves one request: cache lookup, local PostgREST query, fallback resolvers
- * and cache store.
+ * Serves one request: cache lookup, PostgREST query, and cache store.
  */
 async function handle(r: NginxHTTPRequest): Promise<void> {
     const config = proxyConfig();
@@ -732,7 +688,6 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
                 bytes: unavailable.length,
             });
 
-            r.headersOut["X-Source"] = "none";
             r.return(502, unavailable);
             return;
         }

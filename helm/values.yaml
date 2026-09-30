@@ -340,10 +340,9 @@ ingress:
     issuer: ""
     jwksUri: ""
     audience: ""
-## BigQuery fallback with proxy caching and pg_duckdb views.
-fallback:
+## Caching proxy in front of PostgREST.
+proxy:
   cacheTtl: 300
-  emptyCacheTtl: 3600
   fetchBufferSize: 32m
   fetchTimeout: 120s
   largeClientHeaderBuffers: 4 64k
@@ -351,7 +350,7 @@ fallback:
   fetchKeepaliveTimeout: 60s
   cacheRedisDb: 1
   maxCacheBodyBytes: 262144
-  proxyImage: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
+  image: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
   webdisImage: docker.io/nicolas/webdis:0.1.25
   resources:
     requests:

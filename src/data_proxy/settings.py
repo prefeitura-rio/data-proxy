@@ -37,14 +37,13 @@ class Settings(BaseSettings):
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=50, gt=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
-    EMPTY_CACHE_TTL: int = Field(default=3600, ge=0)
-    FALLBACK_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
     OTLP_METRICS_ENDPOINT: str = Field(default="")
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POSTGREST_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     REDIS_READ: RedisDsn = RedisDsn("redis://localhost:6379/1")
     REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
     S3_ACCESS_KEY: str = "seaweedfs"

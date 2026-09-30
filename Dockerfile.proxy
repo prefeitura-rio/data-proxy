@@ -15,10 +15,10 @@ COPY --from=docker.io/library/node:24-slim /usr/local/lib/node_modules /usr/loca
 
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
-COPY nginx/tsconfig.json nginx/tsconfig.build.json nginx/fallback.ts nginx/
+COPY proxy/tsconfig.json proxy/tsconfig.build.json proxy/proxy.ts proxy/
 
 RUN npm install --no-save njs-types@1.0.0 typescript@7.0.2 \
- && ./node_modules/.bin/tsc -p nginx/tsconfig.build.json \
+ && ./node_modules/.bin/tsc -p proxy/tsconfig.build.json \
  && rm -rf /build
 
 COPY helm/files/nginx.conf /etc/nginx/templates/nginx.conf.template
