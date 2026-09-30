@@ -4,7 +4,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 SQL_DIR = Path(__file__).parent / "templates"
-DUCKDB_VIEW_PREFIX = "bq_fallback_"
+DUCKDB_VIEW_PREFIX = "source_"
 PROTECTED_VIEW_NAMES = frozenset({"access_policy", "access_log", "state"})
 
 BIGQUERY_TABLE_REFERENCE_PATTERN = (

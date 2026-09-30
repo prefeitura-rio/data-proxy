@@ -49,7 +49,7 @@
       RETURN;
     END IF;
 
-    v_where := 'WHERE ' || v_where;
+    v_where := 'WHERE (' || v_where || ')';
   END IF;
 {%- endmacro %}
 

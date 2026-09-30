@@ -7,7 +7,6 @@ from ..cache import clear_cache
 from ..duckdb import DuckDB
 from ..ducklake import publish_schema
 from ..extraction import run_extraction
-from ..fallback import reconcile_views
 from ..kubernetes import restart_postgrest as restart_postgrest_deployment
 from ..log import logger, schemaname
 from ..metrics import metrics
@@ -22,6 +21,7 @@ from ..planning import run_planning
 from ..postgres import Postgres
 from ..s3 import clear_s3_prefix
 from ..settings import settings
+from ..sources.views import reconcile_views
 from ..state import (
     build_table_states,
     emit_error,

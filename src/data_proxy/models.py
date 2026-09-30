@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import Annotated, ClassVar, Literal, Self, override
+from typing import Annotated, ClassVar, Literal, Self, cast, override
 
 from pydantic import (
     BaseModel,
@@ -203,7 +203,7 @@ class Table(BaseModel):
 
     name: BigQueryTableName
     rls: list[UnitMapping] | None = None
-    fallback: bool = False
+    fallbacks: list[str] = []
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
     ducklake: DuckLakeTableConfig = DuckLakeTableConfig()
@@ -220,6 +220,7 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "rls": [r.model_dump() for r in self.rls] if self.rls else None,
+            "fallbacks": cast("list[JsonValue]", self.fallbacks),
             "ducklake": self.ducklake.model_dump(),
         }
 
@@ -319,6 +320,16 @@ class SyncConfig(BaseModel):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             raise ValueError(f"Duplicate configured table names: {duplicates}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_fallback_sources(self) -> Self:
+        """Reject fallback source names that are not registered."""
+        from .sources.sources import sources
+
+        for table in self.tables:
+            for name in table.fallbacks:
+                sources.get(name)
         return self
 
     @model_validator(mode="after")
@@ -468,3 +479,5 @@ class PublicationResult(BaseModel):
 
     plan: SyncPlan
     published_tables: set[str]
+    snapshot_id: int | None = None
+    """DuckLake snapshot that holds the published tables, when any were published."""

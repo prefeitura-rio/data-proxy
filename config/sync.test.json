@@ -16,7 +16,8 @@
         {
           "name": "rj-ia-desenvolvimento.dev.partitioned_table",
           "strategy": "partitioned",
-          "n": 7,
+          "fallbacks": ["bigquery"],
+          "n": 4,
           "partitioning": {
             "column": "date",
             "interval": "daily",
