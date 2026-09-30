@@ -35,6 +35,8 @@ def pytest_bdd_after_scenario(
 pytest_plugins = [
     "tests.fixtures.api",
     "tests.fixtures.db",
+    "tests.fixtures.dbos",
+    "tests.fixtures.routing",
     "tests.integration.steps.state",
     "tests.integration.steps.schema",
     "tests.integration.steps.authorization",

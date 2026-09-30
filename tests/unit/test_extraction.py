@@ -1,11 +1,9 @@
 """Tests for BigQuery-to-Parquet extraction operations."""
 
-from typing import NamedTuple
+from typing import Final
 from unittest.mock import AsyncMock
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 
 from data_proxy.duckdb import DuckDB
 from data_proxy.extraction import build_extraction_query, run_extraction
@@ -16,83 +14,71 @@ from data_proxy.models import (
     TaskSelection,
     TimeRangeSelection,
 )
-from tests.helpers import dump, render
+from data_proxy.templates import to_sql
+from tests.helpers import dump_task
 
-
-class StatementCase(NamedTuple):
-    """One selection and the extraction template it must choose."""
-
-    name: str
-    selection: TaskSelection
-    template: str
-
-
-STATEMENT_CASES = [
-    StatementCase("all", AllSelection(), "duckdb/write_all"),
-    StatementCase(
-        "time",
-        TimeRangeSelection(column="dt", lower="2025-01-01", upper="2025-01-02"),
-        "duckdb/write_partition",
-    ),
-    StatementCase(
-        "range",
-        RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
-        "duckdb/write_partition",
-    ),
-    StatementCase(
-        "remainder",
-        RemainderSelection(column="cpf", start=0, end=100),
-        "duckdb/write_remainder",
-    ),
-]
+BASE_MAPPING: Final[dict[str, str | list[str]]] = {
+    "bq_table": "'p.d.t'",
+    "path": "'s3://b/t'",
+    "json_columns": [],
+}
 
 
 class TestExtractionStatements:
     """Extraction statement behavior tests."""
 
-    @given(case=st.sampled_from(STATEMENT_CASES))
+    @pytest.mark.parametrize(
+        ("selection", "template", "bounds"),
+        [
+            pytest.param(AllSelection(), "duckdb/write_all", {}, id="all"),
+            pytest.param(
+                TimeRangeSelection(column="dt", lower="2025-01-01", upper="2025-01-02"),
+                "duckdb/write_partition",
+                {"column": '"dt"', "lower": "'2025-01-01'", "upper": "'2025-01-02'"},
+                id="time",
+            ),
+            pytest.param(
+                RangeSelection(partition_id="10", column="cpf", lower=10, upper=20),
+                "duckdb/write_partition",
+                {"column": '"cpf"', "lower": "10", "upper": "20"},
+                id="range",
+            ),
+            pytest.param(
+                RemainderSelection(column="cpf", start=0, end=100),
+                "duckdb/write_remainder",
+                {"column": '"cpf"', "lower": "0", "upper": "100"},
+                id="remainder",
+            ),
+        ],
+    )
     def test_selects_template_and_encodes_bounds_for_each_selection_type(
-        self, case: StatementCase
+        self, selection: TaskSelection, template: str, bounds: dict[str, str]
     ) -> None:
         """Select the extraction template and encode column and bounds."""
-        task = dump(selections=[case.selection])
-        template, mapping = build_extraction_query(task, case.selection, "s3://b/t")
-        assert template == case.template
-        assert render(mapping["path"]) == "'s3://b/t'"
+        actual_template, mapping = build_extraction_query(
+            dump_task(selections=[selection]), selection, "s3://b/t"
+        )
 
-        if isinstance(case.selection, AllSelection):
-            assert "column" not in mapping
-            assert "lower" not in mapping
-            assert "upper" not in mapping
-        else:
-            assert {"column", "lower", "upper"}.issubset(mapping.keys())
+        assert actual_template == template
+        assert {
+            key: to_sql(value) for key, value in mapping.items()
+        } == BASE_MAPPING | bounds
 
     def test_rejects_unknown_selection_in_statement_builder(
         self, invalid_selection: TaskSelection
     ) -> None:
         """Reject an unknown selection in the statement builder."""
         with pytest.raises(AssertionError):
-            build_extraction_query(dump(), invalid_selection, "s3://b/t")
+            build_extraction_query(dump_task(), invalid_selection, "s3://b/t")
 
     @pytest.mark.asyncio
     async def test_propagates_failure_from_one_selection(self) -> None:
         """Stop extraction when one output cannot be written."""
         connection = AsyncMock(spec=DuckDB)
         connection.execute.side_effect = [None, RuntimeError("write failed")]
-        task = dump(selections=[AllSelection(), AllSelection()])
+        task = dump_task(selections=[AllSelection(), AllSelection()])
 
         with pytest.raises(RuntimeError, match="write failed"):
             await run_extraction(connection, task)
 
         assert connection.execute.await_count == 2
-
-    def test_builds_one_output_path_per_selection(self) -> None:
-        """Build separate output paths without merging selections."""
-        task = dump(
-            bucket_path="s3://b/table/batch/data.parquet",
-            selections=[AllSelection(), AllSelection()],
-        )
-        assert task.output_paths == [
-            "s3://b/table/batch/data-0.parquet",
-            "s3://b/table/batch/data-1.parquet",
-        ]

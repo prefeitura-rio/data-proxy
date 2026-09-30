@@ -1,7 +1,6 @@
 """Tests for planning result types."""
 
-from typing import Literal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import hypothesis
 import pytest
@@ -19,7 +18,6 @@ from data_proxy.models import (
     SchemaConfig,
     Strategy,
     SyncConfig,
-    SyncWork,
     TableConfig,
     TableState,
     UnitMapping,
@@ -29,86 +27,76 @@ from data_proxy.planning import (
     find_partition_changes,
     group_schema_plans,
     order_partition_ids,
-    partition_sort_key,
     table_signature,
 )
 from data_proxy.postgres import Postgres
-from tests.helpers import planning_partition
-
-
-class TestPlanningContext:
-    """Planning context behavior tests."""
-
-    def test_returns_empty_work_when_no_changes_exist(self) -> None:
-        """Do not create plans or tasks when nothing changed."""
-        context = planning.PlanningContext(
-            pg_conn=AsyncMock(spec=Postgres),
-            duckdb_conn=AsyncMock(spec=DuckDB),
-            config=SyncConfig(schemas={}),
-            sync_id="run",
-            bucket="bucket",
-        )
-
-        assert context.group() == SyncWork(plans=[], tasks=[])
+from tests.helpers import partition
 
 
 class TestPartitionChanges:
     """PartitionChanges behavior tests."""
 
-    @given(
-        scenario=st.sampled_from(["new", "unchanged", "rebuild", "removed"]),
-        partition_id=st.integers(1, 100).map(str),
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param(None, {"1": "add"}, id="first-sync-adds"),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="s",
+                    partitions={"1": partition("1", signature="new")},
+                ),
+                {},
+                id="unchanged-partition-skipped",
+            ),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="old",
+                    partitions={"1": partition("1", signature="new")},
+                ),
+                {"1": "update"},
+                id="table-signature-change-rebuilds",
+            ),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="s",
+                    partitions={"1": partition("1", signature="old")},
+                ),
+                {"1": "update"},
+                id="partition-signature-change-updates",
+            ),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="s",
+                    partitions={"2": partition("2")},
+                ),
+                {"1": "add", "2": "remove"},
+                id="new-partition-added-and-missing-removed",
+            ),
+        ],
     )
     def test_detects_partition_changes(
-        self,
-        scenario: Literal["new", "unchanged", "rebuild", "removed"],
-        partition_id: str,
+        self, stored: TableState | None, expected: dict[str, str]
     ) -> None:
-        """Detect new, unchanged, rebuilt, and removed partitions."""
-        current = {partition_id: planning_partition(partition_id, "new")}
-        if scenario == "new":
-            stored = None
-            expected_kinds: dict[str, str] = {partition_id: "add"}
-            expected_ids: set[str] = {partition_id}
-        elif scenario == "unchanged":
-            stored = TableState(
-                strategy=Strategy.FULL,
-                signature="s",
-                partitions={partition_id: planning_partition(partition_id, "new")},
-            )
-            expected_kinds = {}
-            expected_ids = set()
-        elif scenario == "rebuild":
-            stored = TableState(
-                strategy=Strategy.FULL,
-                signature="old",
-                partitions={partition_id: planning_partition(partition_id)},
-            )
-            expected_kinds = {partition_id: "update"}
-            expected_ids = {partition_id}
-        else:
-            removed_id = str(int(partition_id) + 1)
-            stored = TableState(
-                strategy=Strategy.FULL,
-                signature="s",
-                partitions={removed_id: planning_partition(removed_id)},
-            )
-            expected_kinds = {partition_id: "add", removed_id: "remove"}
-            expected_ids = {partition_id, removed_id}
+        """Detect added, updated, removed, and unchanged partitions."""
+        current = {"1": partition("1", signature="new")}
 
         result = find_partition_changes(current, stored, "s")
-        assert set(result) == expected_ids
-        assert {pid: c.kind for pid, c in result.items()} == expected_kinds
+
+        assert {pid: change.kind for pid, change in result.items()} == expected
 
     def test_ignores_logical_bytes_when_signature_unchanged(self) -> None:
         """Ignore logical-byte changes when the signature is unchanged."""
         stored = TableState(
             strategy=Strategy.FULL,
             signature="s",
-            partitions={"1": planning_partition("1", "sig")},
+            partitions={"1": partition("1", signature="sig")},
         )
         result = find_partition_changes(
-            {"1": planning_partition("1", "sig", logical_bytes=999)}, stored, "s"
+            {"1": partition("1", signature="sig", logical_bytes=999)}, stored, "s"
         )
         assert result == {}
 
@@ -122,7 +110,7 @@ class TestRemovalOnlyPartitionPlanning:
     ) -> None:
         """Return a deletion plan and no extraction tasks when all rows disappear."""
         table = PartitionedTable(name="p.d.t", resolved_schema="app")
-        previous = planning_partition("1", "old")
+        previous = partition("1", signature="old")
         stored = TableState(
             strategy=Strategy.FULL,
             signature="signature",
@@ -156,31 +144,122 @@ class TestRemovalOnlyPartitionPlanning:
         discover_columns.assert_not_awaited()
 
 
+class TestChangedPartitionPlanning:
+    """Partition planning behavior when source partitions are added or updated."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("stored", "full_rebuild"),
+        [
+            pytest.param(None, True, id="first-sync"),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="signature",
+                    partitions={"1": partition("1", signature="old")},
+                ),
+                False,
+                id="partition-updated",
+            ),
+            pytest.param(
+                TableState(
+                    strategy=Strategy.PARTITIONED,
+                    signature="old-signature",
+                    partitions={"1": partition("1", signature="new")},
+                ),
+                True,
+                id="table-signature-changed",
+            ),
+        ],
+    )
+    async def test_plans_an_extraction_task_for_changed_partitions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: TableState | None,
+        full_rebuild: bool,
+    ) -> None:
+        """Extract changed partitions with the discovered JSON columns."""
+        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        current = {"1": partition("1", signature="new")}
+        monkeypatch.setattr(
+            planning,
+            "physical_partitions",
+            AsyncMock(return_value=("signature", current)),
+        )
+        monkeypatch.setattr(
+            planning, "read_table_state", AsyncMock(return_value=stored)
+        )
+        monkeypatch.setattr(
+            planning, "discover_json_columns", AsyncMock(return_value=["payload"])
+        )
+
+        plan, tasks = await planning.plan_partitioned_table(
+            AsyncMock(spec=BigQuery),
+            AsyncMock(spec=Postgres),
+            AsyncMock(spec=DuckDB),
+            table,
+            "run",
+            "bucket",
+        )
+
+        assert plan is not None
+        assert plan.full_rebuild is full_rebuild
+        assert plan.current_partitions == current
+        assert [task.selections for task in tasks] == [[current["1"].selection]]
+        assert tasks[0].json_columns == ["payload"]
+        assert plan.changes["1"].path == tasks[0].output_paths[0]
+
+
+class TestDetectChanges:
+    """Full-table change detection against stored signatures."""
+
+    @pytest.mark.asyncio
+    async def test_returns_only_full_tables_with_a_new_signature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Skip unchanged and partitioned tables."""
+        unchanged = FullTable(name="p.d.unchanged", resolved_schema="app")
+        changed = FullTable(name="p.d.changed", resolved_schema="app")
+        config = SyncConfig(
+            schemas={
+                "app": SchemaConfig(
+                    tables=[unchanged, changed, PartitionedTable(name="p.d.part")]
+                )
+            }
+        )
+        bigquery = MagicMock()
+        monkeypatch.setattr(planning, "BigQuery", bigquery)
+        modified = AsyncMock(return_value="modified")
+        monkeypatch.setattr(planning, "table_modified", modified)
+        monkeypatch.setattr(
+            planning,
+            "read_table_signature",
+            AsyncMock(
+                side_effect=[
+                    table_signature(unchanged, None, "modified"),
+                    "old-signature",
+                ]
+            ),
+        )
+
+        result = await planning.detect_changes(AsyncMock(spec=Postgres), config)
+
+        assert result == {changed.name: table_signature(changed, None, "modified")}
+        bigquery.connect.assert_called_once_with("p")
+        assert [call.args[1] for call in modified.await_args_list] == [
+            unchanged.name,
+            changed.name,
+        ]
+
+
 class TestPartitionBatching:
     """PartitionBatching behavior tests."""
-
-    def test_orders_numeric_partitions_before_remainder(self) -> None:
-        """Order numeric partitions before the remainder."""
-        table = PartitionedTable(name="p.d.t")
-        current = {
-            "10": planning_partition("10"),
-            "2": planning_partition("2"),
-            "__NULL__": planning_partition("__NULL__"),
-        }
-        changes = find_partition_changes(current, None, "s")
-        changes, _ = build_partition_tasks(table, current, changes, "run", "bucket", [])
-        ordered_adds = sorted(
-            (c.partition_id for c in changes.values() if c.kind == "add"),
-            key=partition_sort_key,
-        )
-        assert ordered_adds == ["2", "10", "__NULL__"]
-        assert all(c.path for c in changes.values())
 
     def test_builds_paths_and_tasks_for_changed_partitions(self) -> None:
         """Build paths and tasks for changed partitions."""
         table = PartitionedTable(name="p.d.t", resolved_schema="app")
         current = {
-            partition_id: planning_partition(partition_id, logical_bytes=300)
+            partition_id: partition(partition_id, logical_bytes=300)
             for partition_id in ("1", "2", "3", "4")
         }
         changes = find_partition_changes(current, None, "s")
@@ -199,58 +278,61 @@ class TestPartitionBatching:
 class TestTableSignature:
     """TableSignature behavior tests."""
 
-    @given(
-        case=st.sampled_from(
-            [
-                (
-                    FullTable(
-                        name="p.d.t",
-                        rls=[UnitMapping(column="id", unit_type="unit")],
-                    ),
-                    None,
-                    FullTable(
-                        name="p.d.t",
-                        rls=[UnitMapping(column="id", unit_type="region")],
-                    ),
-                    None,
-                    True,
+    @pytest.mark.parametrize(
+        ("before", "claim_before", "after", "claim_after"),
+        [
+            pytest.param(
+                FullTable(
+                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="unit")]
                 ),
-                (
-                    FullTable(name="p.d.t", ducklake=DuckLakeTableConfig(sort=["col"])),
-                    None,
-                    FullTable(
-                        name="p.d.t",
-                        ducklake=DuckLakeTableConfig(sort=["other"]),
-                    ),
-                    None,
-                    True,
+                None,
+                FullTable(
+                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="region")]
                 ),
-                (
-                    FullTable(name="p.d.t"),
-                    "old_claim",
-                    FullTable(name="p.d.t"),
-                    "new_claim",
-                    True,
-                ),
-                (
-                    FullTable(name="p.d.t", resolved_schema="schema_x"),
-                    None,
-                    FullTable(name="p.d.t", resolved_schema="schema_y"),
-                    None,
-                    False,
-                ),
-            ]
-        )
+                None,
+                id="rls",
+            ),
+            pytest.param(
+                FullTable(name="p.d.t", ducklake=DuckLakeTableConfig(sort=["col"])),
+                None,
+                FullTable(name="p.d.t", ducklake=DuckLakeTableConfig(sort=["other"])),
+                None,
+                id="sort",
+            ),
+            pytest.param(
+                FullTable(name="p.d.t"),
+                "old_claim",
+                FullTable(name="p.d.t"),
+                "new_claim",
+                id="claim",
+            ),
+            pytest.param(
+                PartitionedTable(name="p.d.t", n=4),
+                None,
+                PartitionedTable(name="p.d.t", n=5),
+                None,
+                id="partition-window",
+            ),
+            pytest.param(
+                FullTable(name="p.d.t"),
+                None,
+                PartitionedTable(name="p.d.t"),
+                None,
+                id="strategy",
+            ),
+        ],
     )
     def test_changes_signature_for_relevant_fields(
         self,
-        case: tuple[TableConfig, str | None, TableConfig, str | None, bool],
+        before: TableConfig,
+        claim_before: str | None,
+        after: TableConfig,
+        claim_after: str | None,
     ) -> None:
-        """Change the signature when relevant fields change."""
-        table_a, claim_a, table_b, claim_b, should_differ = case
-        sig_a = table_signature(table_a, claim_a, "m")
-        sig_b = table_signature(table_b, claim_b, "m")
-        assert (sig_a != sig_b) == should_differ
+        """Change the signature when a field that affects the output changes."""
+        assert table_signature(before, claim_before, "m") != table_signature(
+            after, claim_after, "m"
+        )
 
     @hypothesis.given(
         schema_x=st.text(

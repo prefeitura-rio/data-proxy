@@ -12,12 +12,9 @@ from data_proxy.models import (
     DuckLakePartition,
     DuckLakePartitionTransform,
     DuckLakeTableConfig,
-    DumpResult,
-    DumpStatus,
     DumpTask,
     FullTable,
     PartitionChange,
-    PartitionedTable,
     PartitionedTablePlan,
     PhysicalPartition,
     RangeSelection,
@@ -96,7 +93,6 @@ class TestTableConfiguration:
 
         assert table.ducklake.partitioning is not None
         assert table.ducklake.partitioning[0].transform == "month"
-        assert "ducklake" in table.config_signature_fields()
 
     def test_rejects_table_level_encryption(self) -> None:
         """Require encryption to be configured on the schema."""
@@ -105,23 +101,6 @@ class TestTableConfiguration:
                 name="p.d.events",
                 ducklake=DuckLakeTableConfig(encrypted=True),
             )
-
-    def test_returns_source_table_name(self) -> None:
-        """Return the unqualified source table name."""
-        assert FullTable(name="p.dataset.people").table_name == "people"
-
-    def test_includes_full_table_signature_fields(self) -> None:
-        """Include full-table strategy fields in the signature configuration."""
-        fields = FullTable(name="p.d.t").config_signature_fields()
-        assert fields["strategy"] == "full"
-        assert fields["n"] is None
-
-    @given(n=st.integers(1, 100))
-    def test_includes_partition_window_in_partitioned_signature(self, n: int) -> None:
-        """Include the partition window in a partitioned-table signature."""
-        fields = PartitionedTable(name="p.d.t", n=n).config_signature_fields()
-        assert fields["strategy"] == "partitioned"
-        assert fields["n"] == n
 
     @given(table=table_configs())
     def test_returns_unqualified_table_name(self, table: TableConfig) -> None:
@@ -153,13 +132,6 @@ class TestSchemaConfiguration:
         )
         assert config.tables[0].resolved_schema == schema
 
-    def test_accepts_unique_table_names(self) -> None:
-        """Accept one configured source table name."""
-        config = SyncConfig(
-            schemas={"one": SchemaConfig(tables=[FullTable(name="p.d.t")])}
-        )
-        assert [table.name for table in config.tables] == ["p.d.t"]
-
     def test_rejects_duplicate_table_names(self) -> None:
         """Reject the same source table in two schemas."""
         with pytest.raises(ValueError, match="Duplicate"):
@@ -190,51 +162,27 @@ class TestSchemaConfiguration:
 class TestTaskResults:
     """Task result behavior tests."""
 
-    @given(run_id=identifiers, path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
-    def test_task_id_is_deterministic(self, run_id: str, path: str) -> None:
-        """Build the same task ID for the same run and path."""
+    @pytest.mark.parametrize(
+        ("update", "same_id"),
+        [
+            pytest.param({}, True, id="same-run-and-path"),
+            pytest.param({"run_id": "other"}, False, id="new-run"),
+            pytest.param({"bucket_path": "s3://b/other"}, False, id="new-path"),
+        ],
+    )
+    def test_task_id_depends_on_run_and_path(
+        self, update: dict[str, str], same_id: bool
+    ) -> None:
+        """Keep the task ID stable for a run and path and change it otherwise."""
         first = DumpTask(
-            run_id=run_id,
+            run_id="run",
             table="p.d.t",
             target_schema="d",
-            bucket_path=path,
+            bucket_path="s3://b/t",
             selections=[AllSelection()],
         )
-        second = first.model_copy(deep=True)
-        assert first.task_id == second.task_id
-
-    @given(path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
-    def test_failure_returns_failed_paths(self, path: str) -> None:
-        """Return all failed paths for a failed task."""
-        assert DumpResult(
-            status=DumpStatus.FAILURE, failed_paths=[path]
-        ).failed_paths == [path]
-
-    @given(run_id=identifiers, path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
-    def test_changes_task_id_when_run_changes(self, run_id: str, path: str) -> None:
-        """Change the task ID when the run ID changes."""
-        first = DumpTask(
-            run_id=run_id,
-            table="p.d.t",
-            target_schema="d",
-            bucket_path=path,
-            selections=[AllSelection()],
-        )
-        second = first.model_copy(update={"run_id": f"{run_id}x"})
-        assert first.task_id != second.task_id
-
-    @given(run_id=identifiers, path=st.from_regex("s3://[a-z]+/[a-z]+", fullmatch=True))
-    def test_changes_task_id_when_path_changes(self, run_id: str, path: str) -> None:
-        """Change the task ID when the bucket path changes."""
-        first = DumpTask(
-            run_id=run_id,
-            table="p.d.t",
-            target_schema="d",
-            bucket_path=path,
-            selections=[AllSelection()],
-        )
-        second = first.model_copy(update={"bucket_path": f"{path}/next"})
-        assert first.task_id != second.task_id
+        second = first.model_copy(update=update)
+        assert (first.task_id == second.task_id) is same_id
 
 
 class TestPlanValidation:

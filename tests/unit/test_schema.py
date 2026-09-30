@@ -1,11 +1,14 @@
 """Tests for PostgreSQL schema initialization orchestration."""
 
+from collections.abc import Mapping
 from unittest.mock import AsyncMock
 
 import pytest
 
+import data_proxy.executor as executor
 import data_proxy.schema as schema
 from data_proxy.models import SchemaConfig, SyncConfig
+from data_proxy.types import TemplateValue
 
 
 class TestInitializeSchemas:
@@ -16,18 +19,24 @@ class TestInitializeSchemas:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Install roles and procedures before schema objects."""
+
+        def template_name(path: str, mapping: Mapping[str, TemplateValue]) -> str:
+            return path
+
+        monkeypatch.setattr(executor, "render_template", template_name)
         monkeypatch.setattr(schema, "ensure_schema_policy_writer", AsyncMock())
         conn = AsyncMock()
-        config = SyncConfig(schemas={"app": SchemaConfig()})
 
-        await schema.initialize_schemas(conn, config)
+        await schema.initialize_schemas(
+            conn, SyncConfig(schemas={"app": SchemaConfig()})
+        )
 
-        assert conn.execute.await_count == 4
-        sql = [call.args[0] for call in conn.execute.await_args_list]
-        assert "cleanup_stale_objects" in sql[0]
-        assert "prune_access_log" in sql[1]
-        assert "CREATE SCHEMA" in sql[2]
-        assert "access_policy" in sql[3]
+        assert [call.args[0] for call in conn.execute.await_args_list] == [
+            "postgres/cleanup_stale_objects",
+            "postgres/prune_access_log",
+            "postgres/init_schema",
+            "postgres/init_access_policy",
+        ]
         conn.commit.assert_awaited_once()
 
     @pytest.mark.asyncio

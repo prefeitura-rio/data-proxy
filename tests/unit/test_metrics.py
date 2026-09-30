@@ -12,27 +12,13 @@ class TestObserveSync:
 
     @pytest.mark.asyncio
     async def test_records_success_for_completed_workflow(self) -> None:
-        """Record success when the workflow completes without an exception."""
+        """Forward arguments and record success when the workflow completes."""
         recorded: list[str] = []
 
         async def record(value: Literal["success", "failure"]) -> None:
             recorded.append(value)
 
-        @observe(record)
-        async def workflow() -> None:
-            return
-
-        assert await workflow() is None
-        assert recorded == ["success"]
-
-    @pytest.mark.asyncio
-    async def test_preserves_workflow_arguments(self) -> None:
-        """Forward positional and keyword arguments to the decorated workflow."""
-        recorded: list[str] = []
         calls: list[tuple[int, bool]] = []
-
-        async def record(value: Literal["success", "failure"]) -> None:
-            recorded.append(value)
 
         @observe(record)
         async def workflow(count: int, *, dry_run: bool) -> None:

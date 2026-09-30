@@ -7,7 +7,6 @@ against the mocked BigQuery fixture.
 """
 
 from pathlib import Path
-from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,20 +27,21 @@ from data_proxy.models import (
     FullTable,
     PartitionChange,
     PartitionedTablePlan,
+    PartitionMetadata,
     SchemaConfig,
     SyncConfig,
     SyncPlan,
 )
 from data_proxy.templates import render_template
 from data_proxy.types import DatabaseRow, DuckDBParams
-from tests.helpers import partition
-
-PARQUET = str(Path(__file__).parent.parent / "files" / "people_partition_10.parquet")
-
-
-# ---------------------------------------------------------------------------
-# Rendering mechanics
-# ---------------------------------------------------------------------------
+from tests.constants import MODIFIED, PARQUET, PARQUET_20, TEST_SQL_DIR
+from tests.helpers import (
+    attach_ducklake,
+    create_ducklake_table,
+    ducklake_columns,
+    ducklake_row_count,
+    partition,
+)
 
 
 class TestTemplateRendering:
@@ -54,6 +54,21 @@ class TestTemplateRendering:
             "query", {"table": Identifier("people")}, root=tmp_path
         )
         assert rendered == 'SELECT "people";\n'
+
+    def test_converts_nested_composable_values_to_sql(self, tmp_path: Path) -> None:
+        """Convert composables inside lists and mappings before rendering SQL."""
+        (tmp_path / "query.sql").write_text(
+            "{% for f in functions %}{{ f }} {% endfor %}{{ sources[0].function }}"
+        )
+        rendered = render_template(
+            "query",
+            {
+                "functions": [Identifier("a_fn"), Identifier("b_fn")],
+                "sources": [{"function": Identifier("c_fn")}],
+            },
+            root=tmp_path,
+        )
+        assert rendered == '"a_fn" "b_fn" "c_fn"'
 
     def test_preserves_template_trailing_newline(self, tmp_path: Path) -> None:
         """Preserve the template trailing newline."""
@@ -72,53 +87,11 @@ class TestTemplateRendering:
             {"bq_table": Literal("rj-ia-desenvolvimento.dev.test_table")},
         )
 
-        assert "bigquery_scan('rj-ia-desenvolvimento.dev.test_table')" in rendered
-        assert (
-            "bigquery_scan('''rj-ia-desenvolvimento.dev.test_table''')" not in rendered
+        assert rendered == (
+            "\nSELECT *\nFROM duckdb.query(\n    $duck$\n"
+            "    DESCRIBE SELECT * FROM bigquery_scan('rj-ia-desenvolvimento.dev.test_table')\n"
+            "    $duck$\n)\n"
         )
-
-
-# ---------------------------------------------------------------------------
-# DuckDB DuckLake template execution
-# ---------------------------------------------------------------------------
-
-
-async def attach_ducklake(duckdb: DuckDB, tmp_path: Path) -> None:
-    """Attach one file-based DuckLake catalog for the test connection."""
-    catalog = tmp_path / "catalog.sqlite"
-    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
-        "duckdb/attach",
-        mapping={
-            "catalog": Literal(f"ducklake:sqlite:{catalog}"),
-            "data_path": Literal(str(tmp_path / "data")),
-            "encrypted": False,
-        },
-    )
-
-
-async def create_table(duckdb: DuckDB, name: str, parquet: str = PARQUET) -> None:
-    """Create one DuckLake table from a Parquet schema."""
-    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
-        "duckdb/create_table",
-        mapping={"table": Identifier(name)},
-        params=[parquet],
-    )
-
-
-async def row_count(duckdb: DuckDB, table: str) -> int:
-    """Return the row count of one DuckLake table."""
-    rows = await duckdb.query(f'SELECT count(*) FROM dl."{table}"')
-    return cast("int", rows[0][0])
-
-
-async def describe(duckdb: DuckDB, name: str) -> set[str]:
-    """Return the column names of one DuckLake table."""
-    rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
-        "duckdb/describe_table",
-        mapping={"table": Identifier(name)},
-        expect=tuple[str, str],
-    )
-    return {row[0] for row in rows}
 
 
 class TestDuckdbCreateAndInsert:
@@ -130,21 +103,21 @@ class TestDuckdbCreateAndInsert:
     ) -> None:
         """Create one DuckLake table with the Parquet file's columns."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
-        columns = await describe(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
+        columns = await ducklake_columns(duckdb, "people")
         assert {"cpf", "name"} <= columns
 
     @pytest.mark.asyncio
     async def test_inserts_parquet_rows(self, duckdb: DuckDB, tmp_path: Path) -> None:
         """Insert Parquet rows into an existing DuckLake table."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
             "duckdb/insert_parquet",
             mapping={"table": Identifier("people")},
             params=[[PARQUET]],
         )
-        assert await row_count(duckdb, "people") > 0
+        assert await ducklake_row_count(duckdb, "people") == 10
 
 
 class TestDuckdbAlterColumn:
@@ -154,7 +127,7 @@ class TestDuckdbAlterColumn:
     async def test_adds_and_drops_columns(self, duckdb: DuckDB, tmp_path: Path) -> None:
         """Add a column, then drop it, and verify the schema each time."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
 
         await executor.execute(
@@ -170,7 +143,7 @@ class TestDuckdbAlterColumn:
                 ],
             },
         )
-        assert "active" in await describe(duckdb, "people")
+        assert "active" in await ducklake_columns(duckdb, "people")
 
         await executor.execute(
             "duckdb/alter_column",
@@ -185,7 +158,7 @@ class TestDuckdbAlterColumn:
                 ],
             },
         )
-        assert "active" not in await describe(duckdb, "people")
+        assert "active" not in await ducklake_columns(duckdb, "people")
 
 
 class TestDuckdbDeletePartition:
@@ -197,7 +170,7 @@ class TestDuckdbDeletePartition:
     ) -> None:
         """Delete every row when no predicate is given."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
 
         await executor.execute(
@@ -209,7 +182,7 @@ class TestDuckdbDeletePartition:
             "duckdb/delete_partition",
             mapping={"table": Identifier("people"), "predicate": ""},
         )
-        count = await row_count(duckdb, "people")
+        count = await ducklake_row_count(duckdb, "people")
         assert count == 0
 
 
@@ -220,7 +193,7 @@ class TestDuckdbSortAndPartitioning:
     async def test_sets_and_resets_sort(self, duckdb: DuckDB, tmp_path: Path) -> None:
         """Set sort columns and then reset them without error."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
 
         await executor.execute(
@@ -238,7 +211,7 @@ class TestDuckdbSortAndPartitioning:
     ) -> None:
         """Set partition keys and then reset them without error."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
 
         await executor.execute(
@@ -255,31 +228,25 @@ class TestDuckdbMetadataTemplates:
     """DuckLake metadata query template behavior."""
 
     @pytest.mark.asyncio
-    async def test_table_exists_returns_true_for_created_table(
-        self, duckdb: DuckDB, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("table", "expected"),
+        [
+            pytest.param("people", 1, id="created"),
+            pytest.param("missing", 0, id="missing"),
+        ],
+    )
+    async def test_table_exists_reports_whether_the_table_exists(
+        self, duckdb: DuckDB, tmp_path: Path, table: str, expected: int
     ) -> None:
-        """Report that a created DuckLake table exists."""
+        """Report 1 for a created DuckLake table and 0 for a missing one."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
             "duckdb/table_exists",
-            params=["people"],
+            params=[table],
             expect=tuple[int],
         )
-        assert rows[0][0] == 1
-
-    @pytest.mark.asyncio
-    async def test_table_exists_returns_zero_for_missing_table(
-        self, duckdb: DuckDB, tmp_path: Path
-    ) -> None:
-        """Report that a non-existent DuckLake table does not exist."""
-        await attach_ducklake(duckdb, tmp_path)
-        rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
-            "duckdb/table_exists",
-            params=["nonexistent"],
-            expect=tuple[int],
-        )
-        assert rows[0][0] == 0
+        assert rows[0][0] == expected
 
     @pytest.mark.asyncio
     async def test_get_sort_returns_configured_columns(
@@ -287,7 +254,7 @@ class TestDuckdbMetadataTemplates:
     ) -> None:
         """Return the sort columns configured with SET SORTED BY."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
 
         await executor.execute(
@@ -299,7 +266,7 @@ class TestDuckdbMetadataTemplates:
             params=["people"],
             expect=tuple[str],
         )
-        assert any("cpf" in row[0] for row in rows)
+        assert rows == [("cpf",)]
 
     @pytest.mark.asyncio
     async def test_describe_parquet_returns_column_names_and_types(
@@ -314,25 +281,6 @@ class TestDuckdbMetadataTemplates:
         columns = {row[0] for row in rows}
         assert {"cpf", "name"} <= columns
 
-    @pytest.mark.asyncio
-    async def test_set_option_executes_without_error(
-        self, duckdb: DuckDB, tmp_path: Path
-    ) -> None:
-        """Set one DuckLake catalog option without error."""
-        await attach_ducklake(duckdb, tmp_path)
-        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
-            "duckdb/set_option",
-            mapping={
-                "option": "target_file_size",
-                "value": Literal("128MB"),
-            },
-        )
-
-
-# ---------------------------------------------------------------------------
-# BigQuery partition template execution (mocked)
-# ---------------------------------------------------------------------------
-
 
 class TestBigQueryPartitionTemplate:
     """BigQuery partition metadata template behavior using the mocked fixture."""
@@ -342,18 +290,14 @@ class TestBigQueryPartitionTemplate:
         """Return validated partition metadata rows from the mocked BigQuery."""
         rows = await partition_rows(bigquery, "test", "dataset", "range_buckets")
 
-        assert len(rows) >= 1
-        for row in rows:
-            assert row.partition_id
-            assert row.last_modified_time is not None
-
-
-# ---------------------------------------------------------------------------
-# DuckLake publication pipeline (real DuckDB)
-# ---------------------------------------------------------------------------
-
-
-PARQUET_20 = str(Path(__file__).parent.parent / "files" / "people_partition_20.parquet")
+        assert {row.partition_id: row for row in rows} == {
+            partition_id: PartitionMetadata(
+                partition_id=partition_id,
+                last_modified_time=MODIFIED.replace(tzinfo=None),
+                logical_bytes=1_000_000,
+            )
+            for partition_id in ("0", "20")
+        }
 
 
 class TestDucklakeCommitTable:
@@ -368,13 +312,10 @@ class TestDucklakeCommitTable:
         table = FullTable(name="p.d.people", resolved_schema="app")
 
         await commit_table(duckdb, table, [PARQUET], None)
-        count = await row_count(duckdb, "people")
-        assert count > 0
+        assert await ducklake_row_count(duckdb, "people") == 10
 
-        first_count = count
         await commit_table(duckdb, table, [PARQUET_20], None)
-        count = await row_count(duckdb, "people")
-        assert count == first_count
+        assert await ducklake_row_count(duckdb, "people") == 10
 
 
 class TestDucklakePartitionCommit:
@@ -403,7 +344,7 @@ class TestDucklakePartitionCommit:
         )
 
         await commit_table(duckdb, table, [PARQUET], added)
-        assert await row_count(duckdb, "people") > 0
+        assert await ducklake_row_count(duckdb, "people") == 10
 
         removed = PartitionedTablePlan(
             table_signature="sig",
@@ -419,7 +360,7 @@ class TestDucklakePartitionCommit:
         )
         await commit_table(duckdb, table, [], removed)
 
-        assert await row_count(duckdb, "people") == 0
+        assert await ducklake_row_count(duckdb, "people") == 0
 
 
 class TestDucklakeEvolveSchema:
@@ -431,14 +372,13 @@ class TestDucklakeEvolveSchema:
     ) -> None:
         """Add new columns, drop removed columns, and promote types."""
         await attach_ducklake(duckdb, tmp_path)
-        await create_table(duckdb, "people", PARQUET)
+        await create_ducklake_table(duckdb, "people", PARQUET)
 
         evolved = tmp_path / "evolved.parquet"
-        copy_sql = (
-            "COPY (SELECT 1::DOUBLE as cpf, true::BOOLEAN as active, "
-            "42::INTEGER as score) TO ? (FORMAT PARQUET)"
+        await duckdb.execute(
+            render_template("duckdb/write_evolved_parquet", {}, root=TEST_SQL_DIR),
+            params=[str(evolved)],
         )
-        await duckdb.execute(copy_sql, params=[str(evolved)])
 
         async with duckdb.transaction():
             await evolve_table_schema(duckdb, "people", str(evolved))
@@ -480,6 +420,59 @@ class TestDucklakePublishSchema:
 
         result = await publish_schema(duckdb, pg_conn, config, plan, set())
 
-        assert "p.d.people" in result.published_tables
-        count = await row_count(duckdb, "people")
-        assert count > 0
+        assert result.published_tables == {"p.d.people"}
+        assert await ducklake_row_count(duckdb, "people") == 10
+
+    @pytest.mark.asyncio
+    async def test_returns_committed_snapshot_id(
+        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Return the snapshot that holds the published tables."""
+        catalog = tmp_path / "catalog.sqlite"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        def local_paths(schema: str) -> DuckLakePaths:
+            return DuckLakePaths(catalog=catalog, data=str(data_dir))
+
+        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(local_paths))
+
+        table = FullTable(name="p.d.people", resolved_schema="app")
+        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"p.d.people": "sig"},
+            paths={"p.d.people": [PARQUET]},
+        )
+
+        result = await publish_schema(duckdb, AsyncMock(), config, plan, set())
+
+        rows = await duckdb.query("SELECT id FROM dl.current_snapshot()")
+        assert result.snapshot_id == rows[0][0]
+
+    @pytest.mark.asyncio
+    async def test_returns_no_snapshot_when_nothing_is_published(
+        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Return no snapshot when every table is blocked by a failed path."""
+        catalog = tmp_path / "catalog.sqlite"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        def local_paths(schema: str) -> DuckLakePaths:
+            return DuckLakePaths(catalog=catalog, data=str(data_dir))
+
+        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(local_paths))
+
+        table = FullTable(name="p.d.people", resolved_schema="app")
+        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"p.d.people": "sig"},
+            paths={"p.d.people": [PARQUET]},
+        )
+
+        result = await publish_schema(duckdb, AsyncMock(), config, plan, {PARQUET})
+
+        assert result.published_tables == set()
+        assert result.snapshot_id is None

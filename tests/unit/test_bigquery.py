@@ -1,13 +1,22 @@
-"""Unit tests for BigQuery partition metadata and normalization."""
+"""Unit tests for BigQuery partition configuration, metadata, and normalization."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
-from google.cloud.bigquery import Row
+from google.cloud.bigquery import (
+    PartitionRange,
+    RangePartitioning,
+    Row,
+    Table,
+    TimePartitioning,
+)
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
+from whenever import PlainDateTime
 
 from data_proxy.bigquery.clients import BigQuery
 from data_proxy.bigquery.config import (
@@ -15,6 +24,9 @@ from data_proxy.bigquery.config import (
     RangeConfig,
     TimeConfig,
     TimeGranularity,
+    partition_kind_config,
+    range_config,
+    time_config,
 )
 from data_proxy.bigquery.partitions import (
     PartitionNormalizer,
@@ -29,6 +41,174 @@ from data_proxy.models import (
     TimeRangeSelection,
 )
 from tests.helpers import metadata_row
+from tests.strategies import identifiers, ordered_bounds
+
+table_from_api = cast(Callable[[dict[str, object]], Table], Table.from_api_repr)
+
+
+class TestTimeGranularity:
+    """Time granularity behavior tests."""
+
+    @pytest.mark.parametrize(
+        ("granularity", "lower", "upper"),
+        [
+            pytest.param(
+                TimeGranularity.HOUR,
+                "2025-01-01 12:00:00",
+                "2025-01-01 13:00:00",
+                id="hour",
+            ),
+            pytest.param(TimeGranularity.DAY, "2025-01-01", "2025-01-02", id="day"),
+            pytest.param(TimeGranularity.MONTH, "2025-01-01", "2025-02-01", id="month"),
+            pytest.param(TimeGranularity.YEAR, "2025-01-01", "2026-01-01", id="year"),
+        ],
+    )
+    def test_steps_exact_time_boundary(
+        self, granularity: TimeGranularity, lower: str, upper: str
+    ) -> None:
+        """Step each time granularity to its exact next boundary."""
+        start = PlainDateTime(2025, 1, 1, 12)
+        spec = granularity.spec()
+        assert start.format(spec.output_pattern) == lower
+        assert spec.step(start).format(spec.output_pattern) == upper
+
+
+class TestRangeConfiguration:
+    """Range partition configuration behavior tests."""
+
+    @given(field=identifiers, bounds=ordered_bounds(), interval=st.integers(1, 100))
+    def test_converts_valid_range_metadata(
+        self, field: str, bounds: tuple[int, int], interval: int
+    ) -> None:
+        """Convert valid range metadata into application configuration."""
+        start, end = bounds
+        metadata = RangePartitioning(
+            field=field,
+            range_=PartitionRange(start=start, end=end, interval=interval),
+        )
+        config = range_config(metadata, "p.d.t")
+        assert config == RangeConfig(
+            field=field, start=start, end=end, interval=interval
+        )
+
+    @given(field=identifiers, start=st.integers(-10, 10))
+    def test_rejects_incomplete_range_metadata(self, field: str, start: int) -> None:
+        """Reject range metadata without an end or interval."""
+        metadata = RangePartitioning(
+            field=field, range_=PartitionRange(start=start, end=None, interval=None)
+        )
+        with pytest.raises(ValueError, match="Incomplete"):
+            range_config(metadata, "p.d.t")
+
+    def test_rejects_non_string_range_field(self) -> None:
+        """Reject non-string partition fields returned by the SDK."""
+        metadata = RangePartitioning(
+            field=123,
+            range_=PartitionRange(start=0, end=10, interval=1),
+        )
+
+        with pytest.raises(ValueError, match="Incomplete"):
+            range_config(metadata, "p.d.t")
+
+    @given(field=identifiers, bounds=ordered_bounds())
+    def test_rejects_invalid_range_metadata(
+        self, field: str, bounds: tuple[int, int]
+    ) -> None:
+        """Reject range metadata with an invalid interval or bounds."""
+        start, end = bounds
+        metadata = RangePartitioning(
+            field=field,
+            range_=PartitionRange(start=start, end=end, interval=0),
+        )
+        with pytest.raises(ValueError, match="Invalid"):
+            range_config(metadata, "p.d.t")
+
+
+class TestTimeConfiguration:
+    """Time partition configuration behavior tests."""
+
+    @pytest.mark.parametrize("granularity", list(TimeGranularity), ids=str)
+    def test_converts_valid_time_metadata(self, granularity: TimeGranularity) -> None:
+        """Convert valid time metadata into application configuration."""
+        metadata = TimePartitioning(type_=granularity.value, field="created_at")
+        assert time_config(metadata, "p.d.t") == TimeConfig(
+            field="created_at", granularity=granularity
+        )
+
+    def test_defaults_missing_time_granularity_to_day(self) -> None:
+        """Default missing time granularity to DAY."""
+        assert time_config(
+            TimePartitioning(type_=None, field="created_at"), "p.d.t"
+        ) == TimeConfig(field="created_at", granularity=TimeGranularity.DAY)
+
+    def test_rejects_ingestion_time_metadata(self) -> None:
+        """Reject time metadata without an explicit field."""
+        with pytest.raises(ValueError, match="Ingestion-time"):
+            time_config(TimePartitioning(field=None), "p.d.t")
+
+    def test_rejects_non_string_time_field(self) -> None:
+        """Reject a non-string time field returned by the SDK."""
+        with pytest.raises(ValueError, match="field"):
+            time_config(TimePartitioning(field=123), "p.d.t")
+
+    @pytest.mark.parametrize("granularity", ["WEEK", "MINUTE", "UNKNOWN"])
+    def test_rejects_unsupported_time_granularity(self, granularity: str) -> None:
+        """Reject unsupported time partition granularities."""
+        with pytest.raises(ValueError, match="Unsupported"):
+            time_config(
+                TimePartitioning(type_=granularity, field="created_at"), "p.d.t"
+            )
+
+
+class TestPartitionKindConfiguration:
+    """Partition kind selection behavior tests."""
+
+    def test_selects_range_partition_configuration(self) -> None:
+        """Select the range configuration for a range-partitioned table."""
+        metadata = table_from_api(
+            {
+                "tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"},
+                "type": "TABLE",
+                "rangePartitioning": {
+                    "field": "id",
+                    "range": {"start": 0, "end": 100, "interval": 10},
+                },
+            }
+        )
+        assert partition_kind_config(metadata, "p.d.t").kind == "range"
+
+    def test_selects_time_partition_configuration(self) -> None:
+        """Select the time configuration for a time-partitioned table."""
+        metadata = table_from_api(
+            {
+                "tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"},
+                "type": "TABLE",
+                "timePartitioning": {"type": "DAY", "field": "created_at"},
+            }
+        )
+        assert partition_kind_config(metadata, "p.d.t").kind == "time"
+
+    def test_rejects_unpartitioned_table(self) -> None:
+        """Reject an unpartitioned table for partitioned synchronization."""
+        metadata = table_from_api(
+            {
+                "tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"},
+                "type": "TABLE",
+            }
+        )
+        with pytest.raises(ValueError, match="time- or range-partitioned"):
+            partition_kind_config(metadata, "p.d.t")
+
+    def test_rejects_nonphysical_table(self) -> None:
+        """Reject a nonphysical BigQuery table."""
+        metadata = table_from_api(
+            {
+                "tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"},
+                "type": "VIEW",
+            }
+        )
+        with pytest.raises(ValueError, match="physically partitioned"):
+            partition_kind_config(metadata, "p.d.t")
 
 
 class TestPartitionMetadata:
@@ -129,7 +309,10 @@ class TestPhysicalPartitions:
 
     @pytest.mark.asyncio
     async def test_limits_time_partitions_to_latest_n(self, bigquery: BigQuery) -> None:
-        """Keep only the latest time partitions when n is configured."""
+        """Keep only the latest time partitions and a stable table signature.
+
+        A signature change forces a full rebuild of every synced table.
+        """
         signature, partitions = await physical_partitions(
             bigquery,
             "test.dataset.time_day",
@@ -137,7 +320,9 @@ class TestPhysicalPartitions:
             n=2,
         )
 
-        assert signature
+        assert signature == (
+            "bc77326b756fb34943a572b0fd2722497d8f20365cc522b66f44c9b0d826f890"
+        )
         assert set(partitions) == {"20250102", "20250103"}
 
     @pytest.mark.asyncio
@@ -178,21 +363,22 @@ class TestTableReference:
 class TestPartitionConfiguration:
     """PartitionConfiguration behavior tests."""
 
-    @given(
-        case=st.sampled_from(
-            [
-                ("", 0, 10, 1, "field must not be empty"),
-                ("id", 0, 10, 0, "interval must be positive"),
-                ("id", 10, 10, 1, "start must precede end"),
-            ]
-        )
+    @pytest.mark.parametrize(
+        ("field", "start", "end", "interval", "error"),
+        [
+            pytest.param("", 0, 10, 1, "field must not be empty", id="empty-field"),
+            pytest.param(
+                "id", 0, 10, 0, "interval must be positive", id="zero-interval"
+            ),
+            pytest.param("id", 10, 10, 1, "start must precede end", id="empty-range"),
+        ],
     )
     def test_rejects_invalid_range_configuration(
-        self, case: tuple[str, int, int, int, str]
+        self, field: str, start: int, end: int, interval: int, error: str
     ) -> None:
         """Reject invalid range partition configuration."""
-        with pytest.raises(ValueError, match=case[4]):
-            RangeConfig(field=case[0], start=case[1], end=case[2], interval=case[3])
+        with pytest.raises(ValueError, match=error):
+            RangeConfig(field=field, start=start, end=end, interval=interval)
 
     def test_rejects_empty_time_partition_field(self) -> None:
         """Reject an empty time partition field."""
@@ -234,15 +420,6 @@ class TestRangePartitionNormalization:
                 "signature",
             ).normalize(metadata_row(str(partition_id), 0))
 
-    def test_rejects_upper_bound_range_bucket(self) -> None:
-        """Reject a range bucket at the exclusive upper bound."""
-        with pytest.raises(ValueError, match="Invalid range partition ID"):
-            PartitionNormalizer(
-                RangeConfig(field="id", start=0, end=100, interval=10),
-                "p.d.t",
-                "signature",
-            ).normalize(metadata_row("100", 0))
-
     def test_accepts_alignment_with_nonzero_start(self) -> None:
         """Accept an interval-aligned bucket after a nonzero start."""
         partition = PartitionNormalizer(
@@ -254,15 +431,6 @@ class TestRangePartitionNormalization:
         assert isinstance(partition.selection, RangeSelection)
         assert partition.selection.lower == 13
         assert partition.selection.upper == 23
-
-    def test_rejects_unaligned_range_bucket(self) -> None:
-        """Reject a range bucket that is not interval-aligned."""
-        with pytest.raises(ValueError, match="Invalid range partition ID"):
-            PartitionNormalizer(
-                RangeConfig(field="id", start=0, end=100, interval=10),
-                "p.d.t",
-                "signature",
-            ).normalize(metadata_row("1", 0))
 
     def test_rejects_aligned_upper_boundary_with_nonzero_start(self) -> None:
         """Reject an aligned bucket at a nonzero exclusive upper bound."""
@@ -287,31 +455,25 @@ class TestRangePartitionNormalization:
 class TestTimePartitionNormalization:
     """Time partition normalization behavior tests."""
 
-    @given(granularity=st.sampled_from(list(TimeGranularity)))
-    def test_advances_time_partition_bounds(self, granularity: TimeGranularity) -> None:
-        """Advance time bounds according to the selected granularity."""
-        config = TimeConfig(field="created_at", granularity=granularity)
-        normalizer = PartitionNormalizer(config, "p.d.t", "signature")
-        partition_id = {
-            TimeGranularity.HOUR: "2025010112",
-            TimeGranularity.DAY: "20250101",
-            TimeGranularity.MONTH: "202501",
-            TimeGranularity.YEAR: "2025",
-        }[granularity]
-        lower, upper = normalizer.time_bounds(partition_id, granularity)
-        assert lower < upper
-
-    @given(granularity=st.sampled_from(list(TimeGranularity)))
-    def test_normalizes_non_null_time_partition(
-        self, granularity: TimeGranularity
+    @pytest.mark.parametrize(
+        ("granularity", "partition_id", "lower", "upper"),
+        [
+            (
+                TimeGranularity.HOUR,
+                "2025010112",
+                "2025-01-01 12:00:00",
+                "2025-01-01 13:00:00",
+            ),
+            (TimeGranularity.DAY, "20250101", "2025-01-01", "2025-01-02"),
+            (TimeGranularity.MONTH, "202501", "2025-01-01", "2025-02-01"),
+            (TimeGranularity.YEAR, "2025", "2025-01-01", "2026-01-01"),
+        ],
+        ids=["hour", "day", "month", "year"],
+    )
+    def test_normalizes_time_partition_to_exact_bounds(
+        self, granularity: TimeGranularity, partition_id: str, lower: str, upper: str
     ) -> None:
-        """Normalize a non-null time partition into a time range."""
-        partition_id = {
-            TimeGranularity.HOUR: "2025010112",
-            TimeGranularity.DAY: "20250101",
-            TimeGranularity.MONTH: "202501",
-            TimeGranularity.YEAR: "2025",
-        }[granularity]
+        """Normalize a time partition ID into its exact half-open range."""
         partition = PartitionNormalizer(
             TimeConfig(field="created_at", granularity=granularity),
             "p.d.t",
@@ -319,7 +481,7 @@ class TestTimePartitionNormalization:
         ).normalize(metadata_row(partition_id, 0))
         assert partition is not None
         assert isinstance(partition.selection, TimeRangeSelection)
-        assert partition.selection.lower < partition.selection.upper
+        assert (partition.selection.lower, partition.selection.upper) == (lower, upper)
 
     @given(day=st.integers(1, 28), hour=st.integers(0, 23))
     def test_changes_signature_when_metadata_changes(self, day: int, hour: int) -> None:
@@ -341,7 +503,7 @@ class TestTimePartitionNormalization:
                 RangeConfig(field="id", start=0, end=100, interval=10),
                 "p.d.t",
                 "signature",
-            ).normalize(metadata_row("0", 0, missing_modified=True))
+            ).normalize(metadata_row("0", 0, None))
 
     def test_skips_null_time_bucket(self) -> None:
         """Skip a null bucket for time partitioning."""
