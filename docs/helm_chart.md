@@ -43,16 +43,9 @@ PostgREST-ro and PostgREST-rw use HTTP readiness probes on `/`. A Deployment isn
 
 Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` to create JWT authentication and authorization resources. Create the configured Gateway before installing the chart.
 
-## BigQuery fallback
+## Proxy
 
-Enable fallback with:
-
-```yaml
-fallback:
-  enabled: true
-```
-
-Configure proxy values under `fallback`, including `cacheTtl`, `fetchBufferSize`, `fetchTimeout`, `cacheRedisDb`, and `maxCacheBodyBytes`. See [Fallback](fallback.md) for request flow and cache behavior.
+Configure the caching proxy under `proxy`. Values include `cacheTtl`, `fetchBufferSize`, `fetchTimeout`, `cacheRedisDb`, and `maxCacheBodyBytes`. See [Proxy](proxy.md) for request flow and cache behavior.
 
 ## Enable HA
 
@@ -70,7 +63,7 @@ ha:
     - name: test
       postgrest:
         triggers: []
-      fallback:
+      proxy:
         triggers: []
 ```
 

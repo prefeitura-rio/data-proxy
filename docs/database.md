@@ -29,10 +29,12 @@ Each configured schema contains metadata and views:
 | --- | --- |
 | `<schema>.access_policy` | Active access grants. |
 | `<schema>.access_log` | Append-only audit trail of grant changes. |
-| `<schema>.<table>` | PostgreSQL view over the DuckLake-backed function. |
-| `<schema>.<table>_bq` | BigQuery-backed fallback view when enabled. |
-| `<schema>.<table>_fn()` | `SECURITY DEFINER` DuckLake function with manual RLS filtering. |
-| `<schema>.<table>_bq_fn()` | `SECURITY DEFINER` BigQuery function with the same RLS filtering. |
+| `<schema>.<table>` | PostgreSQL view over the table function. |
+| `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks RLS, plans the sources, and reads them. |
+| `<schema>.<table>_dl_fn(text, text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot. |
+| `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads BigQuery when `fallbacks` lists it. |
+
+The routing functions live in the application schema (`data_proxy` by default): `requested_snapshot`, `covered_by_ducklake`, `covered_by_fallback`, `plan_sources`, `source_label`, and `set_response_headers`. See [Proxy](proxy.md).
 
 PostgreSQL does not contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
 
@@ -54,7 +56,7 @@ The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLak
 
 The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
 
-The BigQuery fallback functions use the same policy-generation logic. See [Security](security.md).
+The table function builds the policy predicate once and passes it to each source helper. See [Security](security.md).
 
 ## S3 access
 

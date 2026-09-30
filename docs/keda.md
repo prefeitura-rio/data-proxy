@@ -63,4 +63,4 @@ DBOS deduplicates the scheduled workflow across orchestrator replicas. Keep one 
 
 ---
 
-[← Previous](fallback.md) · [Home](../README.md) · [Next →](database.md)
+[← Previous](proxy.md) · [Home](../README.md) · [Next →](database.md)

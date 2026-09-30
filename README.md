@@ -10,7 +10,7 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 - [Sync](docs/sync.md)—`sync.json`, table strategies, partition batches, and DuckLake sort keys.
 - [Using the API](docs/using.md)—PostgREST profiles, queries, and response headers.
 - [Security](docs/security.md)—JWT roles, schema conditions, row conditions, and grant writes.
-- [BigQuery Fallback](docs/fallback.md)—fallback reads and identity-aware caching.
+- [Proxy](docs/proxy.md)—routing headers and identity-aware caching.
 - [KEDA Scaling](docs/keda.md)—worker streams, reclaim timeouts, and batch sizing.
 - [Database Schema](docs/database.md)—PostgreSQL roles, tables, policies, and S3 access.
 - [Environment Variables](docs/environment_variables.md)—application defaults and Helm environment conversion.

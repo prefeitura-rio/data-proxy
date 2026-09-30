@@ -63,7 +63,7 @@ See [Using the API](using.md).
 
 | Command             | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
-| `cluster k6 e2e`    | Validates sync, RLS, fallback, cache, and local data.          |
+| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, and snapshot versions.    |
 | `cluster k6 load`   | Runs the normal load profile.                                  |
 | `cluster k6 stress` | Runs the stepped stress profile.                               |
 

@@ -39,8 +39,8 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 | `name`      | Yes      | BigQuery reference: `project.dataset.table`.                                          |
 | `strategy`  | Yes      | `full` replaces the DuckLake table; `partitioned` updates physical partitions.        |
 | `n`         | No       | Keep the newest `n` time partitions.                                                  |
-| `fallback`  | No       | Enables the `_bq` fallback view. Default: `true`.                                     |
-| `cache_ttl` | No       | Fallback cache lifetime in seconds.                                                   |
+| `fallbacks` | No       | Ordered list of source names queried after DuckLake for uncovered rows, e.g. `["bigquery"]`. Default: `[]`.         |
+| `cache_ttl` | No       | Proxy cache lifetime in seconds.                                                      |
 | `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                         |
 | `ducklake` | No | Table-level DuckLake settings, including `sort` and `partitioning`. |
 | `ducklake` | No | Table-level DuckLake settings, including custom partition transforms. |
@@ -99,17 +99,21 @@ The DBOS sync writes the writer catalog volume. Litestream replicates the writer
 
 ## Fallback per table
 
-Fallback has two gates. Chart fallback must be enabled and the table must have `fallback: true`.
+Set `fallbacks: ["bigquery"]` on a table to let BigQuery serve the data that DuckLake does not hold. For a partitioned table, the table function reads the published partitions from DuckLake and every other partition from BigQuery. For a table that is not published yet, it reads BigQuery alone.
 
 ```json
 {
-  "name": "project.dataset.internal_table",
-  "strategy": "full",
-  "fallback": false
+  "name": "project.dataset.events",
+  "strategy": "partitioned",
+  "fallbacks": ["bigquery"]
 }
 ```
 
-When fallback is disabled, the `_bq` view is not created. Nginx returns the DuckLake view response without a BigQuery fallback query.
+Without `fallbacks`, the table function reads DuckLake only. Each request to a table with `fallbacks` also queries each listed source, so enable it only for tables where that cost is acceptable. See [Proxy](proxy.md).
+
+## Adding a data source
+
+Each source is registered in `src/data_proxy/sources/sources.py` as a `Source` dataclass with its DuckDB load statement and scan expression. To add a new engine, register one entry and create a template file `src/data_proxy/templates/postgres/sources/sources/<name>.sql` with the helper function body. No other files change.
 
 ## Partitions
 

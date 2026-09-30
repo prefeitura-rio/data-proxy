@@ -49,6 +49,8 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Sync workflow concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
+| `READER_SNAPSHOT_TIMEOUT_SECONDS` | `120` | How long a publish waits for the reader catalog to apply the committed snapshot. |
+| `READER_SNAPSHOT_POLL_SECONDS` | `1` | Poll interval while a publish waits for the reader catalog. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Dump worker concurrency. |
 | `DUMP_QUEUE_RATE_LIMIT` | `50` | Dump tasks per minute. |
 
@@ -61,15 +63,14 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `DUMPER_SCRATCH_DIR` | system temporary directory | Local extraction scratch directory. |
 | `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
 
-## Auth and fallback
+## Auth and proxy
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AUTH_ANON_ROLE` | `anon` | Unauthenticated PostgreSQL role. |
 | `AUTH_USER_ROLE` | `user` | Authenticated PostgreSQL role. |
 | `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | PostgREST login role. |
-| `FALLBACK_CACHE_REDIS_DB` | `1` | Redis database for fallback responses. |
-| `EMPTY_CACHE_TTL` | `3600` | TTL for cached empty responses, in seconds. |
+| `PROXY_CACHE_REDIS_DB` | `1` | Redis database for cached proxy responses. |
 
 ## PostgREST rollout
 

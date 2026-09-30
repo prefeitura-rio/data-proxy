@@ -25,11 +25,11 @@ redis-cli XREAD COUNT 20 STREAMS dp:errors 0
 
 ## Proxy logs
 
-The fallback proxy writes one JSON request log per request.
+The proxy writes one JSON request log per request.
 
 | Field     | Meaning                                      |
 | --------- | -------------------------------------------- |
-| `source`  | `cache`, `postgrest`, `bigquery`, or `none`. |
+| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, `bigquery`, `ducklake+bigquery`), `upstream` when PostgREST sent none, or `none` when it was unreachable. |
 | `status`  | HTTP status.                                 |
 | `wait_ms` | Request duration in milliseconds.            |
 | `bytes`   | Response size.                               |
@@ -38,11 +38,11 @@ Use API response headers for client troubleshooting. Use logs for request analys
 
 ## Load profile limits
 
-| Source            | p95 limit |
-| ----------------- | --------- |
-| Cache             | 50 ms     |
-| Local PostgREST   | 300 ms    |
-| BigQuery fallback | 4000 ms   |
+| Source                                   | p95 limit |
+| ---------------------------------------- | --------- |
+| Cache                                    | 50 ms     |
+| DuckLake                                 | 300 ms    |
+| BigQuery (`bigquery`, `ducklake+bigquery`) | 4000 ms   |
 
 ## Scraping
 

@@ -1,4 +1,4 @@
-''# SQL Templates
+# SQL Templates
 
 SQL templates live under `src/data_proxy/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`.
 

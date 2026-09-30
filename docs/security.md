@@ -40,7 +40,7 @@ A normal end-user token for the example above contains claims similar to:
 {
   "role": "user",
   "schemas": ["test"],
-  "preferred_username": "user-1"
+  "preferred_username": "test_user_1"
 }
 ```
 
@@ -150,7 +150,7 @@ curl --request POST \
   --header "Accept-Profile: test" \
   --header "Prefer: resolution=merge-duplicates" \
   --data '[
-    {"subject": "user-1", "unit_type": "region", "unit_id": "unit_1"}
+    {"subject": "test_user_1", "unit_type": "region", "unit_id": "region_1"}
   ]' \
   "${BASE_URL}/access_policy"
 ```
@@ -165,12 +165,12 @@ Delete the grant:
 curl --request DELETE \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Accept-Profile: test" \
-  "${BASE_URL}/access_policy?subject=eq.user-1&unit_type=eq.region&unit_id=eq.unit_1"
+  "${BASE_URL}/access_policy?subject=eq.test_user_1&unit_type=eq.region&unit_id=eq.region_1"
 ```
 
 The row is removed from `test.access_policy` and its previous state is written to `test.access_log` with `action = 'delete'`. To grant access again, insert the row again. No resync or token refresh is required.
 
-## Read requests and fallback
+## Read requests
 
 Use a normal end-user token:
 
@@ -181,17 +181,17 @@ curl \
   "${BASE_URL}/participants?limit=20"
 ```
 
-nginx routes reads to PostgREST-ro and writes to PostgREST-rw. Fallback doesn't bypass authentication or RLS:
+The proxy routes reads to PostgREST-ro and writes to PostgREST-rw. BigQuery rows follow the same authentication and RLS rules as DuckLake rows:
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant N as nginx
+    participant N as Proxy
     participant R as Valkey
     participant P as PostgREST-ro
     participant RP as CNPG Pooler RO
     participant DB as PostgreSQL
-    participant BQ as BigQuery _bq view
+    participant BQ as BigQuery
 
     C->>N: GET with Bearer JWT and Accept-Profile
     N->>R: Look up identity-aware cache key
@@ -201,26 +201,24 @@ sequenceDiagram
     else cache miss
         N->>P: Forward JWT and schema profile
         P->>RP: Query through read Pooler
-        RP->>DB: Run JWT role, pre_request, and RLS checks
-        alt DuckLake rows exist
-            DB->>DB: Scan Parquet with the RLS predicate
-            DB-->>P: Authorized DuckLake rows
-            P-->>N: Parquet response
-        else local GET empty and table fallback=true
-            P->>DB: Query authorized _bq view
-            DB->>BQ: Read BigQuery data
-            BQ-->>DB: Rows under the same authorization context
-            DB-->>P: Authorized fallback rows
-            P-->>N: Fallback response
-        else fallback turned off or unavailable
-            P-->>N: Empty local response
+        RP->>DB: Run JWT role, pre_request, and the table function
+        alt no access policy matches
+            DB-->>P: Empty result, no sources queried
+        else access allowed
+            DB->>DB: Scan DuckLake with the RLS predicate
+            opt table has fallback and partitions outside DuckLake
+                DB->>BQ: Read the remaining partitions under the same predicate
+                BQ-->>DB: Authorized rows
+            end
+            DB-->>P: Authorized rows
         end
-        N->>R: Cache eligible response, including empty response for one hour
+        P-->>N: Response with X-Source and X-DuckLake-Snapshot
+        N->>R: Cache the response when it is not empty
         N-->>C: Response
     end
 ```
 
-See [Fallback](fallback.md) for cache and fallback rules. `/access_policy` is never response-cached.
+See [Proxy](proxy.md) for the routing and cache rules. `/access_policy` is never response-cached.
 
 ## Expected results
 
@@ -242,11 +240,11 @@ See [Fallback](fallback.md) for cache and fallback rules. `/access_policy` is ne
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
 | `404 Unknown schema profile`                  | Check `Accept-Profile` and `syncConfig.schemas`.                                                        |
 | Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; don't use the end-user role. |
-| Local and fallback results differ             | Check `X-Source` and `X-Cache`; fallback uses the same JWT and RLS rules.                               |
+| Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`; every source uses the same JWT and RLS rules. |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |
 
-See [Using the API](using.md), [Database Schema](database.md), and [Fallback](fallback.md) for related details.
+See [Using the API](using.md), [Database Schema](database.md), and [Proxy](proxy.md) for related details.
 
 ---
 
-[← Previous](using.md) · [Home](../README.md) · [Next →](fallback.md)
+[← Previous](using.md) · [Home](../README.md) · [Next →](proxy.md)

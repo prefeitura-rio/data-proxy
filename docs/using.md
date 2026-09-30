@@ -64,12 +64,31 @@ Snapshot bounds are inclusive. Deleted rows are returned as preimages. The same 
 
 ## Response source and cache
 
-When fallback is enabled, read responses include:
+Read responses include:
 
-| Header     | Values                                  |
-| ---------- | --------------------------------------- |
-| `X-Source` | `cache`, `parquet`, `bigquery`, `none` |
-| `X-Cache`  | `HIT`, `MISS`                           |
+| Header                | Values                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `X-Source`            | `ducklake`, `bigquery`, `ducklake+bigquery`               |
+| `X-DuckLake-Snapshot` | The DuckLake snapshot the response was read from          |
+| `X-Cache`             | `HIT`, `MISS`                                             |
+
+`X-Source` lists the sources the request queried, not the sources that returned rows. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only BigQuery was queried. BigQuery rows are always current; they carry no snapshot.
+
+A cache hit returns the headers of the answer it stored. Use `X-Cache` to tell a hit from a miss.
+
+### Pin a snapshot
+
+Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request reads DuckLake only and never BigQuery:
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  --header "X-DuckLake-Snapshot: 42" \
+  "${BASE_URL}/my_table?limit=20"
+```
+
+An unknown or expired snapshot returns `404`, and a value that is not a whole number returns `400`. Snapshot history is retained for seven days.
 
 Use these headers for troubleshooting, not authorization.
 

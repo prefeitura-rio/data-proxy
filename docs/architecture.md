@@ -11,18 +11,17 @@ PostgreSQL stores metadata only:
 - PostgreSQL views and `SECURITY DEFINER` functions;
 - DBOS workflow state.
 
-PostgREST reads the DuckLake-backed views. The functions build the access-policy predicate and pass it to DuckDB, so filters are pushed into Parquet scans. Each table also has an optional `_bq` fallback view.
+PostgREST reads one view per table. The view calls a function that checks the access policy, plans the sources from `data_proxy.state`, and reads DuckLake and, for tables with configured fallbacks, each listed source in order. The access-policy predicate is passed to DuckDB, so filters are pushed into Parquet scans.
 
-Nginx and Valkey handle response caching. The read order is:
+The proxy and Valkey handle response caching. The read order is:
 
 ```text
 Valkey cache
-→ PostgREST DuckLake view
-→ PostgREST BigQuery (_bq) view
-→ Valkey cache result
+→ PostgREST table view (DuckLake, and each configured fallback source in order)
+→ Valkey cache result, when the answer is not empty
 ```
 
-Empty responses are cached for one hour by default.
+See [Proxy](proxy.md) for the routing rules and the cache.
 
 ## Catalog replication
 
@@ -118,17 +117,18 @@ sequenceDiagram
         V-->>N: cached response
     else cache miss
         N->>API: request
-        API->>PG: select DuckLake view
-        PG->>DL: predicate-pushed Parquet scan
-        alt rows found
+        API->>PG: select the table view
+        PG->>PG: check RLS and plan the sources
+        opt DuckLake serves the request
+            PG->>DL: predicate-pushed Parquet scan at one snapshot
             DL-->>PG: rows
-        else empty and fallback enabled
-            API->>PG: select table_bq view
-            PG->>BQ: BigQuery query
+        end
+        opt BigQuery serves the request
+            PG->>BQ: BigQuery query for the remaining partitions
             BQ-->>PG: rows
         end
-        API-->>N: response
-        N->>V: cache response, including empty result
+        API-->>N: response with source and snapshot headers
+        N->>V: cache response when it is not empty
     end
     N-->>C: response
 ```
