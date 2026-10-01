@@ -73,6 +73,7 @@ BEGIN
     || 'FROM {{ duckdb_view }}'
   ) r;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
 GRANT EXECUTE ON FUNCTION {{ schema }}.{{ function }}(bigint, bigint) TO {{ user_role }};

@@ -8,4 +8,5 @@
   }
 }
 #}
+-- noqa: disable=PRS
 CALL {{ schema }}.cleanup_stale_objects(:'config'::jsonb, {{ schema_argument }})

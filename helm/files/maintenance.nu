@@ -10,9 +10,9 @@ def ducklake-maintenance [schema: string]: any -> string {
     let catalog_local_path = $env.DUCKLAKE_CATALOG_LOCAL_PATH? | default /var/lib/ducklake/catalogs
 
     let setup = render-sql duckdb/setup.sql {
-        s3_key_id: $env.S3_ACCESS_KEY
-        s3_secret_key: $env.S3_SECRET_KEY
-        s3_endpoint: $env.S3_ENDPOINT
+        s3_key_id: (quote-pg $env.S3_ACCESS_KEY literal)
+        s3_secret_key: (quote-pg $env.S3_SECRET_KEY literal)
+        s3_endpoint: (quote-pg $env.S3_ENDPOINT literal)
         s3_use_ssl: ($env.S3_USE_SSL? | default false)
     }
 
@@ -29,7 +29,7 @@ def ducklake-maintenance [schema: string]: any -> string {
         rewrite_delete_threshold: ($env.DUCKLAKE_REWRITE_DELETE_THRESHOLD? | default 0.95)
     }
 
-    let sql = [$setup $attach $maintenance] | str join "\n"
+    let sql = [$setup $attach $maintenance] | str join ";\n"
 
     try {
         $sql | duckdb --newline \n

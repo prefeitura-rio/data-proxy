@@ -49,7 +49,6 @@ def create-schemas []: nothing -> nothing {
             policy_writer_role: (quote-pg $'policy_writer_($schema)' identifier)
             policy_writer_literal: (quote-pg $'policy_writer_($schema)' literal)
             policy_name: (quote-pg $'policy_writer_($schema)' identifier)
-            authenticator_role: (quote-pg $env.AUTH_AUTHENTICATOR_ROLE identifier)
         }
     }
 
@@ -68,12 +67,16 @@ def create-pre-request []: nothing -> nothing {
     log info 'Created pre_request function'
 }
 
-# Install maintenance procedures used by cleanup and retention jobs.
+# Install the maintenance procedures so the maintenance job can run before any sync.
 def install-maintenance []: nothing -> nothing {
     let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 
-    for procedure in [cleanup_stale_objects prune_access_log] {
-        execute-sql $'postgres/($procedure).sql' {schema: $schema}
+    execute-sql postgres/cleanup_stale_objects.sql {
+        schema: $schema
+    }
+
+    execute-sql postgres/prune_access_log.sql {
+        schema: $schema
     }
 
     execute-sql postgres/recover_orphaned_workflows.sql {
@@ -81,7 +84,7 @@ def install-maintenance []: nothing -> nothing {
         application_name: (quote-pg ($env.DBOS_APPLICATION_NAME? | default data-proxy-sync) literal)
     }
 
-    log info 'Installed maintenance procedures'
+    log info 'Installed the maintenance procedures'
 }
 
 def main []: nothing -> nothing {

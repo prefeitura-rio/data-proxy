@@ -6,6 +6,7 @@ file-based DuckLake catalog. BigQuery partition templates are tested
 against the mocked BigQuery fixture.
 """
 
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -34,7 +35,14 @@ from data_proxy.models import (
 )
 from data_proxy.templates import render_template
 from data_proxy.types import DatabaseRow, DuckDBParams
-from tests.constants import MODIFIED, PARQUET, PARQUET_20, TEST_SQL_DIR
+from tests.constants import (
+    HELM_SQL,
+    MODIFIED,
+    PARQUET,
+    PARQUET_20,
+    SOURCE_SQL,
+    TEST_SQL_DIR,
+)
 from tests.helpers import (
     attach_ducklake,
     create_ducklake_table,
@@ -92,6 +100,72 @@ class TestTemplateRendering:
             "    DESCRIBE SELECT * FROM bigquery_scan('rj-ia-desenvolvimento.dev.test_table')\n"
             "    $duck$\n)\n"
         )
+
+
+def template_body(path: Path) -> str:
+    """Return a template without its leading metadata comment."""
+    return path.read_text().split("#}", 1)[-1]
+
+
+def template_id(path: Path) -> str:
+    """Return a test id that tells apart templates with the same file name."""
+    return path.relative_to(Path(__file__).parents[2]).as_posix()
+
+
+def template_description(path: Path) -> str:
+    """Return the description in the metadata comment of a template."""
+    match = re.search(r'"description":\s*"([^"]*)"', path.read_text())
+    return match.group(1) if match else ""
+
+
+ALL_TEMPLATES = sorted([*SOURCE_SQL.rglob("*.sql"), *HELM_SQL.rglob("*.sql")])
+SECURITY_DEFINER_TEMPLATES = [
+    path for path in ALL_TEMPLATES if "SECURITY DEFINER" in template_body(path)
+]
+
+
+class TestSecurityDefinerTemplates:
+    """A SECURITY DEFINER function runs with its owner rights, so it must not trust the caller search_path."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param(path, id=template_id(path))
+            for path in SECURITY_DEFINER_TEMPLATES
+        ],
+    )
+    def test_pins_the_search_path(self, path: Path) -> None:
+        """Pin the search_path of every SECURITY DEFINER function."""
+        assert re.search(
+            r"SET search_path = pg_catalog, [^;]*pg_temp", template_body(path)
+        )
+
+    def test_describes_only_what_the_function_declares(self) -> None:
+        """Claim SECURITY DEFINER in a description only when the function declares it."""
+        claimed = [
+            template_id(path)
+            for path in ALL_TEMPLATES
+            if "SECURITY DEFINER" in template_description(path)
+            and "SECURITY DEFINER" not in template_body(path)
+        ]
+
+        assert claimed == []
+
+
+class TestTemplateOwnership:
+    """A procedure has one SQL source, so two installers cannot install different bodies."""
+
+    def test_no_template_exists_in_both_folders_except_the_shared_files(self) -> None:
+        """Keep the sync service and the Helm jobs from owning the same procedure."""
+
+        def names(root: Path) -> set[str]:
+            return {path.relative_to(root).as_posix() for path in root.rglob("*.sql")}
+
+        assert names(SOURCE_SQL) & names(HELM_SQL) == {
+            "macros.sql",
+            "cleanup_stale_objects.sql",
+            "prune_access_log.sql",
+        }
 
 
 class TestDuckdbCreateAndInsert:

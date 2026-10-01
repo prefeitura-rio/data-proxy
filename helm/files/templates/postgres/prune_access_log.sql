@@ -32,3 +32,12 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON PROCEDURE {{ schema }}.prune_access_log(interval, text) FROM public;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jobs') THEN
+        GRANT USAGE ON SCHEMA {{ schema }} TO jobs;
+        GRANT EXECUTE ON PROCEDURE {{ schema }}.prune_access_log(interval, text) TO jobs;
+    END IF;
+END;
+$$;

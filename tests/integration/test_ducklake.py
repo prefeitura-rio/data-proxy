@@ -9,6 +9,12 @@ from tests.helpers import fetch_all, response_headers, scalar, set_request_heade
 
 pytestmark = pytest.mark.postgres
 
+CHECK_VIEWS = """
+SELECT count(*) FROM duckdb.query(
+    'SELECT 1 FROM duckdb_views() WHERE view_name = ''ducklake_snapshot_check'''
+)
+"""
+
 
 class TestTableView:
     """The table view reads the DuckLake catalog through pg_duckdb."""
@@ -48,6 +54,27 @@ class TestTableView:
             )
 
         assert error.value.sqlstate == "PT404"
+
+    @pytest.mark.parametrize(
+        ("pinned", "checked"),
+        [
+            pytest.param(None, False, id="latest-snapshot-needs-no-check"),
+            pytest.param("1", True, id="pinned-snapshot-is-checked"),
+        ],
+    )
+    async def test_checks_the_snapshot_only_when_the_request_pins_it(
+        self, ducklake_view: Postgres, pinned: str | None, checked: bool
+    ) -> None:
+        if pinned is not None:
+            await set_request_headers(ducklake_view, {"x-ducklake-snapshot": pinned})
+        await scalar(
+            ducklake_view,
+            f'SELECT count(*) FROM "{ducklake_view.namespace.schema}".people',
+        )
+
+        views = await scalar(ducklake_view, CHECK_VIEWS)
+
+        assert views == int(checked)
 
 
 class TestChangeFeed:

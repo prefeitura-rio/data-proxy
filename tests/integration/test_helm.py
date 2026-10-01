@@ -115,6 +115,17 @@ class TestPolicyWriter:
             mapping={"schema": postgres.namespace.identifier},
         ) == [("test_user_1", "unit", "unit_1", "insert")]
 
+    async def test_leaves_the_authenticator_membership_to_cnpg(
+        self, postgres: Postgres, policy_writer: str
+    ) -> None:
+        memberships = await fetch_all(
+            postgres,
+            "postgres/role_memberships",
+            params={"role_name": settings.AUTH_AUTHENTICATOR_ROLE},
+        )
+
+        assert (policy_writer,) not in memberships
+
     async def test_cannot_write_grants_in_another_schema(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
@@ -179,7 +190,7 @@ class TestCleanupStaleObjects:
         target = postgres.namespace.identifier
         psql.run(
             psql_script(
-                helm_sql("cleanup_stale_objects", {"schema": target}),
+                render_template("postgres/cleanup_stale_objects", {"schema": target}),
                 render_template(
                     "postgres/create_view",
                     {"schema": target, "view": Identifier("kept")},
@@ -230,7 +241,7 @@ class TestPruneAccessLog:
                         "scope": schema_scope_condition(schema),
                     },
                 ),
-                helm_sql("prune_access_log", {"schema": target}),
+                render_template("postgres/prune_access_log", {"schema": target}),
             )
         )
         for subject, age in (("stale", "100 days"), ("recent", "1 day")):

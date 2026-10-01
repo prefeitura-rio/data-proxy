@@ -1,11 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "Create a per-schema policy-writer role, grant it to the authenticator, and allow full access on the access_policy table.",
+  "description": "Create a per-schema policy-writer role and allow full access on the access_policy table. CNPG grants the role to the authenticator.",
   "inputs": {
     "policy_writer_role": "SQL-safe policy-writer role identifier.",
     "policy_writer_literal": "SQL-safe policy-writer role literal.",
-    "authenticator_role": "SQL-safe PostgREST authenticator role identifier.",
     "schema": "PostgreSQL schema that owns the target objects.",
     "policy_name": "SQL-safe access policy identifier."
   }
@@ -19,7 +18,6 @@ WHERE NOT EXISTS (
     WHERE rolname = {{ policy_writer_literal }}
 )
 \gexec
-GRANT {{ policy_writer_role }} TO {{ authenticator_role }};
 GRANT USAGE ON SCHEMA rls TO {{ policy_writer_role }};
 GRANT USAGE ON SCHEMA {{ schema }} TO {{ policy_writer_role }};
 GRANT SELECT, INSERT, UPDATE, DELETE ON {{ schema }}.access_policy TO {{ policy_writer_role }};

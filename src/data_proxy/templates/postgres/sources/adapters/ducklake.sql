@@ -1,12 +1,11 @@
 {#
 {
   "kind": "template",
-  "description": "Render the private helper that reads one DuckLake table at a snapshot.",
+  "description": "Render the private helper that prepares a DuckLake view at a snapshot.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
-    "columns": "Structured SQL-safe column metadata.",
     "duckdb_view": "DuckDB intermediate view name.",
     "source": "FROM clause body, e.g. dl.table.",
     "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
@@ -15,13 +14,9 @@
 }
 #}
 -- noqa: disable=PRS,LT05
-{% from "postgres/macros.sql" import column_projection, return_query_select, duckdb_query_select, ducklake_attach %}
+{% from "postgres/macros.sql" import column_projection, ducklake_attach %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text)
-RETURNS TABLE(
-{% for column in columns %}
-{{ column.name }} {{ column.return_type }}{% if not loop.last %}, {% endif %}
-{% endfor %}
-) AS $$
+RETURNS void AS $$
 DECLARE
   v_snapshot bigint;
 BEGIN
@@ -29,18 +24,17 @@ BEGIN
 
   v_snapshot := p_arg::bigint;
 
-  PERFORM {{ app_schema }}.assert_snapshot_exists(v_snapshot);
+  IF {{ app_schema }}.requested_snapshot() IS NOT NULL THEN
+    PERFORM {{ app_schema }}.assert_snapshot_exists(v_snapshot);
+  END IF;
 
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW {{ duckdb_view }} AS ' ||
     'SELECT {{ column_projection(columns) }} ' ||
     'FROM {{ source }} AT (VERSION => ' || v_snapshot || ') ' || p_where
   );
-
-  RETURN QUERY
-{{ return_query_select(columns) }}
-{{ duckdb_query_select(columns, duckdb_view) }};
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
 REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text) FROM PUBLIC

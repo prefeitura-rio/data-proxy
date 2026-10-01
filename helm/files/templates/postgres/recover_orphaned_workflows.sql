@@ -43,4 +43,5 @@ BEGIN
     RAISE NOTICE 'Recovered % DBOS workflows', recovered_count;
 END;
 $$;
-REVOKE ALL ON PROCEDURE {{ schema }}.recover_orphaned_workflows(jsonb, interval) FROM public;
+REVOKE ALL ON PROCEDURE {{ schema }}.recover_orphaned_workflows(jsonb, interval)
+FROM public;

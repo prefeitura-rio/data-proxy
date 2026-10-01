@@ -29,10 +29,11 @@ predicate = true
 
 app_schema = data_proxy
 dl_function = people_dl_fn
+dl_view = ducklake_pic_people
 bq_function = people_bq_fn
 source_table = "'project.dataset.people'"
 fallback = true
-fallbacks = [{"name":"bigquery","function":"\"people_bq_fn\""}]
+fallbacks = [{"name":"bigquery","function":"\"people_bq_fn\"","view":"source_pic_people"}]
 has_rls = false
 claim_setting = "'app.claim_sub'"
 affected_partitions = "id >= 1"
@@ -77,3 +78,8 @@ retention = "'30 days'"
 log_retention_days = 90
 window = "'30 days'"
 clauses = "ALTER COLUMN payload SET DATA TYPE jsonb USING payload::jsonb"
+load = "LOAD bigquery"
+application_name = "'data-proxy-sync'"
+live_executor_ids = "'[]'"
+grace_seconds = 120
+schema_argument = "'pic'"

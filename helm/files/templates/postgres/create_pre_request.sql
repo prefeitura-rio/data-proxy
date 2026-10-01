@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create a SECURITY DEFINER function that maps JWT claims into PostgreSQL session variables."
+  "description": "Create a function that maps JWT claims into PostgreSQL session variables."
 }
 #}
 CREATE OR REPLACE FUNCTION rls.pre_request() RETURNS void AS $$

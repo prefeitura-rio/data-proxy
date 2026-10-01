@@ -1,20 +1,9 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
-src/data_proxy/templates/postgres/column_types.sql
 src/data_proxy/templates/postgres/insert_error.sql
 src/data_proxy/templates/postgres/read_state.sql
 src/data_proxy/templates/postgres/upsert_state.sql
-src/data_proxy/templates/postgres/delete_partition_freshness.sql
-src/data_proxy/templates/postgres/delete_table_freshness.sql
-src/data_proxy/templates/postgres/json_columns.sql
-src/data_proxy/templates/postgres/replicas_replayed.sql
-src/data_proxy/templates/postgres/table_exists.sql
-src/data_proxy/templates/postgres/upsert_freshness.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
-src/data_proxy/templates/postgres/create_bq_function.sql
-src/data_proxy/templates/postgres/cast_json_to_jsonb.sql
-src/data_proxy/templates/postgres/create_index.sql
-src/data_proxy/templates/postgres/delete_partitions.sql
 src/data_proxy/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
@@ -30,11 +19,8 @@ src/data_proxy/templates/duckdb/write_remainder.sql
 # Jinja macro source and imports are validated through rendering.
 src/data_proxy/templates/duckdb/macros.sql
 helm/files/templates/postgres/macros.sql
-helm/files/templates/postgres/grant_migration_access.sql
 helm/files/templates/postgres/grant_rls_usage.sql
-helm/files/templates/postgres/grant_schema_usage_backup.sql
 src/data_proxy/templates/postgres/access_policy_check.sql
-src/data_proxy/templates/postgres/create_ducklake_function.sql
 src/data_proxy/templates/postgres/drop_ducklake_objects.sql
 src/data_proxy/templates/postgres/describe_bq_table.sql
 helm/files/templates/postgres/configure_ducklake.sql

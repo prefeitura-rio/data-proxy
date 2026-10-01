@@ -7,6 +7,7 @@
 -- noqa: disable=PRS,LT05
 
 -- The routing rule. DuckLake runs first, then each fallback in order.
+-- A table that has no published data and no fallback is not found (PT404).
 -- The first fallback takes the whole remainder, later ones get FALSE so no rows duplicate.
 -- Returns one row per source: (name, use, arg).
 -- For DuckLake, arg is the snapshot version (or NULL).
@@ -31,7 +32,10 @@ BEGIN
   v_remaining := {{ schema }}.covered_by_fallback(p_table);
 
   IF v_ducklake IS NULL THEN
-    v_use_ducklake := coalesce(array_length(p_fallbacks, 1), 0) = 0;
+    IF coalesce(array_length(p_fallbacks, 1), 0) = 0 THEN
+      RAISE EXCEPTION 'table % has no published data', p_table USING ERRCODE = 'PT404';
+    END IF;
+    v_use_ducklake := false;
   ELSE
     v_use_ducklake := true;
   END IF;

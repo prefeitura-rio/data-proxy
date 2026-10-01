@@ -185,13 +185,6 @@ class TestPlanSources:
                 id="unpublished-with-fallback",
             ),
             pytest.param(
-                None,
-                [],
-                False,
-                [("ducklake", True, None)],
-                id="unpublished-no-fallback",
-            ),
-            pytest.param(
                 FULL,
                 ["bigquery"],
                 False,
@@ -243,6 +236,25 @@ class TestPlanSources:
         )
 
         assert rows == expected
+
+    async def test_rejects_an_unpublished_table_that_has_no_fallback(
+        self, routing: Postgres
+    ) -> None:
+        await put_state(routing, ROUTED_TABLE, None)
+
+        with pytest.raises(psycopg.Error) as error:
+            await fetch_all(
+                routing,
+                "postgres/select_plan_sources",
+                mapping={"app_schema": Identifier(settings.DBOS_APP_SCHEMA)},
+                params={
+                    "table_name": ROUTED_TABLE,
+                    "fallbacks": [],
+                    "pinned": False,
+                },
+            )
+
+        assert error.value.sqlstate == "PT404"
 
 
 class TestSourceLabel:

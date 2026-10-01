@@ -22,6 +22,7 @@ BEGIN
     FROM duckdb.query('SELECT id FROM dl.current_snapshot()') r
   );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
 GRANT EXECUTE ON FUNCTION {{ schema }}.{{ function }}() TO {{ user_role }};

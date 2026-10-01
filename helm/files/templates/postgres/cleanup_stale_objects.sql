@@ -20,7 +20,6 @@ AS $$
 DECLARE
     target_schema text;
     target_table text;
-    changed boolean := false;
 BEGIN
     FOR target_schema IN
         SELECT name
@@ -42,13 +41,8 @@ BEGIN
         LOOP
             EXECUTE format('DROP VIEW IF EXISTS %I.%I CASCADE', target_schema, target_table);
             EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_fn');
-            changed := true;
         END LOOP;
     END LOOP;
-
-    IF changed THEN
-        PERFORM pg_notify('pgrst', 'reload schema');
-    END IF;
 END;
 $$;
 REVOKE ALL ON PROCEDURE {{ schema }}.cleanup_stale_objects(jsonb, text) FROM public;

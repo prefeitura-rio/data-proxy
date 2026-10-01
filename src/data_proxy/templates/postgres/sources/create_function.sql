@@ -7,18 +7,19 @@
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
     "dl_function": "Private DuckLake helper function.",
+    "dl_view": "DuckDB view name prepared by the DuckLake helper.",
     "columns": "Structured SQL-safe column metadata.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
     "source_table": "SQL literal name of the source table, as stored in state.",
-    "fallbacks": "Ordered list of {name, function} records for configured fallback sources.",
+    "fallbacks": "Ordered list of {name, function, view} records for configured fallback sources.",
     "user_role": "Role that reads the table view and so must run this function."
   }
 }
 #}
 -- noqa: disable=PRS,LT05
-{% from "postgres/macros.sql" import rls_where_clause %}
+{% from "postgres/macros.sql" import rls_where_clause, return_query_select, duckdb_query_select %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS TABLE(
 {% for column in columns %}
@@ -54,10 +55,16 @@ BEGIN
 
     IF v_plan.name = 'ducklake' THEN
       v_snapshot := coalesce(v_pinned, {{ schema }}.ducklake_latest_snapshot());
-      RETURN QUERY SELECT * FROM {{ schema }}.{{ dl_function }}(v_where, v_snapshot::text);
+      PERFORM {{ schema }}.{{ dl_function }}(v_where, v_snapshot::text);
+      RETURN QUERY
+{{ return_query_select(columns) }}
+{{ duckdb_query_select(columns, dl_view) }};
 {% for f in fallbacks %}
     ELSIF v_plan.name = '{{ f.name }}' THEN
-      RETURN QUERY SELECT * FROM {{ schema }}.{{ f.function }}(v_where, v_plan.arg);
+      PERFORM {{ schema }}.{{ f.function }}(v_where, v_plan.arg);
+      RETURN QUERY
+{{ return_query_select(columns) }}
+{{ duckdb_query_select(columns, f.view) }};
 {% endfor %}
     END IF;
   END LOOP;
@@ -67,7 +74,8 @@ BEGIN
     v_snapshot
   );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
 REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION {{ schema }}.{{ function }}() TO {{ user_role }}

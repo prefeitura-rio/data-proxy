@@ -10,7 +10,7 @@
   }
 }
 #}
--- noqa: PRS
+-- noqa: disable=PRS
 LOAD httpfs;
 LOAD ducklake;
 LOAD sqlite;
