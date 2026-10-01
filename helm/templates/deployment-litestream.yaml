@@ -29,9 +29,9 @@ spec:
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       containers:
         - name: restore
-          image: {{ .Values.ducklake.litestream.image | quote }}
+          image: {{ .Values.jobs.image | quote }}
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "/projected/restore-catalogs.sh"]
+          command: ["nu", "/projected/recover-catalogs.nu"]
           env:
             - name: S3_ACCESS_KEY
               valueFrom:
@@ -43,14 +43,19 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.s3SecretName" . }}
                   key: S3_SECRET_KEY
+            - name: DUCKLAKE_CATALOG_LOCAL_PATH
+              value: {{ .Values.ducklake.catalogLocalPath | quote }}
+            - name: SYNC_CONFIG_PATH
+              value: /config/sync.json
           volumeMounts:
             - name: reader-catalogs
               mountPath: {{ .Values.ducklake.catalogLocalPath }}
             - name: projected
               mountPath: /projected
               readOnly: true
+            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
         - name: replicate
-          image: {{ .Values.ducklake.litestream.image | quote }}
+          image: {{ .Values.jobs.image | quote }}
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
@@ -88,4 +93,5 @@ spec:
         - name: projected
           configMap:
             name: {{ include "data-proxy.fullname" . }}-litestream
+        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
 {{- end }}

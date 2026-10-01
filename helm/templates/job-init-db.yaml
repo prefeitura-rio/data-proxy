@@ -51,7 +51,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: init-db
-          image: {{ .Values.cnpg.init.image | quote }}
+          image: {{ .Values.jobs.image | quote }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/init-db.nu]
           workingDir: /scripts

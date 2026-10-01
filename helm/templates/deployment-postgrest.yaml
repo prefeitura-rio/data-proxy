@@ -33,7 +33,7 @@ spec:
       initContainers:
         {{- if not .Values.postgrest.jwtSecret }}
         - name: fetch-jwks
-          image: {{ .Values.postgrest.jwksFetch.image }}
+          image: {{ .Values.jobs.image }}
           command:
             - /usr/local/bin/nu
             - -c
@@ -48,7 +48,7 @@ spec:
               mountPath: /etc/postgrest
         {{- end }}
         - name: wait-for-postgres
-          image: {{ .Values.cnpg.init.image | quote }}
+          image: {{ .Values.jobs.image | quote }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: ["/usr/local/bin/nu", "-c"]
           args:

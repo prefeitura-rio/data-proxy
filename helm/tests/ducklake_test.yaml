@@ -144,24 +144,16 @@ tests:
           pattern: "catalogs/app/catalog.sqlite"
         template: configmap-litestream.yaml
       - matchRegex:
-          path: data["restore-catalogs.sh"]
-          pattern: "catalogs/app/catalog.sqlite"
+          path: data["recover-catalogs.nu"]
+          pattern: "litestream restore -if-replica-exists"
         template: configmap-litestream.yaml
       - matchRegex:
-          path: data["restore-catalogs.sh"]
+          path: data["recover-catalogs.nu"]
           pattern: "chmod 777"
         template: configmap-litestream.yaml
       - matchRegex:
-          path: data["restore-catalogs.sh"]
+          path: data["recover-catalogs.nu"]
           pattern: "chmod 666"
-        template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["restore-catalogs.sh"]
-          pattern: 'litestream restore -if-replica-exists -f -config /projected/litestream-read.yaml "\$db"'
-        template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["restore-catalogs.sh"]
-          pattern: "umask 000"
         template: configmap-litestream.yaml
   - it: requires and uses the shared RWX catalog volume
     set:

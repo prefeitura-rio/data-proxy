@@ -63,7 +63,7 @@ sync:
     ## Maximum number of concurrent sync pods.
     maxReplicaCount: 15
     ## Postgres trigger query counting DBOS queued/running workflows.
-    query: "SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';"
+    query: SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';
     ## Target value for the query result.
     targetQueryValue: "1.1"
     ## Value above which KEDA activates from zero replicas.
@@ -71,7 +71,7 @@ sync:
   ## DBOS application and system database configuration.
   dbos:
     applicationName: data-proxy-sync
-    applicationVersion: "0.1.0"
+    applicationVersion: 0.1.0
     systemSchema: dbos
     appSchema: data_proxy
   ## Sync configuration rendered as sync.json and mounted into each sync container.
@@ -105,9 +105,6 @@ postgrest:
   maxRows: 1000
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
   aggregatesEnabled: true
-  ## Init container that fetches and validates the JWKS before PostgREST starts.
-  jwksFetch:
-    image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   replicas: 1
   resources:
     requests:
@@ -165,7 +162,6 @@ ducklake:
   rewriteDeleteThreshold: 0.95
   ## Litestream configuration for catalog replication.
   litestream:
-    image: litestream/litestream:0.5.12
     ## Shared catalog volume used by writer and reader PVCs.
     storage:
       size: 1Gi
@@ -293,8 +289,6 @@ cnpg:
   db:
     name: data-proxy
     user: admin
-  init:
-    image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   existingSecret: ""
   ## PostgreSQL instances in single mode. In HA mode cnpg.autoscaling owns the count.
   instances: 1

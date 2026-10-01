@@ -340,36 +340,6 @@ dbs:
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.litestreamRestoreScript" -}}
-#!/bin/sh
-set -eu
-umask 000
-{{- $secrets := printf "%s/%s" .Values.ducklake.catalogLocalPath (include "data-proxy.duckdbSecretsDir" .) }}
-mkdir -p {{ $secrets }}
-chmod 777 {{ $secrets }}
-{{- $schemas := .Values.sync.config.schemas }}
-{{- range $schema, $_ := $schemas }}
-(
-  db={{ printf "%s/%s/catalog.sqlite" $.Values.ducklake.catalogLocalPath $schema }}
-  dir={{ printf "%s/%s" $.Values.ducklake.catalogLocalPath $schema }}
-  while true; do
-    mkdir -p "$dir"
-    chmod 777 "$dir"
-    if [ -f "$db" ] && [ ! -f "${db}-txid" ]; then
-      rm -f "$db" "${db}-wal" "${db}-shm"
-    fi
-    if [ -f "$db" ]; then
-      chmod 666 "$db" "${db}-txid"
-      exec litestream restore -f -config /projected/litestream-read.yaml "$db"
-    fi
-    litestream restore -if-replica-exists -f -config /projected/litestream-read.yaml "$db" || true
-    sleep 5
-  done
-) &
-{{- end }}
-wait
-{{- end }}
-
 {{- define "data-proxy.postgresHome" -}}
 /var/lib/postgresql/data
 {{- end }}

@@ -32,8 +32,8 @@ spec:
           items:
             - key: litestream-read.yaml
               path: litestream-read.yaml
-            - key: restore-catalogs.sh
-              path: restore-catalogs.sh
+            - key: recover-catalogs.nu
+              path: recover-catalogs.nu
       {{- if $root.Values.gcp.existingSecret }}
       - secret:
           name: {{ $root.Values.gcp.existingSecret | quote }}

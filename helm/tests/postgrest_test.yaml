@@ -5,7 +5,7 @@ tests:
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs
-      postgrest.jwksFetch.image: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
+      jobs.image: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].image

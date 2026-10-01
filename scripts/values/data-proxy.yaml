@@ -70,8 +70,6 @@ serviceAccount:
 postgrest:
   proxyUri: http://localhost:3111
   jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
-  jwksFetch:
-    image: localhost/data-proxy-jobs:local
 s3:
   bucket: test-bucket
   useSsl: "false"
