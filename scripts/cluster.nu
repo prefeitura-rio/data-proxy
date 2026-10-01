@@ -685,7 +685,9 @@ def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
     let failure = try {
         refresh-proxy $kubecfg
         clear-test-resources $kubecfg
-        k6-run $kubecfg 'data-proxy-k6' 'perf.ts' 'k6/perf.ts' 'data-proxy-perf' 'k6/perf.yaml' --profile $profile --set {HA_MODE: (if $ha { "true" } else { "false" })}
+        k6-run $kubecfg 'data-proxy-k6' 'perf.ts' 'k6/perf.ts' 'data-proxy-perf' 'k6/perf.yaml' --profile $profile --set {
+            HA_MODE: (if $ha { "true" } else { "false" })
+        }
         null
     } catch {|err| $err }
 
@@ -784,6 +786,7 @@ def "main k6 e2e" [
         k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
         | lines
     )
+
     for job in $init_jobs {
         (
             (k
@@ -793,7 +796,7 @@ def "main k6 e2e" [
                 wait
                 --for=condition=complete
                 $job
-                --timeout=180s
+                --timeout=360s
             )
         ) out> /dev/null
     }
