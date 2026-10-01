@@ -11,41 +11,33 @@ spec:
     name: {{ include "data-proxy.fullname" . }}-sync
     kind: Deployment
     apiVersion: apps/v1
-  pollingInterval: {{ .Values.sync.keda.pollingInterval }}
-  cooldownPeriod: {{ .Values.sync.keda.cooldownPeriod }}
-  idleReplicaCount: {{ .Values.sync.keda.idleReplicaCount }}
-  minReplicaCount: {{ .Values.sync.keda.minReplicaCount }}
-  maxReplicaCount: {{ .Values.sync.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.sync.autoscaling.pollingInterval }}
+  cooldownPeriod: {{ .Values.sync.autoscaling.cooldownPeriod }}
+  idleReplicaCount: {{ .Values.sync.autoscaling.idleReplicaCount }}
+  minReplicaCount: {{ .Values.sync.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.sync.autoscaling.maxReplicaCount }}
   triggers:
     - type: postgresql
       metadata:
         connectionFromEnv: DBOS_SYSTEM_DATABASE_URL
-        query: {{ .Values.sync.keda.query | quote }}
-        targetQueryValue: {{ .Values.sync.keda.targetQueryValue | quote }}
-        activationTargetQueryValue: {{ .Values.sync.keda.activationTargetQueryValue | quote }}
----
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest
-spec:
-  scaleTargetRef:
-    name: {{ include "data-proxy.fullname" . }}-postgrest
-    kind: Deployment
-    apiVersion: apps/v1
-  minReplicaCount: {{ .Values.postgrest.keda.minReplicaCount }}
-  maxReplicaCount: {{ .Values.postgrest.keda.maxReplicaCount }}
-  pollingInterval: {{ .Values.postgrest.keda.pollingInterval }}
-  cooldownPeriod: {{ .Values.postgrest.keda.cooldownPeriod }}
-  triggers:
-{{- if gt (len (.Values.postgrest.keda.triggers | default list)) 0 }}
-{{ toYaml .Values.postgrest.keda.triggers | nindent 4 }}
-{{- else }}
-{{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
+        query: {{ .Values.sync.autoscaling.query | quote }}
+        targetQueryValue: {{ .Values.sync.autoscaling.targetQueryValue | quote }}
+        activationTargetQueryValue: {{ .Values.sync.autoscaling.activationTargetQueryValue | quote }}
+{{- $root := . }}
+{{- $ha := .Values.ha.enabled }}
+{{- $name := include "data-proxy.fullname" . }}
+{{- $deployment := dict "kind" "Deployment" "apiVersion" "apps/v1" }}
+{{- $cnpg := dict "apiVersion" "postgresql.cnpg.io/v1" }}
+
+{{- $postgrest := .Values.postgrest.autoscaling }}
+{{- $postgrestTriggers := include "data-proxy.triggers" (dict "triggers" $postgrest.triggers "default" (include "data-proxy.defaultResourceTriggers" .)) }}
+{{- $postgrestScaler := dict "root" $root "name" (printf "%s-postgrest" $name) "component" "postgrest" "target" (merge (dict "name" (printf "%s-postgrest" $name)) $deployment) "min" $postgrest.minReplicaCount "max" $postgrest.maxReplicaCount "block" $postgrest "triggers" $postgrestTriggers }}
+{{- if $ha }}
+{{- $_ := set $postgrestScaler "pinned" (.Values.postgrest.replicas | default 1 | int) }}
+{{- end }}
+{{ include "data-proxy.scaledObject" $postgrestScaler }}
+{{- if $ha }}
+{{ include "data-proxy.scaledObject" (dict "root" $root "name" (printf "%s-postgrest-ro" $name) "component" "postgrest-ro" "target" (merge (dict "name" (printf "%s-postgrest-ro" $name)) $deployment) "min" $postgrest.minReplicaCount "max" $postgrest.maxReplicaCount "block" $postgrest "triggers" $postgrestTriggers) }}
 {{- end }}
 ---
 apiVersion: keda.sh/v1alpha1
@@ -71,30 +63,26 @@ spec:
 {{- else }}
 {{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
 {{- end }}
+
+{{- $pooler := .Values.cnpg.pooler.autoscaling }}
+
+{{- $cluster := .Values.cnpg.autoscaling }}
+{{- $clusterScaler := dict "root" $root "name" (printf "%s-cluster-autoscaler" $name) "component" "postgres" "target" (merge (dict "name" $name "kind" "Cluster") $cnpg) "min" (include "data-proxy.cnpgMinInstances" . | int) "max" (include "data-proxy.cnpgMaxInstances" . | int) "block" $cluster "triggers" (include "data-proxy.triggers" (dict "triggers" $cluster.triggers "default" (include "data-proxy.cnpgDefaultTriggers" .))) }}
+{{- if not $ha }}
+{{- $_ := set $clusterScaler "pinned" (.Values.cnpg.instances | int) }}
+{{- end }}
+{{ include "data-proxy.scaledObject" $clusterScaler }}
 ---
 apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
+kind: TriggerAuthentication
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-pooler-autoscaler
+  name: {{ $name }}-cluster-autoscaler-auth
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: pgbouncer
+    app.kubernetes.io/component: postgres
 spec:
-  scaleTargetRef:
-    apiVersion: postgresql.cnpg.io/v1
-    kind: Pooler
-    name: {{ include "data-proxy.fullname" . }}-pooler
-  minReplicaCount: {{ .Values.cnpg.pooler.autoscaling.minReplicaCount }}
-  maxReplicaCount: {{ .Values.cnpg.pooler.autoscaling.maxReplicaCount }}
-  pollingInterval: {{ .Values.cnpg.pooler.autoscaling.pollingInterval }}
-  cooldownPeriod: {{ .Values.cnpg.pooler.autoscaling.cooldownPeriod }}
-  triggers:
-{{- if gt (len (.Values.cnpg.pooler.autoscaling.triggers | default list)) 0 }}
-{{ toYaml .Values.cnpg.pooler.autoscaling.triggers | nindent 4 }}
-{{- else }}
-    - type: cpu
-      metricType: Utilization
-      metadata:
-        value: "90"
-{{- end }}
+  secretTargetRef:
+    - parameter: password
+      name: {{ include "data-proxy.dbSecretName" . }}
+      key: password

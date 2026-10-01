@@ -105,6 +105,104 @@ tests:
           value: data-proxy-sync
         template: scaledobjects.yaml
 
+  - it: scales the sync Deployment from sync.autoscaling
+    set:
+      sync.autoscaling.pollingInterval: 11
+      sync.autoscaling.cooldownPeriod: 22
+      sync.autoscaling.idleReplicaCount: 0
+      sync.autoscaling.minReplicaCount: 2
+      sync.autoscaling.maxReplicaCount: 9
+      sync.autoscaling.query: SELECT 1
+      sync.autoscaling.targetQueryValue: "2"
+      sync.autoscaling.activationTargetQueryValue: "4"
+    asserts:
+      - equal:
+          path: spec
+          value:
+            scaleTargetRef:
+              name: data-proxy-sync
+              kind: Deployment
+              apiVersion: apps/v1
+            pollingInterval: 11
+            cooldownPeriod: 22
+            idleReplicaCount: 0
+            minReplicaCount: 2
+            maxReplicaCount: 9
+            triggers:
+              - type: postgresql
+                metadata:
+                  connectionFromEnv: DBOS_SYSTEM_DATABASE_URL
+                  query: SELECT 1
+                  targetQueryValue: "2"
+                  activationTargetQueryValue: "4"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-sync
+        template: scaledobjects.yaml
+
+  - it: scales the PostgREST Deployment from postgrest.autoscaling
+    set:
+      postgrest.autoscaling.minReplicaCount: 2
+      postgrest.autoscaling.maxReplicaCount: 7
+      postgrest.autoscaling.pollingInterval: 11
+      postgrest.autoscaling.cooldownPeriod: 22
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+      - equal:
+          path: spec
+          value:
+            scaleTargetRef:
+              name: data-proxy-postgrest
+              kind: Deployment
+              apiVersion: apps/v1
+            minReplicaCount: 2
+            maxReplicaCount: 7
+            pollingInterval: 11
+            cooldownPeriod: 22
+            triggers:
+              - type: cpu
+                metricType: Utilization
+                metadata:
+                  value: "90"
+              - type: memory
+                metricType: Utilization
+                metadata:
+                  value: "90"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+
+  - it: replaces the PostgREST default triggers with postgrest.autoscaling.triggers
+    set:
+      postgrest.autoscaling.triggers:
+        - type: cron
+          metadata:
+            timezone: UTC
+            start: 0 8 * * *
+            end: 0 20 * * *
+            desiredReplicas: "3"
+    asserts:
+      - equal:
+          path: spec.triggers
+          value:
+            - type: cron
+              metadata:
+                timezone: UTC
+                start: 0 8 * * *
+                end: 0 20 * * *
+                desiredReplicas: "3"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+
   - it: renders maintenance CronJob when enabled
     set:
       jobs.maintenance.enabled: true

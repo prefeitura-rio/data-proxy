@@ -17,7 +17,7 @@ spec:
   imageName: {{ $root.Values.cnpg.image | quote }}
   env:
     - name: HOME
-      value: /var/lib/postgresql/data
+      value: {{ include "data-proxy.postgresHome" $root }}
     {{- if $root.Values.gcp.existingSecret }}
     - name: GOOGLE_APPLICATION_CREDENTIALS
       value: /projected/gcp-key.json
@@ -52,7 +52,6 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
         - CREATE SCHEMA IF NOT EXISTS rls;
-  instances: {{ $root.Values.cnpg.instances | int }}
   resources:
     requests:
       cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}
@@ -61,6 +60,10 @@ spec:
       cpu: {{ $root.Values.cnpg.resources.limits.cpu | quote }}
       memory: {{ $root.Values.cnpg.resources.limits.memory | quote }}
   postgresql:
+    {{- with $root.Values.cnpg.postgresql.synchronous }}
+    synchronous:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     shared_preload_libraries:
       - pg_duckdb
       - pg_stat_statements
@@ -106,3 +109,12 @@ spec:
         inRoles:
           - {{ $root.Values.auth.anonRole | quote }}
           - {{ $root.Values.auth.userRole | quote }}
+          {{- range $schema := keys ($root.Values.sync.config.schemas | default dict) | sortAlpha }}
+          - {{ printf "policy_writer_%s" $schema | quote }}
+          {{- end }}
+      {{- range $schema := keys ($root.Values.sync.config.schemas | default dict) | sortAlpha }}
+      - name: {{ printf "policy_writer_%s" $schema | quote }}
+        ensure: present
+        login: false
+        bypassrls: false
+      {{- end }}

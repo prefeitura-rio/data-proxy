@@ -30,6 +30,8 @@ spec:
           env:
             - name: CACHE_TTL
               value: {{ toString .Values.proxy.cacheTtl | quote }}
+            - name: HA_MODE
+              value: {{ .Values.ha.enabled | quote }}
             - name: MAX_BODY
               value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
             - name: FETCH_BUFFER_SIZE

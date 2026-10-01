@@ -1,0 +1,47 @@
+suite: S3 key rotation
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - deployment-postgrest.yaml
+  - pooler-cnpg.yaml
+set:
+  s3.accessKey: key1
+  s3.secretKey: secret1
+tests:
+  - it: rolls the PostgREST pods and the pooler when the S3 keys change, so every backend reloads the secret
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        template: deployment-postgrest.yaml
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        template: pooler-cnpg.yaml
+
+  - it: rolls every read and write PostgREST and pooler in HA mode
+    set:
+      ha.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest-ro
+        template: deployment-postgrest.yaml
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler-ro
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pooler
+        template: pooler-cnpg.yaml

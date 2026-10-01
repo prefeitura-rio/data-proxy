@@ -52,7 +52,23 @@ tests:
     asserts:
       - equal:
           path: spec.managed.roles[3].inRoles
-          value: ["anon", "user"]
+          value: ["anon", "user", "policy_writer_test", "policy_writer_test2"]
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[4]
+          value:
+            name: policy_writer_test
+            ensure: present
+            login: false
+            bypassrls: false
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[5]
+          value:
+            name: policy_writer_test2
+            ensure: present
+            login: false
+            bypassrls: false
         template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster
@@ -66,10 +82,16 @@ tests:
       - isKind:
           of: Cluster
         template: cluster-cnpg.yaml
-      - equal:
+      - notExists:
           path: spec.instances
-          value: 3
         template: cluster-cnpg.yaml
+      - equal:
+          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
+          value: "3"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
       - equal:
           path: spec.storage.size
           value: 100Gi
@@ -132,37 +154,6 @@ tests:
           path: spec.pgbouncer.authQuery
         template: pooler-cnpg.yaml
 
-  - it: renders a Pooler ScaledObject targeting the shared Pooler
-    asserts:
-      - equal:
-          path: spec.scaleTargetRef.kind
-          value: Pooler
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-pooler-autoscaler
-        template: scaledobjects.yaml
-      - equal:
-          path: spec.scaleTargetRef.name
-          value: data-proxy-pooler
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-pooler-autoscaler
-        template: scaledobjects.yaml
-      - equal:
-          path: spec.minReplicaCount
-          value: 1
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-pooler-autoscaler
-        template: scaledobjects.yaml
-      - equal:
-          path: spec.maxReplicaCount
-          value: 3
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-pooler-autoscaler
-        template: scaledobjects.yaml
-
   - it: creates one read-write Pooler
     asserts:
       - hasDocuments:
@@ -177,23 +168,21 @@ tests:
           value: rw
         template: pooler-cnpg.yaml
 
-  - it: sizes duckdb threads proportionally to the memory limit
+  - it: defaults duckdb threads to two
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
           value: "2"
         template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 4Gi
 
-  - it: caps duckdb threads at four
+  - it: overrides duckdb threads from values
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
           value: "4"
         template: cluster-cnpg.yaml
     set:
-      cnpg.resources.limits.memory: 32Gi
+      cnpg.duckdb.threads: 4
 
   - it: configures the DuckDB memory cap
     set:

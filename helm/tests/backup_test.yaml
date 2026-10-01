@@ -154,3 +154,82 @@ tests:
               secretKeyRef:
                 name: backup-s3-creds
                 key: S3_ACCESS_KEY
+
+  - it: mounts the backup script and its library from the scripts ConfigMap
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.test.tables: []
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-test-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: backup.nu
+            path: backup.nu
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-test-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: lib.nu
+            path: lib.nu
+
+  - it: mounts the maintenance script and its library from the scripts ConfigMap
+    set:
+      jobs.maintenance.enabled: true
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: maintenance.nu
+            path: maintenance.nu
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: lib.nu
+            path: lib.nu
+
+  - it: gives the maintenance job the password that its database URL expands
+    set:
+      jobs.maintenance.enabled: true
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-superuser
+                key: password
+
+  - it: gives the backup job the database URL that execute-sql reads
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: http://storage:8333
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.test.tables: []
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-test-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PG_DATABASE_URL
+            value: postgresql://admin@data-proxy-rw:5432/data-proxy

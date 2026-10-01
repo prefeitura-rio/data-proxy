@@ -1,25 +1,32 @@
-
+{{- $root := . }}
+{{- $variants := list (dict "suffix" "" "component" "postgrest" "pooler" "pooler") }}
+{{- if $root.Values.ha.enabled }}
+{{- $variants = append $variants (dict "suffix" "-ro" "component" "postgrest-ro" "pooler" "pooler-ro") }}
+{{- end }}
+{{- range $variant := $variants }}
+{{- with $root }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest
+  name: {{ include "data-proxy.fullname" . }}-postgrest{{ $variant.suffix }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest
+    app.kubernetes.io/component: {{ $variant.component }}
 spec:
-  replicas: {{ .Values.postgrest.replicas | default 1 }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: postgrest
+      app.kubernetes.io/component: {{ $variant.component }}
   template:
     metadata:
       annotations:
         checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: postgrest
+        app.kubernetes.io/component: {{ $variant.component }}
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       automountServiceAccountToken: false
@@ -81,7 +88,7 @@ spec:
                   name: {{ include "data-proxy.authenticatorSecretName" . }}
                   key: password
             - name: PGRST_DB_URI
-              value: {{ include "data-proxy.postgresReadDsn" . | quote }}
+              value: {{ include "data-proxy.postgresPoolerDsn" (dict "root" . "pooler" $variant.pooler) | quote }}
             - name: PGRST_DB_PREPARED_STATEMENTS
               value: "false"
             - name: PGRST_DB_CHANNEL_ENABLED
@@ -127,3 +134,5 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+{{- end }}
+{{- end }}

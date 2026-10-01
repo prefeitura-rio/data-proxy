@@ -1,0 +1,213 @@
+suite: Single mode
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - cluster-cnpg.yaml
+  - pooler-cnpg.yaml
+  - scaledobjects.yaml
+  - deployment-postgrest.yaml
+  - deployment-proxy.yaml
+  - deployment-sync.yaml
+  - configmap-proxy.yaml
+  - services.yaml
+  - pdbs.yaml
+tests:
+  - it: is the default mode
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HA_MODE
+            value: "false"
+        template: deployment-proxy.yaml
+
+  - it: leaves the number of instances to a ScaledObject that pins cnpg.instances
+    set:
+      cnpg.instances: 2
+    asserts:
+      - notExists:
+          path: spec.instances
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.scaleTargetRef
+          value:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: data-proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
+          value: "2"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: ignores cnpg.autoscaling for the cluster
+    set:
+      cnpg.autoscaling.minReplicaCount: 5
+      cnpg.autoscaling.maxReplicaCount: 9
+    asserts:
+      - equal:
+          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
+          value: "1"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: keeps replication asynchronous because there is no standby
+    asserts:
+      - notExists:
+          path: spec.postgresql.synchronous
+        template: cluster-cnpg.yaml
+      - notExists:
+          path: spec.postgresql.parameters.synchronous_commit
+        template: cluster-cnpg.yaml
+
+  - it: renders one read-write pooler and no read pooler
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pooler-cnpg.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-pooler
+        template: pooler-cnpg.yaml
+      - equal:
+          path: spec.type
+          value: rw
+        template: pooler-cnpg.yaml
+      - notExists:
+          path: spec.instances
+        template: pooler-cnpg.yaml
+
+  - it: renders one PostgREST that reads and writes through the pooler
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.replicas
+        template: deployment-postgrest.yaml
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: postgrest
+        template: deployment-postgrest.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_URI
+            value: postgres://postgrest:$(PGRST_PASSWORD)@data-proxy-pooler:5432/data-proxy
+        template: deployment-postgrest.yaml
+
+  - it: autoscales PostgREST and proxy, and pins the cluster
+    asserts:
+      - hasDocuments:
+          count: 5
+        template: scaledobjects.yaml
+      - notExists:
+          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-sync
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-sync
+        template: scaledobjects.yaml
+
+  - it: renders no read Service and no read disruption budgets
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: services.yaml
+      - hasDocuments:
+          count: 3
+        template: pdbs.yaml
+
+  - it: sends every request to the one PostgREST
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'postgrest_read \{\s+default "http://data-proxy-postgrest\.default\.svc\.cluster\.local:3000"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'postgrest_write'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$ha_mode "\$\{HA_MODE\}"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+
+  - it: restarts only the one PostgREST after a sync
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGREST_DEPLOYMENTS
+            value: '["data-proxy-postgrest"]'
+        template: deployment-sync.yaml

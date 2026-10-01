@@ -40,9 +40,9 @@ tests:
           path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
           value: http
         template: deployment-postgrest.yaml
-      - equal:
+      - notExists:
           path: spec.replicas
-          value: 1
+        template: deployment-postgrest.yaml
 
   - it: rolls PostgREST when syncConfig changes
     set:

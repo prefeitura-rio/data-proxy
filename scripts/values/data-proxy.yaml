@@ -9,7 +9,7 @@ sync:
     enabled: true
     intervalSeconds: 30
     graceSeconds: 120
-  keda:
+  autoscaling:
     idleReplicaCount: 2
   config:
     schemas:
@@ -21,6 +21,16 @@ sync:
             rls:
               - column: unit_id
                 unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.big_table
+            strategy: partitioned
+            "n": 30
+            partitioning:
+              column: date
+              interval: daily
+              retention: 365 days
+            rls:
+              - column: unit_id
+                unit_type: unit
           - name: rj-ia-desenvolvimento.dev.multi_rls_table
             strategy: full
             rls:
@@ -28,6 +38,11 @@ sync:
                 unit_type: region
               - column: group_id
                 unit_type: group
+          - name: rj-ia-desenvolvimento.dev.failing_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
           - name: rj-ia-desenvolvimento.dev.partitioned_table
             strategy: partitioned
             fallbacks:
@@ -43,6 +58,12 @@ sync:
                 unit_type: unit
 jobs:
   image: localhost/data-proxy-jobs:local
+  backup:
+    enabled: true
+    s3:
+      bucket: test-bucket
+      endpointURL: http://data-proxy-seaweedfs-all-in-one:8333
+      existingSecret: data-proxy-s3
 serviceAccount:
   create: true
   name: data-proxy
@@ -51,22 +72,6 @@ postgrest:
   jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
   jwksFetch:
     image: localhost/data-proxy-jobs:local
-  ro:
-    replicas: 1
-    resources: {}
-    keda:
-      minReplicaCount: 1
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 300
-      triggers: []
-  rw:
-    replicas: 1
-    resources: {}
-    hpa:
-      minReplicas: 1
-      maxReplicas: 3
-      targetCPUUtilizationPercentage: 70
 s3:
   bucket: test-bucket
   useSsl: "false"
@@ -116,7 +121,7 @@ proxy:
 cnpg:
   pooler:
     instances: 1
-    poolSize: 20
+    poolSize: 10
     maxClientConns: 100
     autoscaling:
       minReplicaCount: 1
@@ -138,11 +143,11 @@ cnpg:
     maxReplicaCount: 3
   resources:
     requests:
-      cpu: 500m
+      cpu: 100m
       memory: 1Gi
     limits:
-      cpu: "4"
-      memory: 4Gi
+      cpu: "6"
+      memory: 8Gi
 ingress:
   sidecarInject: true
   enabled: true

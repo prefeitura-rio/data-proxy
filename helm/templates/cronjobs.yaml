@@ -47,6 +47,8 @@ spec:
                   value: {{ $root.Values.cnpg.db.name | quote }}
                 - name: PGUSER
                   value: {{ $root.Values.cnpg.db.user | quote }}
+                - name: PG_DATABASE_URL
+                  value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) $root.Values.cnpg.db.name | quote }}
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -94,6 +96,10 @@ spec:
                 name: {{ include "data-proxy.fullname" $root }}-scripts
                 defaultMode: 0555
                 items:
+                  - key: backup.nu
+                    path: backup.nu
+                  - key: lib.nu
+                    path: lib.nu
 {{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
                   - key: {{ base $path }}
                     path: {{ base $path }}
@@ -143,6 +149,11 @@ spec:
               command: [nu, /scripts/maintenance.nu]
               workingDir: /scripts
               env:
+                - name: PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.dbSecretName" $root }}
+                      key: password
                 - name: PG_DATABASE_URL
                   value: {{ include "data-proxy.appPgDsn" $root | quote }}
                 - name: SYNC_CONFIG_PATH
@@ -193,6 +204,10 @@ spec:
                 name: {{ include "data-proxy.fullname" $root }}-scripts
                 defaultMode: 0555
                 items:
+                  - key: maintenance.nu
+                    path: maintenance.nu
+                  - key: lib.nu
+                    path: lib.nu
 {{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
                   - key: {{ base $path }}
                     path: {{ base $path }}

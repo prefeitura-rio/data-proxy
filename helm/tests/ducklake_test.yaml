@@ -14,13 +14,24 @@ tests:
       - hasDocuments:
           count: 1
         template: cluster-cnpg.yaml
-      - equal:
+      - notExists:
           path: spec.instances
-          value: 1
         template: cluster-cnpg.yaml
       - equal:
           path: spec.postgresql.parameters.shared_buffers
           value: 1GB
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters.work_mem
+          value: 64MB
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.resources.limits.memory
+          value: 8Gi
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "2"
         template: cluster-cnpg.yaml
   - it: mounts the reader catalog PVC read-write in CNPG
     set:

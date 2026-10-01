@@ -1,19 +1,26 @@
 {{- $root := . }}
+{{- $poolers := list (dict "name" "pooler" "type" "rw" "component" "pgbouncer") }}
+{{- if $root.Values.ha.enabled }}
+{{- $poolers = append $poolers (dict "name" "pooler-ro" "type" "ro" "component" "pgbouncer-ro") }}
+{{- end }}
+{{- range $pooler := $poolers }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
-  name: {{ include "data-proxy.fullname" $root }}-pooler
+  name: {{ include "data-proxy.fullname" $root }}-{{ $pooler.name }}
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
-    app.kubernetes.io/component: pgbouncer
+    app.kubernetes.io/component: {{ $pooler.component }}
 spec:
   cluster:
     name: {{ include "data-proxy.fullname" $root }}
-  instances: {{ $root.Values.cnpg.pooler.instances }}
-  type: rw
+  type: {{ $pooler.type }}
   template:
+    metadata:
+      annotations:
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" $root }}
     spec:
       containers:
         - name: pgbouncer
@@ -24,3 +31,4 @@ spec:
     parameters:
       max_client_conn: {{ $root.Values.cnpg.pooler.maxClientConns | quote }}
       default_pool_size: {{ $root.Values.cnpg.pooler.poolSize | quote }}
+{{- end }}

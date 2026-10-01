@@ -34,7 +34,7 @@ postgrest:
   jwtSecret: '{"kty":"RSA","e":"AQAB","alg":"RS256","n":"abc123"}'
   replicas: 1
   resources: {}
-  keda:
+  autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 3
     pollingInterval: 30

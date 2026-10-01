@@ -1,3 +1,9 @@
+## High availability. false: one PostgreSQL instance serves reads and writes.
+## true: one CloudNativePG Cluster with standbys that serve reads and take over on failure.
+## Nothing else to set: the autoscaling blocks of cnpg, cnpg.pooler and postgrest then scale the
+## read side, and the proxy sends reads and writes to different PostgREST deployments.
+ha:
+  enabled: false
 ## DBOS sync service: runs the scheduled sync workflow, BigQuery extraction,
 ## and DuckLake publication. Scaled by KEDA on the DBOS workflow queue.
 sync:
@@ -45,7 +51,7 @@ sync:
       cpu: "4"
       memory: 6Gi
   ## KEDA autoscaling for the sync Deployment.
-  keda:
+  autoscaling:
     ## Interval in seconds between KEDA metric checks.
     pollingInterval: 30
     ## Cooldown in seconds before scaling down to idle.
@@ -111,7 +117,7 @@ postgrest:
     limits:
       memory: 256Mi
       ephemeral-storage: 512Mi
-  keda:
+  autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 3
     pollingInterval: 30
@@ -258,12 +264,18 @@ auth:
 ## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
   duckdb:
-    maxMemory: 3072MB
+    maxMemory: 1024MB
+    ## DuckDB threads per PostgreSQL backend. Defaults to 2; set higher for more parallelism.
+    threads: 2
   postgresql:
     parameters: {}
+    ## Optional CNPG synchronous replication, for example {method: any, number: 1, dataDurability: preferred}.
+    ## CNPG rejects it while the cluster has one instance, so set it after the HA cluster has scaled up.
+    ## With it, access_policy writes wait for a standby to apply them and other commits do not wait.
+    synchronous: {}
   pooler:
     instances: 1
-    poolSize: 20
+    poolSize: 10
     maxClientConns: 100
     resources:
       requests:
@@ -284,20 +296,23 @@ cnpg:
   init:
     image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   existingSecret: ""
+  ## PostgreSQL instances in single mode. In HA mode cnpg.autoscaling owns the count.
   instances: 1
+  ## HA mode only. The floor is at least 3 (a primary and two standbys).
+  ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
   autoscaling:
     minReplicaCount: 1
-    maxReplicaCount: 1
+    maxReplicaCount: 6
     pollingInterval: 30
     cooldownPeriod: 300
     triggers: []
   resources:
     requests:
-      cpu: 500m
-      memory: 2Gi
+      cpu: 100m
+      memory: 1Gi
     limits:
-      cpu: "4"
-      memory: 4Gi
+      cpu: "6"
+      memory: 8Gi
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-ff86fc4
   storage:
     size: 20Gi

@@ -1,11 +1,4 @@
 
-{{- define "data-proxy.defaultCpuTrigger" -}}
-- type: cpu
-  metricType: Utilization
-  metadata:
-    value: "90"
-{{- end }}
-
 {{- define "data-proxy.defaultResourceTriggers" -}}
 - type: cpu
   metricType: Utilization
@@ -17,24 +10,96 @@
     value: "90"
 {{- end }}
 
-{{- define "data-proxy.haTriggers" -}}
+{{- define "data-proxy.postgrestDeployments" -}}
+{{- $name := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
+{{- $names := list $name -}}
+{{- if .Values.ha.enabled -}}
+{{- $names = append $names (printf "%s-ro" $name) -}}
+{{- end -}}
+{{- $names | toJson -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgMinInstances" -}}
+{{- max (.Values.cnpg.autoscaling.minReplicaCount | int) 3 -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgMaxInstances" -}}
+{{- max (.Values.cnpg.autoscaling.maxReplicaCount | int) (include "data-proxy.cnpgMinInstances" . | int) -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgCpuLimitCores" -}}
+{{- $cpu := .Values.cnpg.resources.limits.cpu | toString -}}
+{{- if hasSuffix "m" $cpu -}}
+{{- divf (trimSuffix "m" $cpu | float64) 1000.0 | ceil | int -}}
+{{- else -}}
+{{- $cpu | float64 | ceil | int -}}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgSessionsPerInstance" -}}
+{{- $threads := include "data-proxy.duckdbThreads" . | trimAll "\"" | float64 -}}
+{{- max 1 (divf (include "data-proxy.cnpgCpuLimitCores" . | float64) $threads | ceil | int) -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgDefaultTriggers" -}}
+- type: postgresql
+  metricType: Value
+  authenticationRef:
+    name: {{ include "data-proxy.fullname" . }}-cluster-autoscaler-auth
+  metadata:
+    host: {{ printf "%s-r.%s.svc.cluster.local" (include "data-proxy.fullname" .) .Release.Namespace }}
+    port: "5432"
+    userName: {{ .Values.cnpg.db.user }}
+    dbName: {{ .Values.cnpg.db.name }}
+    sslmode: require
+    query: {{ printf "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = '%s'" .Values.auth.authenticatorRole | quote }}
+    targetQueryValue: {{ include "data-proxy.cnpgSessionsPerInstance" . | quote }}
+{{- end }}
+
+{{- define "data-proxy.poolerDefaultTriggers" -}}
 {{- $root := .root -}}
-{{- $schema := .schema -}}
-{{- $component := .component -}}
-{{- $override := dict -}}
-{{- range $entry := (list) }}
-  {{- if eq $entry.name $schema }}
-    {{- $override = $entry -}}
+- type: kubernetes-workload
+  metadata:
+    podSelector: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s,app.kubernetes.io/component=%s" (include "data-proxy.name" $root) $root.Release.Name .component | quote }}
+    value: {{ max 1 (div ($root.Values.cnpg.pooler.poolSize | int) 10) | quote }}
+{{- end }}
+
+{{- define "data-proxy.triggers" -}}
+{{- if gt (len (.triggers | default list)) 0 -}}
+{{ toYaml .triggers }}
+{{- else -}}
+{{ .default }}
+{{- end -}}
+{{- end }}
+
+{{- /*
+One ScaledObject per workload whose count a scaler owns. A fixed workload sets "pinned": KEDA holds it
+at that count, so Helm never sets a count that KEDA also writes and a mode switch is one server-side apply.
+*/ -}}
+{{- define "data-proxy.scaledObject" -}}
+{{- $root := .root -}}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+  {{- if hasKey . "pinned" }}
+  annotations:
+    autoscaling.keda.sh/paused-replicas: {{ .pinned | quote }}
   {{- end }}
-{{- end }}
-{{- $triggers := dig $component "triggers" list $override }}
-{{- if gt (len $triggers) 0 }}
-{{ toYaml $triggers }}
-{{- else if eq $component "postgres" }}
-{{ include "data-proxy.defaultCpuTrigger" $root }}
-{{- else }}
-{{ include "data-proxy.defaultResourceTriggers" $root }}
-{{- end }}
+spec:
+  scaleTargetRef:
+    {{- toYaml .target | nindent 4 }}
+  minReplicaCount: {{ ternary .pinned .min (hasKey . "pinned") }}
+  maxReplicaCount: {{ ternary .pinned .max (hasKey . "pinned") }}
+  pollingInterval: {{ .block.pollingInterval }}
+  cooldownPeriod: {{ .block.cooldownPeriod }}
+  triggers:
+    {{- .triggers | nindent 4 }}
 {{- end }}
 
 {{- define "data-proxy.name" -}}
@@ -154,11 +219,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "data-proxy.fullname" $root -}}
 {{- end }}
 
-{{- define "data-proxy.postgresReadDsn" -}}
-{{- $role := .Values.auth.authenticatorRole -}}
-{{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pooler:5432/{{ $db }}
+{{- define "data-proxy.postgresPoolerDsn" -}}
+{{- $root := .root -}}
+{{- $role := $root.Values.auth.authenticatorRole -}}
+{{- $db := $root.Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" $root -}}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-{{ .pooler }}:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.postgresWriteDsn" -}}
@@ -197,7 +263,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}
-{{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.fallbackNginxUpstreams" .)) }}
+{{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.nginxUpstreams" .)) }}
 {{- end }}
 
 {{- define "data-proxy.webdisWriteConfig" -}}
@@ -235,10 +301,17 @@ jwtRules:
     forwardOriginalToken: true
 {{- end }}
 
-{{- define "data-proxy.fallbackNginxUpstreams" -}}
+{{- define "data-proxy.nginxUpstreams" -}}
+{{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
 map $http_accept_profile $postgrest_read {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest.{{ .Release.Namespace }}.svc.cluster.local:3000";
+  default "http://{{ $postgrest }}{{ ternary "-ro" "" .Values.ha.enabled }}.{{ .Release.Namespace }}.svc.cluster.local:3000";
 }
+{{- if .Values.ha.enabled }}
+
+map $http_accept_profile $postgrest_write {
+  default "http://{{ $postgrest }}.{{ .Release.Namespace }}.svc.cluster.local:3000";
+}
+{{- end }}
 
 {{- end }}
 
@@ -271,6 +344,9 @@ dbs:
 #!/bin/sh
 set -eu
 umask 000
+{{- $secrets := printf "%s/%s" .Values.ducklake.catalogLocalPath (include "data-proxy.duckdbSecretsDir" .) }}
+mkdir -p {{ $secrets }}
+chmod 777 {{ $secrets }}
 {{- $schemas := .Values.sync.config.schemas }}
 {{- range $schema, $_ := $schemas }}
 (
@@ -294,6 +370,14 @@ umask 000
 wait
 {{- end }}
 
+{{- define "data-proxy.postgresHome" -}}
+/var/lib/postgresql/data
+{{- end }}
+
+{{- define "data-proxy.duckdbSecretsDir" -}}
+duckdb-secrets
+{{- end }}
+
 {{- define "data-proxy.cnpgCatalogPodPatch" -}}
 {{- $volume := dict
   "name" "ducklake-catalogs"
@@ -307,9 +391,35 @@ wait
   "mountPath" .Values.ducklake.catalogLocalPath
   "readOnly" false
 -}}
+{{- $secretsMount := dict
+  "name" "ducklake-catalogs"
+  "mountPath" (printf "%s/.duckdb/stored_secrets" (include "data-proxy.postgresHome" .))
+  "subPath" (include "data-proxy.duckdbSecretsDir" .)
+  "readOnly" false
+-}}
+{{- $tmpfsVolume := dict
+  "name" "duckdb-tmpfs"
+  "emptyDir" (dict "medium" "Memory")
+-}}
+{{- $tmpfsMount := dict
+  "name" "duckdb-tmpfs"
+  "mountPath" "/var/lib/postgresql/data/pg_duckdb/temp"
+  "readOnly" false
+-}}
+{{- $postStart := dict
+  "postStart" (dict
+    "exec" (dict
+      "command" (list "sh" "-c" "psql -U postgres -d data-proxy -tAc \"SELECT duckdb.raw_query('LOAD ducklake; LOAD sqlite')\" > /dev/null 2>&1 || true")
+    )
+  )
+-}}
 {{- list
   (dict "op" "add" "path" "/spec/volumes/-" "value" $volume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $tmpfsVolume)
   (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $mount)
+  (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $secretsMount)
+  (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $tmpfsMount)
+  (dict "op" "add" "path" "/spec/containers/0/lifecycle" "value" $postStart)
   | toJson
 -}}
 {{- end }}
@@ -401,8 +511,8 @@ wait
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
-- name: POSTGREST_DEPLOYMENT_TEMPLATE
-  value: {{ printf "%s-postgrest" (include "data-proxy.fullname" .) | quote }}
+- name: POSTGREST_DEPLOYMENTS
+  value: {{ include "data-proxy.postgrestDeployments" . | quote }}
 - name: POSTGREST_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
 {{- if .Values.gcp.existingSecret }}
@@ -440,25 +550,9 @@ wait
 {{- end }}
 
 {{- define "data-proxy.duckdbThreads" -}}
-{{- $mem := .Values.cnpg.resources.limits.memory | toString -}}
-{{- $bytes := 0 -}}
-{{- if (regexMatch "^[0-9]+(\\.[0-9]+)?(Gi|Mi|Ti|Ki)?$" $mem) -}}
-  {{- $num := regexFind "^[0-9]+(\\.[0-9]+)?" $mem | float64 -}}
-  {{- $unit := regexFind "(Gi|Mi|Ti|Ki)$" $mem -}}
-  {{- $mult := dict "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 -}}
-  {{- $factor := 1.0 -}}
-  {{- if $unit -}}
-    {{- $factor = index $mult $unit -}}
-  {{- end -}}
-  {{- $bytes = mulf $num $factor -}}
-{{- end -}}
-{{- $gib := divf $bytes 1073741824.0 -}}
-{{- $threads := floor (divf $gib 2.0) | int -}}
+{{- $threads := .Values.cnpg.duckdb.threads | default 2 | int -}}
 {{- if lt $threads 1 -}}
   {{- $threads = 1 -}}
-{{- end -}}
-{{- if gt $threads 4 -}}
-  {{- $threads = 4 -}}
 {{- end -}}
 {{- $threads | quote -}}
 {{- end }}
@@ -466,10 +560,11 @@ wait
 {{- define "data-proxy.cnpgParameters" -}}
 {{- $defaults := dict
   "shared_buffers" "1GB"
-  "work_mem" "16MB"
+  "work_mem" "64MB"
   "maintenance_work_mem" "512MB"
   "effective_cache_size" "5GB"
-  "max_parallel_workers_per_gather" "4"
+  "max_parallel_workers_per_gather" "2"
+  "duckdb.max_temp_directory_size" "2GB"
   "random_page_cost" "1.1"
   "effective_io_concurrency" "200"
   "max_connections" "200"
@@ -479,6 +574,9 @@ wait
   "checkpoint_timeout" "15min"
   "checkpoint_completion_target" "0.9"
 -}}
+{{- if .Values.cnpg.postgresql.synchronous -}}
+{{- $_ := set $defaults "synchronous_commit" "local" -}}
+{{- end -}}
 {{- $params := mergeOverwrite $defaults (default (dict) .Values.cnpg.postgresql.parameters) -}}
 {{- toYaml $params -}}
 {{- end }}
