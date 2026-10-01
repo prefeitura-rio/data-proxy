@@ -25,6 +25,8 @@ interface Scenario {
     profile?: string;
     upstream?: string;
     readUpstream?: string;
+    writeUpstream?: string;
+    haMode?: string;
     cacheTtl?: string;
     sync?: unknown;
     requestBody?: string;
@@ -110,6 +112,11 @@ const CREATED = '[{"subject":"test_user_1"}]';
 const BIG_ROWS = '[{"value":"' + 'a'.repeat(1_100_000) + '"}]';
 
 const CALL = UPSTREAM + PATH + '?' + QUERY;
+const READ_UPSTREAM = 'http://postgrest-ro:3000';
+const WRITE_UPSTREAM = 'http://postgrest-rw:3000';
+const READ_CALL = 'GET ' + READ_UPSTREAM + PATH + '?' + QUERY;
+const WRITE_CALL = 'GET ' + WRITE_UPSTREAM + PATH + '?' + QUERY;
+const HA = { haMode: 'true', readUpstream: READ_UPSTREAM, writeUpstream: WRITE_UPSTREAM };
 const JSON_CT = 'application/json; charset=utf-8';
 
 /** Builds a bearer token whose payload holds the given claims. */
@@ -244,6 +251,84 @@ const SCENARIOS: Scenario[] = [
         source: 'upstream',
         events: ['upstream-status'],
         calls: [CACHE_READ, 'GET ' + CALL],
+    },
+    {
+        name: 'HA: retries a read on the write upstream when the read upstream has no healthy endpoint',
+        ...HA,
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: READ_UPSTREAM, status: 503, body: 'no healthy upstream' },
+            { match: WRITE_UPSTREAM, status: 200, body: ROWS },
+            { match: '/SETEX/', status: 200, body: STORED },
+        ],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: ['upstream-status', 'upstream-retried'],
+        calls: [CACHE_READ, READ_CALL, WRITE_CALL, CACHE_WRITE],
+    },
+    {
+        name: 'HA: retries a read on the write upstream when the read upstream cannot be reached',
+        ...HA,
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: READ_UPSTREAM, throws: 'connection refused' },
+            { match: WRITE_UPSTREAM, status: 200, body: ROWS },
+            { match: '/SETEX/', status: 200, body: STORED },
+        ],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: ['upstream-failed', 'upstream-retried'],
+        calls: [CACHE_READ, READ_CALL, WRITE_CALL, CACHE_WRITE],
+    },
+    {
+        name: 'HA: does not retry a read after an application error of the read upstream',
+        ...HA,
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: READ_UPSTREAM, status: 500, body: '{"message":"boom"}' },
+        ],
+        status: 500,
+        body: '{"message":"boom"}',
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: ['upstream-status'],
+        calls: [CACHE_READ, READ_CALL],
+    },
+    {
+        name: 'HA: answers with the write upstream when both upstreams are down',
+        ...HA,
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: READ_UPSTREAM, status: 503, body: 'no healthy upstream' },
+            { match: WRITE_UPSTREAM, status: 503, body: '{"message":"down"}' },
+        ],
+        status: 503,
+        body: '{"message":"down"}',
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: ['upstream-status', 'upstream-retried', 'upstream-status'],
+        calls: [CACHE_READ, READ_CALL, WRITE_CALL],
+    },
+    {
+        name: 'HA: never retries a write',
+        ...HA,
+        method: 'POST',
+        answers: [{ match: WRITE_UPSTREAM, status: 503, body: '{"message":"down"}' }],
+        status: 503,
+        body: '{"message":"down"}',
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: ['upstream-status'],
+        calls: ['POST ' + WRITE_UPSTREAM + PATH + '?' + QUERY],
     },
     {
         name: 'passes a range answer through with headers and keeps it out of the cache',
@@ -486,6 +571,8 @@ function fakeRequest(
             postgrest_read: scenario.readUpstream === undefined
                 ? (scenario.upstream === undefined ? UPSTREAM : scenario.upstream)
                 : scenario.readUpstream,
+            postgrest_write: scenario.writeUpstream,
+            ha_mode: scenario.haMode,
             proxy_cache_ttl: scenario.cacheTtl === undefined ? '300' : scenario.cacheTtl,
             proxy_max_body: scenario.maxBody === undefined ? '' : String(scenario.maxBody),
         },
@@ -671,6 +758,65 @@ test('proxy: uses the single read upstream for all methods', async () => {
     assertCalls(post.calls, ['POST ' + read + PATH + '?' + QUERY]);
 });
 
+const ROUTING: { name: string, haMode: string | undefined, method: string, upstream: string }[] = [
+    { name: 'single mode sends a read to the read upstream', haMode: 'false', method: 'GET', upstream: READ_UPSTREAM },
+    { name: 'single mode sends a write to the read upstream', haMode: 'false', method: 'POST', upstream: READ_UPSTREAM },
+    { name: 'a missing HA flag counts as single mode', haMode: undefined, method: 'DELETE', upstream: READ_UPSTREAM },
+    { name: 'HA mode sends GET to the read upstream', haMode: 'true', method: 'GET', upstream: READ_UPSTREAM },
+    { name: 'HA mode sends HEAD to the read upstream', haMode: 'true', method: 'HEAD', upstream: READ_UPSTREAM },
+    { name: 'HA mode sends POST to the write upstream', haMode: 'true', method: 'POST', upstream: WRITE_UPSTREAM },
+    { name: 'HA mode sends PATCH to the write upstream', haMode: 'true', method: 'PATCH', upstream: WRITE_UPSTREAM },
+    { name: 'HA mode sends PUT to the write upstream', haMode: 'true', method: 'PUT', upstream: WRITE_UPSTREAM },
+    { name: 'HA mode sends DELETE to the write upstream', haMode: 'true', method: 'DELETE', upstream: WRITE_UPSTREAM },
+];
+
+for (const route of ROUTING) {
+    test('proxy: routes by method: ' + route.name, async () => {
+        const outcome = await run({
+            name: route.name,
+            method: route.method,
+            haMode: route.haMode,
+            readUpstream: READ_UPSTREAM,
+            writeUpstream: WRITE_UPSTREAM,
+            answers: [{ match: '/GET/', status: 200, body: MISS }, { match: route.upstream, status: 200, body: ROWS }],
+            status: 200,
+            body: ROWS,
+            contentType: JSON_CT,
+            xCache: route.method === 'GET' ? 'MISS' : null,
+            source: 'upstream',
+            events: [],
+            calls: [],
+        });
+
+        const upstreamCalls = outcome.calls.filter((call) => call.indexOf(PATH) !== -1);
+
+        assert.deepEqual(upstreamCalls, [route.method + ' ' + route.upstream + PATH + '?' + QUERY]);
+    });
+}
+
+test('proxy: answers a cacheable HA read from the read upstream and stores it', async () => {
+    const outcome = await run({
+        name: 'HA read',
+        haMode: 'true',
+        readUpstream: READ_UPSTREAM,
+        writeUpstream: WRITE_UPSTREAM,
+        answers: [
+            { match: '/GET/', status: 200, body: MISS },
+            { match: READ_UPSTREAM, status: 200, body: ROWS },
+            { match: '/SETEX/', status: 200, body: STORED },
+        ],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: [],
+        calls: [],
+    });
+
+    assertCalls(outcome.calls, [CACHE_READ, 'GET ' + READ_UPSTREAM + PATH + '?' + QUERY, CACHE_WRITE]);
+});
+
 test('proxy: keys media types correctly in the cache', async () => {
     const answers = [{ match: '/GET/', status: 200, body: HIT }];
     const result = { status: 200, body: '{"cached":true}', contentType: JSON_CT, xCache: 'HIT', source: 'cache', events: [], calls: [CACHE_READ] };
@@ -751,6 +897,16 @@ test('proxy: avoids the globals and methods that the engine does not provide', a
 
         assert.doesNotMatch(source, pattern, 'the njs engine does not provide ' + name);
     });
+});
+
+test('proxy: substitutes every placeholder of the nginx config in the image', async () => {
+    const config = readFileSync(fileURLToPath(new URL('../helm/files/nginx.conf', import.meta.url)), 'utf8');
+    const image = readFileSync(fileURLToPath(new URL('../Dockerfile.proxy', import.meta.url)), 'utf8');
+    const filter = (image.match(/NGINX_ENVSUBST_FILTER=\^\(([^)]*)\)\$/) || ['', ''])[1].split('|');
+    const placeholders = Array.from(new Set((config.match(/\$\{[A-Z_]+\}/g) || []).map((name) => name.slice(2, -1))));
+
+    assert.ok(placeholders.length > 0, 'the nginx config has no placeholders');
+    assert.deepEqual(placeholders.filter((name) => filter.indexOf(name) === -1), []);
 });
 
 test('proxy: serves a stored answer without the headers of the live answer', async () => {

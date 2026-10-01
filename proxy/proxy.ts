@@ -27,6 +27,9 @@ const FORWARDED_RESPONSE_HEADERS = [
 
 const CACHED_RESPONSE_HEADERS = ["X-Source", "X-DuckLake-Snapshot"];
 
+const READ_METHODS = ["GET", "HEAD"];
+const RETRY_STATUSES = [502, 503, 504];
+
 const DEFAULT_MEDIA_TYPE = "application/json";
 const JSON_TYPE = "application/json; charset=utf-8";
 const DEFAULT_NO_CACHE_PATHS = ["/access_policy"];
@@ -54,6 +57,7 @@ interface CachedAnswer {
 
 interface RequestContext extends CacheKeyParts {
     upstream: string;
+    retryUpstream: string;
     cacheTtl: string;
     maxBody: number;
     body: string;
@@ -194,8 +198,8 @@ function encodePath(path: string): string {
 /**
  * Builds the URL of an upstream request.
  */
-function upstreamUrl(ctx: RequestContext, path: string): string {
-    return ctx.upstream + encodePath(path) + (ctx.args ? "?" + ctx.args : "");
+function upstreamUrl(upstream: string, ctx: RequestContext, path: string): string {
+    return upstream + encodePath(path) + (ctx.args ? "?" + ctx.args : "");
 }
 
 /**
@@ -350,6 +354,31 @@ function tableFor(uri: string, map: Record<string, TableEntry>): TableEntry | nu
 }
 
 /**
+ * Picks the upstream for a request. Single mode has one upstream. HA mode sends
+ * reads to the read upstream and every other method to the write upstream.
+ */
+function upstreamFor(r: NginxHTTPRequest): string {
+    if (r.variables.ha_mode === "true" && READ_METHODS.indexOf(r.method) === -1) {
+        return r.variables.postgrest_write || "";
+    }
+
+    return r.variables.postgrest_read || "";
+}
+
+/**
+ * Picks the upstream that serves a read again when the read upstream is down,
+ * for example while the standbys start or after a failover. Only HA mode has
+ * one, and a write is never retried.
+ */
+function retryUpstreamFor(r: NginxHTTPRequest): string {
+    if (r.variables.ha_mode === "true" && READ_METHODS.indexOf(r.method) !== -1) {
+        return r.variables.postgrest_write || "";
+    }
+
+    return "";
+}
+
+/**
  * Reads the values that the handler and the query helpers work with.
  */
 function requestContext(
@@ -357,7 +386,7 @@ function requestContext(
     config: ProxyConfig,
 ): RequestContext {
     const jwt = decodeJWT(r.headersIn["Authorization"] || "");
-    const upstream = r.variables.postgrest_read || "";
+    const upstream = upstreamFor(r);
     const profile = r.headersIn["Accept-Profile"] || "";
     const table = tableFor(r.uri, config.tables);
     const lifetime = r.variables.proxy_cache_ttl || "";
@@ -371,6 +400,7 @@ function requestContext(
         profile: profile,
         headers: buildHeaders(r),
         upstream: upstream,
+        retryUpstream: retryUpstreamFor(r),
         cacheTtl: table?.cacheTtl ? String(table.cacheTtl) : lifetime,
         maxBody: Number(r.variables.proxy_max_body || "0"),
         body: r.requestText || "",
@@ -486,14 +516,15 @@ async function writeCache(
 }
 
 /**
- * Queries the local PostgREST upstream.
+ * Sends the request to one upstream.
  */
-async function queryUpstream(
+async function attemptUpstream(
     r: NginxHTTPRequest,
     ctx: RequestContext,
+    upstream: string,
 ): Promise<ProxyResponse | null> {
     try {
-        const res = await ngx.fetch(upstreamUrl(ctx, ctx.uri), {
+        const res = await ngx.fetch(upstreamUrl(upstream, ctx, ctx.uri), {
             method: ctx.method,
             headers: ctx.headers,
             body: ctx.body || undefined,
@@ -511,6 +542,28 @@ async function queryUpstream(
     }
 
     return null;
+}
+
+/**
+ * Queries the PostgREST upstream. A read that finds its upstream unreachable or
+ * without a healthy endpoint is asked once of the retry upstream.
+ */
+async function queryUpstream(
+    r: NginxHTTPRequest,
+    ctx: RequestContext,
+): Promise<ProxyResponse | null> {
+    const first = await attemptUpstream(r, ctx, ctx.upstream);
+
+    if (
+        !ctx.retryUpstream ||
+        (first !== null && RETRY_STATUSES.indexOf(first.status) === -1)
+    ) {
+        return first;
+    }
+
+    log(r, ctx, "warn", "upstream-retried", { status: first?.status });
+
+    return attemptUpstream(r, ctx, ctx.retryUpstream);
 }
 
 /**
