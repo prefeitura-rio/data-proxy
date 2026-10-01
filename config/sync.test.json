@@ -14,10 +14,38 @@
           ]
         },
         {
+          "name": "rj-ia-desenvolvimento.dev.failing_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
           "name": "rj-ia-desenvolvimento.dev.partitioned_table",
           "strategy": "partitioned",
-          "fallbacks": ["bigquery"],
+          "fallbacks": [
+            "bigquery"
+          ],
           "n": 4,
+          "partitioning": {
+            "column": "date",
+            "interval": "daily",
+            "retention": "365 days"
+          },
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.big_table",
+          "strategy": "partitioned",
+          "n": 30,
           "partitioning": {
             "column": "date",
             "interval": "daily",

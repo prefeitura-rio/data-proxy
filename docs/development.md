@@ -61,13 +61,26 @@ See [Using the API](using.md).
 
 ## k6 commands
 
-| Command             | Purpose                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, and snapshot versions.    |
-| `cluster k6 load`   | Runs the normal load profile.                                  |
-| `cluster k6 stress` | Runs the stepped stress profile.                               |
+| Command             | Purpose                                                     |
+| ------------------- | ----------------------------------------------------------- |
+| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, snapshots, and modes.  |
+| `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.    |
+| `cluster k6 load`   | Runs the normal load profile.                               |
+| `cluster k6 stress` | Runs the stepped stress profile.                            |
+
+`cluster k6 smoke`, `cluster k6 load`, and `cluster k6 stress` always set the mode first: `helm upgrade --set ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. A run therefore never depends on the mode that an earlier run left. A run with `--ha` switches back to single mode when it ends, even when it fails. Compare a run with and without `--ha` to see what the read side adds.
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
+
+`cluster k6 e2e --mode` picks the suite:
+
+| `--mode`        | Runs                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `full` (default) | The main suite, then a switch to HA mode and back to single mode, with a check in each mode. |
+| `e2e`           | The main suite only.                                                                           |
+| `modes`         | The switch to HA mode and back, with a check in each mode.                                     |
+
+The suite becomes the `SUITE` variable of `k6/e2e.yaml`. `MODE` (`single` or `ha`) names the mode that a `modes` check expects. Every suite ends in single mode.
 
 ## Development checks
 

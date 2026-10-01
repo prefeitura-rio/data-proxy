@@ -228,7 +228,7 @@ See [Proxy](proxy.md) for the routing and cache rules. `/access_policy` is never
 | `200 []`        | The request is valid, but the schema claim or row policy exposes no rows. |
 | `401`           | The JWT is missing, not valid, expired, or can't be used by PostgREST.    |
 | `403`           | PostgreSQL/PostgREST permission or role configuration isn't valid.        |
-| `404`           | The schema profile or requested resource is unknown.                      |
+| `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
 
 ## Troubleshooting
 

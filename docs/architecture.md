@@ -95,7 +95,7 @@ sequenceDiagram
 
 ## Kubernetes topology
 
-The chart deploys one CNPG cluster, one session-mode Pooler, one PostgREST read workload, one proxy workload, and one `data-proxy-litestream` Deployment. KEDA scales the DBOS sync workers, which share the writer catalog volume. PostgreSQL replicas transfer metadata through normal CNPG WAL; they do not receive application table rows.
+The chart deploys one CNPG cluster, one session-mode Pooler, one PostgREST read workload, one proxy workload, and one `data-proxy-litestream` Deployment. With `ha.enabled`, the chart adds standbys, a read Pooler, and a read PostgREST. See [Helm Chart](helm_chart.md#single-and-ha-mode). KEDA scales the DBOS sync workers, which share the writer catalog volume. PostgreSQL replicas transfer metadata through normal CNPG WAL; they do not receive application table rows.
 
 The `data-proxy-litestream` Deployment has one restore container for the reader volume and one replication sidecar for the writer volume. It uses a Recreate strategy so only one Litestream process writes each direction.
 

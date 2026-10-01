@@ -42,7 +42,7 @@ sequenceDiagram
 The table view calls one function that applies these rules in order:
 
 1. A request that pins a snapshot is read from DuckLake only.
-2. A table that isn't in `data_proxy.state` is read from the first configured fallback source when `fallbacks` lists one, otherwise from DuckLake.
+2. A table that isn't in `data_proxy.state` is read from the first configured fallback source when `fallbacks` lists one. Without a fallback, the request gets a `404`.
 3. A table in `data_proxy.state` is read from DuckLake. A partitioned table with `fallbacks` also reads its remaining partitions from each configured source in order.
 
 Row-level security runs first. A request that RLS stops reads no source and gets an empty list without `X-Source`.

@@ -100,11 +100,11 @@ devenv --profile default tasks run dp:lint dp:test
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
-| Level       | Location                                            | Runs against                                                   | Covers                                                                 |
-| ----------- | --------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Unit        | `tests/unit/`, `proxy/proxy.test.ts`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB              | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests    |
+| Level       | Location                                            | Runs against                                                   | Covers                                                                  |
+| ----------- | --------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Unit        | `tests/unit/`, `proxy/proxy.test.ts`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB              | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
 | Integration | `tests/integration/`                                | Testcontainers: PostgreSQL with pg_duckdb, Silo (S3), Valkey   | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
-| E2E         | `k6/e2e.ts`, `k6/load.ts`                           | The deployed minikube cluster (`nu scripts/cluster.nu k6 e2e`) | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources |
+| E2E         | `k6/e2e.ts`, `k6/perf.ts`                           | The deployed minikube cluster (`nu scripts/cluster.nu k6 e2e`) | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
 
 - Unit tests don't start containers or open network connections.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.

@@ -1,5 +1,6 @@
 """Seed synthetic BigQuery data for the data-proxy sync service."""
 
+import tomllib
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -7,17 +8,19 @@ from os import environ
 from pathlib import Path
 from random import choice, randint
 from random import seed as set_seed
-from typing import cast
+from typing import ClassVar, cast
 from uuid import uuid4
 
 from google.cloud.bigquery import (
     Client,
     LoadJobConfig,
     SchemaField,
+    Table,
     TimePartitioning,
     TimePartitioningType,
     WriteDisposition,
 )
+from pydantic import BaseModel, ConfigDict, PositiveInt
 
 from data_proxy.log import logger
 from data_proxy.models import SyncConfig
@@ -27,19 +30,55 @@ type NestedValue = Scalar | dict[str, "NestedValue"]
 type Row = dict[str, NestedValue]
 
 
+FULL_SCHEMA = [
+    SchemaField("id", "STRING", mode="REQUIRED"),
+    SchemaField("name", "STRING", mode="REQUIRED"),
+    SchemaField("unit_id", "STRING", mode="REQUIRED"),
+    SchemaField(
+        "metadata",
+        "RECORD",
+        mode="NULLABLE",
+        fields=[
+            SchemaField("status", "STRING", mode="NULLABLE"),
+            SchemaField("tags", "STRING", mode="NULLABLE"),
+        ],
+    ),
+]
 UNIT_IDS = ["unit_1", "unit_2", "unit_3", "unit_4", "unit_5"]
 REGION_IDS = ["region_1", "region_2", "region_3"]
 GROUP_IDS = ["group_1", "group_2", "group_3"]
 STATUSES = ["active", "inactive", "pending"]
 
 
+class SeedModel(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+
+class TableSeed(SeedModel):
+    rows: PositiveInt
+
+
+class PartitionedTableSeed(TableSeed):
+    partition_days: PositiveInt
+
+
+class TableSeeds(SeedModel):
+    full_table: TableSeed
+    partitioned_table: PartitionedTableSeed
+    multi_rls_table: TableSeed
+    big_table: PartitionedTableSeed
+
+
+class SeedSettings(SeedModel):
+    seed: int
+    tables: TableSeeds
+
+
 @dataclass
 class Config:
     project: str | None
     dataset: str
-    n_rows: int
-    partition_days: int
-    seed: int
+    settings: SeedSettings
     sync_config: Path
 
 
@@ -56,22 +95,10 @@ def parse_args() -> Config:
         help="BigQuery dataset for all tables",
     )
     parser.add_argument(
-        "--n-rows",
-        type=int,
-        default=500,
-        help="Number of rows to generate per table",
-    )
-    parser.add_argument(
-        "--partition-days",
-        type=int,
-        default=8,
-        help="Number of partition days for the partitioned table",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for reproducibility (default: 42)",
+        "--config",
+        type=Path,
+        default=Path("config/seed.toml"),
+        help="TOML file with the seed, partition days, and row count of each table",
     )
     parser.add_argument(
         "--sync-config",
@@ -81,13 +108,12 @@ def parse_args() -> Config:
     )
 
     args = parser.parse_args()
+    config_path = cast(Path, args.config)
 
     return Config(
         project=cast("str | None", args.project),
         dataset=cast(str, args.dataset),
-        n_rows=cast(int, args.n_rows),
-        partition_days=cast(int, args.partition_days),
-        seed=cast(int, args.seed),
+        settings=SeedSettings.model_validate(tomllib.loads(config_path.read_text())),
         sync_config=cast(Path, args.sync_config),
     )
 
@@ -104,6 +130,14 @@ def build_full_table_rows(n: int) -> list[Row]:
             },
         }
         for i in range(n)
+    ]
+
+
+def build_big_table_rows(n: int, max_days: int) -> list[Row]:
+    today = datetime.now(tz=UTC).date()
+    return [
+        {**row, "date": (today - timedelta(days=randint(0, max_days - 1))).isoformat()}
+        for row in build_full_table_rows(n)
     ]
 
 
@@ -155,7 +189,7 @@ def load_table(
 def main() -> None:
     cfg = parse_args()
 
-    set_seed(cfg.seed)
+    set_seed(cfg.settings.seed)
 
     client = Client(project=cfg.project) if cfg.project else Client()
     sync_config = SyncConfig.model_validate_json(cfg.sync_config.read_text())
@@ -164,6 +198,8 @@ def main() -> None:
         "rj-ia-desenvolvimento.dev.full_table",
         "rj-ia-desenvolvimento.dev.partitioned_table",
         "rj-ia-desenvolvimento.dev.multi_rls_table",
+        "rj-ia-desenvolvimento.dev.failing_table",
+        "rj-ia-desenvolvimento.dev.big_table",
     }
     missing_tables = required_tables - table_refs
     if missing_tables:
@@ -181,28 +217,34 @@ def main() -> None:
 
     client.create_dataset(cfg.dataset, exists_ok=True)
 
-    full_rows = build_full_table_rows(cfg.n_rows)
+    tables = cfg.settings.tables
+    full_rows = build_full_table_rows(tables.full_table.rows)
     load_table(
         client,
         table_ref("full_table"),
         full_rows,
-        schema=[
-            SchemaField("id", "STRING", mode="REQUIRED"),
-            SchemaField("name", "STRING", mode="REQUIRED"),
-            SchemaField("unit_id", "STRING", mode="REQUIRED"),
-            SchemaField(
-                "metadata",
-                "RECORD",
-                mode="NULLABLE",
-                fields=[
-                    SchemaField("status", "STRING", mode="NULLABLE"),
-                    SchemaField("tags", "STRING", mode="NULLABLE"),
-                ],
-            ),
-        ],
+        schema=FULL_SCHEMA,
     )
 
-    partitioned_rows = build_partitioned_table_rows(cfg.n_rows, cfg.partition_days)
+    big_ref = table_ref("big_table")
+    client.delete_table(big_ref, not_found_ok=True)
+    big_rows = build_big_table_rows(
+        tables.big_table.rows, tables.big_table.partition_days
+    )
+    load_table(
+        client,
+        big_ref,
+        big_rows,
+        schema=[*FULL_SCHEMA, SchemaField("date", "DATE", mode="REQUIRED")],
+        time_partitioning=TimePartitioning(
+            type_=TimePartitioningType.DAY,
+            field="date",
+        ),
+    )
+
+    partitioned_rows = build_partitioned_table_rows(
+        tables.partitioned_table.rows, tables.partitioned_table.partition_days
+    )
     load_table(
         client,
         table_ref("partitioned_table"),
@@ -219,7 +261,7 @@ def main() -> None:
         ),
     )
 
-    multi_rls_rows = build_multi_rls_table_rows(cfg.n_rows)
+    multi_rls_rows = build_multi_rls_table_rows(tables.multi_rls_table.rows)
     load_table(
         client,
         table_ref("multi_rls_table"),
@@ -232,11 +274,32 @@ def main() -> None:
         ],
     )
 
+    failing_ref = table_ref("failing_table")
+    client.delete_table(failing_ref, not_found_ok=True)
+    failing = Table(
+        failing_ref,
+        schema=[
+            SchemaField("id", "STRING", mode="REQUIRED"),
+            SchemaField("date", "DATE", mode="REQUIRED"),
+            SchemaField("unit_id", "STRING", mode="REQUIRED"),
+        ],
+    )
+    failing.time_partitioning = TimePartitioning(
+        type_=TimePartitioningType.DAY,
+        field="date",
+    )
+    failing.require_partition_filter = True
+    client.create_table(failing)
+    client.query(
+        f"INSERT INTO `{failing_ref}` VALUES ('1', CURRENT_DATE(), 'unit_1')"
+    ).result()
+
     logger.info(
-        "Seed completed full=%d partitioned=%d multi_rls=%d",
+        "Seed completed full=%d partitioned=%d multi_rls=%d big=%d",
         len(full_rows),
         len(partitioned_rows),
         len(multi_rls_rows),
+        len(big_rows),
     )
 
 

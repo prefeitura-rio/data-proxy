@@ -18,13 +18,13 @@ triggers:
 
 | Value | Helm default | Meaning |
 | --- | --- | --- |
-| `keda.idleReplicaCount` | `1` | Replicas when the DBOS queue is empty. |
-| `keda.minReplicaCount` | `3` | Minimum active sync replicas. |
-| `keda.maxReplicaCount` | `15` | Maximum sync replicas. |
-| `keda.pollingInterval` | `30` | Seconds between KEDA checks. |
-| `keda.cooldownPeriod` | `60` | Seconds before scale-down. |
-| `keda.targetQueryValue` | `"1.1"` | Target query value. |
-| `keda.activationTargetQueryValue` | `"5"` | Activation threshold. |
+| `autoscaling.idleReplicaCount` | `1` | Replicas when the DBOS queue is empty. |
+| `autoscaling.minReplicaCount` | `3` | Minimum active sync replicas. |
+| `autoscaling.maxReplicaCount` | `15` | Maximum sync replicas. |
+| `autoscaling.pollingInterval` | `30` | Seconds between KEDA checks. |
+| `autoscaling.cooldownPeriod` | `60` | Seconds before scale-down. |
+| `autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
+| `autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
 | `ducklake.catalogStorage` | see values | Shared writer and reader PVC configuration. |
 | `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
@@ -46,7 +46,7 @@ sync:
     dumperStepMaxAttempts: 3
     dumpQueueWorkerConcurrency: 4
     # DBOS workers use the shared writer catalog PVC.
-    keda:
+    autoscaling:
       idleReplicaCount: 1
       minReplicaCount: 3
       maxReplicaCount: 15

@@ -1,0 +1,15 @@
+seed = 42
+
+[tables.full_table]
+rows = 5000
+
+[tables.partitioned_table]
+rows = 5000
+partition_days = 8
+
+[tables.multi_rls_table]
+rows = 5000
+
+[tables.big_table]
+rows = 1000000
+partition_days = 30

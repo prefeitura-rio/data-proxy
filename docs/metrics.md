@@ -42,7 +42,18 @@ Use API response headers for client troubleshooting. Use logs for request analys
 | ---------------------------------------- | --------- |
 | Cache                                    | 50 ms     |
 | DuckLake                                 | 300 ms    |
-| BigQuery (`bigquery`, `ducklake+bigquery`) | 4000 ms   |
+| BigQuery (`bigquery`, `ducklake+bigquery`) | 6000 ms   |
+| DuckLake heavy queries                   | 1000 ms   |
+| DuckLake selective lookups               | 1000 ms   |
+| DuckLake pinned snapshots                | 1000 ms   |
+
+The smoke profile runs one VU for 40 seconds. Load and stress use open-model arrival rates, so each stage offers a fixed number of iterations per second even when responses slow down. Load ramps to 15 iterations/s and holds for 5 minutes. Stress steps through 10, 20, 30, 40, 50, and 60 iterations/s, with 1-minute holds (2 minutes at 60). Stress also samples the PostgREST and proxy replica counts every 5 seconds and fails if neither scales above its starting count. The high stress stages may reach latency limits; their thresholds are relaxed to measure overload while retaining checks for request failures, dropped iterations, and scale-out.
+
+Each iteration of the load, stress, and smoke profiles sends one of three kinds of request:
+
+- 20% bottleneck cases: half heavy queries (group-bys, sorted scans, jsonb filters), a quarter selective lookups by id, and a quarter reads at a pinned snapshot.
+- 25% BigQuery pairs: one request to BigQuery and a repeat that must come from the cache.
+- 55% normal routes.
 
 ## Scraping
 

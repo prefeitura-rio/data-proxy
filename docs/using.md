@@ -88,7 +88,7 @@ curl \
   "${BASE_URL}/my_table?limit=20"
 ```
 
-An unknown or expired snapshot returns `404`, and a value that is not a whole number returns `400`. Snapshot history is retained for seven days.
+An unknown or expired snapshot returns `404`, and a value that is not a whole number returns `400`. Snapshot history is retained for seven days. A table that has no published data and no fallback also returns `404`.
 
 Use these headers for troubleshooting, not authorization.
 
