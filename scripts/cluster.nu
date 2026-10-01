@@ -335,7 +335,11 @@ def clear-test-resources [kubecfg: path]: nothing -> nothing {
                 -o $jsonpath
         ) | str trim
         let dsn = $'postgresql://admin:test-pg-pass@($cluster)-rw:5432/data-proxy'
-        let query = "SELECT tablename FROM pg_tables WHERE schemaname = \x27" + $schema + "\x27 AND tablename NOT IN (\x27access_policy\x27, \x27access_log\x27)"
+        let query = [
+            "SELECT tablename FROM pg_tables WHERE schemaname = '"
+            $schema
+            "' AND tablename NOT IN ('access_policy', 'access_log')"
+        ] | str join ''
         let tables = (
             k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $query
         )
@@ -436,16 +440,22 @@ def runner-job-ready [kubecfg: path, label: string]: nothing -> bool {
     ($jobs | is-not-empty) and ($jobs != '[]')
 }
 
+# Read the status of one condition type on the k6 runner Jobs.
+def job-condition [kubecfg: path, label: string, type: string]: nothing -> string {
+    let path = [
+        'jsonpath={.items[*].status.conditions[?(@.type=="'
+        $type
+        '")].status}'
+    ] | str join ''
+
+    (k $kubecfg -n data-proxy get jobs -l $label -o $path) | str trim
+}
+
 # Check whether the k6 test job completed, returning completion and error flags.
 def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
-    let complete_path = 'jsonpath={range .items[*]}{.status.conditions[?(@.type=="Complete")].status}{.status.conditions[?(@.type=="Failed")].status}{end}'
-    let phase = (k $kubecfg -n data-proxy get jobs -l $label -o $complete_path) | str trim
-    if $phase == 'True' {
-        {complete: true, failed: false}
-    } else if $phase == 'FalseTrue' {
-        {complete: false, failed: true}
-    } else {
-        {complete: false, failed: false}
+    {
+        complete: ((job-condition $kubecfg $label 'Complete') == 'True')
+        failed: ((job-condition $kubecfg $label 'Failed') == 'True')
     }
 }
 
@@ -458,6 +468,7 @@ def k6-run [
     testrun: string
     yaml_path: path
     --profile: string = ''
+    --set: record = {}
 ]: nothing -> nothing {
     log info $'Creating configmap ($configmap)...'
     (k
@@ -479,18 +490,22 @@ def k6-run [
     k $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
 
     log info $'Applying testrun ($testrun)...'
-    if $profile != '' {
-        let yaml = try { open --raw $yaml_path } catch {|err| error make {
-            msg: $'Failed to open ($yaml_path): ($err.msg)'
-            label: {
-                text: $yaml_path
-                span: (metadata $yaml_path).span
-            }
-        } }
-        ($yaml | str replace --all 'value: load' $'value: ($profile)') | k $kubecfg apply -f -
-    } else {
-        k $kubecfg apply -f $yaml_path
+    let yaml = try { open --raw $yaml_path } catch {|err| error make {
+        msg: $'Failed to open ($yaml_path): ($err.msg)'
+        label: {
+            text: $yaml_path
+            span: (metadata $yaml_path).span
+        }
+    } }
+    let yaml = if $profile != '' {
+        $yaml | str replace --all 'value: load' $'value: ($profile)'
+    } else { $yaml }
+    let yaml = $set
+    | items {|name, value| {name: $name, value: $value} }
+    | reduce --fold $yaml {|entry, text|
+        $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}' $entry.value] | str join '')
     }
+    $yaml | k $kubecfg apply -f -
 
     let label = $'k6_cr=($testrun),runner=true'
 
@@ -508,7 +523,7 @@ def k6-run [
     log info 'Waiting for the test to complete...'
     let deadline = (date now) + 60min
     mut phase_result = (test-phase $kubecfg $label)
-    while (date now) < $deadline and not $phase_result.complete {
+    while (date now) < $deadline and not $phase_result.complete and not $phase_result.failed {
         sleep 2sec
         $phase_result = (test-phase $kubecfg $label)
     }
@@ -581,24 +596,139 @@ def refresh-proxy [kubecfg: path]: nothing -> nothing {
     ) out> /dev/null
 }
 
+# Check that the Cluster has the instances of the mode and that all of them are ready.
+def cluster-settled [kubecfg: path, ha: bool]: nothing -> bool {
+    let cluster = try {
+        k $kubecfg -n data-proxy get cluster data-proxy -o json | from json
+    } catch {
+        return false
+    }
+
+    let instances = $cluster.spec.instances
+    let sized = if $ha { $instances >= 3 } else { $instances == 1 }
+
+    $sized and ($cluster.status.readyInstances? == $instances) and ($cluster.status.phase? == 'Cluster in healthy state')
+}
+
+# Switch the release between single and HA mode and wait for its workloads and instances.
+def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
+    let repo = git-root
+    let mode = if $ha { 'HA' } else { 'single' }
+
+    log info $'Switching to ($mode) mode...'
+    (hm
+        $kubecfg
+        upgrade
+        data-proxy
+        $'($repo)/helm'
+        --namespace
+        data-proxy
+        --values
+        $'($repo)/scripts/values/data-proxy.yaml'
+        --set
+        $'ha.enabled=($ha)'
+        --timeout
+        10m
+    )
+
+    [
+        'data-proxy/data-proxy-proxy'
+        'data-proxy/data-proxy-postgrest'
+        'data-proxy/data-proxy-sync'
+    ] | wait-for deployment $kubecfg
+
+    log info $'Waiting for the ($mode) instances...'
+    if not (poll {|| (cluster-settled $kubecfg $ha) } {interval: 10sec, max_attempts: 90}) {
+        error make {
+            msg: $'The cluster did not settle in ($mode) mode within 15 minutes'
+            label: {
+                text: 'switch-mode'
+                span: (metadata $ha).span
+            }
+        }
+    }
+
+    if $ha {
+        [
+            'data-proxy/data-proxy-postgrest-ro'
+            'data-proxy/data-proxy-pooler-ro'
+        ] | wait-for deployment $kubecfg
+    }
+}
+
+# Run one suite of the e2e script: e2e, modes, or full. MODE is the deployed mode that modes checks.
+def run-suite [kubecfg: path, suite: string, mode: string]: nothing -> nothing {
+    log info $'Running the ($suite) suite against ($mode) mode...'
+    (k6-run
+        $kubecfg
+        'data-proxy-e2e'
+        'e2e.ts'
+        'k6/e2e.ts'
+        'data-proxy-e2e'
+        'k6/e2e.yaml'
+        --set {SUITE: $suite, MODE: $mode}
+    )
+}
+
+# Move the release from single to HA mode and back, validating each mode.
+def run-modes [kubecfg: path]: nothing -> nothing {
+    switch-mode $kubecfg true
+    run-suite $kubecfg 'modes' 'ha'
+    switch-mode $kubecfg false
+    run-suite $kubecfg 'modes' 'single'
+}
+
+# Run one perf profile in the requested mode. The release is switched first, so a run never depends on the mode an earlier run left. A run in HA mode switches back to single mode afterwards, even when it fails.
+def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
+    switch-mode $kubecfg $ha
+
+    let failure = try {
+        refresh-proxy $kubecfg
+        clear-test-resources $kubecfg
+        k6-run $kubecfg 'data-proxy-k6' 'perf.ts' 'k6/perf.ts' 'data-proxy-perf' 'k6/perf.yaml' --profile $profile --set {HA_MODE: (if $ha { "true" } else { "false" })}
+        null
+    } catch {|err| $err }
+
+    if $ha { switch-mode $kubecfg false }
+    if $failure != null { error make $failure.raw }
+}
+
+# Run the k6 smoke profile: one virtual user for 40 seconds.
+def "main k6 smoke" [
+    --ha # Run in HA mode, then return to single mode
+]: nothing -> nothing {
+    run-perf (git-root | path join .kubeconfig) 'smoke' $ha
+}
+
 # Run the standard k6 load profile.
-def "main k6 load" []: nothing -> nothing {
-    let kubecfg = git-root | path join .kubeconfig
-    refresh-proxy $kubecfg
-    clear-test-resources $kubecfg
-    k6-run $kubecfg 'data-proxy-k6' 'load.ts' 'k6/load.ts' 'data-proxy-load' 'k6/load.yaml' --profile 'load'
+def "main k6 load" [
+    --ha # Run in HA mode, then return to single mode
+]: nothing -> nothing {
+    run-perf (git-root | path join .kubeconfig) 'load' $ha
 }
 
 # Run the k6 stress profile.
-def "main k6 stress" []: nothing -> nothing {
-    let kubecfg = git-root | path join .kubeconfig
-    refresh-proxy $kubecfg
-    clear-test-resources $kubecfg
-    k6-run $kubecfg 'data-proxy-k6' 'load.ts' 'k6/load.ts' 'data-proxy-load' 'k6/load.yaml' --profile 'stress'
+def "main k6 stress" [
+    --ha # Run in HA mode, then return to single mode
+]: nothing -> nothing {
+    run-perf (git-root | path join .kubeconfig) 'stress' $ha
 }
 
 # Run the e2e test (triggers sync, seeds RLS, validates the sync service).
-def "main k6 e2e" []: nothing -> nothing {
+# --mode e2e runs the main suite, modes switches to HA and back, and full (default) runs both.
+def "main k6 e2e" [
+  --mode: string = 'full' # Mode of the test
+]: nothing -> nothing {
+    if $mode not-in [e2e modes full] {
+        error make {
+            msg: $'--mode must be e2e, modes, or full: ($mode)'
+            label: {
+                text: 'unknown mode'
+                span: (metadata $mode).span
+            }
+        }
+    }
+
     let kubecfg = git-root | path join .kubeconfig
 
     let repo = git-root
@@ -678,15 +808,14 @@ def "main k6 e2e" []: nothing -> nothing {
     log info 'Clearing test resources...'
     clear-test-resources $kubecfg
 
-    log info 'Running e2e test...'
-    (k6-run
-        $kubecfg
-        'data-proxy-e2e'
-        'e2e.ts'
-        'k6/e2e.ts'
-        'data-proxy-e2e'
-        'k6/e2e.yaml'
-    )
+    match $mode {
+        'e2e' => { run-suite $kubecfg 'e2e' 'single' }
+        'modes' => { run-modes $kubecfg }
+        _ => {
+            run-suite $kubecfg 'full' 'single'
+            run-modes $kubecfg
+        }
+    }
 }
 
 # Check whether the CNPG cluster reports a healthy phase.

@@ -12,5 +12,5 @@
     "typeRoots": ["./types"],
     "types": ["k6"]
   },
-  "include": ["e2e.ts", "load.ts", "types"]
+  "include": ["e2e.ts", "perf.ts", "types"]
 }

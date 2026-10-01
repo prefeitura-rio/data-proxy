@@ -1,15 +1,17 @@
 import http from "k6/http";
 import type { RequestParams, Response as K6Response } from "k6/http";
 import { Kubernetes } from "k6/x/kubernetes";
+import type { KubernetesPodSpec } from "k6/x/kubernetes";
 import { check, sleep } from "k6";
 import {
     triggerSync,
     waitForJob,
-    restartPipeline,
+    syncPods,
+    cronJobPodSpec,
     waitForWorkflow,
-    waitForWorkflowRunning,
     workerPodSpec,
     deploymentPodSpec,
+    runCronJob,
     NAMESPACE,
 } from "./lib.ts";
 
@@ -48,22 +50,56 @@ const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
     __ENV.POSTGREST_URL ||
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
+const POSTGREST_READ_URL =
+    __ENV.POSTGREST_READ_URL ||
+    "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
-const FULL_SOURCE =
-    __ENV.FULL_SOURCE ||
-    "rj-ia-desenvolvimento.dev.full_table";
+const PARTITIONED_SOURCE =
+    __ENV.PARTITIONED_SOURCE ||
+    "rj-ia-desenvolvimento.dev.partitioned_table";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
 const SYNCED_PARTITIONS = 4;
 const PARTITION_COLUMN = "date";
 const BURST_REQUESTS = 5;
 const SCHEMA = "test";
+const MAINTENANCE_CRONJOB = __ENV.MAINTENANCE_CRONJOB || "data-proxy-maintenance";
+const BACKUP_CRONJOB = __ENV.BACKUP_CRONJOB || `data-proxy-${SCHEMA}-backup`;
+const STALE_VIEW = `${SCHEMA}.e2e_stale_view`;
+const REMOVED_PARTITION = "19990101";
+const STATE_DATABASE = "DBOS_SYSTEM_DATABASE_URL";
 const POLL_INTERVAL = 2;
+const TOKEN_REFRESH_SECONDS = 60;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
+const SUITE = __ENV.SUITE || "full";
+const MODE = __ENV.MODE || "single";
+if (["e2e", "modes", "full"].indexOf(SUITE) === -1) {
+    throw new Error(`SUITE must be e2e, modes, or full: ${SUITE}`);
+}
+if (["single", "ha"].indexOf(MODE) === -1) {
+    throw new Error(`MODE must be single or ha: ${MODE}`);
+}
+const RUN_E2E = SUITE !== "modes";
+const RUN_MODES = SUITE !== "e2e";
+const EXPECT_HA = MODE === "ha";
+const MODE_TIMEOUT_SECONDS = Number(__ENV.MODE_TIMEOUT_SECONDS || "900");
+const CLUSTER_NAME = __ENV.CLUSTER_NAME || "data-proxy";
+const HA_MIN_INSTANCES = 3;
+const SECRETS_MOUNT = "/var/lib/postgresql/data/.duckdb/stored_secrets";
+const SECRETS_SUBPATH = "duckdb-secrets";
+const READ_POSTGREST = "data-proxy-postgrest-ro";
+const READ_POOLER = "data-proxy-pooler-ro";
+const CLUSTER_SCALER = "data-proxy-cluster-autoscaler";
+const PROXY_DEPLOYMENT = "data-proxy-proxy";
+const PAUSED_REPLICAS = "autoscaling.keda.sh/paused-replicas";
+const PARALLEL_READS = 10;
 
 const FULL_TABLE = "full_table";
 const MULTI_RLS_TABLE = "multi_rls_table";
 const PARTITIONED_TABLE = "partitioned_table";
 const TABLES = [FULL_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE];
+const BIG_TABLE = "big_table";
+const FAILING_TABLE = "failing_table";
+const FAILING_SOURCE = "rj-ia-desenvolvimento.dev.failing_table";
 
 const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
 const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
@@ -118,22 +154,41 @@ function safeJson(r: K6Response): unknown {
 }
 
 /** Fetches an OIDC access token, retrying up to five times. */
-function fetchToken(
-    clientId: string = OIDC_USER_CLIENT_ID,
-): string {
+function requestToken(clientId: string): { token: string; lifetime: number } {
     for (let attempt = 0; attempt < 5; attempt++) {
         const response = http.post(OIDC_TOKEN_URL, {
             grant_type: "client_credentials",
             client_id: clientId,
             client_secret: OIDC_CLIENT_SECRET,
         }) as K6Response;
-        const body = safeJson(response) as { access_token?: string } | null;
+        const body = safeJson(response) as {
+            access_token?: string;
+            expires_in?: number;
+        } | null;
         if (body?.access_token) {
-            return body.access_token;
+            return { token: body.access_token, lifetime: body.expires_in ?? 0 };
         }
         sleep(2);
     }
     throw new Error(`Token request failed for client: ${clientId}`);
+}
+
+function fetchToken(clientId: string = OIDC_USER_CLIENT_ID): string {
+    return requestToken(clientId).token;
+}
+
+let userSession = { token: "", expiresAt: 0 };
+
+/** Returns a token for the test user, refreshed before it expires. */
+function userToken(): string {
+    if (Date.now() >= userSession.expiresAt) {
+        const { token, lifetime } = requestToken(OIDC_USER_CLIENT_ID);
+        userSession = {
+            token,
+            expiresAt: Date.now() + (lifetime - TOKEN_REFRESH_SECONDS) * 1000,
+        };
+    }
+    return userSession.token;
 }
 
 /** Builds the authentication headers for a request through the proxy. */
@@ -215,18 +270,18 @@ function verifyNoAccess(): void {
         "no-access response omits the DuckLake snapshot": () => snapshot === "",
     });
 
-    const fallback = proxyGet(`/${PARTITIONED_TABLE}?limit=1`, token);
+    const partitioned = proxyGet(`/${PARTITIONED_TABLE}?limit=1`, token);
     expect(
-        "no-access fallback request returns zero rows",
-        fallback.status === 200 && rowsOf(fallback).length === 0,
+        "no-access partitioned request returns zero rows",
+        partitioned.status === 200 && rowsOf(partitioned).length === 0,
     );
     expect(
-        "no-access fallback request queries no source",
-        sourceHeader(fallback) === "",
+        "no-access partitioned request queries no source",
+        sourceHeader(partitioned) === "",
     );
     expect(
-        "no-access fallback response omits the DuckLake snapshot",
-        snapshotHeader(fallback) === "",
+        "no-access partitioned response omits the DuckLake snapshot",
+        snapshotHeader(partitioned) === "",
     );
 }
 
@@ -380,7 +435,8 @@ function pollOnce(metrics: MetricRequest[]): boolean {
 }
 
 /** Verifies every sync metric with a k6 check. */
-function verifyMetrics(metrics: MetricRequest[]): void {
+function verifyMetrics(): void {
+    const metrics = buildMetrics(userToken());
     const responses = executeMetrics(metrics);
 
     metrics.forEach((m, i) => {
@@ -401,14 +457,61 @@ function verifyMetrics(metrics: MetricRequest[]): void {
 }
 
 /** Verifies that an unchanged source does not change published state. */
-function verifyNoChangeRun(k8s: Kubernetes, token: string): void {
-    const snapshotBefore = snapshotValue(token);
+function verifyBlockedTable(k8s: Kubernetes): void {
+    const failing = `fields->>'table' = '${FAILING_SOURCE}'`;
+    runSqlJob(
+        k8s,
+        "clear-blocked-errors",
+        `DELETE FROM data_proxy.errors WHERE ${failing}`,
+        "DBOS_SYSTEM_DATABASE_URL",
+    );
+    const snapshotBefore = snapshotValue(userToken());
+
+    const job = triggerSync(k8s);
+    waitForJob(k8s, job);
+    waitForWorkflow(k8s);
+
+    for (const reason of ["extraction_failed", "table_blocked"]) {
+        checkSql(
+            k8s,
+            `check-${reason}`,
+            `SELECT count(*) > 0 FROM data_proxy.errors WHERE reason = '${reason}' AND ${failing}`,
+            "t",
+            "DBOS_SYSTEM_DATABASE_URL",
+        );
+    }
+    checkSql(
+        k8s,
+        "check-blocked-state",
+        `SELECT count(*) FILTER (WHERE table_name = '${FAILING_SOURCE}') || '/' || count(*) FROM data_proxy.state`,
+        `0/${[...TABLES, BIG_TABLE].length}`,
+        "DBOS_SYSTEM_DATABASE_URL",
+    );
+
+    const blocked = http.get(`${API_URL}/${FAILING_TABLE}?limit=1`, {
+        headers: authHeaders(userToken()),
+        tags: { name: "blocked_table" },
+    }) as K6Response;
+    const served = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
+        headers: authHeaders(userToken()),
+        tags: { name: "blocked_table_neighbour" },
+    }) as K6Response;
+    expect("a table that failed extraction is not found", blocked.status === 404);
+    expect("a table next to a failed one is still served", served.status === 200);
+    expect(
+        "a failed extraction does not change the snapshot",
+        snapshotValue(userToken()) === snapshotBefore,
+    );
+}
+
+function verifyNoChangeRun(k8s: Kubernetes): void {
+    const snapshotBefore = snapshotValue(userToken());
     const revisionBefore = postgrestDeploymentRevision(k8s);
     const job = triggerSync(k8s);
     waitForJob(k8s, job);
     waitForWorkflow(k8s);
 
-    const snapshotAfter = snapshotValue(token);
+    const snapshotAfter = snapshotValue(userToken());
     const revisionAfter = postgrestDeploymentRevision(k8s);
     expect("an unchanged sync preserves the snapshot", snapshotAfter === snapshotBefore);
     expect(
@@ -442,8 +545,9 @@ function directPostgrest(
     path: string,
     token: string,
     extra: Record<string, string> = {},
+    baseUrl: string = POSTGREST_URL,
 ): K6Response {
-    return http.get(`${POSTGREST_URL}${path}`, {
+    return http.get(`${baseUrl}${path}`, {
         headers: {
             Authorization: `Bearer ${token}`,
             "Accept-Profile": SCHEMA,
@@ -511,13 +615,21 @@ function requirePrecondition(name: string, ok: boolean, detail: unknown): void {
     }
 }
 
-/** Runs one shell command from a short-lived Job with selected pod mounts. */
+/** Where a command Job runs: its pod spec, image, and service account. */
+interface CommandJobOptions {
+    podSpec?: KubernetesPodSpec;
+    image?: string;
+    serviceAccountName?: string;
+}
+
+/** Runs one shell command from a short-lived Job and fails when it fails. */
 function runCommandJob(
     k8s: Kubernetes,
     label: string,
     command: string,
-    podSpec = workerPodSpec(k8s),
+    options: CommandJobOptions = {},
 ): void {
+    const podSpec = options.podSpec ?? workerPodSpec(k8s);
     const name = label.replace(/_/g, "-").slice(0, 40);
     const jobName = `e2e-${name}-${Date.now()}`;
 
@@ -530,11 +642,14 @@ function runCommandJob(
             template: {
                 spec: {
                     ...podSpec,
+                    ...(options.serviceAccountName
+                        ? { serviceAccountName: options.serviceAccountName }
+                        : {}),
                     restartPolicy: "Never",
                     containers: [
                         {
                             name: name,
-                            image: PG_IMAGE,
+                            image: options.image ?? PG_IMAGE,
                             command: ["/bin/sh"],
                             args: ["-c", command],
                             env: podSpec.containers[0].env,
@@ -546,6 +661,26 @@ function runCommandJob(
         },
     });
     waitForJob(k8s, jobName);
+}
+
+/** Shell test that succeeds when one SQL query prints the expected value. */
+function sqlEquals(
+    query: string,
+    expected: string,
+    databaseVariable: "PG_DATABASE_URL" | "DBOS_SYSTEM_DATABASE_URL" = "PG_DATABASE_URL",
+): string {
+    return `test "$(psql "$${databaseVariable}" -tAc ${JSON.stringify(query)})" = ${JSON.stringify(expected)}`;
+}
+
+/** Fails the run unless one SQL query prints the expected value. */
+function checkSql(
+    k8s: Kubernetes,
+    label: string,
+    query: string,
+    expected: string,
+    databaseVariable: "PG_DATABASE_URL" | "DBOS_SYSTEM_DATABASE_URL" = "PG_DATABASE_URL",
+): void {
+    runCommandJob(k8s, label, sqlEquals(query, expected, databaseVariable));
 }
 
 /** Runs one SQL statement in a database from a short-lived Job. */
@@ -727,31 +862,66 @@ function verifyCoalescing(token: string): void {
     );
 }
 
-/** Restarts a sync worker during a detached workflow and verifies distributed recovery. */
-function verifyPipelineRecovery(k8s: Kubernetes, metrics: MetricRequest[]): void {
-    runSqlJob(
-        k8s,
-        "prepare-recovery",
-        `DELETE FROM data_proxy.state WHERE table_name = '${FULL_SOURCE}'`,
-        "DBOS_SYSTEM_DATABASE_URL",
-    );
-    const job = triggerSync(k8s, true);
-    waitForJob(k8s, job);
-    waitForWorkflowRunning(k8s);
-    restartPipeline(k8s);
+/**
+ * Kills the sync pod that owns a running workflow and verifies distributed recovery.
+ *
+ * A normal pod deletion lets the workflow finish during the shutdown grace
+ * period, so the pod is deleted with no grace period. The recovery loop must
+ * then re-enqueue the workflow for a pod that is still alive.
+ */
+function verifyPipelineRecovery(k8s: Kubernetes): void {
+    runSqlJob(k8s, "prepare-recovery", "DELETE FROM data_proxy.state", STATE_DATABASE);
+    const podsBefore = syncPods(k8s).map((pod) => pod.metadata.uid);
+
+    waitForJob(k8s, triggerSync(k8s, true));
+    killWorkflowOwner(k8s);
     waitForWorkflow(k8s);
-    const completed = waitForPipeline(metrics, PHASE_TIMEOUT_SECONDS);
+    const completed = waitForPipeline(PHASE_TIMEOUT_SECONDS);
     check(null, { "the sync service recovered after restart": () => completed });
+
+    const live = syncPods(k8s).map((pod) => pod.metadata.uid);
+    expect(
+        "the pod that owned the workflow is gone",
+        podsBefore.filter((uid) => !live.includes(uid)).length === 1,
+    );
+    checkSql(
+        k8s,
+        "check-recovery-executor",
+        `SELECT executor_id IN (${live.map((uid) => `'${uid}'`).join(", ")}) FROM dbos.workflow_status WHERE name = 'run_sync' ORDER BY created_at DESC LIMIT 1`,
+        "t",
+        STATE_DATABASE,
+    );
+    expect("a pod that is still alive finished the recovered workflow", true);
+}
+
+/** Force-deletes the sync pod that executes the running sync workflow. */
+function killWorkflowOwner(k8s: Kubernetes): void {
+    const image = cronJobPodSpec(k8s, MAINTENANCE_CRONJOB).containers[0].image;
+    const owner =
+        "SELECT executor_id FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1";
+    const script = [
+        "for attempt in $(seq 1 60); do",
+        `  uid="$(psql "$${STATE_DATABASE}" -tAc ${JSON.stringify(owner)})"`,
+        '  test -n "$uid" && break',
+        "  sleep 1",
+        "done",
+        'test -n "$uid"',
+        `pod="$(kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/component=sync -o jsonpath="{.items[?(@.metadata.uid==\\"$uid\\")].metadata.name}")"`,
+        'test -n "$pod"',
+        `kubectl delete pod "$pod" -n ${NAMESPACE} --grace-period=0 --force`,
+    ].join("\n");
+
+    runCommandJob(k8s, "kill-workflow-owner", script, {
+        image,
+        serviceAccountName: "data-proxy-k6",
+    });
 }
 
 /** Waits until the sync service has published all tables. */
-function waitForPipeline(
-    metrics: MetricRequest[],
-    timeoutSeconds: number,
-): boolean {
+function waitForPipeline(timeoutSeconds: number): boolean {
     const deadline = Date.now() + timeoutSeconds * 1000;
     while (Date.now() < deadline) {
-        if (pollOnce(metrics)) {
+        if (pollOnce(buildMetrics(userToken()))) {
             return true;
         }
         sleep(POLL_INTERVAL);
@@ -871,7 +1041,6 @@ function verifyCatalogSync(k8s: Kubernetes): void {
         k8s,
         "check-writer-catalog",
         `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
-        workerPodSpec(k8s),
     );
     expect("the writer catalog is present", true);
 
@@ -879,9 +1048,204 @@ function verifyCatalogSync(k8s: Kubernetes): void {
         k8s,
         "check-reader-catalog",
         `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
-        deploymentPodSpec(k8s, "data-proxy-litestream"),
+        { podSpec: deploymentPodSpec(k8s, "data-proxy-litestream") },
     );
     expect("the reader catalog is present", true);
+}
+
+/** Verifies the change feed returns only the changes a user may see. */
+function verifyChangeFeed(token: string): void {
+    const latest = Number(snapshotValue(token));
+    const noPolicyToken = fetchToken(OIDC_NO_POLICY_CLIENT_ID);
+    const changeTypes = ["insert", "delete", "update_preimage", "update_postimage"];
+    const feeds = [
+        {
+            table: FULL_TABLE,
+            columns: "unit_id",
+            permitted: (row: Record<string, unknown>) => row.unit_id === "unit_1",
+        },
+        {
+            table: MULTI_RLS_TABLE,
+            columns: "region_id,group_id",
+            permitted: (row: Record<string, unknown>) =>
+                row.region_id === "region_1" || row.group_id === "group_1",
+        },
+    ];
+
+    for (const feed of feeds) {
+        const path = `/rpc/ducklake_changes_${feed.table}?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
+        const all = proxyGet(path, token);
+        const rows = rowsOf(all) as Array<Record<string, unknown>>;
+        const bounded = proxyGet(`${path}&end_snapshot=${latest}`, token);
+        const denied = proxyGet(path, noPolicyToken);
+
+        expect(
+            `${feed.table} change feed returns rows`,
+            all.status === 200 && rows.length > 0,
+        );
+        expect(
+            `${feed.table} change feed returns only permitted units`,
+            rows.every(feed.permitted),
+        );
+        expect(
+            `${feed.table} change feed names a known change type`,
+            rows.every((row) => changeTypes.includes(String(row.change_type))),
+        );
+        expect(
+            `${feed.table} change feed stays within the published snapshots`,
+            rows.every((row) => Number(row.change_snapshot_id) <= latest),
+        );
+        expect(
+            `${feed.table} change feed ends at the latest snapshot by default`,
+            bounded.status === 200 && rowsOf(bounded).length === rows.length,
+        );
+        expect(
+            `${feed.table} change feed is empty for a user without a policy`,
+            denied.status === 200 && rowsOf(denied).length === 0,
+        );
+    }
+}
+
+/**
+ * Replays each kind of partition change by editing the stored manifest.
+ *
+ * The next sync must repair the manifest and leave the DuckLake rows unchanged,
+ * because publication deletes the rows a changed partition replaces before it
+ * inserts them again.
+ */
+function verifyPartitionChanges(k8s: Kubernetes): void {
+    const pinned = () => ({ "X-DuckLake-Snapshot": snapshotValue(userToken()) });
+    const baseline = rowsPerPartition(userToken(), pinned()).counts;
+    requirePrecondition(
+        "the partitioned table has a manifest to replay",
+        baseline.size === SYNCED_PARTITIONS,
+        { partitions: baseline.size },
+    );
+
+    const table = `table_name = '${PARTITIONED_SOURCE}'`;
+    const oldest = "(SELECT min(key) FROM jsonb_each(state->'partitions'))";
+    const cases = [
+        {
+            id: "added",
+            name: "a partition missing from the manifest is added again",
+            edit: `UPDATE data_proxy.state SET state = state #- ARRAY['partitions', ${oldest}] WHERE ${table}`,
+            query: `SELECT count(*) FROM data_proxy.state, jsonb_object_keys(state->'partitions') WHERE ${table}`,
+            broken: String(SYNCED_PARTITIONS - 1),
+            healthy: String(SYNCED_PARTITIONS),
+            publishes: true,
+        },
+        {
+            id: "updated",
+            name: "a partition with a stale signature is updated",
+            edit: `UPDATE data_proxy.state SET state = jsonb_set(state, ARRAY['partitions', ${oldest}, 'signature'], to_jsonb('stale'::text)) WHERE ${table}`,
+            query: `SELECT count(*) FROM data_proxy.state, jsonb_each(state->'partitions') WHERE ${table} AND value->>'signature' = 'stale'`,
+            broken: "1",
+            healthy: "0",
+            publishes: true,
+        },
+        {
+            id: "removed",
+            name: "a partition that left the source is removed",
+            edit: `UPDATE data_proxy.state SET state = jsonb_set(state, ARRAY['partitions', '${REMOVED_PARTITION}'], (SELECT value || jsonb_build_object('partition_id', '${REMOVED_PARTITION}', 'selection', (value->'selection') || jsonb_build_object('lower', '1999-01-01', 'upper', '1999-01-02')) FROM jsonb_each(state->'partitions') ORDER BY key LIMIT 1)) WHERE ${table}`,
+            query: `SELECT count(*) FROM data_proxy.state WHERE ${table} AND (state->'partitions'->'${REMOVED_PARTITION}') IS NOT NULL`,
+            broken: "1",
+            healthy: "0",
+            publishes: false,
+        },
+    ];
+
+    for (const change of cases) {
+        const before = Number(snapshotValue(userToken()));
+
+        runSqlJob(k8s, `edit-${change.id}`, change.edit, STATE_DATABASE);
+        checkSql(k8s, `check-${change.id}-edit`, change.query, change.broken, STATE_DATABASE);
+
+        waitForJob(k8s, triggerSync(k8s));
+        waitForWorkflow(k8s);
+
+        checkSql(k8s, `check-${change.id}-fix`, change.query, change.healthy, STATE_DATABASE);
+        const after = rowsPerPartition(userToken(), pinned()).counts;
+        expect(
+            `${change.name}: the manifest is repaired`,
+            true,
+        );
+        expect(
+            `${change.name}: the DuckLake rows are unchanged`,
+            after.size === baseline.size &&
+            [...baseline].every(([date, rows]) => after.get(date) === rows),
+        );
+        if (change.publishes) {
+            expect(
+                `${change.name}: a new snapshot is published`,
+                Number(snapshotValue(userToken())) > before,
+            );
+        }
+    }
+}
+
+/** Shell prefix that points rclone at the backup store and today's backup folder. */
+const BACKUP_STORE = [
+    "export RCLONE_CONFIG=/dev/null RCLONE_CONFIG_STORE_TYPE=s3 RCLONE_CONFIG_STORE_PROVIDER=Other",
+    'RCLONE_CONFIG_STORE_ENDPOINT="$S3_ENDPOINT" RCLONE_CONFIG_STORE_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"',
+    'RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" RCLONE_CONFIG_STORE_FORCE_PATH_STYLE=true',
+    "RCLONE_CONFIG_STORE_REGION=auto RCLONE_CONFIG_STORE_NO_CHECK_BUCKET=true",
+].join(" ");
+
+/** Verifies the deployed backup CronJob uploads its dumps and prunes the access log. */
+function verifyBackupJob(k8s: Kubernetes): void {
+    const podSpec = cronJobPodSpec(k8s, BACKUP_CRONJOB);
+    const image = podSpec.containers[0].image;
+    const folder = `dir="store:$S3_BUCKET/$BACKUP_PREFIX/${SCHEMA}/$(date -u +%F)"`;
+
+    runSqlJob(
+        k8s,
+        "create-stale-log",
+        `INSERT INTO ${SCHEMA}.access_log (subject, unit_type, unit_id, action, changed_at) VALUES ('e2e_stale', 'unit', 'unit_9', 'delete', now() - interval '365 days')`,
+    );
+    runCommandJob(
+        k8s,
+        "reset-backup-folder",
+        `${BACKUP_STORE}; ${folder}; rclone purge "$dir" || true`,
+        { podSpec, image },
+    );
+
+    waitForJob(k8s, runCronJob(k8s, BACKUP_CRONJOB));
+    expect("the backup CronJob completes", true);
+
+    runCommandJob(
+        k8s,
+        "check-backup-objects",
+        `${BACKUP_STORE}; ${folder}; test "$(rclone lsf "$dir" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump catalog.sqlite "`,
+        { podSpec, image },
+    );
+    expect("the backup uploads the state dumps and the catalog", true);
+
+    checkSql(
+        k8s,
+        "check-pruned-log",
+        `SELECT count(*) FROM ${SCHEMA}.access_log WHERE subject = 'e2e_stale'`,
+        "0",
+    );
+    expect("the backup prunes access-log rows past the retention window", true);
+}
+
+/** Verifies the deployed maintenance CronJob drops a view that left the sync config. */
+function verifyMaintenanceJob(k8s: Kubernetes): void {
+    runSqlJob(
+        k8s,
+        "create-stale-view",
+        `CREATE OR REPLACE VIEW ${STALE_VIEW} AS SELECT 1 AS id`,
+    );
+
+    waitForJob(k8s, runCronJob(k8s, MAINTENANCE_CRONJOB));
+    expect("the maintenance CronJob completes", true);
+
+    runCommandJob(
+        k8s,
+        "check-stale-view",
+        `test "$(psql "$PG_DATABASE_URL" -tAc "SELECT to_regclass('${STALE_VIEW}') IS NULL")" = t`,
+    );
+    expect("the maintenance CronJob drops views missing from the sync config", true);
 }
 
 /** Verifies PostgreSQL reads the restored catalog from the reader PVC. */
@@ -893,14 +1257,14 @@ function verifyCnpgReaderMount(token: string): void {
     );
 }
 
-/** Verifies a table without fallback reports DuckLake as its only source. */
+/** Verifies a table without fallbacks reports DuckLake as its only source. */
 function verifyDuckLakeSource(token: string): void {
     clearProxyCache(token);
     sleep(1);
 
     const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
     expect(
-        "a table without fallback is served from DuckLake only",
+        "a table without fallbacks is served from DuckLake only",
         response.status === 200 && sourceHeader(response) === "ducklake",
     );
 }
@@ -951,7 +1315,7 @@ function verifyBigQueryRows(token: string): void {
         rows.every((row) => String(row[PARTITION_COLUMN]) < oldest),
     );
     expect(
-        "BigQuery fallback rows obey RLS",
+        "BigQuery rows obey RLS",
         rows.length > 0 && rows.every((row) => row.unit_id === "unit_1"),
     );
 }
@@ -1095,13 +1459,252 @@ function verifyProxy(): void {
 }
 
 /** Waits for the sync service, then verifies every route it can reach. */
-export default function(): void {
-    const k8s = new Kubernetes();
-    seedAccessPolicy();
-    const token = fetchToken();
-    const metrics = buildMetrics(token);
+interface NamedObject {
+    metadata: { name: string; annotations?: Record<string, string> };
+    status?: {
+        readyInstances?: number;
+        phase?: string;
+        availableReplicas?: number;
+        conditions?: { type: string; status: string }[];
+    };
+}
 
-    const completed = waitForPipeline(metrics, 600);
+interface ClusterObject extends NamedObject {
+    spec: { instances: number };
+}
+
+interface PostgresPod {
+    metadata: { labels?: Record<string, string> };
+    spec: {
+        containers: {
+            volumeMounts?: { mountPath: string; subPath?: string }[];
+        }[];
+    };
+}
+
+/** Polls until the probe holds or the timeout passes. */
+function waitUntil(timeoutSeconds: number, probe: () => boolean): boolean {
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    while (Date.now() < deadline) {
+        if (probe()) return true;
+        sleep(POLL_INTERVAL);
+    }
+    return probe();
+}
+
+function namedObjects(k8s: Kubernetes, kind: string): NamedObject[] {
+    return k8s.list(kind, NAMESPACE) as NamedObject[];
+}
+
+function findObject(
+    k8s: Kubernetes,
+    kind: string,
+    name: string,
+): NamedObject | undefined {
+    return namedObjects(k8s, kind).find((item) => item.metadata.name === name);
+}
+
+function clusterObject(k8s: Kubernetes): ClusterObject {
+    return k8s.get(
+        "Cluster.postgresql.cnpg.io",
+        CLUSTER_NAME,
+        NAMESPACE,
+    ) as ClusterObject;
+}
+
+/** Reports whether the Cluster has the instance count of the mode and all are ready. */
+function clusterSettled(k8s: Kubernetes, ha: boolean): boolean {
+    const cluster = clusterObject(k8s);
+    const instances = cluster.spec.instances;
+    const sized = ha ? instances >= HA_MIN_INSTANCES : instances === 1;
+    return (
+        sized &&
+        cluster.status?.readyInstances === instances &&
+        cluster.status?.phase === "Cluster in healthy state"
+    );
+}
+
+/** Reports whether the read PostgREST and the read pooler exist exactly in HA mode. */
+function readSideMatches(k8s: Kubernetes, ha: boolean): boolean {
+    const postgrest = findObject(k8s, "Deployment.apps", READ_POSTGREST);
+    const poolerDeployment = findObject(k8s, "Deployment.apps", READ_POOLER);
+    const pooler = findObject(k8s, "Pooler.postgresql.cnpg.io", READ_POOLER);
+    const present = [postgrest, poolerDeployment, pooler].every(Boolean);
+    const absent = [postgrest, poolerDeployment, pooler].every((item) => !item);
+    return ha ? present : absent;
+}
+
+function readSideAvailable(k8s: Kubernetes): boolean {
+    return [READ_POSTGREST, READ_POOLER].every(
+        (name) =>
+            (findObject(k8s, "Deployment.apps", name)?.status
+                ?.availableReplicas ?? 0) >= 1,
+    );
+}
+
+/** Reports whether the cluster scaler autoscales in HA mode and pins the count in single mode. */
+function clusterScalerMatches(k8s: Kubernetes, ha: boolean): boolean {
+    const scaler = findObject(k8s, "ScaledObject.keda.sh", CLUSTER_SCALER);
+    const pinned = scaler?.metadata.annotations?.[PAUSED_REPLICAS];
+    return scaler !== undefined && (ha ? pinned === undefined : pinned === "1");
+}
+
+function proxyHaMode(k8s: Kubernetes): string {
+    const env = deploymentPodSpec(k8s, PROXY_DEPLOYMENT).containers.flatMap(
+        (container) => container.env ?? [],
+    );
+    return env.find((entry) => entry.name === "HA_MODE")?.value ?? "";
+}
+
+/** Reports whether every PostgreSQL pod mounts the shared S3 secret folder. */
+function postgresPodsMountSecret(k8s: Kubernetes, expected: number): boolean {
+    const pods = (k8s.list("Pod", NAMESPACE) as PostgresPod[]).filter(
+        (pod) =>
+            pod.metadata.labels?.["cnpg.io/cluster"] === CLUSTER_NAME &&
+            pod.metadata.labels?.["cnpg.io/podRole"] === "instance",
+    );
+    return (
+        pods.length === expected &&
+        pods.every((pod) =>
+            pod.spec.containers.some((container) =>
+                (container.volumeMounts ?? []).some(
+                    (mount) =>
+                        mount.mountPath === SECRETS_MOUNT &&
+                        mount.subPath === SECRETS_SUBPATH,
+                ),
+            ),
+        )
+    );
+}
+
+/** Shell test that succeeds when one SQL query on the read pooler prints the expected value. */
+function readPoolerSqlEquals(query: string, expected: string): string {
+    const dsn = `$(echo "$PG_DATABASE_URL" | sed 's/-rw:/-pooler-ro:/')`;
+    return `test "$(psql "${dsn}" -tAc ${JSON.stringify(query)})" = ${JSON.stringify(expected)}`;
+}
+
+/** Sends parallel uncached reads, so the pool of the read PostgREST opens several connections. */
+function uncachedReads(
+    baseUrl: string,
+    headers: Record<string, string>,
+): K6Response[] {
+    const seed = Date.now();
+    return http.batch(
+        Array.from({ length: PARALLEL_READS }, (_, index) => ({
+            method: "GET" as const,
+            url: `${baseUrl}/${FULL_TABLE}?select=id&limit=${100 + ((seed + index) % 800)}`,
+            params: { headers, tags: { name: "mode_uncached_read" } },
+        })),
+    ) as K6Response[];
+}
+
+/** Verifies the PostgreSQL side that only HA mode has: standbys, streaming, and read routing. */
+function verifyStandbys(k8s: Kubernetes): void {
+    checkSql(
+        k8s,
+        "ha-streaming-replicas",
+        `SELECT count(*) >= ${HA_MIN_INSTANCES - 1} FROM pg_stat_replication WHERE state = 'streaming'`,
+        "t",
+    );
+    runCommandJob(
+        k8s,
+        "ha-read-pooler-on-standby",
+        readPoolerSqlEquals("SELECT pg_is_in_recovery()", "t"),
+    );
+    checkSql(k8s, "ha-write-pooler-on-primary", "SELECT pg_is_in_recovery()", "f");
+}
+
+/** Verifies that reads reach the standbys and that only the write side takes writes. */
+function verifyReadWriteSplit(): void {
+    const reads = uncachedReads(POSTGREST_READ_URL, {
+        Authorization: `Bearer ${userToken()}`,
+        "Accept-Profile": SCHEMA,
+    });
+    expect(
+        "HA: every parallel read on the read PostgREST succeeds from a standby",
+        reads.every(
+            (response) =>
+                response.status === 200 &&
+                sourceHeader(response).indexOf("ducklake") !== -1,
+        ),
+    );
+
+    const write = http.post(
+        `${POSTGREST_READ_URL}/access_policy`,
+        JSON.stringify(ACCESS_POLICY_ROWS),
+        {
+            headers: {
+                Authorization: `Bearer ${fetchToken("policy_writer")}`,
+                "Accept-Profile": SCHEMA,
+                "Content-Profile": SCHEMA,
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates",
+            },
+            tags: { name: "mode_write_on_read_postgrest" },
+        },
+    ) as K6Response;
+    expect("HA: the read PostgREST refuses a write", write.status >= 400);
+}
+
+/** Verifies the deployed topology and the read and write paths of one mode. */
+function verifyMode(k8s: Kubernetes, ha: boolean): void {
+    const mode = ha ? "HA" : "single";
+    const timeout = MODE_TIMEOUT_SECONDS;
+
+    expect(
+        `${mode}: the cluster settles on the instances of the mode`,
+        waitUntil(timeout, () => clusterSettled(k8s, ha)),
+    );
+    expect(
+        `${mode}: the read PostgREST and read pooler ${ha ? "exist" : "are gone"}`,
+        waitUntil(timeout, () => readSideMatches(k8s, ha)),
+    );
+    if (ha) {
+        expect(
+            "HA: the read PostgREST and read pooler are available",
+            waitUntil(timeout, () => readSideAvailable(k8s)),
+        );
+    }
+    expect(
+        `${mode}: the cluster scaler ${ha ? "autoscales" : "pins the count"}`,
+        waitUntil(timeout, () => clusterScalerMatches(k8s, ha)),
+    );
+    expect(
+        `${mode}: the proxy knows the mode`,
+        proxyHaMode(k8s) === String(ha),
+    );
+    expect(
+        `${mode}: every PostgreSQL pod mounts the shared S3 secret`,
+        postgresPodsMountSecret(k8s, clusterObject(k8s).spec.instances),
+    );
+    checkSql(
+        k8s,
+        "mode-state-intact",
+        "SELECT count(*) FROM data_proxy.state",
+        String([...TABLES, BIG_TABLE].length),
+        "DBOS_SYSTEM_DATABASE_URL",
+    );
+    if (ha) verifyStandbys(k8s);
+
+    seedAccessPolicy();
+    waitForAccessPolicyReplication(userToken());
+    const read = uncachedReads(API_URL, authHeaders(userToken()));
+    expect(
+        `${mode}: reads through the proxy return rows from DuckLake`,
+        read.every(
+            (response) =>
+                response.status === 200 &&
+                rowsOf(response).length > 0 &&
+                sourceHeader(response).indexOf("ducklake") !== -1,
+        ),
+    );
+    if (ha) verifyReadWriteSplit();
+}
+
+function verifyEndToEnd(k8s: Kubernetes): void {
+    seedAccessPolicy();
+
+    const completed = waitForPipeline(600);
     check(null, {
         "the sync service completed before the deadline": () => completed,
     });
@@ -1110,23 +1713,39 @@ export default function(): void {
         return;
     }
 
-    waitForAccessPolicyReplication(token);
-    verifyNoChangeRun(k8s, token);
-    clearProxyCache(token);
+    waitForAccessPolicyReplication(userToken());
+    verifyNoChangeRun(k8s);
+    clearProxyCache(userToken());
     sleep(2);
-    verifyMetrics(metrics);
+    verifyMetrics();
     verifyNoAccess();
-    verifyAuthorizedRows(token);
+    verifyAuthorizedRows(userToken());
     verifyJsonbColumn();
-    verifyPipelineRecovery(k8s, metrics);
-    verifyDuckLakePublication(token);
+    verifyBlockedTable(k8s);
+    verifyPipelineRecovery(k8s);
+    verifyDuckLakePublication(userToken());
+    verifyChangeFeed(userToken());
     verifyCatalogSync(k8s);
-    verifyCnpgReaderMount(token);
-    verifyDuckLakeSource(token);
-    verifyBigQueryRows(token);
-    verifySplitSources(token);
-    verifySnapshotVersion(token);
+    verifyMaintenanceJob(k8s);
+    verifyBackupJob(k8s);
+    verifyCnpgReaderMount(userToken());
+    verifyDuckLakeSource(userToken());
+    verifyBigQueryRows(userToken());
+    verifySplitSources(userToken());
+    verifySnapshotVersion(userToken());
+    verifyPartitionChanges(k8s);
     verifyIstioJwtValidation();
     verifyWebdisStable(k8s);
     verifyProxy();
+}
+
+export default function(): void {
+    const k8s = new Kubernetes();
+    try {
+        if (RUN_E2E) verifyEndToEnd(k8s);
+        if (RUN_MODES) verifyMode(k8s, EXPECT_HA);
+    } catch (error) {
+        expect("the suite ends without an exception", false);
+        throw error;
+    }
 }

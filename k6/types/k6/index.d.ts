@@ -27,6 +27,7 @@ declare module "k6/http" {
   const http: {
     get(url: string, params?: RequestParams): Response;
     post(url: string, body?: unknown, params?: RequestParams): Response;
+    del(url: string, body?: unknown, params?: RequestParams): Response;
     batch(requests: Array<{
       method: string;
       url: string;
@@ -44,6 +45,11 @@ declare module "k6/metrics" {
   }
 
   export class Trend {
+    constructor(name: string);
+    add(value: number, tags?: Record<string, string>): void;
+  }
+
+  export class Counter {
     constructor(name: string);
     add(value: number, tags?: Record<string, string>): void;
   }

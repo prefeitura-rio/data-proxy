@@ -1,7 +1,9 @@
 import { sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
 import type {
+  KubernetesCronJob,
   KubernetesDeployment,
+  KubernetesPod,
   KubernetesPodSpec,
 } from "k6/x/kubernetes";
 
@@ -27,6 +29,19 @@ export function deploymentPodSpec(
 
 export function workerPodSpec(k8s: Kubernetes): KubernetesPodSpec {
   return deploymentPodSpec(k8s, PIPELINE);
+}
+
+/** Returns the pod spec of a CronJob, used as a template for one-off Jobs. */
+export function cronJobPodSpec(
+  k8s: Kubernetes,
+  cronJobName: string,
+): KubernetesPodSpec {
+  const cronJob = k8s.get(
+    "CronJob.batch",
+    cronJobName,
+    NAMESPACE,
+  ) as KubernetesCronJob;
+  return cronJob.spec.jobTemplate.spec.template.spec;
 }
 
 /** Adds the standalone e2e scripts to a sync pod spec. */
@@ -82,16 +97,11 @@ export function triggerSync(k8s: Kubernetes, detached = false): string {
   return name;
 }
 
-/** Restarts one running sync pod to exercise DBOS recovery. */
-export function restartPipeline(k8s: Kubernetes): void {
-  const pods = k8s.list("Pod", NAMESPACE) as Array<{
-    metadata: { name: string; labels?: Record<string, string> };
-  }>;
-  const pod = pods.find(
-    (item) => item.metadata.labels?.["app.kubernetes.io/component"] === "sync",
+/** Lists the sync pods. DBOS uses each pod UID as its executor ID. */
+export function syncPods(k8s: Kubernetes): KubernetesPod[] {
+  return (k8s.list("Pod", NAMESPACE) as KubernetesPod[]).filter(
+    (pod) => pod.metadata.labels?.["app.kubernetes.io/component"] === "sync",
   );
-  if (!pod) throw new Error("No sync pod is available for recovery");
-  k8s.delete("Pod", pod.metadata.name, NAMESPACE);
 }
 
 /** Creates a Job that waits for the latest DBOS sync workflow to complete. */
@@ -129,46 +139,41 @@ export function waitForWorkflow(
   waitForJob(k8s, name);
 }
 
-/** Creates a Job that waits until the latest DBOS workflow is running. */
-export function waitForWorkflowRunning(k8s: Kubernetes): void {
-  const podSpec = scriptPodSpec(workerPodSpec(k8s));
-  const name = `data-proxy-running-k6-${Date.now()}`;
+/** Starts one Job from a CronJob template, as `kubectl create job --from` does. */
+export function runCronJob(k8s: Kubernetes, cronJobName: string): string {
+  const cronJob = k8s.get(
+    "CronJob.batch",
+    cronJobName,
+    NAMESPACE,
+  ) as KubernetesCronJob;
+  const name = `${cronJobName}-e2e-${Date.now()}`;
   k8s.create({
     apiVersion: "batch/v1",
     kind: "Job",
     metadata: { name, namespace: NAMESPACE },
-    spec: {
-      backoffLimit: 0,
-      ttlSecondsAfterFinished: 300,
-      template: {
-        spec: {
-          ...podSpec,
-          restartPolicy: "Never",
-          containers: [
-            {
-              ...podSpec.containers[0],
-              name: "running",
-              command: ["python", "/scripts/trigger.py", "--expect-running"],
-            },
-          ],
-        },
-      },
-    },
+    spec: { ...cronJob.spec.jobTemplate.spec, backoffLimit: 0 },
   });
-  waitForJob(k8s, name);
+  return name;
 }
 
-/** Waits for a Kubernetes Job to succeed or fail. */
-export function waitForJob(k8s: Kubernetes, name: string): void {
+/** Waits for a Kubernetes Job to finish and returns how it ended. */
+function jobResult(
+  k8s: Kubernetes,
+  name: string,
+): "succeeded" | "failed" {
   const deadline = Date.now() + 900_000;
   while (Date.now() < deadline) {
     const job = k8s.get("Job.batch", name, NAMESPACE) as {
       status?: { succeeded?: number; failed?: number };
     };
-    if (job.status?.succeeded && job.status.succeeded > 0) return;
-    if (job.status?.failed && job.status.failed > 0)
-      throw new Error(`Job ${name} failed`);
+    if (job.status?.succeeded && job.status.succeeded > 0) return "succeeded";
+    if (job.status?.failed && job.status.failed > 0) return "failed";
     sleep(1);
   }
   throw new Error(`Job ${name} timed out`);
+}
+
+/** Waits for a Kubernetes Job to succeed and fails when it fails. */
+export function waitForJob(k8s: Kubernetes, name: string): void {
+  if (jobResult(k8s, name) === "failed") throw new Error(`Job ${name} failed`);
 }

@@ -10,9 +10,23 @@ metadata:
   name: data-proxy-k6
   namespace: data-proxy
 rules:
-  - apiGroups: ["batch"]
-    resources: ["cronjobs", "jobs"]
-    verbs: ["get", "list", "watch", "create"]
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -31,14 +45,14 @@ subjects:
 apiVersion: k6.io/v1alpha1
 kind: TestRun
 metadata:
-  name: data-proxy-load
+  name: data-proxy-perf
   namespace: data-proxy
 spec:
   parallelism: 1
   script:
     configMap:
       name: data-proxy-k6
-      file: load.ts
+      file: perf.ts
   runner:
     image: localhost/k6:local
     serviceAccountName: data-proxy-k6
@@ -60,3 +74,5 @@ spec:
         value: test-secret
       - name: K6_PROFILE
         value: load
+      - name: HA_MODE
+        value: "false"

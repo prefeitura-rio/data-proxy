@@ -10,18 +10,49 @@ metadata:
   name: data-proxy-k6
   namespace: data-proxy
 rules:
-  - apiGroups: ["batch"]
-    resources: ["cronjobs", "jobs"]
-    verbs: ["get", "list", "watch", "create"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["keda.sh"]
-    resources: ["scaledobjects", "scaledjobs"]
-    verbs: ["get", "list"]
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - keda.sh
+    resources:
+      - scaledobjects
+      - scaledjobs
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - clusters
+      - poolers
+    verbs:
+      - get
+      - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -53,6 +84,10 @@ spec:
     serviceAccountName: data-proxy-k6
     automountServiceAccountToken: "true"
     env:
+      - name: SUITE
+        value: full
+      - name: MODE
+        value: single
       - name: BASE_URL
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
@@ -67,6 +102,8 @@ spec:
         value: data-proxy-e2e
       - name: POSTGREST_URL
         value: http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000
+      - name: POSTGREST_READ_URL
+        value: http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000
       - name: OIDC_TOKEN_URL
         value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
       - name: OIDC_USER_CLIENT_ID
@@ -83,11 +120,13 @@ spec:
         value: "120"
       - name: POLICY_REPLICATION_POLL_INTERVAL_SECONDS
         value: "2"
+      - name: MODE_TIMEOUT_SECONDS
+        value: "900"
       - name: MAX_DURATION
-        value: "25m"
+        value: 40m
       - name: K8S_SA_TOKEN_PATH
         value: /var/run/secrets/kubernetes.io/serviceaccount/token
-      - name: FULL_SOURCE
-        value: rj-ia-desenvolvimento.dev.full_table
+      - name: PARTITIONED_SOURCE
+        value: rj-ia-desenvolvimento.dev.partitioned_table
       - name: DUCKLAKE_CATALOG_LOCAL_PATH
         value: /var/lib/ducklake/catalogs

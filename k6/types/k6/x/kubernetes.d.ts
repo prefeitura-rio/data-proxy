@@ -40,7 +40,27 @@ declare module "k6/x/kubernetes" {
   };
 
   export type KubernetesDeployment = {
-    spec: { template: { spec: KubernetesPodSpec } };
+    metadata?: { name?: string; labels?: Record<string, string> };
+    spec: { replicas?: number; template: { spec: KubernetesPodSpec } };
+  };
+
+  export type KubernetesCronJob = {
+    spec: {
+      jobTemplate: {
+        spec: {
+          template: { spec: KubernetesPodSpec };
+          [key: string]: unknown;
+        };
+      };
+    };
+  };
+
+  export type KubernetesPod = {
+    metadata: {
+      name: string;
+      uid: string;
+      labels?: Record<string, string>;
+    };
   };
 
   export class Kubernetes {
