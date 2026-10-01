@@ -150,6 +150,7 @@ def table_function_mapping(
         "app_schema": app_schema(),
         "function": Identifier(f"{table_name}_fn"),
         "dl_function": Identifier(f"{table_name}_{ducklake.suffix}"),
+        "dl_view": f"ducklake_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim}",
         "has_rls": "true" if table.rls else "false",
@@ -162,6 +163,7 @@ def table_function_mapping(
             {
                 "name": name,
                 "function": Identifier(f"{table_name}_{sources.get(name).suffix}"),
+                "view": f"{DUCKDB_VIEW_PREFIX}{schema}_{table_name}",
             }
             for name in table.fallbacks
         ],

@@ -11,7 +11,6 @@ from data_proxy.models import (
     SyncConfig,
     UnitMapping,
 )
-from data_proxy.schema import initialize_schemas
 from data_proxy.settings import settings
 from data_proxy.types import DatabaseRow
 from tests.fixtures.types import Postgres
@@ -20,6 +19,7 @@ from tests.helpers import (
     execute_sql,
     fetch_all,
     fetch_one,
+    initialize_schemas,
     insert_access_policy,
     set_setting,
 )

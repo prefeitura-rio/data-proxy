@@ -20,12 +20,16 @@ from data_proxy.models import (
 )
 from data_proxy.postgres import Postgres as PgBackend
 from data_proxy.s3 import clear_s3_prefix
-from data_proxy.schema import initialize_schemas
 from data_proxy.settings import settings
 from data_proxy.sources import stages
 from data_proxy.sources.views import reconcile_views
 from tests.fixtures.types import Postgres, Silo
-from tests.helpers import fetch_all, function_exists, relation_exists
+from tests.helpers import (
+    fetch_all,
+    function_exists,
+    initialize_schemas,
+    relation_exists,
+)
 
 
 @dataclass

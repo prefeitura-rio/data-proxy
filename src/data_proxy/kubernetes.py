@@ -1,4 +1,4 @@
-"""Restart the PostgREST Deployment with Lightkube."""
+"""Restart the PostgREST Deployments with Lightkube."""
 
 from typing import Protocol
 
@@ -78,14 +78,18 @@ async def check_postgrest_rollout(
         raise RuntimeError("Deployment not ready")
 
 
-async def restart_postgrest(namespace: str, restarted_at: str, timeout: float) -> None:
-    """Restart PostgREST and wait for its rollout."""
-    name = "data-proxy-postgrest"
+async def restart_postgrest(
+    namespace: str, names: list[str], restarted_at: str, timeout: float
+) -> None:
+    """Restart every PostgREST Deployment, then wait for each rollout."""
     async with AsyncClient(namespace=namespace) as client:
-        await patch_restart_annotation(client, name, namespace, restarted_at)
-        await wait_for(
-            lambda: check_postgrest_rollout(client, name, namespace),
-            timeout=timeout,
-            interval=2,
-            message=f"PostgREST rollout did not become ready: {name}",
-        )
+        for name in names:
+            await patch_restart_annotation(client, name, namespace, restarted_at)
+
+        for name in names:
+            await wait_for(
+                lambda name=name: check_postgrest_rollout(client, name, namespace),
+                timeout=timeout,
+                interval=2,
+                message=f"PostgREST rollout did not become ready: {name}",
+            )

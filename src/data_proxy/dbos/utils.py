@@ -1,5 +1,7 @@
 """DBOS utility functions."""
 
+from duckdb import TransactionException
+
 from ..settings import Settings
 
 
@@ -17,6 +19,15 @@ def otlp_enabled(application_settings: Settings) -> bool:
             application_settings.OTLP_METRICS_ENDPOINT,
         )
     )
+
+
+def retry_catalog_locked(error: BaseException) -> bool:
+    """Retry only while another process holds the DuckLake catalog write lock."""
+    match error:
+        case TransactionException() if "database is locked" in str(error):
+            return True
+        case _:
+            return False
 
 
 def retry_transient(error: BaseException) -> bool:

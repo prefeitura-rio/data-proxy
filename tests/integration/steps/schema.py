@@ -7,7 +7,6 @@ from psycopg.sql import Identifier
 from pytest_bdd import given, then, when
 
 from data_proxy.models import FullTable, SchemaConfig, SyncConfig
-from data_proxy.schema import initialize_schemas, revoke_anonymous_access
 from data_proxy.settings import settings
 from data_proxy.state import ensure_app_schema
 from data_proxy.types import DatabaseRow
@@ -17,7 +16,9 @@ from tests.helpers import (
     fetch_all,
     fetch_one,
     function_exists,
+    initialize_schemas,
     relation_exists,
+    revoke_anonymous_access,
 )
 
 

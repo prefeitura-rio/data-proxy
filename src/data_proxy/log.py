@@ -1,13 +1,40 @@
 """Pipeline logger built on DBOS's dbos_logger with domain context injection."""
 
 from contextvars import ContextVar
-from logging import Filter, Formatter, LogRecord, StreamHandler, getLogger
+from logging import ERROR, Filter, Formatter, LogRecord, StreamHandler, getLogger
+from pathlib import Path
+from traceback import extract_tb
 from typing import override
 
 schemaname = ContextVar("schemaname", default="-")
 tablename = ContextVar("tablename", default="-")
 
 logger = getLogger("dbos")
+
+PROJECT_PATH = "/data_proxy/"
+LOCATION_FRAMES = 3
+
+
+def summarize_exception(error: BaseException) -> str:
+    """Return the type, the message on one line, and the file:line path to the error."""
+    message = " ".join(str(error).split())
+    summary = f"{type(error).__name__}: {message}"
+
+    project_frames = [
+        frame
+        for frame in extract_tb(error.__traceback__)
+        if PROJECT_PATH in frame.filename
+    ]
+
+    path = [
+        f"{Path(frame.filename).name}:{frame.lineno}"
+        for frame in project_frames[-LOCATION_FRAMES:]
+    ]
+
+    if not path:
+        return summary
+
+    return f"{summary} ({' -> '.join(path)})"
 
 
 class DomainContextFilter(Filter):
@@ -46,8 +73,10 @@ class ContextFormatter(Formatter):
             f"{prefix}{record.getMessage()}"
         )
 
-        if record.exc_info:
+        if record.exc_info and record.levelno >= ERROR:
             message = f"{message}\n{self.formatException(record.exc_info)}"
+        elif record.exc_info and record.exc_info[1] is not None:
+            message = f"{message}: {summarize_exception(record.exc_info[1])}"
 
         return message
 

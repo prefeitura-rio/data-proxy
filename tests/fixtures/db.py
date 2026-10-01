@@ -25,8 +25,10 @@ from data_proxy.models import (
     DumpTask,
     FullTable,
     SchemaConfig,
+    Strategy,
     SyncConfig,
     TableConfig,
+    TableState,
     TaskSelection,
     UnitMapping,
 )
@@ -34,11 +36,10 @@ from data_proxy.models import (
     Table as TableModel,
 )
 from data_proxy.postgres import Postgres as Pg
-from data_proxy.schema import initialize_schemas
 from data_proxy.settings import settings
 from data_proxy.sources import stages
 from data_proxy.sources.views import reconcile_views
-from data_proxy.state import ensure_app_schema
+from data_proxy.state import ensure_app_schema, write_table_state
 from data_proxy.templates import render_template
 from tests.constants import FILES, TEST_SQL_DIR
 from tests.fixtures.types import (
@@ -48,9 +49,12 @@ from tests.fixtures.types import (
     Psql,
     Silo,
 )
-from tests.helpers import helm_sql, psql_script
+from tests.helpers import helm_sql, initialize_schemas, psql_script
 
-PG_DUCKDB_SETTINGS: Final = {"duckdb.unsafe_allow_execution_inside_functions": "on"}
+PG_DUCKDB_SETTINGS: Final = {
+    "duckdb.unsafe_allow_execution_inside_functions": "on",
+    "duckdb.unsafe_allow_mixed_transactions": "on",
+}
 
 
 @pytest.fixture
@@ -233,9 +237,14 @@ async def ducklake_catalog(
 @pytest.fixture
 async def ducklake_view(
     ducklake_catalog: Postgres, monkeypatch: pytest.MonkeyPatch
-) -> Postgres:
-    """Reconcile the people view over the real DuckLake catalog."""
+) -> AsyncIterator[Postgres]:
+    """Reconcile the people view over the real DuckLake catalog.
+
+    The published state commits on its own connection, because pg_duckdb refuses
+    a transaction that writes both a PostgreSQL table and DuckDB.
+    """
     schema = ducklake_catalog.namespace.schema
+    table = f"p.{schema}.people"
     config = SyncConfig(
         schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.people")])}
     )
@@ -247,7 +256,23 @@ async def ducklake_view(
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
     await initialize_schemas(ducklake_catalog.backend, config)
     await reconcile_views(ducklake_catalog.backend, config)
-    return ducklake_catalog
+    publisher = await psycopg.AsyncConnection.connect(
+        ducklake_catalog.dsn, autocommit=True
+    )
+    try:
+        await write_table_state(
+            Pg(connection=publisher),
+            table,
+            TableState(strategy=Strategy.FULL, signature="s"),
+        )
+        yield ducklake_catalog
+    finally:
+        await publisher.execute(
+            SQL("DELETE FROM {}.state WHERE table_name = {}").format(
+                Identifier(settings.DBOS_APP_SCHEMA), Literal(table)
+            )
+        )
+        await publisher.close()
 
 
 @pytest.fixture
@@ -297,7 +322,6 @@ async def policy_writer(postgres: Postgres, psql: Psql) -> AsyncIterator[str]:
                 "policy_writer_role": Identifier(role),
                 "policy_writer_literal": Literal(role),
                 "policy_name": Identifier(role),
-                "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
             },
         )
     )

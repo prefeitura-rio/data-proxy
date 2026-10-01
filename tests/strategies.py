@@ -1,5 +1,3 @@
-from datetime import date, timedelta
-
 from hypothesis import strategies as st
 
 from data_proxy.models import (
@@ -7,9 +5,7 @@ from data_proxy.models import (
     PartitionedTable,
     PhysicalPartition,
     RangeSelection,
-    RemainderSelection,
     TableConfig,
-    TimeRangeSelection,
 )
 
 identifiers = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
@@ -33,25 +29,6 @@ def range_selections(draw: st.DrawFn) -> RangeSelection:
         lower=lower,
         upper=upper,
     )
-
-
-@st.composite
-def time_selections(draw: st.DrawFn) -> TimeRangeSelection:
-    """Generate one valid time-range selection."""
-    lower = draw(st.dates(date(2020, 1, 1), date(2030, 1, 1)))
-    upper = lower + timedelta(days=draw(st.integers(1, 30)))
-    return TimeRangeSelection(
-        column=draw(identifiers),
-        lower=lower.isoformat(),
-        upper=upper.isoformat(),
-    )
-
-
-@st.composite
-def remainder_selections(draw: st.DrawFn) -> RemainderSelection:
-    """Generate one valid remainder selection."""
-    lower, upper = draw(ordered_bounds())
-    return RemainderSelection(column=draw(identifiers), start=lower, end=upper)
 
 
 @st.composite

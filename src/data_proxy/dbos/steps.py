@@ -28,7 +28,7 @@ from ..state import (
     ensure_app_schema,
     write_table_states,
 )
-from .utils import retry_transient
+from .utils import retry_catalog_locked, retry_transient
 
 
 @DBOS.step()
@@ -151,7 +151,13 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
         )
 
 
-@DBOS.step()
+@DBOS.step(
+    retries_allowed=True,
+    interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
+    backoff_rate=1.0,
+    max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
+    should_retry=retry_catalog_locked,
+)
 async def commit_ducklake_snapshot(
     plan: SyncPlan, failed_paths: set[str]
 ) -> PublicationResult:
@@ -177,6 +183,7 @@ async def commit_ducklake_snapshot(
     logger.info(
         "DuckLake commit completed published_tables=%d", len(result.published_tables)
     )
+
     return result
 
 
@@ -208,10 +215,11 @@ async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
     should_retry=retry_transient,
 )
 async def restart_postgrest(schema_name: str, run_id: str) -> None:
-    """Restart the PostgREST deployment and wait for its rollout."""
+    """Restart the PostgREST deployments and wait for their rollout."""
     logger.info("Restarting PostgREST schema=%s run_id=%s", schema_name, run_id)
     await restart_postgrest_deployment(
         namespace=settings.KUBERNETES_NAMESPACE,
+        names=settings.POSTGREST_DEPLOYMENTS,
         restarted_at=Instant.now().format_iso(),
         timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
     )

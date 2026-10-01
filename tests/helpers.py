@@ -5,9 +5,12 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from inspect import unwrap
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Final, cast
 from unittest.mock import AsyncMock
 
+import duckdb
+import pytest
 from lightkube import AsyncClient
 from lightkube.models.apps_v1 import DeploymentSpec, DeploymentStatus
 from lightkube.models.core_v1 import PodTemplateSpec
@@ -17,6 +20,7 @@ from psycopg import AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
+from data_proxy.authorization import ensure_schema_policy_writer
 from data_proxy.conditions import schema_scope_condition
 from data_proxy.dbos import workflows
 from data_proxy.duckdb import DuckDB
@@ -36,11 +40,13 @@ from data_proxy.models import (
     Strategy,
     SyncConfig,
     SyncPlan,
+    SyncWork,
     TableConfig,
     TableState,
     TaskSelection,
     TimeRangeSelection,
 )
+from data_proxy.postgres import Postgres as PgConnection
 from data_proxy.settings import settings
 from data_proxy.sources.sources import sources
 from data_proxy.state import write_table_state
@@ -177,6 +183,36 @@ def remove_change(partition_id: str, previous: PhysicalPartition) -> PartitionCh
     return PartitionChange(kind="remove", partition_id=partition_id, previous=previous)
 
 
+def deployment(
+    *,
+    status: DeploymentStatus | None,
+    metadata: ObjectMeta | None,
+    replicas: int | None,
+) -> Deployment:
+    """Return a Deployment with the given rollout state."""
+    return Deployment(
+        metadata=metadata,
+        spec=DeploymentSpec(
+            selector=LabelSelector(), template=PodTemplateSpec(), replicas=replicas
+        ),
+        status=status,
+    )
+
+
+def deployment_mock(
+    *,
+    status: DeploymentStatus | None,
+    metadata: ObjectMeta | None,
+    replicas: int | None,
+) -> AsyncMock:
+    """Return a client mock whose Deployment has the given rollout state."""
+    client = AsyncMock(spec=AsyncClient)
+    client.get.return_value = deployment(
+        status=status, metadata=metadata, replicas=replicas
+    )
+    return client
+
+
 def deployment_client(
     *,
     status: DeploymentStatus | None,
@@ -184,15 +220,10 @@ def deployment_client(
     replicas: int | None,
 ) -> AsyncClient:
     """Return a client whose Deployment has the given rollout state."""
-    client = AsyncMock(spec=AsyncClient)
-    client.get.return_value = Deployment(
-        metadata=metadata,
-        spec=DeploymentSpec(
-            selector=LabelSelector(), template=PodTemplateSpec(), replicas=replicas
-        ),
-        status=status,
+    return cast(
+        "AsyncClient",
+        deployment_mock(status=status, metadata=metadata, replicas=replicas),
     )
-    return client
 
 
 def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
@@ -203,6 +234,34 @@ def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
 async def publish(plan: SyncPlan) -> set[str]:
     """Run the publish workflow body for one plan with no failed paths."""
     return await workflow_body(workflows.publish_schema)("run", plan, set())
+
+
+def stub_sync_run(
+    monkeypatch: pytest.MonkeyPatch, *, views_changed: bool, published: set[str]
+) -> AsyncMock:
+    """Stub the steps of run_sync and return the PostgREST restart step."""
+    restart = AsyncMock()
+    monkeypatch.setattr(workflows, "DBOS", SimpleNamespace(workflow_id="run"))
+    monkeypatch.setattr(
+        workflows,
+        "build_sync_work",
+        AsyncMock(return_value=SyncWork(plans=[SyncPlan(schema_name="app")], tasks=[])),
+    )
+    monkeypatch.setattr(workflows, "run_dump_tasks", AsyncMock(return_value=set()))
+    monkeypatch.setattr(
+        workflows, "seed_schemas", AsyncMock(return_value=views_changed)
+    )
+    monkeypatch.setattr(
+        workflows, "run_publish_tasks", AsyncMock(return_value=published)
+    )
+    monkeypatch.setattr(workflows, "restart_postgrest", restart)
+    monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
+    return restart
+
+
+async def run_sync() -> None:
+    """Run the sync workflow body."""
+    await workflow_body(workflows.run_sync)(datetime.now(UTC), None)
 
 
 async def run_dump_task(task: DumpTask) -> DumpResult:
@@ -383,6 +442,12 @@ async def install_table_function(
     pg: Postgres, *, has_rls: bool, fallbacks: list[str]
 ) -> None:
     """Render the per-table function over the stub source helpers."""
+    from data_proxy.sources.utils import function_columns
+
+    columns = function_columns(
+        [("source", "VARCHAR"), ("arg1", "VARCHAR"), ("arg2", "VARCHAR")],
+        raw_json=True,
+    )
     await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
         "postgres/sources/create_function",
         mapping={
@@ -390,16 +455,18 @@ async def install_table_function(
             "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
             "function": Identifier("t_fn"),
             "dl_function": Identifier("t_dl_fn"),
-            "columns": [
-                {"name": column, "return_type": "text"}
-                for column in ("source", "arg1", "arg2")
-            ],
+            "dl_view": "ducklake_t",
+            "columns": columns,
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
             "rls_mappings": [{"column": "unit_id", "unit_type": "unit"}],
             "source_table": Literal(ROUTED_TABLE),
             "fallbacks": [
-                {"name": name, "function": Identifier(f"t_{sources.get(name).suffix}")}
+                {
+                    "name": name,
+                    "function": Identifier(f"t_{sources.get(name).suffix}"),
+                    "view": "source_t",
+                }
                 for name in fallbacks
             ],
             "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -437,3 +504,65 @@ def helm_sql(name: str, mapping: Mapping[str, TemplateValue] | None = None) -> s
 def psql_script(*statements: str) -> str:
     """Join rendered statements into one psql script."""
     return ";\n".join(statements) + ";\n"
+
+
+def catalog_commit_error(reason: str) -> duckdb.TransactionException:
+    """Build the error that a failed DuckLake commit raises."""
+    return duckdb.TransactionException(
+        "\n".join(
+            (
+                "TransactionContext Error: Failed to commit: Failed to commit DuckLake transaction.",
+                f"Failed to flush changes into DuckLake: {reason}",
+            )
+        )
+    )
+
+
+async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
+    """Create roles and application schemas before publication."""
+    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    for procedure in ("cleanup_stale_objects", "prune_access_log"):
+        await executor.execute(
+            f"postgres/{procedure}",
+            mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+        )
+
+    for schema_name in config.schemas:
+        await executor.execute(
+            "postgres/init_schema",
+            mapping={
+                "schema": Identifier(schema_name),
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+                "scope": schema_scope_condition(schema_name),
+            },
+        )
+        await executor.execute(
+            "postgres/init_access_policy",
+            mapping={
+                "schema": Identifier(schema_name),
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+                "scope": schema_scope_condition(schema_name),
+            },
+        )
+        await executor.execute(
+            "postgres/access_policy_commit", mapping={"schema": Identifier(schema_name)}
+        )
+        await ensure_schema_policy_writer(pg_conn, schema_name)
+
+    await pg_conn.commit()
+    return True
+
+
+async def revoke_anonymous_access(pg_conn: PgConnection, config: SyncConfig) -> None:
+    """Revoke anonymous access before the PostgREST rollout refresh."""
+    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    for schema_name in config.schemas:
+        await executor.execute(
+            "postgres/revoke_anon",
+            mapping={
+                "schema": Identifier(schema_name),
+                "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
+            },
+        )
+
+    await pg_conn.commit()

@@ -51,8 +51,8 @@ async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
 
 async def run_publish_tasks(
     run_id: str, plans: list[SyncPlan], failed_paths: set[str]
-) -> None:
-    """Run publication workflows for every schema plan."""
+) -> set[str]:
+    """Run publication workflows for every schema plan and return the published tables."""
     logger.info(
         "Enqueuing publish tasks plans=%d failed_paths=%d",
         len(plans),
@@ -76,11 +76,13 @@ async def run_publish_tasks(
         *(handle.get_result() for handle in publish_handles)
     )
 
+    published_tables = set[str]().union(*published)
     logger.info(
         "Publish tasks completed plans=%d published_tables=%d",
         len(published),
-        sum(len(tables) for tables in published),
+        len(published_tables),
     )
+    return published_tables
 
 
 @DBOS.workflow()
@@ -163,18 +165,19 @@ async def run_sync(scheduled_at: datetime, context: object) -> None:
         failed_paths = await run_dump_tasks(work.tasks)
         logger.info("Sync seeding and publishing workflow_id=%s", workflow_id)
 
-        seed_result, _ = await asyncio.gather(
+        views_changed, published = await asyncio.gather(
             seed_schemas(work.plans),
             run_publish_tasks(workflow_id, work.plans, failed_paths),
         )
 
         logger.info(
-            "Sync seed and publish completed workflow_id=%s views_changed=%s",
+            "Sync seed and publish completed workflow_id=%s views_changed=%s published=%d",
             workflow_id,
-            seed_result,
+            views_changed,
+            len(published),
         )
 
-        if seed_result:
+        if views_changed or published:
             for plan in work.plans:
                 await restart_postgrest(plan.schema_name, workflow_id)
 

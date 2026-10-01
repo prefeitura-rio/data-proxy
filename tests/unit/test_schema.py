@@ -1,4 +1,4 @@
-"""Tests for PostgreSQL schema initialization orchestration."""
+"""Tests for the schema initialization and revocation test helpers."""
 
 from collections.abc import Mapping
 from unittest.mock import AsyncMock
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import data_proxy.executor as executor
-import data_proxy.schema as schema
+import tests.helpers as helpers
 from data_proxy.models import SchemaConfig, SyncConfig
 from data_proxy.types import TemplateValue
 
@@ -24,10 +24,10 @@ class TestInitializeSchemas:
             return path
 
         monkeypatch.setattr(executor, "render_template", template_name)
-        monkeypatch.setattr(schema, "ensure_schema_policy_writer", AsyncMock())
+        monkeypatch.setattr(helpers, "ensure_schema_policy_writer", AsyncMock())
         conn = AsyncMock()
 
-        await schema.initialize_schemas(
+        await helpers.initialize_schemas(
             conn, SyncConfig(schemas={"app": SchemaConfig()})
         )
 
@@ -36,6 +36,7 @@ class TestInitializeSchemas:
             "postgres/prune_access_log",
             "postgres/init_schema",
             "postgres/init_access_policy",
+            "postgres/access_policy_commit",
         ]
         conn.commit.assert_awaited_once()
 
@@ -47,7 +48,7 @@ class TestInitializeSchemas:
         conn = AsyncMock()
         conn.execute.side_effect = RuntimeError("failed")
         with pytest.raises(RuntimeError, match="failed"):
-            await schema.initialize_schemas(
+            await helpers.initialize_schemas(
                 conn, SyncConfig(schemas={"app": SchemaConfig()})
             )
         conn.commit.assert_not_awaited()
@@ -61,6 +62,6 @@ class TestRevokeAnonymousAccess:
         """Revoke anonymous access from each configured schema."""
         conn = AsyncMock()
         config = SyncConfig(schemas={"app": SchemaConfig(), "other": SchemaConfig()})
-        await schema.revoke_anonymous_access(conn, config)
+        await helpers.revoke_anonymous_access(conn, config)
         assert conn.execute.await_count == 2
         conn.commit.assert_awaited_once()

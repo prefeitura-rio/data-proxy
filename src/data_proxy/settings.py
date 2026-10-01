@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     DUCKLAKE_MAX_COMPACTED_FILES: int = Field(default=10, gt=0)
     DUCKLAKE_REWRITE_DELETE_THRESHOLD: float = Field(default=0.95, gt=0, le=1)
     DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
+    DUCKLAKE_COMMIT_MAX_ATTEMPTS: int = Field(default=60, gt=0)
+    DUCKLAKE_COMMIT_RETRY_SECONDS: float = Field(default=1.0, gt=0)
     DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
@@ -43,6 +45,7 @@ class Settings(BaseSettings):
     OTLP_METRICS_ENDPOINT: str = Field(default="")
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
+    POSTGREST_DEPLOYMENTS: list[str] = ["data-proxy-postgrest"]
     POSTGREST_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     READER_SNAPSHOT_POLL_SECONDS: float = Field(default=1.0, gt=0)

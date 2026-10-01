@@ -5,10 +5,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from data_proxy.dbos import utils, workflows
+from data_proxy.dbos import steps, utils, workflows
 from data_proxy.models import DumpResult, DumpStatus, SyncPlan
+from data_proxy.settings import settings
 from tests.fixtures.types import Calls
-from tests.helpers import dump_task, publish, run_dump_task
+from tests.helpers import (
+    catalog_commit_error,
+    dump_task,
+    publish,
+    run_dump_task,
+    run_sync,
+    stub_sync_run,
+    workflow_body,
+)
 
 
 class TestTransientRetryClassification:
@@ -22,6 +31,94 @@ class TestTransientRetryClassification:
     def test_classifies_cancellation_as_permanent(self) -> None:
         """Classify cancellation as permanent."""
         assert not utils.retry_transient(asyncio.CancelledError())
+
+
+class TestCatalogLockRetryClassification:
+    """retry_catalog_locked retries only the DuckLake catalog lock error."""
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            pytest.param(
+                catalog_commit_error("database is locked"),
+                True,
+                id="the lock error of a DuckLake commit",
+            ),
+            pytest.param(
+                catalog_commit_error("UNIQUE constraint failed"),
+                False,
+                id="another DuckLake commit error",
+            ),
+            pytest.param(RuntimeError("temporary"), False, id="a runtime error"),
+            pytest.param(
+                RuntimeError("database is locked"),
+                False,
+                id="the same message from another error type",
+            ),
+            pytest.param(asyncio.CancelledError(), False, id="a cancellation"),
+        ],
+    )
+    def test_retries_only_the_catalog_lock_error(
+        self, error: BaseException, expected: bool
+    ) -> None:
+        assert utils.retry_catalog_locked(error) is expected
+
+
+class TestRunSyncRestartsPostgrest:
+    """run_sync restarts PostgREST after a sync that changed what it serves."""
+
+    @pytest.mark.parametrize(
+        ("views_changed", "published", "restarts"),
+        [
+            pytest.param(
+                False, set[str](), 0, id="nothing changed and nothing published"
+            ),
+            pytest.param(False, {"t"}, 1, id="tables published and no view changed"),
+            pytest.param(True, set[str](), 1, id="views changed and nothing published"),
+            pytest.param(True, {"t"}, 1, id="views changed and tables published"),
+        ],
+    )
+    async def test_restarts_only_when_something_changed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        views_changed: bool,
+        published: set[str],
+        restarts: int,
+    ) -> None:
+        restart = stub_sync_run(
+            monkeypatch, views_changed=views_changed, published=published
+        )
+
+        await run_sync()
+
+        assert restart.await_count == restarts
+
+
+class TestRestartPostgrestStep:
+    """The restart step covers the Deployments that the chart lists."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "names",
+        [
+            pytest.param(["data-proxy-postgrest"], id="single-mode"),
+            pytest.param(
+                ["data-proxy-postgrest", "data-proxy-postgrest-ro"], id="ha-mode"
+            ),
+        ],
+    )
+    async def test_restarts_the_configured_deployments(
+        self, monkeypatch: pytest.MonkeyPatch, names: list[str]
+    ) -> None:
+        """Pass every configured Deployment name to the restart."""
+        restart = AsyncMock()
+        monkeypatch.setattr(steps, "restart_postgrest_deployment", restart)
+        monkeypatch.setattr(settings, "POSTGREST_DEPLOYMENTS", names)
+
+        await workflow_body(steps.restart_postgrest)("app", "run")
+
+        assert restart.await_args is not None
+        assert restart.await_args.kwargs["names"] == names
 
 
 class TestPublishSchemaOrder:
