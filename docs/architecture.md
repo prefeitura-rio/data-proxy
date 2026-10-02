@@ -11,7 +11,7 @@ PostgreSQL stores metadata only:
 - PostgreSQL views and `SECURITY DEFINER` functions;
 - DBOS workflow state.
 
-PostgREST reads one view per table. The view calls a function that checks the access policy, plans the sources from `data_proxy.state`, and reads DuckLake and, for tables with configured fallbacks, each listed source in order. The access-policy predicate is passed to DuckDB, so filters are pushed into Parquet scans.
+PostgREST reads one view per table. The view calls a function that checks the access policy, plans the sources from `data_proxy.state`, and reads DuckLake and, for tables with configured fallbacks, each listed source in order. The function passes the access-policy predicate to DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters are not pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
 
 The proxy and Valkey handle response caching. The read order is:
 
@@ -43,7 +43,7 @@ SeaweedFS LTX replica
 → pg_duckdb
 ```
 
-The restore container writes the reader volume. PostgreSQL and pg_duckdb open it read-only. pg_duckdb re-reads the catalog file on every query.
+The restore container writes the reader volume. PostgreSQL and pg_duckdb open it read-only. A PostgreSQL backend keeps its DuckLake attachment, so it can keep an old catalog view. After a sync publishes data, the workflow waits until the reader catalog has the new snapshot and then restarts the Pooler deployments. New Pooler connections open new backends, which attach the current catalog.
 
 There is one active writer per schema catalog. Publishing is parallel across schemas and sequential within each schema queue.
 
@@ -120,7 +120,7 @@ sequenceDiagram
         API->>PG: select the table view
         PG->>PG: check RLS and plan the sources
         opt DuckLake serves the request
-            PG->>DL: predicate-pushed Parquet scan at one snapshot
+            PG->>DL: Parquet scan with the RLS predicate at one snapshot
             DL-->>PG: rows
         end
         opt BigQuery serves the request

@@ -89,13 +89,14 @@ Before publication, the writer compares each incoming Parquet schema with the ex
 Each schema uses these locations:
 
 ```text
-local writer:    /var/lib/ducklake/writer/<schema>/catalog.sqlite
-local reader:    /var/lib/ducklake/catalogs/<schema>/catalog.sqlite
+writer volume:   /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (sync pods)
+                 /var/lib/ducklake/writer/<schema>/catalog.sqlite   (Litestream replicate)
+reader volume:   /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (Litestream restore, PostgreSQL)
 Litestream S3:   s3://<bucket>/ducklake/<schema>/catalog.sqlite/ (LTX replica prefix)
 DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 ```
 
-The DBOS sync writes the writer catalog volume. Litestream replicates the writer volume and restores the separate reader catalog volume. CNPG PostgreSQL instances mount the reader volume read-only. pg_duckdb re-reads the catalog file on each query.
+The DBOS sync writes the writer catalog volume. Litestream replicates the writer volume and restores the separate reader catalog volume. CNPG PostgreSQL instances mount the reader volume read-only. A PostgreSQL backend keeps its DuckLake attachment. After a publication, the workflow waits until the reader catalog has the new snapshot and then restarts the Pooler deployments, so new backends attach the current catalog.
 
 ## Fallback per table
 

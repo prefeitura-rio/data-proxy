@@ -37,7 +37,7 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 The init-db callback waits for its CNPG writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. CNPG owns core database roles and memberships. Init-db owns extensions, schemas, tables, functions, RLS policies, and database S3 secrets.
 
-PostgREST-ro and PostgREST-rw use HTTP readiness probes on `/`. A Deployment isn't Ready until PostgREST is serving its configured schema.
+Each PostgREST Deployment (`postgrest`, and `postgrest-ro` in HA mode) uses an HTTP readiness probe on `/`. A Deployment isn't Ready until PostgREST is serving its configured schema.
 
 ## Istio ingress
 
@@ -53,8 +53,8 @@ Configure the caching proxy under `proxy`. Values include `cacheTtl`, `fetchBuff
 
 | Part       | Single mode                                                                     | HA mode                                                                                                    |
 | ---------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| PostgreSQL | One instance. `cnpg.instances` sets the count.                                  | One CNPG Cluster. `cnpg.autoscaling` scales it from 3 instances up. CNPG promotes a standby on failure.    |
-| Pooler     | One `rw` Pooler. `cnpg.pooler.autoscaling` scales it.                           | A fixed `rw` Pooler (`cnpg.pooler.instances`) and a `ro` Pooler that `cnpg.pooler.autoscaling` scales.     |
+| PostgreSQL | One instance. `cnpg.instances` sets the count.                                  | One CNPG Cluster. `cnpg.autoscaling` scales it from 2 instances up. CNPG promotes a standby on failure.    |
+| Pooler     | One `rw` Pooler with one pod.                                                   | One `rw` Pooler and one `ro` Pooler, each with one pod.                                                    |
 | PostgREST  | One Deployment for reads and writes. `postgrest.autoscaling` scales it.         | A fixed `rw` Deployment (`postgrest.replicas`) for writes and `postgrest-ro` for reads, scaled by `postgrest.autoscaling`. |
 | Proxy      | Sends every request to PostgREST.                                               | Sends `GET` and `HEAD` to `postgrest-ro` and all other methods to `postgrest`.                             |
 
@@ -69,14 +69,13 @@ helm upgrade data-proxy helm --set ha.enabled=false
 
 Only the read-write database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.
 
-KEDA owns every workload count. Helm never sets `replicas` or `instances` on a workload, so an upgrade cannot conflict with a scaler. A fixed workload gets a ScaledObject that KEDA pauses at the configured count. This is also how the single mode holds the Cluster at `cnpg.instances`.
+KEDA owns every workload count except the Poolers. Helm never sets `replicas` or `instances` on a workload, so an upgrade cannot conflict with a scaler. A CNPG Pooler has no scale selector, so KEDA cannot scale it, and CNPG runs its default of one pod. A fixed workload gets a ScaledObject that KEDA pauses at the configured count. This is also how the single mode holds the Cluster at `cnpg.instances`.
 
 Default triggers:
 
 | Workload                  | Default trigger                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Cluster (HA mode)         | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads.          |
-| Pooler                    | One Pooler pod for each `cnpg.pooler.poolSize / 10` PostgREST pods. A PostgREST pod opens up to 10 connections. |
 | PostgREST and nginx       | CPU and memory.                                                                                              |
 
 Set `triggers` in an `autoscaling` block to replace a default. KEDA cannot scale a CNPG resource on CPU, because the resource has no pod selector.
@@ -84,7 +83,7 @@ Set `triggers` in an `autoscaling` block to replace a default. KEDA cannot scale
 Notes for HA mode:
 
 - Every instance has the same `cnpg.resources`.
-- The chart raises the instance floor to 3. Raise it more with `cnpg.autoscaling.minReplicaCount`.
+- The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
 - Replication is asynchronous, so a changed policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it cannot be a default. A trigger then raises `synchronous_commit` to `remote_apply` for policy writes only, and other commits use `local`.
 - The S3 secret is a file in the shared catalog volume (`duckdb-secrets`). Every instance mounts it, and only the primary writes it. After the first upgrade that adds this mount, run `helm upgrade` once more so `init-db` writes the secret to the volume.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls the poolers and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.

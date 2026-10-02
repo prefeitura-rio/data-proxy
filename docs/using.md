@@ -11,7 +11,11 @@ curl \
 
 ## Request routing
 
-nginx routes all requests to the single PostgREST deployment, which connects through the CNPG session-mode read Pooler. The PostgREST deployment is refreshed after sync when the view set changes. It is not Ready until its HTTP readiness probe serves `/`.
+In single mode, the proxy sends every request to the `postgrest` Deployment, which connects through the CNPG session-mode `rw` Pooler.
+
+In HA mode, the proxy sends `GET` and `HEAD` to `postgrest-ro`, which connects through the `ro` Pooler to the standbys. It sends all other methods to `postgrest`, which connects through the `rw` Pooler to the primary. When `postgrest-ro` is unreachable or answers 502, 503, or 504, the proxy retries the read once on `postgrest`. It never retries a write. See [Helm Chart](helm_chart.md#single-and-ha-mode).
+
+Sync restarts the PostgREST deployments when the view set changes. A PostgREST pod is not Ready until its HTTP readiness probe serves `/`.
 
 ## OpenAPI
 
@@ -33,7 +37,7 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. RLS filters rows before query filters.
+Combine filters with `&`. PostgREST applies them with AND. RLS filters rows in the DuckDB scan. Query filters run in PostgreSQL after the scan, so they reduce the response, not the data that DuckDB reads.
 
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`.
 

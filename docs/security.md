@@ -1,6 +1,6 @@
 # Security
 
-Data Proxy enforces access in PostgreSQL and pushes the resulting predicate into DuckDB. It does not calculate business permissions in nginx or in the client.
+Data Proxy enforces access in PostgreSQL. The table function passes the RLS predicate into DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters, such as `?id=eq.1`, are applied in PostgreSQL after DuckDB returns the authorized rows. Data Proxy does not calculate business permissions in nginx or in the client.
 
 ## Configure the access model
 
@@ -10,19 +10,20 @@ The following values must agree:
 auth:
   anonRole: anon
   userRole: user
-  authenticatorRole: authenticator
+  authenticatorRole: postgrest
   jwtRoleClaim: $.role
 
-syncConfig:
-  schemas:
-    test:
-      claim: preferred_username
-      tables:
-        - name: project.dataset.participants
-          strategy: full
-          rls:
-            - column: region_id
-              unit_type: region
+sync:
+  config:
+    schemas:
+      test:
+        claim: preferred_username
+        tables:
+          - name: project.dataset.participants
+            strategy: full
+            rls:
+              - column: region_id
+                unit_type: region
 ```
 
 These settings mean:
@@ -76,7 +77,7 @@ sequenceDiagram
         else no matching schema or access policy
             DB-->>C: 200 empty result
         else access allowed
-            DB->>DB: Scan DuckLake Parquet with the predicate
+            DB->>DB: Scan DuckLake Parquet with the RLS predicate
             DB-->>C: 200 authorized rows
         end
     end
@@ -88,9 +89,8 @@ CNPG manages the core roles:
 | ------------------------ | ------------------------------------------------------------------------------ |
 | `anon`                   | Unauthenticated PostgreSQL role with no application table access.              |
 | `user`                   | Authenticated read role, subject to schema and row policies.                   |
-| `authenticator`          | PostgREST login role. It's `NOINHERIT` and can switch to `anon` and `user`.    |
+| `postgrest`              | PostgREST login role (`auth.authenticatorRole`). It's `NOINHERIT` and can switch to `anon`, `user`, and `policy_writer_<schema>`. |
 | `policy_writer_<schema>` | Per-schema policy service role.                                                |
-| `jobs`                   | Shared maintenance role for the backup and cleanup CronJobs. It can't run DDL. |
 
 Init-db creates the `rls` schema and its functions, tables, policies, and grants. `rls.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `rls` doesn't grant application table access.
 
@@ -181,7 +181,7 @@ curl \
   "${BASE_URL}/participants?limit=20"
 ```
 
-The proxy routes reads to PostgREST-ro and writes to PostgREST-rw. BigQuery rows follow the same authentication and RLS rules as DuckLake rows:
+In single mode, the proxy sends every request to PostgREST. In HA mode, it sends `GET` and `HEAD` to PostgREST-ro and other methods to PostgREST. The diagram shows HA mode. BigQuery rows follow the same authentication and RLS rules as DuckLake rows:
 
 ```mermaid
 sequenceDiagram
@@ -235,10 +235,10 @@ See [Proxy](proxy.md) for the routing and cache rules. `/access_policy` is never
 | Symptom                                       | Check                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `401 Unauthorized`                            | Check the JWT signature, issuer, audience, expiry, and `role` claim.                                    |
-| `403` with `permission denied to set role`    | Check that CNPG manages `authenticator` with `inRoles: [anon, user]` and `inherit: false`.              |
+| `403` with `permission denied to set role`    | Check that CNPG manages `auth.authenticatorRole` with `inRoles: [anon, user]` and `inherit: false`.     |
 | `403` with `permission denied for schema rls` | Check `GRANT USAGE ON SCHEMA rls TO anon/user`.                                                         |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
-| `404 Unknown schema profile`                  | Check `Accept-Profile` and `syncConfig.schemas`.                                                        |
+| `404 Unknown schema profile`                  | Check `Accept-Profile` and `sync.config.schemas`.                                                       |
 | Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; don't use the end-user role. |
 | Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`; every source uses the same JWT and RLS rules. |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |
