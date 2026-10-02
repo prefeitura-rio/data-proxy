@@ -104,7 +104,7 @@ export function syncPods(k8s: Kubernetes): KubernetesPod[] {
   );
 }
 
-/** Creates a Job that waits for the latest DBOS sync workflow to complete. */
+/** Creates a Job that waits for the latest DBOS sync workflow to complete after a detached trigger. */
 export function waitForWorkflow(
   k8s: Kubernetes,
 ): void {

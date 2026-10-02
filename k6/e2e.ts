@@ -469,7 +469,6 @@ function verifyBlockedTable(k8s: Kubernetes): void {
 
     const job = triggerSync(k8s);
     waitForJob(k8s, job);
-    waitForWorkflow(k8s);
 
     for (const reason of ["extraction_failed", "table_blocked"]) {
         checkSql(
@@ -509,7 +508,6 @@ function verifyNoChangeRun(k8s: Kubernetes): void {
     const revisionBefore = postgrestDeploymentRevision(k8s);
     const job = triggerSync(k8s);
     waitForJob(k8s, job);
-    waitForWorkflow(k8s);
 
     const snapshotAfter = snapshotValue(userToken());
     const revisionAfter = postgrestDeploymentRevision(k8s);
@@ -525,7 +523,6 @@ export function setup(): void {
     const k8s = new Kubernetes();
     const jobName = triggerSync(k8s);
     waitForJob(k8s, jobName);
-    waitForWorkflow(k8s);
 }
 
 /** Sends a GET through the proxy with auth headers and optional extras. */
@@ -1161,7 +1158,6 @@ function verifyPartitionChanges(k8s: Kubernetes): void {
         checkSql(k8s, `check-${change.id}-edit`, change.query, change.broken, STATE_DATABASE);
 
         waitForJob(k8s, triggerSync(k8s));
-        waitForWorkflow(k8s);
 
         checkSql(k8s, `check-${change.id}-fix`, change.query, change.healthy, STATE_DATABASE);
         const after = rowsPerPartition(userToken(), pinned()).counts;
