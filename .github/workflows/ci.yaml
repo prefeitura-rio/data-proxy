@@ -164,9 +164,11 @@ jobs:
       - name: Read current version
         id: version
         run: devenv shell -- ci version
-      - name: Skip if no chart or image changes since release
+      - name: Skip if no release-level commit or chart changes exist
         id: guard
         run: devenv shell -- ci guard
+        env:
+          RELEASE: ${{ steps.version.outputs.release }}
       - name: Login to registry
         if: steps.guard.outputs.skip != 'true'
         run: devenv shell -- ci chart login

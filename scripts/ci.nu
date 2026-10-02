@@ -31,7 +31,10 @@ def write-output [name: string, value: string]: nothing -> nothing {
     } else {
         try {
             ($line + (char nl)) | save --append $ci.output_file
-        } catch {|err| fail $"Failed to write CI output ($name): ($err.msg)" {command: write-output, span: (metadata $ci.output_file).span} }
+        } catch {|err| fail $"Failed to write CI output ($name): ($err.msg)" {
+                command: write-output
+                span: (metadata $ci.output_file).span
+            } }
     }
 }
 
@@ -41,12 +44,14 @@ def 'main changes' []: nothing -> nothing {
     let force_full = ($env.FORCE_FULL? | default 'false') == 'true'
     let before = $env.BEFORE? | default HEAD~1
     let after = $env.GITHUB_SHA? | default HEAD
+
     let files = if $force_full {
         log info 'Force full build requested.'
         []
     } else {
         git diff --name-only $before $after | lines
     }
+
     let specs = [
         {
             name: Pipeline
@@ -77,6 +82,7 @@ def 'main changes' []: nothing -> nothing {
             pattern: ^Dockerfile\.postgres$
         }
     ]
+
     let images = $specs
     | where $force_full or ($files | any {$in =~ $it.pattern})
     | each { insert image $"($ci.registry)/($ci.repository)($in.suffix)" }
@@ -86,21 +92,39 @@ def 'main changes' []: nothing -> nothing {
     if ($images | is-not-empty) { log info $"Detected ($images | length) image builds." }
     if $build_helm { log info 'Helm chart build required.' }
 
-    write-output build_helm ($build_helm | into string)
-    write-output build_images (($images | is-not-empty) | into string)
-    write-output build_matrix ({include: $images} | to json)
+    for output in [
+        {
+            name: build_helm
+            value: ($build_helm | into string)
+        }
+        {
+            name: build_images
+            value: (($images | is-not-empty) | into string)
+        }
+        {
+            name: build_matrix
+            value: ({include: $images} | to json --raw)
+        }
+    ] {
+        write-output $output.name $output.value
+    }
 }
 
 # Resolve the latest image tag from the OCI registry for one image query.
 def resolve-image [entry: record<name: string, filter: string, fallback: string>]: nothing -> string {
     log info $"Resolving latest tag for image ($entry.name)..."
     let full_image = $"($ci.registry)/(ci-repository-owner)/($entry.name)"
+
     let tag = try {
         crane ls $full_image
         | lines
         | where $in !~ latest
         | first
-    } catch {|err| fail $"Registry query failed for image ($entry.name): ($err.msg)" {command: resolve-image, span: (metadata $entry.name).span} }
+    } catch {|err| fail $"Registry query failed for image ($entry.name): ($err.msg)" {
+            command: resolve-image
+            span: (metadata $entry.name).span
+        } }
+
     if ($tag | is-not-empty) and $tag != '{}' {
         log info $"Resolved tag ($tag) for image ($entry.name)."
         $tag
@@ -115,31 +139,51 @@ def resolve-image [entry: record<name: string, filter: string, fallback: string>
 # Resolve the latest image tags and write the resolved outputs.
 def 'main images resolve' []: nothing -> nothing {
     log info 'Resolving latest image tags from GHCR...'
-    write-output sync (
-        resolve-image {name: (configured-image SYNC_IMAGE data-proxy-sync) filter: '!= "latest"' fallback: latest}
-    )
-    write-output postgres (
-        resolve-image {name: (configured-image POSTGRES_IMAGE data-proxy-postgres) filter: 'test("^17-[0-9a-f]+$")' fallback: ""}
-    )
-    write-output jobs (
-        resolve-image {name: (configured-image JOBS_IMAGE data-proxy-jobs) filter: '!= "latest"' fallback: latest}
-    )
-    write-output proxy (
-        resolve-image {
+
+    let images = [
+        {
+            output: sync
+            name: (configured-image SYNC_IMAGE data-proxy-sync)
+            filter: '!= "latest"'
+            fallback: latest
+        }
+        {
+            output: postgres
+            name: (configured-image POSTGRES_IMAGE data-proxy-postgres)
+            filter: 'test("^17-[0-9a-f]+$")'
+            fallback: ""
+        }
+        {
+            output: jobs
+            name: (configured-image JOBS_IMAGE data-proxy-jobs)
+            filter: '!= "latest"'
+            fallback: latest
+        }
+        {
+            output: proxy
             name: (configured-image PROXY_IMAGE data-proxy-proxy)
             filter: '!= "latest"'
             fallback: latest
         }
-    )
+    ]
+
+    for image in $images {
+        write-output $image.output (resolve-image $image)
+    }
+
     log info 'Resolved all image tags.'
 }
 
 # Calculate and write the next Helm chart version from commit history.
 def 'main version' []: nothing -> nothing {
     log info 'Calculating the next Helm chart version...'
+
     let current = try {
         open helm/Chart.yaml | get version
-    } catch {|err| fail $"Failed to read Helm chart version: ($err.msg)" {command: version, span: (metadata helm/Chart.yaml).span} }
+    } catch {|err| fail $"Failed to read Helm chart version: ($err.msg)" {
+            command: version
+            span: (metadata helm/Chart.yaml).span
+        } }
 
     let previous = (
         git tag --sort=-v:refname
@@ -157,72 +201,97 @@ def 'main version' []: nothing -> nothing {
     }
 
     let subjects = git log --format=%s $range | lines | where $it !~ '\[skip ci\]'
-    let bump = if ($subjects | is-empty) {
-        1
-    } else {
-        $subjects | each {|subject|
-            if $subject =~ 'BREAKING CHANGE|!:' {
-                3
-            } else if $subject =~ '^feat(\(|:)' {
-                2
-            } else {
-                1
-            }
-        } | math max
+
+    let levels = $subjects | each {|subject|
+        match $subject {
+            $header if $header =~ '^(feat|fix)(\([^)]+\))?!:' => 'major'
+            $header if $header =~ '^feat(\([^)]+\))?:' => 'minor'
+            $header if $header =~ '^fix(\([^)]+\))?:' => 'patch'
+            _ => null
+        }
+    } | compact
+
+    write-output current $current
+
+    if ($levels | is-empty) {
+        write-output release (false | into string)
+        log info 'No release-level Conventional Commit found.'
+        return
     }
-    let parts = $current | split row . | each { into int }
-    if ($parts | length) != 3 {
+
+    let level = ['major' 'minor' 'patch']
+    | where $it in $levels
+    | first
+
+    let next = try {
+        $current | semver bump $level | to text
+    } catch {
         fail $"Invalid Helm version: ($current)" {command: version, span: (metadata $current).span}
     }
-    let next = match $bump {
-        3 => $"($parts.0? + 1).0.0"
-        2 => $"($parts.0?).($parts.1? + 1).0"
-        _ => $"($parts.0?).($parts.1?).($parts.2? + 1)"
-    }
-    write-output current $current
+
+    write-output release (true | into string)
     write-output next $next
     write-output tag $"helm-v($next)"
+
     log info $"Next Helm chart version: ($next)"
 }
 
 # Pin image tags in the chart values file.
 def 'main images pin' []: nothing -> nothing {
     log info 'Pinning image tags in helm/values.yaml...'
-    let sync_image = configured-image SYNC_IMAGE data-proxy-sync
-    let postgres_image = configured-image POSTGRES_IMAGE data-proxy-postgres
-    let jobs_image = configured-image JOBS_IMAGE data-proxy-jobs
-    let proxy_image = configured-image PROXY_IMAGE data-proxy-proxy
+    let replacements = [
+        {
+            pattern: '^  image: .*data-proxy-sync:'
+            name: (configured-image SYNC_IMAGE data-proxy-sync)
+            tag: $env.PIPELINE_SHA
+        }
+        {
+            pattern: '^  image: .*data-proxy-postgres:'
+            name: (configured-image POSTGRES_IMAGE data-proxy-postgres)
+            tag: $env.PG_SHA
+        }
+        {
+            pattern: '^\s+image: .*data-proxy-jobs:'
+            name: (configured-image JOBS_IMAGE data-proxy-jobs)
+            tag: $env.NU_SHA
+        }
+        {
+            pattern: '^  image: .*data-proxy-proxy:'
+            name: (configured-image PROXY_IMAGE data-proxy-proxy)
+            tag: $env.PROXY_SHA
+        }
+    ]
+
     try {
         let values = (
             open helm/values.yaml --raw
             | lines
             | each {|line|
-                if $line =~ '^  image: .*data-proxy-sync:' {
-                    $"  image: ($ci.registry)/(ci-repository-owner)/($sync_image):($env.PIPELINE_SHA)"
-                } else if $line =~ '^  image: .*data-proxy-postgres:' {
-                    $"  image: ($ci.registry)/(ci-repository-owner)/($postgres_image):($env.PG_SHA)"
-                } else if $line =~ '^\s+image: .*data-proxy-jobs:' {
-                    $"  image: ($ci.registry)/(ci-repository-owner)/($jobs_image):($env.NU_SHA)"
-                } else if $line =~ '^  image: .*data-proxy-proxy:' {
-                    $"  image: ($ci.registry)/(ci-repository-owner)/($proxy_image):($env.PROXY_SHA)"
-                } else {
-                    $line
+                $replacements | reduce --fold $line {|replacement value|
+                    if $value =~ $replacement.pattern {
+                        $"  image: ($ci.registry)/(ci-repository-owner)/($replacement.name):($replacement.tag)"
+                    } else {
+                        $value
+                    }
                 }
             }
             | str join (char nl)
         ) ++ (char nl)
-        let pinned_count = $values | lines | where {
-            ($it =~ $"($sync_image):($env.PIPELINE_SHA)")
-            or ($it =~ $"($postgres_image):($env.PG_SHA)")
-            or ($it =~ $"($jobs_image):($env.NU_SHA)")
-            or ($it =~ $"($proxy_image):($env.PROXY_SHA)")
-        } | length
+
+        let pinned_count = $replacements
+        | where $values =~ $"($it.name):($it.tag)"
+        | length
+
         if $pinned_count < 4 {
             fail $"Expected at least 4 pinned image lines, found ($pinned_count)" {command: images-pin, span: (metadata helm/values.yaml).span}
         }
+
         $values | save --force helm/values.yaml
         log info $"Pinned ($pinned_count) image references in helm/values.yaml."
-    } catch {|err| fail $"Failed to pin Helm image values: ($err.msg)" {command: images-pin, span: (metadata helm/values.yaml).span} }
+    } catch {|err| fail $"Failed to pin Helm image values: ($err.msg)" {
+            command: images-pin
+            span: (metadata helm/values.yaml).span
+        } }
 }
 
 # Set the chart version selected by the version subcommand.
@@ -232,7 +301,10 @@ def 'main chart bump' []: nothing -> nothing {
         let chart = open helm/Chart.yaml --raw | str replace --regex '(?m)^version: .*$' $"version: ($env.NEXT)"
         $chart | save --force helm/Chart.yaml
         log info 'Helm chart version updated.'
-    } catch {|err| fail $"Failed to bump Helm chart version: ($err.msg)" {command: chart-bump, span: (metadata helm/Chart.yaml).span} }
+    } catch {|err| fail $"Failed to bump Helm chart version: ($err.msg)" {
+            command: chart-bump
+            span: (metadata helm/Chart.yaml).span
+        } }
 }
 
 # Update the checkout from main.
@@ -241,7 +313,10 @@ def 'main git update' []: nothing -> nothing {
     try {
         git pull --rebase origin main
         log info 'Checkout updated from main.'
-    } catch {|err| fail $"Failed to update main: ($err.msg)" {command: git-update, span: (metadata origin).span} }
+    } catch {|err| fail $"Failed to update main: ($err.msg)" {
+            command: git-update
+            span: (metadata origin).span
+        } }
 }
 
 # Log in to the OCI chart registry.
@@ -250,7 +325,10 @@ def 'main chart login' []: nothing -> nothing {
     try {
         $ci.registry_token | helm registry login $ci.registry --username $ci.registry_user --password-stdin
         log info 'Logged in to GHCR.'
-    } catch {|err| fail $"Failed to log in to registry: ($err.msg)" {command: chart-login, span: (metadata $ci.registry).span} }
+    } catch {|err| fail $"Failed to log in to registry: ($err.msg)" {
+            command: chart-login
+            span: (metadata $ci.registry).span
+        } }
 }
 
 # Package the Helm chart into the packaged directory.
@@ -260,7 +338,10 @@ def 'main chart package' []: nothing -> nothing {
         mkdir packaged
         helm package helm/ --destination packaged
         log info 'Helm chart packaged.'
-    } catch {|err| fail $"Failed to package Helm chart: ($err.msg)" {command: chart-package, span: (metadata helm/Chart.yaml).span} }
+    } catch {|err| fail $"Failed to package Helm chart: ($err.msg)" {
+            command: chart-package
+            span: (metadata helm/Chart.yaml).span
+        } }
 }
 
 # Commit and push the generated chart release.
@@ -275,7 +356,10 @@ def 'main chart commit' []: nothing -> nothing {
         git push origin HEAD:main
         git push origin $env.RELEASE_TAG
         log info $"Committed and pushed Helm release ($env.NEXT)."
-    } catch {|err| fail $"Failed to commit Helm release: ($err.msg)" {command: chart-commit, span: (metadata $env.RELEASE_TAG).span} }
+    } catch {|err| fail $"Failed to commit Helm release: ($err.msg)" {
+            command: chart-commit
+            span: (metadata $env.RELEASE_TAG).span
+        } }
 }
 
 # Publish the packaged chart and create its release.
@@ -284,8 +368,11 @@ def 'main chart publish' []: nothing -> nothing {
     try {
         let package = glob packaged/*.tgz | first
         let registry = $"oci://($ci.registry)/(ci-repository-owner)/charts"
+
         helm push $package $registry
+
         let previous = git tag --sort=-v:refname | lines | where $it =~ ^helm-v | first
+
         let args = if $previous == null {
             [
                 release
@@ -307,29 +394,40 @@ def 'main chart publish' []: nothing -> nothing {
                 --generate-notes
             ]
         }
+
         ^($ci.release_tool) ...$args
         ^($ci.release_tool) release upload $env.RELEASE_TAG $package
+
         log info $"Published Helm release ($env.RELEASE_TAG)."
-    } catch {|err| fail $"Failed to publish Helm release: ($err.msg)" {command: chart-publish, span: (metadata $env.RELEASE_TAG).span} }
+    } catch {|err| fail $"Failed to publish Helm release: ($err.msg)" {
+            command: chart-publish
+            span: (metadata $env.RELEASE_TAG).span
+        } }
 }
 
 # Decide whether a Helm release is needed.
 def 'main guard' []: nothing -> nothing {
     log info 'Checking whether a Helm release is needed...'
+
     let previous = (
         git tag --sort=-v:refname
         | lines
         | where $it =~ ^helm-v
         | first
     )
+
     let files = if $previous == null {
         git diff --name-only HEAD~1 HEAD | lines
     } else {
         git diff --name-only $previous HEAD | lines
     }
+
     let relevant = $files | where { (($in | str starts-with helm/) and ($in !~ ^helm/tests/)) or $in == helm/values.yaml }
-    write-output skip (($relevant | is-empty) | into string)
-    log info $"Release needed: (($relevant | is-not-empty))"
+    let release = ($env.RELEASE? | default 'true') == 'true'
+    let skip = (not $release) or ($relevant | is-empty)
+
+    write-output skip ($skip | into string)
+    log info $"Release needed: (not $skip)"
 }
 
 # Print the available CI subcommands.

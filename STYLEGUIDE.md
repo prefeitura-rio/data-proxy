@@ -48,7 +48,16 @@ Nushell scripts run the Helm jobs and the local commands.
 - Log with `use std/log`. Don't use `print` for service output.
 - Run SQL only through `execute-sql` from `helm/files/lib.nu`: one template, one context record. Quote values with `quote-pg`.
 - Give each script one `main` command, and each CronJob its own script.
+- Use pipelines for data transforms and `for` for ordered external side effects.
+- Add input/output types and `@example` blocks to exported reusable helpers.
+- `helm/files/` and `scripts/` are separate codebases. Do not import modules across them.
 - Run `nu --ide-check` on changed files.
+
+Run the Helm Nushell suite after Helm script changes:
+
+```bash
+nu helm/files/tests/run.nu
+```
 
 ```nu
 use ./lib.nu [quote-pg execute-sql]
@@ -141,8 +150,10 @@ def test_renders_exact_predicate(selection, expected):
 ## Git
 
 - Use Conventional Commits: `type(scope)!: imperative summary`, lowercase, no trailing period.
-- Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`, `ci`.
-- Mark a breaking change with `!` and explain the migration in the body. Don't use a `BREAKING CHANGE` footer.
+- Types: `feat` for new user-visible capability; `fix` for a user-visible defect; `refactor` for internal restructuring; `test` for test-only work; `docs` for documentation-only work; `chore` for CI, tooling, dependencies, and maintenance.
+- Do not use `perf` or `ci`: classify release-worthy performance work as `feat` or `fix`, and classify CI work as `chore`.
+- Release levels: `feat!:` and `fix!:` bump major; `feat:` bumps minor; `fix:` bumps patch; all other types create no release.
+- Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer.
 - Make one logical change per commit. Squash fixups before merge.
 - Never commit or push without explicit approval. Stage, summarize, and wait.
 
