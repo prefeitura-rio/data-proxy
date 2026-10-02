@@ -1,4 +1,5 @@
 use std/log
+use ./lib.nu [fail]
 
 # Fetch a test OIDC token and print export and curl commands for local testing.
 def main []: nothing -> nothing {
@@ -33,10 +34,10 @@ def main []: nothing -> nothing {
         kubectl ...$args
         | from json
         | get access_token
-    } catch {|err|
-        log error $"Failed to fetch token: ($err.msg)"
-        exit 1
-    }
+    } catch {|err| fail $"Failed to fetch token: ($err.msg)" {
+            command: main
+            span: (metadata $args).span
+        } }
 
     print $"export TOKEN='($token)'"
     print "

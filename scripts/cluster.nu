@@ -1,741 +1,64 @@
-# nu-lint-ignore-file: dont_mix_different_effects, max_positional_params, string_may_be_bare, division_to_format_duration, remove_hat_not_builtin, unhandled_external_error
-
 use std/log
-use ./lib.nu [poll]
-
-const KUBERNETES_VERSION = 'v1.34.7'
-const MINIKUBE_CPUS = '6'
-const MINIKUBE_DISK = '40g'
-const MINIKUBE_MEMORY = '12288'
-const NAMESPACE = 'data-proxy'
-const PROFILE = 'data-proxy'
-const PROXY_CACHE_REDIS_DB = '1'
-const TEST_SCHEMA = 'test'
-
-# Path to the repository git-root.
-def git-root []: nothing -> string {
-    git rev-parse --show-toplevel | str trim
-}
-
-# Wrapped kubectl using the isolated kubeconfig.
-def --wrapped k [kubecfg: path, ...rest: string]: string -> string, nothing -> string {
-    with-env {KUBECONFIG: $kubecfg} {
-        kubectl --context=($PROFILE) ...$rest
-    }
-}
-
-# Wrapped minikube for the data-proxy profile with the isolated kubeconfig.
-def --wrapped mk [kubecfg: path, ...rest: string]: nothing -> string {
-    with-env {KUBECONFIG: $kubecfg} {
-        minikube --profile $PROFILE ...$rest
-    }
-}
-
-# Wrapped helm using the isolated kubeconfig.
-def --wrapped hm [kubecfg: path, ...rest: string]: nothing -> string {
-    with-env {KUBECONFIG: $kubecfg} {
-        ^helm --kube-context $PROFILE ...$rest
-    }
-}
-
-def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
-    for ref in $in {
-        let r = $ref | parse '{namespace}/{name}' | first
-        log info $'  ($kind)/($r.namespace)/($r.name)...'
-        (k
-            $kubecfg
-            -n
-            $r.namespace
-            rollout
-            status
-            $'($kind)/($r.name)'
-            --timeout=15m
-        )
-    }
-}
-
-# Start a missing local cluster with the supported Kubernetes version and capacity.
-def start-minikube [kubecfg: path]: nothing -> string {
-    if (mk $kubecfg status | complete).exit_code != 0 {
-        (
-            (mk
-                $kubecfg
-                start
-                --driver=podman
-                --container-runtime=containerd
-                --kubernetes-version
-                $KUBERNETES_VERSION
-                --cpus
-                $MINIKUBE_CPUS
-                --memory
-                $MINIKUBE_MEMORY
-                --disk-size
-                $MINIKUBE_DISK
-            )
-        )
-    }
-
-    mk $kubecfg update-context
-}
-
-# Check whether the Kubernetes API server readyz endpoint responds.
-def wait-for-control-plane [kubecfg: path]: nothing -> nothing {
-    if not (poll {|| ((k $kubecfg get --raw /readyz | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
-        error make {
-            msg: "Kubernetes API server didn't become ready within 5 minutes"
-            label: {
-                text: 'wait-for-control-plane'
-                span: (metadata $kubecfg).span
-            }
-        }
-    }
-
-    (
-        (k
-            $kubecfg
-            -n
-            kube-system
-            wait
-            --for=condition=Ready
-            pod
-            -l
-            component=etcd
-            --timeout=5m
-        )
-    ) | ignore
-    (
-        (k
-            $kubecfg
-            -n
-            kube-system
-            wait
-            --for=condition=Ready
-            pod/storage-provisioner
-            --timeout=5m
-        )
-    ) | ignore
-
-    let before = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
-    sleep 30sec
-    let after = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
-    if $after != $before {
-        error make {
-            msg: 'storage-provisioner restarted during the control-plane stability window'
-            label: {
-                text: 'wait-for-control-plane'
-                span: (metadata $kubecfg).span
-            }
-        }
-    }
-}
-
-# Check whether the metrics-server resource metrics API is available.
-def wait-for-metrics [kubecfg: path]: nothing -> nothing {
-    (['kube-system/metrics-server'] | wait-for deployment $kubecfg) | ignore
-
-    if not (poll {|| ((k $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0) } {interval: 5sec, max_attempts: 60}) {
-        error make {
-            msg: "metrics-server didn't become ready within 5 minutes"
-            label: {
-                text: 'wait-for-metrics'
-                span: (metadata $kubecfg).span
-            }
-        }
-    }
-}
-
-# Return the total restart count for matching Pods.
-def restart-count [kubecfg: path, namespace: string, selector: string]: nothing -> int {
-    let pods = try {
-        k $kubecfg -n $namespace get pods -l $selector -o json
-        | from json
-        | get items
-    } catch {
-        return 0
-    }
-
-    if ($pods | is-empty) { return 0 }
-
-    $pods
-    | each {|pod|
-        $pod.status.containerStatuses
-        | default []
-        | each {|container| $container.restartCount | into int }
-        | math sum
-    }
-    | math sum
-}
-
-# Return whether a Service has a ready EndpointSlice address.
-def service-ready [kubecfg: path, namespace: string, service: string]: nothing -> bool {
-    let slices = try {
-        (k
-            $kubecfg
-            -n
-            $namespace
-            get
-            endpointslice
-            -l
-            $'kubernetes.io/service-name=($service)'
-            -o
-            json
-        )
-        | from json
-        | get items
-    } catch {
-        return false
-    }
-
-    $slices
-    | any {|slice|
-        ($slice.endpoints | default [] | any {|endpoint| $endpoint.conditions.ready })
-    }
-}
-
-# Verify that platform controllers and their webhooks remain stable.
-def verify-platform [kubecfg: path]: nothing -> nothing {
-    [
-        'cnpg-system/cnpg-cloudnative-pg'
-        'keda/keda-operator'
-        'keda/keda-operator-metrics-apiserver'
-        'keda/keda-admission-webhooks'
-    ] | wait-for deployment $kubecfg | ignore
-
-    for webhook in [
-        {namespace: 'cnpg-system', name: 'cnpg-webhook-service'}
-        {namespace: 'keda', name: 'keda-admission-webhooks'}
-    ] {
-        if not (service-ready $kubecfg $webhook.namespace $webhook.name) {
-            error make {
-                msg: $'Webhook service ($webhook.namespace)/($webhook.name) has no endpoint'
-                label: {
-                    text: 'verify-platform'
-                    span: (metadata $kubecfg).span
-                }
-            }
-        }
-    }
-
-    let before_cnpg = restart-count $kubecfg cnpg-system 'app.kubernetes.io/name=cloudnative-pg'
-    let before_keda = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-operator'
-    let before_keda_metrics = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-metrics-apiserver'
-    let before_keda_webhook = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-admission-webhooks'
-    let before_storage = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
-    sleep 30sec
-    let after_cnpg = restart-count $kubecfg cnpg-system 'app.kubernetes.io/name=cloudnative-pg'
-    let after_keda = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-operator'
-    let after_keda_metrics = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-metrics-apiserver'
-    let after_keda_webhook = restart-count $kubecfg keda 'app.kubernetes.io/name=keda-admission-webhooks'
-    let after_storage = restart-count $kubecfg kube-system 'integration-test=storage-provisioner'
-
-    if $after_cnpg != $before_cnpg or $after_keda != $before_keda or $after_keda_metrics != $before_keda_metrics or $after_keda_webhook != $before_keda_webhook or $after_storage != $before_storage {
-        error make {
-            msg: 'CNPG or KEDA restarted during the platform stability window'
-            label: {
-                text: 'verify-platform'
-                span: (metadata $kubecfg).span
-            }
-        }
-    }
-}
-
-# Build the platform container images into Minikube.
-def --env build-images [kubecfg: path]: nothing -> string {
-    let repo = git-root
-    try { cd $repo } catch {|err|
-        log error $'cd failed: ($err.msg)'
-        return
-    }
-
-    [
-        {image: 'data-proxy-sync:local', dockerfile: 'Dockerfile.sync'}
-        {image: 'localhost/data-proxy-postgres:17.0.0-local', dockerfile: 'Dockerfile.postgres'}
-        {image: 'data-proxy-proxy:local', dockerfile: 'Dockerfile.proxy'}
-        {image: 'data-proxy-jobs:local', dockerfile: 'Dockerfile.jobs'}
-        {image: 'localhost/k6:local', dockerfile: 'Dockerfile.k6'}
-    ]
-    | each {|img|
-        log info $'Building ($img.image)...'
-        docker build -t $img.image -f $img.dockerfile .
-        log info $'Loading ($img.image) into Minikube...'
-        docker save $img.image | mk $kubecfg image load -
-    }
-}
-
-# Apply the GCP service-account key as a Kubernetes secret.
-def apply-gcp-secret [kubecfg: path]: nothing -> string {
-    let creds = $env.HOME | path join .config/gcloud/application_default_credentials.json
-
-    if not ($creds | path exists) {
-        log warning 'GCP credentials not found, skipping secret'
-        return
-    }
-
-    (
-        k $kubecfg -n data-proxy create secret generic gcp-key $'--from-file=key.json=($creds)' --dry-run=client -o yaml
-    )
-    | k $kubecfg apply -f -
-}
-
-def clear-test-resources [kubecfg: path]: nothing -> nothing {
-    let stale_jobs = (
-        k $kubecfg -n data-proxy get jobs -o name
-        | lines
-        | where $it =~ 'data-proxy-(e2e|sync-k6|workflow-k6)-'
-    )
-
-    if ($stale_jobs | is-not-empty) {
-        k $kubecfg -n data-proxy delete ...$stale_jobs --ignore-not-found
-    }
-
-    let jsonpath = 'jsonpath={.items[0].metadata.name}'
-    let valkey = (
-        (k $kubecfg -n data-proxy get pod -l app.kubernetes.io/name=valkey -o $jsonpath)
-        | str trim
-    )
-
-    log info $'Clearing proxy response cache in Redis DB ($PROXY_CACHE_REDIS_DB)...'
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        exec
-        $valkey
-        --
-        redis-cli
-        -n
-        $PROXY_CACHE_REDIS_DB
-        FLUSHDB
-    )
-
-    let clusters = try {
-        k $kubecfg -n data-proxy get clusters -o json
-        | from json
-        | get items
-        | get metadata.name
-        | where $it !~ '-dbos$'
-    } catch {|err| error make {
-        msg: $'Failed to read CNPG clusters: ($err.msg)'
-        label: {
-            text: clear-test-resources
-            span: (metadata $kubecfg).span
-        }
-    } }
-
-    for cluster in $clusters {
-        let schema = if $cluster == 'data-proxy' {
-            $TEST_SCHEMA
-        } else {
-            $cluster | str replace 'data-proxy-' ''
-        }
-        let pg = (
-            k $kubecfg -n data-proxy get pod
-                -l $'cnpg.io/cluster=($cluster)'
-                -l cnpg.io/instanceRole=primary
-                -o $jsonpath
-        ) | str trim
-        let dsn = $'postgresql://admin:test-pg-pass@($cluster)-rw:5432/data-proxy'
-        let query = [
-            "SELECT tablename FROM pg_tables WHERE schemaname = '"
-            $schema
-            "' AND tablename NOT IN ('access_policy', 'access_log')"
-        ] | str join ''
-        let tables = (
-            k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c $query
-        )
-
-        let drop_stmt = (
-            $tables
-            | lines
-            | each {|table| $'DROP TABLE IF EXISTS ($schema)."($table | str trim)" CASCADE' }
-            | str join '; '
-        )
-        let cleanup = $'($drop_stmt); DELETE FROM ($schema).access_policy;'
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $pg
-            --
-            psql
-            $dsn
-            -v
-            ON_ERROR_STOP=1
-            -c
-            $cleanup
-        )
-
-        if $cluster == 'data-proxy' {
-            let state_tables_exist = (
-                k $kubecfg -n data-proxy exec $pg -- psql $dsn -t -A -c "SELECT to_regclass('data_proxy.state') IS NOT NULL AND to_regclass('data_proxy.errors') IS NOT NULL"
-                | str trim
-            )
-            if $state_tables_exist == 't' {
-                (k
-                    $kubecfg
-                    -n
-                    data-proxy
-                    exec
-                    $pg
-                    --
-                    psql
-                    $dsn
-                    -v
-                    ON_ERROR_STOP=1
-                    -c
-                    'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
-                )
-            }
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                exec
-                $pg
-                --
-                psql
-                $dsn
-                -v
-                ON_ERROR_STOP=1
-                -c
-                "UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED');"
-            )
-        }
-    }
-
-    let dbos_clusters = (
-        k $kubecfg -n data-proxy get clusters -o name
-        | lines
-        | where $it == 'cluster.postgresql.cnpg.io/data-proxy-dbos'
-    )
-    if ($dbos_clusters | is-not-empty) {
-        let dbos_pg = (
-            k $kubecfg -n data-proxy get pod
-                -l cnpg.io/cluster=data-proxy-dbos
-                -l cnpg.io/instanceRole=primary
-                -o $jsonpath
-        ) | str trim
-        let dbos_dsn = 'postgresql://admin:test-pg-pass@data-proxy-dbos-rw:5432/data-proxy'
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            exec
-            $dbos_pg
-            --
-            psql
-            $dbos_dsn
-            -v
-            ON_ERROR_STOP=1
-            -c
-            'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
-        )
-    }
-}
-
-# Check whether the k6 runner job has appeared.
-def runner-job-ready [kubecfg: path, label: string]: nothing -> bool {
-    let jobs = k $kubecfg -n data-proxy get jobs -l $label -o 'jsonpath={.items}' | str trim
-    ($jobs | is-not-empty) and ($jobs != '[]')
-}
-
-# Read the status of one condition type on the k6 runner Jobs.
-def job-condition [kubecfg: path, label: string, type: string]: nothing -> string {
-    let path = [
-        'jsonpath={.items[*].status.conditions[?(@.type=="'
-        $type
-        '")].status}'
-    ] | str join ''
-
-    (k $kubecfg -n data-proxy get jobs -l $label -o $path) | str trim
-}
-
-# Check whether the k6 test job completed, returning completion and error flags.
-def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
-    {
-        complete: ((job-condition $kubecfg $label 'Complete') == 'True')
-        failed: ((job-condition $kubecfg $label 'Failed') == 'True')
-    }
-}
-
-# Create a configmap, apply a testrun yaml, wait for completion, and print the runner log.
-def k6-run [
-    kubecfg: path
-    configmap: string
-    script_key: string
-    script_path: string
-    testrun: string
-    yaml_path: path
-    --profile: string = ''
-    --set: record = {}
-]: nothing -> nothing {
-    log info $'Creating configmap ($configmap)...'
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        create
-        configmap
-        $configmap
-        --from-file=($script_key + '=' + $script_path)
-        --from-file=lib.ts=k6/lib.ts
-        --from-file=trigger.py=scripts/trigger.py
-        --dry-run=client
-        -o
-        yaml
-    ) | k $kubecfg apply -f -
-
-    log info $'Deleting previous testrun ($testrun)...'
-    k $kubecfg -n data-proxy delete testrun $testrun --ignore-not-found
-
-    log info $'Applying testrun ($testrun)...'
-    let yaml = try { open --raw $yaml_path } catch {|err| error make {
-        msg: $'Failed to open ($yaml_path): ($err.msg)'
-        label: {
-            text: $yaml_path
-            span: (metadata $yaml_path).span
-        }
-    } }
-    let yaml = if $profile != '' {
-        $yaml | str replace --all 'value: load' $'value: ($profile)'
-    } else { $yaml }
-    let yaml = $set
-    | items {|name, value| {name: $name, value: $value} }
-    | reduce --fold $yaml {|entry, text|
-        $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}' $entry.value] | str join '')
-    }
-    $yaml | k $kubecfg apply -f -
-
-    let label = $'k6_cr=($testrun),runner=true'
-
-    log info 'Waiting for the runner job to appear...'
-    if not (poll {|| (runner-job-ready $kubecfg $label) } {interval: 1sec, max_attempts: 300}) {
-        error make {
-            msg: "k6 runner Job didn't appear within 5 minutes"
-            label: {
-                text: 'k6-run'
-                span: (metadata $testrun).span
-            }
-        }
-    }
-
-    log info 'Waiting for the test to complete...'
-    let deadline = (date now) + 60min
-    mut phase_result = (test-phase $kubecfg $label)
-    while (date now) < $deadline and not $phase_result.complete and not $phase_result.failed {
-        sleep 2sec
-        $phase_result = (test-phase $kubecfg $label)
-    }
-
-    let pod = (
-        (k
-            $kubecfg
-            -n
-            data-proxy
-            get
-            pods
-            -l
-            $label
-            -o
-            'jsonpath={.items[0].metadata.name}'
-        )
-    )
-    let runner_log = (k $kubecfg -n data-proxy logs $pod)
-    print ($runner_log | to text)
-
-    if $phase_result.failed {
-        error make {
-            msg: 'k6 runner Job failed'
-            label: {
-                text: 'k6-run'
-                span: (metadata $testrun).span
-            }
-        }
-    }
-    if not $phase_result.complete {
-        error make {
-            msg: 'k6 runner Job timed out after 60 minutes'
-            label: {
-                text: 'k6-run'
-                span: (metadata $testrun).span
-            }
-        }
-    }
-}
-
-# Print cluster status with kubecolor.
-def show-status [kubecfg: path]: nothing -> nothing {
-    with-env {KUBECONFIG: $kubecfg} {
-        kubecolor --context=($PROFILE) -n data-proxy get pods
-        print ""
-        kubecolor --context=($PROFILE) -n data-proxy get deploy
-        print ""
-        kubecolor --context=($PROFILE) -n data-proxy get cluster
-        print ""
-        kubecolor --context=($PROFILE) -n data-proxy get scaledobject
-        print ""
-        kubecolor --context=($PROFILE) -n data-proxy get scaledjob
-    }
-}
-
-# Rebuild and roll out the local proxy image.
-def refresh-proxy [kubecfg: path]: nothing -> nothing {
-    log info 'Building data-proxy-proxy:local...'
-    docker build -q -t data-proxy-proxy:local -f Dockerfile.proxy .
-    docker save -q data-proxy-proxy:local | mk $kubecfg image load -
-    k $kubecfg -n data-proxy rollout restart deployment/data-proxy-proxy out> /dev/null
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        rollout
-        status
-        deployment/data-proxy-proxy
-        --timeout=180s
-    ) out> /dev/null
-}
-
-# Check that the Cluster has the instances of the mode and that all of them are ready.
-def cluster-settled [kubecfg: path, ha: bool]: nothing -> bool {
-    let cluster = try {
-        k $kubecfg -n data-proxy get cluster data-proxy -o json | from json
-    } catch {
-        return false
-    }
-
-    let instances = $cluster.spec.instances
-    let sized = if $ha { $instances >= 3 } else { $instances == 1 }
-
-    $sized and ($cluster.status.readyInstances? == $instances) and ($cluster.status.phase? == 'Cluster in healthy state')
-}
-
-# Switch the release between single and HA mode and wait for its workloads and instances.
-def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
-    let repo = git-root
-    let mode = if $ha { 'HA' } else { 'single' }
-
-    log info $'Switching to ($mode) mode...'
-    (hm
-        $kubecfg
-        upgrade
-        data-proxy
-        $'($repo)/helm'
-        --namespace
-        data-proxy
-        --values
-        $'($repo)/scripts/values/data-proxy.yaml'
-        --set
-        $'ha.enabled=($ha)'
-        --timeout
-        10m
-    )
-
-    [
-        'data-proxy/data-proxy-proxy'
-        'data-proxy/data-proxy-postgrest'
-        'data-proxy/data-proxy-sync'
-    ] | wait-for deployment $kubecfg
-
-    log info $'Waiting for the ($mode) instances...'
-    if not (poll {|| (cluster-settled $kubecfg $ha) } {interval: 10sec, max_attempts: 90}) {
-        error make {
-            msg: $'The cluster did not settle in ($mode) mode within 15 minutes'
-            label: {
-                text: 'switch-mode'
-                span: (metadata $ha).span
-            }
-        }
-    }
-
-    if $ha {
-        [
-            'data-proxy/data-proxy-postgrest-ro'
-            'data-proxy/data-proxy-pooler-ro'
-        ] | wait-for deployment $kubecfg
-    }
-}
-
-# Run one suite of the e2e script: e2e, modes, or full. MODE is the deployed mode that modes checks.
-def run-suite [kubecfg: path, suite: string, mode: string]: nothing -> nothing {
-    log info $'Running the ($suite) suite against ($mode) mode...'
-    (k6-run
-        $kubecfg
-        'data-proxy-e2e'
-        'e2e.ts'
-        'k6/e2e.ts'
-        'data-proxy-e2e'
-        'k6/e2e.yaml'
-        --set {SUITE: $suite, MODE: $mode}
-    )
-}
-
-# Move the release from single to HA mode and back, validating each mode.
-def run-modes [kubecfg: path]: nothing -> nothing {
-    switch-mode $kubecfg true
-    run-suite $kubecfg 'modes' 'ha'
-    switch-mode $kubecfg false
-    run-suite $kubecfg 'modes' 'single'
-}
-
-# Run one perf profile in the requested mode. The release is switched first, so a run never depends on the mode an earlier run left. A run in HA mode switches back to single mode afterwards, even when it fails.
-def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
-    switch-mode $kubecfg $ha
-
-    let failure = try {
-        refresh-proxy $kubecfg
-        clear-test-resources $kubecfg
-        k6-run $kubecfg 'data-proxy-k6' 'perf.ts' 'k6/perf.ts' 'data-proxy-perf' 'k6/perf.yaml' --profile $profile --set {
-            HA_MODE: (if $ha { "true" } else { "false" })
-        }
-        null
-    } catch {|err| $err }
-
-    if $ha { switch-mode $kubecfg false }
-    if $failure != null { error make $failure.raw }
-}
+use ./lib.nu [fail poll]
+use ./cluster/cleanup.nu [clear-test-resources]
+use ./cluster/lib.nu [
+    git-root
+    wrap-helm
+    wrap-kubectl
+    wrap-minikube
+    namespace
+    profile
+    wait-for
+]
+use ./cluster/images.nu [apply-gcp-secret build-images refresh-proxy start-minikube]
+use ./cluster/k6.nu [run-modes run-perf run-suite]
+use ./cluster/platform.nu [
+    is-cnpg-healthy
+    show-status
+    verify-platform
+    wait-for-control-plane
+    wait-for-metrics
+]
 
 # Run the k6 smoke profile: one virtual user for 40 seconds.
 def "main k6 smoke" [
-    --ha # Run in HA mode, then return to single mode
+    --ha # Run in HA mode, then return to single mode.
 ]: nothing -> nothing {
-    run-perf (git-root | path join .kubeconfig) 'smoke' $ha
+    run-perf (git-root | path join .kubeconfig) smoke $ha
 }
 
 # Run the standard k6 load profile.
 def "main k6 load" [
-    --ha # Run in HA mode, then return to single mode
+    --ha # Run in HA mode, then return to single mode.
 ]: nothing -> nothing {
-    run-perf (git-root | path join .kubeconfig) 'load' $ha
+    run-perf (git-root | path join .kubeconfig) load $ha
 }
 
 # Run the k6 stress profile.
 def "main k6 stress" [
-    --ha # Run in HA mode, then return to single mode
+    --ha # Run in HA mode, then return to single mode.
 ]: nothing -> nothing {
-    run-perf (git-root | path join .kubeconfig) 'stress' $ha
+    run-perf (git-root | path join .kubeconfig) stress $ha
 }
 
-# Run the e2e test (triggers sync, seeds RLS, validates the sync service).
-# --mode e2e runs the main suite, modes switches to HA and back, and full (default) runs both.
+# Run E2E and deployment mode suites.
 def "main k6 e2e" [
-  --mode: string = 'full' # Mode of the test
+    --mode: string = full # Run e2e, modes, or full.
 ]: nothing -> nothing {
     if $mode not-in [e2e modes full] {
-        error make {
-            msg: $'--mode must be e2e, modes, or full: ($mode)'
-            label: {
-                text: 'unknown mode'
-                span: (metadata $mode).span
-            }
+        fail $'--mode must be e2e, modes, or full: ($mode)' {
+            command: k6-e2e
+            span: (metadata $mode).span
         }
     }
 
     let kubecfg = git-root | path join .kubeconfig
-
     let repo = git-root
-    try { cd $repo } catch {|err|
-        log error $'cd failed: ($err.msg)'
+
+    try {
+        cd $repo
+    } catch {|err|
+        log error $'Could not change to repository root: ($err.msg)'
         return
     }
 
@@ -749,56 +72,25 @@ def "main k6 e2e" [
     apply-gcp-secret $kubecfg
 
     log info 'Deleting init-db Jobs so they recreate PostgreSQL setup...'
-    let old_init_jobs = (
-        k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
-        | lines
-    )
+    let old_init_jobs = wrap-kubectl $kubecfg -n (namespace) get jobs -l app.kubernetes.io/component=init-db -o name
+    | lines
     if ($old_init_jobs | is-not-empty) {
-        k $kubecfg -n data-proxy delete ...$old_init_jobs --ignore-not-found
+        wrap-kubectl $kubecfg -n (namespace) delete ...$old_init_jobs --ignore-not-found
     }
 
     log info 'Upgrading data-proxy release...'
-    (hm
-        $kubecfg
-        upgrade
-        data-proxy
-        $'($repo)/helm'
-        --namespace
-        data-proxy
-        --values
-        $'($repo)/scripts/values/data-proxy.yaml'
-    )
+    wrap-helm $kubecfg upgrade data-proxy $'($repo)/helm' --namespace (namespace) --values $'($repo)/scripts/values/data-proxy.yaml'
 
     log info 'Restarting sync to load the rebuilt image...'
-    k $kubecfg -n data-proxy rollout restart deployment/data-proxy-sync out> /dev/null
-    (k
-        $kubecfg
-        -n
-        data-proxy
-        rollout
-        status
-        deployment/data-proxy-sync
-        --timeout=180s
-    ) out> /dev/null
+    wrap-kubectl $kubecfg -n (namespace) rollout restart deployment/data-proxy-sync
+    wrap-kubectl $kubecfg -n (namespace) rollout status deployment/data-proxy-sync --timeout=180s
 
     log info 'Waiting for the init-db Job...'
-    let init_jobs = (
-        k $kubecfg -n data-proxy get jobs -l app.kubernetes.io/component=init-db -o name
-        | lines
-    )
+    let init_jobs = wrap-kubectl $kubecfg -n (namespace) get jobs -l app.kubernetes.io/component=init-db -o name
+    | lines
 
     for job in $init_jobs {
-        (
-            (k
-                $kubecfg
-                -n
-                data-proxy
-                wait
-                --for=condition=complete
-                $job
-                --timeout=360s
-            )
-        ) out> /dev/null
+        wrap-kubectl $kubecfg -n (namespace) wait --for=condition=complete $job --timeout=360s
     }
 
     log info 'Waiting for data-proxy deployments...'
@@ -812,43 +104,29 @@ def "main k6 e2e" [
     clear-test-resources $kubecfg
 
     match $mode {
-        'e2e' => { run-suite $kubecfg 'e2e' 'single' }
-        'modes' => { run-modes $kubecfg }
+        e2e => { run-suite $kubecfg e2e single }
+        modes => { run-modes $kubecfg }
         _ => {
-            run-suite $kubecfg 'full' 'single'
+            run-suite $kubecfg full single
             run-modes $kubecfg
         }
     }
 }
 
-# Check whether the CNPG cluster reports a healthy phase.
-def cnpg-healthy [kubecfg: path]: nothing -> bool {
-    let phase = try {
-        k $kubecfg -n data-proxy get cluster data-proxy -o json
-        | from json
-        | get status.phase
-    } catch {
-        ''
-    }
-    $phase == 'Cluster in healthy state'
-}
-
-# Start Minikube and install the complete local stack.
+# Start Minikube and install the local platform stack.
 def "main up" []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
-
     let repo = git-root
 
     log info 'Starting Minikube...'
     start-minikube $kubecfg
-
-    k $kubecfg wait --for=condition=Ready nodes --all --timeout=5m
+    wrap-kubectl $kubecfg wait --for=condition=Ready nodes --all --timeout=5m
 
     log info 'Waiting for the Minikube control plane...'
     wait-for-control-plane $kubecfg
 
     log info 'Enabling metrics-server...'
-    mk $kubecfg addons enable metrics-server
+    wrap-minikube $kubecfg addons enable metrics-server
     log info 'Waiting for metrics-server...'
     wait-for-metrics $kubecfg
 
@@ -856,22 +134,17 @@ def "main up" []: nothing -> nothing {
     build-images $kubecfg
 
     log info 'Building Helm dependencies...'
-    hm $kubecfg dependency build $'($repo)/helm'
+    wrap-helm $kubecfg dependency build $'($repo)/helm'
 
-    k $kubecfg create namespace data-proxy --dry-run=client -o yaml | k $kubecfg apply -f -
+    wrap-kubectl $kubecfg create namespace (namespace) --dry-run=client -o yaml | wrap-kubectl $kubecfg apply -f -
     log info 'Applying local Redis secret...'
-    (
-        k $kubecfg -n data-proxy create secret generic data-proxy-redis
-            '--from-literal=REDIS_PASSWORD=valkey-local'
-            '--from-literal=password=valkey-local'
-            '--from-literal=REDIS_READ=redis://:valkey-local@data-proxy-valkey.data-proxy.svc.cluster.local:6379/1'
-            '--from-literal=REDIS_WRITE=redis://:valkey-local@data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379/0'
-            '--from-literal=REDIS={"read":"redis://:valkey-local@data-proxy-valkey:6379/1","write":"redis://:valkey-local@data-proxy-valkey:6379/0"}'
-            --dry-run=client -o yaml
-    ) | k $kubecfg apply -f -
+    wrap-kubectl $kubecfg -n (namespace) create secret generic data-proxy-redis '--from-literal=REDIS_PASSWORD=valkey-local' '--from-literal=password=valkey-local' '--from-literal=REDIS_READ=redis://:valkey-local@data-proxy-valkey.data-proxy.svc.cluster.local:6379/1' '--from-literal=REDIS_WRITE=redis://:valkey-local@data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379/0' '--from-literal=REDIS={"read":"redis://:valkey-local@data-proxy-valkey:6379/1","write":"redis://:valkey-local@data-proxy-valkey:6379/0"}' --dry-run=client -o yaml
+    | wrap-kubectl $kubecfg apply -f -
 
     log info 'Installing platform charts with Helmfile...'
-    with-env {KUBECONFIG: $kubecfg} {
+    with-env {
+        KUBECONFIG: $kubecfg
+    } {
         helmfile --concurrency 1 --file ($repo | path join helmfile.yaml) sync --wait --timeout 900
     }
 
@@ -882,46 +155,34 @@ def "main up" []: nothing -> nothing {
     apply-gcp-secret $kubecfg
 
     log info 'Installing data-proxy...'
-    (hm
-        $kubecfg
-        upgrade
-        --install
-        data-proxy
-        $'($repo)/helm'
-        --namespace
-        data-proxy
-        --values
-        $'($repo)/scripts/values/data-proxy.yaml'
-    )
+    wrap-helm $kubecfg upgrade --install data-proxy $'($repo)/helm' --namespace (namespace) --values $'($repo)/scripts/values/data-proxy.yaml'
 
     log info 'Waiting for data-proxy deployments...'
-    [data-proxy/data-proxy-swagger-ui] | wait-for deployment $kubecfg
+    ['data-proxy/data-proxy-swagger-ui'] | wait-for deployment $kubecfg
 
     log info 'Waiting for CNPG cluster...'
-    if not (poll {|| (cnpg-healthy $kubecfg) } {interval: 2sec, max_attempts: 300}) {
-        error make {
-            msg: "CNPG cluster didn't become healthy within 10 minutes"
-            label: {
-                text: 'main up'
-                span: (metadata $kubecfg).span
-            }
+    if not (poll {|| is-cnpg-healthy $kubecfg } {
+        interval: 2sec
+        max_attempts: 300
+    }) {
+        fail "CNPG cluster didn't become healthy within 10 minutes" {
+            command: main-up
+            span: (metadata $kubecfg).span
         }
     }
 
     show-status $kubecfg
 }
 
-# Remove the Minikube profile.
+# Remove the local Minikube profile.
 def "main down" []: nothing -> nothing {
     log info 'Deleting Minikube profile...'
-    minikube --profile $PROFILE delete
+    minikube --profile (profile) delete
 }
 
-# Script to create a testing environment with minikube
+# Print the local cluster status.
 def main []: nothing -> nothing {
     let kubecfg = git-root | path join .kubeconfig
-
-    mk $kubecfg status
-
+    wrap-minikube $kubecfg status
     show-status $kubecfg
 }
