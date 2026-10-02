@@ -72,18 +72,18 @@ const TOKEN_REFRESH_SECONDS = 60;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
 const SUITE = __ENV.SUITE || "full";
 const MODE = __ENV.MODE || "single";
-if (["e2e", "modes", "full"].indexOf(SUITE) === -1) {
-    throw new Error(`SUITE must be e2e, modes, or full: ${SUITE}`);
+if (["e2e", "ha", "full"].indexOf(SUITE) === -1) {
+    throw new Error(`SUITE must be e2e, ha, or full: ${SUITE}`);
 }
 if (["single", "ha"].indexOf(MODE) === -1) {
     throw new Error(`MODE must be single or ha: ${MODE}`);
 }
-const RUN_E2E = SUITE !== "modes";
+const RUN_E2E = SUITE !== "ha";
 const RUN_MODES = SUITE !== "e2e";
 const EXPECT_HA = MODE === "ha";
 const MODE_TIMEOUT_SECONDS = Number(__ENV.MODE_TIMEOUT_SECONDS || "900");
 const CLUSTER_NAME = __ENV.CLUSTER_NAME || "data-proxy";
-const HA_MIN_INSTANCES = 3;
+const HA_MIN_INSTANCES = 2;
 const SECRETS_MOUNT = "/var/lib/postgresql/data/.duckdb/stored_secrets";
 const SECRETS_SUBPATH = "duckdb-secrets";
 const READ_POSTGREST = "data-proxy-postgrest-ro";

@@ -38,22 +38,20 @@ Use API response headers for client troubleshooting. Use logs for request analys
 
 ## Load profile limits
 
-| Source                                   | p95 limit |
-| ---------------------------------------- | --------- |
-| Cache                                    | 50 ms     |
-| DuckLake                                 | 300 ms    |
-| BigQuery (`bigquery`, `ducklake+bigquery`) | 6000 ms   |
-| DuckLake heavy queries                   | 1000 ms   |
-| DuckLake selective lookups               | 1000 ms   |
-| DuckLake pinned snapshots                | 1000 ms   |
+| Source                                     | Bound                         | Gates a run        |
+| ------------------------------------------ | ----------------------------- | ------------------ |
+| Cache                                      | p95 50 ms, p99 100 ms         | yes                |
+| DuckLake bounded reads                     | p95 300 ms, p99 600 ms        | yes                |
+| BigQuery (`bigquery`, `ducklake+bigquery`) | p95 6000 ms                   | no, client risk    |
+| DuckLake heavy queries                     | p95 2000 ms, p99 5000 ms      | no, client risk    |
+| DuckLake selective lookups                 | p95 2000 ms, p99 5000 ms      | no, client risk    |
+| DuckLake pinned snapshots                  | p95 2000 ms, p99 5000 ms      | no, client risk    |
 
-The smoke profile runs one VU for 40 seconds. Load and stress use open-model arrival rates, so each stage offers a fixed number of iterations per second even when responses slow down. Load ramps to 15 iterations/s and holds for 5 minutes. Stress steps through 10, 20, 30, 40, 50, and 60 iterations/s, with 1-minute holds (2 minutes at 60). Stress also samples the PostgREST and proxy replica counts every 5 seconds and fails if neither scales above its starting count. The high stress stages may reach latency limits; their thresholds are relaxed to measure overload while retaining checks for request failures, dropped iterations, and scale-out.
+Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaults to 100 HTTP requests per second. The smoke profile runs one VU for 40 seconds. The other profiles use open-model arrival rates, so each stage offers a fixed iteration rate even when responses slow down: `load` holds the peak for 25 minutes, `spike` bursts to three times peak and drains, `stress` steps to two times peak, and `soak` holds 65% of peak for an hour. Stress and soak sample the PostgREST and proxy replica counts every 5 seconds and fail if neither scales above its starting count. Staging capacity runs override `K6_PEAK_RATE` with a higher peak from a generator outside the cluster host.
 
-Each iteration of the load, stress, and smoke profiles sends one of three kinds of request:
+Because the arrival-rate executor counts iterations and a BigQuery iteration makes two requests, a profile converts the target request rate into an iteration rate internally. The high stress and spike stages may reach latency limits. Their thresholds widen the error budget to measure overload, while the stack-owned paths still require every check, no dropped iterations, and the bounded-read and cache bounds.
 
-- 20% bottleneck cases: half heavy queries (group-bys, sorted scans, jsonb filters), a quarter selective lookups by id, and a quarter reads at a pinned snapshot.
-- 25% BigQuery pairs: one request to BigQuery and a repeat that must come from the cache.
-- 55% normal routes.
+The default traffic mix models production: 5% bottleneck cases (half heavy queries, a quarter selective lookups, a quarter pinned snapshots), 5% BigQuery pairs (one request to BigQuery and a repeat that must come from the cache), and 90% normal routes. Set `K6_BOTTLENECK_SHARE` and `K6_BIGQUERY_SHARE` to model a different mix.
 
 ## Scraping
 

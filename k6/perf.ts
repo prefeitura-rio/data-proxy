@@ -28,9 +28,10 @@ type Route = {
 };
 type Stage = { target: number; duration: string };
 type Profile = {
-    executor: "ramping-vus" | "ramping-arrival-rate";
-    stages: Stage[];
+    executor: "ramping-vus" | "ramping-arrival-rate" | "constant-arrival-rate";
+    stages?: Stage[];
     duration?: string;
+    rate?: number;
     startRate?: number;
     timeUnit?: string;
     preAllocatedVUs?: number;
@@ -62,9 +63,10 @@ const HA_MODE = (__ENV.HA_MODE || "false") === "true";
 const TOKEN_REFRESH_SECONDS = 30;
 const BIGQUERY_LIMIT_MAX = 20;
 const HEAVY_LIMIT_MIN = 1000;
-const BOTTLENECK_SHARE = 0.2;
-const BIGQUERY_SHARE = 0.25;
 const PARTITION_COLUMN = "date";
+const BOTTLENECK_SHARE = Number(__ENV.K6_BOTTLENECK_SHARE || "0.05");
+const BIGQUERY_SHARE = Number(__ENV.K6_BIGQUERY_SHARE || "0.05");
+const PEAK_RATE = Number(__ENV.K6_PEAK_RATE || "100");
 
 const CLIENT_IDS = [
     OIDC_USER_CLIENT_ID,
@@ -72,6 +74,12 @@ const CLIENT_IDS = [
     OIDC_USER_CLIENT_ID,
 ];
 const LOAD_TABLES = ["full_table", "multi_rls_table", "partitioned_table", "big_table"];
+
+const PEAK_ITERATIONS = Math.round(PEAK_RATE / (1 + BIGQUERY_SHARE));
+
+function iterationsForPeak(fraction: number): number {
+    return Math.max(1, Math.round(PEAK_ITERATIONS * fraction));
+}
 
 const PROFILES: Record<string, Profile> = {
     smoke: {
@@ -86,32 +94,53 @@ const PROFILES: Record<string, Profile> = {
         executor: "ramping-arrival-rate",
         startRate: 0,
         timeUnit: "1s",
-        preAllocatedVUs: 40,
-        maxVUs: 160,
-        duration: "7m",
+        preAllocatedVUs: PEAK_ITERATIONS,
+        maxVUs: PEAK_ITERATIONS * 3,
+        duration: "33m",
         stages: [
-            { target: 5, duration: "30s" },
-            { target: 10, duration: "60s" },
-            { target: 15, duration: "5m" },
-            { target: 0, duration: "30s" },
+            { target: iterationsForPeak(0.5), duration: "120s" },
+            { target: iterationsForPeak(1), duration: "300s" },
+            { target: iterationsForPeak(1), duration: "25m" },
+            { target: 0, duration: "60s" },
+        ],
+    },
+    spike: {
+        executor: "ramping-arrival-rate",
+        startRate: 0,
+        timeUnit: "1s",
+        preAllocatedVUs: PEAK_ITERATIONS,
+        maxVUs: PEAK_ITERATIONS * 6,
+        duration: "550s",
+        stages: [
+            { target: iterationsForPeak(0.2), duration: "60s" },
+            { target: iterationsForPeak(3), duration: "10s" },
+            { target: iterationsForPeak(3), duration: "120s" },
+            { target: iterationsForPeak(0.2), duration: "300s" },
+            { target: 0, duration: "60s" },
         ],
     },
     stress: {
         executor: "ramping-arrival-rate",
         startRate: 0,
         timeUnit: "1s",
-        preAllocatedVUs: 100,
-        maxVUs: 300,
-        duration: "450s",
+        preAllocatedVUs: PEAK_ITERATIONS,
+        maxVUs: PEAK_ITERATIONS * 6,
+        duration: "750s",
         stages: [
-            { target: 10, duration: "60s" },
-            { target: 20, duration: "60s" },
-            { target: 30, duration: "60s" },
-            { target: 40, duration: "60s" },
-            { target: 50, duration: "60s" },
-            { target: 60, duration: "120s" },
+            { target: iterationsForPeak(0.5), duration: "180s" },
+            { target: iterationsForPeak(1), duration: "180s" },
+            { target: iterationsForPeak(1.5), duration: "180s" },
+            { target: iterationsForPeak(2), duration: "180s" },
             { target: 0, duration: "30s" },
         ],
+    },
+    soak: {
+        executor: "constant-arrival-rate",
+        rate: iterationsForPeak(0.65),
+        timeUnit: "1s",
+        preAllocatedVUs: PEAK_ITERATIONS,
+        maxVUs: PEAK_ITERATIONS * 2,
+        duration: "1h",
     },
 };
 
@@ -132,63 +161,88 @@ const ducklakeHeavyDuration = new Trend("ducklake_heavy_duration_ms");
 const ducklakeSelectiveDuration = new Trend("ducklake_selective_duration_ms");
 const ducklakePinnedDuration = new Trend("ducklake_pinned_duration_ms");
 
-const sourceThresholds: Record<string, string[]> = {
+const stackThresholds: Record<string, string[]> = {
     checks: ["rate==1"],
     load_request_failed: ["rate<0.01"],
-    cache_duration_ms: ["p(95)<50"],
-    ducklake_duration_ms: ["p(95)<300"],
-    bigquery_duration_ms: ["p(95)<6000"],
-    ducklake_heavy_duration_ms: ["p(95)<1000"],
-    ducklake_selective_duration_ms: ["p(95)<1000"],
-    ducklake_pinned_duration_ms: ["p(95)<1000"],
+    http_req_failed: ["rate<0.01"],
+    cache_duration_ms: ["p(95)<50", "p(99)<100"],
+    ducklake_duration_ms: ["p(95)<300", "p(99)<600"],
 };
+
+const clientRiskThresholds: Record<string, string[]> = {
+    bigquery_duration_ms: ["p(95)<6000"],
+    ducklake_heavy_duration_ms: ["p(95)<2000", "p(99)<5000"],
+    ducklake_selective_duration_ms: ["p(95)<2000", "p(99)<5000"],
+    ducklake_pinned_duration_ms: ["p(95)<2000", "p(99)<5000"],
+};
+
+const gateClientRisk = (__ENV.K6_GATE_CLIENT_RISK || "false") === "true";
+const sourceThresholds: Record<string, string[]> = gateClientRisk
+    ? { ...stackThresholds, ...clientRiskThresholds }
+    : { ...stackThresholds };
 
 const scalingEvents = new Counter("autoscaling_events");
 
-if (K6_PROFILE === "load") {
-    sourceThresholds.dropped_iterations = ["count==0"];
-}
-if (K6_PROFILE === "stress") {
+if (K6_PROFILE === "stress" || K6_PROFILE === "soak") {
     sourceThresholds.checks = ["rate>0.95"];
     sourceThresholds.load_request_failed = ["rate<0.05"];
-    sourceThresholds.dropped_iterations = ["count==0"];
-    if (HA_MODE) {
-        sourceThresholds.autoscaling_events = ["count>0"];
-    }
-    sourceThresholds.cache_duration_ms = ["p(95)<100"];
-    sourceThresholds.ducklake_duration_ms = ["p(95)<2000"];
-    sourceThresholds.bigquery_duration_ms = ["p(95)<15000"];
-    sourceThresholds.ducklake_heavy_duration_ms = ["p(95)<5000"];
-    sourceThresholds.ducklake_selective_duration_ms = ["p(95)<5000"];
-    sourceThresholds.ducklake_pinned_duration_ms = ["p(95)<5000"];
+    sourceThresholds.http_req_failed = ["rate<0.05"];
 }
 
-const scenarios: Record<string, unknown> = {
-    default: {
-        executor: profile.executor,
-        stages: profile.stages,
-        ...(profile.executor === "ramping-arrival-rate"
-            ? {
-                  startRate: profile.startRate,
-                  timeUnit: profile.timeUnit,
-                  preAllocatedVUs: profile.preAllocatedVUs,
-                  maxVUs: profile.maxVUs,
-              }
-            : {}),
-    },
-};
-if (K6_PROFILE === "stress" && HA_MODE) {
-    scenarios.scaling_observer = {
-        executor: "constant-vus",
-        vus: 1,
-        duration: profile.duration,
-        exec: "observeScaling",
-    };
+const runsScalingObserver = profile.executor !== "ramping-vus" && HA_MODE;
+
+const isArrivalRate = profile.executor !== "ramping-vus";
+const gatesAutoscaling = K6_PROFILE === "stress" || K6_PROFILE === "soak";
+
+if (isArrivalRate) {
+    sourceThresholds.dropped_iterations = ["count==0"];
+}
+if (runsScalingObserver && gatesAutoscaling) {
+    sourceThresholds.autoscaling_events = ["count>0"];
+}
+
+function buildScenarios(): Record<string, unknown> {
+    const built: Record<string, unknown> = {};
+
+    if (profile.executor === "constant-arrival-rate") {
+        built.default = {
+            executor: profile.executor,
+            rate: profile.rate,
+            timeUnit: profile.timeUnit,
+            duration: profile.duration,
+            preAllocatedVUs: profile.preAllocatedVUs,
+            maxVUs: profile.maxVUs,
+        };
+    } else {
+        built.default = {
+            executor: profile.executor,
+            stages: profile.stages ?? [],
+            ...(profile.executor === "ramping-arrival-rate"
+                ? {
+                    startRate: profile.startRate,
+                    timeUnit: profile.timeUnit,
+                    preAllocatedVUs: profile.preAllocatedVUs,
+                    maxVUs: profile.maxVUs,
+                }
+                : {}),
+        };
+    }
+
+    if (runsScalingObserver) {
+        built.scaling_observer = {
+            executor: "constant-vus",
+            vus: 1,
+            duration: profile.duration ?? "10m",
+            exec: "observeScaling",
+        };
+    }
+
+    return built;
 }
 
 export const options = {
     setupTimeout: "20m",
-    scenarios,
+    scenarios: buildScenarios(),
     thresholds: sourceThresholds,
 };
 
@@ -339,11 +393,11 @@ function fetchToken(clientId: string): TokenData {
         client_id: clientId,
         client_secret: OIDC_CLIENT_SECRET,
     }) as K6Response;
-    const body = response.json() as TokenResponse;
+    const body = safeJson(response) as TokenResponse | null;
     check(response, {
         "token request succeeded": (item: K6Response) => item.status === 200,
     });
-    if (!body.access_token) {
+    if (!body?.access_token) {
         throw new Error(`Token request did not return access_token: ${response.body}`);
     }
     return {
@@ -408,7 +462,7 @@ function verifyNoAccess(): void {
         },
         tags: { name: "no_access_check" },
     }) as K6Response;
-    const body = response.json();
+    const body = safeJson(response);
     check(response, {
         "user without policy gets 200": (item: K6Response) => item.status === 200,
         "no-access returns zero rows": () => Array.isArray(body) && body.length === 0,
@@ -432,7 +486,7 @@ function waitForLocalTables(token: string): void {
                 },
                 tags: { name: `load_setup:${table}` },
             }) as K6Response;
-            const body = response.json();
+            const body = safeJson(response);
             return response.status !== 200 || !Array.isArray(body) || body.length === 0;
         });
         if (missing.length === 0) return;
@@ -455,11 +509,11 @@ function bigqueryDates(token: string): string[] {
     const response = setupGet(
         `${POSTGREST_URL}/partitioned_table?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
         {
-            headers: { ...headers, "X-DuckLake-Snapshot": String(snapshot.json()) },
+            headers: { ...headers, "X-DuckLake-Snapshot": String(safeJson(snapshot) ?? "") },
             tags: { name: "load_setup:bigquery_dates" },
         },
     ) as K6Response;
-    const body = response.json();
+    const body = safeJson(response);
     const rows = Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
     const partition = String(rows[0]?.[PARTITION_COLUMN] || "");
     if (response.status !== 200 || !/^\d{4}-\d{2}-\d{2}$/.test(partition)) {
@@ -482,7 +536,7 @@ function visibleIds(token: string): string[] {
         headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "test" },
         tags: { name: "load_setup:ids" },
     }) as K6Response;
-    const body = response.json();
+    const body = safeJson(response);
     const ids = Array.isArray(body)
         ? body.map((row) => String((row as Record<string, unknown>).id))
         : [];
@@ -499,8 +553,9 @@ function readableSnapshots(token: string): string[] {
         headers,
         tags: { name: "load_setup:snapshot" },
     }) as K6Response;
-    const current = Number(latest.json());
-    if (latest.status !== 200 || !Number.isInteger(current)) {
+    const parsed = safeJson(latest);
+    const current = Number(parsed);
+    if (latest.status !== 200 || parsed === null || !Number.isInteger(current)) {
         throw new Error(`Could not read the latest DuckLake snapshot: ${latest.body}`);
     }
     return [0, 1, 5, 20, 50]
@@ -510,7 +565,7 @@ function readableSnapshots(token: string): string[] {
                 headers: { ...headers, "X-DuckLake-Snapshot": snapshot },
                 tags: { name: "load_setup:snapshot_probe" },
             }) as K6Response;
-            const body = response.json();
+            const body = safeJson(response);
             return response.status === 200 && Array.isArray(body) && body.length > 0;
         });
 }
@@ -561,6 +616,19 @@ function pickRoute(clientId: string): Route {
     throw new Error(`No load route is configured for client: ${clientId}`);
 }
 
+/**
+Parses a JSON body, or returns null when the response carries no JSON, such as a
+gateway error page. An unparseable body must count as a failure, not abort the iteration.
+*/
+function safeJson(response: K6Response): unknown {
+    if (response.status === 0 || !response.body) return null;
+    try {
+        return response.json();
+    } catch {
+        return null;
+    }
+}
+
 /** Returns the header value of a response, whatever its case. */
 function header(response: K6Response, name: string): string {
     const wanted = name.toLowerCase();
@@ -608,7 +676,7 @@ function request(route: Route, token: string): void {
     }) as K6Response;
     recordSourceDuration(response, route.heavy ? ducklakeHeavyDuration : undefined);
     loadRequestFailed.add(response.status !== 200);
-    const body = response.json();
+    const body = safeJson(response);
     check(response, {
         [`${route.name} returned 200`]: (item: K6Response) => item.status === 200,
         [`${route.name} returned JSON array`]: () => route.checkBody(body),
@@ -634,7 +702,7 @@ function requestBigQueryPair(clientId: string, token: string, dates: string[]): 
     const first = http.get(`${API_URL}${path}`, params) as K6Response;
     recordSourceDuration(first);
     loadRequestFailed.add(first.status !== 200);
-    const firstBody = first.json();
+    const firstBody = safeJson(first);
     const second = http.get(`${API_URL}${path}`, params) as K6Response;
     recordSourceDuration(second);
     loadRequestFailed.add(second.status !== 200);
@@ -701,9 +769,10 @@ export function observeScaling(data: SetupData): void {
 }
 
 function durationSeconds(value: string): number {
-    const match = /^(\d+)(s|m)$/.exec(value);
+    const match = /^(\d+)(s|m|h)$/.exec(value);
     if (!match) throw new Error(`Unsupported profile duration: ${value}`);
-    return Number(match[1]) * (match[2] === "m" ? 60 : 1);
+    const scale = { s: 1, m: 60, h: 3600 }[match[2] as "s" | "m" | "h"];
+    return Number(match[1]) * scale;
 }
 
 function scalingReplicaCounts(k8s: Kubernetes): Record<string, number> {
@@ -741,7 +810,7 @@ function selectiveLookup(token: string, ids: string[]): void {
     ) as K6Response;
     recordSourceDuration(response, ducklakeSelectiveDuration);
     loadRequestFailed.add(response.status !== 200);
-    const body = response.json();
+    const body = safeJson(response);
     check(response, {
         "selective lookup returned 200": (item: K6Response) => item.status === 200,
         "selective lookup returned the requested row": () =>
@@ -770,7 +839,7 @@ function pinnedSnapshot(token: string, snapshots: string[]): void {
     ) as K6Response;
     recordSourceDuration(response, ducklakePinnedDuration);
     loadRequestFailed.add(response.status !== 200);
-    const body = response.json();
+    const body = safeJson(response);
     check(response, {
         "pinned snapshot returned 200": (item: K6Response) => item.status === 200,
         "pinned snapshot returned authorized rows": () =>

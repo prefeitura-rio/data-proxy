@@ -29,9 +29,7 @@ export def is-cluster-settled [kubecfg: path, ha: bool]: nothing -> bool {
     }
     let instances = $cluster.spec.instances
 
-    (is-mode-matching $instances $ha)
-    and ($cluster.status.readyInstances? == $instances)
-    and ($cluster.status.phase? == 'Cluster in healthy state')
+    (is-mode-matching $instances $ha) and ($cluster.status.readyInstances? == $instances) and ($cluster.status.phase? == 'Cluster in healthy state')
 }
 
 # Switch between single and HA mode and wait for required workloads.
@@ -45,7 +43,7 @@ export def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
         null
     }
 
-    let matches = $cluster != null and (is-mode-matching $cluster.spec.instances $ha)
+    let matches = ($cluster != null and (is-mode-matching $cluster.spec.instances $ha))
 
     if not $matches {
         log info $'Switching to ($mode) mode...'

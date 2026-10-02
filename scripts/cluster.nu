@@ -11,7 +11,7 @@ use ./cluster/lib.nu [
     wait-for
 ]
 use ./cluster/images.nu [apply-gcp-secret build-images refresh-proxy start-minikube]
-use ./cluster/k6.nu [run-modes run-perf run-suite]
+use ./cluster/k6.nu [run-ha run-perf run-suite]
 use ./cluster/platform.nu [
     is-cnpg-healthy
     show-status
@@ -41,12 +41,26 @@ def "main k6 stress" [
     run-perf (git-root | path join .kubeconfig) stress $ha
 }
 
+# Run the k6 spike profile: a burst above peak, then recovery.
+def "main k6 spike" [
+    --ha # Run in HA mode, then return to single mode.
+]: nothing -> nothing {
+    run-perf (git-root | path join .kubeconfig) spike $ha
+}
+
+# Run the k6 soak profile: a steady moderate rate for 30 minutes.
+def "main k6 soak" [
+    --ha # Run in HA mode, then return to single mode.
+]: nothing -> nothing {
+    run-perf (git-root | path join .kubeconfig) soak $ha
+}
+
 # Run E2E and deployment mode suites.
 def "main k6 e2e" [
-    --mode: string = full # Run e2e, modes, or full.
+    --mode: string = full # Run e2e, ha, or full.
 ]: nothing -> nothing {
-    if $mode not-in [e2e modes full] {
-        fail $'--mode must be e2e, modes, or full: ($mode)' {
+    if $mode not-in [e2e ha full] {
+        fail $'--mode must be e2e, ha, or full: ($mode)' {
             command: k6-e2e
             span: (metadata $mode).span
         }
@@ -105,10 +119,10 @@ def "main k6 e2e" [
 
     match $mode {
         e2e => { run-suite $kubecfg e2e single }
-        modes => { run-modes $kubecfg }
+        ha => { run-ha $kubecfg }
         _ => {
             run-suite $kubecfg full single
-            run-modes $kubecfg
+            run-ha $kubecfg
         }
     }
 }

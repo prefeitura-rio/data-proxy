@@ -49,7 +49,7 @@ export def render-testrun [testrun: string, profile: string, --set: record = {}]
         }
     }
     | reduce --fold $profiled {|entry, text|
-        $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}' $entry.value] | str join '')
+        $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}"' $entry.value '"'] | str join '')
     }
 }
 
@@ -151,11 +151,11 @@ export def run-suite [kubecfg: path, suite: string, mode: string]: nothing -> no
 }
 
 # Switch to HA and back while validating both mode suites.
-export def run-modes [kubecfg: path]: nothing -> nothing {
+export def run-ha [kubecfg: path]: nothing -> nothing {
     switch-mode $kubecfg true
-    run-suite $kubecfg modes ha
+    run-suite $kubecfg ha ha
     switch-mode $kubecfg false
-    run-suite $kubecfg modes single
+    run-suite $kubecfg ha single
 }
 
 # Run one k6 performance profile in the requested mode.

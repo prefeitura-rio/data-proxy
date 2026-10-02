@@ -190,6 +190,7 @@ in
         packages = with pkgs; [
           ast-grep
           kubecolor
+          k6
           minikube
           seaweedfs
           (google-cloud-sdk.withExtraComponents (
