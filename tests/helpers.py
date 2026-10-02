@@ -238,9 +238,10 @@ async def publish(plan: SyncPlan) -> set[str]:
 
 def stub_sync_run(
     monkeypatch: pytest.MonkeyPatch, *, views_changed: bool, published: set[str]
-) -> AsyncMock:
-    """Stub the steps of run_sync and return the PostgREST restart step."""
-    restart = AsyncMock()
+) -> tuple[AsyncMock, AsyncMock]:
+    """Stub run_sync steps and return the Pooler and PostgREST restart steps."""
+    restart_pooler = AsyncMock()
+    restart_postgrest = AsyncMock()
     monkeypatch.setattr(workflows, "DBOS", SimpleNamespace(workflow_id="run"))
     monkeypatch.setattr(
         workflows,
@@ -254,9 +255,10 @@ def stub_sync_run(
     monkeypatch.setattr(
         workflows, "run_publish_tasks", AsyncMock(return_value=published)
     )
-    monkeypatch.setattr(workflows, "restart_postgrest", restart)
+    monkeypatch.setattr(workflows, "restart_pooler", restart_pooler)
+    monkeypatch.setattr(workflows, "restart_postgrest", restart_postgrest)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
-    return restart
+    return restart_pooler, restart_postgrest
 
 
 async def run_sync() -> None:

@@ -7,7 +7,7 @@ from ..cache import clear_cache
 from ..duckdb import DuckDB
 from ..ducklake import publish_schema, reader_snapshot, wait_for_reader
 from ..extraction import run_extraction
-from ..kubernetes import restart_postgrest as restart_postgrest_deployment
+from ..kubernetes import restart_deployments
 from ..log import logger, schemaname
 from ..metrics import metrics
 from ..models import (
@@ -97,11 +97,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     should_retry=retry_transient,
 )
 async def seed_schemas(plans: list[SyncPlan]) -> bool:
-    """Ensure configured PostgreSQL views exist and report view-set changes.
-
-    The one-time database setup creates roles and metadata tables. This step
-    only reconciles default DuckLake views and optional BigQuery fallback views.
-    """
+    """Ensure configured PostgreSQL views exist and report view-set changes."""
     logger.info("Schema seeding started plans=%d", len(plans))
     schema_changed = False
 
@@ -214,14 +210,32 @@ async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
+async def restart_pooler(run_id: str) -> None:
+    """Restart Pooler deployments to recycle DuckDB catalog attachments."""
+    logger.info("Restarting Poolers run_id=%s", run_id)
+    await restart_deployments(
+        namespace=settings.KUBERNETES_NAMESPACE,
+        names=settings.POOLER_DEPLOYMENTS,
+        restarted_at=Instant.now().format_iso(),
+        timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
+        kind="PgBouncer",
+    )
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def restart_postgrest(schema_name: str, run_id: str) -> None:
     """Restart the PostgREST deployments and wait for their rollout."""
     logger.info("Restarting PostgREST schema=%s run_id=%s", schema_name, run_id)
-    await restart_postgrest_deployment(
+    await restart_deployments(
         namespace=settings.KUBERNETES_NAMESPACE,
         names=settings.POSTGREST_DEPLOYMENTS,
         restarted_at=Instant.now().format_iso(),
         timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
+        kind="PostgREST",
     )
 
 

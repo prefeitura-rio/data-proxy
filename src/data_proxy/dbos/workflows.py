@@ -23,6 +23,7 @@ from .steps import (
     record_dump_metrics,
     record_publish_metrics,
     record_run_status,
+    restart_pooler,
     restart_postgrest,
     seed_schemas,
     wait_for_reader_snapshot,
@@ -177,7 +178,10 @@ async def run_sync(scheduled_at: datetime, context: object) -> None:
             len(published),
         )
 
-        if views_changed or published:
+        if published:
+            await restart_pooler(workflow_id)
+
+        if views_changed:
             for plan in work.plans:
                 await restart_postgrest(plan.schema_name, workflow_id)
 

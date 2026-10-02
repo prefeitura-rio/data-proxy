@@ -64,34 +64,58 @@ class TestCatalogLockRetryClassification:
         assert utils.retry_catalog_locked(error) is expected
 
 
-class TestRunSyncRestartsPostgrest:
-    """run_sync restarts PostgREST after a sync that changed what it serves."""
+class TestRunSyncRestartsDeployments:
+    """run_sync refreshes schema clients and DuckDB catalog backends separately."""
 
     @pytest.mark.parametrize(
-        ("views_changed", "published", "restarts"),
+        ("views_changed", "published", "pooler_restarts", "postgrest_restarts"),
         [
             pytest.param(
-                False, set[str](), 0, id="nothing changed and nothing published"
+                False,
+                set[str](),
+                0,
+                0,
+                id="nothing-changed-and-nothing-published",
             ),
-            pytest.param(False, {"t"}, 1, id="tables published and no view changed"),
-            pytest.param(True, set[str](), 1, id="views changed and nothing published"),
-            pytest.param(True, {"t"}, 1, id="views changed and tables published"),
+            pytest.param(
+                False,
+                {"t"},
+                1,
+                0,
+                id="tables-published-and-no-view-changed",
+            ),
+            pytest.param(
+                True,
+                set[str](),
+                0,
+                1,
+                id="views-changed-and-nothing-published",
+            ),
+            pytest.param(
+                True,
+                {"t"},
+                1,
+                1,
+                id="views-changed-and-tables-published",
+            ),
         ],
     )
-    async def test_restarts_only_when_something_changed(
+    async def test_restarts_only_the_required_deployments(
         self,
         monkeypatch: pytest.MonkeyPatch,
         views_changed: bool,
         published: set[str],
-        restarts: int,
+        pooler_restarts: int,
+        postgrest_restarts: int,
     ) -> None:
-        restart = stub_sync_run(
+        restart_pooler, restart_postgrest = stub_sync_run(
             monkeypatch, views_changed=views_changed, published=published
         )
 
         await run_sync()
 
-        assert restart.await_count == restarts
+        assert restart_pooler.await_count == pooler_restarts
+        assert restart_postgrest.await_count == postgrest_restarts
 
 
 class TestRestartPostgrestStep:
@@ -112,13 +136,40 @@ class TestRestartPostgrestStep:
     ) -> None:
         """Pass every configured Deployment name to the restart."""
         restart = AsyncMock()
-        monkeypatch.setattr(steps, "restart_postgrest_deployment", restart)
+        monkeypatch.setattr(steps, "restart_deployments", restart)
         monkeypatch.setattr(settings, "POSTGREST_DEPLOYMENTS", names)
 
         await workflow_body(steps.restart_postgrest)("app", "run")
 
         assert restart.await_args is not None
         assert restart.await_args.kwargs["names"] == names
+        assert restart.await_args.kwargs["kind"] == "PostgREST"
+
+
+class TestRestartPoolerStep:
+    """The restart step covers the Pooler Deployments that the chart lists."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "names",
+        [
+            pytest.param(["data-proxy-pooler"], id="single-mode"),
+            pytest.param(["data-proxy-pooler", "data-proxy-pooler-ro"], id="ha-mode"),
+        ],
+    )
+    async def test_restarts_the_configured_deployments(
+        self, monkeypatch: pytest.MonkeyPatch, names: list[str]
+    ) -> None:
+        """Pass every configured Pooler Deployment name to the restart."""
+        restart = AsyncMock()
+        monkeypatch.setattr(steps, "restart_deployments", restart)
+        monkeypatch.setattr(settings, "POOLER_DEPLOYMENTS", names)
+
+        await workflow_body(steps.restart_pooler)("run")
+
+        assert restart.await_args is not None
+        assert restart.await_args.kwargs["names"] == names
+        assert restart.await_args.kwargs["kind"] == "PgBouncer"
 
 
 class TestPublishSchemaOrder:

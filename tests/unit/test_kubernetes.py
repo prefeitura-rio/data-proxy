@@ -8,7 +8,7 @@ from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.apps_v1 import Deployment
 
 from data_proxy import kubernetes
-from data_proxy.kubernetes import check_postgrest_rollout, restart_postgrest
+from data_proxy.kubernetes import check_deployment_rollout, restart_deployments
 from tests.helpers import deployment, deployment_client, deployment_mock
 
 READY = DeploymentStatus(updatedReplicas=2, availableReplicas=2, observedGeneration=3)
@@ -21,7 +21,7 @@ class TestCheckPostgrestRollout:
     @pytest.mark.asyncio
     async def test_accepts_a_finished_rollout(self) -> None:
         """Pass when all replicas are updated, available, and observed."""
-        await check_postgrest_rollout(
+        await check_deployment_rollout(
             deployment_client(status=READY, metadata=METADATA, replicas=2),
             "pgrst",
             "app",
@@ -68,15 +68,15 @@ class TestCheckPostgrestRollout:
     ) -> None:
         """Raise until the rollout finishes so the caller keeps waiting."""
         with pytest.raises(RuntimeError, match="not ready"):
-            await check_postgrest_rollout(
+            await check_deployment_rollout(
                 deployment_client(status=status, metadata=metadata, replicas=replicas),
                 "pgrst",
                 "app",
             )
 
 
-class TestRestartPostgrest:
-    """A restart covers every PostgREST Deployment, so no read or write path keeps a stale schema."""
+class TestRestartDeployments:
+    """A restart patches every named Deployment before waiting for rollouts."""
 
     @staticmethod
     def use_client(monkeypatch: pytest.MonkeyPatch, client: AsyncMock) -> None:
@@ -87,20 +87,22 @@ class TestRestartPostgrest:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "names",
+        ("names", "kind"),
         [
-            pytest.param(["pgrst"], id="single-mode"),
-            pytest.param(["pgrst", "pgrst-ro"], id="ha-mode"),
+            pytest.param(["pgrst"], "PostgREST", id="single-postgrest"),
+            pytest.param(["pgrst", "pgrst-ro"], "PostgREST", id="ha-postgrest"),
+            pytest.param(["pooler"], "PgBouncer", id="single-pooler"),
+            pytest.param(["pooler", "pooler-ro"], "PgBouncer", id="ha-pooler"),
         ],
     )
     async def test_restarts_every_deployment_before_waiting_for_any(
-        self, monkeypatch: pytest.MonkeyPatch, names: list[str]
+        self, monkeypatch: pytest.MonkeyPatch, names: list[str], kind: str
     ) -> None:
         """Patch all Deployments first, then wait for each rollout."""
         client = deployment_mock(status=READY, metadata=METADATA, replicas=2)
         self.use_client(monkeypatch, client)
 
-        await restart_postgrest("app", names, "2026-01-01T00:00:00Z", 5)
+        await restart_deployments("app", names, "2026-01-01T00:00:00Z", 5, kind)
 
         assert [call[0] for call in client.mock_calls] == [
             *["patch"] * len(names),
@@ -125,6 +127,6 @@ class TestRestartPostgrest:
         self.use_client(monkeypatch, client)
 
         with pytest.raises(TimeoutError, match="pgrst-ro"):
-            await restart_postgrest(
-                "app", ["pgrst", "pgrst-ro"], "2026-01-01T00:00:00Z", 0
+            await restart_deployments(
+                "app", ["pgrst", "pgrst-ro"], "2026-01-01T00:00:00Z", 0, "PostgREST"
             )

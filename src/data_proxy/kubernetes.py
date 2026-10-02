@@ -49,7 +49,7 @@ async def patch_restart_annotation(
     )
 
 
-async def check_postgrest_rollout(
+async def check_deployment_rollout(
     client: AsyncClient, name: str, namespace: str
 ) -> None:
     """Raise until all updated Deployment replicas are available."""
@@ -78,18 +78,18 @@ async def check_postgrest_rollout(
         raise RuntimeError("Deployment not ready")
 
 
-async def restart_postgrest(
-    namespace: str, names: list[str], restarted_at: str, timeout: float
+async def restart_deployments(
+    namespace: str, names: list[str], restarted_at: str, timeout: float, kind: str
 ) -> None:
-    """Restart every PostgREST Deployment, then wait for each rollout."""
+    """Restart every named Deployment, then wait for each rollout."""
     async with AsyncClient(namespace=namespace) as client:
         for name in names:
             await patch_restart_annotation(client, name, namespace, restarted_at)
 
         for name in names:
             await wait_for(
-                lambda name=name: check_postgrest_rollout(client, name, namespace),
+                lambda name=name: check_deployment_rollout(client, name, namespace),
                 timeout=timeout,
                 interval=2,
-                message=f"PostgREST rollout did not become ready: {name}",
+                message=f"{kind} rollout did not become ready: {name}",
             )
