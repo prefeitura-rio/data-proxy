@@ -168,21 +168,21 @@ tests:
           value: rw
         template: pooler-cnpg.yaml
 
-  - it: defaults duckdb threads to two
+  - it: defaults duckdb threads to four
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "2"
+          value: "4"
         template: cluster-cnpg.yaml
 
   - it: overrides duckdb threads from values
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "4"
+          value: "8"
         template: cluster-cnpg.yaml
     set:
-      cnpg.duckdb.threads: 4
+      cnpg.duckdb.threads: 8
 
   - it: configures the DuckDB memory cap
     set:

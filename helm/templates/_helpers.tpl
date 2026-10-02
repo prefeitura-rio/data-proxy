@@ -544,7 +544,7 @@ duckdb-secrets
   "work_mem" "64MB"
   "maintenance_work_mem" "512MB"
   "effective_cache_size" "5GB"
-  "max_parallel_workers_per_gather" "2"
+  "max_parallel_workers_per_gather" "4"
   "duckdb.max_temp_directory_size" "2GB"
   "random_page_cost" "1.1"
   "effective_io_concurrency" "200"

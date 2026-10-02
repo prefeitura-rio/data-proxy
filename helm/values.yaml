@@ -108,15 +108,15 @@ postgrest:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 64Mi
+      cpu: 500m
+      memory: 256Mi
       ephemeral-storage: 128Mi
     limits:
-      memory: 256Mi
+      memory: 512Mi
       ephemeral-storage: 512Mi
   autoscaling:
     minReplicaCount: 1
-    maxReplicaCount: 3
+    maxReplicaCount: 6
     pollingInterval: 30
     cooldownPeriod: 300
     triggers: []
@@ -260,9 +260,9 @@ auth:
 ## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
   duckdb:
-    maxMemory: 1024MB
-    ## DuckDB threads per PostgreSQL backend. Defaults to 2; set higher for more parallelism.
-    threads: 2
+    maxMemory: 2048MB
+    ## DuckDB threads per PostgreSQL backend. Defaults to 4; set higher for more parallelism.
+    threads: 4
   postgresql:
     parameters: {}
     ## Optional CNPG synchronous replication, for example {method: any, number: 1, dataDurability: preferred}.
@@ -271,8 +271,8 @@ cnpg:
     synchronous: {}
   pooler:
     instances: 1
-    poolSize: 10
-    maxClientConns: 100
+    poolSize: 50
+    maxClientConns: 200
     resources:
       requests:
         cpu: 50m
@@ -302,10 +302,10 @@ cnpg:
     triggers: []
   resources:
     requests:
-      cpu: 100m
+      cpu: 4
       memory: 1Gi
     limits:
-      cpu: "6"
+      cpu: "8"
       memory: 8Gi
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-ff86fc4
   storage:

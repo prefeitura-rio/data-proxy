@@ -31,7 +31,7 @@ tests:
         template: cluster-cnpg.yaml
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "2"
+          value: "4"
         template: cluster-cnpg.yaml
   - it: mounts the reader catalog PVC read-write in CNPG
     set:

@@ -150,7 +150,7 @@ tests:
                 dbName: data-proxy
                 sslmode: require
                 query: SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = 'postgrest'
-                targetQueryValue: "3"
+                targetQueryValue: "2"
         documentSelector:
           path: metadata.name
           value: data-proxy-cluster-autoscaler

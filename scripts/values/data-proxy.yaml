@@ -119,8 +119,8 @@ proxy:
 cnpg:
   pooler:
     instances: 1
-    poolSize: 10
-    maxClientConns: 100
+    poolSize: 50
+    maxClientConns: 200
     autoscaling:
       minReplicaCount: 1
       maxReplicaCount: 3
@@ -141,10 +141,10 @@ cnpg:
     maxReplicaCount: 3
   resources:
     requests:
-      cpu: 100m
+      cpu: 4
       memory: 1Gi
     limits:
-      cpu: "6"
+      cpu: "8"
       memory: 8Gi
 ingress:
   sidecarInject: true
