@@ -19,8 +19,17 @@
 {{- $names | toJson -}}
 {{- end }}
 
+{{- define "data-proxy.poolerDeployments" -}}
+{{- $name := printf "%s-pooler" (include "data-proxy.fullname" .) -}}
+{{- $names := list $name -}}
+{{- if .Values.ha.enabled -}}
+{{- $names = append $names (printf "%s-ro" $name) -}}
+{{- end -}}
+{{- $names | toJson -}}
+{{- end }}
+
 {{- define "data-proxy.cnpgMinInstances" -}}
-{{- max (.Values.cnpg.autoscaling.minReplicaCount | int) 3 -}}
+{{- max (.Values.cnpg.autoscaling.minReplicaCount | int) 2 -}}
 {{- end }}
 
 {{- define "data-proxy.cnpgMaxInstances" -}}
@@ -481,6 +490,8 @@ duckdb-secrets
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
+- name: POOLER_DEPLOYMENTS
+  value: {{ include "data-proxy.poolerDeployments" . | quote }}
 - name: POSTGREST_DEPLOYMENTS
   value: {{ include "data-proxy.postgrestDeployments" . | quote }}
 - name: POSTGREST_ROLLOUT_TIMEOUT_SECONDS

@@ -11,6 +11,8 @@ data:
 {{ .Files.Get "files/init-db.nu" | nindent 4 }}
   lib.nu: |
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
+  wait-for-postgres.nu: |
+{{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap

@@ -50,10 +50,7 @@ spec:
         - name: wait-for-postgres
           image: {{ .Values.jobs.image | quote }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
-          command: ["/usr/local/bin/nu", "-c"]
-          args:
-            - |
-{{ .Files.Get "files/wait-for-postgres.nu" | nindent 14 }}
+          command: ["/usr/local/bin/nu", "/scripts/wait-for-postgres.nu"]
           env:
             - name: PGHOST
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
@@ -70,7 +67,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.authenticatorSecretName" . }}
                   key: password
+          volumeMounts:
+            - name: init-db-script
+              mountPath: /scripts
+              readOnly: true
       volumes:
+        - name: init-db-script
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-init-db-script
+            defaultMode: 0555
         {{- if not .Values.postgrest.jwtSecret }}
         - name: jwks
           emptyDir: {}

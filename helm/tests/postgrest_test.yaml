@@ -33,6 +33,15 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value: [/usr/local/bin/nu, /scripts/wait-for-postgres.nu]
+      - equal:
+          path: spec.template.spec.initContainers[1].volumeMounts[0].mountPath
+          value: /scripts
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: data-proxy-init-db-script
 
   - it: uses TCP readiness probe for authenticated PostgREST
     asserts:

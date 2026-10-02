@@ -292,10 +292,10 @@ cnpg:
   existingSecret: ""
   ## PostgreSQL instances in single mode. In HA mode cnpg.autoscaling owns the count.
   instances: 1
-  ## HA mode only. The floor is at least 3 (a primary and two standbys).
+  ## HA mode only. The floor is at least 2 (a primary and one standby).
   ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
   autoscaling:
-    minReplicaCount: 1
+    minReplicaCount: 2
     maxReplicaCount: 6
     pollingInterval: 30
     cooldownPeriod: 300

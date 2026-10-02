@@ -106,8 +106,28 @@ tests:
           value: restore
         template: deployment-litestream.yaml
       - equal:
+          path: spec.template.spec.containers[0].command
+          value: [nu, /projected/recover-catalogs.nu, --read]
+        template: deployment-litestream.yaml
+      - equal:
           path: spec.template.spec.containers[1].name
           value: replicate
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[1].command
+          value: [nu, /projected/recover-catalogs.nu, --write]
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            runAsUser: 0
+            runAsGroup: 0
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[1].securityContext
+          value:
+            runAsUser: 10001
+            runAsGroup: 10001
         template: deployment-litestream.yaml
       - contains:
           path: spec.template.spec.volumes
@@ -149,11 +169,11 @@ tests:
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["recover-catalogs.nu"]
-          pattern: "chmod 777"
+          pattern: "set-permissions '777'"
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["recover-catalogs.nu"]
-          pattern: "chmod 666"
+          pattern: "set-permissions '666'"
         template: configmap-litestream.yaml
   - it: requires and uses the shared RWX catalog volume
     set:

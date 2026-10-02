@@ -137,7 +137,7 @@ cnpg:
   storage:
     size: 2Gi
   autoscaling:
-    minReplicaCount: 1
+    minReplicaCount: 2
     maxReplicaCount: 3
   resources:
     requests:
