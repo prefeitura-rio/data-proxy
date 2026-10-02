@@ -65,14 +65,6 @@
     targetQueryValue: {{ include "data-proxy.cnpgSessionsPerInstance" . | quote }}
 {{- end }}
 
-{{- define "data-proxy.poolerDefaultTriggers" -}}
-{{- $root := .root -}}
-- type: kubernetes-workload
-  metadata:
-    podSelector: {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s,app.kubernetes.io/component=%s" (include "data-proxy.name" $root) $root.Release.Name .component | quote }}
-    value: {{ max 1 (div ($root.Values.cnpg.pooler.poolSize | int) 10) | quote }}
-{{- end }}
-
 {{- define "data-proxy.triggers" -}}
 {{- if gt (len (.triggers | default list)) 0 -}}
 {{ toYaml .triggers }}

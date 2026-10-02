@@ -1,6 +1,6 @@
 ## High availability. false: one PostgreSQL instance serves reads and writes.
 ## true: one CloudNativePG Cluster with standbys that serve reads and take over on failure.
-## Nothing else to set: the autoscaling blocks of cnpg, cnpg.pooler and postgrest then scale the
+## Nothing else to set: the autoscaling blocks of cnpg and postgrest then scale the
 ## read side, and the proxy sends reads and writes to different PostgREST deployments.
 ha:
   enabled: false
@@ -269,8 +269,8 @@ cnpg:
     ## CNPG rejects it while the cluster has one instance, so set it after the HA cluster has scaled up.
     ## With it, access_policy writes wait for a standby to apply them and other commits do not wait.
     synchronous: {}
+  ## CNPG Poolers have no scale selector, so KEDA cannot scale them. Each Pooler runs one pod.
   pooler:
-    instances: 1
     poolSize: 50
     maxClientConns: 200
     resources:
@@ -280,12 +280,6 @@ cnpg:
       limits:
         cpu: 500m
         memory: 256Mi
-    autoscaling:
-      minReplicaCount: 1
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 300
-      triggers: []
   db:
     name: data-proxy
     user: admin

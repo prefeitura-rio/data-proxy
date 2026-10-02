@@ -118,12 +118,8 @@ proxy:
   image: localhost/data-proxy-proxy:local
 cnpg:
   pooler:
-    instances: 1
     poolSize: 50
     maxClientConns: 200
-    autoscaling:
-      minReplicaCount: 1
-      maxReplicaCount: 3
   db:
     name: data-proxy
     user: admin

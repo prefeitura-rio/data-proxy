@@ -64,8 +64,6 @@ spec:
 {{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
 {{- end }}
 
-{{- $pooler := .Values.cnpg.pooler.autoscaling }}
-
 {{- $cluster := .Values.cnpg.autoscaling }}
 {{- $clusterScaler := dict "root" $root "name" (printf "%s-cluster-autoscaler" $name) "component" "postgres" "target" (merge (dict "name" $name "kind" "Cluster") $cnpg) "min" (include "data-proxy.cnpgMinInstances" . | int) "max" (include "data-proxy.cnpgMaxInstances" . | int) "block" $cluster "triggers" (include "data-proxy.triggers" (dict "triggers" $cluster.triggers "default" (include "data-proxy.cnpgDefaultTriggers" .))) }}
 {{- if not $ha }}
