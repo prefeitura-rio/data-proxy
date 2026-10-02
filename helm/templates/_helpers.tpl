@@ -200,16 +200,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
 {{- end }}
 
-{{- define "data-proxy.redisWriterAddress" -}}
-{{- $address := required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
-{{- if contains ".svc." $address }}
-{{- $address }}
-{{- else }}
-{{- $parts := splitList ":" $address }}
-{{- printf "%s.%s.svc.cluster.local:%s" (index $parts 0) .Release.Namespace (index $parts 1) }}
-{{- end }}
-{{- end }}
-
 {{- define "data-proxy.redisConfigEnv" -}}
 - name: REDIS_READ
   valueFrom:

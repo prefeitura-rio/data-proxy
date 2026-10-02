@@ -6,13 +6,13 @@ KEDA scales the DBOS sync Deployment from the DBOS system database. The sync wor
 triggers:
   - type: postgresql
     metadata:
-      connectionFromEnv: AIRFLOW_CONN_AIRFLOW_DB
-      query: "SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';"
+      connectionFromEnv: DBOS_SYSTEM_DATABASE_URL
+      query: "SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');
       targetQueryValue: "1.1"
       activationTargetQueryValue: "5"
 ```
 
-`connectionFromEnv` reads `AIRFLOW_CONN_AIRFLOW_DB`, which points to the DBOS system database. The query scales the DBOS sync workers. The separate `data-proxy-litestream` Deployment is fixed at one replica.
+`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed, and running DBOS workflows for the sync application. The separate `data-proxy-litestream` Deployment is fixed at one replica.
 
 ## Orchestrator and dump workers
 
@@ -42,21 +42,17 @@ Publishing remains parallel across schemas because each schema has a separate SQ
 ```yaml
 sync:
   schedule: "0 2 * * *"
-  worker:
-    dumperStepMaxAttempts: 3
-    dumpQueueWorkerConcurrency: 4
-    # DBOS workers use the shared writer catalog PVC.
-    autoscaling:
-      idleReplicaCount: 1
-      minReplicaCount: 3
-      maxReplicaCount: 15
-      pollingInterval: 30
-      cooldownPeriod: 60
-      targetQueryValue: "1.1"
-      activationTargetQueryValue: "5"
-  dumper:
-    batchMegaBytes: 600
-    batchMaxPartitions: 256
+  dumpStepMaxAttempts: 3
+  dumpQueueWorkerConcurrency: 4
+  # DBOS workers use the shared writer catalog PVC.
+  autoscaling:
+    idleReplicaCount: 1
+    minReplicaCount: 3
+    maxReplicaCount: 15
+    pollingInterval: 30
+    cooldownPeriod: 60
+    targetQueryValue: "1.1"
+    activationTargetQueryValue: "5"
 ```
 
 DBOS deduplicates the scheduled workflow across orchestrator replicas. Keep one idle orchestrator so a new schedule reaches a worker even when the queue is empty.

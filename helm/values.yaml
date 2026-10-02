@@ -63,7 +63,7 @@ sync:
     ## Maximum number of concurrent sync pods.
     maxReplicaCount: 15
     ## Postgres trigger query counting DBOS queued/running workflows.
-    query: SELECT ceil(COUNT(*)::decimal / 16) FROM task_instance WHERE state='running' OR state='queued';
+    query: SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');
     ## Target value for the query result.
     targetQueryValue: "1.1"
     ## Value above which KEDA activates from zero replicas.

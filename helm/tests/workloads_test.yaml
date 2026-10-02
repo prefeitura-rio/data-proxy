@@ -104,6 +104,13 @@ tests:
           path: metadata.name
           value: data-proxy-sync
         template: scaledobjects.yaml
+      - equal:
+          path: spec.triggers[0].metadata.query
+          value: "SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-sync
+        template: scaledobjects.yaml
 
   - it: scales the sync Deployment from sync.autoscaling
     set:
