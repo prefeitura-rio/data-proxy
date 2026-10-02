@@ -13,6 +13,11 @@ sync:
               - column: unit_id
                 unit_type: unit
 
+ducklake:
+  litestream:
+    storage:
+      storageClass: standard
+
 cnpg:
   db:
     name: data-proxy

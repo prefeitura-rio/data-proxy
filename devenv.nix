@@ -143,8 +143,12 @@ in
           };
           "dp:test:helm" = {
             exec = ''
+              set -eo pipefail
               helm unittest helm/
-              helm template data-proxy helm/ -f helm/ci/test-values.yaml | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
+
+              helm template data-proxy helm/ -f helm/ci/test-values.yaml \
+                | nu --stdin -c '$in | from yaml | compact | each {|doc| match $doc.kind { "Cluster" => ($doc | upsert spec.instances 1), _ => $doc } | to json --raw } | str join "\n---\n"' \
+                | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
             '';
             execIfModified = [ "helm" ];
           };
@@ -228,7 +232,6 @@ in
           gh
           kubernetes-helm
           kubeconform
-          yq-go
         ];
 
         languages.helm = {
