@@ -80,7 +80,7 @@ in
             ];
           };
           "dp:lint:nu" = {
-            exec = "nu-lint --config .nu-lint.toml helm/files/*.nu scripts/*.nu";
+            exec = "find helm/files scripts -name '*.nu' -exec nu-lint --config .nu-lint.toml {} +";
             execIfModified = [
               "helm/files/**/*.nu"
               "scripts/**/*.nu"

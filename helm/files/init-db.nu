@@ -1,24 +1,14 @@
 use std/log
-use ./lib.nu [quote-pg execute-sql fail schema-list]
+use ./lib.nu [
+    quote-pg
+    execute-sql
+    fail
+    schema-list
+    sync-config
+    wait-for-postgres
+]
 
-let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| fail $'Failed to open sync config: ($err.msg)' {
-    command: init-db
-    span: (metadata $env.SYNC_CONFIG_PATH).span
-} }
-
-# Block until PostgreSQL accepts connections
-def wait-for-postgres []: nothing -> nothing {
-    loop {
-        let result = (
-            psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -c 'SELECT 1'
-            | complete
-        )
-        if $result.exit_code == 0 { break }
-        log info 'Waiting for PostgreSQL...'
-        sleep 2sec
-    }
-    log info 'PostgreSQL is ready'
-}
+let config = sync-config
 
 def configure-ducklake []: nothing -> nothing {
     execute-sql postgres/configure_ducklake.sql {
@@ -32,7 +22,7 @@ def configure-ducklake []: nothing -> nothing {
 
 # Create application schemas with access policy and policy-writer roles
 def create-schemas []: nothing -> nothing {
-    for schema in (schema-list $config) {
+    for schema in ($config | schema-list) {
         let scope = (quote-pg $schema literal) + " = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))"
 
         execute-sql postgres/create_schema.sql {schema: (quote-pg $schema identifier)}
@@ -91,15 +81,15 @@ def main []: nothing -> nothing {
     log info 'Database initialization started'
 
     try {
-        wait-for-postgres
+        wait-for-postgres $env.PG_DATABASE_URL
         configure-ducklake
         create-schemas
         create-pre-request
         install-maintenance
 
         log info 'Database initialization completed'
-    } catch {|err|
-        log error $err.msg
-        exit 1
-    }
+    } catch {|err| fail $err.msg {
+            command: main
+            span: (metadata $env.PG_DATABASE_URL).span
+        } }
 }

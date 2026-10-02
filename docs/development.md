@@ -68,7 +68,7 @@ See [Using the API](using.md).
 | `cluster k6 load`   | Runs the normal load profile.                               |
 | `cluster k6 stress` | Runs the stepped stress profile.                            |
 
-`cluster k6 smoke`, `cluster k6 load`, and `cluster k6 stress` always set the mode first: `helm upgrade --set ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. A run therefore never depends on the mode that an earlier run left. A run with `--ha` switches back to single mode when it ends, even when it fails. Compare a run with and without `--ha` to see what the read side adds.
+`cluster k6 smoke`, `cluster k6 load`, and `cluster k6 stress` set the requested mode before the test: `helm upgrade --set ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helm upgrade and waits for readiness. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
 
@@ -91,6 +91,18 @@ devenv --profile default tasks run dp:lint dp:test
 ```
 
 E2E tests run against the local cluster or staging environment, not in CI.
+
+### Nushell tests
+
+The Helm suite tests pure helpers from `helm/files/lib.nu` without Kubernetes,
+PostgreSQL, Litestream, rclone, or network access:
+
+```bash
+nu helm/files/tests/run.nu
+```
+
+The Helm Job scripts and local cluster scripts remain separate codebases. Do
+not import modules across them.
 
 ## Stop the cluster
 

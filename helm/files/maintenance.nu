@@ -1,7 +1,12 @@
-# nu-lint-ignore-file: dont_mix_different_effects
-
 use std/log
-use ./lib.nu [quote-pg render-sql execute-sql fail schema-list]
+use ./lib.nu [
+    quote-pg
+    render-sql
+    execute-sql
+    fail
+    schema-list
+    sync-config
+]
 
 # Run DuckLake snapshot and file maintenance for one schema.
 def ducklake-maintenance [schema: string]: any -> string {
@@ -34,20 +39,17 @@ def ducklake-maintenance [schema: string]: any -> string {
     try {
         $sql | duckdb --newline \n
     } catch {|err| fail $'DuckLake maintenance failed for schema ($schema): ($err.msg)' {
-        command: ducklake-maintenance
-        span: (metadata $schema).span
-    } }
+            command: ducklake-maintenance
+            span: (metadata $schema).span
+        } }
 }
 
 def main []: nothing -> nothing {
     log info 'Maintenance started'
 
-    let config = try { open $env.SYNC_CONFIG_PATH } catch {|err| fail $'Failed to open sync config: ($err.msg)' {
-        command: maintenance
-        span: (metadata $env.SYNC_CONFIG_PATH).span
-    } }
+    let config = sync-config
 
-    for schema in (schema-list $config) {
+    for schema in ($config | schema-list) {
         execute-sql postgres/call_cleanup_stale_objects.sql {
             schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
             schema_argument: (quote-pg $schema literal)

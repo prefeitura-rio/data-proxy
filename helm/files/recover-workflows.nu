@@ -18,14 +18,18 @@ def live-executor-ids []: nothing -> list<string> {
         | where $it.status.phase == Running
         | where $it.metadata.deletionTimestamp? == null
         | get metadata.uid
-    } catch {|err| fail $'Failed to read sync pod UIDs: ($err.msg)' {
-        command: live-executor-ids
-        span: (metadata $result.stdout).span
-    } }
+    } catch {|err|
+        fail $'Failed to read sync pod UIDs: ($err.msg)' {
+            command: live-executor-ids
+            span: (metadata $result.stdout).span
+        }
+    }
 }
 
-def recover []: nothing -> nothing {
+# Run one orphaned-workflow recovery scan.
+def recover-orphaned-workflows []: nothing -> nothing {
     let executor_ids = live-executor-ids
+    log info $'Workflow recovery scan started live_executors=($executor_ids | length)'
 
     execute-sql postgres/call_recover_orphaned_workflows.sql {
         schema: $env.DBOS_APP_SCHEMA
@@ -33,7 +37,7 @@ def recover []: nothing -> nothing {
         grace_seconds: $env.DBOS_RECOVERY_GRACE_SECONDS
     }
 
-    log info $'Workflow recovery completed live_executors=($executor_ids | length)'
+    log info $'Workflow recovery procedure completed live_executors=($executor_ids | length)'
 }
 
 def main []: nothing -> nothing {
@@ -41,7 +45,7 @@ def main []: nothing -> nothing {
 
     loop {
         try {
-            recover
+            recover-orphaned-workflows
         } catch {|err| log error $'Workflow recovery failed: ($err.msg)' }
 
         sleep $interval

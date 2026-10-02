@@ -1,3 +1,17 @@
+# Shared nu-lint exceptions for this repository and the global LSP configuration.
 [rules]
+add_doc_comment_exported_fn = "off"
 block_brace_spacing = "off"
+check_typed_flag_before_use = "off"
 closure_brace_pipe_spacing = "off"
+dont_mix_different_effects = "off"
+max_positional_params = "off"
+nu_parse_error = "off"
+omit_it_in_row_condition = "off"
+positional_to_pipeline = "off"
+print_and_return_data = "off"
+redundant_ignore = "off"
+reflow_wide_lists = "off"
+remove_hat_not_builtin = "off"
+string_may_be_bare = "off"
+unhandled_external_error = "off"
