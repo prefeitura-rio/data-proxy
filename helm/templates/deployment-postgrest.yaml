@@ -34,18 +34,17 @@ spec:
         {{- if not .Values.postgrest.jwtSecret }}
         - name: fetch-jwks
           image: {{ .Values.jobs.image }}
-          command:
-            - /usr/local/bin/nu
-            - -c
-          args:
-            - |
-{{ .Files.Get "files/fetch-jwks.nu" | nindent 14 }}
+          command: ["/usr/local/bin/nu", "/scripts/fetch-jwks.nu"]
+          workingDir: /scripts
           env:
             - name: JWKS_URI
               value: {{ .Values.postgrest.jwksUri | quote }}
           volumeMounts:
             - name: jwks
               mountPath: /etc/postgrest
+            - name: init-db-script
+              mountPath: /scripts
+              readOnly: true
         {{- end }}
         - name: wait-for-postgres
           image: {{ .Values.jobs.image | quote }}

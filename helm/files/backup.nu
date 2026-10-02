@@ -50,11 +50,51 @@ def backup-table [context: record<schema: string, remote_prefix: string>, dump: 
     log info $'Uploading ($dump.file)...'
     try {
         rclone copyto $dump.file $'($context.remote_prefix)/($dump.table).dump'
-    } catch {|err| fail $'S3 upload failed for ($context.schema).($dump.table): ($err.msg)' {
+    } catch {|err|
+        fail $'S3 upload failed for ($context.schema).($dump.table): ($err.msg)' {
             command: rclone
             span: (metadata $dump.table).span
-        } }
+        }
+    }
 }
+
+def main []: nothing -> nothing {
+    let schema = $env.SCHEMA? | default test
+    let dumps = [
+        {table: access_policy, file: '/tmp/access_policy.dump'}
+        {table: access_log, file: '/tmp/access_log.dump'}
+    ]
+
+    let object_date = date now | format date '%Y-%m-%d'
+    let object_prefix = $'($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date)'
+    let remote_prefix = $'store:($object_prefix)'
+
+    log info $'Backup started schema=($schema)'
+
+    load-env {RCLONE_CONFIG: '/dev/null'}
+    load-env (rclone-env)
+
+    for dump in $dumps {
+        backup-table {schema: $schema, remote_prefix: $remote_prefix} $dump
+    }
+
+    log info $'Backing up DuckLake catalog for ($schema)...'
+    let catalog_path = $'($env.DUCKLAKE_CATALOG_PATH)/($schema)/catalog.sqlite'
+    if ($catalog_path | path exists) {
+        try {
+            rclone copyto $catalog_path $'($remote_prefix)/catalog.sqlite'
+        } catch {|err|
+            fail $'Catalog upload failed for ($schema): ($err.msg)' {
+                command: rclone
+                span: (metadata $schema).span
+            }
+        }
+    } else {
+        log warning $'Catalog not found at ($catalog_path), skipping'
+    }
+
+    log info $'Pruning access_log retention for ($schema)...'
+    let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 
     execute-sql postgres/call_prune_access_log.sql {
         schema: $procedure_schema

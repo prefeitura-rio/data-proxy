@@ -12,24 +12,18 @@ tests:
           value: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
       - equal:
           path: spec.template.spec.initContainers[0].command
-          value: [/usr/local/bin/nu, -c]
+          value: [/usr/local/bin/nu, /scripts/fetch-jwks.nu]
       - equal:
           path: spec.template.spec.initContainers[0].env[0]
           value:
             name: JWKS_URI
             value: https://auth.example.com/certs
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'http get'
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'to json'
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'save --force'
       - equal:
           path: spec.template.spec.initContainers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts[1].mountPath
+          value: /scripts
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
