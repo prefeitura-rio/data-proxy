@@ -158,13 +158,13 @@ def test_renders_exact_predicate(selection, expected):
 - Never commit or push without explicit approval. Stage, summarize, and wait.
 
 ```text
-refactor(sync)!: move orchestration from Redis streams to DBOS
+feat(sync)!: require DBOS workflow recovery
 
-Redis streams could not resume an interrupted sync. DBOS stores checkpoints in PostgreSQL.
+Sync recovery now requires the DBOS worker and workflow state in PostgreSQL.
 
 Migration:
-- Remove the Redis stream configuration.
 - Deploy the DBOS worker before you enable scheduled syncs.
+- Verify the DBOS system database is reachable.
 ```
 
 ## Planning
