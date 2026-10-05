@@ -754,7 +754,7 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
 
         await maybeCache(r, ctx, key, result);
         sendResponse(r, ctx, result);
-    } catch {
+    } catch (error) {
         r.warn("Proxy request failed: error=proxy-handler");
         r.return(502, '{"error":"proxy exception"}');
     }
