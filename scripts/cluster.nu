@@ -5,10 +5,12 @@ use ./lib.nu [
     CLUSTER_NAME
     fail
     git-root
+    local-image-tag
     local-kubeconfig
     poll
     wrap-helmfile
     wrap-kubectl
+    wait-for
 ]
 use ./k6.nu *
 
@@ -104,6 +106,19 @@ def "main up" [
 
     log info 'Syncing local manifests, platform charts, and Data Proxy with Helmfile...'
     wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set ha.enabled=false
+}
+
+# Synchronize the local stack with the latest built images.
+def "main sync" [
+    --ha # Synchronize high-availability mode.
+]: nothing -> nothing {
+    let kubecfg = local-kubeconfig
+    let tag = local-image-tag
+
+    apply-gcp-secret $kubecfg --required
+
+    log info $'Synchronizing Helmfile with local image tag ($tag)...'
+    wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set $'ha.enabled=($ha)'
 }
 
 # Remove the local k3d cluster.

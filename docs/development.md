@@ -18,6 +18,14 @@ The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile 
 
 The script writes the k3d credentials to the ignored repository `.kubeconfig`. It does not change the user kubeconfig.
 
+Apply the current immutable local image tag without rebuilding images:
+
+```bash
+cluster sync
+```
+
+Use `cluster sync --ha` to apply high-availability mode.
+
 Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the pg_duckdb extension, Valkey, PostgREST, and Data Proxy.
 
 ```bash
@@ -71,7 +79,7 @@ See [Using the API](using.md).
 | `cluster k6 e2e`    | Validates sync, RLS, routing, cache, snapshots, and mode. |
 | `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.  |
 | `cluster k6 load`   | Holds the local peak of 100 req/s for 25 minutes.         |
-| `cluster k6 stress` | Steps to 200 req/s to find the local breaking point.      |
+| `cluster k6 stress` | Steps to 200 req/s for 570 seconds to find the local breaking point. |
 
 Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaults to 100 HTTP requests per second. Because the arrival-rate executor counts iterations and a BigQuery iteration makes two requests, the profile converts the request rate into an iteration rate internally. Override the peak with `K6_PEAK_RATE`, and the traffic mix with `K6_BIGQUERY_SHARE` and `K6_BOTTLENECK_SHARE` (both default to `0.05`). Staging capacity runs set a higher peak outside the local node.
 

@@ -50,6 +50,18 @@ export def local-kubeconfig []: nothing -> string {
     git-root | path join .kubeconfig
 }
 
+# Read the immutable local image tag from the latest build.
+export def local-image-tag []: nothing -> string {
+    let tag_file = git-root | path join $IMAGE_TAG_FILE
+
+    try {
+        open --raw $tag_file | str trim
+    } catch {|err| fail $'Could not read local image tag: ($err.msg)' {
+            command: local-image-tag
+            span: (metadata $tag_file).span
+        } }
+}
+
 # Return local registry images for one immutable tag.
 def local-images [tag: string]: nothing -> list<record<image: string, dockerfile: string>> {
     [
