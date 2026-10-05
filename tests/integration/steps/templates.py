@@ -14,6 +14,7 @@ from pytest_bdd import given, parsers, then, when
 
 from data_proxy.models import (
     FullTable,
+    PartitionedTable,
     SchemaConfig,
     SyncConfig,
     TableConfig,
@@ -21,8 +22,8 @@ from data_proxy.models import (
 from data_proxy.postgres import Postgres as PgBackend
 from data_proxy.s3 import clear_s3_prefix
 from data_proxy.settings import settings
-from data_proxy.sources import stages
-from data_proxy.sources.views import reconcile_views
+from data_proxy.views import stages
+from data_proxy.views.reconcile import reconcile_views
 from tests.fixtures.types import Postgres, Silo
 from tests.helpers import (
     fetch_all,
@@ -58,7 +59,7 @@ def reconcile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     columns: list[tuple[str, str]],
-    fallbacks: list[str],
+    fallback: bool,
 ) -> None:
     """Reconcile one table whose BigQuery source reports the given columns."""
     database = template_context.postgres
@@ -66,7 +67,11 @@ def reconcile(
     config = SyncConfig(
         schemas={
             schema: SchemaConfig(
-                tables=[FullTable(name=f"p.{schema}.people", fallbacks=fallbacks)]
+                tables=[
+                    PartitionedTable(name=f"p.{schema}.people", fallback=True)
+                    if fallback
+                    else FullTable(name=f"p.{schema}.people")
+                ]
             )
         }
     )
@@ -94,7 +99,7 @@ def reconcile_ducklake_views(
         monkeypatch,
         tmp_path,
         [("cpf", "BIGINT"), ("name", "VARCHAR")],
-        [],
+        False,
     )
 
 
@@ -115,7 +120,7 @@ def reconcile_with_columns(
         monkeypatch,
         tmp_path,
         [(name, kind) for name, kind in (c.split(" ") for c in columns.split(", "))],
-        [],
+        False,
     )
 
 
@@ -136,7 +141,7 @@ def reconcile_with_fallback(
         monkeypatch,
         tmp_path,
         [("cpf", "BIGINT"), ("name", "VARCHAR")],
-        [fallback],
+        fallback == "bigquery",
     )
 
 

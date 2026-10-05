@@ -6,14 +6,15 @@ from psycopg.sql import Identifier, Literal
 
 from .duckdb import DuckDB
 from .executor import Executor
-from .models import (
+from .models import DumpTask
+from .sources.partitions import (
     AllSelection,
-    DumpTask,
     RangeSelection,
     RemainderSelection,
     TaskSelection,
     TimeRangeSelection,
 )
+from .sources.registry import sources
 from .types import DatabaseRow, DuckDBParams, TemplateValue
 
 
@@ -22,7 +23,7 @@ def build_extraction_query(
 ) -> tuple[str, dict[str, TemplateValue]]:
     """Return one extraction template and its values."""
     mapping: dict[str, TemplateValue] = {
-        "bq_table": Literal(task.table),
+        "source": sources.configure(task.source, task.source_settings).scan(task.table),
         "path": Literal(path),
         "json_columns": [
             Identifier(column).as_string(None) for column in task.json_columns

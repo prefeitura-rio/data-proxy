@@ -21,8 +21,10 @@ src/data_proxy/templates/duckdb/macros.sql
 helm/files/templates/postgres/macros.sql
 helm/files/templates/postgres/grant_rls_usage.sql
 src/data_proxy/templates/postgres/access_policy_check.sql
-src/data_proxy/templates/postgres/drop_ducklake_objects.sql
-src/data_proxy/templates/postgres/describe_bq_table.sql
+src/data_proxy/templates/postgres/drop_view_objects.sql
+src/data_proxy/templates/postgres/write_view_signature.sql
+src/data_proxy/templates/postgres/views/ducklake.sql
+src/data_proxy/templates/postgres/views/fallbacks/bigquery.sql
 helm/files/templates/postgres/configure_ducklake.sql
 
 # Test templates with prepared parameters; validated through execution tests.

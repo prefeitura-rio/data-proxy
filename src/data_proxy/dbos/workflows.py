@@ -1,4 +1,5 @@
-import asyncio
+"""DBOS synchronization workflows."""
+
 from datetime import datetime
 
 from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
@@ -6,12 +7,7 @@ from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
 from ..constants import DUMP_QUEUE, publish_queue
 from ..log import logger, schemaname, tablename
 from ..metrics import observe
-from ..models import (
-    DumpResult,
-    DumpStatus,
-    DumpTask,
-    SyncPlan,
-)
+from ..models import DumpResult, DumpStatus, DumpTask, SyncPlan
 from ..settings import settings
 from .steps import (
     build_sync_work,
@@ -23,6 +19,7 @@ from .steps import (
     record_dump_metrics,
     record_publish_metrics,
     record_run_status,
+    record_seed_metrics,
     restart_pooler,
     restart_postgrest,
     seed_schemas,
@@ -30,66 +27,11 @@ from .steps import (
 )
 
 
-async def run_dump_tasks(tasks: list[DumpTask]) -> set[str]:
-    """Run dump workflows and return errored object paths."""
-    logger.info("Enqueuing dump tasks count=%d", len(tasks))
-    dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
-    for task in tasks:
-        handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
-        dump_handles.append(handle)
-
-    dump_results: list[DumpResult] = await asyncio.gather(
-        *(handle.get_result() for handle in dump_handles)
-    )
-    failed_paths = {path for result in dump_results for path in result.failed_paths}
-    logger.info(
-        "Dump tasks completed count=%d failed_paths=%d",
-        len(dump_results),
-        len(failed_paths),
-    )
-    return failed_paths
-
-
-async def run_publish_tasks(
-    run_id: str, plans: list[SyncPlan], failed_paths: set[str]
-) -> set[str]:
-    """Run publication workflows for every schema plan and return the published tables."""
-    logger.info(
-        "Enqueuing publish tasks plans=%d failed_paths=%d",
-        len(plans),
-        len(failed_paths),
-    )
-
-    publish_handles: list[WorkflowHandleAsync[set[str]]] = []
-
-    for plan in plans:
-        handle = await DBOS.enqueue_workflow_async(
-            publish_queue(plan.schema_name),
-            publish_schema,
-            run_id,
-            plan,
-            failed_paths,
-        )
-
-        publish_handles.append(handle)
-
-    published = await asyncio.gather(
-        *(handle.get_result() for handle in publish_handles)
-    )
-
-    published_tables = set[str]().union(*published)
-    logger.info(
-        "Publish tasks completed plans=%d published_tables=%d",
-        len(published),
-        len(published_tables),
-    )
-    return published_tables
-
-
 @DBOS.workflow()
 async def dump_task(task: DumpTask) -> DumpResult:
     """Dump one task, record its result, and return it to the parent workflow."""
     tablename.set(task.table)
+
     logger.info("Dump started task_id=%s", task.task_id)
 
     try:
@@ -117,14 +59,10 @@ async def publish_schema(
 ) -> set[str]:
     """Publish one schema to DuckLake and commit its table state."""
     schemaname.set(plan.schema_name)
-    logger.info(
-        "Publish started run_id=%s failed_paths=%d",
-        run_id,
-        len(failed_paths),
-    )
+
+    logger.info("Publish started run_id=%s", run_id)
 
     outcome = await commit_ducklake_snapshot(plan, failed_paths)
-
     if outcome.snapshot_id is not None:
         await wait_for_reader_snapshot(plan.schema_name, outcome.snapshot_id)
 
@@ -140,51 +78,57 @@ async def publish_schema(
 
 @DBOS.workflow()
 @observe(record_run_status)
-async def run_sync(scheduled_at: datetime, context: object) -> None:
-    """Plan one run, fan out dumps, seed, fan out publishers, and finalize."""
-    workflow_id = DBOS.workflow_id
-    if workflow_id is None:
+async def run_sync(scheduled_at: datetime, context: None) -> None:
+    """Build work, fan out queued children, fan in results, and finalize."""
+    run_id = DBOS.workflow_id
+
+    if run_id is None:
         raise RuntimeError("workflow_id is not set")
 
-    logger.info(
-        "Sync started workflow_id=%s scheduled_at=%s", workflow_id, scheduled_at
-    )
+    logger.info("Sync started workflow_id=%s scheduled_at=%s", run_id, scheduled_at)
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
-        work = await build_sync_work(workflow_id)
-
+        work = await build_sync_work(run_id)
         if not work.plans:
             logger.info("No table changes")
             return
 
-        logger.info(
-            "Run planned tasks=%d plans=%d",
-            len(work.tasks),
-            len(work.plans),
-        )
+        dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
+        for task in work.tasks:
+            handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
+            dump_handles.append(handle)
 
-        failed_paths = await run_dump_tasks(work.tasks)
-        logger.info("Sync seeding and publishing workflow_id=%s", workflow_id)
+        failed_paths: set[str] = set()
+        for handle in dump_handles:
+            failed_paths.update((await handle.get_result()).failed_paths)
 
-        views_changed, published = await asyncio.gather(
-            seed_schemas(work.plans),
-            run_publish_tasks(workflow_id, work.plans, failed_paths),
-        )
+        postgrest_restart_required = await seed_schemas(work.plans)
 
-        logger.info(
-            "Sync seed and publish completed workflow_id=%s views_changed=%s published=%d",
-            workflow_id,
-            views_changed,
-            len(published),
-        )
+        await record_seed_metrics(work.plans)
+
+        publish_handles: list[WorkflowHandleAsync[set[str]]] = []
+        for plan in work.plans:
+            handle = await DBOS.enqueue_workflow_async(
+                publish_queue(plan.schema_name),
+                publish_schema,
+                run_id,
+                plan,
+                failed_paths,
+            )
+            publish_handles.append(handle)
+
+        published: set[str] = set()
+        for handle in publish_handles:
+            published.update(await handle.get_result())
 
         if published:
-            await restart_pooler(workflow_id)
+            await restart_pooler(run_id)
 
-        if views_changed:
-            for plan in work.plans:
-                await restart_postgrest(plan.schema_name, workflow_id)
+        if postgrest_restart_required:
+            await restart_postgrest(run_id)
 
-        logger.info("Sync finalizing workflow_id=%s", workflow_id)
-        await finalize_run(workflow_id)
-        logger.info("Sync completed workflow_id=%s", workflow_id)
+        logger.info("Sync finalizing workflow_id=%s", run_id)
+
+        await finalize_run(run_id)
+
+        logger.info("Sync completed workflow_id=%s", run_id)

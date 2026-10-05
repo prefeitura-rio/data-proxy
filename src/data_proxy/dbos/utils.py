@@ -1,4 +1,4 @@
-"""DBOS utility functions."""
+"""Pure DBOS configuration and retry helpers."""
 
 from duckdb import TransactionException
 

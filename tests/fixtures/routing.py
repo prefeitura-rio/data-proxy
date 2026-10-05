@@ -15,12 +15,12 @@ from tests.helpers import create_access_policy, execute_sql
 async def routing(postgres: Postgres) -> Postgres:
     """Install the routing functions in the test transaction."""
     await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
-        "postgres/sources/routing/snapshot",
+        "postgres/views/routing/snapshot",
         mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
     )
     for template in ("coverage", "plan", "response"):
         await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
-            f"postgres/sources/routing/{template}",
+            f"postgres/views/routing/{template}",
             mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
         )
     return postgres

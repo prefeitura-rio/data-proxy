@@ -8,7 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import data_proxy.planning as planning
-from data_proxy.bigquery.clients import BigQuery
+import data_proxy.sources.registry as source_registry
 from data_proxy.duckdb import DuckDB
 from data_proxy.models import (
     DuckLakeTableConfig,
@@ -24,12 +24,16 @@ from data_proxy.models import (
 )
 from data_proxy.planning import (
     build_partition_tasks,
+    configured_source,
+    expand_config,
     find_partition_changes,
     group_schema_plans,
     order_partition_ids,
     table_signature,
 )
 from data_proxy.postgres import Postgres
+from data_proxy.sources.source import Source
+from tests.fixtures.types import FullOnlySource
 from tests.helpers import partition
 
 
@@ -116,15 +120,15 @@ class TestRemovalOnlyPartitionPlanning:
             signature="signature",
             partitions={"1": previous},
         )
-        physical = AsyncMock(return_value=("signature", {}))
+        source = MagicMock()
+        source.partitions = AsyncMock(return_value=("signature", {}))
         read_manifest = AsyncMock(return_value=stored)
         discover_columns = AsyncMock(return_value=[])
-        monkeypatch.setattr(planning, "physical_partitions", physical)
         monkeypatch.setattr(planning, "read_table_state", read_manifest)
         monkeypatch.setattr(planning, "discover_json_columns", discover_columns)
 
         plan, tasks = await planning.plan_partitioned_table(
-            AsyncMock(spec=BigQuery),
+            source,
             AsyncMock(spec=Postgres),
             AsyncMock(spec=DuckDB),
             table,
@@ -181,11 +185,8 @@ class TestChangedPartitionPlanning:
         """Extract changed partitions with the discovered JSON columns."""
         table = PartitionedTable(name="p.d.t", resolved_schema="app")
         current = {"1": partition("1", signature="new")}
-        monkeypatch.setattr(
-            planning,
-            "physical_partitions",
-            AsyncMock(return_value=("signature", current)),
-        )
+        source = MagicMock()
+        source.partitions = AsyncMock(return_value=("signature", current))
         monkeypatch.setattr(
             planning, "read_table_state", AsyncMock(return_value=stored)
         )
@@ -194,7 +195,7 @@ class TestChangedPartitionPlanning:
         )
 
         plan, tasks = await planning.plan_partitioned_table(
-            AsyncMock(spec=BigQuery),
+            source,
             AsyncMock(spec=Postgres),
             AsyncMock(spec=DuckDB),
             table,
@@ -227,10 +228,11 @@ class TestDetectChanges:
                 )
             }
         )
-        bigquery = MagicMock()
-        monkeypatch.setattr(planning, "BigQuery", bigquery)
-        modified = AsyncMock(return_value="modified")
-        monkeypatch.setattr(planning, "table_modified", modified)
+        source = MagicMock()
+        source.modified = AsyncMock(return_value="modified")
+        source.close = AsyncMock()
+        configure_source = MagicMock(return_value=source)
+        monkeypatch.setattr(source_registry.sources, "configure", configure_source)
         monkeypatch.setattr(
             planning,
             "read_table_signature",
@@ -245,11 +247,90 @@ class TestDetectChanges:
         result = await planning.detect_changes(AsyncMock(spec=Postgres), config)
 
         assert result == {changed.name: table_signature(changed, None, "modified")}
-        bigquery.connect.assert_called_once_with("p")
-        assert [call.args[1] for call in modified.await_args_list] == [
+        assert [call.args[0] for call in source.modified.await_args_list] == [
             unchanged.name,
             changed.name,
         ]
+
+
+class TestConfiguredSources:
+    """Configured source lifetime and scope behavior."""
+
+    @pytest.mark.asyncio
+    async def test_closes_sources_after_full_table_expansion(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Close a configured source after its schema discovery completes."""
+        source = MagicMock()
+        source.close = AsyncMock()
+        monkeypatch.setattr(
+            source_registry.sources, "configure", MagicMock(return_value=source)
+        )
+        monkeypatch.setattr(
+            planning, "discover_json_columns", AsyncMock(return_value=[])
+        )
+
+        await expand_config(
+            AsyncMock(spec=DuckDB),
+            [FullTable(name="p.d.one", resolved_schema="app")],
+            "bucket",
+            "run",
+        )
+
+        source.close.assert_awaited_once()
+
+    def test_scopes_cached_sources_to_the_schema(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Do not reuse one source type across schema-specific settings."""
+        first = MagicMock()
+        second = MagicMock()
+        configure = MagicMock(side_effect=[first, second])
+        monkeypatch.setattr(source_registry.sources, "configure", configure)
+        active: dict[str, Source] = {}
+        one = FullTable(
+            name="p.d.one",
+            resolved_schema="one",
+            resolved_source="example",
+            resolved_source_settings={"location": "one"},
+        )
+        two = FullTable(
+            name="p.d.two",
+            resolved_schema="two",
+            resolved_source="example",
+            resolved_source_settings={"location": "two"},
+        )
+
+        assert configured_source(one, active) is first
+        assert configured_source(two, active) is second
+        assert configure.call_count == 2
+
+
+class TestSourceCapabilities:
+    """Source strategy compatibility tests."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_partitioned_tables_for_a_full_only_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail before querying an source that lacks partition support."""
+        config = SyncConfig(
+            schemas={"app": SchemaConfig(tables=[PartitionedTable(name="p.d.events")])}
+        )
+        monkeypatch.setattr(
+            source_registry.sources,
+            "configure",
+            MagicMock(return_value=FullOnlySource()),
+        )
+
+        with pytest.raises(TypeError, match="does not support partitioned tables"):
+            await planning.plan_partitioned_tables(
+                AsyncMock(spec=Postgres),
+                AsyncMock(spec=DuckDB),
+                config,
+                "run",
+                "bucket",
+            )
 
 
 class TestPartitionBatching:

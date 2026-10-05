@@ -14,6 +14,7 @@ from duckdb import DuckDBPyConnection
 from psycopg.sql import Literal
 
 from .settings import settings
+from .sources.registry import sources
 from .templates import render_template
 from .types import DatabaseRow, DuckDBParams
 
@@ -36,6 +37,15 @@ class DuckDB:
                 "s3_secret_key": Literal(settings.S3_SECRET_KEY),
                 "s3_endpoint": Literal(settings.S3_ENDPOINT),
                 "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
+                "source_extensions": sorted(
+                    {
+                        extension
+                        for schema in settings.sync_config.schemas.values()
+                        for extension in sources.configure(
+                            schema.source.type, schema.source.settings
+                        ).extensions
+                    }
+                ),
             },
         )
 

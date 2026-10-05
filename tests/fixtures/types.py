@@ -2,10 +2,12 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import final
 
 from minio import Minio
 from psycopg import AsyncConnection
-from psycopg.sql import Identifier
+from psycopg.sql import SQL, Identifier
+from pydantic import JsonValue
 from testcontainers.community.postgres import PostgresContainer
 
 from data_proxy.postgres import Postgres as Pg
@@ -52,6 +54,75 @@ class PostgresTestNamespace:
     def policy(self, name: str) -> Identifier:
         """Return a safely quoted policy identifier."""
         return Identifier(name)
+
+
+@dataclass(frozen=True, slots=True)
+class BigQueryQueryResult:
+    """Concrete query job result for the BigQuery fixture."""
+
+    rows: list[dict[str, str | int | None]]
+
+    def result(self) -> list[dict[str, str | int | None]]:
+        """Return fixture rows as the BigQuery query job does."""
+        return self.rows
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class NoFallbackSource:
+    """Source test double without PostgreSQL fallback support."""
+
+    name: str = "no-fallback"
+    fallback: None = None
+    load: str = ""
+    extensions: tuple[str, ...] = ()
+
+    def with_settings(self, settings: dict[str, JsonValue] | None) -> NoFallbackSource:
+        """Build a settings-free test source."""
+        return NoFallbackSource()
+
+    def validate(self, table: str) -> None:
+        """Accept every test source reference."""
+
+    def scan(self, table: str) -> SQL:
+        """Return a safe test scan expression."""
+        return SQL("no_fallback_scan")
+
+    async def modified(self, table: str) -> str:
+        """Return a stable modification value."""
+        return "modified"
+
+    async def close(self) -> None:
+        """Release no resources."""
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class FullOnlySource:
+    """Source test double without physical partition support."""
+
+    name: str = "full-only"
+    fallback: None = None
+    load: str = ""
+    extensions: tuple[str, ...] = ()
+
+    def with_settings(self, settings: dict[str, JsonValue] | None) -> FullOnlySource:
+        """Build a settings-free test source."""
+        return FullOnlySource()
+
+    def validate(self, table: str) -> None:
+        """Accept every test table reference."""
+
+    def scan(self, table: str) -> SQL:
+        """Return a safe test scan expression."""
+        return SQL("full_only_scan")
+
+    async def modified(self, table: str) -> str:
+        """Return a stable modification value."""
+        return "modified"
+
+    async def close(self) -> None:
+        """Release no resources."""
 
 
 @dataclass(slots=True)

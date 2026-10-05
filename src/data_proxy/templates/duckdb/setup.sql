@@ -6,7 +6,8 @@
     "s3_key_id": "S3 access key used by DuckDB.",
     "s3_secret_key": "S3 secret key used by DuckDB.",
     "s3_endpoint": "S3-compatible endpoint used by DuckDB.",
-    "s3_use_ssl": "Whether DuckDB uses TLS for S3."
+    "s3_use_ssl": "Whether DuckDB uses TLS for S3.",
+    "source_extensions": "DuckDB extension names required by configured sources."
   }
 }
 #}
@@ -14,7 +15,9 @@
 LOAD httpfs;
 LOAD ducklake;
 LOAD sqlite;
-LOAD bigquery;
+{% for extension in source_extensions | default([]) %}
+LOAD {{ extension }};
+{% endfor %}
 LOAD postgres_scanner;
 CREATE SECRET (
     TYPE s3,

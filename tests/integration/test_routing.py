@@ -11,15 +11,23 @@ from psycopg.sql import Identifier
 from data_proxy.conditions import selection_condition
 from data_proxy.executor import Executor
 from data_proxy.models import (
-    RangeSelection,
-    RemainderSelection,
+    FullTable,
+    PublicationResult,
+    SchemaConfig,
     Strategy,
+    SyncConfig,
+    SyncPlan,
     TableState,
-    TimeRangeSelection,
 )
 from data_proxy.settings import settings
-from data_proxy.sources.utils import function_columns
+from data_proxy.sources.partitions import (
+    RangeSelection,
+    RemainderSelection,
+    TimeRangeSelection,
+)
+from data_proxy.state import build_table_states, write_table_states
 from data_proxy.types import PostgresParams
+from data_proxy.views.mappings import function_columns
 from tests.constants import ROUTED_TABLE
 from tests.fixtures.types import Postgres
 from tests.helpers import (
@@ -150,6 +158,32 @@ class TestCoveredBy:
 
         assert covered_by_ducklake == ducklake
         assert covered_by_fallback == fallback
+
+    async def test_reads_state_built_for_a_published_table(
+        self, routing: Postgres
+    ) -> None:
+        """Route a published table from the same key used by the sync writer."""
+        config = SyncConfig(
+            schemas={"app": SchemaConfig(tables=[FullTable(name=ROUTED_TABLE)])}
+        )
+        result = PublicationResult(
+            plan=SyncPlan(
+                schema_name="app",
+                signatures={ROUTED_TABLE: "signature"},
+                paths={ROUTED_TABLE: ["s3://bucket/routed.parquet"]},
+            ),
+            published_tables={ROUTED_TABLE},
+        )
+        await write_table_states(routing.backend, build_table_states(result, config))
+
+        assert (
+            await scalar(
+                routing,
+                "SELECT data_proxy.covered_by_ducklake(%s)",
+                ROUTED_TABLE,
+            )
+            == "TRUE"
+        )
 
 
 class TestPlanSources:
@@ -487,7 +521,7 @@ class TestFunctionPrivileges:
             table_function, has_rls=False, fallbacks=["bigquery"]
         )
         await executor.execute(
-            "postgres/sources/adapters/ducklake",
+            "postgres/views/ducklake",
             mapping={
                 **common,
                 "function": Identifier("p_dl_fn"),
@@ -498,7 +532,7 @@ class TestFunctionPrivileges:
             },
         )
         await executor.execute(
-            "postgres/sources/adapters/bigquery",
+            "postgres/views/fallbacks/bigquery",
             mapping={
                 **common,
                 "function": Identifier("p_bq_fn"),

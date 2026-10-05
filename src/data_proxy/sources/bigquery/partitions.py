@@ -4,30 +4,37 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import assert_never
+from typing import ClassVar, assert_never
 
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row, Table
+from pydantic import BaseModel, ConfigDict
 from whenever import PlainDateTime
 
-from ..executor import Executor
-from ..models import (
-    PartitionMetadata,
+from ...executor import Executor
+from ...types import BigQueryParams
+from ..partitions import (
+    PartitionKindConfig,
     PhysicalPartition,
+    RangeConfig,
     RangeSelection,
     RemainderSelection,
-    TimeRangeSelection,
-)
-from ..types import BigQueryParams
-from .clients import BigQuery
-from .config import (
-    PartitionKindConfig,
-    RangeConfig,
     TimeConfig,
     TimeGranularity,
-    partition_kind_config,
-    partitioned_table_signature,
+    TimeRangeSelection,
 )
+from .clients import BigQuery
+from .config import partition_kind_config, partitioned_table_signature
+
+
+class PartitionMetadata(BaseModel):
+    """Validated fields returned by the BigQuery partition metadata query."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict({"strict": True, "extra": "forbid"})
+
+    partition_id: str
+    last_modified_time: datetime | None
+    logical_bytes: int | None
 
 
 @dataclass(frozen=True, slots=True)

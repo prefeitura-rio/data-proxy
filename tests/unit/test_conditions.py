@@ -3,7 +3,11 @@
 import pytest
 
 from data_proxy.conditions import partition_condition, schema_scope_condition
-from data_proxy.models import RangeSelection, RemainderSelection, TimeRangeSelection
+from data_proxy.sources.partitions import (
+    RangeSelection,
+    RemainderSelection,
+    TimeRangeSelection,
+)
 from tests.helpers import partition
 
 

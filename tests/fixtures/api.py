@@ -16,11 +16,11 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
-from data_proxy.bigquery.clients import BigQuery
 from data_proxy.settings import Settings, settings
+from data_proxy.sources.bigquery.clients import BigQuery
 from data_proxy.templates import render_template
 from tests.constants import FILES, TEST_SQL_DIR
-from tests.fixtures.types import Silo
+from tests.fixtures.types import BigQueryQueryResult, Silo
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -107,7 +107,7 @@ def bigquery() -> Iterator[BigQuery]:
 
     client = MagicMock(spec=Client)
 
-    def get_table(table: str, **kwargs: object) -> Table:
+    def get_table(table: str) -> Table:
         """Return metadata for one preseeded table."""
         name = table.replace(":", ".")
         row = database.execute(
@@ -122,10 +122,8 @@ def bigquery() -> Iterator[BigQuery]:
         return metadata.to_table()
 
     def query(
-        _: str,
-        job_config: BigQueryQueryConfig | None = None,
-        **kwargs: object,
-    ) -> object:
+        sql: str, job_config: BigQueryQueryConfig | None = None
+    ) -> BigQueryQueryResult:
         """Return validated partition rows for the requested preseeded table."""
         name = (
             job_config.query_parameters[0].value
@@ -140,8 +138,8 @@ def bigquery() -> Iterator[BigQuery]:
 
         partitions = [BigQueryPartitionRow.model_validate(row[0]) for row in rows]
 
-        return MagicMock(
-            result=lambda: [partition.model_dump() for partition in partitions]
+        return BigQueryQueryResult(
+            rows=[partition.model_dump() for partition in partitions]
         )
 
     client.get_table.side_effect = get_table

@@ -21,20 +21,25 @@ from ..planning import run_planning
 from ..postgres import Postgres
 from ..s3 import clear_s3_prefix
 from ..settings import settings
-from ..sources.views import reconcile_views
 from ..state import (
     build_table_states,
     emit_error,
     ensure_app_schema,
     write_table_states,
 )
+from ..views.reconcile import reconcile_views
 from .utils import retry_catalog_locked, retry_transient
 
 
-@DBOS.step()
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def build_sync_work(run_id: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     logger.info("Planning started run_id=%s", run_id)
+
     async with (
         DuckDB.connect() as duckdb_conn,
         Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
@@ -47,6 +52,7 @@ async def build_sync_work(run_id: str) -> SyncWork:
             run_id,
             settings.S3_BUCKET,
         )
+
     logger.info(
         "Planning completed run_id=%s tasks=%d plans=%d",
         run_id,
@@ -97,25 +103,35 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     should_retry=retry_transient,
 )
 async def seed_schemas(plans: list[SyncPlan]) -> bool:
-    """Ensure configured PostgreSQL views exist and report view-set changes."""
+    """Reconcile planned serving schemas and report a PostgREST restart need."""
     logger.info("Schema seeding started plans=%d", len(plans))
-    schema_changed = False
+
+    schema_names = sorted({plan.schema_name for plan in plans})
+    table_names = {
+        plan.schema_name: set(plan.signatures) | set(plan.partitioned_tables)
+        for plan in plans
+    }
 
     async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
-        views_changed = await reconcile_views(pg_conn, settings.sync_config)
-        schema_changed = schema_changed or views_changed
+        postgrest_restart_required = await reconcile_views(
+            pg_conn, settings.sync_config, schema_names, table_names
+        )
 
+    logger.info(
+        "Schema seeding completed plans=%d postgrest_restart_required=%s",
+        len(plans),
+        postgrest_restart_required,
+    )
+    return postgrest_restart_required
+
+
+@DBOS.step()
+async def record_seed_metrics(plans: list[SyncPlan]) -> None:
+    """Record one successful serving-schema reconciliation per schema plan."""
     for plan in plans:
         metrics.seed_runs_total.add(
             1, {"schema": plan.schema_name, "status": "success"}
         )
-
-    logger.info(
-        "Schema seeding completed plans=%d views_changed=%s",
-        len(plans),
-        schema_changed,
-    )
-    return schema_changed
 
 
 @DBOS.step(
@@ -133,10 +149,15 @@ async def extract_task(task: DumpTask) -> None:
     logger.info("Extraction completed task_id=%s", task.task_id)
 
 
-@DBOS.step()
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def record_dump_failure(task: DumpTask, error: str) -> None:
     """Persist one dump error in the data_proxy.errors table."""
     logger.error("Extraction failed task_id=%s error=%s", task.task_id, error)
+
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await emit_error(
             pg_conn,
@@ -160,6 +181,7 @@ async def commit_ducklake_snapshot(
     """Commit scratch Parquet files into DuckLake for one schema plan."""
     schemaname.set(plan.schema_name)
     logger.info("DuckLake commit started failed_paths=%d", len(failed_paths))
+
     config = SyncConfig(
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
     )
@@ -183,7 +205,11 @@ async def commit_ducklake_snapshot(
     return result
 
 
-@DBOS.step()
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
     """Wait until the reader catalog has applied the committed DuckLake snapshot."""
     logger.info(
@@ -213,11 +239,12 @@ async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
 async def restart_pooler(run_id: str) -> None:
     """Restart Pooler deployments to recycle DuckDB catalog attachments."""
     logger.info("Restarting Poolers run_id=%s", run_id)
+
     await restart_deployments(
         namespace=settings.KUBERNETES_NAMESPACE,
         names=settings.POOLER_DEPLOYMENTS,
         restarted_at=Instant.now().format_iso(),
-        timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
+        timeout=settings.DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS,
         kind="PgBouncer",
     )
 
@@ -227,14 +254,15 @@ async def restart_pooler(run_id: str) -> None:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def restart_postgrest(schema_name: str, run_id: str) -> None:
-    """Restart the PostgREST deployments and wait for their rollout."""
-    logger.info("Restarting PostgREST schema=%s run_id=%s", schema_name, run_id)
+async def restart_postgrest(run_id: str) -> None:
+    """Restart PostgREST Deployments and wait for one Kubernetes rollout."""
+    logger.info("Restarting PostgREST run_id=%s", run_id)
+
     await restart_deployments(
         namespace=settings.KUBERNETES_NAMESPACE,
         names=settings.POSTGREST_DEPLOYMENTS,
         restarted_at=Instant.now().format_iso(),
-        timeout=settings.POSTGREST_ROLLOUT_TIMEOUT_SECONDS,
+        timeout=settings.DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS,
         kind="PostgREST",
     )
 
@@ -264,6 +292,8 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
 async def finalize_run(run_id: str) -> None:
     """Flush scratch Parquet files and the response cache."""
     logger.info("Finalization started run_id=%s", run_id)
+
     await clear_s3_prefix(settings.S3_SCRATCH_PREFIX)
+
     await clear_cache()
     logger.info("Finalization completed run_id=%s", run_id)

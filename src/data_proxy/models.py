@@ -1,10 +1,9 @@
 """Data models for the sync service."""
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import Annotated, ClassVar, Literal, Self, cast, override
+from typing import Annotated, ClassVar, Literal, Self, override
 
 from pydantic import (
     BaseModel,
@@ -16,12 +15,10 @@ from pydantic import (
     model_validator,
 )
 
-from .constants import BIGQUERY_TABLE_REFERENCE_PATTERN
+from .sources.partitions import PhysicalPartition, TaskSelection
+from .sources.registry import sources
 
 NonEmptyString = Annotated[str, Field(min_length=1)]
-BigQueryTableName = Annotated[
-    NonEmptyString, Field(pattern=BIGQUERY_TABLE_REFERENCE_PATTERN)
-]
 
 
 class Strategy(StrEnum):
@@ -95,120 +92,22 @@ class DuckLakeTableConfig(BaseModel):
         return self
 
 
-class AllSelection(BaseModel):
-    """Select every row from a source table."""
-
-    type: Literal["all"] = "all"
-
-    def check_id(self, partition_id: str) -> None:
-        """No partition ID validation for a full-table selection."""
-
-
-class TimeRangeSelection(BaseModel):
-    """Select rows within one time partition's [lower, upper) date/timestamp bounds."""
-
-    type: Literal["time_range"] = "time_range"
-    column: NonEmptyString
-    lower: NonEmptyString
-    upper: NonEmptyString
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> Self:
-        """Require chronological lower and upper bounds."""
-        if self.lower >= self.upper:
-            raise ValueError("Time selection lower bound must precede upper bound")
-        return self
-
-    def check_id(self, partition_id: str) -> None:
-        """No partition ID validation for a time-range selection."""
-
-
-class RangeSelection(BaseModel):
-    """Select rows within one physical integer partition."""
-
-    type: Literal["range"] = "range"
-    partition_id: NonEmptyString
-    column: NonEmptyString
-    lower: int
-    upper: int
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> Self:
-        """Require a non-empty integer range."""
-        if self.lower >= self.upper:
-            raise ValueError("Range selection lower bound must precede upper bound")
-        return self
-
-    def check_id(self, partition_id: str) -> None:
-        """Require the selection ID to match the physical partition."""
-        if self.partition_id != partition_id:
-            raise ValueError(
-                "Range selection partition ID must match physical partition"
-            )
-
-
-class RemainderSelection(BaseModel):
-    """Select rows in BigQuery's ``__NULL__`` bucket: null or out-of-range values."""
-
-    type: Literal["remainder"] = "remainder"
-    column: NonEmptyString
-    start: int
-    end: int
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> Self:
-        """Require a non-empty remainder range."""
-        if self.start >= self.end:
-            raise ValueError("Remainder selection start must precede end")
-        return self
-
-    def check_id(self, partition_id: str) -> None:
-        """No partition ID validation for a remainder selection."""
-
-
-TaskSelection = Annotated[
-    AllSelection | TimeRangeSelection | RangeSelection | RemainderSelection,
-    Field(discriminator="type"),
-]
-
-
-class PartitionMetadata(BaseModel):
-    """Validated fields returned by the BigQuery partition metadata query."""
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(strict=True, extra="forbid")
-
-    partition_id: str
-    last_modified_time: datetime | None
-    logical_bytes: int | None
-
-
-class PhysicalPartition(BaseModel):
-    """Normalized state and extraction selection for one physical BigQuery partition."""
-
-    partition_id: NonEmptyString
-    signature: NonEmptyString
-    selection: TimeRangeSelection | RangeSelection | RemainderSelection
-    logical_bytes: int = 0
-    """Uncompressed source size, used to group partitions into extraction batches."""
-
-    @model_validator(mode="after")
-    def validate_range_partition_id(self) -> Self:
-        """Require range selection IDs to match their physical partition."""
-        self.selection.check_id(self.partition_id)
-        return self
-
-
 class Table(BaseModel):
     """Common configuration shared by every synced table strategy."""
 
-    name: BigQueryTableName
+    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
+
+    name: NonEmptyString
     rls: list[UnitMapping] | None = None
-    fallbacks: list[str] = []
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
-    ducklake: DuckLakeTableConfig = DuckLakeTableConfig()
+    ducklake: DuckLakeTableConfig = Field(default_factory=DuckLakeTableConfig)
     resolved_schema: str = ""
     """The schema this table is nested under. Stamped by SyncConfig, never user input."""
+    resolved_source: str = ""
+    """The schema source type. Stamped by SyncConfig, never user input."""
+    resolved_source_settings: dict[str, JsonValue] | None = None
+    """The schema source settings. Stamped by SyncConfig, never user input."""
 
     @property
     def table_name(self) -> str:
@@ -217,10 +116,13 @@ class Table(BaseModel):
 
     def config_signature_fields(self) -> dict[str, JsonValue]:
         """Return the configuration fields that identify this table for a sync."""
+        source: dict[str, JsonValue] = {"type": self.resolved_source}
+        if self.resolved_source_settings is not None:
+            source["settings"] = self.resolved_source_settings
         return {
             "name": self.name,
+            "source": source,
             "rls": [r.model_dump() for r in self.rls] if self.rls else None,
-            "fallbacks": cast("list[JsonValue]", self.fallbacks),
             "ducklake": self.ducklake.model_dump(),
         }
 
@@ -240,6 +142,8 @@ class Table(BaseModel):
         return DumpTask(
             run_id=run_id,
             table=self.name,
+            source=self.resolved_source or "bigquery",
+            source_settings=self.resolved_source_settings,
             target_schema=self.resolved_schema,
             bucket_path=(
                 prefix
@@ -269,6 +173,7 @@ class PartitionedTable(Table):
 
     strategy: Literal[Strategy.PARTITIONED] = Strategy.PARTITIONED
     n: PositiveInt | None = None
+    fallback: bool = False
     """Keep only the last N time partitions. Time-partitioned tables only."""
 
     @override
@@ -277,6 +182,7 @@ class PartitionedTable(Table):
         fields = super().config_signature_fields()
         fields["strategy"] = self.strategy
         fields["n"] = self.n
+        fields["fallback"] = self.fallback
         return fields
 
 
@@ -286,18 +192,35 @@ TableConfig = Annotated[
 ]
 
 
-class SchemaConfig(BaseModel):
-    """A PostgreSQL schema: its tables and, if any use RLS, its access claim."""
+class SourceConfig(BaseModel):
+    """Non-secret configuration for one schema ingestion source."""
 
+    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
+
+    type: NonEmptyString = "bigquery"
+    settings: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def reject_empty_settings(self) -> Self:
+        """Require empty settings to be omitted from source configuration."""
+        if self.settings == {}:
+            raise ValueError("Empty source settings must be omitted")
+        return self
+
+
+class SchemaConfig(BaseModel):
+    """A PostgreSQL schema, its ingestion source, and its synced tables."""
+
+    source: SourceConfig = Field(default_factory=SourceConfig)
     claim: NonEmptyString | None = None
-    ducklake: DuckLakeSchemaConfig = DuckLakeSchemaConfig()
-    tables: list[TableConfig] = []
+    ducklake: DuckLakeSchemaConfig = Field(default_factory=DuckLakeSchemaConfig)
+    tables: list[TableConfig] = Field(default_factory=list)
 
 
 class SyncConfig(BaseModel):
     """The full set of schemas and their nested tables a synchronization run manages."""
 
-    schemas: dict[str, SchemaConfig] = {}
+    schemas: dict[str, SchemaConfig] = Field(default_factory=dict)
 
     @property
     def tables(self) -> list[TableConfig]:
@@ -310,12 +233,24 @@ class SyncConfig(BaseModel):
         for name, schema in self.schemas.items():
             for table in schema.tables:
                 table.resolved_schema = name
+                table.resolved_source = schema.source.type
+                table.resolved_source_settings = schema.source.settings
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_schema_sources(self) -> Self:
+        """Require each schema to use a registered source for every table."""
+        for schema in self.schemas.values():
+            source = sources.configure(schema.source.type, schema.source.settings)
+            for table in schema.tables:
+                source.validate(table.name)
         return self
 
     @model_validator(mode="after")
     def reject_duplicate_table_names(self) -> Self:
         """Require every configured source table to have one destination."""
+        # PostgreSQL routing and persisted state share the source reference key.
         names = [table.name for table in self.tables]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
@@ -323,13 +258,31 @@ class SyncConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_fallback_sources(self) -> Self:
-        """Reject fallback source names that are not registered."""
-        from .sources.sources import sources
+    def reject_duplicate_destination_table_names(self) -> Self:
+        """Require each schema to map every destination table name once."""
+        destinations = [
+            f"{table.resolved_schema}.{table.table_name}" for table in self.tables
+        ]
+        duplicates = sorted(
+            {name for name in destinations if destinations.count(name) > 1}
+        )
+        if duplicates:
+            raise ValueError(f"Duplicate destination table names: {duplicates}")
+        return self
 
+    @model_validator(mode="after")
+    def validate_partition_fallbacks(self) -> Self:
+        """Allow partition fallback only when the schema source supports it."""
         for table in self.tables:
-            for name in table.fallbacks:
-                sources.get(name)
+            if not isinstance(table, PartitionedTable) or not table.fallback:
+                continue
+            source = sources.configure(
+                table.resolved_source, table.resolved_source_settings
+            )
+            if source.fallback is None:
+                raise ValueError(
+                    f"Source {source.name!r} does not support partition fallback"
+                )
         return self
 
     @model_validator(mode="after")
@@ -355,10 +308,12 @@ class DumpTask(BaseModel):
 
     run_id: str
     table: str
+    source: NonEmptyString = "bigquery"
+    source_settings: dict[str, JsonValue] | None = None
     target_schema: str
     bucket_path: str
     selections: Annotated[list[TaskSelection], Field(min_length=1)]
-    json_columns: list[str] = []
+    json_columns: list[str] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -390,10 +345,10 @@ class DumpStatus(StrEnum):
 class DumpResult(BaseModel):
     """Result of one extraction task."""
 
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
 
     status: DumpStatus = DumpStatus.SUCCESS
-    failed_paths: list[str] = []
+    failed_paths: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_failed_paths_on_failure(self) -> Self:
@@ -442,9 +397,9 @@ class SyncPlan(BaseModel):
     """Immutable publication inputs for one PostgreSQL schema."""
 
     schema_name: str
-    signatures: dict[str, str] = {}
-    paths: dict[str, list[str]] = {}
-    partitioned_tables: dict[str, PartitionedTablePlan] = {}
+    signatures: dict[str, str] = Field(default_factory=dict)
+    paths: dict[str, list[str]] = Field(default_factory=dict)
+    partitioned_tables: dict[str, PartitionedTablePlan] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_paths(self) -> Self:

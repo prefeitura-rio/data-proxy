@@ -5,21 +5,15 @@ from hashlib import sha256
 from json import dumps
 from typing import assert_never
 
-from psycopg.sql import Literal
-
-from .bigquery.clients import BigQuery
-from .bigquery.partitions import physical_partitions, table_modified
 from .duckdb import DuckDB
 from .executor import Executor
 from .log import logger
 from .models import (
-    AllSelection,
     DumpTask,
     FullTable,
     PartitionChange,
     PartitionedTable,
     PartitionedTablePlan,
-    PhysicalPartition,
     Strategy,
     SyncConfig,
     SyncPlan,
@@ -29,6 +23,9 @@ from .models import (
 )
 from .postgres import Postgres
 from .settings import settings
+from .sources import registry
+from .sources.partitions import AllSelection, PartitionRequest, PhysicalPartition
+from .sources.source import PartitionedSource, Source
 from .state import read_table_signature, read_table_state
 from .types import DatabaseRow, DuckDBParams
 
@@ -38,11 +35,31 @@ def partition_sort_key(partition_id: str) -> tuple[int, int | str]:
     return (1, "") if not partition_id.isdigit() else (0, int(partition_id))
 
 
-async def discover_json_columns(duckdb_conn: DuckDB, bq_table: str) -> list[str]:
+def configured_source(table: TableConfig, active: dict[str, Source]) -> Source:
+    """Return the cached configured source for one table schema."""
+    source = active.get(table.resolved_schema)
+
+    if source is None:
+        source = registry.sources.configure(
+            table.resolved_source, table.resolved_source_settings
+        )
+        active[table.resolved_schema] = source
+    return source
+
+
+async def close_sources(active: dict[str, Source]) -> None:
+    """Close every source client cache after one planning phase."""
+    for source in active.values():
+        await source.close()
+
+
+async def discover_json_columns(
+    duckdb_conn: DuckDB, source: Source, table: str
+) -> list[str]:
     """Return column names whose DuckDB type contains STRUCT."""
     rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
         "duckdb/describe_source",
-        {"bq_table": Literal(bq_table)},
+        {"source": source.scan(table)},
         expect=tuple[str, str],
     )
 
@@ -57,24 +74,33 @@ async def expand_config(
 ) -> list[DumpTask]:
     """Expand full tables into whole-table extraction tasks."""
     tasks: list[DumpTask] = []
+    active: dict[str, Source] = {}
 
-    for table in tables:
-        match table.strategy:
-            case Strategy.FULL:
-                json_columns = await discover_json_columns(duckdb_conn, table.name)
-                tasks.append(
-                    table.to_task(
-                        sync_id,
-                        s3_bucket,
-                        settings.S3_SCRATCH_PREFIX,
-                        [AllSelection()],
-                        json_columns=json_columns,
+    try:
+        for table in tables:
+            match table.strategy:
+                case Strategy.FULL:
+                    source = configured_source(table, active)
+
+                    json_columns = await discover_json_columns(
+                        duckdb_conn, source, table.name
                     )
-                )
-            case Strategy.PARTITIONED:
-                continue
-            case _:
-                assert_never(table.strategy)
+
+                    tasks.append(
+                        table.to_task(
+                            sync_id,
+                            s3_bucket,
+                            settings.S3_SCRATCH_PREFIX,
+                            [AllSelection()],
+                            json_columns=json_columns,
+                        )
+                    )
+                case Strategy.PARTITIONED:
+                    continue
+                case _:
+                    assert_never(table.strategy)
+    finally:
+        await close_sources(active)
 
     return tasks
 
@@ -102,21 +128,20 @@ async def detect_changes(pg_conn: Postgres, config: SyncConfig) -> dict[str, str
             case _:
                 assert_never(table.strategy)
 
-    by_project: dict[str, list[TableConfig]] = {}
-    for table in full_tables:
-        by_project.setdefault(table.name.split(".")[0], []).append(table)
+    active: dict[str, Source] = {}
+    try:
+        for table in full_tables:
+            source = configured_source(table, active)
+            modified = await source.modified(table.name)
+            claim = config.schemas[table.resolved_schema].claim
 
-    for project, tables in by_project.items():
-        async with BigQuery.connect(project) as bq_conn:
-            for table in tables:
-                modified = await table_modified(bq_conn, table.name)
-                claim = config.schemas[table.resolved_schema].claim
-                current = table_signature(table, claim, modified)
+            current = table_signature(table, claim, modified)
+            stored = await read_table_signature(pg_conn, table.name)
 
-                stored = await read_table_signature(pg_conn, table.name)
-
-                if stored != current:
-                    changed[table.name] = current
+            if stored != current:
+                changed[table.name] = current
+    finally:
+        await close_sources(active)
 
     return changed
 
@@ -196,7 +221,7 @@ def build_partition_tasks(
 
 
 async def plan_partitioned_table(
-    bq_conn: BigQuery,
+    source: PartitionedSource,
     pg_conn: Postgres,
     duckdb_conn: DuckDB,
     table: PartitionedTable,
@@ -204,8 +229,12 @@ async def plan_partitioned_table(
     s3_bucket: str,
 ) -> tuple[PartitionedTablePlan | None, list[DumpTask]]:
     """Plan one physically partitioned table."""
-    table_sig, current = await physical_partitions(
-        bq_conn, table.name, table.model_dump_json(), table.n
+    table_sig, current = await source.partitions(
+        PartitionRequest(
+            table=table.name,
+            config=table.model_dump(mode="json"),
+            keep_latest=table.n,
+        )
     )
     stored = await read_table_state(pg_conn, table.name)
     changes = find_partition_changes(current, stored, table_sig)
@@ -215,7 +244,7 @@ async def plan_partitioned_table(
 
     tasks: list[DumpTask] = []
     if any(c.kind in ("add", "update") for c in changes.values()):
-        json_columns = await discover_json_columns(duckdb_conn, table.name)
+        json_columns = await discover_json_columns(duckdb_conn, source, table.name)
         changes, task = build_partition_tasks(
             table,
             current,
@@ -259,20 +288,23 @@ async def plan_partitioned_tables(
             case _:
                 assert_never(table.strategy)
 
-    by_project: dict[str, list[PartitionedTable]] = {}
-    for table in partitioned_tables:
-        by_project.setdefault(table.name.split(".")[0], []).append(table)
-
-    for project, tables in by_project.items():
-        async with BigQuery.connect(project) as bq_conn:
-            for table in tables:
-                plan, table_tasks = await plan_partitioned_table(
-                    bq_conn, pg_conn, duckdb_conn, table, sync_id, s3_bucket
+    active: dict[str, Source] = {}
+    try:
+        for table in partitioned_tables:
+            source = configured_source(table, active)
+            if not isinstance(source, PartitionedSource):
+                raise TypeError(
+                    f"Source {source.name!r} does not support partitioned tables"
                 )
+            plan, table_tasks = await plan_partitioned_table(
+                source, pg_conn, duckdb_conn, table, sync_id, s3_bucket
+            )
 
-                if plan is not None:
-                    plans[table.name] = plan
-                    tasks.extend(table_tasks)
+            if plan is not None:
+                plans[table.name] = plan
+                tasks.extend(table_tasks)
+    finally:
+        await close_sources(active)
 
     return plans, tasks
 

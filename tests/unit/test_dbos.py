@@ -68,7 +68,12 @@ class TestRunSyncRestartsDeployments:
     """run_sync refreshes schema clients and DuckDB catalog backends separately."""
 
     @pytest.mark.parametrize(
-        ("views_changed", "published", "pooler_restarts", "postgrest_restarts"),
+        (
+            "postgrest_restart_required",
+            "published",
+            "pooler_restarts",
+            "postgrest_restarts",
+        ),
         [
             pytest.param(
                 False,
@@ -82,40 +87,93 @@ class TestRunSyncRestartsDeployments:
                 {"t"},
                 1,
                 0,
-                id="tables-published-and-no-view-changed",
+                id="tables-published-and-no-postgrest-restart",
             ),
             pytest.param(
                 True,
                 set[str](),
                 0,
                 1,
-                id="views-changed-and-nothing-published",
+                id="postgrest-restart-and-nothing-published",
             ),
             pytest.param(
                 True,
                 {"t"},
                 1,
                 1,
-                id="views-changed-and-tables-published",
+                id="postgrest-restart-and-tables-published",
             ),
         ],
     )
     async def test_restarts_only_the_required_deployments(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        views_changed: bool,
+        postgrest_restart_required: bool,
         published: set[str],
         pooler_restarts: int,
         postgrest_restarts: int,
     ) -> None:
-        restart_pooler, restart_postgrest = stub_sync_run(
-            monkeypatch, views_changed=views_changed, published=published
+        restart_pooler, restart_postgrest, events = stub_sync_run(
+            monkeypatch,
+            postgrest_restart_required=postgrest_restart_required,
+            published=published,
         )
 
         await run_sync()
 
         assert restart_pooler.await_count == pooler_restarts
         assert restart_postgrest.await_count == postgrest_restarts
+        assert events == ["enqueue:app", "wait:app"]
+
+    @pytest.mark.asyncio
+    async def test_restarts_postgrest_once_for_multiple_schema_plans(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Restart global PostgREST Deployments once after one sync."""
+        restart_pooler, restart_postgrest, events = stub_sync_run(
+            monkeypatch,
+            postgrest_restart_required=True,
+            published=set(),
+            plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
+        )
+
+        await run_sync()
+
+        restart_pooler.assert_not_awaited()
+        restart_postgrest.assert_awaited_once_with("run")
+        assert events == [
+            "enqueue:one",
+            "enqueue:two",
+            "wait:one",
+            "wait:two",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_enqueues_all_dumps_before_waiting_for_results(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Queue every dump child workflow before durable fan-in starts."""
+        first = dump_task(table="p.d.first")
+        second = dump_task(table="p.d.second")
+        restart_pooler, restart_postgrest, events = stub_sync_run(
+            monkeypatch,
+            postgrest_restart_required=False,
+            published=set(),
+            tasks=[first, second],
+        )
+
+        await run_sync()
+
+        restart_pooler.assert_not_awaited()
+        restart_postgrest.assert_not_awaited()
+        assert events == [
+            "enqueue:p.d.first",
+            "enqueue:p.d.second",
+            "wait:p.d.first",
+            "wait:p.d.second",
+            "enqueue:app",
+            "wait:app",
+        ]
 
 
 class TestRestartPostgrestStep:
@@ -139,7 +197,7 @@ class TestRestartPostgrestStep:
         monkeypatch.setattr(steps, "restart_deployments", restart)
         monkeypatch.setattr(settings, "POSTGREST_DEPLOYMENTS", names)
 
-        await workflow_body(steps.restart_postgrest)("app", "run")
+        await workflow_body(steps.restart_postgrest)("run")
 
         assert restart.await_args is not None
         assert restart.await_args.kwargs["names"] == names

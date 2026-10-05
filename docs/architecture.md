@@ -2,7 +2,7 @@
 
 ## Serving layer
 
-BigQuery is the source of truth. The sync service extracts data to Parquet in SeaweedFS. DuckLake stores the table metadata in one SQLite catalog per PostgreSQL schema and stores table data as Parquet in SeaweedFS.
+Each PostgreSQL schema has one configured ingestion source. BigQuery is the default and current source. The sync service extracts source data to Parquet in SeaweedFS. DuckLake stores the table metadata in one SQLite catalog per PostgreSQL schema and stores table data as Parquet in SeaweedFS.
 
 PostgreSQL stores metadata only:
 
@@ -11,7 +11,7 @@ PostgreSQL stores metadata only:
 - PostgreSQL views and `SECURITY DEFINER` functions;
 - DBOS workflow state.
 
-PostgREST reads one view per table. The view calls a function that checks the access policy, plans the sources from `data_proxy.state`, and reads DuckLake and, for tables with configured fallbacks, each listed source in order. The function passes the access-policy predicate to DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters are not pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
+PostgREST reads one view per table. The view calls a function that checks the access policy, plans DuckLake and the optional configured-source partition fallback from `data_proxy.state`, and reads them. The function passes the access-policy predicate to DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters are not pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
 
 The proxy and Valkey handle response caching. The read order is:
 
@@ -52,7 +52,7 @@ There is one active writer per schema catalog. Publishing is parallel across sch
 | Component | Work | Result |
 | --- | --- | --- |
 | `run_sync` | Plans changed tables and partitions. | Enqueues dump and publish workflows. |
-| `dump_task` | Extracts BigQuery data. | Writes independent scratch Parquet files. |
+| `dump_task` | Extracts ingestion-source data. | Writes independent scratch Parquet files. |
 | `seed_schemas` | Reconciles PostgreSQL functions and views. | Returns whether the view set changed. |
 | `publish_schema` | Inserts scratch Parquet into the local DuckLake catalog. | Litestream replicates the catalog changes. |
 | `expire_catalogs` | Expires old DuckLake snapshots on the sync workers. | Removes unreferenced old Parquet files. |

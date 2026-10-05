@@ -1,11 +1,11 @@
 {#
 {
   "kind": "template",
-  "description": "Describe a BigQuery table schema through DuckDB.",
+  "description": "Describe an ingestion source table schema through DuckDB.",
   "inputs": {
-    "bq_table": "BigQuery table reference used by DuckDB."
+    "source": "Source-generated DuckDB FROM expression."
   }
 }
 #}
 -- noqa: PRS
-DESCRIBE SELECT * FROM bigquery_scan({{ bq_table }})
+DESCRIBE SELECT * FROM {{ source }}

@@ -42,12 +42,12 @@ sequenceDiagram
 The table view calls one function that applies these rules in order:
 
 1. A request that pins a snapshot is read from DuckLake only.
-2. A table that isn't in `data_proxy.state` is read from the first configured fallback source when `fallbacks` lists one. Without a fallback, the request gets a `404`.
-3. A table in `data_proxy.state` is read from DuckLake. A partitioned table with `fallbacks` also reads its remaining partitions from each configured source in order.
+2. A partitioned table that is not in `data_proxy.state` reads its configured source when `fallback` is true. Without fallback, the request gets a `404`.
+3. A table in `data_proxy.state` reads DuckLake. A partitioned table with `fallback: true` also reads uncovered partitions from its configured source.
 
 Row-level security runs first. A request that RLS stops reads no source and gets an empty list without `X-Source`.
 
-An empty DuckLake result never triggers a fallback source. With `fallbacks` configured, every request reads each listed source for the partitions that DuckLake doesn't hold, because PostgREST applies its filters after the function returns. Leave `fallbacks` empty for a table when that cost isn't acceptable.
+An empty DuckLake result never triggers fallback. With `fallback: true`, every request also reads the configured source for partitions that DuckLake does not hold, because PostgREST applies filters after the function returns. Keep fallback disabled when that cost is not acceptable.
 
 ## Cache
 

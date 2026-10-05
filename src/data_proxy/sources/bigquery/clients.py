@@ -8,7 +8,7 @@ from asyncer import asyncify
 from google.cloud.bigquery import Client, QueryJobConfig
 from google.cloud.bigquery.table import Row, Table
 
-from ..types import BigQueryParams
+from ...types import BigQueryParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,15 +18,23 @@ class BigQuery:
     client: Client
 
     @classmethod
+    async def create(cls, project: str) -> BigQuery:
+        """Build a client for one project off the event loop."""
+        return cls(client=await asyncify(Client)(project=project))
+
+    @classmethod
     @asynccontextmanager
     async def connect(cls, project: str) -> AsyncGenerator[BigQuery]:
         """Build a client for one project and close it off the event loop."""
-        client = await asyncify(Client)(project=project)
-
+        connection = await cls.create(project)
         try:
-            yield cls(client=client)
+            yield connection
         finally:
-            await asyncify(client.close)()
+            await connection.close()
+
+    async def close(self) -> None:
+        """Close the underlying Google client off the event loop."""
+        await asyncify(self.client.close)()
 
     async def get_table(self, table: str) -> Table:
         """Fetch one table's metadata."""

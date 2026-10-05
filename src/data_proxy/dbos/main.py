@@ -1,4 +1,4 @@
-import threading
+from threading import Event
 
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
@@ -47,13 +47,14 @@ def main() -> None:
                 schedule_name=settings.SYNC_SCHEDULE_NAME,
                 workflow_fn=run_sync,
                 schedule=settings.SYNC_SCHEDULE,
+                context=None,
                 queue_name=SYNC_QUEUE,
             )
         ]
     )
 
     logger.info("DBOS sync application started")
-    threading.Event().wait()
+    Event().wait()
 
 
 if __name__ == "__main__":

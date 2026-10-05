@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     POOLER_DEPLOYMENTS: list[str] = ["data-proxy-pooler"]
     POSTGREST_DEPLOYMENTS: list[str] = ["data-proxy-postgrest"]
-    POSTGREST_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+    DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
     READER_SNAPSHOT_POLL_SECONDS: float = Field(default=1.0, gt=0)
     READER_SNAPSHOT_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0)

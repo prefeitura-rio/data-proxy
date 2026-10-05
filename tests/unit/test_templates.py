@@ -14,8 +14,6 @@ import pytest
 from jinja2 import UndefinedError
 from psycopg.sql import Identifier, Literal
 
-from data_proxy.bigquery.clients import BigQuery
-from data_proxy.bigquery.partitions import partition_rows
 from data_proxy.duckdb import DuckDB
 from data_proxy.ducklake import (
     DuckLakePaths,
@@ -28,11 +26,12 @@ from data_proxy.models import (
     FullTable,
     PartitionChange,
     PartitionedTablePlan,
-    PartitionMetadata,
     SchemaConfig,
     SyncConfig,
     SyncPlan,
 )
+from data_proxy.sources.bigquery.clients import BigQuery
+from data_proxy.sources.bigquery.partitions import PartitionMetadata, partition_rows
 from data_proxy.templates import render_template
 from data_proxy.types import DatabaseRow, DuckDBParams
 from tests.constants import (
@@ -89,10 +88,25 @@ class TestTemplateRendering:
         with pytest.raises(UndefinedError):
             render_template("query", {}, root=tmp_path)
 
-    def test_quotes_hyphenated_bigquery_project_in_nested_query(self) -> None:
+    def test_loads_configured_source_extensions(self) -> None:
+        """Load adapter extensions passed by the runtime configuration."""
         rendered = render_template(
-            "postgres/describe_bq_table",
-            {"bq_table": Literal("rj-ia-desenvolvimento.dev.test_table")},
+            "duckdb/setup",
+            {
+                "s3_key_id": Literal("key"),
+                "s3_secret_key": Literal("secret"),
+                "s3_endpoint": Literal("endpoint"),
+                "s3_use_ssl": "false",
+                "source_extensions": ["bigquery"],
+            },
+        )
+
+        assert "LOAD bigquery;" in rendered
+
+    def test_renders_an_source_source_in_a_nested_query(self) -> None:
+        rendered = render_template(
+            "postgres/describe_source",
+            {"source": "bigquery_scan('rj-ia-desenvolvimento.dev.test_table')"},
         )
 
         assert rendered == (

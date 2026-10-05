@@ -7,7 +7,7 @@ import pytest
 
 from data_proxy.duckdb import DuckDB
 from data_proxy.extraction import build_extraction_query, run_extraction
-from data_proxy.models import (
+from data_proxy.sources.partitions import (
     AllSelection,
     RangeSelection,
     RemainderSelection,
@@ -18,7 +18,7 @@ from data_proxy.templates import to_sql
 from tests.helpers import dump_task
 
 BASE_MAPPING: Final[dict[str, str | list[str]]] = {
-    "bq_table": "'p.d.t'",
+    "source": "bigquery_scan('p.d.t')",
     "path": "'s3://b/t'",
     "json_columns": [],
 }

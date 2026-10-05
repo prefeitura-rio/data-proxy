@@ -4,7 +4,7 @@ from typing import assert_never
 
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from .models import (
+from .sources.partitions import (
     PhysicalPartition,
     RangeSelection,
     RemainderSelection,

@@ -32,7 +32,7 @@ Each configured schema contains metadata and views:
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks RLS, plans the sources, and reads them. |
 | `<schema>.<table>_dl_fn(text, text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot. |
-| `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads BigQuery when `fallbacks` lists it. |
+| `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads BigQuery when a partitioned BigQuery table sets `fallback: true`. |
 
 The routing functions live in the application schema (`data_proxy` by default): `requested_snapshot`, `covered_by_ducklake`, `covered_by_fallback`, `plan_sources`, `source_label`, and `set_response_headers`. See [Proxy](proxy.md).
 

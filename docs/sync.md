@@ -1,11 +1,12 @@
 # Sync
 
-Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQuery tables.
+Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas, their ingestion sources, and source tables.
 
 ```json
 {
   "schemas": {
     "my_schema": {
+      "source": { "type": "bigquery" },
       "claim": "preferred_username",
       "ducklake": { "encrypted": false },
       "tables": [
@@ -26,6 +27,7 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQu
 
 | Field    | Required                | Meaning                                             |
 | -------- | ----------------------- | --------------------------------------------------- |
+| `source` | No | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
 | `claim`  | When a table uses `rls` | JWT claim matched against `access_policy.subject`.  |
 | `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
 | `ducklake` | No                    | Schema-level DuckLake settings, including `encrypted`. |
@@ -36,10 +38,10 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 
 | Field       | Required | Meaning                                                                               |
 | ----------- | -------- | ------------------------------------------------------------------------------------- |
-| `name`      | Yes      | BigQuery reference: `project.dataset.table`.                                          |
+| `name`      | Yes      | Reference validated by the schema source. BigQuery uses `project.dataset.table`. |
 | `strategy`  | Yes      | `full` replaces the DuckLake table; `partitioned` updates physical partitions.        |
 | `n`         | No       | Keep the newest `n` time partitions.                                                  |
-| `fallbacks` | No       | Ordered list of source names queried after DuckLake for uncovered rows, e.g. `["bigquery"]`. Default: `[]`.         |
+| `fallback` | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
 | `cache_ttl` | No       | Proxy cache lifetime in seconds.                                                      |
 | `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                         |
 | `ducklake` | No | Table-level DuckLake settings, including `sort` and `partitioning`. |
@@ -50,7 +52,7 @@ The schema key is the target PostgreSQL schema. Do not add a schema field to a t
 The scheduled `run_sync` workflow performs these steps:
 
 1. Build the changed-table and changed-partition plan.
-2. Enqueue BigQuery dump tasks.
+2. Enqueue source dump tasks.
 3. Write independent scratch Parquet files to the S3 scratch path. Extraction does not merge files.
 4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
 5. Enqueue one `publish_schema` workflow per schema.
@@ -98,23 +100,27 @@ DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 
 The DBOS sync writes the writer catalog volume. Litestream replicates the writer volume and restores the separate reader catalog volume. CNPG PostgreSQL instances mount the reader volume read-only. A PostgreSQL backend keeps its DuckLake attachment. After a publication, the workflow waits until the reader catalog has the new snapshot and then restarts the Pooler deployments, so new backends attach the current catalog.
 
-## Fallback per table
+## Partition fallback
 
-Set `fallbacks: ["bigquery"]` on a table to let BigQuery serve the data that DuckLake does not hold. For a partitioned table, the table function reads the published partitions from DuckLake and every other partition from BigQuery. For a table that is not published yet, it reads BigQuery alone.
+Set `fallback: true` on a partitioned table to let its configured schema source serve data that DuckLake does not hold. For a BigQuery schema, the table function reads published partitions from DuckLake and every other partition from BigQuery.
 
 ```json
 {
   "name": "project.dataset.events",
   "strategy": "partitioned",
-  "fallbacks": ["bigquery"]
+  "fallback": true
 }
 ```
 
-Without `fallbacks`, the table function reads DuckLake only. Each request to a table with `fallbacks` also queries each listed source, so enable it only for tables where that cost is acceptable. See [Proxy](proxy.md).
+`fallback` is invalid on full tables. It is also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy.md).
 
-## Adding a data source
+## Adding a source
 
-Each source is registered in `src/data_proxy/sources/sources.py` as a `Source` dataclass with its DuckDB load statement and scan expression. To add a new engine, register one entry and create a template file `src/data_proxy/templates/postgres/sources/sources/<name>.sql` with the helper function body. No other files change.
+A source owns synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions. Register the source in `src/data_proxy/sources/registry.py`.
+
+Each PostgreSQL schema has exactly one source. Add `source.settings` only when a source requires non-secret settings. Put credentials in environment variables or Kubernetes Secrets, not in `sync.json`.
+
+DuckLake is the fixed local primary source. The configured schema source is the only possible partition fallback.
 
 ## Partitions
 

@@ -8,23 +8,29 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from data_proxy.models import (
-    AllSelection,
     DuckLakePartition,
     DuckLakePartitionTransform,
     DuckLakeTableConfig,
     DumpTask,
     FullTable,
     PartitionChange,
+    PartitionedTable,
     PartitionedTablePlan,
-    PhysicalPartition,
-    RangeSelection,
     SchemaConfig,
+    SourceConfig,
     SyncConfig,
     SyncPlan,
     TableConfig,
-    TimeRangeSelection,
     UnitMapping,
 )
+from data_proxy.sources.partitions import (
+    AllSelection,
+    PhysicalPartition,
+    RangeSelection,
+    TimeRangeSelection,
+)
+from data_proxy.sources.registry import sources
+from tests.fixtures.types import NoFallbackSource
 from tests.helpers import partition
 from tests.strategies import (
     identifiers,
@@ -94,6 +100,21 @@ class TestTableConfiguration:
         assert table.ducklake.partitioning is not None
         assert table.ducklake.partitioning[0].transform == "month"
 
+    def test_rejects_fallback_on_a_full_table(self) -> None:
+        """Allow fallback only for partitioned tables."""
+        with pytest.raises(ValidationError, match="fallback"):
+            FullTable.model_validate({"name": "p.d.events", "fallback": True})
+
+    def test_includes_partition_fallback_in_the_signature(self) -> None:
+        """Resync when partition fallback changes."""
+        without_fallback = PartitionedTable(name="p.d.events")
+        with_fallback = PartitionedTable(name="p.d.events", fallback=True)
+
+        assert (
+            without_fallback.config_signature_fields()
+            != with_fallback.config_signature_fields()
+        )
+
     def test_rejects_table_level_encryption(self) -> None:
         """Require encryption to be configured on the schema."""
         with pytest.raises(ValueError, match="schema scope"):
@@ -130,7 +151,63 @@ class TestSchemaConfiguration:
         config = SyncConfig(
             schemas={schema: SchemaConfig(tables=[FullTable(name=table)])}
         )
-        assert config.tables[0].resolved_schema == schema
+        task = config.tables[0].to_task("run", "bucket", "tmp", [AllSelection()])
+        assert task.target_schema == schema
+        assert task.source == "bigquery"
+
+    def test_rejects_empty_schema_source_settings(self) -> None:
+        """Require empty source settings to be omitted."""
+        with pytest.raises(ValueError, match="must be omitted"):
+            SourceConfig(type="bigquery", settings={})
+
+    def test_rejects_partition_fallback_without_source_support(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reject fallback when the configured source has no helper metadata."""
+        monkeypatch.setitem(sources.sources, "no-fallback", NoFallbackSource())
+
+        with pytest.raises(ValueError, match="does not support partition fallback"):
+            SyncConfig(
+                schemas={
+                    "app": SchemaConfig(
+                        source=SourceConfig(type="no-fallback"),
+                        tables=[PartitionedTable(name="p.d.events", fallback=True)],
+                    )
+                }
+            )
+
+    def test_rejects_an_unknown_schema_source(self) -> None:
+        """Reject a schema source absent from the ingestion registry."""
+        with pytest.raises(ValueError, match="unknown source: missing"):
+            SyncConfig(
+                schemas={
+                    "app": SchemaConfig(
+                        source=SourceConfig(type="missing"),
+                        tables=[FullTable(name="p.d.events")],
+                    )
+                }
+            )
+
+    def test_includes_the_resolved_source_in_a_table_signature(self) -> None:
+        """Invalidate sync state when an adapter changes."""
+        table = FullTable(name="p.d.events", resolved_source="bigquery")
+        changed = table.model_copy(update={"resolved_source": "other"})
+
+        assert table.config_signature_fields() != changed.config_signature_fields()
+
+    def test_rejects_duplicate_destination_table_names(self) -> None:
+        """Reject source tables that would replace the same destination view."""
+        with pytest.raises(ValueError, match="Duplicate destination table names"):
+            SyncConfig(
+                schemas={
+                    "app": SchemaConfig(
+                        tables=[
+                            FullTable(name="p.one.users"),
+                            FullTable(name="p.two.users"),
+                        ]
+                    )
+                }
+            )
 
     def test_rejects_duplicate_table_names(self) -> None:
         """Reject the same source table in two schemas."""
@@ -157,6 +234,24 @@ class TestSchemaConfiguration:
                     )
                 }
             )
+
+
+class TestModelDefaults:
+    """Pydantic model defaults are independent between instances."""
+
+    def test_does_not_share_nested_models_or_collections(self) -> None:
+        """Keep independent configuration and plan defaults."""
+        first_config = SyncConfig()
+        second_config = SyncConfig()
+        first_plan = SyncPlan(schema_name="app")
+        second_plan = SyncPlan(schema_name="app")
+
+        first_config.schemas["app"] = SchemaConfig()
+        first_config.schemas["app"].tables.append(FullTable(name="p.d.events"))
+        first_plan.paths["p.d.events"] = ["s3://bucket/one"]
+
+        assert second_config.schemas == {}
+        assert second_plan.paths == {}
 
 
 class TestTaskResults:

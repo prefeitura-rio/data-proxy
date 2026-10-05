@@ -18,26 +18,26 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 from whenever import PlainDateTime
 
-from data_proxy.bigquery.clients import BigQuery
-from data_proxy.bigquery.config import (
-    PartitionKindConfig,
-    RangeConfig,
-    TimeConfig,
-    TimeGranularity,
+from data_proxy.sources.bigquery.clients import BigQuery
+from data_proxy.sources.bigquery.config import (
     partition_kind_config,
     range_config,
     time_config,
 )
-from data_proxy.bigquery.partitions import (
+from data_proxy.sources.bigquery.partitions import (
+    PartitionMetadata,
     PartitionNormalizer,
     parse_table_reference,
     partition_rows,
     physical_partitions,
 )
-from data_proxy.models import (
-    PartitionMetadata,
+from data_proxy.sources.partitions import (
+    PartitionKindConfig,
+    RangeConfig,
     RangeSelection,
     RemainderSelection,
+    TimeConfig,
+    TimeGranularity,
     TimeRangeSelection,
 )
 from tests.helpers import metadata_row

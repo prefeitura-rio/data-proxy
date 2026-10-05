@@ -18,7 +18,7 @@ from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
 from lightkube.resources.apps_v1 import Deployment
 from psycopg import AsyncCursor
 from psycopg.rows import TupleRow
-from psycopg.sql import Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from data_proxy.authorization import ensure_schema_policy_writer
 from data_proxy.conditions import schema_scope_condition
@@ -26,16 +26,11 @@ from data_proxy.dbos import workflows
 from data_proxy.duckdb import DuckDB
 from data_proxy.executor import Executor
 from data_proxy.models import (
-    AllSelection,
     DumpResult,
     DumpTask,
     NonEmptyString,
     PartitionChange,
     PartitionedTablePlan,
-    PartitionMetadata,
-    PhysicalPartition,
-    RangeSelection,
-    RemainderSelection,
     SchemaConfig,
     Strategy,
     SyncConfig,
@@ -43,12 +38,18 @@ from data_proxy.models import (
     SyncWork,
     TableConfig,
     TableState,
-    TaskSelection,
-    TimeRangeSelection,
 )
 from data_proxy.postgres import Postgres as PgConnection
 from data_proxy.settings import settings
-from data_proxy.sources.sources import sources
+from data_proxy.sources.bigquery.partitions import PartitionMetadata
+from data_proxy.sources.partitions import (
+    AllSelection,
+    PhysicalPartition,
+    RangeSelection,
+    RemainderSelection,
+    TaskSelection,
+    TimeRangeSelection,
+)
 from data_proxy.state import write_table_state
 from data_proxy.templates import render_template
 from data_proxy.types import (
@@ -237,28 +238,66 @@ async def publish(plan: SyncPlan) -> set[str]:
 
 
 def stub_sync_run(
-    monkeypatch: pytest.MonkeyPatch, *, views_changed: bool, published: set[str]
-) -> tuple[AsyncMock, AsyncMock]:
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    postgrest_restart_required: bool,
+    published: set[str],
+    plans: list[SyncPlan] | None = None,
+    tasks: list[DumpTask] | None = None,
+) -> tuple[AsyncMock, AsyncMock, list[str]]:
     """Stub run_sync steps and return the Pooler and PostgREST restart steps."""
     restart_pooler = AsyncMock()
     restart_postgrest = AsyncMock()
-    monkeypatch.setattr(workflows, "DBOS", SimpleNamespace(workflow_id="run"))
+    events: list[str] = []
+
+    async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
+        if workflow is workflows.dump_task:
+            task = args[0]
+            if not isinstance(task, DumpTask):
+                raise TypeError("Dump workflow requires a dump task")
+            label = task.table
+            result: DumpResult | set[str] = DumpResult()
+        else:
+            plan = args[1]
+            if not isinstance(plan, SyncPlan):
+                raise TypeError("Publish workflow requires a sync plan")
+            label = plan.schema_name
+            result = published
+        events.append(f"enqueue:{label}")
+
+        async def get_result() -> DumpResult | set[str]:
+            events.append(f"wait:{label}")
+            return result
+
+        return SimpleNamespace(get_result=get_result)
+
+    monkeypatch.setattr(
+        workflows,
+        "DBOS",
+        SimpleNamespace(
+            workflow_id="run",
+            enqueue_workflow_async=AsyncMock(side_effect=enqueue_workflow),
+        ),
+    )
     monkeypatch.setattr(
         workflows,
         "build_sync_work",
-        AsyncMock(return_value=SyncWork(plans=[SyncPlan(schema_name="app")], tasks=[])),
+        AsyncMock(
+            return_value=SyncWork(
+                plans=plans or [SyncPlan(schema_name="app")], tasks=tasks or []
+            )
+        ),
     )
-    monkeypatch.setattr(workflows, "run_dump_tasks", AsyncMock(return_value=set()))
     monkeypatch.setattr(
-        workflows, "seed_schemas", AsyncMock(return_value=views_changed)
+        workflows,
+        "seed_schemas",
+        AsyncMock(return_value=postgrest_restart_required),
     )
-    monkeypatch.setattr(
-        workflows, "run_publish_tasks", AsyncMock(return_value=published)
-    )
+    monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
     monkeypatch.setattr(workflows, "restart_pooler", restart_pooler)
     monkeypatch.setattr(workflows, "restart_postgrest", restart_postgrest)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
-    return restart_pooler, restart_postgrest
+    return restart_pooler, restart_postgrest, events
 
 
 async def run_sync() -> None:
@@ -435,23 +474,31 @@ async def grant_unit(pg: Postgres, subject: str) -> None:
 
 
 async def put_state(pg: Postgres, table: str, state: TableState | None) -> None:
-    """Store one table state in the test transaction, when there is one."""
-    if state is not None:
-        await write_table_state(pg.backend, table, state)
+    """Set one table state or remove its committed state for this test."""
+    if state is None:
+        await pg.connection.execute(
+            SQL("DELETE FROM {}.state WHERE table_name = {}").format(
+                Identifier(settings.DBOS_APP_SCHEMA),
+                Literal(table),
+            )
+        )
+        return
+
+    await write_table_state(pg.backend, table, state)
 
 
 async def install_table_function(
     pg: Postgres, *, has_rls: bool, fallbacks: list[str]
 ) -> None:
     """Render the per-table function over the stub source helpers."""
-    from data_proxy.sources.utils import function_columns
+    from data_proxy.views.mappings import function_columns
 
     columns = function_columns(
         [("source", "VARCHAR"), ("arg1", "VARCHAR"), ("arg2", "VARCHAR")],
         raw_json=True,
     )
     await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
-        "postgres/sources/create_function",
+        "postgres/views/create_function",
         mapping={
             "schema": pg.namespace.identifier,
             "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
@@ -466,7 +513,9 @@ async def install_table_function(
             "fallbacks": [
                 {
                     "name": name,
-                    "function": Identifier(f"t_{sources.get(name).suffix}"),
+                    "function": Identifier(
+                        f"t_{'bq_fn' if name == 'bigquery' else name}"
+                    ),
                     "view": "source_t",
                 }
                 for name in fallbacks

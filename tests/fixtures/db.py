@@ -17,7 +17,6 @@ from sqlalchemy import create_engine
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.network import Network
 
-from data_proxy.bigquery.config import PartitionKindConfig
 from data_proxy.catalog import CatalogPaths
 from data_proxy.conditions import schema_scope_condition
 from data_proxy.duckdb import DuckDB
@@ -29,7 +28,6 @@ from data_proxy.models import (
     SyncConfig,
     TableConfig,
     TableState,
-    TaskSelection,
     UnitMapping,
 )
 from data_proxy.models import (
@@ -37,10 +35,11 @@ from data_proxy.models import (
 )
 from data_proxy.postgres import Postgres as Pg
 from data_proxy.settings import settings
-from data_proxy.sources import stages
-from data_proxy.sources.views import reconcile_views
+from data_proxy.sources.partitions import PartitionKindConfig, TaskSelection
 from data_proxy.state import ensure_app_schema, write_table_state
 from data_proxy.templates import render_template
+from data_proxy.views import stages
+from data_proxy.views.reconcile import reconcile_views
 from tests.constants import FILES, TEST_SQL_DIR
 from tests.fixtures.types import (
     FakeReader,

@@ -1,12 +1,7 @@
 from hypothesis import strategies as st
 
-from data_proxy.models import (
-    FullTable,
-    PartitionedTable,
-    PhysicalPartition,
-    RangeSelection,
-    TableConfig,
-)
+from data_proxy.models import FullTable, PartitionedTable, TableConfig
+from data_proxy.sources.partitions import PhysicalPartition, RangeSelection
 
 identifiers = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
 

@@ -1,6 +1,9 @@
 {
   "schemas": {
     "test": {
+      "source": {
+        "type": "bigquery"
+      },
       "claim": "preferred_username",
       "tables": [
         {
@@ -26,9 +29,7 @@
         {
           "name": "rj-ia-desenvolvimento.dev.partitioned_table",
           "strategy": "partitioned",
-          "fallbacks": [
-            "bigquery"
-          ],
+          "fallback": true,
           "n": 4,
           "partitioning": {
             "column": "date",

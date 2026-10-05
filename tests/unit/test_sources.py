@@ -1,245 +1,94 @@
-"""Behavior tests for source registry and mappings."""
+"""Tests for ingestion source adapters."""
 
-from typing import Final
 from unittest.mock import AsyncMock
 
 import pytest
 
-import data_proxy.sources.stages as stages
-import data_proxy.sources.utils as utils
-import data_proxy.sources.views as views_module
-from data_proxy.models import FullTable, SchemaConfig, SyncConfig, UnitMapping
-from data_proxy.settings import settings
-from data_proxy.sources.sources import Source, Sources, sources
+import data_proxy.sources.bigquery.clients as bigquery_clients
+from data_proxy.sources.bigquery.source import BigQuerySource
+from data_proxy.sources.registry import sources
+from data_proxy.sources.source import PartitionedSource, Sources
 from data_proxy.templates import to_sql
 
 
-class TestSourcesRegistry:
-    """Registry lookup and validation behavior."""
+class TestSources:
+    """Source registry behavior tests."""
 
-    def test_get_raises_for_an_unknown_source(self) -> None:
-        """Reject a source name that is not registered."""
-        with pytest.raises(ValueError, match="unknown source: clickhouse"):
-            sources.get("clickhouse")
+    def test_rejects_unsupported_bigquery_settings(self) -> None:
+        """Reject settings that BigQuery does not define."""
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            sources.configure("bigquery", {"location": "southamerica-east1"})
 
-    @pytest.mark.parametrize("as_list", [False, True], ids=["one", "list"])
-    def test_registers_one_source_or_a_list(self, as_list: bool) -> None:
-        """Register sources given alone or in a list."""
-        clickhouse = Source(
-            name="clickhouse",
-            kind="remote",
-            load="LOAD clickhouse",
-            scan=lambda table: f"ch_scan('{table}')",
-            suffix="ch_fn",
-            arg="covered",
+    def test_preserves_registered_metadata_and_isolates_clients(self) -> None:
+        """Configure a fresh source without replacing registered metadata."""
+        registered = BigQuerySource(name="bq-alt", load="LOAD alternate")
+        registry = Sources().register([registered])
+
+        first = registry.configure("bq-alt", None)
+        second = registry.configure("bq-alt", None)
+
+        assert isinstance(first, BigQuerySource)
+        assert isinstance(second, BigQuerySource)
+        assert first.name == "bq-alt"
+        assert first.load == "LOAD alternate"
+        assert first is not registered
+        assert second is not first
+        assert second.clients is not first.clients
+
+    def test_rejects_duplicate_source_names(self) -> None:
+        """Require each configured source type to have one definition."""
+        registry = Sources()
+        registry.register([BigQuerySource()])
+
+        with pytest.raises(ValueError, match="already registered"):
+            registry.register([BigQuerySource()])
+
+    def test_rejects_an_unknown_source(self) -> None:
+        """Report every known source for an invalid lookup."""
+        registry = Sources().register([BigQuerySource()])
+
+        with pytest.raises(
+            ValueError, match=r"unknown source: missing \(known sources: bigquery\)"
+        ):
+            registry.configure("missing", {})
+
+
+class TestBigQuerySource:
+    """BigQuery adapter contract tests."""
+
+    def test_supports_physical_partition_sync(self) -> None:
+        """Declare BigQuery as a partition-capable source."""
+        assert isinstance(BigQuerySource(), PartitionedSource)
+
+    def test_renders_a_safe_scan_expression(self) -> None:
+        """Render the existing DuckDB BigQuery scan expression."""
+        assert to_sql(BigQuerySource().scan("project.dataset.table")) == (
+            "bigquery_scan('project.dataset.table')"
         )
-
-        registry = Sources().register([clickhouse] if as_list else clickhouse)
-
-        assert registry.get("clickhouse") is clickhouse
-
-    def test_config_rejects_an_unknown_fallback(self) -> None:
-        """Reject a table that names an unregistered fallback source."""
-        with pytest.raises(ValueError, match="unknown source: nope"):
-            SyncConfig(
-                schemas={
-                    "app": SchemaConfig(
-                        tables=[FullTable(name="p.d.people", fallbacks=["nope"])]
-                    )
-                }
-            )
-
-
-class TestSourceMappings:
-    """Source adapter and table function mapping behavior."""
-
-    def test_marks_nested_columns_as_json(self) -> None:
-        """Map nested DuckDB columns to JSONB-compatible output."""
-        columns = utils.function_columns(
-            [("payload", "STRUCT(id BIGINT)"), ("count", "BIGINT")],
-            raw_json=False,
-        )
-
-        assert columns[0]["is_json"] is True
-        assert columns[0]["pg_type"] == "text"
-        assert columns[0]["return_type"] == "text"
-        assert columns[1]["is_json"] is False
-        assert columns[1]["pg_type"] == "bigint"
-
-    def test_desires_one_view_per_table(self) -> None:
-        """Serve every table through one view, with or without fallback."""
-        config = SyncConfig(
-            schemas={
-                "app": SchemaConfig(
-                    tables=[
-                        FullTable(name="p.d.people", fallbacks=["bigquery"]),
-                        FullTable(name="p.d.private"),
-                    ]
-                )
-            }
-        )
-
-        assert stages.desired_views(config) == {
-            ("app", "people"),
-            ("app", "private"),
-        }
-
-    @pytest.mark.parametrize(
-        ("table", "fallback_names", "has_rls"),
-        [
-            pytest.param(FullTable(name="p.d.people"), [], "false", id="local"),
-            pytest.param(
-                FullTable(name="p.d.people", fallbacks=["bigquery"]),
-                ["bigquery"],
-                "false",
-                id="bq",
-            ),
-            pytest.param(
-                FullTable(
-                    name="p.d.people",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
-                ),
-                [],
-                "true",
-                id="rls",
-            ),
-        ],
-    )
-    def test_maps_the_table_function_to_its_helpers(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        table: FullTable,
-        fallback_names: list[str],
-        has_rls: str,
-    ) -> None:
-        """Name the helpers and pass the fallback and RLS settings."""
-        config = SyncConfig(schemas={"app": SchemaConfig(claim="sub", tables=[table])})
-        monkeypatch.setitem(settings.__dict__, "sync_config", config)
-
-        mapping = utils.table_function_mapping("app", table, [("unit_id", "VARCHAR")])
-
-        assert to_sql(mapping["function"]) == '"people_fn"'
-        assert to_sql(mapping["dl_function"]) == '"people_dl_fn"'
-        assert to_sql(mapping["source_table"]) == "'p.d.people'"
-        fallbacks_value = mapping["fallbacks"]
-        assert isinstance(fallbacks_value, list)
-        assert [
-            f["name"] for f in fallbacks_value if isinstance(f, dict)
-        ] == fallback_names
-        assert mapping["has_rls"] == has_rls
-        assert mapping["claim_setting"] == "app.claim_sub"
-
-    def test_source_function_mapping_uses_adapter_values(self) -> None:
-        """Build a fallback helper mapping from the adapter registry."""
-        table = FullTable(name="p.d.people", fallbacks=["bigquery"])
-
-        mapping = utils.source_function_mapping(
-            "app", table, [("id", "BIGINT")], sources.get("bigquery")
-        )
-
-        assert to_sql(mapping["function"]) == '"people_bq_fn"'
-        assert mapping["load"] == "LOAD bigquery"
-        assert mapping["source"] == "bigquery_scan(''p.d.people'')"
-
-    def test_ducklake_function_mapping_scans_the_quoted_table(self) -> None:
-        """Build the DuckLake helper mapping over the quoted catalog table."""
-        table = FullTable(name="p.d.people")
-
-        mapping = utils.ducklake_function_mapping("app", table, [("id", "BIGINT")])
-
-        assert to_sql(mapping["function"]) == '"people_dl_fn"'
-        assert mapping["source"] == 'dl."people"'
-
-
-class TestCreateTableViews:
-    """Table view creation edge cases."""
 
     @pytest.mark.asyncio
-    async def test_rejects_tables_without_discovered_columns(
+    async def test_reuses_and_closes_one_project_client(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Reject a table when DuckDB returns no source columns."""
-        monkeypatch.setattr(
-            stages,
-            "column_types_from_duckdb",
-            AsyncMock(return_value=[]),
-        )
+        """Reuse one client for every table in one BigQuery project."""
+        client = AsyncMock()
+        create = AsyncMock(return_value=client)
+        monkeypatch.setattr(bigquery_clients.BigQuery, "create", create)
+        source = BigQuerySource()
 
-        with pytest.raises(RuntimeError, match="no columns"):
-            await stages.create_table_views(
-                AsyncMock(),
-                "app",
-                FullTable(name="p.d.people"),
-            )
+        assert await source.client_for("project.dataset.one") is client
+        assert await source.client_for("project.dataset.two") is client
+        create.assert_awaited_once_with("project")
 
-    @pytest.mark.asyncio
-    async def test_does_not_drop_protected_views(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Keep protected PostgreSQL views during reconciliation cleanup."""
-        executor = AsyncMock()
-        monkeypatch.setattr(stages, "Executor", executor)
+        await source.close()
+        client.close.assert_awaited_once()
+        assert source.clients == {}
 
-        await stages.drop_removed_views(AsyncMock(), {("app", "access_policy")})
-
-        executor.assert_not_called()
-
-
-CONFIGURED_VIEWS: Final = frozenset({("app", "people")})
-CONFIGURED_FUNCTIONS: Final = frozenset(
-    {("app", "ducklake_latest_snapshot"), ("app", "ducklake_changes_people")}
-)
-
-
-class TestReconciliationChange:
-    """The changed flag decides whether PostgREST must restart."""
-
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("views", "functions", "changed"),
-        [
-            pytest.param(CONFIGURED_VIEWS, CONFIGURED_FUNCTIONS, False, id="unchanged"),
-            pytest.param(
-                frozenset[tuple[str, str]](),
-                CONFIGURED_FUNCTIONS,
-                True,
-                id="view-added",
-            ),
-            pytest.param(
-                CONFIGURED_VIEWS | {("app", "old")},
-                CONFIGURED_FUNCTIONS,
-                True,
-                id="view-removed",
-            ),
-            pytest.param(
-                CONFIGURED_VIEWS,
-                frozenset[tuple[str, str]](),
-                True,
-                id="functions-added",
-            ),
-        ],
+        "reference",
+        ["project.dataset", "project.dataset.table.extra", "not a reference"],
     )
-    async def test_reports_whether_the_view_set_changed(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        views: frozenset[tuple[str, str]],
-        functions: frozenset[tuple[str, str]],
-        changed: bool,
-    ) -> None:
-        """Compare the configured objects with the objects in the database."""
-        monkeypatch.setattr(
-            views_module, "existing_views", AsyncMock(return_value=views)
-        )
-        monkeypatch.setattr(
-            views_module, "existing_functions", AsyncMock(return_value=functions)
-        )
-        context = views_module.ReconciliationContext(
-            pg_conn=AsyncMock(),
-            config=SyncConfig(
-                schemas={"app": SchemaConfig(tables=[FullTable(name="p.d.people")])}
-            ),
-        )
-
-        await context.detect()
-
-        assert context.changed is changed
+    def test_rejects_an_invalid_table_reference(self, reference: str) -> None:
+        """Reject references outside the BigQuery project.dataset.table format."""
+        with pytest.raises(ValueError, match="Invalid BigQuery table reference"):
+            BigQuerySource().validate(reference)

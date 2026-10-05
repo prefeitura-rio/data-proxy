@@ -20,17 +20,19 @@ from .models import (
     DuckLakePartition,
     DuckLakePartitionTransform,
     PartitionedTablePlan,
-    PhysicalPartition,
     PublicationResult,
-    RangeSelection,
-    RemainderSelection,
     SyncConfig,
     SyncPlan,
     TableConfig,
-    TimeRangeSelection,
 )
 from .postgres import Postgres
 from .settings import settings
+from .sources.partitions import (
+    PhysicalPartition,
+    RangeSelection,
+    RemainderSelection,
+    TimeRangeSelection,
+)
 from .state import emit_error
 from .types import DatabaseRow, DuckDBParams, PostgresParams
 
