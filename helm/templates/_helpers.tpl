@@ -322,7 +322,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.dbosClusterName" . -}}
-postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.nginxConfigBody" -}}

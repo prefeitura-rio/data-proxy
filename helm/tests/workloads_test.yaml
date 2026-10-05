@@ -61,6 +61,10 @@ tests:
             name: DUCKLAKE_CATALOG_PATH
             value: "ducklake"
         template: deployment-sync.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[12].value
+          pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy
+        template: deployment-sync.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
