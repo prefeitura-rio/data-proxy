@@ -6,11 +6,6 @@ servers: 1
 agents: 2
 image: rancher/k3s:v1.34.7-k3s1
 network: data-proxy
-volumes:
-  - volume: ./.k3d/catalogs:/var/lib/data-proxy/catalogs
-    nodeFilters:
-      - server:*
-      - agent:*
 kubeAPI:
   host: 127.0.0.1
   hostPort: "6445"
@@ -32,6 +27,10 @@ options:
       - arg: --disable=traefik
         nodeFilters:
           - server:*
+      - arg: --kubelet-arg=feature-gates=KubeletInUserNamespace=true
+        nodeFilters:
+          - server:*
+          - agent:*
   kubeconfig:
     updateDefaultKubeconfig: false
     switchCurrentContext: false

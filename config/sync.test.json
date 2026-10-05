@@ -31,11 +31,6 @@
           "strategy": "partitioned",
           "fallback": true,
           "n": 4,
-          "partitioning": {
-            "column": "date",
-            "interval": "daily",
-            "retention": "365 days"
-          },
           "rls": [
             {
               "column": "unit_id",
@@ -47,11 +42,6 @@
           "name": "rj-ia-desenvolvimento.dev.big_table",
           "strategy": "partitioned",
           "n": 30,
-          "partitioning": {
-            "column": "date",
-            "interval": "daily",
-            "retention": "365 days"
-          },
           "rls": [
             {
               "column": "unit_id",

@@ -8,8 +8,11 @@ Install k3d, Podman, `kubectl`, Helm, and Google Cloud CLI when using BigQuery. 
 
 ```bash
 devenv --profile default shell
+gcloud auth application-default login
 cluster up
 ```
+
+The local synchronization configuration uses BigQuery. `cluster up` stops before Helmfile when application-default credentials are absent.
 
 The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for DuckLake catalogs.
 

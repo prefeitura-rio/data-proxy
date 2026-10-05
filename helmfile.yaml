@@ -33,8 +33,11 @@ releases:
           enabled: true
         trigger:
           enabled: true
+        k6:
+          enabled: true
         gateway:
           enabled: false
+      - scripts/values/images.yaml.gotmpl
 
   - name: valkey
     namespace: data-proxy
@@ -90,6 +93,8 @@ releases:
           enabled: false
         cleanup:
           enabled: false
+        k6:
+          enabled: false
         gateway:
           enabled: true
 
@@ -103,6 +108,7 @@ releases:
   - name: data-proxy
     namespace: data-proxy
     chart: ./helm
+    waitForJobs: true
     needs:
       - cnpg-system/cnpg
       - data-proxy/manifests

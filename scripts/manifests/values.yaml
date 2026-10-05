@@ -11,6 +11,8 @@ gateway:
   namespace: istio-system
   selector: ingressgateway
   host: data-proxy.local
+k6:
+  enabled: false
 cleanup:
   enabled: true
   image: registry.localhost:5001/data-proxy-jobs:local

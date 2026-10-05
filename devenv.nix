@@ -194,6 +194,7 @@ in
         packages = with pkgs; [
           ast-grep
           kubecolor
+          kubectl
           k6
           k3d
           seaweedfs

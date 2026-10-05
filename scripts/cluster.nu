@@ -7,6 +7,7 @@ use ./lib.nu [
     git-root
     local-kubeconfig
     poll
+    wrap-helmfile
     wrap-kubectl
 ]
 use ./k6.nu *
@@ -14,10 +15,18 @@ use ./k6.nu *
 const NETWORK = 'data-proxy'
 const REGISTRY = 'registry'
 
+# Display local cluster lifecycle commands.
+def main []: nothing -> string {
+    help main
+}
+
 # Start k3d and install the local platform stack.
-def "main up" []: nothing -> nothing {
+def "main up" [
+    --debug # Preserve failed k3d nodes and enable trace output.
+]: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let repo = git-root
+    let catalogs = $repo | path join .k3d catalogs
 
     if (podman network exists $NETWORK | complete).exit_code != 0 {
         log info $'Creating Podman network ($NETWORK)...'
@@ -38,7 +47,8 @@ def "main up" []: nothing -> nothing {
         } }
 
     try {
-        mkdir .k3d/catalogs .k3s
+        mkdir .k3d/catalogs/reader .k3d/catalogs/writer
+        chmod 777 .k3d/catalogs/reader .k3d/catalogs/writer
     } catch {|err| fail $'Could not create k3d runtime directories: ($err.msg)' {
             command: main-up
             span: (metadata $repo).span
@@ -53,7 +63,18 @@ def "main up" []: nothing -> nothing {
 
     if not ($clusters | any {|line| $line | str starts-with $CLUSTER_NAME }) {
         log info 'Starting k3d...'
-        k3d cluster create --config k3d.yaml
+        let args = [
+            cluster
+            create
+            --config
+            k3d.yaml
+            --volume
+            $'($catalogs)/reader:/var/lib/data-proxy/catalogs/reader@server:*;agent:*'
+            --volume
+            $'($catalogs)/writer:/var/lib/data-proxy/catalogs/writer@server:*;agent:*'
+        ]
+        | if $debug { append [--no-rollback --trace] } else { }
+        k3d ...$args
     }
 
     try {
@@ -74,19 +95,15 @@ def "main up" []: nothing -> nothing {
         }
     }
 
+    apply-gcp-secret $kubecfg --required
+
     let tag = build-local-images
 
-    apply-gcp-secret $kubecfg
+    log info 'Updating Helmfile dependencies...'
+    wrap-helmfile $kubecfg deps
 
     log info 'Syncing local manifests, platform charts, and Data Proxy with Helmfile...'
-    with-env {
-        KUBECONFIG: $kubecfg
-        LOCAL_IMAGE_TAG: $tag
-    } {
-        helmfile --file ($repo | path join helmfile.yaml) deps
-        helmfile --concurrency 1 --file ($repo | path join helmfile.yaml) sync --wait --timeout 900
-    }
-
+    wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set ha.enabled=false
 }
 
 # Remove the local k3d cluster.

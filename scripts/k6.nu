@@ -8,7 +8,7 @@ use ./lib.nu [
     local-kubeconfig
     NAMESPACE
     poll
-    sync-data-proxy
+    wrap-helmfile
     wait-for
     wrap-kubectl
 ]
@@ -44,12 +44,7 @@ def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
 
     if not $matches {
         log info $'Switching to ($mode) mode...'
-        sync-data-proxy $kubecfg $image_tag $ha
-        [
-            'data-proxy/data-proxy-proxy'
-            'data-proxy/data-proxy-postgrest'
-            'data-proxy/data-proxy-sync'
-        ] | wait-for deployment $kubecfg
+        wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)'
     } else {
         log info $'Cluster already targets ($mode) mode; skipping Helm upgrade'
     }
@@ -85,22 +80,17 @@ def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
     ] | wait-for deployment $kubecfg
 }
 
-# Read one condition type from the k6 runner Jobs.
-def job-condition [kubecfg: path, label: string, type: string]: nothing -> string {
-    let path = [
-        'jsonpath={.items[*].status.conditions[?(@.type=="'
-        $type
-        '")].status}'
-    ] | str join ''
-
-    wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l $label -o $path | str trim
-}
-
 # Return completion and failure flags for one k6 runner Job set.
 def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
+    let conditions = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l $label -o json
+    | from json
+    | get items
+    | each {|job| $job.status.conditions? | default [] }
+    | flatten
+
     {
-        complete: ((job-condition $kubecfg $label Complete) == 'True')
-        failed: ((job-condition $kubecfg $label Failed) == 'True')
+        complete: ($conditions | any {|condition| $condition.type == 'Complete' and $condition.status == 'True' })
+        failed: ($conditions | any {|condition| $condition.type == 'Failed' and $condition.status == 'True' })
     }
 }
 
@@ -135,7 +125,6 @@ def k6-run [
     script_path: string
     testrun: string
     yaml_path: path
-    --profile: string = ''
     --image-tag: string = 'local'
     --set: record = {}
     --with-trigger # Include trigger.py for an E2E TestRun.
@@ -164,24 +153,8 @@ def k6-run [
     let named = $raw
     | str replace --regex '(?m)(kind: TestRun\nmetadata:\n\s+name: )[^\n]+' (['${1}' $testrun] | str join '')
 
-    let profiled = if ($profile | is-empty) {
-        $named
-    } else {
-        $named | str replace --all 'value: load' $'value: ($profile)'
-    }
-
-    let images = [
-        {
-            source: $'($IMAGE_REGISTRY)/k6:local'
-            target: $'($IMAGE_REGISTRY)/k6:($image_tag)'
-        }
-        {
-            source: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-local'
-            target: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'
-        }
-    ] | reduce --fold $profiled {|replacement, text|
-        $text | str replace --all $replacement.source $replacement.target
-    }
+    let runner_image = $named
+    | str replace --all $'($IMAGE_REGISTRY)/k6:local' $'($IMAGE_REGISTRY)/k6:($image_tag)'
 
     let yaml = $set
     | items {|name, value|
@@ -190,7 +163,7 @@ def k6-run [
             value: $value
         }
     }
-    | reduce --fold $images {|entry, text|
+    | reduce --fold $runner_image {|entry, text|
         $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}"' $entry.value '"'] | str join '')
     }
 
@@ -253,7 +226,8 @@ def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'
 
     let image_tag = image-tag
-    k6-run $kubecfg data-proxy-k6 perf.ts k6/perf.ts data-proxy-perf k6/perf.yaml --profile $profile --image-tag $image_tag --set {
+    k6-run $kubecfg data-proxy-k6 perf.ts k6/perf.ts data-proxy-perf k6/perf.yaml --image-tag $image_tag --set {
+        K6_PROFILE: $profile
         HA_MODE: (if $ha { 'true' } else { 'false' })
     }
 }
@@ -304,35 +278,23 @@ export def "main k6 e2e" [
     log info 'Clearing test resources...'
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
 
+    apply-gcp-secret $kubecfg --required
+
     let image_tag = build-local-images
 
-    apply-gcp-secret $kubecfg
-
-    log info 'Deleting init-db Jobs so they recreate PostgreSQL setup...'
-    let old_init_jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l app.kubernetes.io/component=init-db -o name
+    log info 'Deleting configure-db Jobs so they recreate PostgreSQL setup...'
+    let old_configure_jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l app.kubernetes.io/component=configure-db -o name
     | lines
-    if ($old_init_jobs | is-not-empty) {
-        wrap-kubectl $kubecfg -n $NAMESPACE delete ...$old_init_jobs --ignore-not-found
+    if ($old_configure_jobs | is-not-empty) {
+        wrap-kubectl $kubecfg -n $NAMESPACE delete ...$old_configure_jobs --ignore-not-found
     }
 
-    log info 'Syncing data-proxy release with Helmfile...'
-    sync-data-proxy $kubecfg $image_tag $ha
-
-    log info 'Waiting for the init-db Job...'
-    let init_jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l app.kubernetes.io/component=init-db -o name
-    | lines
-
-    for job in $init_jobs {
-        wrap-kubectl $kubecfg -n $NAMESPACE wait --for=condition=complete $job --timeout=360s
-    }
-
-    log info 'Waiting for data-proxy deployments...'
-    [
-        'data-proxy/data-proxy-proxy'
-        'data-proxy/data-proxy-postgrest'
-        'data-proxy/data-proxy-sync'
-    ] | wait-for deployment $kubecfg
+    log info 'Syncing local Helmfile releases with the new images...'
+    wrap-helmfile $kubecfg --image-tag $image_tag sync --state-values-set $'ha.enabled=($ha)'
 
     log info $'Running the full E2E suite against ($mode) mode...'
-    k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts $'data-proxy-e2e-($mode)' k6/e2e.yaml --image-tag $image_tag --set {MODE: $mode} --with-trigger
+    k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts $'data-proxy-e2e-($mode)' k6/e2e.yaml --image-tag $image_tag --set {
+        MODE: $mode
+        PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'
+    } --with-trigger
 }

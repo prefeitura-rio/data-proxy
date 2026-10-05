@@ -3,14 +3,22 @@
 import os
 from argparse import ArgumentParser
 from datetime import UTC, datetime
+from sys import stdout
 from time import monotonic, sleep
 from typing import Protocol, cast
 
 from dbos import DBOSClient, EnqueueOptions, WorkflowHandle
 
 from data_proxy.constants import SYNC_QUEUE
+from data_proxy.log import logger
 
 RUNNING_STATUSES = {"DELAYED", "ENQUEUED", "PENDING"}
+
+
+def write_workflow_id(workflow_id: str) -> None:
+    """Write the documented workflow-ID command result without logging it."""
+    stdout.write(f"{workflow_id}\n")
+    stdout.flush()
 
 
 class WorkflowView(Protocol):
@@ -31,7 +39,8 @@ def enqueue_workflow(client: DBOSClient, detach: bool) -> None:
     handle = cast(
         "WorkflowHandle[None]", client.enqueue(options, datetime.now(UTC), {})
     )
-    print(handle.workflow_id, flush=True)
+    logger.info("Sync workflow enqueued: workflow_id=%s", handle.workflow_id)
+    write_workflow_id(handle.workflow_id)
     if detach:
         return
     handle.get_result()
@@ -58,7 +67,10 @@ def wait_for_workflow(
             workflow = cast("WorkflowView", cast(object, workflows[0]))
             status = workflow.status
             if status == "SUCCESS":
-                print(workflow.workflow_id)
+                logger.info(
+                    "Sync workflow completed: workflow_id=%s", workflow.workflow_id
+                )
+                write_workflow_id(workflow.workflow_id)
                 return
             if workflow_id is not None and status in {
                 "ERROR",
@@ -90,7 +102,10 @@ def wait_for_running_workflow(
         if workflows:
             workflow = cast("WorkflowView", cast(object, workflows[0]))
             if workflow.status in RUNNING_STATUSES:
-                print(workflow.workflow_id)
+                logger.info(
+                    "Sync workflow is running: workflow_id=%s", workflow.workflow_id
+                )
+                write_workflow_id(workflow.workflow_id)
                 return
             if workflow_id is not None and workflow.status in {
                 "SUCCESS",

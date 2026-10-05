@@ -1,7 +1,7 @@
 use std/log
 
 export const IMAGE_REGISTRY = 'registry.localhost:5001'
-export const IMAGE_TAG_FILE = '.k3s/tag'
+export const IMAGE_TAG_FILE = '.k3d/tag'
 export const CLUSTER_NAME = 'data-proxy'
 export const PROFILE = 'k3d-data-proxy'
 export const NAMESPACE = 'data-proxy'
@@ -46,7 +46,7 @@ export def git-root []: nothing -> string {
 }
 
 # Return the local k3d kubeconfig path.
-export def local-kubeconfig []: nothing -> path {
+export def local-kubeconfig []: nothing -> string {
     git-root | path join .kubeconfig
 }
 
@@ -86,25 +86,72 @@ export def build-local-images []: nothing -> string {
 
     try {
         $tag | save --force $tag_file
-    } catch {|err|
-        fail $'Could not write local image tag: ($err.msg)' {
-            command: build-local-images
-            span: (metadata $tag_file).span
-        }
-    }
+    } catch {|err| fail $'Could not write local image tag: ($err.msg)' {
+        command: build-local-images
+        span: (metadata $tag_file).span
+    } }
 
     $tag
 }
 
-# Apply the optional local GCP application-default-credentials Secret.
-export def apply-gcp-secret [kubecfg: path]: nothing -> nothing {
+# Apply the local GCP application-default-credentials Secret.
+export def apply-gcp-secret [
+    kubecfg: path
+    --required # Fail when application-default credentials are absent.
+]: nothing -> nothing {
     let credentials = $env.HOME | path join .config/gcloud/application_default_credentials.json
 
     if ($credentials | path exists) {
-        log info 'Applying GCP secret...'
-        wrap-kubectl $kubecfg -n $NAMESPACE create secret generic gcp-key $'--from-file=key.json=($credentials)' --dry-run=client -o yaml
+        log info 'Ensuring Kubernetes namespace for the GCP secret...'
+        (wrap-kubectl
+            $kubecfg
+            create
+            namespace
+            $NAMESPACE
+            --dry-run=client
+            -o
+            yaml
+        )
         | wrap-kubectl $kubecfg apply -f -
         | ignore
+
+        log info 'Applying GCP secret...'
+        (wrap-kubectl
+            $kubecfg
+            -n
+            $NAMESPACE
+            create
+            secret
+            generic
+            gcp-key
+            $'--from-file=key.json=($credentials)'
+            --dry-run=client
+            -o
+            yaml
+        )
+        | wrap-kubectl $kubecfg apply -f -
+        | ignore
+
+        let secret = try {
+            wrap-kubectl $kubecfg -n $NAMESPACE get secret gcp-key -o json | from json
+        } catch {|err| fail $'GCP secret was not created: ($err.msg)' {
+                command: apply-gcp-secret
+                span: (metadata $credentials).span
+            } }
+
+        if ($secret.data | get --optional 'key.json') == null {
+            fail 'GCP secret was created without key.json' {
+                command: apply-gcp-secret
+                span: (metadata $credentials).span
+            }
+        }
+
+        log info 'GCP secret is ready'
+    } else if $required {
+        fail 'GCP application-default credentials are required. Run: gcloud auth application-default login' {
+            command: apply-gcp-secret
+            span: (metadata $credentials).span
+        }
     } else {
         log warning 'GCP credentials not found, skipping secret'
     }
@@ -115,17 +162,17 @@ export def --wrapped wrap-kubectl [kubecfg: path, ...rest: string]: string -> st
     with-env {
         KUBECONFIG: $kubecfg
     } {
-        kubectl --context=$PROFILE ...$rest
+        kubectl --context $PROFILE ...$rest
     }
 }
 
-# Synchronize the Data Proxy release with the requested image tag and mode.
-export def sync-data-proxy [kubecfg: path, image_tag: string, ha: bool]: nothing -> nothing {
-    with-env {
-        KUBECONFIG: $kubecfg
-        LOCAL_IMAGE_TAG: $image_tag
-    } {
-        helmfile --file (git-root | path join helmfile.yaml) sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)'
+# Run Helmfile against the local k3d kubeconfig and optional image tag.
+export def --wrapped wrap-helmfile [kubecfg: path, --image-tag: string, ...rest: string]: nothing -> string, nothing -> nothing {
+    let helm_env = {KUBECONFIG: $kubecfg}
+    | if $image_tag == null { } else { upsert LOCAL_IMAGE_TAG $image_tag }
+
+    with-env $helm_env {
+        helmfile --file (git-root | path join helmfile.yaml) ...$rest
     }
 }
 
@@ -134,6 +181,14 @@ export def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
     for ref in $in {
         let target = $ref | parse '{namespace}/{name}' | first
         log info $'  ($kind)/($target.namespace)/($target.name)...'
-        wrap-kubectl $kubecfg -n $target.namespace rollout status $'($kind)/($target.name)' --timeout=15m
+        (wrap-kubectl
+            $kubecfg
+            -n
+            $target.namespace
+            rollout
+            status
+            $'($kind)/($target.name)'
+            --timeout=15m
+        )
     }
 }

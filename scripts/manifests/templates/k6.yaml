@@ -1,0 +1,76 @@
+{{- if .Values.k6.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: manifests-k6-perf
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manifests-k6-perf-role
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: manifests-k6-perf-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: manifests-k6-perf-role
+subjects:
+  - kind: ServiceAccount
+    name: manifests-k6-perf
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: manifests-k6-e2e
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manifests-k6-e2e-role
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+  - apiGroups: [keda.sh]
+    resources: [scaledobjects, scaledjobs]
+    verbs: [get, list]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters, poolers]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: manifests-k6-e2e-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: manifests-k6-e2e-role
+subjects:
+  - kind: ServiceAccount
+    name: manifests-k6-e2e
+    namespace: {{ .Release.Namespace }}
+{{- end }}

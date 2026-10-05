@@ -26,10 +26,6 @@ sync:
           - name: rj-ia-desenvolvimento.dev.big_table
             strategy: partitioned
             "n": 30
-            partitioning:
-              column: date
-              interval: daily
-              retention: 365 days
             rls:
               - column: unit_id
                 unit_type: unit
@@ -47,13 +43,8 @@ sync:
                 unit_type: unit
           - name: rj-ia-desenvolvimento.dev.partitioned_table
             strategy: partitioned
-            fallbacks:
-              - bigquery
+            fallback: true
             "n": 4
-            partitioning:
-              column: date
-              interval: daily
-              retention: 365 days
             cache_ttl: 600
             rls:
               - column: unit_id
@@ -77,6 +68,8 @@ s3:
   useSsl: "false"
   accessKey: seaweedfs
   secretKey: seaweedfs
+  bootstrap:
+    createIfMissing: true
 seaweedfs:
   allInOne:
     enabled: true
@@ -85,8 +78,6 @@ seaweedfs:
       size: 2Gi
     s3:
       enabled: true
-      createBuckets:
-        - name: test-bucket
   master:
     enabled: false
   volume:
