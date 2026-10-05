@@ -32,7 +32,7 @@ async def dump_task(task: DumpTask) -> DumpResult:
     """Dump one task, record its result, and return it to the parent workflow."""
     tablename.set(task.table)
 
-    logger.info("Dump started task_id=%s", task.task_id)
+    logger.info("Dump started: task_id=%s", task.task_id)
 
     try:
         await extract_task(task)
@@ -45,7 +45,7 @@ async def dump_task(task: DumpTask) -> DumpResult:
         task.task_id, task.table, task.target_schema, result.status.value
     )
     logger.info(
-        "Dump finished task_id=%s status=%s failed_paths=%d",
+        "Dump completed: task_id=%s status=%s failed_paths=%d",
         task.task_id,
         result.status.value,
         len(result.failed_paths),
@@ -60,7 +60,7 @@ async def publish_schema(
     """Publish one schema to DuckLake and commit its table state."""
     schemaname.set(plan.schema_name)
 
-    logger.info("Publish started run_id=%s", run_id)
+    logger.info("Publish started: workflow_id=%s", run_id)
 
     outcome = await commit_ducklake_snapshot(plan, failed_paths)
     if outcome.snapshot_id is not None:
@@ -69,7 +69,7 @@ async def publish_schema(
     await record_publish_metrics(outcome, plan.schema_name)
     await commit_table_state(plan, outcome)
     logger.info(
-        "Publish finished run_id=%s published_tables=%d",
+        "Publish completed: workflow_id=%s published_tables=%d",
         run_id,
         len(outcome.published_tables),
     )
@@ -85,12 +85,14 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
     if run_id is None:
         raise RuntimeError("workflow_id is not set")
 
-    logger.info("Sync started workflow_id=%s scheduled_at=%s", run_id, scheduled_at)
+    logger.info(
+        "Sync workflow started: workflow_id=%s scheduled_at=%s", run_id, scheduled_at
+    )
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         work = await build_sync_work(run_id)
         if not work.plans:
-            logger.info("No table changes")
+            logger.info("Sync planning completed: changes=none")
             return
 
         dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
@@ -127,8 +129,8 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
         if postgrest_restart_required:
             await restart_postgrest(run_id)
 
-        logger.info("Sync finalizing workflow_id=%s", run_id)
+        logger.info("Sync finalization started: workflow_id=%s", run_id)
 
         await finalize_run(run_id)
 
-        logger.info("Sync completed workflow_id=%s", run_id)
+        logger.info("Sync workflow completed: workflow_id=%s", run_id)

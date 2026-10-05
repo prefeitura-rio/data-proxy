@@ -352,7 +352,10 @@ class PlanningContext:
     async def detect(self) -> None:
         """Detect changed full table signatures."""
         self.changed = await detect_changes(self.pg_conn, self.config)
-        logger.info("Detected %d changed full tables", len(self.changed))
+        logger.info(
+            "Full table change detection completed: changed_tables=%d",
+            len(self.changed),
+        )
 
     async def expand(self) -> None:
         """Expand changed full tables into extraction tasks."""
@@ -387,11 +390,11 @@ class PlanningContext:
     def group(self) -> SyncWork:
         """Group full and partitioned table plans by resolved schema."""
         if not self.signatures and not self.partitioned:
-            logger.info("No changes to plan")
+            logger.info("Sync plan completed: changes=none")
             return SyncWork(plans=[], tasks=[])
 
         logger.info(
-            "Built sync plan with %d full and %d partitioned tables",
+            "Sync plan completed: full_tables=%d partitioned_tables=%d",
             len(self.signatures),
             len(self.partitioned),
         )

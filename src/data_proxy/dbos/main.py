@@ -53,7 +53,7 @@ def main() -> None:
         ]
     )
 
-    logger.info("DBOS sync application started")
+    logger.info("Sync application started")
     Event().wait()
 
 

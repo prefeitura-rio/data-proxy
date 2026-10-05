@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
     KUBERNETES_NAMESPACE: str = "data-proxy"
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
     OTLP_METRICS_ENDPOINT: str = Field(default="")
     OTLP_TRACES_ENDPOINT: str = Field(default="")

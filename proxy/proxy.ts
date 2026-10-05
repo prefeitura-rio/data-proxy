@@ -34,6 +34,16 @@ const DEFAULT_MEDIA_TYPE = "application/json";
 const JSON_TYPE = "application/json; charset=utf-8";
 const DEFAULT_NO_CACHE_PATHS = ["/access_policy"];
 
+const LOG_MESSAGES: Record<string, string> = {
+    request: "Proxy request completed",
+    "cache-read-failed": "Proxy cache read failed",
+    "cache-write-rejected": "Proxy cache write was rejected",
+    "cache-write-failed": "Proxy cache write failed",
+    "upstream-status": "Proxy upstream request returned an error status",
+    "upstream-failed": "Proxy upstream request failed",
+    "upstream-retried": "Proxy upstream request retry started",
+};
+
 interface CacheKeyParts {
     method: string;
     uri: string;
@@ -75,9 +85,7 @@ interface LogFields {
     status?: number;
     source?: string;
     bytes?: number;
-    key?: string;
     error?: string;
-    answer?: string;
 }
 
 type LogLevel = "info" | "warn";
@@ -422,25 +430,25 @@ function log(
     event: string,
     fields: LogFields,
 ): void {
-    const line = JSON.stringify({
-        event: event,
-        method: ctx.method,
-        uri: ctx.uri,
-        status: fields.status,
-        source: fields.source,
-        wait_ms: Date.now() - ctx.started,
-        bytes: fields.bytes,
-        key: fields.key,
-        error: fields.error,
-        answer: fields.answer,
-    });
+    const context = [
+        `method=${ctx.method}`,
+        `path=${ctx.uri}`,
+        fields.status === undefined ? "" : `status=${fields.status}`,
+        fields.source ? `source=${fields.source}` : "",
+        `duration_ms=${Date.now() - ctx.started}`,
+        fields.bytes === undefined ? "" : `bytes=${fields.bytes}`,
+        fields.error ? `error=${fields.error}` : "",
+    ]
+        .filter((field) => field !== "")
+        .join(" ");
+    const message = `${LOG_MESSAGES[event] || "Proxy request state changed"}: ${context}`;
 
     if (level === "warn") {
-        r.warn(line);
+        r.warn(message);
         return;
     }
 
-    r.log(line);
+    r.log(message);
 }
 
 /**
@@ -469,7 +477,7 @@ async function readCache(
             }
         }
     } catch (e) {
-        log(r, ctx, "warn", "cache-read-failed", { key: key, error: String(e) });
+        log(r, ctx, "warn", "cache-read-failed", { error: "cache-read" });
     }
 
     return null;
@@ -505,11 +513,10 @@ async function writeCache(
         }
 
         log(r, ctx, "warn", "cache-write-rejected", {
-            key: key,
-            answer: text.substring(0, 200),
+            error: "webdis-rejected",
         });
     } catch (e) {
-        log(r, ctx, "warn", "cache-write-failed", { key: key, error: String(e) });
+        log(r, ctx, "warn", "cache-write-failed", { error: "cache-write" });
     }
 
     return false;
@@ -538,7 +545,7 @@ async function attemptUpstream(
 
         return { status: res.status, body: body, headers: responseHeaders(res) };
     } catch (e) {
-        log(r, ctx, "warn", "upstream-failed", { error: String(e) });
+        log(r, ctx, "warn", "upstream-failed", { error: "upstream-request" });
     }
 
     return null;
@@ -747,15 +754,8 @@ async function handle(r: NginxHTTPRequest): Promise<void> {
 
         await maybeCache(r, ctx, key, result);
         sendResponse(r, ctx, result);
-    } catch (e) {
-        const error = e as { stack?: string };
-        r.warn(
-            JSON.stringify({
-                event: "exception",
-                error: String(e),
-                stack: error.stack,
-            }),
-        );
+    } catch {
+        r.warn("Proxy request failed: error=proxy-handler");
         r.return(502, '{"error":"proxy exception"}');
     }
 }

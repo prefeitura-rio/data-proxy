@@ -38,7 +38,7 @@ from .utils import retry_catalog_locked, retry_transient
 )
 async def build_sync_work(run_id: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
-    logger.info("Planning started run_id=%s", run_id)
+    logger.info("Sync planning started: workflow_id=%s", run_id)
 
     async with (
         DuckDB.connect() as duckdb_conn,
@@ -54,7 +54,7 @@ async def build_sync_work(run_id: str) -> SyncWork:
         )
 
     logger.info(
-        "Planning completed run_id=%s tasks=%d plans=%d",
+        "Sync planning completed: workflow_id=%s tasks=%d plans=%d",
         run_id,
         len(work.tasks),
         len(work.plans),
@@ -66,7 +66,7 @@ async def build_sync_work(run_id: str) -> SyncWork:
 async def record_run_status(status: Literal["success", "failure"]) -> None:
     """Record one sync run status metric."""
     metrics.sync_runs_total.add(1, {"status": status})
-    logger.info("Sync terminal status=%s", status)
+    logger.info("Sync workflow reached terminal state: status=%s", status)
 
 
 @DBOS.step()
@@ -78,7 +78,7 @@ async def record_dump_metrics(
         1, {"table": table, "schema": schema, "status": status}
     )
 
-    logger.info("Dump completed task_id=%s status=%s", task_id, status)
+    logger.info("Dump completed: task_id=%s status=%s", task_id, status)
 
 
 @DBOS.step()
@@ -104,7 +104,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
 )
 async def seed_schemas(plans: list[SyncPlan]) -> bool:
     """Reconcile planned serving schemas and report a PostgREST restart need."""
-    logger.info("Schema seeding started plans=%d", len(plans))
+    logger.info("Schema seeding started: plans=%d", len(plans))
 
     schema_names = sorted({plan.schema_name for plan in plans})
     table_names = {
@@ -118,7 +118,7 @@ async def seed_schemas(plans: list[SyncPlan]) -> bool:
         )
 
     logger.info(
-        "Schema seeding completed plans=%d postgrest_restart_required=%s",
+        "Schema seeding completed: plans=%d postgrest_restart_required=%s",
         len(plans),
         postgrest_restart_required,
     )
@@ -142,11 +142,11 @@ async def record_seed_metrics(plans: list[SyncPlan]) -> None:
 async def extract_task(task: DumpTask) -> None:
     """Extract one dump task from BigQuery to Parquet."""
     logger.info(
-        "Extraction started task_id=%s paths=%d", task.task_id, len(task.output_paths)
+        "Extraction started: task_id=%s paths=%d", task.task_id, len(task.output_paths)
     )
     async with DuckDB.connect() as duckdb_conn:
         await run_extraction(duckdb_conn, task)
-    logger.info("Extraction completed task_id=%s", task.task_id)
+    logger.info("Extraction completed: task_id=%s", task.task_id)
 
 
 @DBOS.step(
@@ -156,7 +156,7 @@ async def extract_task(task: DumpTask) -> None:
 )
 async def record_dump_failure(task: DumpTask, error: str) -> None:
     """Persist one dump error in the data_proxy.errors table."""
-    logger.error("Extraction failed task_id=%s error=%s", task.task_id, error)
+    logger.error("Extraction failed: task_id=%s error=%s", task.task_id, error)
 
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await emit_error(
@@ -180,7 +180,7 @@ async def commit_ducklake_snapshot(
 ) -> PublicationResult:
     """Commit scratch Parquet files into DuckLake for one schema plan."""
     schemaname.set(plan.schema_name)
-    logger.info("DuckLake commit started failed_paths=%d", len(failed_paths))
+    logger.info("DuckLake commit started: failed_paths=%d", len(failed_paths))
 
     config = SyncConfig(
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
@@ -199,7 +199,7 @@ async def commit_ducklake_snapshot(
         )
 
     logger.info(
-        "DuckLake commit completed published_tables=%d", len(result.published_tables)
+        "DuckLake commit completed: published_tables=%d", len(result.published_tables)
     )
 
     return result
@@ -213,7 +213,9 @@ async def commit_ducklake_snapshot(
 async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
     """Wait until the reader catalog has applied the committed DuckLake snapshot."""
     logger.info(
-        "Reader wait started schema=%s snapshot_id=%d", schema_name, snapshot_id
+        "Reader snapshot wait started: schema=%s snapshot_id=%d",
+        schema_name,
+        snapshot_id,
     )
     async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
 
@@ -227,7 +229,9 @@ async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
             interval=settings.READER_SNAPSHOT_POLL_SECONDS,
         )
     logger.info(
-        "Reader wait completed schema=%s snapshot_id=%d", schema_name, snapshot_id
+        "Reader snapshot wait completed: schema=%s snapshot_id=%d",
+        schema_name,
+        snapshot_id,
     )
 
 
@@ -238,7 +242,7 @@ async def wait_for_reader_snapshot(schema_name: str, snapshot_id: int) -> None:
 )
 async def restart_pooler(run_id: str) -> None:
     """Restart Pooler deployments to recycle DuckDB catalog attachments."""
-    logger.info("Restarting Poolers run_id=%s", run_id)
+    logger.info("PgBouncer restart started: workflow_id=%s", run_id)
 
     await restart_deployments(
         namespace=settings.KUBERNETES_NAMESPACE,
@@ -256,7 +260,7 @@ async def restart_pooler(run_id: str) -> None:
 )
 async def restart_postgrest(run_id: str) -> None:
     """Restart PostgREST Deployments and wait for one Kubernetes rollout."""
-    logger.info("Restarting PostgREST run_id=%s", run_id)
+    logger.info("PostgREST restart started: workflow_id=%s", run_id)
 
     await restart_deployments(
         namespace=settings.KUBERNETES_NAMESPACE,
@@ -278,10 +282,10 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
         schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
     )
     states = build_table_states(result, config)
-    logger.info("State commit started tables=%d", len(states))
+    logger.info("State commit started: tables=%d", len(states))
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
         await write_table_states(pg_conn, states)
-    logger.info("State commit completed tables=%d", len(states))
+    logger.info("State commit completed: tables=%d", len(states))
 
 
 @DBOS.step(
@@ -291,9 +295,9 @@ async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
 )
 async def finalize_run(run_id: str) -> None:
     """Flush scratch Parquet files and the response cache."""
-    logger.info("Finalization started run_id=%s", run_id)
+    logger.info("Sync finalization started: workflow_id=%s", run_id)
 
     await clear_s3_prefix(settings.S3_SCRATCH_PREFIX)
 
     await clear_cache()
-    logger.info("Finalization completed run_id=%s", run_id)
+    logger.info("Sync finalization completed: workflow_id=%s", run_id)

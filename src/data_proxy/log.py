@@ -6,6 +6,8 @@ from pathlib import Path
 from traceback import extract_tb
 from typing import override
 
+from .settings import settings
+
 schemaname = ContextVar("schemaname", default="-")
 tablename = ContextVar("tablename", default="-")
 
@@ -86,4 +88,4 @@ handler.setFormatter(ContextFormatter(datefmt="%Y-%m-%d %H:%M:%S"))
 logger.addHandler(handler)
 logger.addFilter(DomainContextFilter())
 logger.propagate = False
-logger.setLevel("INFO")
+logger.setLevel(settings.LOG_LEVEL)
