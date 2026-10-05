@@ -4,7 +4,7 @@ use ./lib.nu [
     fail
     git-root
     IMAGE_REGISTRY
-    IMAGE_TAG_FILE
+    local-image-tag
     local-kubeconfig
     NAMESPACE
     poll
@@ -13,21 +13,9 @@ use ./lib.nu [
     wrap-kubectl
 ]
 
-# Read the immutable local image tag from the latest build.
-def image-tag []: nothing -> string {
-    let tag_file = git-root | path join $IMAGE_TAG_FILE
-
-    try {
-        open --raw $tag_file | str trim
-    } catch {|err| fail $'Could not read local image tag: ($err.msg)' {
-            command: k6
-            span: (metadata $tag_file).span
-        } }
-}
-
 # Switch between single and HA mode and wait for required workloads.
 def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
-    let image_tag = image-tag
+    let image_tag = local-image-tag
     let mode = if $ha { 'HA' } else { 'single' }
 
     let cluster = try {
@@ -133,7 +121,10 @@ def k6-run [
         $'--from-file=($script_key)=($script_path)'
         '--from-file=lib.ts=k6/lib.ts'
     ] | if $with_trigger {
-        append '--from-file=trigger.py=scripts/manifests/files/trigger.py'
+        append [
+            '--from-file=trigger.py=scripts/manifests/files/trigger.py'
+            '--from-file=mutate.py=scripts/manifests/files/mutate.py'
+        ]
     } else { }
 
     log info $'Creating configmap ($configmap)...'
@@ -225,7 +216,7 @@ def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
     switch-mode $kubecfg $ha
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'
 
-    let image_tag = image-tag
+    let image_tag = local-image-tag
     k6-run $kubecfg data-proxy-k6 perf.ts k6/perf.ts data-proxy-perf k6/perf.yaml --image-tag $image_tag --set {
         K6_PROFILE: $profile
         HA_MODE: (if $ha { 'true' } else { 'false' })

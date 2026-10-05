@@ -23,6 +23,11 @@ sync:
             rls:
               - column: unit_id
                 unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.snapshot_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
           - name: rj-ia-desenvolvimento.dev.big_table
             strategy: partitioned
             "n": 30

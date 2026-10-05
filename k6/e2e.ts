@@ -4,6 +4,7 @@ import { Kubernetes } from "k6/x/kubernetes";
 import type { KubernetesPodSpec } from "k6/x/kubernetes";
 import { check, sleep } from "k6";
 import {
+    mutateSnapshotFixture,
     triggerSync,
     waitForJob,
     syncPods,
@@ -24,6 +25,28 @@ type PodObject = {
     metadata: { name: string; labels?: Record<string, string> };
     status?: { containerStatuses?: ContainerStatus[] };
 };
+
+interface SyncConfigMap {
+    data?: Record<string, string>;
+}
+
+interface SyncFixtureTable {
+    name: string;
+    strategy: "full" | "partitioned";
+    fallback?: boolean;
+    n?: number;
+}
+
+interface SyncFixture {
+    schemas?: Record<
+        string,
+        {
+            claim?: string;
+            source?: { type?: string };
+            tables?: SyncFixtureTable[];
+        }
+    >;
+}
 
 interface MetricRequest {
     metric: string;
@@ -57,6 +80,9 @@ const PG_IMAGE = __ENV.PG_IMAGE || "registry.localhost:5001/data-proxy-postgres:
 const PARTITIONED_SOURCE =
     __ENV.PARTITIONED_SOURCE ||
     "rj-ia-desenvolvimento.dev.partitioned_table";
+const SNAPSHOT_SOURCE =
+    __ENV.SNAPSHOT_SOURCE ||
+    "rj-ia-desenvolvimento.dev.snapshot_table";
 const CACHE_TTL_SECONDS = Number(__ENV.CACHE_TTL_SECONDS || "5");
 const SYNCED_PARTITIONS = 4;
 const PARTITION_COLUMN = "date";
@@ -88,9 +114,15 @@ const PAUSED_REPLICAS = "autoscaling.keda.sh/paused-replicas";
 const PARALLEL_READS = 10;
 
 const FULL_TABLE = "full_table";
+const SNAPSHOT_TABLE = "snapshot_table";
 const MULTI_RLS_TABLE = "multi_rls_table";
 const PARTITIONED_TABLE = "partitioned_table";
-const TABLES = [FULL_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE];
+const TABLES = [
+    FULL_TABLE,
+    SNAPSHOT_TABLE,
+    MULTI_RLS_TABLE,
+    PARTITIONED_TABLE,
+];
 const BIG_TABLE = "big_table";
 const FAILING_TABLE = "failing_table";
 const FAILING_SOURCE = "rj-ia-desenvolvimento.dev.failing_table";
@@ -497,6 +529,36 @@ function verifyBlockedTable(k8s: Kubernetes): void {
     );
 }
 
+function verifyHistoricalSnapshot(k8s: Kubernetes): void {
+    const token = userToken();
+    const path = `/${SNAPSHOT_TABLE}?id=eq.snapshot-row&select=version`;
+    const snapshotN = snapshotValue(token);
+    const before = proxyGet(path, token, { "X-DuckLake-Snapshot": snapshotN });
+    requirePrecondition(
+        "snapshot fixture starts at version A",
+        before.status === 200 &&
+            (rowsOf(before)[0] as Record<string, unknown> | undefined)?.version === "A",
+        { status: before.status },
+    );
+
+    waitForJob(k8s, mutateSnapshotFixture(k8s, SNAPSHOT_SOURCE, "B"));
+    waitForJob(k8s, triggerSync(k8s));
+    const snapshotN1 = snapshotValue(token);
+    const historical = proxyGet(path, token, { "X-DuckLake-Snapshot": snapshotN });
+    const latest = proxyGet(path, token);
+
+    expect("the snapshot fixture publication creates a new snapshot", snapshotN1 !== snapshotN);
+    expect(
+        "the historical snapshot keeps version A",
+        (rowsOf(historical)[0] as Record<string, unknown> | undefined)?.version === "A",
+    );
+    expect(
+        "the latest snapshot returns version B",
+        (rowsOf(latest)[0] as Record<string, unknown> | undefined)?.version === "B",
+    );
+    expect("publication clears the unpinned cache", cacheHeader(latest) === "MISS");
+}
+
 function verifyNoChangeRun(k8s: Kubernetes): void {
     const snapshotBefore = snapshotValue(userToken());
     const revisionBefore = postgrestDeploymentRevision(k8s);
@@ -878,18 +940,17 @@ function verifyPipelineRecovery(k8s: Kubernetes): void {
     checkSql(
         k8s,
         "check-recovery-executor",
-        `SELECT executor_id IN (${live.map((uid) => `'${uid}'`).join(", ")}) FROM dbos.workflow_status WHERE name = 'run_sync' ORDER BY created_at DESC LIMIT 1`,
+        `SELECT executor_id IN (${live.map((uid) => `'${uid}'`).join(", ")}) FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'SUCCESS' ORDER BY created_at DESC LIMIT 1`,
         "t",
         STATE_DATABASE,
     );
-    expect("a pod that is still alive finished the recovered workflow", true);
 }
 
 /** Force-deletes the sync pod that executes the running sync workflow. */
 function killWorkflowOwner(k8s: Kubernetes): void {
     const image = cronJobPodSpec(k8s, MAINTENANCE_CRONJOB).containers[0].image;
     const owner =
-        "SELECT executor_id FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1";
+        "SELECT executor_id FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'RUNNING' AND executor_id IS NOT NULL ORDER BY created_at DESC LIMIT 1";
     const script = [
         "for attempt in $(seq 1 60); do",
         `  uid="$(psql "$${STATE_DATABASE}" -tAc ${JSON.stringify(owner)})"`,
@@ -904,7 +965,7 @@ function killWorkflowOwner(k8s: Kubernetes): void {
 
     runCommandJob(k8s, "kill-workflow-owner", script, {
         image,
-        serviceAccountName: "data-proxy-k6",
+        serviceAccountName: "manifests-k6-e2e",
     });
 }
 
@@ -1003,6 +1064,7 @@ function postgrestDeploymentRevision(k8s: Kubernetes): string {
 function verifyDuckLakePublication(token: string): void {
     const expected: Record<string, string> = {
         [FULL_TABLE]: "ducklake",
+        [SNAPSHOT_TABLE]: "ducklake",
         [MULTI_RLS_TABLE]: "ducklake",
         [PARTITIONED_TABLE]: "ducklake+bigquery",
     };
@@ -1033,7 +1095,6 @@ function verifyCatalogSync(k8s: Kubernetes): void {
         "check-writer-catalog",
         `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
     );
-    expect("the writer catalog is present", true);
 
     runCommandJob(
         k8s,
@@ -1041,7 +1102,6 @@ function verifyCatalogSync(k8s: Kubernetes): void {
         `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
         { podSpec: deploymentPodSpec(k8s, "data-proxy-litestream") },
     );
-    expect("the reader catalog is present", true);
 }
 
 /** Verifies the change feed returns only the changes a user may see. */
@@ -1156,10 +1216,6 @@ function verifyPartitionChanges(k8s: Kubernetes): void {
         checkSql(k8s, `check-${change.id}-fix`, change.query, change.healthy, STATE_DATABASE);
         const after = rowsPerPartition(userToken(), pinned()).counts;
         expect(
-            `${change.name}: the manifest is repaired`,
-            true,
-        );
-        expect(
             `${change.name}: the DuckLake rows are unchanged`,
             after.size === baseline.size &&
             [...baseline].every(([date, rows]) => after.get(date) === rows),
@@ -1200,7 +1256,6 @@ function verifyBackupJob(k8s: Kubernetes): void {
     );
 
     waitForJob(k8s, runCronJob(k8s, BACKUP_CRONJOB));
-    expect("the backup CronJob completes", true);
 
     runCommandJob(
         k8s,
@@ -1208,7 +1263,6 @@ function verifyBackupJob(k8s: Kubernetes): void {
         `${BACKUP_STORE}; ${folder}; test "$(rclone lsf "$dir" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump catalog.sqlite "`,
         { podSpec, image },
     );
-    expect("the backup uploads the state dumps and the catalog", true);
 
     checkSql(
         k8s,
@@ -1216,7 +1270,6 @@ function verifyBackupJob(k8s: Kubernetes): void {
         `SELECT count(*) FROM ${SCHEMA}.access_log WHERE subject = 'e2e_stale'`,
         "0",
     );
-    expect("the backup prunes access-log rows past the retention window", true);
 }
 
 /** Verifies the deployed maintenance CronJob drops a view that left the sync config. */
@@ -1228,14 +1281,12 @@ function verifyMaintenanceJob(k8s: Kubernetes): void {
     );
 
     waitForJob(k8s, runCronJob(k8s, MAINTENANCE_CRONJOB));
-    expect("the maintenance CronJob completes", true);
 
     runCommandJob(
         k8s,
         "check-stale-view",
         `test "$(psql "$PG_DATABASE_URL" -tAc "SELECT to_regclass('${STALE_VIEW}') IS NULL")" = t`,
     );
-    expect("the maintenance CronJob drops views missing from the sync config", true);
 }
 
 /** Verifies PostgreSQL reads the restored catalog from the reader PVC. */
@@ -1551,7 +1602,7 @@ function postgresPodsMountSecret(k8s: Kubernetes, expected: number): boolean {
     const pods = (k8s.list("Pod", NAMESPACE) as PostgresPod[]).filter(
         (pod) =>
             pod.metadata.labels?.["cnpg.io/cluster"] === CLUSTER_NAME &&
-            pod.metadata.labels?.["cnpg.io/podRole"] === "instance",
+            pod.metadata.labels?.["cnpg.io/instanceName"] !== undefined,
     );
     return (
         pods.length === expected &&
@@ -1692,6 +1743,7 @@ function verifyMode(k8s: Kubernetes, ha: boolean): void {
 }
 
 function verifyEndToEnd(k8s: Kubernetes): void {
+    verifyFixtureContract(k8s);
     seedAccessPolicy();
 
     const completed = waitForPipeline(600);
@@ -1704,6 +1756,7 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     }
 
     waitForAccessPolicyReplication(userToken());
+    verifyHistoricalSnapshot(k8s);
     verifyNoChangeRun(k8s);
     clearProxyCache(userToken());
     sleep(2);
@@ -1727,6 +1780,62 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyIstioJwtValidation();
     verifyWebdisStable(k8s);
     verifyProxy();
+}
+
+/** Verifies that the deployed sync ConfigMap matches the k6 fixture contract. */
+function verifyFixtureContract(k8s: Kubernetes): void {
+    const configMap = k8s.get(
+        "ConfigMap",
+        "data-proxy-sync",
+        NAMESPACE,
+    ) as SyncConfigMap;
+    const raw = configMap.data?.["sync.json"];
+    requirePrecondition("the sync ConfigMap contains sync.json", raw !== undefined, {});
+
+    let fixture: SyncFixture;
+    try {
+        fixture = JSON.parse(raw || "{}") as SyncFixture;
+    } catch {
+        throw new Error("sync ConfigMap contains invalid JSON");
+    }
+
+    const schema = fixture.schemas?.[SCHEMA];
+    const tables = schema?.tables || [];
+    const table = (name: string) =>
+        tables.find((item) => item.name.endsWith(`.${name}`));
+    const partitioned = tables.find(
+        (item) => item.name === PARTITIONED_SOURCE,
+    );
+
+    requirePrecondition(
+        "the sync fixture uses the test BigQuery source",
+        schema?.claim === "preferred_username" && schema.source?.type === "bigquery",
+        {},
+    );
+    requirePrecondition(
+        "the sync fixture defines expected tables",
+        [FULL_TABLE, SNAPSHOT_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE, BIG_TABLE, FAILING_TABLE]
+            .every((name) => table(name) !== undefined),
+        {},
+    );
+    requirePrecondition(
+        "the partitioned fixture keeps four fallback partitions",
+        partitioned?.strategy === "partitioned" &&
+        partitioned.fallback === true &&
+        partitioned.n === SYNCED_PARTITIONS,
+        {},
+    );
+    requirePrecondition(
+        "the large fixture keeps thirty partitions",
+        table(BIG_TABLE)?.strategy === "partitioned" && table(BIG_TABLE)?.n === 30,
+        {},
+    );
+}
+
+/** Cleans the mutable local fixture after the E2E scenario completes. */
+export function teardown(): void {
+    const k8s = new Kubernetes();
+    waitForJob(k8s, runCronJob(k8s, "manifests-cleanup"));
 }
 
 export default function(): void {

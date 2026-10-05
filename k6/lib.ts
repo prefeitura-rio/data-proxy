@@ -66,6 +66,43 @@ function scriptPodSpec(podSpec: KubernetesPodSpec): KubernetesPodSpec {
 }
 
 /** Creates a Job that triggers the DBOS sync schedule once and waits for the run. */
+export function mutateSnapshotFixture(
+  k8s: Kubernetes,
+  source: string,
+  version: string,
+): string {
+  const podSpec = scriptPodSpec(workerPodSpec(k8s));
+  const container = podSpec.containers[0];
+  const name = `data-proxy-mutate-snapshot-${Date.now()}`;
+  k8s.create({
+    apiVersion: "batch/v1",
+    kind: "Job",
+    metadata: { name, namespace: NAMESPACE },
+    spec: {
+      backoffLimit: 0,
+      ttlSecondsAfterFinished: 300,
+      template: {
+        spec: {
+          ...podSpec,
+          restartPolicy: "Never",
+          containers: [
+            {
+              ...container,
+              name: "mutate-snapshot",
+              command: ["python", "/scripts/mutate.py", "--version", version],
+              env: [
+                ...(container.env || []),
+                { name: "SNAPSHOT_SOURCE", value: source },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  });
+  return name;
+}
+
 export function triggerSync(k8s: Kubernetes, detached = false): string {
   const podSpec = scriptPodSpec(workerPodSpec(k8s));
   const container = podSpec.containers[0];

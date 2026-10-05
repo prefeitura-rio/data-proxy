@@ -64,6 +64,7 @@ class PartitionedTableSeed(TableSeed):
 
 class TableSeeds(SeedModel):
     full_table: TableSeed
+    snapshot_table: TableSeed
     partitioned_table: PartitionedTableSeed
     multi_rls_table: TableSeed
     big_table: PartitionedTableSeed
@@ -196,6 +197,7 @@ def main() -> None:
     table_refs = {table.name for table in sync_config.tables}
     required_tables = {
         "rj-ia-desenvolvimento.dev.full_table",
+        "rj-ia-desenvolvimento.dev.snapshot_table",
         "rj-ia-desenvolvimento.dev.partitioned_table",
         "rj-ia-desenvolvimento.dev.multi_rls_table",
         "rj-ia-desenvolvimento.dev.failing_table",
@@ -224,6 +226,24 @@ def main() -> None:
         table_ref("full_table"),
         full_rows,
         schema=FULL_SCHEMA,
+    )
+
+    snapshot_rows = [
+        {
+            "id": "snapshot-row",
+            "version": "A",
+            "unit_id": "unit_1",
+        }
+    ]
+    load_table(
+        client,
+        table_ref("snapshot_table"),
+        snapshot_rows,
+        schema=[
+            SchemaField("id", "STRING", mode="REQUIRED"),
+            SchemaField("version", "STRING", mode="REQUIRED"),
+            SchemaField("unit_id", "STRING", mode="REQUIRED"),
+        ],
     )
 
     big_ref = table_ref("big_table")
@@ -295,8 +315,9 @@ def main() -> None:
     ).result()
 
     logger.info(
-        "Seed completed full=%d partitioned=%d multi_rls=%d big=%d",
+        "Seed completed full=%d snapshot=%d partitioned=%d multi_rls=%d big=%d",
         len(full_rows),
+        len(snapshot_rows),
         len(partitioned_rows),
         len(multi_rls_rows),
         len(big_rows),

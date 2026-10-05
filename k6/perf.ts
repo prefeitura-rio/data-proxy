@@ -39,6 +39,7 @@ type Profile = {
 type ScaleDeployment = {
     metadata: { name: string; labels?: Record<string, string> };
     spec: { replicas?: number };
+    status?: { availableReplicas?: number };
 };
 
 const API_URL =
@@ -69,7 +70,7 @@ const PEAK_RATE = Number(__ENV.K6_PEAK_RATE || "100");
 
 const CLIENT_IDS = [
     OIDC_USER_CLIENT_ID,
-    OIDC_USER_CLIENT_ID,
+    OIDC_NO_POLICY_CLIENT_ID,
     OIDC_USER_CLIENT_ID,
 ];
 const LOAD_TABLES = ["full_table", "multi_rls_table", "partitioned_table", "big_table"];
@@ -109,7 +110,7 @@ const PROFILES: Record<string, Profile> = {
         timeUnit: "1s",
         preAllocatedVUs: PEAK_ITERATIONS,
         maxVUs: PEAK_ITERATIONS * 6,
-        duration: "750s",
+        duration: "570s",
         stages: [
             { target: iterationsForPeak(0.5), duration: "180s" },
             { target: iterationsForPeak(1), duration: "180s" },
@@ -280,6 +281,15 @@ const ROUTES: Route[] = [
     },
     {
         profile: "test",
+        path: "/full_table?unit_id=eq.unit_2&limit=20",
+        name: "test_full_table_unit_2",
+        expectedSource: "ducklake",
+        weight: 30,
+        clients: ["no_policy"],
+        checkBody: authorizedRows("unit_id", ["unit_2"]),
+    },
+    {
+        profile: "test",
         path: "/multi_rls_table?region_id=eq.region_1&limit=20",
         name: "test_multi_rls_table_region_1",
         expectedSource: "ducklake",
@@ -372,7 +382,7 @@ function fetchToken(clientId: string): TokenData {
 }
 
 /** Seeds the access policy table so RLS grants the test users their units. */
-function seedAccessPolicy(): void {
+function seedAccessPolicy(rows: typeof ACCESS_POLICY_ROWS): void {
     const token = fetchToken(OIDC_POLICY_WRITER_CLIENT_ID);
     const headers = {
         Authorization: `Bearer ${token.token}`,
@@ -383,7 +393,7 @@ function seedAccessPolicy(): void {
     };
     const response = http.post(
         `${API_URL}/access_policy`,
-        JSON.stringify(ACCESS_POLICY_ROWS),
+        JSON.stringify(rows),
         { headers, tags: { name: "seed_access_policy" } },
     ) as K6Response;
     check(response, {
@@ -391,6 +401,10 @@ function seedAccessPolicy(): void {
             item.status === 201 || item.status === 409,
     });
 }
+
+const SECOND_ACCESS_POLICY_ROWS = [
+    { subject: "test_user_2", unit_type: "unit", unit_id: "unit_2" },
+];
 
 const SETUP_ATTEMPTS = 6;
 const SETUP_RETRY_SECONDS = 5;
@@ -538,10 +552,11 @@ function readableSnapshots(token: string): string[] {
 /** Fetches tokens for every test user before the load test starts. */
 export function setup(): SetupData {
     const k8s = new Kubernetes();
-    seedAccessPolicy();
+    seedAccessPolicy(ACCESS_POLICY_ROWS);
     const tokens = CLIENT_IDS.map((id) => fetchToken(id));
     waitForLocalTables(tokens[0].token);
     verifyNoAccess();
+    seedAccessPolicy(SECOND_ACCESS_POLICY_ROWS);
     return {
         tokens,
         bigqueryDates: bigqueryDates(tokens[0].token),
@@ -719,7 +734,11 @@ export function observeScaling(data: SetupData): void {
             try {
                 const deployment = k8s.get("Deployment.apps", name, NAMESPACE) as ScaleDeployment;
                 const replicas = deployment.spec.replicas || 0;
-                if (replicas > data.replicaBaseline[name] && !observed[name]) {
+                if (
+                    replicas > data.replicaBaseline[name] &&
+                    (deployment.status?.availableReplicas || 0) >= replicas &&
+                    !observed[name]
+                ) {
                     observed[name] = true;
                     scalingEvents.add(1, { deployment: name });
                     console.log(`Autoscaling observed: ${name} ${data.replicaBaseline[name]} -> ${replicas}`);
