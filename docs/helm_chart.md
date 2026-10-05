@@ -63,8 +63,8 @@ The chart sets `HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy ro
 To change the mode, run one upgrade in either direction:
 
 ```sh
-helm upgrade data-proxy helm --set ha.enabled=true
-helm upgrade data-proxy helm --set ha.enabled=false
+helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=true
+helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=false
 ```
 
 Only the read-write database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.

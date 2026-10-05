@@ -5,7 +5,6 @@ use ./lib.nu [
     execute-sql
     fail
     schema-list
-    sync-config
 ]
 
 # Run DuckLake snapshot and file maintenance for one schema.

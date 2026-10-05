@@ -17,7 +17,7 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 - [Helm Chart](docs/helm_chart.md)—chart installation, storage, upgrades, ingress, and fallback configuration.
 - [Metrics](docs/metrics.md)—worker metrics, proxy logs, load limits, and Pushgateway scraping.
 - [Backups](docs/backups.md)—encrypted `access_policy` backups and recovery.
-- [Development](docs/development.md)—local Minikube setup and k6 commands.
+- [Development](docs/development.md)—local k3d setup and k6 commands.
 
 ## License
 

@@ -13,6 +13,8 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `SYNC_CONFIG_PATH` | `config/sync.json` | Sync configuration path. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | unset | BigQuery credentials file. Omit with Workload Identity. |
 
+`schemas.<schema>.source` contains only non-secret source configuration. Put BigQuery and future source credentials in environment variables or Kubernetes Secrets.
+
 ## S3 and DuckLake
 
 | Variable | Default | Meaning |

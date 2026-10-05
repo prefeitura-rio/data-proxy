@@ -210,6 +210,26 @@ tests:
           value: data-proxy-postgrest
         template: scaledobjects.yaml
 
+  - it: mounts the manifests trigger ConfigMap when enabled
+    set:
+      sync.trigger.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sync-trigger
+            configMap:
+              name: manifests-sync-trigger-script
+              defaultMode: 0555
+        template: deployment-sync.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sync-trigger
+            mountPath: /scripts
+            readOnly: true
+        template: deployment-sync.yaml
+
   - it: renders maintenance CronJob when enabled
     set:
       jobs.maintenance.enabled: true

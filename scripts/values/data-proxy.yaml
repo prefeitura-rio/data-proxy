@@ -1,7 +1,9 @@
 sync:
   replicas: 2
-  image: localhost/data-proxy-sync:local
-  imagePullPolicy: IfNotPresent
+  image: registry.localhost:5001/data-proxy-sync:local
+  imagePullPolicy: Always
+  trigger:
+    enabled: true
   dumper:
     visibilityTimeoutMs: 60000
     batchMegaBytes: 60000
@@ -57,7 +59,7 @@ sync:
               - column: unit_id
                 unit_type: unit
 jobs:
-  image: localhost/data-proxy-jobs:local
+  image: registry.localhost:5001/data-proxy-jobs:local
   backup:
     enabled: true
     s3:
@@ -112,10 +114,10 @@ swaggerUi:
 ducklake:
   litestream:
     storage:
-      storageClass: standard
+      storageClass: k3d-rwx
 proxy:
   cacheTtl: 5
-  image: localhost/data-proxy-proxy:local
+  image: registry.localhost:5001/data-proxy-proxy:local
 cnpg:
   pooler:
     poolSize: 50
@@ -126,10 +128,10 @@ cnpg:
   password: test-pg-pass
   authenticatorPassword: test-auth-pass
   init:
-    image: localhost/data-proxy-jobs:local
+    image: registry.localhost:5001/data-proxy-jobs:local
   mode: shared
   instances: 1
-  image: localhost/data-proxy-postgres:17.0.0-local
+  image: registry.localhost:5001/data-proxy-postgres:17.0.0-local
   storage:
     size: 2Gi
   autoscaling:

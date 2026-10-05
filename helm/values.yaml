@@ -12,6 +12,10 @@ sync:
   ## Container image for the DBOS sync workers.
   image: ghcr.io/prefeitura-rio/data-proxy-sync:caa0da9
   imagePullPolicy: IfNotPresent
+  ## Mount the local manifests sync-trigger ConfigMap in sync workers.
+  trigger:
+    enabled: false
+    configMap: manifests-sync-trigger-script
   ## Cron expression for the DBOS sync schedule.
   ## Default: daily at 02:00 UTC.
   schedule: 0 2 * * *
@@ -165,7 +169,7 @@ ducklake:
     ## Shared catalog volume used by writer and reader PVCs.
     storage:
       size: 1Gi
-      ## Required RWX StorageClass. Use minikube-rwx locally, filestore-rwx in GKE.
+      ## Required RWX StorageClass. Use k3d-rwx locally, filestore-rwx in GKE.
       storageClass: ""
       accessMode: ReadWriteMany
 ## SeaweedFS object store, deployed as a subchart.

@@ -1,4 +1,5 @@
 helmDefaults:
+  createNamespace: true
   wait: true
   timeout: 900
   syncArgs:
@@ -13,70 +14,63 @@ repositories:
     url: https://grafana.github.io/helm-charts
   - name: istio
     url: https://istio-release.storage.googleapis.com/charts
-  - name: bedag
-    url: https://bedag.github.io/helm-charts/
   - name: cloudpirates
     url: https://cloudpirates-io.github.io/helm-charts/
 
 releases:
   - name: cnpg
     namespace: cnpg-system
-    createNamespace: true
     chart: cnpg/cloudnative-pg
     version: 0.29.1
-    wait: true
-    timeout: 900
+
+  - name: manifests
+    namespace: data-proxy
+    chart: ./scripts/manifests
+    values:
+      - redisSecret:
+          enabled: true
+        storage:
+          enabled: true
+        trigger:
+          enabled: true
+        gateway:
+          enabled: false
 
   - name: valkey
     namespace: data-proxy
-    createNamespace: true
     chart: oci://registry-1.docker.io/cloudpirates/valkey
     version: 0.17.0
-    wait: true
-    timeout: 900
+    needs:
+      - data-proxy/manifests
     values:
-        - scripts/values/valkey.yaml
+      - scripts/values/valkey.yaml
 
   - name: keda
     namespace: keda
-    createNamespace: true
     chart: keda/keda
     version: 2.18.3
-    wait: true
-    timeout: 900
 
   - name: k6-operator
     namespace: k6-operator-system
-    createNamespace: true
     chart: grafana/k6-operator
     version: 4.6.0
-    wait: true
-    timeout: 900
 
   - name: istio-base
     namespace: istio-system
-    createNamespace: true
     chart: istio/base
     version: 1.27.1
-    wait: true
-    timeout: 900
 
   - name: istiod
     namespace: istio-system
     chart: istio/istiod
     version: 1.27.1
-    wait: true
-    timeout: 900
     needs:
         - istio-system/istio-base
 
   - name: istio-ingressgateway
     namespace: istio-ingress
-    createNamespace: true
     chart: istio/gateway
     version: 1.27.1
-    wait: true
-    timeout: 900
     needs:
       - istio-system/istio-base
       - istio-system/istiod
@@ -84,22 +78,51 @@ releases:
       - service:
           type: NodePort
 
-  - name: data-proxy-gateway
+  - name: manifests-gateway
     namespace: istio-system
-    chart: bedag/raw
-    wait: true
-    timeout: 900
+    chart: ./scripts/manifests
     needs:
       - istio-ingress/istio-ingressgateway
     values:
-      - scripts/values/gateway.yaml
+      - redisSecret:
+          enabled: false
+        storage:
+          enabled: false
+        cleanup:
+          enabled: false
+        gateway:
+          enabled: true
 
   - name: keycloak
     namespace: keycloak
-    createNamespace: true
     chart: cloudpirates/keycloak
     version: 0.21.41
-    wait: true
-    timeout: 900
     values:
       - scripts/values/keycloak.yaml
+
+  - name: data-proxy
+    namespace: data-proxy
+    chart: ./helm
+    needs:
+      - cnpg-system/cnpg
+      - data-proxy/manifests
+      - data-proxy/valkey
+      - istio-system/istiod
+      - istio-system/manifests-gateway
+      - keda/keda
+      - keycloak/keycloak
+    values:
+      - scripts/values/data-proxy.yaml
+      - scripts/values/images.yaml.gotmpl
+    hooks:
+      - events:
+          - postsync
+        showlogs: true
+        command: kubectl
+        args:
+          - --namespace
+          - data-proxy
+          - wait
+          - --for=jsonpath={.status.phase}=Cluster in healthy state
+          - cluster/data-proxy
+          - --timeout=10m

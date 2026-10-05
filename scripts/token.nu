@@ -1,10 +1,9 @@
 use std/log
-use ./lib.nu [fail]
+use ./lib.nu [fail local-kubeconfig wrap-kubectl]
 
 # Fetch a test OIDC token and print export and curl commands for local testing.
 def main []: nothing -> nothing {
-    try { kubectl config use-context data-proxy } catch { null }
-
+    let kubecfg = local-kubeconfig
     let args = [
         run
         data-proxy-token-client
@@ -31,7 +30,7 @@ def main []: nothing -> nothing {
     ]
 
     let token = try {
-        kubectl ...$args
+        wrap-kubectl $kubecfg ...$args
         | from json
         | get access_token
     } catch {|err| fail $"Failed to fetch token: ($err.msg)" {

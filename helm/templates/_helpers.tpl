@@ -476,7 +476,7 @@ duckdb-secrets
   value: {{ include "data-proxy.poolerDeployments" . | quote }}
 - name: POSTGREST_DEPLOYMENTS
   value: {{ include "data-proxy.postgrestDeployments" . | quote }}
-- name: POSTGREST_ROLLOUT_TIMEOUT_SECONDS
+- name: DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS

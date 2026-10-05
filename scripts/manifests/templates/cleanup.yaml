@@ -1,0 +1,93 @@
+{{- if .Values.cleanup.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: manifests-cleanup
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manifests-cleanup
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+      - jobs
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - clusters
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: manifests-cleanup
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: manifests-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: manifests-cleanup
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: manifests-cleanup
+  namespace: {{ .Release.Namespace }}
+data:
+  cleanup.nu: |
+{{ .Files.Get "files/cleanup.nu" | indent 4 }}
+  cleanup.sql: |
+{{ .Files.Get "files/cleanup.sql" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: manifests-cleanup
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 0 31 2 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          serviceAccountName: manifests-cleanup
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: {{ .Values.cleanup.image | quote }}
+              imagePullPolicy: Always
+              command:
+                - nu
+                - /scripts/cleanup.nu
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: manifests-cleanup
+                defaultMode: 0555
+{{- end }}

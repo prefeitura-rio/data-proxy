@@ -1,0 +1,44 @@
+{{- if .Values.storage.enabled }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storage.className }}
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: Immediate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-proxy-catalog-writer
+spec:
+  capacity:
+    storage: {{ .Values.storage.size }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: {{ .Values.storage.className }}
+  claimRef:
+    namespace: data-proxy
+    name: data-proxy-catalog-writer
+  hostPath:
+    path: /var/lib/data-proxy/catalogs/writer
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-proxy-catalog-reader
+spec:
+  capacity:
+    storage: {{ .Values.storage.size }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: {{ .Values.storage.className }}
+  claimRef:
+    namespace: data-proxy
+    name: data-proxy-catalog-reader
+  hostPath:
+    path: /var/lib/data-proxy/catalogs/reader
+    type: DirectoryOrCreate
+{{- end }}

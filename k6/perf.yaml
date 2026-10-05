@@ -54,7 +54,7 @@ spec:
       name: data-proxy-k6
       file: perf.ts
   runner:
-    image: localhost/k6:local
+    image: registry.localhost:5001/k6:local
     serviceAccountName: data-proxy-k6
     automountServiceAccountToken: "true"
     resources:

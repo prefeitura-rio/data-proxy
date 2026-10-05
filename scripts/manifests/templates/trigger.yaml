@@ -1,0 +1,81 @@
+{{- if .Values.trigger.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: manifests-sync-trigger-sa
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manifests-sync-trigger-role
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: manifests-sync-trigger-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: manifests-sync-trigger-role
+subjects:
+  - kind: ServiceAccount
+    name: manifests-sync-trigger-sa
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: manifests-sync-trigger-script
+  namespace: {{ .Release.Namespace }}
+data:
+  trigger.py: |
+{{ .Files.Get "files/trigger.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: manifests-sync-trigger
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 0 31 2 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          serviceAccountName: manifests-sync-trigger-sa
+          restartPolicy: Never
+          containers:
+            - name: trigger
+              image: {{ .Values.trigger.image | quote }}
+              imagePullPolicy: Always
+              command: [kubectl, -n, data-proxy, exec, deployment/data-proxy-sync, -c, sync, --, python, /scripts/trigger.py]
+{{- end }}

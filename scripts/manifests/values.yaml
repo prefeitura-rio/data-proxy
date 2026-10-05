@@ -1,0 +1,19 @@
+redisSecret:
+  enabled: true
+  password: valkey-local
+storage:
+  enabled: true
+  className: k3d-rwx
+  size: 1Gi
+gateway:
+  enabled: false
+  name: data-proxy-gateway
+  namespace: istio-system
+  selector: ingressgateway
+  host: data-proxy.local
+cleanup:
+  enabled: true
+  image: registry.localhost:5001/data-proxy-jobs:local
+trigger:
+  enabled: false
+  image: registry.localhost:5001/data-proxy-jobs:local

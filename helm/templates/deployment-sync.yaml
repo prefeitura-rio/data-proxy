@@ -38,11 +38,22 @@ spec:
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
+            {{- if .Values.sync.trigger.enabled }}
+            - name: sync-trigger
+              mountPath: /scripts
+              readOnly: true
+            {{- end }}
             - name: catalogs
               mountPath: {{ .Values.ducklake.catalogLocalPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
+        {{- if .Values.sync.trigger.enabled }}
+        - name: sync-trigger
+          configMap:
+            name: {{ .Values.sync.trigger.configMap }}
+            defaultMode: 0555
+        {{- end }}
         - name: catalogs
           persistentVolumeClaim:
             claimName: {{ include "data-proxy.fullname" . }}-catalog-writer

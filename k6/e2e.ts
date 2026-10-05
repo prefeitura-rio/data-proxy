@@ -53,7 +53,7 @@ const POSTGREST_URL =
 const POSTGREST_READ_URL =
     __ENV.POSTGREST_READ_URL ||
     "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
-const PG_IMAGE = __ENV.PG_IMAGE || "localhost/data-proxy-postgres:17.0.0-local";
+const PG_IMAGE = __ENV.PG_IMAGE || "registry.localhost:5001/data-proxy-postgres:17.0.0-local";
 const PARTITIONED_SOURCE =
     __ENV.PARTITIONED_SOURCE ||
     "rj-ia-desenvolvimento.dev.partitioned_table";
@@ -70,16 +70,10 @@ const STATE_DATABASE = "DBOS_SYSTEM_DATABASE_URL";
 const POLL_INTERVAL = 2;
 const TOKEN_REFRESH_SECONDS = 60;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
-const SUITE = __ENV.SUITE || "full";
 const MODE = __ENV.MODE || "single";
-if (["e2e", "ha", "full"].indexOf(SUITE) === -1) {
-    throw new Error(`SUITE must be e2e, ha, or full: ${SUITE}`);
-}
 if (["single", "ha"].indexOf(MODE) === -1) {
     throw new Error(`MODE must be single or ha: ${MODE}`);
 }
-const RUN_E2E = SUITE !== "ha";
-const RUN_MODES = SUITE !== "e2e";
 const EXPECT_HA = MODE === "ha";
 const MODE_TIMEOUT_SECONDS = Number(__ENV.MODE_TIMEOUT_SECONDS || "900");
 const CLUSTER_NAME = __ENV.CLUSTER_NAME || "data-proxy";
@@ -1738,8 +1732,8 @@ function verifyEndToEnd(k8s: Kubernetes): void {
 export default function(): void {
     const k8s = new Kubernetes();
     try {
-        if (RUN_E2E) verifyEndToEnd(k8s);
-        if (RUN_MODES) verifyMode(k8s, EXPECT_HA);
+        verifyEndToEnd(k8s);
+        verifyMode(k8s, EXPECT_HA);
     } catch (error) {
         expect("the suite ends without an exception", false);
         throw error;

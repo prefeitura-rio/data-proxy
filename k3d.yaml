@@ -1,0 +1,37 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: data-proxy
+servers: 1
+agents: 2
+image: rancher/k3s:v1.34.7-k3s1
+network: data-proxy
+volumes:
+  - volume: ./.k3d/catalogs:/var/lib/data-proxy/catalogs
+    nodeFilters:
+      - server:*
+      - agent:*
+kubeAPI:
+  host: 127.0.0.1
+  hostPort: "6445"
+registries:
+  use:
+    - k3d-registry:5000
+  config: |
+    mirrors:
+      "registry.localhost:5001":
+        endpoint:
+          - http://k3d-registry:5000
+options:
+  k3d:
+    wait: true
+    timeout: 5m
+    disableLoadbalancer: true
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false

@@ -1,17 +1,19 @@
 # Local Development
 
-The local stack runs on Minikube with Podman and Helm.
+The local stack runs on k3d with Podman and Helm.
 
 ## Prerequisites
 
-Install Minikube, Podman, `kubectl`, Helm, and Google Cloud CLI when using BigQuery.
+Install k3d, Podman, `kubectl`, Helm, and Google Cloud CLI when using BigQuery. Ensure the existing Podman network has DNS enabled and the Podman Docker-compatible socket variables are available in the shell that runs k3d.
 
 ```bash
 devenv --profile default shell
 cluster up
 ```
 
-The script writes credentials to the ignored repository `.kubeconfig`. It doesn't change the user kubeconfig.
+The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for DuckLake catalogs.
+
+The script writes the k3d credentials to the ignored repository `.kubeconfig`. It does not change the user kubeconfig.
 
 Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the pg_duckdb extension, Valkey, PostgREST, and Data Proxy.
 
@@ -61,18 +63,16 @@ See [Using the API](using.md).
 
 ## k6 commands
 
-| Command             | Purpose                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, snapshots, and modes.  |
-| `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.    |
-| `cluster k6 load`   | Holds the local peak of 100 req/s for 25 minutes.           |
-| `cluster k6 spike`  | Bursts to 3× local peak, then verifies recovery.            |
-| `cluster k6 stress` | Steps to 200 req/s to find the local breaking point.         |
-| `cluster k6 soak`   | Holds 65% of local peak for an hour to surface leaks and drift. |
+| Command             | Purpose                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, snapshots, and mode. |
+| `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.  |
+| `cluster k6 load`   | Holds the local peak of 100 req/s for 25 minutes.         |
+| `cluster k6 stress` | Steps to 200 req/s to find the local breaking point.      |
 
 Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaults to 100 HTTP requests per second. Because the arrival-rate executor counts iterations and a BigQuery iteration makes two requests, the profile converts the request rate into an iteration rate internally. Override the peak with `K6_PEAK_RATE`, and the traffic mix with `K6_BIGQUERY_SHARE` and `K6_BOTTLENECK_SHARE` (both default to `0.05`). Staging capacity runs set a higher peak outside the local node.
 
-`cluster k6 smoke`, `cluster k6 load`, `cluster k6 spike`, `cluster k6 stress`, and `cluster k6 soak` set the requested mode before the test: `helm upgrade --set ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helm upgrade and waits for readiness. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
+`cluster k6 smoke`, `cluster k6 load`, and `cluster k6 stress` set the requested mode before the test: Helmfile applies `ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helmfile sync and waits for readiness. Before k6 starts, the command creates a one-off Job from the Helmfile-managed `manifests-sync-trigger` CronJob. This runs one normal DBOS sync to restore data that an earlier E2E run removed. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
 
 ### Performance thresholds
 
@@ -101,15 +101,9 @@ The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_BIGQUERY_SHARE`, and 
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
 
-`cluster k6 e2e --mode` picks the suite:
+`cluster k6 e2e` verifies the existing release is ready, clears persisted test state, builds and pushes all local images, deploys single mode, then runs the full E2E suite and verifies the single-mode topology. `cluster k6 e2e --ha` follows the same sequence with HA mode. The command does not transition between modes; a later invocation selects and applies its own requested mode.
 
-| `--mode`         | Runs                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| `full` (default) | The main suite, then a switch to HA mode and back to single mode, with a check in each mode.   |
-| `e2e`            | The main suite only.                                                                           |
-| `ha`             | The switch to HA mode and back, with a check in each mode.                                     |
-
-The suite becomes the `SUITE` variable of `k6/e2e.yaml`. `MODE` (`single` or `ha`) names the mode that an `ha` check expects. Every suite ends in single mode.
+`MODE` in `k6/e2e.yaml` is `single` or `ha` and identifies the topology that the mode checks verify.
 
 ## Development checks
 

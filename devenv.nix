@@ -195,7 +195,7 @@ in
           ast-grep
           kubecolor
           k6
-          minikube
+          k3d
           seaweedfs
           (google-cloud-sdk.withExtraComponents (
             with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]

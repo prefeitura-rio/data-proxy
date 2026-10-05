@@ -89,7 +89,9 @@ mapping = {"table": Identifier(schema, name), "limit": Literal(n)}
 
 - PostgreSQL reads Parquet from object storage through `pg_duckdb`. Don't download it first.
 - DuckDB writes one `COPY (...) TO ... (FORMAT PARQUET)` for each dump task.
-- Read BigQuery data with `bigquery_scan` and partition predicates. Read metadata with the BigQuery client.
+- Put synchronization source behavior behind a `Source` adapter. Only the BigQuery adapter may use `bigquery_scan` or the BigQuery client.
+- Give each `Source` adapter a Pydantic model for non-secret `source.settings`. Reject unknown, invalid, or empty settings when the registry creates the adapter.
+- Keep `Source` construction side-effect free. Create external clients lazily and close them through the adapter lifecycle.
 - Use a service account or Workload Identity. Don't put credentials in an image.
 
 ## State
@@ -113,7 +115,7 @@ Put each test at the lowest level that can prove the behavior. Don't repeat a ch
 | ----------- | --------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Unit        | `tests/unit/`, `proxy/proxy.test.ts`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB              | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
 | Integration | `tests/integration/`                                | Testcontainers: PostgreSQL with pg_duckdb, Silo (S3), Valkey   | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
-| E2E         | `k6/e2e.ts`, `k6/perf.ts`                           | The deployed minikube cluster (`nu scripts/cluster.nu k6 e2e`) | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
+| E2E         | `k6/e2e.ts`, `k6/perf.ts`                           | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`) | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
 
 - Unit tests don't start containers or open network connections.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
@@ -166,8 +168,3 @@ Migration:
 - Deploy the DBOS worker before you enable scheduled syncs.
 - Verify the DBOS system database is reachable.
 ```
-
-## Planning
-
-- Propose a plan before a change with a real blast radius: new dependencies, cross-file renames, schema changes, or infrastructure changes.
-- Wording fixes and small documentation changes don't need a plan.

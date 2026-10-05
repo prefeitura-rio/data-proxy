@@ -199,7 +199,7 @@ tests:
         schemas:
           app:
             tables: []
-      ducklake.litestream.storage.storageClass: minikube-rwx
+      ducklake.litestream.storage.storageClass: k3d-rwx
     asserts:
       - matchRegex:
           path: metadata.annotations["cnpg.io/podPatch"]

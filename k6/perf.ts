@@ -3,7 +3,7 @@ import type { RequestParams, Response as K6Response } from "k6/http";
 import { check, sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
 import { Counter, Rate, Trend } from "k6/metrics";
-import { NAMESPACE, triggerSync, waitForJob } from "./lib.ts";
+import { NAMESPACE } from "./lib.ts";
 
 declare const __ENV: Record<string, string | undefined>;
 
@@ -28,10 +28,9 @@ type Route = {
 };
 type Stage = { target: number; duration: string };
 type Profile = {
-    executor: "ramping-vus" | "ramping-arrival-rate" | "constant-arrival-rate";
+    executor: "ramping-vus" | "ramping-arrival-rate";
     stages?: Stage[];
     duration?: string;
-    rate?: number;
     startRate?: number;
     timeUnit?: string;
     preAllocatedVUs?: number;
@@ -104,21 +103,6 @@ const PROFILES: Record<string, Profile> = {
             { target: 0, duration: "60s" },
         ],
     },
-    spike: {
-        executor: "ramping-arrival-rate",
-        startRate: 0,
-        timeUnit: "1s",
-        preAllocatedVUs: PEAK_ITERATIONS,
-        maxVUs: PEAK_ITERATIONS * 6,
-        duration: "550s",
-        stages: [
-            { target: iterationsForPeak(0.2), duration: "60s" },
-            { target: iterationsForPeak(3), duration: "10s" },
-            { target: iterationsForPeak(3), duration: "120s" },
-            { target: iterationsForPeak(0.2), duration: "300s" },
-            { target: 0, duration: "60s" },
-        ],
-    },
     stress: {
         executor: "ramping-arrival-rate",
         startRate: 0,
@@ -133,14 +117,6 @@ const PROFILES: Record<string, Profile> = {
             { target: iterationsForPeak(2), duration: "180s" },
             { target: 0, duration: "30s" },
         ],
-    },
-    soak: {
-        executor: "constant-arrival-rate",
-        rate: iterationsForPeak(0.65),
-        timeUnit: "1s",
-        preAllocatedVUs: PEAK_ITERATIONS,
-        maxVUs: PEAK_ITERATIONS * 2,
-        duration: "1h",
     },
 };
 
@@ -183,7 +159,7 @@ const sourceThresholds: Record<string, string[]> = gateClientRisk
 
 const scalingEvents = new Counter("autoscaling_events");
 
-if (K6_PROFILE === "stress" || K6_PROFILE === "soak") {
+if (K6_PROFILE === "stress") {
     sourceThresholds.checks = ["rate>0.95"];
     sourceThresholds.load_request_failed = ["rate<0.05"];
     sourceThresholds.http_req_failed = ["rate<0.05"];
@@ -192,7 +168,7 @@ if (K6_PROFILE === "stress" || K6_PROFILE === "soak") {
 const runsScalingObserver = profile.executor !== "ramping-vus" && HA_MODE;
 
 const isArrivalRate = profile.executor !== "ramping-vus";
-const gatesAutoscaling = K6_PROFILE === "stress" || K6_PROFILE === "soak";
+const gatesAutoscaling = K6_PROFILE === "stress";
 
 if (isArrivalRate) {
     sourceThresholds.dropped_iterations = ["count==0"];
@@ -202,19 +178,8 @@ if (runsScalingObserver && gatesAutoscaling) {
 }
 
 function buildScenarios(): Record<string, unknown> {
-    const built: Record<string, unknown> = {};
-
-    if (profile.executor === "constant-arrival-rate") {
-        built.default = {
-            executor: profile.executor,
-            rate: profile.rate,
-            timeUnit: profile.timeUnit,
-            duration: profile.duration,
-            preAllocatedVUs: profile.preAllocatedVUs,
-            maxVUs: profile.maxVUs,
-        };
-    } else {
-        built.default = {
+    const built: Record<string, unknown> = {
+        default: {
             executor: profile.executor,
             stages: profile.stages ?? [],
             ...(profile.executor === "ramping-arrival-rate"
@@ -225,8 +190,8 @@ function buildScenarios(): Record<string, unknown> {
                     maxVUs: profile.maxVUs,
                 }
                 : {}),
-        };
-    }
+        },
+    };
 
     if (runsScalingObserver) {
         built.scaling_observer = {
@@ -573,7 +538,6 @@ function readableSnapshots(token: string): string[] {
 /** Fetches tokens for every test user before the load test starts. */
 export function setup(): SetupData {
     const k8s = new Kubernetes();
-    waitForJob(k8s, triggerSync(k8s));
     seedAccessPolicy();
     const tokens = CLIENT_IDS.map((id) => fetchToken(id));
     waitForLocalTables(tokens[0].token);
