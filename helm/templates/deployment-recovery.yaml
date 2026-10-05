@@ -20,6 +20,31 @@ spec:
         app.kubernetes.io/component: recovery
     spec:
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.jobs.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [nu, /scripts/wait-for-postgres.nu]
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.auth.authenticatorRole | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.authenticatorSecretName" . }}
+                  key: password
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
       containers:
         - name: recovery
           image: {{ .Values.jobs.image | quote }}
@@ -47,6 +72,8 @@ spec:
             items:
               - key: recover-workflows.nu
                 path: recover-workflows.nu
+              - key: wait-for-postgres.nu
+                path: wait-for-postgres.nu
               - key: lib.nu
                 path: lib.nu
 {{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}

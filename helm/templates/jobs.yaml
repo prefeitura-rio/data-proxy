@@ -1,3 +1,175 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-configure-db-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure-db
+data:
+  configure-db.nu: |
+{{ .Files.Get "files/configure-db.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/lib.nu" | nindent 4 }}
+  wait-for-postgres.nu: |
+{{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
+  fetch-jwks.nu: |
+{{ .Files.Get "files/fetch-jwks.nu" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-configure-db-sql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure-db
+data:
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+  {{ base (dir $path) }}_{{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-configure-db-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure-db
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: configure-db
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      initContainers:
+        {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
+      containers:
+        - name: configure-db
+          image: {{ .Values.jobs.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [nu, /scripts/configure-db.nu]
+          workingDir: /scripts
+          env:
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: password
+            - name: PG_DATABASE_URL
+              value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.cnpg.db.user | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: password
+            - name: AUTH_ANON_ROLE
+              value: {{ .Values.auth.anonRole | quote }}
+            - name: AUTH_USER_ROLE
+              value: {{ .Values.auth.userRole | quote }}
+            - name: AUTH_AUTHENTICATOR_ROLE
+              value: {{ .Values.auth.authenticatorRole | quote }}
+            - name: DBOS_APPLICATION_NAME
+              value: {{ .Values.sync.dbos.applicationName | quote }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.s3SecretName" . }}
+                  key: S3_SECRET_KEY
+            - name: S3_ENDPOINT
+              value: {{ include "data-proxy.s3Endpoint" . | quote }}
+            - name: S3_USE_SSL
+              value: {{ .Values.s3.useSsl | quote }}
+            - name: SYNC_CONFIG_PATH
+              value: /config/sync.json
+            - name: SQL_TEMPLATE_DIR
+              value: /templates
+          volumeMounts:
+            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
+            - name: configure-db-script
+              mountPath: /scripts
+              readOnly: true
+            - name: configure-db-sql
+              mountPath: /templates
+              readOnly: true
+      volumes:
+        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+        - name: configure-db-script
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-configure-db-script
+            defaultMode: 0555
+        - name: configure-db-sql
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-configure-db-sql
+            defaultMode: 0444
+            items:
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+              - key: {{ base $path }}
+                path: {{ base $path }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+              - key: {{ base (dir $path) }}_{{ base $path }}
+                path: {{ base (dir $path) }}/{{ base $path }}
+{{- end }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-s3-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3-bootstrap
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: s3-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: {{ .Values.jobs.image | quote }}
+          command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, {{ if .Values.s3.bootstrap.createIfMissing }}--create{{ else }}--wait{{ end }}]
+          env:
+            {{- include "data-proxy.s3BootstrapEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: s3-bootstrap
+              mountPath: /s3-bootstrap
+              readOnly: true
+      volumes:
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+
+---
 {{- if .Values.jobs.backup.enabled }}
 {{- $root := . }}
 {{- range $schema, $_ := .Values.sync.config.schemas }}
@@ -31,6 +203,8 @@ spec:
             data-proxy.io/schema: {{ $schema | quote }}
         spec:
           restartPolicy: Never
+          initContainers:
+            {{- include "data-proxy.backupS3WaitInitContainer" $root | nindent 12 }}
           containers:
             - name: backup
               image: {{ $root.Values.jobs.image | quote }}
@@ -113,6 +287,7 @@ spec:
                 claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
                 readOnly: true
             {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
+            {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
 {{- end }}
 {{- end }}
 ---
@@ -142,6 +317,8 @@ spec:
             app.kubernetes.io/component: maintenance
         spec:
           restartPolicy: Never
+          initContainers:
+            {{- include "data-proxy.s3WaitInitContainer" $root | nindent 12 }}
           containers:
             - name: maintenance
               image: {{ $root.Values.jobs.image | quote }}
@@ -223,4 +400,5 @@ spec:
               persistentVolumeClaim:
                 claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
                 readOnly: true
+            {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
 {{- end }}

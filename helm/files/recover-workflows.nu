@@ -29,7 +29,7 @@ def live-executor-ids []: nothing -> list<string> {
 # Run one orphaned-workflow recovery scan.
 def recover-orphaned-workflows []: nothing -> nothing {
     let executor_ids = live-executor-ids
-    log info $'Workflow recovery scan started live_executors=($executor_ids | length)'
+    log info $'Workflow recovery scan started: live_executors=($executor_ids | length) executor_ids=($executor_ids | to json) grace=($env.DBOS_RECOVERY_GRACE_SECONDS)sec'
 
     execute-sql postgres/call_recover_orphaned_workflows.sql {
         schema: $env.DBOS_APP_SCHEMA
@@ -37,17 +37,22 @@ def recover-orphaned-workflows []: nothing -> nothing {
         grace_seconds: $env.DBOS_RECOVERY_GRACE_SECONDS
     }
 
-    log info $'Workflow recovery procedure completed live_executors=($executor_ids | length)'
+    log info $'Workflow recovery scan completed: live_executors=($executor_ids | length)'
 }
 
 def main []: nothing -> nothing {
     let interval = $'($env.DBOS_RECOVERY_INTERVAL_SECONDS)sec' | into duration
 
+    log info $'Workflow recovery started: interval=($interval) grace=($env.DBOS_RECOVERY_GRACE_SECONDS)sec'
+
     loop {
         try {
             recover-orphaned-workflows
-        } catch {|err| log error $'Workflow recovery failed: ($err.msg)' }
-
+        } catch {|err|
+            log error $'Workflow recovery failed: exiting=true error=($err.msg)'
+            error make $err.raw
+        }
+        log info $'Workflow recovery is waiting: sleep=($interval)'
         sleep $interval
     }
 }

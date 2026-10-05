@@ -15,6 +15,8 @@ data:
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
   recover-workflows.nu: |
 {{ .Files.Get "files/recover-workflows.nu" | nindent 4 }}
+  wait-for-postgres.nu: |
+{{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
 {{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | nindent 4 }}

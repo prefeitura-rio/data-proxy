@@ -44,7 +44,7 @@ def ducklake-maintenance [schema: string]: any -> string {
 }
 
 def main []: nothing -> nothing {
-    log info 'Maintenance started'
+    log info 'Database maintenance started'
 
     let config = sync-config
 
@@ -57,5 +57,5 @@ def main []: nothing -> nothing {
         ducklake-maintenance $schema
     }
 
-    log info 'Maintenance completed'
+    log info 'Database maintenance completed'
 }

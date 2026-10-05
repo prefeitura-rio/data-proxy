@@ -1,15 +1,7 @@
 suite: Backup CronJob
 templates:
-  - cronjobs.yaml
+  - jobs.yaml
 tests:
-  - it: does not render when backup is disabled
-    set:
-      jobs.backup.enabled: false
-      jobs.maintenance.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: renders one schema backup with the configured schedule and image
     set:
       jobs.backup.enabled: true

@@ -9,7 +9,7 @@ def is-non-empty-string [value: string]: nothing -> bool {
 def main []: nothing -> nothing {
     let jwks_file = '/etc/postgrest/jwks.json'
 
-    log info $'Fetching JWKS from ($env.JWKS_URI)'
+    log info 'JWKS retrieval started'
 
     try {
         let jwks = http get $env.JWKS_URI
@@ -30,7 +30,7 @@ def main []: nothing -> nothing {
         }
 
         $jwks | to json | save --force $jwks_file
-        log info 'JWKS fetched and validated'
+        log info 'JWKS retrieval completed'
     } catch {|err| fail $'JWKS fetch failed: ($err.msg)' {
             command: main
             span: (metadata $env.JWKS_URI).span

@@ -109,6 +109,24 @@ tests:
           path: spec.template.spec.containers[0].command
           value: [nu, /projected/recover-catalogs.nu, --read]
         template: deployment-litestream.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CATALOG_RECOVERY_TIMEOUT
+            value: 30min
+        template: deployment-litestream.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CATALOG_RECOVERY_RETRY
+            value: 5sec
+        template: deployment-litestream.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CATALOG_RECOVERY_KEEPALIVE
+            value: 1hr
+        template: deployment-litestream.yaml
       - equal:
           path: spec.template.spec.containers[1].name
           value: replicate
@@ -170,6 +188,10 @@ tests:
       - matchRegex:
           path: data["recover-catalogs.nu"]
           pattern: "set-permissions '777'"
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["recover-catalogs.nu"]
+          pattern: "duckdb-secrets"
         template: configmap-litestream.yaml
       - matchRegex:
           path: data["recover-catalogs.nu"]

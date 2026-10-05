@@ -3,18 +3,34 @@ templates:
   - deployment-sync.yaml
   - deployment-recovery.yaml
   - scaledobjects.yaml
-  - job-init-db.yaml
-  - cronjobs.yaml
+  - jobs.yaml
 tests:
-  - it: creates init-db as a revision-specific Job
+  - it: renders the mandatory S3 bootstrap Job
+    set:
+      s3.bootstrap.createIfMissing: true
     asserts:
       - isKind:
           of: Job
         documentSelector:
           path: metadata.name
-          value: data-proxy-init-db-0
-        template: job-init-db.yaml
+          value: data-proxy-s3-bootstrap
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --create]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3-bootstrap
+        template: jobs.yaml
 
+  - it: creates configure-db as a revision-specific Job
+    asserts:
+      - isKind:
+          of: Job
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-0
+        template: jobs.yaml
   - it: sync Deployment uses the correct image and command
     asserts:
       - isKind:
@@ -61,6 +77,10 @@ tests:
           value: 1
         template: deployment-recovery.yaml
       - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: [nu, /scripts/wait-for-postgres.nu]
+        template: deployment-recovery.yaml
+      - equal:
           path: spec.template.spec.containers[0].command
           value: [nu, /scripts/recover-workflows.nu]
         template: deployment-recovery.yaml
@@ -75,6 +95,12 @@ tests:
           content:
             name: SQL_TEMPLATE_DIR
             value: /scripts
+        template: deployment-recovery.yaml
+      - contains:
+          path: spec.template.spec.volumes[0].configMap.items
+          content:
+            key: wait-for-postgres.nu
+            path: wait-for-postgres.nu
         template: deployment-recovery.yaml
 
 
@@ -239,13 +265,4 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-maintenance
-        template: cronjobs.yaml
-
-  - it: does not render maintenance CronJob when disabled
-    set:
-      jobs.maintenance.enabled: false
-      jobs.backup.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-        template: cronjobs.yaml
+        template: jobs.yaml

@@ -35,7 +35,7 @@ tests:
           value: /scripts
       - equal:
           path: spec.template.spec.volumes[0].configMap.name
-          value: data-proxy-init-db-script
+          value: data-proxy-configure-db-script
 
   - it: uses TCP readiness probe for authenticated PostgREST
     asserts:

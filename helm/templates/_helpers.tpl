@@ -184,6 +184,84 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.s3BootstrapEnv" -}}
+- name: S3_BUCKET
+  value: {{ .Values.s3.bucket | quote }}
+- name: S3_ENDPOINT
+  value: {{ include "data-proxy.s3Endpoint" . | quote }}
+- name: S3_USE_SSL
+  value: {{ .Values.s3.useSsl | quote }}
+- name: S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.s3SecretName" . }}
+      key: S3_ACCESS_KEY
+- name: S3_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.s3SecretName" . }}
+      key: S3_SECRET_KEY
+- name: S3_BOOTSTRAP_TIMEOUT
+  value: {{ .Values.s3.bootstrap.timeout | quote }}
+- name: S3_BOOTSTRAP_RETRY
+  value: {{ .Values.s3.bootstrap.retry | quote }}
+{{- end }}
+
+{{- define "data-proxy.s3BootstrapVolume" -}}
+- name: s3-bootstrap
+  configMap:
+    name: {{ include "data-proxy.fullname" . }}-s3-bootstrap
+    defaultMode: 0555
+{{- end }}
+
+{{- define "data-proxy.s3WaitInitContainer" -}}
+- name: wait-for-s3
+  image: {{ .Values.jobs.image | quote }}
+  command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
+  env:
+    {{- include "data-proxy.s3BootstrapEnv" . | nindent 4 }}
+  volumeMounts:
+    - name: s3-bootstrap
+      mountPath: /s3-bootstrap
+      readOnly: true
+{{- end }}
+
+{{- define "data-proxy.backupS3WaitInitContainer" -}}
+- name: wait-for-backup-s3
+  image: {{ .Values.jobs.image | quote }}
+  command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
+  env:
+    - name: S3_BUCKET
+      value: {{ .Values.jobs.backup.s3.bucket | quote }}
+    - name: S3_ENDPOINT
+      value: {{ .Values.jobs.backup.s3.endpointURL | quote }}
+    - name: S3_USE_SSL
+      value: "true"
+    - name: S3_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
+          key: S3_ACCESS_KEY
+    - name: S3_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
+          key: S3_SECRET_KEY
+    - name: S3_BOOTSTRAP_TIMEOUT
+      value: {{ .Values.s3.bootstrap.timeout | quote }}
+    - name: S3_BOOTSTRAP_RETRY
+      value: {{ .Values.s3.bootstrap.retry | quote }}
+    {{- if .Values.gcp.existingSecret }}
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: {{ .Values.gcp.mountPath | quote }}
+    {{- end }}
+  volumeMounts:
+    - name: s3-bootstrap
+      mountPath: /s3-bootstrap
+      readOnly: true
+    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
+{{- end }}
+
 {{- define "data-proxy.redisSecretName" -}}
 {{- .Values.redis.existingSecret | default (printf "%s-redis" (include "data-proxy.fullname" .)) }}
 {{- end }}

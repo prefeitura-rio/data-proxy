@@ -147,6 +147,10 @@ s3:
   endpoint: ""
   useSsl: "false"
   existingSecret: ""
+  bootstrap:
+    createIfMissing: false
+    timeout: 30min
+    retry: 5sec
 ## DuckLake catalog, data, and Litestream configuration.
 ducklake:
   ## Local path mounted into sync workers and PostgreSQL for catalog files.
@@ -166,6 +170,12 @@ ducklake:
   rewriteDeleteThreshold: 0.95
   ## Litestream configuration for catalog replication.
   litestream:
+    ## Maximum time the reader retries catalog restoration.
+    recoveryTimeout: 30min
+    ## Delay between reader catalog recovery attempts.
+    recoveryRetry: 5sec
+    ## Delay used to keep the reader recovery container running after success.
+    recoveryKeepalive: 1hr
     ## Shared catalog volume used by writer and reader PVCs.
     storage:
       size: 1Gi
@@ -213,8 +223,6 @@ seaweedfs:
     replicas: 1
     enableAuth: true
     existingConfigSecret: data-proxy-s3
-    createBuckets:
-      - name: data-proxy
     resources:
       requests:
         cpu: 50m

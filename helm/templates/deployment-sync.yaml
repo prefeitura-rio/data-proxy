@@ -22,6 +22,8 @@ spec:
     spec:
       restartPolicy: Always
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      initContainers:
+        {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
       containers:
         - name: sync
           image: "{{ .Values.sync.image }}"
@@ -38,22 +40,23 @@ spec:
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
-            {{- if .Values.sync.trigger.enabled }}
+            {{ if .Values.sync.trigger.enabled }}
             - name: sync-trigger
               mountPath: /scripts
               readOnly: true
-            {{- end }}
+            {{ end }}
             - name: catalogs
               mountPath: {{ .Values.ducklake.catalogLocalPath }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
-        {{- if .Values.sync.trigger.enabled }}
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+        {{ if .Values.sync.trigger.enabled }}
         - name: sync-trigger
           configMap:
             name: {{ .Values.sync.trigger.configMap }}
             defaultMode: 0555
-        {{- end }}
+        {{ end }}
         - name: catalogs
           persistentVolumeClaim:
             claimName: {{ include "data-proxy.fullname" . }}-catalog-writer

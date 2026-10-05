@@ -2,7 +2,7 @@ use std/log
 
 # Log an error and raise a labeled error in one call.
 export def fail [message: string, context: record<command: string, span: record>]: nothing -> error {
-    log error $message
+    log error $'Command failed: command=($context.command) error=($message)'
     error make {
         msg: $message
         label: {text: $context.command, span: $context.span}
@@ -104,7 +104,7 @@ export def wait-for-postgres [
         }
 
         if $result.exit_code == 0 {
-            log info 'PostgreSQL is ready'
+            log info 'PostgreSQL readiness completed'
             return
         }
 
@@ -115,7 +115,7 @@ export def wait-for-postgres [
             }
         }
 
-        log info 'Waiting for PostgreSQL...'
+        log info 'PostgreSQL readiness is waiting'
         sleep $interval
     }
 }

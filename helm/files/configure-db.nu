@@ -17,7 +17,7 @@ def configure-ducklake []: nothing -> nothing {
         s3_endpoint: $env.S3_ENDPOINT
         s3_use_ssl: $env.S3_USE_SSL
     }
-    log info 'Configured persistent DuckLake S3 secret'
+    log info 'DuckLake S3 secret configuration completed'
 }
 
 # Create application schemas with access policy and policy-writer roles
@@ -28,21 +28,21 @@ def create-schemas []: nothing -> nothing {
         execute-sql postgres/create_schema.sql {schema: (quote-pg $schema identifier)}
 
         execute-sql postgres/setup_access_policy.sql {
-            schema: (quote-pg $schema identifier)
-            user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
-            rls_schema: (quote-pg rls identifier)
+            schema: (quote-pg $schema identifier),
+            user_role: (quote-pg $env.AUTH_USER_ROLE identifier),
+            rls_schema: (quote-pg rls identifier),
             scope: $scope
         }
 
         execute-sql postgres/setup_policy_writer.sql {
-            schema: (quote-pg $schema identifier)
+            schema: (quote-pg $schema identifier),
             policy_writer_role: (quote-pg $'policy_writer_($schema)' identifier)
             policy_writer_literal: (quote-pg $'policy_writer_($schema)' literal)
             policy_name: (quote-pg $'policy_writer_($schema)' identifier)
         }
     }
 
-    log info 'Created schemas, access policy, and policy-writer roles'
+    log info 'Database schema and policy setup completed'
 }
 
 # Create the pre_request function that mirrors JWT claims into session variables
@@ -50,11 +50,11 @@ def create-pre-request []: nothing -> nothing {
     execute-sql postgres/create_pre_request.sql {}
 
     execute-sql postgres/grant_rls_usage.sql {
-        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier)
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier),
         user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
     }
 
-    log info 'Created pre_request function'
+    log info 'PostgREST pre-request function setup completed'
 }
 
 # Install the maintenance procedures so the maintenance job can run before any sync.
@@ -74,7 +74,7 @@ def install-maintenance []: nothing -> nothing {
         application_name: (quote-pg ($env.DBOS_APPLICATION_NAME? | default data-proxy-sync) literal)
     }
 
-    log info 'Installed the maintenance procedures'
+    log info 'Database maintenance procedure setup completed'
 }
 
 def main []: nothing -> nothing {

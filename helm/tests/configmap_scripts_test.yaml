@@ -33,6 +33,8 @@ tests:
     asserts:
       - isNotNull:
           path: data["recover-workflows.nu"]
+      - isNotNull:
+          path: data["wait-for-postgres.nu"]
 
   - it: renders when backup is enabled and maintenance is disabled
     set:

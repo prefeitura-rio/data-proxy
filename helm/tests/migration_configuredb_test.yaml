@@ -1,0 +1,83 @@
+suite: Init-db Job
+templates:
+  - jobs.yaml
+tests:
+  - it: creates configured schemas before their policy tables
+    asserts:
+      - isNotNull:
+          path: data["postgres_create_schema.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: grants user access to configured schemas
+    set:
+      sync.config.schemas.test.tables: []
+    asserts:
+      - matchRegex:
+          path: data["postgres_setup_access_policy.sql"]
+          pattern: "GRANT USAGE ON SCHEMA"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: renders script and SQL ConfigMaps
+    asserts:
+      - isKind:
+          of: ConfigMap
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-script
+        template: jobs.yaml
+      - isKind:
+          of: ConfigMap
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: mounts both ConfigMaps
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[2].name
+          value: configure-db-script
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-0
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.volumes[3].name
+          value: configure-db-sql
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-0
+        template: jobs.yaml
+
+  - it: ships maintenance procedure files
+    asserts:
+      - notExists:
+          path: data.setup_maintenance.sql
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - isNotNull:
+          path: data["postgres_recover_orphaned_workflows.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: mounts templates at /templates
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_TEMPLATE_DIR
+            value: /templates
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-0
+        template: jobs.yaml

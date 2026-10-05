@@ -27,6 +27,8 @@ spec:
     spec:
       restartPolicy: Always
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      initContainers:
+        {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
       containers:
         - name: restore
           image: {{ .Values.jobs.image | quote }}
@@ -50,6 +52,12 @@ spec:
                   key: S3_SECRET_KEY
             - name: DUCKLAKE_CATALOG_LOCAL_PATH
               value: {{ .Values.ducklake.catalogLocalPath | quote }}
+            - name: CATALOG_RECOVERY_TIMEOUT
+              value: {{ .Values.ducklake.litestream.recoveryTimeout | quote }}
+            - name: CATALOG_RECOVERY_RETRY
+              value: {{ .Values.ducklake.litestream.recoveryRetry | quote }}
+            - name: CATALOG_RECOVERY_KEEPALIVE
+              value: {{ .Values.ducklake.litestream.recoveryKeepalive | quote }}
             - name: SYNC_CONFIG_PATH
               value: /config/sync.json
           volumeMounts:
@@ -101,4 +109,5 @@ spec:
           configMap:
             name: {{ include "data-proxy.fullname" . }}-litestream
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
 {{- end }}

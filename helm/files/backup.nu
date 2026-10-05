@@ -40,14 +40,14 @@ def rclone-env []: nothing -> record {
 
 # Dump one PostgreSQL table and upload it to the configured object store.
 def backup-table [context: record<schema: string, remote_prefix: string>, dump: record<table: string, file: string>]: nothing -> nothing {
-    log info $'Dumping ($context.schema).($dump.table)...'
+    log info $'Backup table dump started: schema=($context.schema) table=($dump.table)'
     dump-table $env.PG_DATABASE_URL {
         schema: $context.schema
         table: $dump.table
         file: $dump.file
     }
 
-    log info $'Uploading ($dump.file)...'
+    log info $'Backup file upload started: file=($dump.file)'
     try {
         rclone copyto $dump.file $'($context.remote_prefix)/($dump.table).dump'
     } catch {|err|
@@ -69,7 +69,7 @@ def main []: nothing -> nothing {
     let object_prefix = $'($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date)'
     let remote_prefix = $'store:($object_prefix)'
 
-    log info $'Backup started schema=($schema)'
+    log info $'Backup started: schema=($schema)'
 
     load-env {RCLONE_CONFIG: '/dev/null'}
     load-env (rclone-env)
@@ -78,7 +78,7 @@ def main []: nothing -> nothing {
         backup-table {schema: $schema, remote_prefix: $remote_prefix} $dump
     }
 
-    log info $'Backing up DuckLake catalog for ($schema)...'
+    log info $'DuckLake catalog backup started: schema=($schema)'
     let catalog_path = $'($env.DUCKLAKE_CATALOG_PATH)/($schema)/catalog.sqlite'
     if ($catalog_path | path exists) {
         try {
@@ -90,10 +90,10 @@ def main []: nothing -> nothing {
             }
         }
     } else {
-        log warning $'Catalog not found at ($catalog_path), skipping'
+        log warning $'DuckLake catalog backup skipped: catalog=($catalog_path) reason=not-found'
     }
 
-    log info $'Pruning access_log retention for ($schema)...'
+    log info $'Access log retention pruning started: schema=($schema)'
     let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 
     execute-sql postgres/call_prune_access_log.sql {
@@ -103,11 +103,11 @@ def main []: nothing -> nothing {
         schema: $schema
     }
 
-    log info $'Backup completed schema=($schema)'
+    log info $'Backup completed: schema=($schema)'
 
     try {
         for file in ($dumps | get file) {
             rm --force $file
         }
-    } catch {|err| log warning $'Could not remove dumps: ($err.msg)' }
+    } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
 }

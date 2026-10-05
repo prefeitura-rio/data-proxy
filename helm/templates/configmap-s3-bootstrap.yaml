@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-s3-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+data:
+  ensure-s3-bucket.nu: |
+{{ .Files.Get "files/ensure-s3-bucket.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/lib.nu" | nindent 4 }}

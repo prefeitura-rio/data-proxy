@@ -3,7 +3,6 @@ templates:
   - cluster-cnpg.yaml
   - pdbs.yaml
   - scaledobjects.yaml
-  - validate-s3.yaml
 tests:
   - it: renders the proxy disruption budget
     asserts:
@@ -54,13 +53,3 @@ tests:
           path: metadata.name
           value: data-proxy-proxy
         template: scaledobjects.yaml
-
-  - it: rejects a SeaweedFS bucket missing from the configured bucket list
-    set:
-      s3.bucket: required
-      seaweedfs.s3.createBuckets:
-        - name: other-bucket
-    asserts:
-      - failedTemplate:
-          errorMessage: the SeaweedFS bucket list must contain "required", because s3.bucket names the bucket the sync service uses
-        template: validate-s3.yaml
