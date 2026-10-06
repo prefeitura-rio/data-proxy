@@ -29,6 +29,8 @@ REFRESH_QUEUE = "refresh"
 SYNC_QUEUE = "sync"
 
 CATALOG_VOLUME: Final = "ducklake-catalogs"
+NOT_FOUND: Final = 404
+RESTARTED_AT_ANNOTATION: Final = "kubectl.kubernetes.io/restartedAt"
 COMPONENT_LABEL: Final = "app.kubernetes.io/component"
 SCHEMA_LABEL: Final = "data-proxy.io/schema"
 TEMPLATE_LABEL: Final = "data-proxy.io/template"

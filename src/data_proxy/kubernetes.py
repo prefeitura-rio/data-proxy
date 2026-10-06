@@ -7,6 +7,7 @@ from copy import deepcopy
 from math import ceil
 
 from lightkube.core.exceptions import ApiError
+from lightkube.models.batch_v1 import JobSpec
 from lightkube.models.core_v1 import PersistentVolumeClaimVolumeSource
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.apps_v1 import Deployment
@@ -21,9 +22,11 @@ from .constants import (
     INSTANCE_LABEL,
     JOB_NAME_LIMIT,
     JOB_SUFFIX_BYTES,
+    NOT_FOUND,
     POSTGRES_SELECTOR,
     REFRESH_COMPONENT,
     REFRESH_JOB_TTL_SECONDS,
+    RESTARTED_AT_ANNOTATION,
     SCHEMA_LABEL,
     TEMPLATE_LABEL,
 )
@@ -100,9 +103,7 @@ async def restart_deployment(
     patch: dict[str, JsonValue] = {
         "spec": {
             "template": {
-                "metadata": {
-                    "annotations": {"kubectl.kubernetes.io/restartedAt": restarted_at}
-                }
+                "metadata": {"annotations": {RESTARTED_AT_ANNOTATION: restarted_at}}
             }
         }
     }
@@ -112,6 +113,19 @@ async def restart_deployment(
     )
 
     await wait_for_rollout(client, namespace, name, timeout)
+
+
+def is_pod_ready(pod: Pod) -> bool:
+    """Return whether the Pod is not terminating and reports the Ready condition."""
+    return (
+        pod.metadata is not None
+        and pod.metadata.deletionTimestamp is None
+        and pod.status is not None
+        and any(
+            condition.type == "Ready" and condition.status == "True"
+            for condition in pod.status.conditions or []
+        )
+    )
 
 
 async def list_catalog_claims(
@@ -125,15 +139,47 @@ async def list_catalog_claims(
         )
         if pod.metadata is not None
         and pod.metadata.name is not None
-        and pod.metadata.deletionTimestamp is None
-        and pod.status is not None
-        and any(
-            condition.type == "Ready" and condition.status == "True"
-            for condition in pod.status.conditions or []
-        )
+        and is_pod_ready(pod)
     }
 
     return dict(sorted(claims.items()))
+
+
+def build_refresh_job(
+    template: JobSpec,
+    namespace: str,
+    schema: str,
+    pod: str,
+    claim: str,
+    name: str,
+) -> Job:
+    """Copy the refresh Job template for one instance volume, without changing it."""
+    spec = deepcopy(template)
+    spec.selector = None
+    spec.completions = 1
+    spec.ttlSecondsAfterFinished = REFRESH_JOB_TTL_SECONDS
+
+    job_labels = {
+        COMPONENT_LABEL: REFRESH_COMPONENT,
+        SCHEMA_LABEL: schema,
+        INSTANCE_LABEL: pod,
+    }
+    spec.template.metadata = ObjectMeta(labels=job_labels)
+
+    pod_spec = spec.template.spec
+    volumes = (pod_spec.volumes or []) if pod_spec is not None else []
+
+    for volume in volumes:
+        if volume.name == CATALOG_VOLUME:
+            volume.emptyDir = None
+            volume.persistentVolumeClaim = PersistentVolumeClaimVolumeSource(
+                claimName=claim
+            )
+
+    return Job(
+        metadata=ObjectMeta(name=name, namespace=namespace, labels=job_labels),
+        spec=spec,
+    )
 
 
 async def run_job(
@@ -158,37 +204,12 @@ async def run_job(
             f"Expected one refresh Job template: schema={schema} found={len(templates)}"
         )
 
-    spec = deepcopy(templates[0].spec)
-    spec.selector = None
-    spec.completions = 1
-    spec.ttlSecondsAfterFinished = REFRESH_JOB_TTL_SECONDS
-
-    job_labels = {
-        COMPONENT_LABEL: REFRESH_COMPONENT,
-        SCHEMA_LABEL: schema,
-        INSTANCE_LABEL: pod,
-    }
-    spec.template.metadata = ObjectMeta(labels=job_labels)
-
-    pod_spec = spec.template.spec
-    volumes = (pod_spec.volumes or []) if pod_spec is not None else []
-
-    for volume in volumes:
-        if volume.name == CATALOG_VOLUME:
-            volume.emptyDir = None
-            volume.persistentVolumeClaim = PersistentVolumeClaimVolumeSource(
-                claimName=claim
-            )
-
-    base = f"{REFRESH_COMPONENT}-{schema}-{pod}".replace("_", "-")
     suffix = secrets.token_hex(JOB_SUFFIX_BYTES)
+    base = f"{REFRESH_COMPONENT}-{schema}-{pod}".replace("_", "-")
     name = f"{base[: JOB_NAME_LIMIT - len(suffix) - 1].rstrip('-')}-{suffix}"
 
     await client.create(
-        Job(
-            metadata=ObjectMeta(name=name, namespace=namespace, labels=job_labels),
-            spec=spec,
-        )
+        build_refresh_job(templates[0].spec, namespace, schema, pod, claim, name)
     )
 
     logger.info("Refresh Job started: schema=%s instance=%s", schema, pod)
@@ -202,10 +223,13 @@ async def run_job(
             raise_for_conditions=["Failed"],
         )
     finally:
-        with suppress(ApiError):
+        try:
             await client.delete(
                 Job, name, namespace=namespace, cascade=CascadeType.BACKGROUND
             )
+        except ApiError as error:
+            if error.status.code != NOT_FOUND:
+                raise
 
     logger.info("Refresh Job completed: schema=%s instance=%s", schema, pod)
 

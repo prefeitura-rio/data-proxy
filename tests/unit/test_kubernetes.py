@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
-from lightkube.core.exceptions import ConditionError
+from lightkube.core.exceptions import ApiError, ConditionError
 from lightkube.models.apps_v1 import DeploymentStatus
 from lightkube.models.batch_v1 import JobSpec
 from lightkube.models.core_v1 import (
@@ -16,7 +16,7 @@ from lightkube.models.core_v1 import (
     PodTemplateSpec,
     Volume,
 )
-from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
+from lightkube.models.meta_v1 import LabelSelector, ObjectMeta, Status
 from lightkube.resources.batch_v1 import Job
 from lightkube.resources.core_v1 import Pod
 from lightkube.types import CascadeType
@@ -24,6 +24,8 @@ from lightkube.types import CascadeType
 from data_proxy import kubernetes
 from data_proxy.constants import POOLER_SELECTOR
 from data_proxy.kubernetes import (
+    build_refresh_job,
+    is_pod_ready,
     is_rollout_complete,
     list_catalog_claims,
     list_deployments,
@@ -196,6 +198,28 @@ def pod(name: str, *, ready: bool = True, terminating: bool = False) -> Pod:
     )
 
 
+class TestPodReady:
+    """A Pod is ready when it is not terminating and reports the Ready condition."""
+
+    @pytest.mark.parametrize(
+        ("candidate", "expected"),
+        [
+            pytest.param(pod("pg-1"), True, id="ready"),
+            pytest.param(pod("pg-1", ready=False), False, id="not-ready"),
+            pytest.param(pod("pg-1", terminating=True), False, id="terminating"),
+            pytest.param(Pod(metadata=ObjectMeta(name="pg-1")), False, id="no-status"),
+            pytest.param(
+                Pod(metadata=ObjectMeta(name="pg-1"), status=PodStatus()),
+                False,
+                id="no-conditions",
+            ),
+            pytest.param(Pod(status=PodStatus()), False, id="no-metadata"),
+        ],
+    )
+    def test_reads_the_ready_condition(self, candidate: Pod, expected: bool) -> None:
+        assert is_pod_ready(candidate) is expected
+
+
 class TestListCatalogClaims:
     """Only ready, live PostgreSQL Pods have a claim to refresh."""
 
@@ -247,6 +271,60 @@ def template_job() -> Job:
             ),
         ),
     )
+
+
+class TestBuildRefreshJob:
+    """A refresh Job is a copy of the template that the cluster can run for one instance."""
+
+    @staticmethod
+    def build(template: Job) -> Job:
+        assert template.spec is not None
+        return build_refresh_job(
+            template.spec, "app", "test", "pg-1", "pg-1-claim", "refresh-test-pg-1-ab"
+        )
+
+    def test_names_and_labels_the_job_and_its_pod(self) -> None:
+        job = self.build(template_job())
+
+        labels = {
+            "app.kubernetes.io/component": "refresh-catalog",
+            "data-proxy.io/schema": "test",
+            "data-proxy.io/instance": "pg-1",
+        }
+        assert job.metadata == ObjectMeta(
+            name="refresh-test-pg-1-ab", namespace="app", labels=labels
+        )
+        assert job.spec is not None
+        assert job.spec.template.metadata == ObjectMeta(labels=labels)
+
+    def test_clears_the_generated_selector_and_runs_once(self) -> None:
+        job = self.build(template_job())
+
+        assert job.spec is not None
+        assert job.spec.selector is None
+        assert job.spec.completions == 1
+        assert job.spec.ttlSecondsAfterFinished == 300
+
+    def test_swaps_only_the_catalog_volume_for_the_claim(self) -> None:
+        job = self.build(template_job())
+
+        assert job.spec is not None
+        assert job.spec.template.spec is not None
+        volumes = {v.name: v for v in job.spec.template.spec.volumes or []}
+        assert volumes["ducklake-catalogs"].emptyDir is None
+        assert volumes["ducklake-catalogs"].persistentVolumeClaim is not None
+        assert (
+            volumes["ducklake-catalogs"].persistentVolumeClaim.claimName == "pg-1-claim"
+        )
+        assert volumes["litestream-config"] == Volume(name="litestream-config")
+
+    def test_leaves_the_template_unchanged(self) -> None:
+        template = template_job()
+        original = deepcopy(template)
+
+        self.build(template)
+
+        assert template == original
 
 
 class TestRunJob:
@@ -308,6 +386,27 @@ class TestRunJob:
         name = await run_job(client, "app", "test", "pg-1", "claim-1")
 
         assert client.deleted == [(name, CascadeType.BACKGROUND)]
+
+    @pytest.mark.asyncio
+    async def test_ignores_a_job_that_is_already_gone(self) -> None:
+        client = FakeKubernetes(
+            [template_job()],
+            delete_error=ApiError(status=Status(code=404, message="not found")),
+        )
+
+        name = await run_job(client, "app", "test", "pg-1", "claim-1")
+
+        assert client.deleted[0][0] == name
+
+    @pytest.mark.asyncio
+    async def test_shows_a_delete_error_that_is_not_a_missing_job(self) -> None:
+        client = FakeKubernetes(
+            [template_job()],
+            delete_error=ApiError(status=Status(code=403, message="forbidden")),
+        )
+
+        with pytest.raises(ApiError, match="forbidden"):
+            await run_job(client, "app", "test", "pg-1", "claim-1")
 
     @pytest.mark.asyncio
     async def test_gives_every_run_a_different_name(self) -> None:

@@ -5,7 +5,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import final, override
 
-from lightkube.core.exceptions import ConditionError
+from lightkube.core.exceptions import ApiError, ConditionError
 from lightkube.core.resource import NamespacedResource
 from lightkube.models.apps_v1 import DeploymentSpec
 from lightkube.models.core_v1 import PodTemplateSpec
@@ -190,12 +190,14 @@ class FakeKubernetes(KubernetesClient):
         watched: Iterable[Deployment] = (),
         hang_watch: bool = False,
         wait_error: ConditionError | None = None,
+        delete_error: ApiError | None = None,
     ) -> None:
         self.objects = list(objects)
         self.watched = list(watched)
         self.hang_watch = hang_watch
         self.watch_timeouts: list[int | None] = []
         self.wait_error = wait_error
+        self.delete_error = delete_error
         self.list_labels: list[
             dict[str, str | Operator[str] | Iterable[str] | None]
         ] = []
@@ -289,3 +291,6 @@ class FakeKubernetes(KubernetesClient):
         cascade: CascadeType,
     ) -> None:
         self.deleted.append((name, cascade))
+
+        if self.delete_error is not None:
+            raise self.delete_error
