@@ -4,6 +4,7 @@ import tomllib
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from logging import INFO, basicConfig, getLogger
 from os import environ
 from pathlib import Path
 from random import choice, randint
@@ -22,8 +23,10 @@ from google.cloud.bigquery import (
 )
 from pydantic import BaseModel, ConfigDict, PositiveInt
 
-from data_proxy.log import logger
 from data_proxy.models import SyncConfig
+
+basicConfig(level=INFO)
+logger = getLogger(__name__)
 
 type Scalar = str | None
 type NestedValue = Scalar | dict[str, "NestedValue"]

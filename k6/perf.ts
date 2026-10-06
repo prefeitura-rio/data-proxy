@@ -394,7 +394,12 @@ function seedAccessPolicy(rows: typeof ACCESS_POLICY_ROWS): void {
     const response = http.post(
         `${API_URL}/access_policy`,
         JSON.stringify(rows),
-        { headers, tags: { name: "seed_access_policy" } },
+        {
+            headers,
+            tags: { name: "seed_access_policy" },
+            // A policy that already exists answers 409, which is not a failure.
+            responseCallback: http.expectedStatuses(201, 409),
+        },
     ) as K6Response;
     check(response, {
         "access_policy seeded": (item: K6Response) =>

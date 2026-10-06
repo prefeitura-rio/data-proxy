@@ -70,11 +70,16 @@ def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
 
 # Return completion and failure flags for one k6 runner Job set.
 def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool, failed: bool> {
-    let conditions = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l $label -o json
-    | from json
-    | get items
-    | each {|job| $job.status.conditions? | default [] }
-    | flatten
+    let conditions = try {
+        wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l $label -o json
+        | from json
+        | get items
+        | each {|job| $job.status.conditions? | default [] }
+        | flatten
+    } catch {|err| fail $'Could not read the k6 runner Jobs: ($err.msg)' {
+            command: test-phase
+            span: (metadata $label).span
+        } }
 
     {
         complete: ($conditions | any {|condition| $condition.type == 'Complete' and $condition.status == 'True' })
@@ -214,6 +219,7 @@ def k6-run [
 # Run one k6 performance profile in the requested mode.
 def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
     switch-mode $kubecfg $ha
+    run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'
 
     let image_tag = local-image-tag
@@ -247,6 +253,7 @@ export def "main k6 stress" [
 # Run the full E2E suite against the requested deployment mode.
 export def "main k6 e2e" [
     --ha # Deploy and verify HA mode.
+    --build # Build and deploy fresh local images before the E2E run.
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let mode = if $ha { 'ha' } else { 'single' }
@@ -269,21 +276,26 @@ export def "main k6 e2e" [
     log info 'Clearing test resources...'
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
 
-    apply-gcp-secret $kubecfg --required
+    let image_tag = if $build {
+        apply-gcp-secret $kubecfg --required
+        let tag = build-local-images
 
-    let image_tag = build-local-images
+        log info 'Deleting configure-db Jobs so they recreate PostgreSQL setup...'
+        let old_configure_jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l app.kubernetes.io/component=configure-db -o name
+        | lines
+        if ($old_configure_jobs | is-not-empty) {
+            wrap-kubectl $kubecfg -n $NAMESPACE delete ...$old_configure_jobs --ignore-not-found
+        }
 
-    log info 'Deleting configure-db Jobs so they recreate PostgreSQL setup...'
-    let old_configure_jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l app.kubernetes.io/component=configure-db -o name
-    | lines
-    if ($old_configure_jobs | is-not-empty) {
-        wrap-kubectl $kubecfg -n $NAMESPACE delete ...$old_configure_jobs --ignore-not-found
+        log info 'Syncing local Helmfile releases with fresh images...'
+        wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set $'ha.enabled=($ha)'
+        $tag
+    } else {
+        switch-mode $kubecfg $ha
+        local-image-tag
     }
 
-    log info 'Syncing local Helmfile releases with the new images...'
-    wrap-helmfile $kubecfg --image-tag $image_tag sync --state-values-set $'ha.enabled=($ha)'
-
-    log info $'Running the full E2E suite against ($mode) mode...'
+    log info $'Running the full E2E suite against ($mode) mode: build=($build)'
     k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts $'data-proxy-e2e-($mode)' k6/e2e.yaml --image-tag $image_tag --set {
         MODE: $mode
         PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'

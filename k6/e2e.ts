@@ -23,7 +23,20 @@ type ContainerStatus = {
 
 type PodObject = {
     metadata: { name: string; labels?: Record<string, string> };
-    status?: { containerStatuses?: ContainerStatus[] };
+    status?: {
+        containerStatuses?: ContainerStatus[];
+        conditions?: Array<{ type: string; status: string }>;
+        podIP?: string;
+    };
+};
+
+type ServingDeployment = {
+    metadata: { name: string; labels?: Record<string, string> };
+    spec: {
+        replicas?: number;
+        template: { metadata?: { annotations?: Record<string, string> } };
+    };
+    status?: { availableReplicas?: number };
 };
 
 interface SyncConfigMap {
@@ -105,7 +118,7 @@ const MODE_TIMEOUT_SECONDS = Number(__ENV.MODE_TIMEOUT_SECONDS || "900");
 const CLUSTER_NAME = __ENV.CLUSTER_NAME || "data-proxy";
 const HA_MIN_INSTANCES = 2;
 const SECRETS_MOUNT = "/var/lib/postgresql/data/.duckdb/stored_secrets";
-const SECRETS_SUBPATH = "duckdb-secrets";
+const SECRETS_SUBPATH = "duckdb/secrets";
 const READ_POSTGREST = "data-proxy-postgrest-ro";
 const READ_POOLER = "data-proxy-pooler-ro";
 const CLUSTER_SCALER = "data-proxy-cluster-autoscaler";
@@ -946,12 +959,13 @@ function verifyPipelineRecovery(k8s: Kubernetes): void {
     );
 }
 
-/** Force-deletes the sync pod that executes the running sync workflow. */
+/** Force-deletes the sync pod that executes the running sync workflow (DBOS reports it as PENDING). */
 function killWorkflowOwner(k8s: Kubernetes): void {
     const image = cronJobPodSpec(k8s, MAINTENANCE_CRONJOB).containers[0].image;
     const owner =
-        "SELECT executor_id FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'RUNNING' AND executor_id IS NOT NULL ORDER BY created_at DESC LIMIT 1";
+        "SELECT executor_id FROM dbos.workflow_status WHERE name = 'run_sync' AND status = 'PENDING' AND executor_id IS NOT NULL ORDER BY created_at DESC LIMIT 1";
     const script = [
+        "set -e",
         "for attempt in $(seq 1 60); do",
         `  uid="$(psql "$${STATE_DATABASE}" -tAc ${JSON.stringify(owner)})"`,
         '  test -n "$uid" && break',
@@ -1082,7 +1096,7 @@ function verifyDuckLakePublication(token: string): void {
     });
 }
 
-/** Verifies catalog SQLite files exist on both writer and reader PVCs. */
+/** Verifies the writer catalog exists beside the sync workers and Litestream. */
 function verifyCatalogSync(k8s: Kubernetes): void {
     const syncPods = podsForComponent(k8s, "sync");
     const litestreamPods = podsForComponent(k8s, "litestream");
@@ -1095,12 +1109,91 @@ function verifyCatalogSync(k8s: Kubernetes): void {
         "check-writer-catalog",
         `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
     );
+}
 
-    runCommandJob(
-        k8s,
-        "check-reader-catalog",
-        `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
-        { podSpec: deploymentPodSpec(k8s, "data-proxy-litestream") },
+/** Returns the ready PostgreSQL instance Pods of the cluster. */
+function readyInstances(k8s: Kubernetes): PodObject[] {
+    const pods = k8s.list("Pod", NAMESPACE) as PodObject[];
+    return pods.filter(
+        (pod) =>
+            pod.metadata.labels?.["cnpg.io/podRole"] === "instance" &&
+            Boolean(pod.status?.podIP) &&
+            pod.status?.conditions?.some(
+                (condition) =>
+                    condition.type === "Ready" && condition.status === "True",
+            ),
+    );
+}
+
+/** Verifies every live PostgreSQL instance serves the published snapshot from its own catalog. */
+function verifyInstanceCatalogs(k8s: Kubernetes, token: string): void {
+    const snapshot = snapshotValue(token);
+    const instances = readyInstances(k8s);
+    const minimum = EXPECT_HA ? HA_MIN_INSTANCES : 1;
+
+    expect(
+        "the ready PostgreSQL instances match the mode",
+        instances.length >= minimum,
+    );
+
+    for (const instance of instances) {
+        const host = instance.status?.podIP ?? "";
+        const dsn = `$(echo "$PG_DATABASE_URL" | sed 's#@[^:/]*#@${host}#')`;
+        runCommandJob(
+            k8s,
+            `instance-snapshot-${instance.metadata.name}`,
+            `test "$(psql "${dsn}" -tAc ${JSON.stringify(`SELECT ${SCHEMA}.ducklake_latest_snapshot()`)})" = ${JSON.stringify(snapshot)}`,
+        );
+    }
+}
+
+/** Verifies every discovered Pooler restarted before every PostgREST Deployment, and all recovered. */
+function verifyServingRestart(k8s: Kubernetes): void {
+    const deployments = k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[];
+    const poolers = deployments.filter(
+        (item) => item.metadata.labels?.["cnpg.io/poolerName"] !== undefined,
+    );
+    const postgrests = deployments.filter((item) =>
+        ["postgrest", "postgrest-ro"].includes(
+            item.metadata.labels?.["app.kubernetes.io/component"] ?? "",
+        ),
+    );
+    const restartedAt = (item: ServingDeployment): number =>
+        Date.parse(
+            item.spec.template.metadata?.annotations?.[
+                "kubectl.kubernetes.io/restartedAt"
+            ] ?? "",
+        );
+    const expected = EXPECT_HA ? 2 : 1;
+
+    expect(
+        "every Pooler and PostgREST Deployment is discoverable by label",
+        poolers.length >= expected && postgrests.length >= expected,
+    );
+    expect(
+        "every Pooler and PostgREST Deployment restarted after publication",
+        [...poolers, ...postgrests].every((item) => !Number.isNaN(restartedAt(item))),
+    );
+    expect(
+        "every Pooler restarted before every PostgREST Deployment",
+        Math.max(...poolers.map(restartedAt)) <=
+            Math.min(...postgrests.map(restartedAt)),
+    );
+    expect(
+        "every restarted Deployment has all replicas available",
+        waitUntil(MODE_TIMEOUT_SECONDS, () =>
+            (k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[])
+                .filter((item) =>
+                    [...poolers, ...postgrests].some(
+                        (known) => known.metadata.name === item.metadata.name,
+                    ),
+                )
+                .every(
+                    (item) =>
+                        (item.status?.availableReplicas ?? 0) ===
+                        (item.spec.replicas ?? 0),
+                ),
+        ),
     );
 }
 
@@ -1289,11 +1382,11 @@ function verifyMaintenanceJob(k8s: Kubernetes): void {
     );
 }
 
-/** Verifies PostgreSQL reads the restored catalog from the reader PVC. */
+/** Verifies PostgREST serves data from the catalog of the instance that it reaches. */
 function verifyCnpgReaderMount(token: string): void {
     const response = directPostgrest(`/${FULL_TABLE}?limit=1`, token);
     expect(
-        "PostgREST serves data from the DuckLake catalog on the reader PVC",
+        "PostgREST serves data from the instance-local DuckLake catalog",
         response.status === 200 && rowsOf(response).length > 0,
     );
 }
@@ -1769,6 +1862,8 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyDuckLakePublication(userToken());
     verifyChangeFeed(userToken());
     verifyCatalogSync(k8s);
+    verifyInstanceCatalogs(k8s, userToken());
+    verifyServingRestart(k8s);
     verifyMaintenanceJob(k8s);
     verifyBackupJob(k8s);
     verifyCnpgReaderMount(userToken());
@@ -1832,9 +1927,10 @@ function verifyFixtureContract(k8s: Kubernetes): void {
     );
 }
 
-/** Cleans the mutable local fixture after the E2E scenario completes. */
+/** Restores the BigQuery snapshot fixture to version A and cleans the local state after the scenario. */
 export function teardown(): void {
     const k8s = new Kubernetes();
+    waitForJob(k8s, mutateSnapshotFixture(k8s, SNAPSHOT_SOURCE, "A"));
     waitForJob(k8s, runCronJob(k8s, "manifests-cleanup"));
 }
 

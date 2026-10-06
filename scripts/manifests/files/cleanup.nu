@@ -4,11 +4,12 @@ const NAMESPACE = 'data-proxy'
 const TEST_SCHEMA = 'test'
 const DB_PASSWORD = 'test-pg-pass'
 
-# Clear E2E jobs, cache, test tables, state, and pending workflows.
+# Clear the E2E helper Jobs, cache, test tables, state, and pending workflows.
+# The runner Jobs of the TestRun stay, because the suite runs this cleanup in its own teardown.
 def main []: nothing -> nothing {
     let stale_jobs = kubectl -n $NAMESPACE get jobs -o name
     | lines
-    | where $it =~ 'data-proxy-(e2e|sync-k6|workflow-k6)-'
+    | where $it =~ 'data-proxy-(sync-k6|workflow-k6)-'
 
     if ($stale_jobs | is-not-empty) {
         kubectl -n $NAMESPACE delete ...$stale_jobs --ignore-not-found
@@ -63,7 +64,7 @@ def main []: nothing -> nothing {
         kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c $query
 
         if $cluster == 'data-proxy' {
-            kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors; UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED');"
+            kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('data_proxy.state') IS NOT NULL THEN DELETE FROM data_proxy.state; END IF; IF to_regclass('data_proxy.errors') IS NOT NULL THEN DELETE FROM data_proxy.errors; END IF; IF to_regclass('dbos.workflow_status') IS NOT NULL THEN UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED'); END IF; END \$\$;"
         }
     }
 

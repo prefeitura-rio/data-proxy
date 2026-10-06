@@ -60,7 +60,12 @@ function scriptPodSpec(podSpec: KubernetesPodSpec): KubernetesPodSpec {
     volumes: [...(podSpec.volumes || []), scriptVolume],
     containers: podSpec.containers.map((container) => ({
       ...container,
-      volumeMounts: [...(container.volumeMounts || []), scriptMount],
+      volumeMounts: [
+        ...(container.volumeMounts || []).filter(
+          (mount) => mount.mountPath !== scriptMount.mountPath,
+        ),
+        scriptMount,
+      ],
     })),
   };
 }

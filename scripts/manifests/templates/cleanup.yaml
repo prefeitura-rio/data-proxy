@@ -16,6 +16,14 @@ rules:
     resources:
       - pods
       - pods/exec
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+  - apiGroups:
+      - batch
+    resources:
       - jobs
     verbs:
       - get

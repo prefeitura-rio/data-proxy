@@ -22,7 +22,7 @@ def main() -> None:
     version = version_argument()
     source = environ["SNAPSHOT_SOURCE"]
 
-    client = Client()
+    client = Client(project=source.split(".", 1)[0])
     job = client.query(
         f"UPDATE `{source}` SET version = @version WHERE id = @id",
         job_config=QueryJobConfig(

@@ -5,6 +5,7 @@ metadata:
   namespace: data-proxy
 spec:
   parallelism: 1
+  paused: "false"
   script:
     configMap:
       name: data-proxy-e2e

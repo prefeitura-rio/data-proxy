@@ -28,6 +28,7 @@ declare module "k6/http" {
     get(url: string, params?: RequestParams): Response;
     post(url: string, body?: unknown, params?: RequestParams): Response;
     del(url: string, body?: unknown, params?: RequestParams): Response;
+    expectedStatuses(...statuses: number[]): unknown;
     batch(requests: Array<{
       method: string;
       url: string;
