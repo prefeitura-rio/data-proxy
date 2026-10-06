@@ -11,7 +11,6 @@ from collections.abc import (
 from datetime import datetime
 from typing import Annotated, Literal, LiteralString, Protocol
 
-from google.cloud.bigquery import QueryJobConfig
 from lightkube.core.resource import NamespacedResource
 from lightkube.operators import BinaryOperator, Operator, SequenceOperator
 from lightkube.resources.apps_v1 import Deployment
@@ -26,7 +25,6 @@ type DatabaseRow = tuple[object, ...]
 type PostgresParams = tuple[DatabaseValue, ...] | dict[str, DatabaseValue]
 type DuckDBValue = DatabaseValue | Sequence[str]
 type DuckDBParams = Sequence[DuckDBValue]
-type BigQueryParams = QueryJobConfig
 type NonEmptyString = Annotated[str, Field(min_length=1)]
 type RunStatus = Literal["success", "failure"]
 type StatusRecorder = Callable[[RunStatus], Awaitable[None]]

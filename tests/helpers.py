@@ -89,6 +89,7 @@ def dump_task(
     return DumpTask(
         run_id=run_id,
         table=table,
+        source="bigquery",
         target_schema="app",
         bucket_path=bucket_path,
         selections=[AllSelection()] if selections is None else selections,

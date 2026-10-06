@@ -301,6 +301,7 @@ class TestTaskResults:
         first = DumpTask(
             run_id="run",
             table="p.d.t",
+            source="bigquery",
             target_schema="d",
             bucket_path="s3://b/t",
             selections=[AllSelection()],

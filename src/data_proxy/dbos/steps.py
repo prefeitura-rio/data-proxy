@@ -155,7 +155,7 @@ async def record_seed_metrics(plans: list[SyncPlan]) -> None:
     should_retry=retry_transient,
 )
 async def extract_task(task: DumpTask) -> None:
-    """Extract one dump task from BigQuery to Parquet."""
+    """Extract one dump task from its source to Parquet."""
     logger.info(
         "Extraction started: task_id=%s paths=%d", task.task_id, len(task.output_paths)
     )
@@ -232,11 +232,11 @@ async def apply_ducklake_maintenance(schema_name: str) -> int:
     schemaname.set(schema_name)
     logger.info("DuckLake maintenance started")
 
-    encrypted = settings.sync_config.schemas[schema_name].ducklake.encrypted
-
     async with DuckDB.connect() as duckdb_conn:
         snapshot_id = await apply_maintenance(
-            duckdb_conn, DuckLakePaths.for_schema(schema_name), encrypted
+            duckdb_conn,
+            DuckLakePaths.for_schema(schema_name),
+            settings.sync_config.schemas[schema_name].ducklake.encrypted,
         )
 
     logger.info("DuckLake maintenance completed: snapshot_id=%d", snapshot_id)

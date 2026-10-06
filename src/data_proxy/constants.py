@@ -7,6 +7,7 @@ from typing import Final
 SQL_DIR = Path(__file__).parent / "templates"
 DUCKDB_VIEW_PREFIX = "source_"
 PROTECTED_VIEW_NAMES = frozenset({"access_policy", "access_log", "state"})
+DEFAULT_SOURCE: Final = "bigquery"
 
 BIGQUERY_TABLE_REFERENCE_PATTERN = (
     r"^(?P<project>[A-Za-z0-9_-]+)"

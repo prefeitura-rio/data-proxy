@@ -1,4 +1,4 @@
-"""BigQuery-to-Parquet extraction statement builders and runner."""
+"""Source-to-Parquet extraction statement builders and runner."""
 
 from typing import assert_never
 

@@ -113,7 +113,9 @@ class TestRemovalOnlyPartitionPlanning:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Return a deletion plan and no extraction tasks when all rows disappear."""
-        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        table = PartitionedTable(
+            name="p.d.t", resolved_schema="app", resolved_source="bigquery"
+        )
         previous = partition("1", signature="old")
         stored = TableState(
             strategy=Strategy.FULL,
@@ -183,7 +185,9 @@ class TestChangedPartitionPlanning:
         full_rebuild: bool,
     ) -> None:
         """Extract changed partitions with the discovered JSON columns."""
-        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        table = PartitionedTable(
+            name="p.d.t", resolved_schema="app", resolved_source="bigquery"
+        )
         current = {"1": partition("1", signature="new")}
         source = MagicMock()
         source.partitions = AsyncMock(return_value=("signature", current))
@@ -219,8 +223,12 @@ class TestDetectChanges:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Skip unchanged and partitioned tables."""
-        unchanged = FullTable(name="p.d.unchanged", resolved_schema="app")
-        changed = FullTable(name="p.d.changed", resolved_schema="app")
+        unchanged = FullTable(
+            name="p.d.unchanged", resolved_schema="app", resolved_source="bigquery"
+        )
+        changed = FullTable(
+            name="p.d.changed", resolved_schema="app", resolved_source="bigquery"
+        )
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(
@@ -272,7 +280,11 @@ class TestConfiguredSources:
 
         await expand_config(
             AsyncMock(spec=DuckDB),
-            [FullTable(name="p.d.one", resolved_schema="app")],
+            [
+                FullTable(
+                    name="p.d.one", resolved_schema="app", resolved_source="bigquery"
+                )
+            ],
             "bucket",
             "run",
         )
@@ -338,7 +350,9 @@ class TestPartitionBatching:
 
     def test_builds_paths_and_tasks_for_changed_partitions(self) -> None:
         """Build paths and tasks for changed partitions."""
-        table = PartitionedTable(name="p.d.t", resolved_schema="app")
+        table = PartitionedTable(
+            name="p.d.t", resolved_schema="app", resolved_source="bigquery"
+        )
         current = {
             partition_id: partition(partition_id, logical_bytes=300)
             for partition_id in ("1", "2", "3", "4")
@@ -428,8 +442,12 @@ class TestTableSignature:
         self, schema_x: str, schema_y: str
     ) -> None:
         """Ignore resolved schema in the signature."""
-        table_x = FullTable(name="p.d.t", resolved_schema=schema_x)
-        table_y = FullTable(name="p.d.t", resolved_schema=schema_y)
+        table_x = FullTable(
+            name="p.d.t", resolved_schema=schema_x, resolved_source="bigquery"
+        )
+        table_y = FullTable(
+            name="p.d.t", resolved_schema=schema_y, resolved_source="bigquery"
+        )
         assert table_signature(table_x, None, "m") == table_signature(
             table_y, None, "m"
         )
@@ -467,8 +485,12 @@ class TestSchemaPlanGrouping:
     ) -> None:
         """Group full-table plans under their resolved schemas."""
         tables = [
-            FullTable(name="p.one.first", resolved_schema="one"),
-            FullTable(name="p.two.second", resolved_schema="two"),
+            FullTable(
+                name="p.one.first", resolved_schema="one", resolved_source="bigquery"
+            ),
+            FullTable(
+                name="p.two.second", resolved_schema="two", resolved_source="bigquery"
+            ),
         ]
         selected = [
             table

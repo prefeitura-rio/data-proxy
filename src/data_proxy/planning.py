@@ -132,9 +132,9 @@ async def detect_changes(pg_conn: Postgres, config: SyncConfig) -> dict[str, str
         for table in full_tables:
             source = configured_source(table, active)
             modified = await source.modified(table.name)
-            claim = config.schemas[table.resolved_schema].claim
-
-            current = table_signature(table, claim, modified)
+            current = table_signature(
+                table, config.schemas[table.resolved_schema].claim, modified
+            )
             stored = await read_table_signature(pg_conn, table.name)
 
             if stored != current:

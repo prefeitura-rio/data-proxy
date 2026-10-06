@@ -44,9 +44,8 @@ class DuckLakePaths:
     @classmethod
     def for_schema(cls, schema: str) -> DuckLakePaths:
         """Build locations for one schema."""
-        catalog = CatalogPaths.for_schema(schema).local
         return cls(
-            catalog=catalog,
+            catalog=CatalogPaths.for_schema(schema).local,
             data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
         )
 

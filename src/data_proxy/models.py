@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 
+from .constants import DEFAULT_SOURCE
 from .sources.partitions import PhysicalPartition, TaskSelection
 from .sources.registry import sources
 from .types import NonEmptyString
@@ -141,7 +142,7 @@ class Table(BaseModel):
         return DumpTask(
             run_id=run_id,
             table=self.name,
-            source=self.resolved_source or "bigquery",
+            source=self.resolved_source,
             source_settings=self.resolved_source_settings,
             target_schema=self.resolved_schema,
             bucket_path=(
@@ -196,7 +197,7 @@ class SourceConfig(BaseModel):
 
     model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
 
-    type: NonEmptyString = "bigquery"
+    type: NonEmptyString = DEFAULT_SOURCE
     settings: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
@@ -307,7 +308,7 @@ class DumpTask(BaseModel):
 
     run_id: str
     table: str
-    source: NonEmptyString = "bigquery"
+    source: NonEmptyString
     source_settings: dict[str, JsonValue] | None = None
     target_schema: str
     bucket_path: str

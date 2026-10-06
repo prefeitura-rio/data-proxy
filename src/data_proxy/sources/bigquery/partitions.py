@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict
 from whenever import PlainDateTime
 
 from ...executor import Executor
-from ...types import BigQueryParams
 from ...utils import sha256_hex
 from ..partitions import (
     PartitionKindConfig,
@@ -191,7 +190,7 @@ async def partition_rows(
     table_name: str,
 ) -> list[PartitionMetadata]:
     """Return validated physical partition metadata rows."""
-    rows = await Executor[BigQueryParams, Sequence[Row]](conn=bq_conn).query(
+    rows = await Executor[QueryJobConfig, Sequence[Row]](conn=bq_conn).query(
         "bigquery/partitions",
         {"project": project, "dataset": dataset},
         params=QueryJobConfig(

@@ -44,5 +44,7 @@ def table_configs(draw: st.DrawFn) -> TableConfig:
     name = ".".join(draw(st.tuples(identifiers, identifiers, identifiers)))
     schema = draw(identifiers)
     if draw(st.booleans()):
-        return FullTable(name=name, resolved_schema=schema)
-    return PartitionedTable(name=name, resolved_schema=schema)
+        return FullTable(name=name, resolved_schema=schema, resolved_source="bigquery")
+    return PartitionedTable(
+        name=name, resolved_schema=schema, resolved_source="bigquery"
+    )
