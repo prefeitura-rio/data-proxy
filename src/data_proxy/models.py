@@ -250,11 +250,12 @@ class SyncConfig(BaseModel):
     @model_validator(mode="after")
     def reject_duplicate_table_names(self) -> Self:
         """Require every configured source table to have one destination."""
-        # PostgreSQL routing and persisted state share the source reference key.
         names = [table.name for table in self.tables]
         duplicates = sorted({name for name in names if names.count(name) > 1})
+
         if duplicates:
             raise ValueError(f"Duplicate configured table names: {duplicates}")
+
         return self
 
     @model_validator(mode="after")
