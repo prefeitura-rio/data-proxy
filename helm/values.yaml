@@ -60,9 +60,8 @@ sync:
     pollingInterval: 30
     ## Cooldown in seconds before scaling down to idle.
     cooldownPeriod: 60
-    ## Replicas KEDA scales down to when the DBOS queue is empty.
-    idleReplicaCount: 1
-    ## Minimum replicas once work activates.
+    ## Minimum replicas. KEDA never scales below this, so one orchestrator always runs.
+    ## Do not set idleReplicaCount: KEDA supports only 0, and other values fight the HPA.
     minReplicaCount: 3
     ## Maximum number of concurrent sync pods.
     maxReplicaCount: 15
@@ -70,7 +69,7 @@ sync:
     query: SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');
     ## Target value for the query result.
     targetQueryValue: "1.1"
-    ## Value above which KEDA activates from zero replicas.
+    ## Query value above which KEDA scales above the minimum replicas.
     activationTargetQueryValue: "5"
   ## DBOS application and system database configuration.
   dbos:
@@ -137,7 +136,7 @@ observability:
 ## In GKE, use Workload Identity via serviceAccount.annotations.
 ## Locally, mount a Secret or ConfigMap containing key.json.
 gcp:
-  ## Existing Secret with a key.json file. When set, it is projected into sync pods.
+  ## Existing Secret with a key.json file. When set, it is mounted at mountPath in sync and PostgreSQL pods.
   existingSecret: ""
   ## Path where the key file is mounted inside sync and PostgreSQL pods.
   mountPath: /gcp/key.json
@@ -153,33 +152,39 @@ s3:
     retry: 5sec
 ## DuckLake catalog, data, and Litestream configuration.
 ducklake:
-  ## Local path mounted into sync workers and PostgreSQL for catalog files.
+  ## Local path of the catalog files in sync workers, Litestream, and PostgreSQL.
   catalogLocalPath: /var/lib/ducklake/catalogs
-  ## Local path used by the Litestream writer for its source catalogs.
-  catalogWriterPath: /var/lib/ducklake/writer
   ## Single S3 prefix for all DuckLake data: catalogs and Parquet.
   ## Layout: <prefix>/<schema>/catalog.sqlite and <prefix>/<schema>/<table>/*.parquet
   catalogPath: ducklake
   ## Target output file size for DuckLake writes.
   targetFileSize: 512MB
-  ## Expire snapshots older than this duration during finalization.
+  ## Expire snapshots older than this duration after each publication.
   snapshotExpiration: 7d
   ## Maximum compacted files produced by one maintenance call per table.
   maxCompactedFiles: 10
   ## Rewrite files when this fraction of rows is deleted.
   rewriteDeleteThreshold: 0.95
-  ## Litestream configuration for catalog replication.
+  ## Litestream configuration for catalog replication and restore.
   litestream:
-    ## Maximum time the reader retries catalog restoration.
-    recoveryTimeout: 30min
-    ## Delay between reader catalog recovery attempts.
-    recoveryRetry: 5sec
-    ## Delay used to keep the reader recovery container running after success.
-    recoveryKeepalive: 1hr
-    ## Shared catalog volume used by writer and reader PVCs.
+    ## Official Litestream image tag for the writer, restore init containers, and refresh Jobs.
+    version: 0.5.12
+    ## Writer catalog volume shared by DBOS sync workers and Litestream.
     storage:
       size: 1Gi
       ## Required RWX StorageClass. Use k3d-rwx locally, filestore-rwx in GKE.
+      storageClass: ""
+      accessMode: ReadWriteMany
+  ## Instance-local catalog copies mounted by every PostgreSQL Pod.
+  readerCatalog:
+    ## Maximum refresh Jobs the sync workflow runs at once.
+    refreshConcurrency: 4
+    ## Deadline for one refresh Job.
+    refreshTimeoutSeconds: 300
+    ## Generic ephemeral volume created for each PostgreSQL Pod.
+    storage:
+      size: 1Gi
+      ## Required StorageClass that dynamically provisions volumes that Jobs can mount beside the Pod.
       storageClass: ""
       accessMode: ReadWriteMany
 ## SeaweedFS object store, deployed as a subchart.
@@ -256,7 +261,7 @@ jobs:
       existingSecret: ""
     accessLog:
       retentionDays: 90
-  ## Stale-object cleanup and DuckLake maintenance CronJob.
+  ## Stale PostgreSQL object cleanup CronJob.
   maintenance:
     enabled: true
     schedule: 0 4 * * *

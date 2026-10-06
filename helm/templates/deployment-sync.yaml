@@ -24,6 +24,17 @@ spec:
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       initContainers:
         {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
+        - name: wait-for-postgres
+          image: {{ .Values.jobs.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [sh, -c, 'until pg_isready --quiet; do sleep 2; done']
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
       containers:
         - name: sync
           image: "{{ .Values.sync.image }}"
@@ -45,8 +56,9 @@ spec:
               mountPath: /scripts
               readOnly: true
             {{ end }}
-            - name: catalogs
+            - name: duckdb
               mountPath: {{ .Values.ducklake.catalogLocalPath }}
+              subPath: ducklake
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
@@ -57,6 +69,6 @@ spec:
             name: {{ .Values.sync.trigger.configMap }}
             defaultMode: 0555
         {{ end }}
-        - name: catalogs
+        - name: duckdb
           persistentVolumeClaim:
-            claimName: {{ include "data-proxy.fullname" . }}-catalog-writer
+            claimName: {{ include "data-proxy.fullname" . }}-duckdb

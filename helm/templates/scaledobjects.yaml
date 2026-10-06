@@ -13,7 +13,6 @@ spec:
     apiVersion: apps/v1
   pollingInterval: {{ .Values.sync.autoscaling.pollingInterval }}
   cooldownPeriod: {{ .Values.sync.autoscaling.cooldownPeriod }}
-  idleReplicaCount: {{ .Values.sync.autoscaling.idleReplicaCount }}
   minReplicaCount: {{ .Values.sync.autoscaling.minReplicaCount }}
   maxReplicaCount: {{ .Values.sync.autoscaling.maxReplicaCount }}
   triggers:

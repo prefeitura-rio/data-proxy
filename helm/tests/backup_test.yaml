@@ -89,7 +89,7 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
-      gcp.existingSecret: gcp-key
+      gcp.existingSecret: gcp
       sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
@@ -106,9 +106,9 @@ tests:
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes
           content:
-            name: gcp-key
+            name: gcp
             secret:
-              secretName: gcp-key
+              secretName: gcp
 
   - it: omits GCP credentials when no GCP Secret is set
     set:
@@ -225,3 +225,96 @@ tests:
           content:
             name: PG_DATABASE_URL
             value: postgresql://admin@data-proxy-rw:5432/data-proxy
+
+  - it: restores the catalog from the Litestream replica into an emptyDir for the backup
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas.test.tables: []
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-test-backup
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+          content:
+            name: restore-catalog
+            image: docker.io/litestream/litestream:0.5.12
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+            args:
+              - restore
+              - -if-replica-exists
+              - -config
+              - /config/litestream.yaml
+              - -o
+              - /catalog/catalog.sqlite
+              - /var/lib/ducklake/catalogs/test/catalog.sqlite
+            env:
+              - name: S3_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: data-proxy-s3
+                    key: S3_ACCESS_KEY
+              - name: S3_SECRET_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: data-proxy-s3
+                    key: S3_SECRET_KEY
+            volumeMounts:
+              - name: catalog
+                mountPath: /catalog
+              - name: litestream-config
+                mountPath: /config
+                readOnly: true
+        template: jobs.yaml
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content:
+            name: catalog
+            mountPath: /catalog
+            readOnly: true
+        template: jobs.yaml
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: CATALOG_FILE
+            value: /catalog/catalog.sqlite
+        template: jobs.yaml
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: catalog
+            emptyDir: {}
+        template: jobs.yaml
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: duckdb
+            persistentVolumeClaim:
+              claimName: data-proxy-duckdb
+              readOnly: true
+        template: jobs.yaml
+
+  - it: gives the maintenance job no object store, catalog volume, or DuckLake settings
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+        template: jobs.yaml
+      - lengthEqual:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          count: 5
+        template: jobs.yaml
+      - lengthEqual:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          count: 2
+        template: jobs.yaml

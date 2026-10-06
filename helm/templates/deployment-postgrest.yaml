@@ -14,6 +14,7 @@ metadata:
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: {{ $variant.component }}
+    data-proxy.io/serving: postgrest
 spec:
   selector:
     matchLabels:

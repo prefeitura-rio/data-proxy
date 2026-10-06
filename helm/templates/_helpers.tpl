@@ -10,24 +10,6 @@
     value: "90"
 {{- end }}
 
-{{- define "data-proxy.postgrestDeployments" -}}
-{{- $name := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
-{{- $names := list $name -}}
-{{- if .Values.ha.enabled -}}
-{{- $names = append $names (printf "%s-ro" $name) -}}
-{{- end -}}
-{{- $names | toJson -}}
-{{- end }}
-
-{{- define "data-proxy.poolerDeployments" -}}
-{{- $name := printf "%s-pooler" (include "data-proxy.fullname" .) -}}
-{{- $names := list $name -}}
-{{- if .Values.ha.enabled -}}
-{{- $names = append $names (printf "%s-ro" $name) -}}
-{{- end -}}
-{{- $names | toJson -}}
-{{- end }}
-
 {{- define "data-proxy.cnpgMinInstances" -}}
 {{- max (.Values.cnpg.autoscaling.minReplicaCount | int) 2 -}}
 {{- end }}
@@ -385,9 +367,9 @@ map $http_accept_profile $postgrest_write {
 {{- end }}
 
 {{- define "data-proxy.litestreamConfig" -}}
-{{- $root := .root | default . -}}
-{{- $schemas := .schemas | default ($root.Values.sync.config.schemas) -}}
-{{- $localPath := .localPath | default $root.Values.ducklake.catalogLocalPath -}}
+{{- $root := . -}}
+{{- $schemas := $root.Values.sync.config.schemas -}}
+{{- $localPath := $root.Values.ducklake.catalogLocalPath -}}
 {{- if eq (len $schemas) 0 }}
 dbs: []
 {{- else }}
@@ -413,28 +395,57 @@ dbs:
 /var/lib/postgresql/data
 {{- end }}
 
-{{- define "data-proxy.duckdbSecretsDir" -}}
-duckdb-secrets
+{{- define "data-proxy.readerCatalogVolume" -}}
+ducklake-catalogs
+{{- end }}
+
+{{- define "data-proxy.litestreamImage" -}}
+docker.io/litestream/litestream:{{ .Values.ducklake.litestream.version }}
 {{- end }}
 
 {{- define "data-proxy.cnpgCatalogPodPatch" -}}
+{{- $volumeName := include "data-proxy.readerCatalogVolume" . -}}
+{{- $storage := .Values.ducklake.readerCatalog.storage -}}
 {{- $volume := dict
-  "name" "ducklake-catalogs"
-  "persistentVolumeClaim" (dict
-    "claimName" (printf "%s-catalog-reader" (include "data-proxy.fullname" .))
-    "readOnly" false
+  "name" $volumeName
+  "ephemeral" (dict
+    "volumeClaimTemplate" (dict
+      "spec" (dict
+        "accessModes" (list $storage.accessMode)
+        "storageClassName" (required "ducklake.readerCatalog.storage.storageClass is required when sync schemas are configured" $storage.storageClass)
+        "resources" (dict "requests" (dict "storage" $storage.size))
+      )
+    )
+  )
+-}}
+{{- $configVolume := dict
+  "name" "litestream-config"
+  "configMap" (dict
+    "name" (printf "%s-litestream" (include "data-proxy.fullname" .))
+    "items" (list (dict "key" "litestream.yaml" "path" "litestream.yaml"))
   )
 -}}
 {{- $mount := dict
-  "name" "ducklake-catalogs"
+  "name" $volumeName
   "mountPath" .Values.ducklake.catalogLocalPath
   "readOnly" false
 -}}
+{{- $secretsVolume := dict
+  "name" "duckdb"
+  "persistentVolumeClaim" (dict "claimName" (printf "%s-duckdb" (include "data-proxy.fullname" .)))
+-}}
 {{- $secretsMount := dict
-  "name" "ducklake-catalogs"
+  "name" "duckdb"
   "mountPath" (printf "%s/.duckdb/stored_secrets" (include "data-proxy.postgresHome" .))
-  "subPath" (include "data-proxy.duckdbSecretsDir" .)
+  "subPath" "duckdb/secrets"
   "readOnly" false
+-}}
+{{- $prepareSecrets := dict
+  "name" "prepare-duckdb-secrets"
+  "image" (include "data-proxy.litestreamImage" .)
+  "imagePullPolicy" "IfNotPresent"
+  "command" (list "install" "-d" "-m" "0700" "/shared/duckdb" "/shared/duckdb/secrets")
+  "volumeMounts" (list (dict "name" "duckdb" "mountPath" "/shared"))
 -}}
 {{- $tmpfsVolume := dict
   "name" "duckdb-tmpfs"
@@ -452,15 +463,107 @@ duckdb-secrets
     )
   )
 -}}
-{{- list
+{{- $s3Volume := include "data-proxy.s3BootstrapVolume" . | fromYamlArray | first -}}
+{{- $waitForS3 := include "data-proxy.s3WaitInitContainer" . | fromYamlArray | first -}}
+{{- $s3Env := list
+  (dict "name" "S3_ACCESS_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (include "data-proxy.s3SecretName" .) "key" "S3_ACCESS_KEY")))
+  (dict "name" "S3_SECRET_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (include "data-proxy.s3SecretName" .) "key" "S3_SECRET_KEY")))
+-}}
+{{- $operations := list
   (dict "op" "add" "path" "/spec/volumes/-" "value" $volume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $configVolume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $secretsVolume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $s3Volume)
   (dict "op" "add" "path" "/spec/volumes/-" "value" $tmpfsVolume)
+  (dict "op" "add" "path" "/spec/initContainers/-" "value" $waitForS3)
+  (dict "op" "add" "path" "/spec/initContainers/-" "value" $prepareSecrets)
   (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $mount)
   (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $secretsMount)
   (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $tmpfsMount)
   (dict "op" "add" "path" "/spec/containers/0/lifecycle" "value" $postStart)
-  | toJson
 -}}
+{{- if .Values.gcp.existingSecret }}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/volumes/-" "value" (include "data-proxy.gcpVolume" . | fromYamlArray | first)) -}}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" (include "data-proxy.gcpVolumeMount" . | fromYamlArray | first)) -}}
+{{- end }}
+{{- $schemaNames := keys (.Values.sync.config.schemas | default dict) | sortAlpha -}}
+{{- $schemaDirs := list -}}
+{{- range $schema := $schemaNames }}
+{{- $schemaDirs = append $schemaDirs (printf "%s/%s" $.Values.ducklake.catalogLocalPath $schema) -}}
+{{- end }}
+{{- $prepareCatalogs := dict
+  "name" "prepare-catalogs"
+  "image" (include "data-proxy.litestreamImage" .)
+  "imagePullPolicy" "IfNotPresent"
+  "command" (concat (list "install" "-d" "-m" "0750") $schemaDirs)
+  "volumeMounts" (list (dict "name" $volumeName "mountPath" .Values.ducklake.catalogLocalPath))
+-}}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/initContainers/-" "value" $prepareCatalogs) -}}
+{{- range $schema := $schemaNames }}
+{{- $restore := dict
+  "name" (printf "restore-catalog-%s" ($schema | replace "_" "-"))
+  "image" (include "data-proxy.litestreamImage" $)
+  "imagePullPolicy" "IfNotPresent"
+  "args" (list "restore" "-if-replica-exists" "-config" "/config/litestream.yaml" (printf "%s/%s/catalog.sqlite" $.Values.ducklake.catalogLocalPath $schema))
+  "env" $s3Env
+  "volumeMounts" (list
+    (dict "name" $volumeName "mountPath" $.Values.ducklake.catalogLocalPath)
+    (dict "name" "litestream-config" "mountPath" "/config" "readOnly" true)
+  )
+-}}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/initContainers/-" "value" $restore) -}}
+{{- end }}
+{{- $operations | toJson -}}
+{{- end }}
+
+{{- define "data-proxy.refreshCatalogJobSpec" -}}
+completions: 0
+backoffLimit: 0
+activeDeadlineSeconds: {{ .root.Values.ducklake.readerCatalog.refreshTimeoutSeconds }}
+template:
+  spec:
+    restartPolicy: Never
+    automountServiceAccountToken: false
+    securityContext:
+      runAsUser: 26
+      runAsGroup: 26
+      fsGroup: 26
+    containers:
+      - name: refresh
+        image: {{ include "data-proxy.litestreamImage" .root | quote }}
+        imagePullPolicy: IfNotPresent
+        args:
+          - restore
+          - -force
+          - -config
+          - /config/litestream.yaml
+          - {{ printf "%s/%s/catalog.sqlite" .root.Values.ducklake.catalogLocalPath .schema | quote }}
+        env:
+          - name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "data-proxy.s3SecretName" .root }}
+                key: S3_ACCESS_KEY
+          - name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "data-proxy.s3SecretName" .root }}
+                key: S3_SECRET_KEY
+        volumeMounts:
+          - name: {{ include "data-proxy.readerCatalogVolume" .root }}
+            mountPath: {{ .root.Values.ducklake.catalogLocalPath }}
+          - name: litestream-config
+            mountPath: /config
+            readOnly: true
+    volumes:
+      - name: {{ include "data-proxy.readerCatalogVolume" .root }}
+        emptyDir: {}
+      - name: litestream-config
+        configMap:
+          name: {{ include "data-proxy.fullname" .root }}-litestream
+          items:
+            - key: litestream.yaml
+              path: litestream.yaml
 {{- end }}
 
 {{- define "data-proxy.appEnv" -}}
@@ -550,10 +653,8 @@ duckdb-secrets
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
-- name: POOLER_DEPLOYMENTS
-  value: {{ include "data-proxy.poolerDeployments" . | quote }}
-- name: POSTGREST_DEPLOYMENTS
-  value: {{ include "data-proxy.postgrestDeployments" . | quote }}
+- name: READER_REFRESH_CONCURRENCY
+  value: {{ .Values.ducklake.readerCatalog.refreshConcurrency | quote }}
 - name: DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS
   value: "300"
 {{- if .Values.gcp.existingSecret }}
@@ -564,7 +665,7 @@ duckdb-secrets
 
 {{- define "data-proxy.gcpVolume" -}}
 {{- if .Values.gcp.existingSecret }}
-- name: gcp-key
+- name: gcp
   secret:
     secretName: {{ .Values.gcp.existingSecret }}
 {{- end }}
@@ -572,7 +673,7 @@ duckdb-secrets
 
 {{- define "data-proxy.gcpVolumeMount" -}}
 {{- if .Values.gcp.existingSecret }}
-- name: gcp-key
+- name: gcp
   mountPath: {{ dir .Values.gcp.mountPath }}
   readOnly: true
 {{- end }}

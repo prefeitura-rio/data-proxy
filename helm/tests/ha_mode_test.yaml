@@ -359,6 +359,32 @@ tests:
           value: data-proxy-postgrest
         template: scaledobjects.yaml
 
+  - it: labels both PostgREST Deployments with the shared serving label
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.labels["data-proxy.io/serving"]
+          value: postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.labels["data-proxy.io/serving"]
+          value: postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest-ro
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.selector.matchLabels["data-proxy.io/serving"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest-ro
+        template: deployment-postgrest.yaml
+
   - it: renders an autoscaled read PostgREST behind the read pooler
     asserts:
       - notExists:
@@ -492,17 +518,11 @@ tests:
           value: data-proxy-proxy
         template: configmap-proxy.yaml
 
-  - it: lists both Pooler and PostgREST deployments for sync restarts
+  - it: configures bounded catalog refresh for sync restarts
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POOLER_DEPLOYMENTS
-            value: '["data-proxy-pooler","data-proxy-pooler-ro"]'
-        template: deployment-sync.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGREST_DEPLOYMENTS
-            value: '["data-proxy-postgrest","data-proxy-postgrest-ro"]'
+            name: READER_REFRESH_CONCURRENCY
+            value: "4"
         template: deployment-sync.yaml

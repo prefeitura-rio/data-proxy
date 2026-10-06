@@ -7,7 +7,7 @@ templates:
   - deployment-sync.yaml
   - configmap-litestream.yaml
   - deployment-litestream.yaml
-  - pvc-catalogs.yaml
+  - pvc-duckdb.yaml
 tests:
   - it: renders one CNPG cluster with DuckLake PostgreSQL parameters
     asserts:
@@ -33,17 +33,58 @@ tests:
           path: spec.postgresql.parameters["duckdb.threads"]
           value: "4"
         template: cluster-cnpg.yaml
-  - it: mounts the reader catalog PVC read-write in CNPG
+  - it: gives every PostgreSQL Pod a generated ephemeral catalog claim
     set:
       sync.config:
         schemas:
           app:
             tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: filestore-rwx
     asserts:
       - matchRegex:
           path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: 'persistentVolumeClaim[^}]*"readOnly":false'
+          pattern: '"ephemeral":\{"volumeClaimTemplate":\{"spec":\{"accessModes":\["ReadWriteMany"\],"resources":\{"requests":\{"storage":"1Gi"\}\},"storageClassName":"filestore-rwx"\}\}\},"name":"ducklake-catalogs"'
+        template: cluster-cnpg.yaml
+      - notMatchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: "catalog-reader"
+        template: cluster-cnpg.yaml
+
+  - it: restores existing catalogs without blocking an empty cluster
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+          other:
+            tables: []
+      ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
+    asserts:
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"args":\["restore","-if-replica-exists","-config","/config/litestream.yaml","/var/lib/ducklake/catalogs/app/catalog.sqlite"\]'
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"args":\["restore","-if-replica-exists","-config","/config/litestream.yaml","/var/lib/ducklake/catalogs/other/catalog.sqlite"\]'
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"command":\["install","-d","-m","0750","/var/lib/ducklake/catalogs/app","/var/lib/ducklake/catalogs/other"\]'
+        template: cluster-cnpg.yaml
+      - notMatchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"runAsUser":0'
+        template: cluster-cnpg.yaml
+      - notMatchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: 'chmod'
+        template: cluster-cnpg.yaml
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"image":"docker.io/litestream/litestream:0.5.12"'
         template: cluster-cnpg.yaml
   - it: restarts sync pods when Secret data changes
     asserts:
@@ -58,6 +99,7 @@ tests:
         app:
           tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
     asserts:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/s3-credentials"]
@@ -70,28 +112,37 @@ tests:
           path: spec.pgbouncer.poolMode
           value: session
         template: pooler-cnpg.yaml
-  - it: mounts the writer catalog PVC into DBOS sync workers
+  - it: mounts the ducklake folder of the shared PVC into DBOS sync workers
     set:
       sync.config:
         schemas:
           app:
             tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: catalogs
+            name: duckdb
             persistentVolumeClaim:
-              claimName: data-proxy-catalog-writer
+              claimName: data-proxy-duckdb
         template: deployment-sync.yaml
-  - it: runs one Litestream workload with reader and writer containers
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: duckdb
+            mountPath: /var/lib/ducklake/catalogs
+            subPath: ducklake
+        template: deployment-sync.yaml
+  - it: runs one writer-only official Litestream container
     set:
       sync.config:
         schemas:
           app:
             tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
     asserts:
       - equal:
           path: spec.replicas
@@ -101,48 +152,24 @@ tests:
           path: spec.template.metadata.annotations["checksum/litestream-config"]
           pattern: "^[0-9a-f]{64}$"
         template: deployment-litestream.yaml
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+        template: deployment-litestream.yaml
       - equal:
           path: spec.template.spec.containers[0].name
-          value: restore
-        template: deployment-litestream.yaml
-      - equal:
-          path: spec.template.spec.containers[0].command
-          value: [nu, /projected/recover-catalogs.nu, --read]
-        template: deployment-litestream.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: CATALOG_RECOVERY_TIMEOUT
-            value: 30min
-        template: deployment-litestream.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: CATALOG_RECOVERY_RETRY
-            value: 5sec
-        template: deployment-litestream.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: CATALOG_RECOVERY_KEEPALIVE
-            value: 1hr
-        template: deployment-litestream.yaml
-      - equal:
-          path: spec.template.spec.containers[1].name
           value: replicate
         template: deployment-litestream.yaml
       - equal:
-          path: spec.template.spec.containers[1].command
-          value: [nu, /projected/recover-catalogs.nu, --write]
+          path: spec.template.spec.containers[0].image
+          value: docker.io/litestream/litestream:0.5.12
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [replicate, -restore-if-db-not-exists, -config, /config/litestream.yaml]
         template: deployment-litestream.yaml
       - equal:
           path: spec.template.spec.containers[0].securityContext
-          value:
-            runAsUser: 0
-            runAsGroup: 0
-        template: deployment-litestream.yaml
-      - equal:
-          path: spec.template.spec.containers[1].securityContext
           value:
             runAsUser: 10001
             runAsGroup: 10001
@@ -150,16 +177,48 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: writer-catalogs
+            name: duckdb
             persistentVolumeClaim:
-              claimName: data-proxy-catalog-writer
+              claimName: data-proxy-duckdb
         template: deployment-litestream.yaml
       - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: duckdb
+            mountPath: /var/lib/ducklake/catalogs
+            subPath: ducklake
+        template: deployment-litestream.yaml
+      - notContains:
           path: spec.template.spec.volumes
           content:
             name: reader-catalogs
             persistentVolumeClaim:
               claimName: data-proxy-catalog-reader
+        template: deployment-litestream.yaml
+  - it: creates the ducklake and secret folders on the shared volume
+    set:
+      sync.config:
+        schemas:
+          other:
+            tables: []
+          app:
+            tables: []
+      ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value: [install, -d, -o, "10001", -g, "10001", -m, "0755", /shared/ducklake]
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].args
+          value:
+            - /shared/ducklake/app
+            - /shared/ducklake/other
+        template: deployment-litestream.yaml
+      - equal:
+          path: spec.template.spec.initContainers[2].command
+          value: [install, -d, -o, "26", -g, "26", -m, "0700", /shared/duckdb, /shared/duckdb/secrets]
         template: deployment-litestream.yaml
   - it: renders one Litestream entry per schema
     set:
@@ -168,64 +227,51 @@ tests:
           app:
             tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
     asserts:
       - matchRegex:
-          path: data["litestream-write.yaml"]
+          path: data["litestream.yaml"]
           pattern: "replica:\\n"
         template: configmap-litestream.yaml
       - matchRegex:
+          path: data["litestream.yaml"]
+          pattern: "path: \"ducklake/app/catalog.sqlite\""
+        template: configmap-litestream.yaml
+      - matchRegex:
+          path: data["litestream.yaml"]
+          pattern: "- path: \"/var/lib/ducklake/catalogs/app/catalog.sqlite\""
+        template: configmap-litestream.yaml
+      - notExists:
           path: data["litestream-write.yaml"]
-          pattern: "ducklake/app/catalog.sqlite"
         template: configmap-litestream.yaml
-      - matchRegex:
+      - notExists:
           path: data["litestream-read.yaml"]
-          pattern: "catalogs/app/catalog.sqlite"
         template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["recover-catalogs.nu"]
-          pattern: "litestream restore -if-replica-exists"
-        template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["recover-catalogs.nu"]
-          pattern: "set-permissions '777'"
-        template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["recover-catalogs.nu"]
-          pattern: "duckdb-secrets"
-        template: configmap-litestream.yaml
-      - matchRegex:
-          path: data["recover-catalogs.nu"]
-          pattern: "set-permissions '666'"
-        template: configmap-litestream.yaml
-  - it: requires and uses the shared RWX catalog volume
+  - it: requires and uses the shared RWX volume
     set:
       sync.config:
         schemas:
           app:
             tables: []
       ducklake.litestream.storage.storageClass: k3d-rwx
+      ducklake.readerCatalog.storage.storageClass: local-path
     asserts:
       - hasDocuments:
-          count: 2
-        template: pvc-catalogs.yaml
+          count: 1
+        template: pvc-duckdb.yaml
       - equal:
           path: spec.accessModes[0]
           value: ReadWriteMany
-        template: pvc-catalogs.yaml
+        template: pvc-duckdb.yaml
       - equal:
           path: spec.storageClassName
           value: k3d-rwx
-        template: pvc-catalogs.yaml
+        template: pvc-duckdb.yaml
       - equal:
           path: metadata.name
-          value: data-proxy-catalog-writer
+          value: data-proxy-duckdb
         documentIndex: 0
-        template: pvc-catalogs.yaml
-      - equal:
-          path: metadata.name
-          value: data-proxy-catalog-reader
-        documentIndex: 1
-        template: pvc-catalogs.yaml
+        template: pvc-duckdb.yaml
   - it: does not configure empty response caching
     asserts:
       - notContains:

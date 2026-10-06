@@ -13,14 +13,14 @@ tests:
           of: Job
         documentSelector:
           path: metadata.name
-          value: data-proxy-s3-bootstrap
+          value: data-proxy-s3-bootstrap-0
         template: jobs.yaml
       - equal:
           path: spec.template.spec.containers[0].command
           value: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --create]
         documentSelector:
           path: metadata.name
-          value: data-proxy-s3-bootstrap
+          value: data-proxy-s3-bootstrap-0
         template: jobs.yaml
 
   - it: creates configure-db as a revision-specific Job
@@ -31,6 +31,42 @@ tests:
           path: metadata.name
           value: data-proxy-configure-db-0
         template: jobs.yaml
+
+  - it: keeps the Jobs that Helm waits for until the next upgrade removes them
+    asserts:
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-0
+        template: jobs.yaml
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3-bootstrap-0
+        template: jobs.yaml
+  - it: sync Deployment waits for the object store and for PostgreSQL before it starts
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-s3
+        template: deployment-sync.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: wait-for-postgres
+        template: deployment-sync.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value: [sh, -c, "until pg_isready --quiet; do sleep 2; done"]
+        template: deployment-sync.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].env[0]
+          value:
+            name: PGHOST
+            value: data-proxy-rw
+        template: deployment-sync.yaml
+
   - it: sync Deployment uses the correct image and command
     asserts:
       - isKind:
@@ -62,7 +98,7 @@ tests:
             value: "ducklake"
         template: deployment-sync.yaml
       - matchRegex:
-          path: spec.template.spec.containers[0].env[12].value
+          path: spec.template.spec.containers[0].env[25].value
           pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy
         template: deployment-sync.yaml
       - contains:
@@ -108,14 +144,14 @@ tests:
         template: deployment-recovery.yaml
 
 
-  - it: sync mounts the writer catalog PVC
+  - it: sync mounts the ducklake folder of the shared PVC
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: catalogs
+            name: duckdb
             persistentVolumeClaim:
-              claimName: data-proxy-catalog-writer
+              claimName: data-proxy-duckdb
         template: deployment-sync.yaml
 
   - it: renders a KEDA ScaledObject targeting the sync Deployment
@@ -146,7 +182,6 @@ tests:
     set:
       sync.autoscaling.pollingInterval: 11
       sync.autoscaling.cooldownPeriod: 22
-      sync.autoscaling.idleReplicaCount: 0
       sync.autoscaling.minReplicaCount: 2
       sync.autoscaling.maxReplicaCount: 9
       sync.autoscaling.query: SELECT 1
@@ -162,7 +197,6 @@ tests:
               apiVersion: apps/v1
             pollingInterval: 11
             cooldownPeriod: 22
-            idleReplicaCount: 0
             minReplicaCount: 2
             maxReplicaCount: 9
             triggers:
@@ -172,6 +206,15 @@ tests:
                   query: SELECT 1
                   targetQueryValue: "2"
                   activationTargetQueryValue: "4"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-sync
+        template: scaledobjects.yaml
+
+  - it: never sets idleReplicaCount on the sync ScaledObject
+    asserts:
+      - notExists:
+          path: spec.idleReplicaCount
         documentSelector:
           path: metadata.name
           value: data-proxy-sync
@@ -269,4 +312,107 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-maintenance
+        template: jobs.yaml
+
+  - it: renders one refresh Job template per schema, named with a spec hash
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+          other_schema:
+            tables: []
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: '^data-proxy-refresh-catalog-app-[0-9a-f]{8}$'
+        documentSelector:
+          path: metadata.labels["data-proxy.io/schema"]
+          value: app
+        template: jobs.yaml
+      - matchRegex:
+          path: metadata.name
+          pattern: '^data-proxy-refresh-catalog-other-schema-[0-9a-f]{8}$'
+        documentSelector:
+          path: metadata.labels["data-proxy.io/schema"]
+          value: other_schema
+        template: jobs.yaml
+      - equal:
+          path: metadata.labels["data-proxy.io/template"]
+          value: "true"
+        documentSelector:
+          path: metadata.labels["data-proxy.io/schema"]
+          value: app
+        template: jobs.yaml
+
+  - it: keeps the refresh Job template finished at once and never expiring
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+    documentSelector:
+      path: metadata.labels["data-proxy.io/schema"]
+      value: app
+    asserts:
+      - equal:
+          path: spec.completions
+          value: 0
+        template: jobs.yaml
+      - equal:
+          path: spec.backoffLimit
+          value: 0
+        template: jobs.yaml
+      - equal:
+          path: spec.activeDeadlineSeconds
+          value: 300
+        template: jobs.yaml
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
+        template: jobs.yaml
+      - notExists:
+          path: spec.suspend
+        template: jobs.yaml
+
+  - it: restores one schema catalog as the PostgreSQL user with a single command
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+    documentSelector:
+      path: metadata.labels["data-proxy.io/schema"]
+      value: app
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/litestream/litestream:0.5.12
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - restore
+            - -force
+            - -config
+            - /config/litestream.yaml
+            - /var/lib/ducklake/catalogs/app/catalog.sqlite
+        template: jobs.yaml
+      - notExists:
+          path: spec.template.spec.containers[0].command
+        template: jobs.yaml
+      - notExists:
+          path: spec.template.metadata
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.volumes[0]
+          value:
+            name: ducklake-catalogs
+            emptyDir: {}
         template: jobs.yaml

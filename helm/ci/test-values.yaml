@@ -17,6 +17,9 @@ ducklake:
   litestream:
     storage:
       storageClass: standard
+  readerCatalog:
+    storage:
+      storageClass: standard
 
 cnpg:
   db:

@@ -6,11 +6,5 @@ metadata:
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
 data:
-  litestream-write.yaml: |
-{{ include "data-proxy.litestreamConfig" (dict "root" . "localPath" .Values.ducklake.catalogWriterPath) | nindent 4 }}
-  litestream-read.yaml: |
-{{ include "data-proxy.litestreamConfig" (dict "root" . "localPath" .Values.ducklake.catalogLocalPath) | nindent 4 }}
-  recover-catalogs.nu: |
-{{ .Files.Get "files/recover-catalogs.nu" | nindent 4 }}
-  lib.nu: |
-{{ .Files.Get "files/lib.nu" | nindent 4 }}
+  litestream.yaml: |
+{{ include "data-proxy.litestreamConfig" . | nindent 4 }}

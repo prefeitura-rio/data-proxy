@@ -44,7 +44,6 @@ metadata:
     app.kubernetes.io/component: configure-db
 spec:
   backoffLimit: 3
-  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
@@ -141,14 +140,13 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-s3-bootstrap
+  name: {{ include "data-proxy.fullname" . }}-s3-bootstrap-{{ .Release.Revision }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: s3-bootstrap
 spec:
   backoffLimit: 0
-  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
@@ -205,6 +203,37 @@ spec:
           restartPolicy: Never
           initContainers:
             {{- include "data-proxy.backupS3WaitInitContainer" $root | nindent 12 }}
+            - name: restore-catalog
+              image: {{ include "data-proxy.litestreamImage" $root | quote }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+              args:
+                - restore
+                - -if-replica-exists
+                - -config
+                - /config/litestream.yaml
+                - -o
+                - /catalog/catalog.sqlite
+                - {{ printf "%s/%s/catalog.sqlite" $root.Values.ducklake.catalogLocalPath $schema | quote }}
+              env:
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.s3SecretName" $root }}
+                      key: S3_SECRET_KEY
+              volumeMounts:
+                - name: catalog
+                  mountPath: /catalog
+                - name: litestream-config
+                  mountPath: /config
+                  readOnly: true
           containers:
             - name: backup
               image: {{ $root.Values.jobs.image | quote }}
@@ -248,8 +277,8 @@ spec:
                       key: S3_SECRET_KEY
                 - name: ACCESS_LOG_RETENTION_DAYS
                   value: {{ $root.Values.jobs.backup.accessLog.retentionDays | quote }}
-                - name: DUCKLAKE_CATALOG_PATH
-                  value: {{ $root.Values.ducklake.catalogLocalPath | quote }}
+                - name: CATALOG_FILE
+                  value: /catalog/catalog.sqlite
                 - name: SQL_TEMPLATE_DIR
                   value: /scripts
                 {{- if $root.Values.gcp.existingSecret }}
@@ -260,8 +289,8 @@ spec:
                 - name: scripts
                   mountPath: /scripts
                   readOnly: true
-                - name: catalogs
-                  mountPath: {{ $root.Values.ducklake.catalogLocalPath }}
+                - name: catalog
+                  mountPath: /catalog
                   readOnly: true
                 {{- include "data-proxy.gcpVolumeMount" $root | nindent 16 }}
           volumes:
@@ -282,10 +311,14 @@ spec:
                   - key: {{ base (dir $path) }}_{{ base $path }}
                     path: {{ base (dir $path) }}/{{ base $path }}
 {{- end }}
-            - name: catalogs
-              persistentVolumeClaim:
-                claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
-                readOnly: true
+            - name: catalog
+              emptyDir: {}
+            - name: litestream-config
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-litestream
+                items:
+                  - key: litestream.yaml
+                    path: litestream.yaml
             {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
             {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
 {{- end }}
@@ -317,8 +350,6 @@ spec:
             app.kubernetes.io/component: maintenance
         spec:
           restartPolicy: Never
-          initContainers:
-            {{- include "data-proxy.s3WaitInitContainer" $root | nindent 12 }}
           containers:
             - name: maintenance
               image: {{ $root.Values.jobs.image | quote }}
@@ -337,32 +368,6 @@ spec:
                   value: /config/sync.json
                 - name: DBOS_APP_SCHEMA
                   value: {{ $root.Values.sync.dbos.appSchema | quote }}
-                - name: S3_BUCKET
-                  value: {{ $root.Values.s3.bucket | quote }}
-                - name: S3_ENDPOINT
-                  value: {{ include "data-proxy.s3Endpoint" $root | quote }}
-                - name: S3_USE_SSL
-                  value: {{ $root.Values.s3.useSsl | quote }}
-                - name: S3_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "data-proxy.s3SecretName" $root }}
-                      key: S3_ACCESS_KEY
-                - name: S3_SECRET_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "data-proxy.s3SecretName" $root }}
-                      key: S3_SECRET_KEY
-                - name: DUCKLAKE_CATALOG_PATH
-                  value: {{ $root.Values.ducklake.catalogPath | quote }}
-                - name: DUCKLAKE_CATALOG_LOCAL_PATH
-                  value: {{ $root.Values.ducklake.catalogLocalPath | quote }}
-                - name: DUCKLAKE_SNAPSHOT_EXPIRATION
-                  value: {{ $root.Values.ducklake.snapshotExpiration | quote }}
-                - name: DUCKLAKE_MAX_COMPACTED_FILES
-                  value: {{ $root.Values.ducklake.maxCompactedFiles | quote }}
-                - name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
-                  value: {{ $root.Values.ducklake.rewriteDeleteThreshold | quote }}
                 - name: SQL_TEMPLATE_DIR
                   value: /scripts
               volumeMounts:
@@ -371,9 +376,6 @@ spec:
                   readOnly: true
                 - name: sync-config
                   mountPath: /config
-                  readOnly: true
-                - name: catalogs
-                  mountPath: {{ $root.Values.ducklake.catalogLocalPath }}
                   readOnly: true
           volumes:
             - name: scripts
@@ -396,9 +398,23 @@ spec:
             - name: sync-config
               configMap:
                 name: {{ include "data-proxy.fullname" $root }}-sync
-            - name: catalogs
-              persistentVolumeClaim:
-                claimName: {{ include "data-proxy.fullname" $root }}-catalog-reader
-                readOnly: true
-            {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
+{{- end }}
+{{- range $schema := keys .Values.sync.config.schemas | sortAlpha }}
+{{- $spec := include "data-proxy.refreshCatalogJobSpec" (dict "root" $ "schema" $schema) }}
+---
+## Template for the refresh of one schema. The sync workflow copies it once per PostgreSQL instance.
+## completions 0 keeps `helm --wait-for-jobs` from waiting for it, and the spec hash in the name
+## replaces the Job when its pod template changes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" $ }}-refresh-catalog-{{ $schema | replace "_" "-" }}-{{ $spec | sha256sum | trunc 8 }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: refresh-catalog
+    data-proxy.io/schema: {{ $schema | quote }}
+    data-proxy.io/template: "true"
+spec:
+  {{- $spec | nindent 2 }}
 {{- end }}

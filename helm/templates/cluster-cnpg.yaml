@@ -20,28 +20,10 @@ spec:
       value: {{ include "data-proxy.postgresHome" $root }}
     {{- if $root.Values.gcp.existingSecret }}
     - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: /projected/gcp-key.json
+      value: {{ $root.Values.gcp.mountPath | quote }}
     {{- end }}
     - name: CURL_CA_BUNDLE
       value: /etc/ssl/certs/ca-certificates.crt
-  {{- if or (gt (len $schemas) 0) $root.Values.gcp.existingSecret }}
-  projectedVolumeTemplate:
-    sources:
-      - configMap:
-          name: {{ include "data-proxy.fullname" $root }}-litestream
-          items:
-            - key: litestream-read.yaml
-              path: litestream-read.yaml
-            - key: recover-catalogs.nu
-              path: recover-catalogs.nu
-      {{- if $root.Values.gcp.existingSecret }}
-      - secret:
-          name: {{ $root.Values.gcp.existingSecret | quote }}
-          items:
-            - key: key.json
-              path: gcp-key.json
-      {{- end }}
-  {{- end }}
   bootstrap:
     initdb:
       database: {{ $root.Values.cnpg.db.name | quote }}

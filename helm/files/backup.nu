@@ -79,7 +79,7 @@ def main []: nothing -> nothing {
     }
 
     log info $'DuckLake catalog backup started: schema=($schema)'
-    let catalog_path = $'($env.DUCKLAKE_CATALOG_PATH)/($schema)/catalog.sqlite'
+    let catalog_path = $env.CATALOG_FILE
     if ($catalog_path | path exists) {
         try {
             rclone copyto $catalog_path $'($remote_prefix)/catalog.sqlite'

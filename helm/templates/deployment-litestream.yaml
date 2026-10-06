@@ -29,48 +29,39 @@ spec:
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       initContainers:
         {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
-      containers:
-        - name: restore
-          image: {{ .Values.jobs.image | quote }}
+        - name: prepare-ducklake
+          image: {{ include "data-proxy.litestreamImage" . | quote }}
           imagePullPolicy: IfNotPresent
-          command: ["nu", "/projected/recover-catalogs.nu", "--read"]
+          command: [install, -d, -o, "10001", -g, "10001", -m, "0755", /shared/ducklake]
+          args:
+            {{- range $schema := keys $schemas | sortAlpha }}
+            - {{ printf "/shared/ducklake/%s" $schema | quote }}
+            {{- end }}
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          env:
-            - name: HOME
-              value: /tmp
-            - name: S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" . }}
-                  key: S3_ACCESS_KEY
-            - name: S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" . }}
-                  key: S3_SECRET_KEY
-            - name: DUCKLAKE_CATALOG_LOCAL_PATH
-              value: {{ .Values.ducklake.catalogLocalPath | quote }}
-            - name: CATALOG_RECOVERY_TIMEOUT
-              value: {{ .Values.ducklake.litestream.recoveryTimeout | quote }}
-            - name: CATALOG_RECOVERY_RETRY
-              value: {{ .Values.ducklake.litestream.recoveryRetry | quote }}
-            - name: CATALOG_RECOVERY_KEEPALIVE
-              value: {{ .Values.ducklake.litestream.recoveryKeepalive | quote }}
-            - name: SYNC_CONFIG_PATH
-              value: /config/sync.json
           volumeMounts:
-            - name: reader-catalogs
-              mountPath: {{ .Values.ducklake.catalogLocalPath }}
-            - name: projected
-              mountPath: /projected
-              readOnly: true
-            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
-        - name: replicate
-          image: {{ .Values.jobs.image | quote }}
+            - name: duckdb
+              mountPath: /shared
+        - name: prepare-duckdb-secrets
+          image: {{ include "data-proxy.litestreamImage" . | quote }}
           imagePullPolicy: IfNotPresent
-          command: ["nu", "/projected/recover-catalogs.nu", "--write"]
+          command: [install, -d, -o, "26", -g, "26", -m, "0700", /shared/duckdb, /shared/duckdb/secrets]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: duckdb
+              mountPath: /shared
+      containers:
+        - name: replicate
+          image: {{ include "data-proxy.litestreamImage" . | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - replicate
+            - -restore-if-db-not-exists
+            - -config
+            - /config/litestream.yaml
           securityContext:
             runAsUser: 10001
             runAsGroup: 10001
@@ -87,27 +78,22 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.s3SecretName" . }}
                   key: S3_SECRET_KEY
-            - name: DUCKLAKE_CATALOG_WRITER_PATH
-              value: {{ .Values.ducklake.catalogWriterPath | quote }}
-            - name: SYNC_CONFIG_PATH
-              value: /config/sync.json
           volumeMounts:
-            - name: writer-catalogs
-              mountPath: {{ .Values.ducklake.catalogWriterPath }}
-            - name: projected
-              mountPath: /projected
+            - name: duckdb
+              mountPath: {{ .Values.ducklake.catalogLocalPath }}
+              subPath: ducklake
+            - name: litestream-config
+              mountPath: /config
               readOnly: true
-            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
       volumes:
-        - name: writer-catalogs
+        - name: duckdb
           persistentVolumeClaim:
-            claimName: {{ include "data-proxy.fullname" . }}-catalog-writer
-        - name: reader-catalogs
-          persistentVolumeClaim:
-            claimName: {{ include "data-proxy.fullname" . }}-catalog-reader
-        - name: projected
+            claimName: {{ include "data-proxy.fullname" . }}-duckdb
+        - name: litestream-config
           configMap:
             name: {{ include "data-proxy.fullname" . }}-litestream
-        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
+            items:
+              - key: litestream.yaml
+                path: litestream.yaml
         {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
 {{- end }}

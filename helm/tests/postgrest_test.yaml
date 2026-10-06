@@ -140,3 +140,19 @@ tests:
               secretKeyRef:
                 key: password
                 name: data-proxy-cnpg-authenticator
+
+  - it: labels the Deployment so the sync workflow can restart it
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.labels["data-proxy.io/serving"]
+          value: postgrest
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.selector.matchLabels["data-proxy.io/serving"]
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.template.metadata.labels["data-proxy.io/serving"]
+        template: deployment-postgrest.yaml

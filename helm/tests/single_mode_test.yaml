@@ -202,18 +202,3 @@ tests:
           path: metadata.name
           value: data-proxy-proxy
         template: configmap-proxy.yaml
-
-  - it: lists the single-mode Pooler and PostgREST deployments for sync restarts
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POOLER_DEPLOYMENTS
-            value: '["data-proxy-pooler"]'
-        template: deployment-sync.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGREST_DEPLOYMENTS
-            value: '["data-proxy-postgrest"]'
-        template: deployment-sync.yaml
