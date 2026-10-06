@@ -87,18 +87,18 @@ in
               ".nu-lint.toml"
             ];
           };
-          "dp:lint:docker" = {
+          "dp:lint:containers" = {
             exec = ''
-              hadolint Dockerfile.sync
-              hadolint Dockerfile.postgres
-              hadolint Dockerfile.jobs
-              hadolint Dockerfile.proxy
+              hadolint Containerfile.sync
+              hadolint Containerfile.postgres
+              hadolint Containerfile.jobs
+              hadolint Containerfile.proxy
             '';
             execIfModified = [
-              "Dockerfile.sync"
-              "Dockerfile.postgres"
-              "Dockerfile.jobs"
-              "Dockerfile.proxy"
+              "Containerfile.sync"
+              "Containerfile.postgres"
+              "Containerfile.jobs"
+              "Containerfile.proxy"
             ];
           };
           "dp:lint:sql" = {
@@ -174,7 +174,7 @@ in
             "dp:lint:helm"
             "dp:lint:proxy"
             "dp:lint:nu"
-            "dp:lint:docker"
+            "dp:lint:containers"
             "dp:lint:docs"
           ];
           "dp:test".after = [

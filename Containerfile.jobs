@@ -1,5 +1,7 @@
 FROM docker.io/debian:trixie-slim
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl=8.14.1-2+deb13u5 \
     ca-certificates=20250419 \
@@ -12,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=docker.io/duckdb/duckdb:1.5.4 /duckdb /usr/local/bin/duckdb
 COPY --from=registry.k8s.io/kubectl:v1.34.7 /bin/kubectl /usr/local/bin/kubectl
-COPY --from=docker.io/litestream/litestream:0.5.12 /usr/local/bin/litestream /usr/local/bin/litestream
 
 RUN useradd --create-home --uid 1000 nushell
 USER nushell

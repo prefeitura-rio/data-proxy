@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: {{ required "proxy.image must reference an image built from Dockerfile.proxy" .Values.proxy.image | quote }}
+          image: {{ required "proxy.image must reference an image built from Containerfile.proxy" .Values.proxy.image | quote }}
           ports:
             - name: http
               containerPort: 8080

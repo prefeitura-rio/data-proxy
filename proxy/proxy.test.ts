@@ -901,7 +901,7 @@ test('proxy: avoids the globals and methods that the engine does not provide', a
 
 test('proxy: substitutes every placeholder of the nginx config in the image', async () => {
     const config = readFileSync(fileURLToPath(new URL('../helm/files/nginx.conf', import.meta.url)), 'utf8');
-    const image = readFileSync(fileURLToPath(new URL('../Dockerfile.proxy', import.meta.url)), 'utf8');
+    const image = readFileSync(fileURLToPath(new URL('../Containerfile.proxy', import.meta.url)), 'utf8');
     const filter = (image.match(/NGINX_ENVSUBST_FILTER=\^\(([^)]*)\)\$/) || ['', ''])[1].split('|');
     const placeholders = Array.from(new Set((config.match(/\$\{[A-Z_]+\}/g) || []).map((name) => name.slice(2, -1))));
 

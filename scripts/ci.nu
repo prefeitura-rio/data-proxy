@@ -55,31 +55,31 @@ def 'main changes' []: nothing -> nothing {
     let specs = [
         {
             name: Pipeline
-            dockerfile: Dockerfile.sync
+            containerfile: Containerfile.sync
             suffix: -sync
             tag_prefix: ""
-            pattern: '^Dockerfile\.sync$|^src/|^pyproject\.toml$|^uv\.lock$'
+            pattern: '^Containerfile\.sync$|^src/|^pyproject\.toml$|^uv\.lock$'
         }
         {
             name: Proxy
-            dockerfile: Dockerfile.proxy
+            containerfile: Containerfile.proxy
             suffix: -proxy
             tag_prefix: ""
-            pattern: '^proxy/|^Dockerfile\.proxy$'
+            pattern: '^proxy/|^Containerfile\.proxy$'
         }
         {
             name: Jobs
-            dockerfile: Dockerfile.jobs
+            containerfile: Containerfile.jobs
             suffix: -jobs
             tag_prefix: ""
-            pattern: ^Dockerfile\.jobs$
+            pattern: ^Containerfile\.jobs$
         }
         {
             name: PostgreSQL
-            dockerfile: Dockerfile.postgres
+            containerfile: Containerfile.postgres
             suffix: -postgres
             tag_prefix: 17-
-            pattern: ^Dockerfile\.postgres$
+            pattern: ^Containerfile\.postgres$
         }
     ]
 

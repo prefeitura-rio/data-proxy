@@ -30,10 +30,10 @@ export def poll [check: closure, config: record<interval: duration, max_attempts
 }
 
 # Build and push every input image record to its configured registry.
-export def build-images []: list<record<image: string, dockerfile: string>> -> nothing {
+export def build-images []: list<record<image: string, containerfile: string>> -> nothing {
     for image in $in {
         log info $'Building ($image.image)...'
-        podman build --tag $image.image --file $image.dockerfile .
+        podman build --tag $image.image --file $image.containerfile .
 
         log info $'Pushing ($image.image)...'
         podman push --tls-verify=false $image.image
@@ -63,27 +63,27 @@ export def local-image-tag []: nothing -> string {
 }
 
 # Return local registry images for one immutable tag.
-def local-images [tag: string]: nothing -> list<record<image: string, dockerfile: string>> {
+def local-images [tag: string]: nothing -> list<record<image: string, containerfile: string>> {
     [
         {
             image: $"($IMAGE_REGISTRY)/data-proxy-sync:($tag)"
-            dockerfile: Dockerfile.sync
+            containerfile: Containerfile.sync
         }
         {
             image: $"($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($tag)"
-            dockerfile: Dockerfile.postgres
+            containerfile: Containerfile.postgres
         }
         {
             image: $"($IMAGE_REGISTRY)/data-proxy-proxy:($tag)"
-            dockerfile: Dockerfile.proxy
+            containerfile: Containerfile.proxy
         }
         {
             image: $"($IMAGE_REGISTRY)/data-proxy-jobs:($tag)"
-            dockerfile: Dockerfile.jobs
+            containerfile: Containerfile.jobs
         }
         {
             image: $"($IMAGE_REGISTRY)/k6:($tag)"
-            dockerfile: Dockerfile.k6
+            containerfile: Containerfile.k6
         }
     ]
 }
