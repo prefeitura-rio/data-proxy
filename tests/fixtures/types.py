@@ -1,9 +1,20 @@
 """Test boundary types shared by service fixtures."""
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import final
+from typing import final, override
 
+from lightkube.core.exceptions import ConditionError
+from lightkube.core.resource import NamespacedResource
+from lightkube.models.apps_v1 import DeploymentSpec
+from lightkube.models.core_v1 import PodTemplateSpec
+from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
+from lightkube.operators import BinaryOperator, Operator, SequenceOperator
+from lightkube.resources.apps_v1 import Deployment
+from lightkube.resources.batch_v1 import Job
+from lightkube.resources.core_v1 import Pod
+from lightkube.types import CascadeType, PatchType
 from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
@@ -11,6 +22,7 @@ from pydantic import JsonValue
 from testcontainers.community.postgres import PostgresContainer
 
 from data_proxy.postgres import Postgres as Pg
+from data_proxy.types import KubernetesClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,34 +142,9 @@ class Calls:
     """Workflow steps in the order they run, with the outcomes they return."""
 
     snapshot_id: int | None = 42
-    wait_error: Exception | None = None
+    maintained_snapshot_id: int = 45
+    maintenance_error: Exception | None = None
     names: list[str] = field(default_factory=list)
-    waited: list[tuple[str, int]] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class FakeReader:
-    """Reader snapshots returned one per poll, with a clock driven by sleeps."""
-
-    snapshots: list[int | None] = field(default_factory=list)
-    polls: int = 0
-    now: float = 0.0
-    sleeps: list[float] = field(default_factory=list)
-
-    async def read(self) -> int | None:
-        """Return the next snapshot and repeat the last one after the end."""
-        index = min(self.polls, len(self.snapshots) - 1)
-        self.polls += 1
-        return self.snapshots[index]
-
-    async def sleep(self, seconds: float) -> None:
-        """Advance the clock instead of sleeping."""
-        self.sleeps.append(seconds)
-        self.now += seconds
-
-    def clock(self) -> float:
-        """Return the simulated time."""
-        return self.now
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,3 +177,115 @@ class Psql:
         output = result.output.decode()
         assert result.exit_code == 0, output
         return output
+
+
+@final
+class FakeKubernetes(KubernetesClient):
+    """In-memory Kubernetes client that serves objects and records every call."""
+
+    def __init__(
+        self,
+        objects: Iterable[Pod | Deployment | Job] = (),
+        *,
+        watched: Iterable[Deployment] = (),
+        hang_watch: bool = False,
+        wait_error: ConditionError | None = None,
+    ) -> None:
+        self.objects = list(objects)
+        self.watched = list(watched)
+        self.hang_watch = hang_watch
+        self.watch_timeouts: list[int | None] = []
+        self.wait_error = wait_error
+        self.list_labels: list[
+            dict[str, str | Operator[str] | Iterable[str] | None]
+        ] = []
+        self.patched: list[str] = []
+        self.created: list[Job] = []
+        self.waited: list[tuple[str, list[str], list[str]]] = []
+        self.deleted: list[tuple[str, CascadeType]] = []
+
+    @override
+    def list[R: NamespacedResource](
+        self,
+        res: type[R],
+        *,
+        namespace: str,
+        labels: dict[str, str | Operator[str] | Iterable[str] | None],
+    ) -> AsyncIterable[R]:
+        self.list_labels.append(labels)
+        return self.serve(res)
+
+    async def serve[R: NamespacedResource](self, res: type[R]) -> AsyncIterator[R]:
+        for item in self.objects:
+            if isinstance(item, res):
+                yield item
+
+    @override
+    def watch(
+        self,
+        res: type[Deployment],
+        *,
+        namespace: str,
+        fields: dict[str, str | BinaryOperator | SequenceOperator],
+        server_timeout: int | None,
+    ) -> AsyncIterable[tuple[str, Deployment]]:
+        self.watch_timeouts.append(server_timeout)
+        return self.stream()
+
+    async def stream(self) -> AsyncIterator[tuple[str, Deployment]]:
+        for item in self.watched:
+            yield "MODIFIED", item
+
+        if self.hang_watch:
+            await asyncio.Event().wait()
+
+    @override
+    async def patch(
+        self,
+        res: type[Deployment],
+        name: str,
+        obj: dict[str, JsonValue],
+        *,
+        namespace: str,
+        patch_type: PatchType,
+    ) -> Deployment:
+        self.patched.append(name)
+        return Deployment(
+            metadata=ObjectMeta(name=name),
+            spec=DeploymentSpec(
+                selector=LabelSelector(), template=PodTemplateSpec(), replicas=1
+            ),
+        )
+
+    @override
+    async def create(self, obj: Job) -> Job:
+        self.created.append(obj)
+        return obj
+
+    @override
+    async def wait(
+        self,
+        res: type[Job],
+        name: str,
+        *,
+        namespace: str,
+        for_conditions: Iterable[str],
+        raise_for_conditions: Iterable[str],
+    ) -> Job:
+        self.waited.append((name, list(for_conditions), list(raise_for_conditions)))
+
+        if self.wait_error is not None:
+            raise self.wait_error
+
+        return Job(metadata=ObjectMeta(name=name))
+
+    @override
+    async def delete(
+        self,
+        res: type[Job],
+        name: str,
+        *,
+        namespace: str,
+        cascade: CascadeType,
+    ) -> None:
+        self.deleted.append((name, cascade))

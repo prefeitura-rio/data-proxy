@@ -1,11 +1,12 @@
 """Unit tests for synchronization data models."""
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from data_proxy.models import (
     DuckLakePartition,
@@ -41,6 +42,34 @@ from tests.strategies import (
 
 class TestSelectionValidation:
     """Selection validation behavior tests."""
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            pytest.param(
+                lambda: RangeSelection(partition_id="", column="id", lower=0, upper=1),
+                id="range-partition-id",
+            ),
+            pytest.param(
+                lambda: RangeSelection(partition_id="1", column="", lower=0, upper=1),
+                id="range-column",
+            ),
+            pytest.param(
+                lambda: TimeRangeSelection(column="", lower="a", upper="b"),
+                id="time-range-column",
+            ),
+            pytest.param(
+                lambda: UnitMapping(column="unit_id", unit_type=""),
+                id="unit-mapping-unit-type",
+            ),
+        ],
+    )
+    def test_rejects_an_empty_string_where_text_is_required(
+        self, build: Callable[[], BaseModel]
+    ) -> None:
+        """Reject an empty required string in both the model and partition types."""
+        with pytest.raises(ValidationError):
+            build()
 
     @given(lower=st.integers(-100, 100), width=st.integers(0, 100))
     def test_rejects_empty_or_reversed_range(self, lower: int, width: int) -> None:

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import MappingProxyType
+from typing import Final
 
 SQL_DIR = Path(__file__).parent / "templates"
 DUCKDB_VIEW_PREFIX = "source_"
@@ -23,7 +24,24 @@ TIME_GRANULARITY_SPECS = MappingProxyType(
 )
 
 DUMP_QUEUE = "dump"
+REFRESH_QUEUE = "refresh"
 SYNC_QUEUE = "sync"
+
+CATALOG_VOLUME: Final = "ducklake-catalogs"
+COMPONENT_LABEL: Final = "app.kubernetes.io/component"
+SCHEMA_LABEL: Final = "data-proxy.io/schema"
+TEMPLATE_LABEL: Final = "data-proxy.io/template"
+INSTANCE_LABEL: Final = "data-proxy.io/instance"
+REFRESH_COMPONENT: Final = "refresh-catalog"
+REFRESH_JOB_TTL_SECONDS: Final = 300
+JOB_NAME_LIMIT: Final = 63
+JOB_SUFFIX_BYTES: Final = 3
+PROJECT_PATH: Final = "/data_proxy/"
+LOCATION_FRAMES: Final = 3
+
+POSTGRES_SELECTOR: Final = {"cnpg.io/podRole": "instance"}
+POOLER_SELECTOR: Final = {"cnpg.io/podRole": "pooler"}
+POSTGREST_SELECTOR: Final = {"data-proxy.io/serving": "postgrest"}
 
 
 def publish_queue(schema: str) -> str:

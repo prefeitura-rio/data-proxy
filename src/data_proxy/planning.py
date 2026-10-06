@@ -1,8 +1,6 @@
 """Change detection and task planning for synchronization runs."""
 
 from dataclasses import dataclass, field
-from hashlib import sha256
-from json import dumps
 from typing import assert_never
 
 from .duckdb import DuckDB
@@ -24,15 +22,16 @@ from .models import (
 from .postgres import Postgres
 from .settings import settings
 from .sources import registry
-from .sources.partitions import AllSelection, PartitionRequest, PhysicalPartition
+from .sources.partitions import (
+    AllSelection,
+    PartitionRequest,
+    PhysicalPartition,
+    order_partition_ids,
+)
 from .sources.source import PartitionedSource, Source
 from .state import read_table_signature, read_table_state
 from .types import DatabaseRow, DuckDBParams
-
-
-def partition_sort_key(partition_id: str) -> tuple[int, int | str]:
-    """Return the publication order key with __NULL__ last."""
-    return (1, "") if not partition_id.isdigit() else (0, int(partition_id))
+from .utils import json_digest
 
 
 def configured_source(table: TableConfig, active: dict[str, Source]) -> Source:
@@ -110,7 +109,7 @@ def table_signature(table: TableConfig, claim: str | None, modified: str) -> str
     config_fields = table.config_signature_fields()
     config_fields["claim"] = claim
 
-    config_hash = sha256(dumps(config_fields, sort_keys=True).encode()).hexdigest()
+    config_hash = json_digest(config_fields)
 
     return f"{modified}:{config_hash}"
 
@@ -183,11 +182,6 @@ def find_partition_changes(
         )
 
     return changes
-
-
-def order_partition_ids(changed: set[str]) -> list[str]:
-    """Return changed partition ids in publication order with __NULL__ last."""
-    return sorted(changed, key=partition_sort_key)
 
 
 def build_partition_tasks(

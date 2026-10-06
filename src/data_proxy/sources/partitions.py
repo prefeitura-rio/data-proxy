@@ -1,19 +1,17 @@
 """Neutral physical partition configuration types for ingestion sources."""
 
-import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from functools import partial
-from hashlib import sha256
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue, model_validator
 from whenever import PlainDateTime
 
 from ..constants import TIME_GRANULARITY_SPECS
-
-NonEmptyString = Annotated[str, Field(min_length=1)]
+from ..types import NonEmptyString
+from ..utils import json_digest
 
 
 class AllSelection(BaseModel):
@@ -186,9 +184,14 @@ def partitioned_table_signature(
     config_json: str, kind_config: PartitionKindConfig, schema: str
 ) -> str:
     """Hash source schema, partition metadata, and sync configuration."""
-    return sha256(
-        json.dumps(
-            {"config": config_json, **asdict(kind_config), "schema": schema},
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+    return json_digest({"config": config_json, **asdict(kind_config), "schema": schema})
+
+
+def partition_sort_key(partition_id: str) -> tuple[int, int | str]:
+    """Return the publication order key with __NULL__ last."""
+    return (1, "") if not partition_id.isdigit() else (0, int(partition_id))
+
+
+def order_partition_ids(changed: set[str]) -> list[str]:
+    """Return changed partition ids in publication order with __NULL__ last."""
+    return sorted(changed, key=partition_sort_key)

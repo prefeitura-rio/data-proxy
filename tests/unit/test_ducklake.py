@@ -7,9 +7,16 @@ import duckdb
 import psycopg
 import pytest
 
-from data_proxy.ducklake import DuckLakePaths, reader_snapshot, wait_for_reader
+from data_proxy.duckdb import DuckDB
+from data_proxy.ducklake import (
+    DuckLakePaths,
+    apply_maintenance,
+    attach_catalog,
+    current_snapshot_id,
+    reader_snapshot,
+)
 from data_proxy.postgres import Postgres
-from tests.fixtures.types import FakeReader
+from data_proxy.settings import settings
 
 
 def test_catalog_format_matches_pg_duckdb_support(tmp_path: Path) -> None:
@@ -55,57 +62,39 @@ def test_catalog_directory_permissions_are_fixed_on_existing_path(
     assert stat.S_IMODE(catalog_dir.stat().st_mode) == 0o755
 
 
-class TestWaitForReader:
-    """wait_for_reader behavior tests."""
+class TestApplyMaintenance:
+    """Maintenance runs on a real catalog and keeps the table readable."""
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("snapshots", "expected_sleeps"),
-        [
-            pytest.param([5], 0, id="reader-already-at-snapshot"),
-            pytest.param([9], 0, id="reader-ahead-of-snapshot"),
-            pytest.param([3, 4, 5], 2, id="reader-catches-up-after-polls"),
-            pytest.param([None, None, 5], 2, id="catalog-missing-then-ready"),
-        ],
+        "expiration",
+        [pytest.param("7d", id="default"), pytest.param("30d", id="thirty-days")],
     )
-    async def test_returns_once_reader_reaches_snapshot(
-        self, reader: FakeReader, snapshots: list[int | None], expected_sleeps: int
+    async def test_keeps_the_rows_and_returns_the_current_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expiration: str
     ) -> None:
-        reader.snapshots = snapshots
-
-        await wait_for_reader(
-            reader.read,
-            5,
-            timeout=30,
-            interval=1,
-            sleep=reader.sleep,
-            clock=reader.clock,
+        monkeypatch.setattr(settings, "DUCKLAKE_SNAPSHOT_EXPIRATION", expiration)
+        connection = duckdb.connect()
+        connection.execute("LOAD ducklake")
+        duckdb_conn = DuckDB(connection=connection)
+        paths = DuckLakePaths(
+            catalog=tmp_path / "schema" / "catalog.sqlite",
+            data=str(tmp_path / "data"),
         )
+        paths.prepare_catalog_directory()
+        await attach_catalog(duckdb_conn, paths, encrypted=False)
+        connection.execute("CREATE TABLE dl.items (id INTEGER)")
+        connection.execute("INSERT INTO dl.items VALUES (1)")
+        connection.execute("INSERT INTO dl.items VALUES (2)")
+        connection.execute("DETACH dl")
 
-        assert len(reader.sleeps) == expected_sleeps
+        snapshot_id = await apply_maintenance(duckdb_conn, paths, encrypted=False)
 
-    @pytest.mark.parametrize(
-        "snapshots",
-        [
-            pytest.param([3], id="reader-stays-behind"),
-            pytest.param([None], id="catalog-stays-missing"),
-        ],
-    )
-    async def test_raises_when_reader_never_reaches_snapshot(
-        self, reader: FakeReader, snapshots: list[int | None]
-    ) -> None:
-        reader.snapshots = snapshots
-
-        with pytest.raises(TimeoutError):
-            await wait_for_reader(
-                reader.read,
-                5,
-                timeout=3,
-                interval=1,
-                sleep=reader.sleep,
-                clock=reader.clock,
-            )
-
-        assert reader.polls >= 3
+        assert snapshot_id == await current_snapshot_id(duckdb_conn)
+        assert connection.execute("SELECT id FROM dl.items ORDER BY id").fetchall() == [
+            (1,),
+            (2,),
+        ]
 
 
 class TestReaderSnapshot:

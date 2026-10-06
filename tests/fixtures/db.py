@@ -42,7 +42,6 @@ from data_proxy.views import stages
 from data_proxy.views.reconcile import reconcile_views
 from tests.constants import FILES, TEST_SQL_DIR
 from tests.fixtures.types import (
-    FakeReader,
     Postgres,
     PostgresTestNamespace,
     Psql,
@@ -186,12 +185,6 @@ def duckdb_connection() -> Iterator[DuckDB]:
         yield DuckDB(connection=connection)
     finally:
         connection.close()
-
-
-@pytest.fixture
-def reader() -> FakeReader:
-    """Provide a DuckLake reader double with a simulated clock."""
-    return FakeReader()
 
 
 @pytest.fixture

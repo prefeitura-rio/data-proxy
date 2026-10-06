@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from hashlib import sha256
 from typing import ClassVar, assert_never
 
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
@@ -13,6 +12,7 @@ from whenever import PlainDateTime
 
 from ...executor import Executor
 from ...types import BigQueryParams
+from ...utils import sha256_hex
 from ..partitions import (
     PartitionKindConfig,
     PhysicalPartition,
@@ -66,9 +66,9 @@ class PartitionNormalizer:
             msg = f"Missing partition modification time {partition_id}: {self.table}"
             raise TypeError(msg)
 
-        partition_signature = sha256(
-            f"{partition_id}:{modified.isoformat()}:{self.signature}".encode()
-        ).hexdigest()
+        partition_signature = sha256_hex(
+            f"{partition_id}:{modified.isoformat()}:{self.signature}"
+        )
         logical_bytes = row.logical_bytes or 0
 
         match self.kind_config:

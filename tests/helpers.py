@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock
 
 import duckdb
 import pytest
-from lightkube import AsyncClient
 from lightkube.models.apps_v1 import DeploymentSpec, DeploymentStatus
 from lightkube.models.core_v1 import PodTemplateSpec
 from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
@@ -22,16 +21,16 @@ from psycopg.sql import SQL, Identifier, Literal
 
 from data_proxy.authorization import ensure_schema_policy_writer
 from data_proxy.conditions import schema_scope_condition
-from data_proxy.dbos import workflows
+from data_proxy.dbos import steps, workflows
 from data_proxy.duckdb import DuckDB
 from data_proxy.executor import Executor
 from data_proxy.models import (
     DumpResult,
     DumpTask,
-    NonEmptyString,
     PartitionChange,
     PartitionedTablePlan,
     SchemaConfig,
+    ServingDeployments,
     Strategy,
     SyncConfig,
     SyncPlan,
@@ -56,6 +55,7 @@ from data_proxy.types import (
     DatabaseRow,
     DatabaseValue,
     DuckDBParams,
+    NonEmptyString,
     PostgresParams,
     TemplateValue,
 )
@@ -200,39 +200,12 @@ def deployment(
     )
 
 
-def deployment_mock(
-    *,
-    status: DeploymentStatus | None,
-    metadata: ObjectMeta | None,
-    replicas: int | None,
-) -> AsyncMock:
-    """Return a client mock whose Deployment has the given rollout state."""
-    client = AsyncMock(spec=AsyncClient)
-    client.get.return_value = deployment(
-        status=status, metadata=metadata, replicas=replicas
-    )
-    return client
-
-
-def deployment_client(
-    *,
-    status: DeploymentStatus | None,
-    metadata: ObjectMeta | None,
-    replicas: int | None,
-) -> AsyncClient:
-    """Return a client whose Deployment has the given rollout state."""
-    return cast(
-        "AsyncClient",
-        deployment_mock(status=status, metadata=metadata, replicas=replicas),
-    )
-
-
 def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
     """Return the body of a DBOS workflow so it runs without the DBOS runtime."""
     return cast("Callable[P, R]", unwrap(workflow))
 
 
-async def publish(plan: SyncPlan) -> set[str]:
+async def publish(plan: SyncPlan) -> int | None:
     """Run the publish workflow body for one plan with no failed paths."""
     return await workflow_body(workflows.publish_schema)("run", plan, set())
 
@@ -241,14 +214,19 @@ def stub_sync_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
     postgrest_restart_required: bool,
-    published: set[str],
+    snapshot_id: int | None,
     plans: list[SyncPlan] | None = None,
     tasks: list[DumpTask] | None = None,
-) -> tuple[AsyncMock, AsyncMock, list[str]]:
-    """Stub run_sync steps and return the Pooler and PostgREST restart steps."""
-    restart_pooler = AsyncMock()
-    restart_postgrest = AsyncMock()
+) -> tuple[list[str], list[str]]:
+    """Stub run_sync steps and return the serving calls and the queue events."""
+    calls: list[str] = []
     events: list[str] = []
+
+    async def refresh(snapshots: dict[str, int]) -> None:
+        calls.append(f"refresh:{sorted(snapshots.items())}")
+
+    async def restart(kind: str, names: list[str]) -> None:
+        calls.append(f"restart:{kind}:{names}")
 
     async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
         if workflow is workflows.dump_task:
@@ -256,16 +234,16 @@ def stub_sync_run(
             if not isinstance(task, DumpTask):
                 raise TypeError("Dump workflow requires a dump task")
             label = task.table
-            result: DumpResult | set[str] = DumpResult()
+            result: DumpResult | int | None = DumpResult()
         else:
             plan = args[1]
             if not isinstance(plan, SyncPlan):
                 raise TypeError("Publish workflow requires a sync plan")
             label = plan.schema_name
-            result = published
+            result = snapshot_id
         events.append(f"enqueue:{label}")
 
-        async def get_result() -> DumpResult | set[str]:
+        async def get_result() -> DumpResult | int | None:
             events.append(f"wait:{label}")
             return result
 
@@ -294,10 +272,22 @@ def stub_sync_run(
         AsyncMock(return_value=postgrest_restart_required),
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
-    monkeypatch.setattr(workflows, "restart_pooler", restart_pooler)
-    monkeypatch.setattr(workflows, "restart_postgrest", restart_postgrest)
+    monkeypatch.setattr(
+        workflows,
+        "detect_published_schemas",
+        workflow_body(steps.detect_published_schemas),
+    )
+    monkeypatch.setattr(
+        workflows,
+        "list_serving_deployments",
+        AsyncMock(
+            return_value=ServingDeployments(poolers=["pooler"], postgrest=["postgrest"])
+        ),
+    )
+    monkeypatch.setattr(workflows, "refresh_catalogs", refresh)
+    monkeypatch.setattr(workflows, "restart_serving", restart)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
-    return restart_pooler, restart_postgrest, events
+    return calls, events
 
 
 async def run_sync() -> None:

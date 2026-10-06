@@ -16,7 +16,6 @@ dependencies = [
   "whenever>=0.10.5",
   "aiobotocore>=3.9.0",
   "jinja2>=3.1",
-  "tenacity>=9.1.4",
   "more-itertools>=10.0.0",
   "opentelemetry-sdk>=1.44.0",
   "opentelemetry-exporter-otlp-proto-http>=1.44.0",
@@ -126,6 +125,10 @@ ignore_names = [
   "consumername",
   "job_config",
   "approximate",
+  "res",
+  "patch_type",
+  "for_conditions",
+  "raise_for_conditions",
 ]
 
 [tool.pytest.ini_options]

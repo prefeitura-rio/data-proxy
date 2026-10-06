@@ -1,10 +1,9 @@
 """Tests for workflow metric observation."""
 
-from typing import Literal
-
 import pytest
 
 from data_proxy.metrics import observe
+from data_proxy.types import RunStatus
 
 
 class TestObserveSync:
@@ -15,7 +14,7 @@ class TestObserveSync:
         """Forward arguments and record success when the workflow completes."""
         recorded: list[str] = []
 
-        async def record(value: Literal["success", "failure"]) -> None:
+        async def record(value: RunStatus) -> None:
             recorded.append(value)
 
         calls: list[tuple[int, bool]] = []
@@ -34,7 +33,7 @@ class TestObserveSync:
         """Record failure before re-raising the exception."""
         recorded: list[str] = []
 
-        async def record(value: Literal["success", "failure"]) -> None:
+        async def record(value: RunStatus) -> None:
             recorded.append(value)
 
         @observe(record)

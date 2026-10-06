@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
-from hashlib import sha256
 from typing import Annotated, ClassVar, Literal, Self, override
 
 from pydantic import (
@@ -17,8 +16,8 @@ from pydantic import (
 
 from .sources.partitions import PhysicalPartition, TaskSelection
 from .sources.registry import sources
-
-NonEmptyString = Annotated[str, Field(min_length=1)]
+from .types import NonEmptyString
+from .utils import sha256_hex
 
 
 class Strategy(StrEnum):
@@ -332,7 +331,7 @@ class DumpTask(BaseModel):
     @property
     def task_id(self) -> str:
         """Return the deterministic identity for this run and task path."""
-        return sha256(f"{self.run_id}:{self.bucket_path}".encode()).hexdigest()
+        return sha256_hex(f"{self.run_id}:{self.bucket_path}")
 
 
 class DumpStatus(StrEnum):
@@ -427,6 +426,13 @@ class SyncWork:
 
     plans: list[SyncPlan]
     tasks: list[DumpTask]
+
+
+class ServingDeployments(BaseModel):
+    """Names of the Deployments that serve reads and must restart after a publication."""
+
+    poolers: list[str]
+    postgrest: list[str]
 
 
 class PublicationResult(BaseModel):

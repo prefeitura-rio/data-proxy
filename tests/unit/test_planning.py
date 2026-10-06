@@ -28,10 +28,10 @@ from data_proxy.planning import (
     expand_config,
     find_partition_changes,
     group_schema_plans,
-    order_partition_ids,
     table_signature,
 )
 from data_proxy.postgres import Postgres
+from data_proxy.sources.partitions import order_partition_ids
 from data_proxy.sources.source import Source
 from tests.fixtures.types import FullOnlySource
 from tests.helpers import partition

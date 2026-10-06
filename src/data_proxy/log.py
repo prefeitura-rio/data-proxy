@@ -6,15 +6,13 @@ from pathlib import Path
 from traceback import extract_tb
 from typing import override
 
+from .constants import LOCATION_FRAMES, PROJECT_PATH
 from .settings import settings
 
 schemaname = ContextVar("schemaname", default="-")
 tablename = ContextVar("tablename", default="-")
 
 logger = getLogger("dbos")
-
-PROJECT_PATH = "/data_proxy/"
-LOCATION_FRAMES = 3
 
 
 def summarize_exception(error: BaseException) -> str:

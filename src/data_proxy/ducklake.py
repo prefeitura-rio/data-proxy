@@ -1,8 +1,5 @@
 """Publish scratch Parquet files into per-schema DuckLake catalogs."""
 
-import asyncio
-import time
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
@@ -446,6 +443,25 @@ async def configure_catalog(
     )
 
 
+async def apply_maintenance(
+    duckdb_conn: DuckDB, paths: DuckLakePaths, encrypted: bool
+) -> int:
+    """Apply DuckLake maintenance to one catalog and return its current snapshot."""
+    await attach_catalog(duckdb_conn, paths, encrypted)
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/maintenance",
+        mapping={
+            "interval": f"{settings.DUCKLAKE_SNAPSHOT_EXPIRATION.removesuffix('d')} days",
+            "max_compacted_files": Literal(settings.DUCKLAKE_MAX_COMPACTED_FILES),
+            "rewrite_delete_threshold": Literal(
+                settings.DUCKLAKE_REWRITE_DELETE_THRESHOLD
+            ),
+        },
+    )
+
+    return await current_snapshot_id(duckdb_conn)
+
+
 async def emit_blocked_errors(
     pg_conn: Postgres, blocked: set[str], empty: set[str]
 ) -> None:
@@ -500,32 +516,6 @@ async def reader_snapshot(pg_conn: Postgres, schema_name: str) -> int | None:
 
     await pg_conn.commit()
     return rows[0][0]
-
-
-async def wait_for_reader(
-    read_snapshot: Callable[[], Awaitable[int | None]],
-    snapshot_id: int,
-    *,
-    timeout: float,
-    interval: float,
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    clock: Callable[[], float] = time.monotonic,
-) -> None:
-    """Wait until the reader catalog has applied at least the given snapshot."""
-    deadline = clock() + timeout
-
-    while True:
-        current = await read_snapshot()
-
-        if current is not None and current >= snapshot_id:
-            return
-
-        if clock() >= deadline:
-            raise TimeoutError(
-                f"Reader missed snapshot {snapshot_id} for {timeout:g} seconds"
-            )
-
-        await sleep(interval)
 
 
 async def publish_schema(

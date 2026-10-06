@@ -1,8 +1,5 @@
 """Column and mapping helpers for source view generation."""
 
-from hashlib import sha256
-from json import dumps
-
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
@@ -17,6 +14,7 @@ from ..sources.registry import sources
 from ..sources.source import Source
 from ..templates import render_template
 from ..types import PostgresParams, TemplateValue
+from ..utils import json_digest
 
 
 def is_nested_or_json(duckdb_type: str) -> bool:
@@ -165,7 +163,7 @@ def serving_definition_signature(
                 source_function_mapping(schema, table, columns, source),
             )
         )
-    return sha256(dumps(definitions, sort_keys=True).encode()).hexdigest()
+    return json_digest(definitions)
 
 
 def boundary_view_mapping(

@@ -1,35 +1,31 @@
-"""Unit tests for the readiness wait helper."""
+"""Unit tests for the shared async helpers."""
 
-import pytest
-
-from data_proxy.utils import wait_for
+from data_proxy.utils import json_digest, sha256_hex
 
 
-class TestWaitFor:
-    """Readiness wait behavior tests."""
+class TestDigests:
+    """The digests are fixed values, so stored signatures never change."""
 
-    @pytest.mark.asyncio
-    async def test_returns_when_check_succeeds(self) -> None:
-        """Return after the readiness check succeeds."""
-        attempts = 0
+    def test_hashes_text_as_sha256_hex(self) -> None:
+        assert (
+            sha256_hex("abc")
+            == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
 
-        async def check() -> None:
-            nonlocal attempts
-            attempts += 1
+    def test_ignores_the_key_order_of_json(self) -> None:
+        expected = "21501dbaf73f5223934d22283f01caff4132bc1de4a9550c1ed0dffeb397a323"
 
-        await wait_for(check, timeout=0, interval=0, message="timed out")
-        assert attempts == 1
+        assert json_digest({"b": 1, "a": 2}) == expected
+        assert json_digest({"a": 2, "b": 1}) == expected
 
-    @pytest.mark.asyncio
-    async def test_translates_check_failure_to_timeout(self) -> None:
-        """Translate a failed readiness check into a timeout."""
-        attempts = 0
+    def test_changes_when_a_value_changes(self) -> None:
+        assert (
+            json_digest({"a": 2, "b": 3})
+            == "11b6ee598608f1535294d5bd54862a39385ed1bf7fd78c3cea2cd2cfa2a1ea53"
+        )
 
-        async def check() -> None:
-            nonlocal attempts
-            attempts += 1
-            raise RuntimeError("not ready")
-
-        with pytest.raises(TimeoutError, match="timed out"):
-            await wait_for(check, timeout=0, interval=0, message="timed out")
-        assert attempts == 1
+    def test_hashes_a_list(self) -> None:
+        assert (
+            json_digest(["x", "y"])
+            == "8164c53b977060f6ba568eddee7e120cdac3ff783c0fff7c20e00a227e2c6c50"
+        )

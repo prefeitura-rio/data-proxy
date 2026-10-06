@@ -1,28 +1,17 @@
-"""Shared async helpers for the synchronization service."""
+"""Shared helpers for the synchronization service."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Mapping, Sequence
+from hashlib import sha256
+from json import dumps
 
-from tenacity import retry, stop_after_delay, wait_fixed
+from pydantic import JsonValue
 
 
-async def wait_for(
-    check: Callable[[], Awaitable[None]],
-    *,
-    timeout: float,
-    interval: float,
-    message: str,
-) -> None:
-    """Retry an async readiness check until it succeeds or times out."""
+def sha256_hex(text: str) -> str:
+    """Return the SHA-256 digest of the UTF-8 text as hex."""
+    return sha256(text.encode()).hexdigest()
 
-    @retry(
-        stop=stop_after_delay(timeout),
-        wait=wait_fixed(interval),
-        reraise=True,
-    )
-    async def attempt() -> None:
-        await check()
 
-    try:
-        await attempt()
-    except Exception as error:
-        raise TimeoutError(message) from error
+def json_digest(value: Mapping[str, JsonValue] | Sequence[JsonValue]) -> str:
+    """Return the SHA-256 digest of the JSON with sorted keys, so key order never matters."""
+    return sha256_hex(dumps(value, sort_keys=True))

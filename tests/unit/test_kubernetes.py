@@ -1,33 +1,51 @@
-"""Behavior tests for the PostgREST rollout readiness check."""
+"""Behavior tests for the Kubernetes helpers."""
 
-from unittest.mock import AsyncMock, MagicMock
+from copy import deepcopy
+from datetime import UTC, datetime
 
 import pytest
+from lightkube.core.exceptions import ConditionError
 from lightkube.models.apps_v1 import DeploymentStatus
-from lightkube.models.meta_v1 import ObjectMeta
-from lightkube.resources.apps_v1 import Deployment
+from lightkube.models.batch_v1 import JobSpec
+from lightkube.models.core_v1 import (
+    Container,
+    EmptyDirVolumeSource,
+    PodCondition,
+    PodSpec,
+    PodStatus,
+    PodTemplateSpec,
+    Volume,
+)
+from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
+from lightkube.resources.batch_v1 import Job
+from lightkube.resources.core_v1 import Pod
+from lightkube.types import CascadeType
 
 from data_proxy import kubernetes
-from data_proxy.kubernetes import check_deployment_rollout, restart_deployments
-from tests.helpers import deployment, deployment_client, deployment_mock
+from data_proxy.constants import POOLER_SELECTOR
+from data_proxy.kubernetes import (
+    is_rollout_complete,
+    list_catalog_claims,
+    list_deployments,
+    restart_deployment,
+    run_job,
+)
+from data_proxy.types import KubernetesClient
+from tests.fixtures.types import FakeKubernetes
+from tests.helpers import deployment
 
 READY = DeploymentStatus(updatedReplicas=2, availableReplicas=2, observedGeneration=3)
 METADATA = ObjectMeta(generation=3)
 
 
-class TestCheckPostgrestRollout:
-    """A restart is complete only when every replica runs the new generation."""
+class TestRolloutComplete:
+    """A rollout is complete only when every replica runs the new generation."""
 
-    @pytest.mark.asyncio
-    async def test_accepts_a_finished_rollout(self) -> None:
-        """Pass when all replicas are updated, available, and observed."""
-        await check_deployment_rollout(
-            deployment_client(status=READY, metadata=METADATA, replicas=2),
-            "pgrst",
-            "app",
+    def test_accepts_a_finished_rollout(self) -> None:
+        assert is_rollout_complete(
+            deployment(status=READY, metadata=METADATA, replicas=2)
         )
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("status", "metadata", "replicas"),
         [
@@ -60,73 +78,259 @@ class TestCheckPostgrestRollout:
             pytest.param(READY, METADATA, None, id="missing-replicas"),
         ],
     )
-    async def test_rejects_an_unfinished_rollout(
+    def test_rejects_an_unfinished_rollout(
         self,
         status: DeploymentStatus | None,
         metadata: ObjectMeta | None,
         replicas: int | None,
     ) -> None:
-        """Raise until the rollout finishes so the caller keeps waiting."""
-        with pytest.raises(RuntimeError, match="not ready"):
-            await check_deployment_rollout(
-                deployment_client(status=status, metadata=metadata, replicas=replicas),
-                "pgrst",
-                "app",
+        assert not is_rollout_complete(
+            deployment(status=status, metadata=metadata, replicas=replicas)
+        )
+
+
+class TestListDeployments:
+    """Deployments are listed by label and returned in a stable order."""
+
+    @pytest.mark.asyncio
+    async def test_returns_the_sorted_names_for_the_labels(self) -> None:
+        client = FakeKubernetes(
+            [
+                deployment(status=None, metadata=ObjectMeta(name=name), replicas=1)
+                for name in ("pooler-ro", "pooler")
+            ]
+        )
+
+        names = await list_deployments(client, "app", POOLER_SELECTOR)
+
+        assert names == ["pooler", "pooler-ro"]
+        assert client.list_labels == [POOLER_SELECTOR]
+
+
+class TestRestartDeployment:
+    """A restart patches the Deployment before it waits for the rollout."""
+
+    @pytest.mark.asyncio
+    async def test_patches_the_deployment_before_waiting_for_its_rollout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = FakeKubernetes()
+        events: list[str] = []
+
+        async def wait(
+            _client: KubernetesClient, _namespace: str, name: str, _timeout: float
+        ) -> None:
+            events.append(f"wait:{name}:patched={client.patched}")
+
+        monkeypatch.setattr(kubernetes, "wait_for_rollout", wait)
+
+        await restart_deployment(client, "app", "a", "2026-01-01T00:00:00Z", 5)
+
+        assert events == ["wait:a:patched=['a']"]
+
+    @pytest.mark.asyncio
+    async def test_fails_at_once_when_the_stream_ends_before_the_rollout_completes(
+        self,
+    ) -> None:
+        stuck = deployment(status=None, metadata=ObjectMeta(name="pgrst"), replicas=2)
+        client = FakeKubernetes(watched=[stuck])
+
+        with pytest.raises(TimeoutError, match="pgrst"):
+            await restart_deployment(client, "app", "pgrst", "2026-01-01T00:00:00Z", 60)
+
+    @pytest.mark.asyncio
+    async def test_stops_waiting_on_a_hung_stream_when_the_timeout_expires(
+        self,
+    ) -> None:
+        client = FakeKubernetes(hang_watch=True)
+
+        with pytest.raises(TimeoutError, match="pgrst"):
+            await restart_deployment(
+                client, "app", "pgrst", "2026-01-01T00:00:00Z", 0.05
             )
-
-
-class TestRestartDeployments:
-    """A restart patches every named Deployment before waiting for rollouts."""
-
-    @staticmethod
-    def use_client(monkeypatch: pytest.MonkeyPatch, client: AsyncMock) -> None:
-        """Make the module open the given client."""
-        factory = MagicMock()
-        factory.return_value.__aenter__.return_value = client
-        monkeypatch.setattr(kubernetes, "AsyncClient", factory)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("names", "kind"),
+        ("timeout", "expected"),
         [
-            pytest.param(["pgrst"], "PostgREST", id="single-postgrest"),
-            pytest.param(["pgrst", "pgrst-ro"], "PostgREST", id="ha-postgrest"),
-            pytest.param(["pooler"], "PgBouncer", id="single-pooler"),
-            pytest.param(["pooler", "pooler-ro"], "PgBouncer", id="ha-pooler"),
+            pytest.param(300, 300, id="whole-seconds"),
+            pytest.param(0.05, 1, id="rounded-up"),
         ],
     )
-    async def test_restarts_every_deployment_before_waiting_for_any(
-        self, monkeypatch: pytest.MonkeyPatch, names: list[str], kind: str
+    async def test_asks_the_server_to_end_the_stream_at_the_timeout(
+        self, timeout: float, expected: int
     ) -> None:
-        """Patch all Deployments first, then wait for each rollout."""
-        client = deployment_mock(status=READY, metadata=METADATA, replicas=2)
-        self.use_client(monkeypatch, client)
+        done = deployment(
+            status=READY, metadata=ObjectMeta(name="pgrst", generation=3), replicas=2
+        )
+        client = FakeKubernetes(watched=[done])
 
-        await restart_deployments("app", names, "2026-01-01T00:00:00Z", 5, kind)
+        await restart_deployment(
+            client, "app", "pgrst", "2026-01-01T00:00:00Z", timeout
+        )
 
-        assert [call[0] for call in client.mock_calls] == [
-            *["patch"] * len(names),
-            *["get"] * len(names),
-        ]
-        assert [call.args[1] for call in client.patch.call_args_list] == names
-        assert [call.args[1] for call in client.get.call_args_list] == names
+        assert client.watch_timeouts == [expected]
 
     @pytest.mark.asyncio
-    async def test_fails_when_one_deployment_does_not_finish(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Name the Deployment whose rollout stays unfinished."""
-        done = deployment(status=READY, metadata=METADATA, replicas=2)
-        stuck = deployment(status=None, metadata=METADATA, replicas=2)
+    async def test_finishes_when_the_watch_reports_a_complete_rollout(self) -> None:
+        done = deployment(
+            status=READY, metadata=ObjectMeta(name="pgrst", generation=3), replicas=2
+        )
+        client = FakeKubernetes(watched=[done])
 
-        def get_deployment(_kind: type[Deployment], name: str, **_: str) -> Deployment:
-            return done if name == "pgrst" else stuck
+        await restart_deployment(client, "app", "pgrst", "2026-01-01T00:00:00Z", 5)
 
-        client = deployment_mock(status=READY, metadata=METADATA, replicas=2)
-        client.get.side_effect = get_deployment
-        self.use_client(monkeypatch, client)
+        assert client.patched == ["pgrst"]
 
-        with pytest.raises(TimeoutError, match="pgrst-ro"):
-            await restart_deployments(
-                "app", ["pgrst", "pgrst-ro"], "2026-01-01T00:00:00Z", 0, "PostgREST"
-            )
+
+def pod(name: str, *, ready: bool = True, terminating: bool = False) -> Pod:
+    """Return a PostgreSQL Pod with the given readiness."""
+    return Pod(
+        metadata=ObjectMeta(
+            name=name,
+            deletionTimestamp=datetime(2026, 1, 1, tzinfo=UTC) if terminating else None,
+        ),
+        status=PodStatus(
+            conditions=[PodCondition(type="Ready", status="True" if ready else "False")]
+        ),
+    )
+
+
+class TestListCatalogClaims:
+    """Only ready, live PostgreSQL Pods have a claim to refresh."""
+
+    @pytest.mark.asyncio
+    async def test_maps_ready_pods_to_their_ephemeral_claims(self) -> None:
+        client = FakeKubernetes(
+            [
+                pod("data-proxy-2"),
+                pod("data-proxy-1"),
+                pod("data-proxy-3", ready=False),
+                pod("data-proxy-4", terminating=True),
+            ]
+        )
+
+        claims = await list_catalog_claims(client, "app")
+
+        assert list(claims.items()) == [
+            ("data-proxy-1", "data-proxy-1-ducklake-catalogs"),
+            ("data-proxy-2", "data-proxy-2-ducklake-catalogs"),
+        ]
+
+
+def template_job() -> Job:
+    """Return a refresh Job template as Kubernetes stores it, with generated fields."""
+    generated = {
+        "controller-uid": "uid-1",
+        "job-name": "template",
+        "batch.kubernetes.io/controller-uid": "uid-1",
+        "batch.kubernetes.io/job-name": "template",
+    }
+    return Job(
+        metadata=ObjectMeta(name="template", namespace="app"),
+        spec=JobSpec(
+            completions=0,
+            selector=LabelSelector(matchLabels={"controller-uid": "uid-1"}),
+            template=PodTemplateSpec(
+                metadata=ObjectMeta(
+                    labels={"app.kubernetes.io/name": "data-proxy", **generated}
+                ),
+                spec=PodSpec(
+                    containers=[Container(name="refresh", image="litestream:test")],
+                    volumes=[
+                        Volume(
+                            name="ducklake-catalogs", emptyDir=EmptyDirVolumeSource()
+                        ),
+                        Volume(name="litestream-config"),
+                    ],
+                ),
+            ),
+        ),
+    )
+
+
+class TestRunJob:
+    """A refresh Job is a copy of the chart template for one instance volume."""
+
+    @pytest.mark.asyncio
+    async def test_creates_a_runnable_copy_for_the_instance_claim(self) -> None:
+        template = template_job()
+        original = deepcopy(template)
+        client = FakeKubernetes([template])
+
+        name = await run_job(
+            client, "app", "test", "data-proxy-1", "data-proxy-1-ducklake-catalogs"
+        )
+
+        job_labels = {
+            "app.kubernetes.io/component": "refresh-catalog",
+            "data-proxy.io/schema": "test",
+            "data-proxy.io/instance": "data-proxy-1",
+        }
+        job = client.created[0]
+        assert name.startswith("refresh-catalog-test-data-proxy-1-")
+        assert job.metadata == ObjectMeta(name=name, namespace="app", labels=job_labels)
+        assert job.spec is not None
+        assert job.spec.selector is None
+        assert job.spec.completions == 1
+        assert job.spec.ttlSecondsAfterFinished == 300
+        assert job.spec.template.spec is not None
+        assert job.spec.template.metadata == ObjectMeta(labels=job_labels)
+        catalogs = next(
+            v
+            for v in job.spec.template.spec.volumes or []
+            if v.name == "ducklake-catalogs"
+        )
+        assert catalogs.emptyDir is None
+        assert catalogs.persistentVolumeClaim is not None
+        assert (
+            catalogs.persistentVolumeClaim.claimName == "data-proxy-1-ducklake-catalogs"
+        )
+        assert template == original
+
+    @pytest.mark.asyncio
+    async def test_waits_for_completion_and_fails_on_job_failure(self) -> None:
+        client = FakeKubernetes(
+            [template_job()], wait_error=ConditionError("jobs/refresh", ["Job failed"])
+        )
+
+        with pytest.raises(ConditionError):
+            await run_job(client, "app", "test", "pg-1", "claim-1")
+
+        assert len(client.waited) == 1
+        assert client.waited[0][1:] == (["Complete"], ["Failed"])
+        assert [name for name, _ in client.deleted] == [client.waited[0][0]]
+
+    @pytest.mark.asyncio
+    async def test_deletes_the_finished_job_so_its_pod_releases_the_claim(self) -> None:
+        client = FakeKubernetes([template_job()])
+
+        name = await run_job(client, "app", "test", "pg-1", "claim-1")
+
+        assert client.deleted == [(name, CascadeType.BACKGROUND)]
+
+    @pytest.mark.asyncio
+    async def test_gives_every_run_a_different_name(self) -> None:
+        client = FakeKubernetes([template_job()])
+
+        names = {
+            await run_job(client, "app", "test", "pg-1", "claim-1") for _ in range(20)
+        }
+
+        assert len(names) == 20
+
+    @pytest.mark.asyncio
+    async def test_keeps_names_within_the_kubernetes_limit(self) -> None:
+        name = await run_job(
+            FakeKubernetes([template_job()]), "app", "s" * 80, "pg-1", "claim-1"
+        )
+
+        assert len(name) <= 63
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("templates", [0, 2])
+    async def test_requires_exactly_one_template(self, templates: int) -> None:
+        client = FakeKubernetes([template_job() for _ in range(templates)])
+
+        with pytest.raises(RuntimeError, match="Expected one refresh Job template"):
+            await run_job(client, "app", "test", "pg-1", "claim-1")
