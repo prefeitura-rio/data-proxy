@@ -126,13 +126,13 @@ class TestRunSyncRefreshesServing:
         calls, events = stub_sync_run(
             monkeypatch,
             postgrest_restart_required=False,
-            snapshot_id=3,
+            snapshot_ids={"one": 3, "two": None},
             plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
         )
 
         await run_sync()
 
-        assert calls[0] == "refresh:[('one', 3), ('two', 3)]"
+        assert calls[0] == "refresh:[('one', 3)]"
         assert events == ["enqueue:one", "enqueue:two", "wait:one", "wait:two"]
 
     @pytest.mark.asyncio
@@ -160,25 +160,6 @@ class TestRunSyncRefreshesServing:
             "enqueue:app",
             "wait:app",
         ]
-
-
-class TestDetectPublishedSchemas:
-    """Only schemas with a new snapshot count as published."""
-
-    @pytest.mark.asyncio
-    async def test_keeps_the_schemas_with_a_snapshot(self) -> None:
-        detect = workflow_body(steps.detect_published_schemas)
-
-        assert await detect({"test": 22, "other": None, "app": 3}) == {
-            "app": 3,
-            "test": 22,
-        }
-
-    @pytest.mark.asyncio
-    async def test_returns_nothing_when_no_schema_published(self) -> None:
-        detect = workflow_body(steps.detect_published_schemas)
-
-        assert await detect({"test": None}) == {}
 
 
 class TestRefreshCatalogsWorkflow:

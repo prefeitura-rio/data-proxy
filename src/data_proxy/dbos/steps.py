@@ -249,25 +249,6 @@ async def apply_ducklake_maintenance(schema_name: str) -> int:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def detect_published_schemas(
-    snapshots: dict[str, int | None],
-) -> dict[str, int]:
-    """Return the new snapshot of every schema that published."""
-    published = {
-        schema: snapshot
-        for schema, snapshot in sorted(snapshots.items())
-        if snapshot is not None
-    }
-    logger.info("Published schemas detected: schemas=%d", len(published))
-
-    return published
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
 async def list_serving_deployments() -> ServingDeployments:
     """List the Pooler and PostgREST Deployments to restart."""
     namespace = settings.KUBERNETES_NAMESPACE

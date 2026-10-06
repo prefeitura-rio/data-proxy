@@ -45,7 +45,7 @@ SeaweedFS LTX replica
 
 A PostgreSQL backend keeps its DuckLake attachment, so it can keep an old catalog view. After all schema publishers finish, checkpointed workflow steps refresh the running instances without restarting PostgreSQL:
 
-1. `detect_published_schemas` keeps only the schemas that published a snapshot.
+1. `run_sync` keeps only the schemas that published a snapshot.
 2. `list_serving_deployments` and `list_instance_claims` list the Pooler and PostgREST Deployments by label and the volume claim of every ready PostgreSQL instance.
 3. The `refresh_catalog` child workflow runs once for every published schema and instance, on a queue that limits how many run at once. Each run copies the chart's `data-proxy-refresh-catalog-<schema>` Job, sets the claim of one instance, and waits for it with a Kubernetes watch. The Job runs `litestream restore -force` and replaces `catalog.sqlite` in place. The workflow deletes the Job when it ends, because a finished Job pod keeps the instance volume claim in use and blocks the replacement of the PostgreSQL Pod.
 4. `find_lagging_snapshots` reads the snapshot that the primary reports for each published schema. Litestream replicates a few seconds after a commit, so a Job that starts too early restores an older catalog. The workflow then waits `READER_REFRESH_RETRY_SECONDS` and runs the Jobs again for the lagging schemas, up to `READER_REFRESH_ATTEMPTS` times.

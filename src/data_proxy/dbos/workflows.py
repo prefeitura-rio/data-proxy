@@ -14,7 +14,6 @@ from .steps import (
     build_sync_work,
     commit_ducklake_snapshot,
     commit_table_state,
-    detect_published_schemas,
     extract_task,
     finalize_run,
     find_lagging_snapshots,
@@ -184,7 +183,11 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
             schema_name: await handle.get_result()
             for schema_name, handle in publish_handles
         }
-        snapshots = await detect_published_schemas(results)
+        snapshots = {
+            schema_name: snapshot_id
+            for schema_name, snapshot_id in sorted(results.items())
+            if snapshot_id is not None
+        }
 
         if snapshots or postgrest_restart_required:
             deployments = await list_serving_deployments()

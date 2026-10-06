@@ -21,7 +21,7 @@ from psycopg.sql import SQL, Identifier, Literal
 
 from data_proxy.authorization import ensure_schema_policy_writer
 from data_proxy.conditions import schema_scope_condition
-from data_proxy.dbos import steps, workflows
+from data_proxy.dbos import workflows
 from data_proxy.duckdb import DuckDB
 from data_proxy.executor import Executor
 from data_proxy.models import (
@@ -215,7 +215,8 @@ def stub_sync_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
     postgrest_restart_required: bool,
-    snapshot_id: int | None,
+    snapshot_id: int | None = None,
+    snapshot_ids: dict[str, int | None] | None = None,
     plans: list[SyncPlan] | None = None,
     tasks: list[DumpTask] | None = None,
 ) -> tuple[list[str], list[str]]:
@@ -241,7 +242,7 @@ def stub_sync_run(
             if not isinstance(plan, SyncPlan):
                 raise TypeError("Publish workflow requires a sync plan")
             label = plan.schema_name
-            result = snapshot_id
+            result = snapshot_ids[label] if snapshot_ids is not None else snapshot_id
         events.append(f"enqueue:{label}")
 
         async def get_result() -> DumpResult | int | None:
@@ -273,11 +274,6 @@ def stub_sync_run(
         AsyncMock(return_value=postgrest_restart_required),
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
-    monkeypatch.setattr(
-        workflows,
-        "detect_published_schemas",
-        workflow_body(steps.detect_published_schemas),
-    )
     monkeypatch.setattr(
         workflows,
         "list_serving_deployments",
