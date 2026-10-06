@@ -51,8 +51,9 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Sync workflow concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
-| `READER_SNAPSHOT_TIMEOUT_SECONDS` | `120` | How long a publish waits for the reader catalog to apply the committed snapshot. |
-| `READER_SNAPSHOT_POLL_SECONDS` | `1` | Poll interval while a publish waits for the reader catalog. |
+| `READER_REFRESH_CONCURRENCY` | `4` | Maximum catalog refresh Jobs that run at once (the size of the `refresh` queue). |
+| `READER_REFRESH_ATTEMPTS` | `5` | How many times the refresh Jobs run for the schemas whose snapshot the primary doesn't report yet. |
+| `READER_REFRESH_RETRY_SECONDS` | `5` | Seconds to wait before the refresh Jobs run again. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Dump worker concurrency. |
 | `DUMP_QUEUE_RATE_LIMIT` | `50` | Dump tasks per minute. |
 
@@ -79,9 +80,9 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for conditional rollout. |
-| `POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS` | `300` | Read PostgREST rollout timeout. |
+| `DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS` | `300` | Pooler and PostgREST rollout timeout. |
 
-PostgREST rolls out when seed adds or removes views. Data-only DuckLake snapshots do not trigger a rollout.
+The workflow discovers Pooler and PostgREST Deployments by label. After a published snapshot, all Pooler Deployments restart together, then all PostgREST Deployments restart together. PostgREST also rolls out when seed adds or removes views.
 
 ## Observability
 

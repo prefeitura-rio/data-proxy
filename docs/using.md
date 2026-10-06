@@ -15,7 +15,7 @@ In single mode, the proxy sends every request to the `postgrest` Deployment, whi
 
 In HA mode, the proxy sends `GET` and `HEAD` to `postgrest-ro`, which connects through the `ro` Pooler to the standbys. It sends all other methods to `postgrest`, which connects through the `rw` Pooler to the primary. When `postgrest-ro` is unreachable or answers 502, 503, or 504, the proxy retries the read once on `postgrest`. It never retries a write. See [Helm Chart](helm_chart.md#single-and-ha-mode).
 
-Sync restarts the PostgREST deployments once when generated serving PostgreSQL objects change. A PostgREST pod is not Ready until its HTTP readiness probe serves `/`. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators do not treat an unobserved run as successful.
+Sync restarts the PostgREST deployments once when generated serving PostgreSQL objects change. A PostgREST pod isn't Ready until its HTTP readiness probe serves `/`. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
 
 ## OpenAPI
 
@@ -92,7 +92,7 @@ curl \
   "${BASE_URL}/my_table?limit=20"
 ```
 
-An unknown or expired snapshot returns `404`, and a value that is not a whole number returns `400`. Snapshot history is retained for seven days. A table that has no published data and no fallback also returns `404`.
+An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. Snapshot history is retained for seven days. A table that has no published data and no fallback also returns `404`.
 
 Use these headers for troubleshooting, not authorization.
 

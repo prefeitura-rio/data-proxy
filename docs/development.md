@@ -14,9 +14,9 @@ cluster up
 
 The local synchronization configuration uses BigQuery. `cluster up` stops before Helmfile when application-default credentials are absent.
 
-The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for DuckLake catalogs.
+The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume. Each PostgreSQL Pod gets an ephemeral catalog volume from the k3s `local-path` StorageClass.
 
-The script writes the k3d credentials to the ignored repository `.kubeconfig`. It does not change the user kubeconfig.
+The script writes the k3d credentials to the ignored repository `.kubeconfig`. It doesn't change the user kubeconfig.
 
 Apply the current immutable local image tag without rebuilding images:
 
@@ -24,7 +24,7 @@ Apply the current immutable local image tag without rebuilding images:
 cluster sync
 ```
 
-Use `cluster sync --ha` to apply high-availability mode.
+Use `cluster sync --build` to build and push fresh local images under a new immutable tag before applying them. Use `cluster sync --ha` to apply high-availability mode. Both flags work together.
 
 Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the pg_duckdb extension, Valkey, PostgREST, and Data Proxy.
 
@@ -44,12 +44,15 @@ Release-generated commits contain `[skip ci]`. Use `ci version` locally to inspe
 
 ## Seed BigQuery data
 
+The seed command creates every E2E fixture table, including the mutable snapshot fixture. Rerun it after a fixture schema change, then synchronize the local release:
+
 ```bash
 gcloud auth application-default login
 seed --project rj-ia-desenvolvimento
+cluster sync
 ```
 
-Run one DBOS sync through the e2e trigger Job:
+Run one DBOS sync through the E2E trigger Job:
 
 ```bash
 cluster k6 e2e
@@ -76,7 +79,8 @@ See [Using the API](using.md).
 
 | Command             | Purpose                                                    |
 | ------------------- | ---------------------------------------------------------- |
-| `cluster k6 e2e`    | Validates sync, RLS, routing, cache, snapshots, and mode. |
+| `cluster k6 e2e`    | Validates the deployed release: sync, RLS, routing, cache, snapshots, and mode. |
+| `cluster k6 e2e --build` | Builds and deploys fresh local images before validation. |
 | `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.  |
 | `cluster k6 load`   | Holds the local peak of 100 req/s for 25 minutes.         |
 | `cluster k6 stress` | Steps to 200 req/s for 570 seconds to find the local breaking point. |
@@ -87,13 +91,13 @@ Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaul
 
 ### Performance thresholds
 
-Each profile gates the stack-owned paths: `checks`, HTTP failure rate, dropped iterations, the cache, and bounded DuckLake reads. It always confirms `dropped_iterations == 0` so a run that cannot start an iteration fails. The bounded DuckLake and cache trends carry a `p(99)` bound in addition to `p(95)`, so a concurrent adversarial scan cannot hide behind the median.
+Each profile gates the stack-owned paths: `checks`, HTTP failure rate, dropped iterations, the cache, and bounded DuckLake reads. It always confirms `dropped_iterations == 0` so a run that can't start an iteration fails. The bounded DuckLake and cache trends carry a `p(99)` bound in addition to `p(95)`, so a concurrent adversarial scan can't hide behind the median.
 
-`bigquery_duration_ms` and the `ducklake_heavy`, `ducklake_selective`, and `ducklake_pinned` trends are client risk: they measure the query a client chose, and an unbounded or heavily sorted request must not look like a stack regression. They are reported but do not gate a run. Set `K6_GATE_CLIENT_RISK=true` to fail on them anyway.
+`bigquery_duration_ms` and the `ducklake_heavy`, `ducklake_selective`, and `ducklake_pinned` trends are client risk: they measure the query a client chose, and an unbounded or large-sort request must not look like a stack regression. They're reported but don't gate a run. Set `K6_GATE_CLIENT_RISK=true` to fail on them anyway.
 
 ### Capacity runs need a separate generator
 
-A single-node cluster cannot measure its own capacity above a few hundred requests per second. The generator, PostgREST, PostgreSQL, the pooler, and the proxy share the node's cores, so the generator steals CPU from the system under test and the run reports a number that belongs to neither.
+A single-node cluster can't measure its own capacity above a few hundred requests per second. The generator, PostgREST, PostgreSQL, the pooler, and the proxy share the node's cores, so the generator steals CPU from the system under test and the run reports a number that belongs to neither.
 
 Measure capacity with the generator outside the cluster host. The `default` devenv profile provides `k6`, and every address the suite needs comes from the environment:
 
@@ -108,11 +112,11 @@ K6_PROFILE=load K6_PEAK_RATE=500 \
 k6 run k6/perf.ts --summary-export=summary.json
 ```
 
-The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_BIGQUERY_SHARE`, and `K6_BOTTLENECK_SHARE` variables as the in-cluster runner. Within the cluster, the runner pod now requests CPU and memory so a starved generator fails its own probes instead of silently shaping the result. A run that drops iterations fails the `dropped_iterations` threshold, which marks the measurement invalid rather than a capacity limit.
+The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_BIGQUERY_SHARE`, and `K6_BOTTLENECK_SHARE` variables as the in-cluster runner. Within the cluster, the runner pod now requests CPU and memory so a starved generator fails its own probes instead of shaping the result without notice. A run that drops iterations fails the `dropped_iterations` threshold, which marks the measurement invalid rather than a capacity limit.
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
 
-`cluster k6 e2e` verifies the existing release is ready, clears persisted test state, builds and pushes all local images, deploys single mode, then runs the full E2E suite and verifies the single-mode topology. `cluster k6 e2e --ha` follows the same sequence with HA mode. The command does not transition between modes; a later invocation selects and applies its own requested mode.
+`cluster k6 e2e` verifies the existing release is ready, clears persisted test state, selects the requested mode with the current immutable image tag, then runs the full E2E suite. It doesn't rebuild images or force a CNPG image rollout. Use `cluster k6 e2e --build` after an image, sync configuration, fallback, SeaweedFS, or pg_duckdb change. The build form creates a new immutable image tag, applies Helmfile, and then runs the suite. `--ha` selects HA mode in either form.
 
 `MODE` in `k6/e2e.yaml` is `single` or `ha` and identifies the topology that the mode checks verify.
 

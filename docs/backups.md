@@ -60,6 +60,10 @@ pg_restore --list access_policy.dump
 
 Don't load an unreviewed backup into a live policy table.
 
+## Catalog recovery
+
+The writer-only Litestream container replicates every DuckLake catalog to SeaweedFS. PostgreSQL Pods keep disposable catalog copies in ephemeral volumes. When a Pod starts, one Litestream init container per schema restores the catalog with `restore -if-replica-exists`. An empty replica doesn't block a new cluster. After each publication, `refresh-catalog` Jobs restore the changed catalogs into every ready instance volume. Each backup CronJob restores its schema catalog from the Litestream replica into an `emptyDir` with an init container, then uploads that file, so the backup never reads the live writer file.
+
 ---
 
 [← Previous](metrics.md) · [Home](../README.md) · [Next →](development.md)

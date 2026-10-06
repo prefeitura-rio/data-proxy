@@ -1,6 +1,6 @@
 # Security
 
-Data Proxy enforces access in PostgreSQL. The table function passes the RLS predicate into DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters, such as `?id=eq.1`, are applied in PostgreSQL after DuckDB returns the authorized rows. Data Proxy does not calculate business permissions in nginx or in the client.
+Data Proxy enforces access in PostgreSQL. The table function passes the RLS predicate into DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters, such as `?id=eq.1`, are applied in PostgreSQL after DuckDB returns the authorized rows. Data Proxy doesn't calculate business permissions in nginx or in the client.
 
 ## Configure the access model
 

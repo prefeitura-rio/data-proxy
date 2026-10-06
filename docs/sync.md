@@ -32,7 +32,7 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas, their in
 | `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
 | `ducklake` | No                    | Schema-level DuckLake settings, including `encrypted`. |
 
-The schema key is the target PostgreSQL schema. Do not add a schema field to a table entry.
+The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
 ## Table fields
 
@@ -53,19 +53,29 @@ The scheduled `run_sync` workflow performs these steps:
 
 1. Build the changed-table and changed-partition plan.
 2. Enqueue source dump tasks.
-3. Write independent scratch Parquet files to the S3 scratch path. Extraction does not merge files.
+3. Write independent scratch Parquet files to the S3 scratch path. Extraction doesn't merge files.
 4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
 5. Enqueue one `publish_schema` workflow per schema.
-6. DBOS sync workers insert scratch Parquet into DuckLake and commit the writer catalog volume.
+6. DBOS sync workers insert scratch Parquet into DuckLake and commit the `ducklake` folder of the shared volume.
 7. Litestream replicates writer catalog WAL changes to SeaweedFS.
-8. Litestream restore updates the reader catalog volume.
-9. Expire snapshots older than seven days.
-10. Merge up to the configured number of adjacent files.
-11. Rewrite files only when the deleted fraction reaches the configured threshold.
-12. Clean scheduled and orphaned files older than seven days.
-13. Flush scratch objects and Valkey.
+8. After all publishers finish, run one `refresh-catalog` Job for every published schema and ready PostgreSQL instance, and wait for all Jobs. If the primary still reports an older snapshot, because Litestream had not replicated it yet, wait and run the Jobs again for those schemas.
+9. Restart all Pooler Deployments together, then all PostgREST Deployments together.
+10. Flush scratch objects and Valkey.
 
-Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog. Maintenance runs on the same schema writer.
+Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
+
+### DuckLake maintenance
+
+After a publication commits, the same `publish_schema` workflow runs `apply_ducklake_maintenance` on the schema writer, before the refresh Jobs copy the catalog. It does the following in order:
+
+1. Expire snapshots older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
+2. Merge up to `DUCKLAKE_MAX_COMPACTED_FILES` adjacent files per table.
+3. Rewrite files whose deleted fraction reaches `DUCKLAKE_REWRITE_DELETE_THRESHOLD`.
+4. Clean old and orphaned files older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
+
+Merging and rewriting create new snapshots, so the step returns the current snapshot, and the reader check waits for that one. A maintenance error is logged and doesn't stop the run: the published snapshot still reaches the readers, and the next publication retries the maintenance. Schemas that publish nothing aren't maintained.
+
+The maintenance CronJob only cleans stale PostgreSQL objects.
 
 ## DuckLake partitioning and encryption
 
@@ -84,25 +94,25 @@ Changing a table transform triggers a full table rewrite before the new layout i
 
 ## Schema evolution
 
-Before publication, the writer compares each incoming Parquet schema with the existing DuckLake table. It adds new nullable columns and applies only lossless type promotions. It rejects removed columns, renames, and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files are not rewritten for these schema changes.
+Before publication, the writer compares each incoming Parquet schema with the existing DuckLake table. It adds new nullable columns and applies only lossless type promotions. It rejects removed columns, renames, and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files aren't rewritten for these schema changes.
 
 ## Catalog lifecycle
 
 Each schema uses these locations:
 
 ```text
-writer volume:   /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (sync pods)
-                 /var/lib/ducklake/writer/<schema>/catalog.sqlite   (Litestream replicate)
-reader volume:   /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (Litestream restore, PostgreSQL)
+shared volume:   data-proxy-duckdb:/ducklake/<schema>/catalog.sqlite (sync pods and Litestream, mounted at /var/lib/ducklake/catalogs)
+                 data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at ~/.duckdb/stored_secrets)
+instance volume: /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (init restore and refresh Jobs, PostgreSQL)
 Litestream S3:   s3://<bucket>/ducklake/<schema>/catalog.sqlite/ (LTX replica prefix)
 DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 ```
 
-The DBOS sync writes the writer catalog volume. Litestream replicates the writer volume and restores the separate reader catalog volume. CNPG PostgreSQL instances mount the reader volume read-only. A PostgreSQL backend keeps its DuckLake attachment. After a publication, the workflow waits until the reader catalog has the new snapshot and then restarts the Pooler deployments, so new backends attach the current catalog.
+The DBOS sync writes the `/ducklake` folder of the shared `data-proxy-duckdb` volume. Litestream replicates it. PostgreSQL pods mount `/duckdb/secrets` from the same volume. Every CNPG PostgreSQL Pod has its own ephemeral catalog volume, which init containers restore with `-if-replica-exists` so an empty replica never blocks a new cluster. A PostgreSQL backend keeps its DuckLake attachment. After a publication, refresh Jobs restore the changed catalogs into every ready instance volume. Then all Pooler Deployments restart together and become ready, and all PostgREST Deployments restart together, so new backends attach the current catalog.
 
 ## Partition fallback
 
-Set `fallback: true` on a partitioned table to let its configured schema source serve data that DuckLake does not hold. For a BigQuery schema, the table function reads published partitions from DuckLake and every other partition from BigQuery.
+Set `fallback: true` on a partitioned table to let its configured schema source serve data that DuckLake doesn't hold. For a BigQuery schema, the table function reads published partitions from DuckLake and every other partition from BigQuery.
 
 ```json
 {
@@ -112,7 +122,7 @@ Set `fallback: true` on a partitioned table to let its configured schema source 
 }
 ```
 
-`fallback` is invalid on full tables. It is also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy.md).
+`fallback` is invalid on full tables. It's also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy.md).
 
 ## Adding a source
 
@@ -135,7 +145,7 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ## Schema initialization
 
-The sync workflow creates configured schemas, `access_policy`, `access_log`, policies, triggers, and `policy_writer_<schema>` roles. It does not create application data tables in PostgreSQL. Application table names are PostgreSQL views over DuckLake functions.
+The sync workflow creates configured schemas, `access_policy`, `access_log`, policies, triggers, and `policy_writer_<schema>` roles. It doesn't create application data tables in PostgreSQL. Application table names are PostgreSQL views over DuckLake functions.
 
 ---
 

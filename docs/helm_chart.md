@@ -49,7 +49,7 @@ Configure the caching proxy under `proxy`. Values include `cacheTtl`, `fetchBuff
 
 ## Single and HA mode
 
-`ha.enabled` is the only HA setting. It is `false` by default. The autoscaling blocks and the resources in the values file decide everything else.
+`ha.enabled` is the only HA setting. It's `false` by default. The autoscaling blocks and the resources in the values file decide everything else.
 
 | Part       | Single mode                                                                     | HA mode                                                                                                    |
 | ---------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -67,9 +67,9 @@ helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set
 helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=false
 ```
 
-Only the read-write database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.
+Only the primary database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.
 
-KEDA owns every workload count except the Poolers. Helm never sets `replicas` or `instances` on a workload, so an upgrade cannot conflict with a scaler. A CNPG Pooler has no scale selector, so KEDA cannot scale it, and CNPG runs its default of one pod. A fixed workload gets a ScaledObject that KEDA pauses at the configured count. This is also how the single mode holds the Cluster at `cnpg.instances`.
+KEDA owns every workload count except the Poolers. Helm never sets `replicas` or `instances` on a workload, so an upgrade can't conflict with a scaler. A CNPG Pooler has no scale selector, so KEDA can't scale it, and CNPG runs its default of one pod. A fixed workload gets a ScaledObject that KEDA pauses at the configured count. This is also how the single mode holds the Cluster at `cnpg.instances`.
 
 Default triggers:
 
@@ -78,14 +78,14 @@ Default triggers:
 | Cluster (HA mode)         | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads.          |
 | PostgREST and nginx       | CPU and memory.                                                                                              |
 
-Set `triggers` in an `autoscaling` block to replace a default. KEDA cannot scale a CNPG resource on CPU, because the resource has no pod selector.
+Set `triggers` in an `autoscaling` block to replace a default. KEDA can't scale a CNPG resource on CPU, because the resource has no pod selector.
 
 Notes for HA mode:
 
 - Every instance has the same `cnpg.resources`.
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
-- Replication is asynchronous, so a changed policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it cannot be a default. A trigger then raises `synchronous_commit` to `remote_apply` for policy writes only, and other commits use `local`.
-- The S3 secret is a file in the shared catalog volume (`duckdb-secrets`). Every instance mounts it, and only the primary writes it. After the first upgrade that adds this mount, run `helm upgrade` once more so `init-db` writes the secret to the volume.
+- Replication is asynchronous, so a changed policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then raises `synchronous_commit` to `remote_apply` for policy writes only, and other commits use `local`.
+- The S3 secret is a file in `/duckdb/secrets` on the shared `<release>-duckdb` volume. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. Catalogs live in `/ducklake/<schema>/catalog.sqlite` on the same volume. Each pod mounts only the folder it needs. Instance catalogs live in separate ephemeral volumes and are restored from the Litestream replica when a Pod starts. After the first upgrade that adds this mount, run `helm upgrade` once more so `configure-db` writes the secret to the volume.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls the poolers and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.
 
 ```yaml

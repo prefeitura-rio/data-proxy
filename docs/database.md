@@ -36,7 +36,7 @@ Each configured schema contains metadata and views:
 
 The routing functions live in the application schema (`data_proxy` by default): `requested_snapshot`, `covered_by_ducklake`, `covered_by_fallback`, `plan_sources`, `source_label`, and `set_response_headers`. See [Proxy](proxy.md).
 
-PostgreSQL does not contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
+PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
 
 
 ## DuckLake storage
@@ -48,7 +48,7 @@ s3://<bucket>/ducklake/<schema>/catalog.sqlite/  # Litestream LTX replica prefix
 s3://<bucket>/ducklake-data/<schema>/      # DuckLake Parquet data
 ```
 
-DBOS sync workers update the writer catalog volume. The `data-proxy-litestream` replication sidecar replicates committed WAL changes to SeaweedFS, and its restore container updates the separate reader catalog volume. CNPG instances mount the reader catalogs read-only. pg_duckdb opens those local catalogs read-only.
+DBOS sync workers update the `/ducklake` folder of the shared `data-proxy-duckdb` volume. The writer-only `data-proxy-litestream` Deployment replicates committed WAL changes to SeaweedFS. Every CNPG instance has an ephemeral catalog volume that init containers restore at startup and refresh Jobs update after each publication. pg_duckdb opens those local catalogs read-only.
 
 The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLake table configuration uses `SET PARTITIONED BY` and `SET SORTED BY` for partition and RLS-related columns.
 
