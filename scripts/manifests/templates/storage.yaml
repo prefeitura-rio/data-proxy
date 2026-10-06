@@ -9,7 +9,7 @@ volumeBindingMode: Immediate
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: data-proxy-catalog-writer
+  name: data-proxy-duckdb
 spec:
   capacity:
     storage: {{ .Values.storage.size }}
@@ -19,26 +19,8 @@ spec:
   storageClassName: {{ .Values.storage.className }}
   claimRef:
     namespace: data-proxy
-    name: data-proxy-catalog-writer
+    name: data-proxy-duckdb
   hostPath:
     path: /var/lib/data-proxy/catalogs/writer
-    type: DirectoryOrCreate
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: data-proxy-catalog-reader
-spec:
-  capacity:
-    storage: {{ .Values.storage.size }}
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Delete
-  storageClassName: {{ .Values.storage.className }}
-  claimRef:
-    namespace: data-proxy
-    name: data-proxy-catalog-reader
-  hostPath:
-    path: /var/lib/data-proxy/catalogs/reader
     type: DirectoryOrCreate
 {{- end }}

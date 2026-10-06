@@ -49,8 +49,8 @@ def "main up" [
         } }
 
     try {
-        mkdir .k3d/catalogs/reader .k3d/catalogs/writer
-        chmod 777 .k3d/catalogs/reader .k3d/catalogs/writer
+        mkdir .k3d/catalogs/writer
+        chmod 777 .k3d/catalogs/writer
     } catch {|err| fail $'Could not create k3d runtime directories: ($err.msg)' {
             command: main-up
             span: (metadata $repo).span
@@ -70,8 +70,6 @@ def "main up" [
             create
             --config
             k3d.yaml
-            --volume
-            $'($catalogs)/reader:/var/lib/data-proxy/catalogs/reader@server:*;agent:*'
             --volume
             $'($catalogs)/writer:/var/lib/data-proxy/catalogs/writer@server:*;agent:*'
         ]
@@ -111,11 +109,13 @@ def "main up" [
 # Synchronize the local stack with the latest built images.
 def "main sync" [
     --ha # Synchronize high-availability mode.
+    --build # Build and push fresh local images before synchronizing.
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
-    let tag = local-image-tag
 
     apply-gcp-secret $kubecfg --required
+
+    let tag = if $build { build-local-images } else { local-image-tag }
 
     log info $'Synchronizing Helmfile with local image tag ($tag)...'
     wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set $'ha.enabled=($ha)'

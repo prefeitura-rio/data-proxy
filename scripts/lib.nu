@@ -135,7 +135,7 @@ export def apply-gcp-secret [
             create
             secret
             generic
-            gcp-key
+            gcp
             $'--from-file=key.json=($credentials)'
             --dry-run=client
             -o
@@ -145,7 +145,7 @@ export def apply-gcp-secret [
         | ignore
 
         let secret = try {
-            wrap-kubectl $kubecfg -n $NAMESPACE get secret gcp-key -o json | from json
+            wrap-kubectl $kubecfg -n $NAMESPACE get secret gcp -o json | from json
         } catch {|err| fail $'GCP secret was not created: ($err.msg)' {
                 command: apply-gcp-secret
                 span: (metadata $credentials).span

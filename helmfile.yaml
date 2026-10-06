@@ -120,6 +120,7 @@ releases:
     values:
       - scripts/values/data-proxy.yaml
       - scripts/values/images.yaml.gotmpl
+      - scripts/values/ha.yaml.gotmpl
     hooks:
       - events:
           - postsync

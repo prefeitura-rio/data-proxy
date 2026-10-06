@@ -11,11 +11,11 @@ sync:
     enabled: true
     intervalSeconds: 30
     graceSeconds: 120
-  autoscaling:
-    idleReplicaCount: 2
   config:
     schemas:
       test:
+        source:
+          type: bigquery
         claim: preferred_username
         tables:
           - name: rj-ia-desenvolvimento.dev.full_table
@@ -104,13 +104,17 @@ redis:
   webdisReadHost: data-proxy-valkey.data-proxy.svc.cluster.local
   webdisReadPort: 6379
 gcp:
-  existingSecret: gcp-key
+  existingSecret: gcp
 swaggerUi:
   enabled: true
 ducklake:
   litestream:
     storage:
       storageClass: k3d-rwx
+  readerCatalog:
+    storage:
+      storageClass: local-path
+      accessMode: ReadWriteOnce
 proxy:
   cacheTtl: 5
   image: registry.localhost:5001/data-proxy-proxy:local
