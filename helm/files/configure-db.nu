@@ -30,7 +30,7 @@ def create-schemas []: nothing -> nothing {
         execute-sql postgres/setup_access_policy.sql {
             schema: (quote-pg $schema identifier),
             user_role: (quote-pg $env.AUTH_USER_ROLE identifier),
-            rls_schema: (quote-pg rls identifier),
+            app_schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier),
             scope: $scope
         }
 

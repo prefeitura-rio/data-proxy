@@ -305,6 +305,7 @@ async def policy_writer(postgres: Postgres, psql: Psql) -> AsyncIterator[str]:
             {
                 "schema": Identifier(target),
                 "user_role": Identifier(settings.AUTH_USER_ROLE),
+                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                 "scope": schema_scope_condition(target),
             },
         )

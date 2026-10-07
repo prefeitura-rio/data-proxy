@@ -5,10 +5,13 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Application database role.",
-    "scope": "SQL predicate limiting access to the current schema."
+    "scope": "SQL predicate limiting access to the current schema.",
+    "app_schema": "PostgreSQL schema that holds internal functions."
   }
 }
 #}
+CREATE SCHEMA IF NOT EXISTS {{ app_schema }};
+
 CREATE TABLE IF NOT EXISTS {{ schema }}.access_policy (
     subject text NOT NULL,
     unit_type text,
@@ -30,7 +33,7 @@ CREATE TABLE IF NOT EXISTS {{ schema }}.access_log (
 CREATE INDEX IF NOT EXISTS access_log_changed_at
     ON {{ schema }}.access_log (changed_at);
 
-CREATE OR REPLACE FUNCTION {{ schema }}.log_access_policy_change()
+CREATE OR REPLACE FUNCTION {{ app_schema }}.log_access_policy_change()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -38,14 +41,20 @@ SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
-        VALUES (OLD.subject, OLD.unit_type, OLD.unit_id, 'delete');
+        EXECUTE format(
+            'INSERT INTO %I.access_log (subject, unit_type, unit_id, action) VALUES ($1, $2, $3, $4)',
+            TG_TABLE_SCHEMA
+        ) USING OLD.subject, OLD.unit_type, OLD.unit_id, 'delete';
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
-        VALUES (OLD.subject, OLD.unit_type, OLD.unit_id, 'update');
+        EXECUTE format(
+            'INSERT INTO %I.access_log (subject, unit_type, unit_id, action) VALUES ($1, $2, $3, $4)',
+            TG_TABLE_SCHEMA
+        ) USING OLD.subject, OLD.unit_type, OLD.unit_id, 'update';
     ELSIF TG_OP = 'INSERT' THEN
-        INSERT INTO {{ schema }}.access_log (subject, unit_type, unit_id, action)
-        VALUES (NEW.subject, NEW.unit_type, NEW.unit_id, 'insert');
+        EXECUTE format(
+            'INSERT INTO %I.access_log (subject, unit_type, unit_id, action) VALUES ($1, $2, $3, $4)',
+            TG_TABLE_SCHEMA
+        ) USING NEW.subject, NEW.unit_type, NEW.unit_id, 'insert';
     END IF;
     RETURN COALESCE(NEW, OLD);
 END;
@@ -53,7 +62,7 @@ $$;
 DROP TRIGGER IF EXISTS access_log_trigger ON {{ schema }}.access_policy;
 CREATE TRIGGER access_log_trigger
 AFTER INSERT OR UPDATE OR DELETE ON {{ schema }}.access_policy
-FOR EACH ROW EXECUTE FUNCTION {{ schema }}.log_access_policy_change();
+FOR EACH ROW EXECUTE FUNCTION {{ app_schema }}.log_access_policy_change();
 
 DROP POLICY IF EXISTS user_read ON {{ schema }}.access_policy;
 CREATE POLICY user_read ON {{ schema }}.access_policy

@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Report whether the access-log trigger function is SECURITY DEFINER. Parameters: schema_name."
+  "description": "Report whether the internal access-log trigger function is SECURITY DEFINER. Parameters: schema_name."
 }
 #}
 SELECT prosecdef

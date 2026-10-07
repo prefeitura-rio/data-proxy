@@ -433,6 +433,7 @@ async def create_access_policy(pg: Postgres) -> None:
             "schema": pg.namespace.identifier,
             "user_role": Identifier(settings.AUTH_USER_ROLE),
             "scope": schema_scope_condition(schema),
+            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
         },
     )
 
@@ -575,10 +576,15 @@ async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
                 "schema": Identifier(schema_name),
                 "user_role": Identifier(settings.AUTH_USER_ROLE),
                 "scope": schema_scope_condition(schema_name),
+                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
             },
         )
         await executor.execute(
-            "postgres/access_policy_commit", mapping={"schema": Identifier(schema_name)}
+            "postgres/access_policy_commit",
+            mapping={
+                "schema": Identifier(schema_name),
+                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
+            },
         )
         await ensure_schema_policy_writer(pg_conn, schema_name)
 

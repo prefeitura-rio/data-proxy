@@ -364,15 +364,12 @@ def check_multi_rls_rows(postgres: Postgres, access_policy_schema: str) -> None:
 
 
 @then("the access-log trigger is a security definer")
-def check_trigger_definer(
-    postgres: Postgres,
-    access_policy_schema: str,
-) -> None:
+def check_trigger_definer(postgres: Postgres) -> None:
     row = asyncio.run(
         fetch_one(
             postgres,
             "postgres/log_trigger_is_security_definer",
-            params={"schema_name": access_policy_schema},
+            params={"schema_name": settings.DBOS_APP_SCHEMA},
         )
     )
     assert row == (True,)

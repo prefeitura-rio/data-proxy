@@ -238,6 +238,7 @@ class TestPruneAccessLog:
                     {
                         "schema": target,
                         "user_role": Identifier(settings.AUTH_USER_ROLE),
+                        "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                         "scope": schema_scope_condition(schema),
                     },
                 ),
