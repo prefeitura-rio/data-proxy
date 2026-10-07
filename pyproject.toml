@@ -117,6 +117,7 @@ ignore_names = [
   "parameters",
   "params",
   "ex",
+  "expect",
   "seconds",
   "groupname",
   "id",

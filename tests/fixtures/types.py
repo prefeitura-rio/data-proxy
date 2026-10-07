@@ -70,10 +70,6 @@ class PostgresTestNamespace:
         """Return a safely quoted table identifier in this namespace."""
         return Identifier(self.schema, name)
 
-    def policy(self, name: str) -> Identifier:
-        """Return a safely quoted policy identifier."""
-        return Identifier(name)
-
 
 @dataclass(frozen=True, slots=True)
 class BigQueryQueryResult:

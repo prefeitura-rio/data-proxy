@@ -292,11 +292,6 @@ async def run_sync() -> None:
     await workflow_body(workflows.run_sync)(datetime.now(UTC), None)
 
 
-async def run_dump_task(task: DumpTask) -> DumpResult:
-    """Run the dump workflow body for one task."""
-    return await workflow_body(workflows.dump_task)(task)
-
-
 async def attach_ducklake(duckdb: DuckDB, tmp_path: Path) -> None:
     """Attach one file-based DuckLake catalog for the test connection."""
     await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
