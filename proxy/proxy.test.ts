@@ -488,7 +488,18 @@ const SCENARIOS: Scenario[] = [
     },
 ];
 
-const BASE_FIELDS = ['event', 'method', 'uri', 'wait_ms'];
+const BASE_FIELDS = ['method', 'path', 'duration_ms'];
+
+/** The message that the proxy writes for each event of a scenario. */
+const EVENT_MESSAGES: Record<string, string> = {
+    'cache-read-failed': 'Proxy cache read failed',
+    'cache-write-rejected': 'Proxy cache write was rejected',
+    'cache-write-failed': 'Proxy cache write failed',
+    'cache-body-too-large': 'Proxy cache write was skipped',
+    'upstream-status': 'Proxy upstream request returned an error status',
+    'upstream-failed': 'Proxy upstream request failed',
+    'upstream-retried': 'Proxy upstream request retry started',
+};
 
 /** Builds the fake upstream that the module under test calls. */
 function fakeUpstream(scenario: Scenario): {
@@ -637,15 +648,30 @@ function assertCalls(actual: string[], expected: (string | RegExp)[]): void {
     });
 }
 
-/** Parses a log line, so that a case reports a readable failure. */
+/**
+ * Parses a `<message>: key=value ...` log line into the message and its fields,
+ * so that a case reports a readable failure. Numbers stay numbers.
+ */
 function parseLine(line: string, kind: string): Record<string, unknown> {
-    let parsed: Record<string, unknown>;
+    const separator = line.indexOf(': ');
 
-    try {
-        parsed = JSON.parse(line);
-    } catch (error) {
-        throw new Error(kind + ' line is not JSON: ' + line);
+    if (separator === -1) {
+        throw new Error(kind + ' line has no message and context: ' + line);
     }
+
+    const parsed: Record<string, unknown> = { message: line.slice(0, separator) };
+
+    line.slice(separator + 2).split(' ').forEach((pair) => {
+        const equals = pair.indexOf('=');
+
+        if (equals === -1) {
+            throw new Error(kind + ' line has a field without a value: ' + line);
+        }
+
+        const value = pair.slice(equals + 1);
+
+        parsed[pair.slice(0, equals)] = value !== '' && !isNaN(Number(value)) ? Number(value) : value;
+    });
 
     return parsed;
 }
@@ -709,7 +735,7 @@ SCENARIOS.forEach((scenario) => {
             const failure = parseLine(outcome.warnings[index], 'failure');
 
             assertBaseFields(failure, 'failure');
-            assert.equal(failure.event, event, 'the failure event differs');
+            assert.equal(failure.message, EVENT_MESSAGES[event], 'the failure message differs');
         });
 
         outcome.logs.concat(outcome.warnings).forEach((line) => {
@@ -886,7 +912,9 @@ test('proxy: shares one call between concurrent requests for the same key', asyn
 });
 
 test('proxy: avoids the globals and methods that the engine does not provide', async () => {
-    const source = readFileSync(fileURLToPath(new URL('./proxy.ts', import.meta.url)), 'utf8');
+    const text = readFileSync(fileURLToPath(new URL('./proxy.ts', import.meta.url)), 'utf8');
+    // Log messages are strings that may name Proxy without using the global.
+    const source = text.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
     const unsupported = [
         'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect', 'Symbol',
         'filter', 'find', 'findIndex', 'flat', 'flatMap', 'reduce', 'reduceRight', 'includes',
@@ -1006,5 +1034,6 @@ test('proxy: reports an unexpected handler exception as a structured warning', a
     assert.equal(response.status, 502);
     assert.equal(response.body, '{"error":"proxy exception"}');
     assert.equal(warnings.length, 1);
-    assert.equal(parseLine(warnings[0], 'exception').event, 'exception');
+    assert.equal(parseLine(warnings[0], 'exception').error, 'proxy-handler');
+    assert.equal(parseLine(warnings[0], 'exception').message, 'Proxy request failed');
 });

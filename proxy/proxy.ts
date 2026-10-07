@@ -38,6 +38,7 @@ const LOG_MESSAGES: Record<string, string> = {
     request: "Proxy request completed",
     "cache-read-failed": "Proxy cache read failed",
     "cache-write-rejected": "Proxy cache write was rejected",
+    "cache-body-too-large": "Proxy cache write was skipped",
     "cache-write-failed": "Proxy cache write failed",
     "upstream-status": "Proxy upstream request returned an error status",
     "upstream-failed": "Proxy upstream request failed",
@@ -418,9 +419,9 @@ function requestContext(
 }
 
 /**
- * Writes one log line as JSON.
+ * Writes one log line as `<Component> <action> <state>: <context>`.
  *
- * Every line carries the event, the method, the path and the elapsed time.
+ * Every line carries the method, the path and the elapsed time.
  * The token and the query string are never part of a line.
  */
 function log(
@@ -430,18 +431,27 @@ function log(
     event: string,
     fields: LogFields,
 ): void {
-    const context = [
-        `method=${ctx.method}`,
-        `path=${ctx.uri}`,
-        fields.status === undefined ? "" : `status=${fields.status}`,
-        fields.source ? `source=${fields.source}` : "",
-        `duration_ms=${Date.now() - ctx.started}`,
-        fields.bytes === undefined ? "" : `bytes=${fields.bytes}`,
-        fields.error ? `error=${fields.error}` : "",
-    ]
-        .filter((field) => field !== "")
-        .join(" ");
-    const message = `${LOG_MESSAGES[event] || "Proxy request state changed"}: ${context}`;
+    const context = [`method=${ctx.method}`, `path=${ctx.uri}`];
+
+    if (fields.status !== undefined) {
+        context.push(`status=${fields.status}`);
+    }
+
+    if (fields.source) {
+        context.push(`source=${fields.source}`);
+    }
+
+    context.push(`duration_ms=${Date.now() - ctx.started}`);
+
+    if (fields.bytes !== undefined) {
+        context.push(`bytes=${fields.bytes}`);
+    }
+
+    if (fields.error) {
+        context.push(`error=${fields.error}`);
+    }
+
+    const message = `${LOG_MESSAGES[event] || "Proxy request state changed"}: ${context.join(" ")}`;
 
     if (level === "warn") {
         r.warn(message);
