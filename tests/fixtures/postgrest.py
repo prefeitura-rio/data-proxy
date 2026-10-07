@@ -7,10 +7,12 @@ from urllib.request import urlopen
 
 import psycopg
 import pytest
+from psycopg.sql import Identifier
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 
+from data_proxy.templates import render_template
 from tests.constants import POSTGREST_AUTH, TEST_SQL_DIR
 from tests.fixtures.types import Postgrest
 
@@ -24,6 +26,13 @@ def postgrest(
     dsn_parts = urlsplit(postgres_container.get_connection_url(driver=None))
     dsn = urlunsplit(dsn_parts._replace(path="/test_template"))
     with psycopg.connect(dsn, autocommit=True) as connection:
+        connection.execute(b"CREATE SCHEMA IF NOT EXISTS data_proxy")
+        connection.execute(
+            render_template(
+                "postgres/views/routing/filter",
+                {"schema": Identifier("data_proxy")},
+            ).encode()
+        )
         connection.execute((TEST_SQL_DIR / "postgres/pushdown.sql").read_bytes())
 
     container = (

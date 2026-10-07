@@ -24,114 +24,27 @@ CREATE POLICY items_owner_policy ON pushdown.items_data
         ) = owner
     );
 
-CREATE FUNCTION pushdown.render_filter_node(node jsonb, columns text[])
-RETURNS text
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    kind text;
-    column_name text;
-    operator_name text;
-    value_text text;
-    rendered text;
-    item jsonb;
-    parts text[];
-BEGIN
-    kind := node ->> 'kind';
-    IF kind = 'comparison' THEN
-        column_name := node ->> 'column';
-        IF NOT column_name = ANY(columns) THEN
-            RAISE EXCEPTION 'unknown filter column';
-        END IF;
-        operator_name := node ->> 'operator';
-        IF jsonb_typeof(node -> 'value') = 'array' THEN
-            IF operator_name <> 'in' THEN
-                RAISE EXCEPTION 'list value for non-in operator';
-            END IF;
-            SELECT array_agg(format('%L', value))
-            INTO parts
-            FROM jsonb_array_elements_text(node -> 'value') AS values(value);
-            rendered := format('%I IN (%s)', column_name, array_to_string(parts, ', '));
-        ELSE
-            value_text := node ->> 'value';
-            rendered := CASE operator_name
-                WHEN 'eq' THEN format('%I = %L', column_name, value_text)
-                WHEN 'neq' THEN format('%I <> %L', column_name, value_text)
-                WHEN 'gt' THEN format('%I > %L', column_name, value_text)
-                WHEN 'gte' THEN format('%I >= %L', column_name, value_text)
-                WHEN 'lt' THEN format('%I < %L', column_name, value_text)
-                WHEN 'lte' THEN format('%I <= %L', column_name, value_text)
-                WHEN 'like' THEN format('%I LIKE %L', column_name, replace(value_text, '*', '%'))
-                WHEN 'ilike' THEN format('%I ILIKE %L', column_name, replace(value_text, '*', '%'))
-                WHEN 'is' THEN CASE value_text
-                    WHEN 'not_null' THEN format('%I IS NOT NULL', column_name)
-                    ELSE format('%I IS %s', column_name, upper(value_text))
-                END
-                ELSE NULL
-            END;
-        END IF;
-        IF rendered IS NULL THEN
-            RAISE EXCEPTION 'unknown filter operator';
-        END IF;
-        IF COALESCE((node ->> 'negated')::boolean, false) THEN
-            rendered := 'NOT (' || rendered || ')';
-        END IF;
-        RETURN rendered;
-    END IF;
-
-    IF kind <> 'group' THEN
-        RAISE EXCEPTION 'unknown filter node';
-    END IF;
-
-    SELECT array_agg(pushdown.render_filter_node(node_value, columns))
-    INTO parts
-    FROM jsonb_array_elements(node -> 'items') AS nodes(node_value);
-    IF parts IS NULL OR array_length(parts, 1) = 0 THEN
-        RAISE EXCEPTION 'empty filter group';
-    END IF;
-    rendered := '(' || array_to_string(parts, ' ' || upper(node ->> 'operator') || ' ') || ')';
-    IF COALESCE((node ->> 'negated')::boolean, false) THEN
-        rendered := 'NOT ' || rendered;
-    END IF;
-    RETURN rendered;
-END;
-$$;
-
-CREATE FUNCTION pushdown.render_filter(filter jsonb)
-RETURNS text
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF filter ? 'where' THEN
-        RETURN ' WHERE ' || pushdown.render_filter_node(
-            filter -> 'where', ARRAY['id', 'name', 'active']
-        );
-    END IF;
-    RETURN '';
-END;
-$$;
-
 CREATE FUNCTION pushdown.items()
 RETURNS TABLE (id integer, name text, active boolean)
 LANGUAGE plpgsql
 STABLE
 AS $$
 DECLARE
-    headers jsonb := COALESCE(NULLIF(CURRENT_SETTING('request.headers', true), ''), '{}')::jsonb;
-    filter jsonb := NULLIF(
-        COALESCE(headers ->> 'X-DuckLake-Filter', headers ->> 'x-ducklake-filter'),
-        ''
-    )::jsonb;
+    filter jsonb := data_proxy.request_filter();
+    predicate text := data_proxy.render_ducklake_where(
+        filter, ARRAY['id', 'name', 'active']::text[]
+    );
     query text := 'SELECT id, name, active FROM pushdown.items_data';
 BEGIN
-    IF filter IS NOT NULL THEN
-        query := query || pushdown.render_filter(filter);
+    IF predicate IS NOT NULL THEN
+        query := query || ' WHERE ' || predicate;
     END IF;
     query := query || ' ORDER BY id';
     RETURN QUERY EXECUTE query;
 END;
 $$;
 
+GRANT USAGE ON SCHEMA data_proxy TO anon;
 GRANT USAGE ON SCHEMA pushdown TO anon;
 GRANT EXECUTE ON FUNCTION pushdown.items() TO anon;
 GRANT SELECT ON pushdown.items_data TO anon;
