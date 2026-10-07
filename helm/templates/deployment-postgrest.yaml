@@ -99,13 +99,13 @@ spec:
             - name: PGRST_DB_CHANNEL_ENABLED
               value: "false"
             - name: PGRST_DB_SCHEMAS
-              value: {{ append (keys (.Values.sync.config.schemas | default dict) | sortAlpha) .Values.auth.rlsSchema | join "," | quote }}
+              value: {{ keys (.Values.sync.config.schemas | default dict) | sortAlpha | join "," | quote }}
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY
               value: {{ .Values.auth.jwtRoleClaim | quote }}
             - name: PGRST_DB_PRE_REQUEST
-              value: {{ printf "%s.pre_request" .Values.auth.rlsSchema | quote }}
+              value: {{ printf "%s.pre_request" .Values.sync.dbos.appSchema | quote }}
             - name: PGRST_JWT_SECRET
               {{- if .Values.postgrest.jwtSecret }}
               value: {{ .Values.postgrest.jwtSecret | quote }}

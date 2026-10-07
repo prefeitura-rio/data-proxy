@@ -1,10 +1,15 @@
 {#
 {
   "kind": "template",
-  "description": "Create a function that maps JWT claims into PostgreSQL session variables."
+  "description": "Create a function that maps JWT claims into PostgreSQL session variables.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the pre-request function."
+  }
 }
 #}
-CREATE OR REPLACE FUNCTION rls.pre_request() RETURNS void AS $$
+CREATE SCHEMA IF NOT EXISTS {{ schema }};
+
+CREATE OR REPLACE FUNCTION {{ schema }}.pre_request() RETURNS void AS $$
 DECLARE
     claims json := coalesce(
         current_setting('request.jwt.claims', true)::json,

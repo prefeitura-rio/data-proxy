@@ -148,7 +148,8 @@ export def quote-pg [value: string, kind: string]: nothing -> string {
 
 # Render one Jinja SQL template with a strict JSON context.
 @example "Render one SQL template" {
-    render-sql postgres/grant_rls_usage.sql {
+    render-sql postgres/grant_app_usage.sql {
+        app_schema: data_proxy
         anonymous_role: anon
         user_role: user
     }
@@ -168,7 +169,8 @@ export def render-sql [name: path, context: record]: nothing -> string {
 
 # Render a Jinja SQL template and execute it against PostgreSQL.
 @example "Execute SQL with template context" {
-    execute-sql postgres/grant_rls_usage.sql {
+    execute-sql postgres/grant_app_usage.sql {
+        app_schema: data_proxy
         anonymous_role: anon
         user_role: user
     }

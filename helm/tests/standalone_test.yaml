@@ -36,7 +36,6 @@ tests:
           value:
             - CREATE EXTENSION IF NOT EXISTS postgis;
             - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
-            - CREATE SCHEMA IF NOT EXISTS rls;
         template: cluster-cnpg.yaml
 
   - it: grants policy writer membership per configured schema

@@ -47,9 +47,12 @@ def create-schemas []: nothing -> nothing {
 
 # Create the pre_request function that mirrors JWT claims into session variables
 def create-pre-request []: nothing -> nothing {
-    execute-sql postgres/create_pre_request.sql {}
+    let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 
-    execute-sql postgres/grant_rls_usage.sql {
+    execute-sql postgres/create_pre_request.sql {schema: $schema}
+
+    execute-sql postgres/grant_app_usage.sql {
+        app_schema: $schema,
         anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier),
         user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
     }

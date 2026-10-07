@@ -273,7 +273,6 @@ auth:
   authenticatorRole: postgrest
   existingSecret: ""
   jwtRoleClaim: $.role
-  rlsSchema: rls
 ## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
   duckdb:

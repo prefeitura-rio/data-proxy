@@ -60,7 +60,6 @@ auth:
   userRole: user
   authenticatorRole: postgrest
   jwtRoleClaim: $.role
-  rlsSchema: rls
 
 ingress:
   enabled: true

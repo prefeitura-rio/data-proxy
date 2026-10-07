@@ -70,7 +70,7 @@ sequenceDiagram
         P->>P: Read role from jwtRoleClaim
         P->>DB: Connect using authenticator role
         P->>DB: SET LOCAL ROLE anon or user
-        DB->>DB: rls.pre_request maps claims to app.claim_*
+        DB->>DB: data_proxy.pre_request maps claims to app.claim_*
         DB->>DB: Check schema claim and build the RLS predicate
         alt permission or role configuration error
             DB-->>C: 403 Forbidden
@@ -92,7 +92,7 @@ CNPG manages the core roles:
 | `postgrest`              | PostgREST login role (`auth.authenticatorRole`). It's `NOINHERIT` and can switch to `anon`, `user`, and `policy_writer_<schema>`. |
 | `policy_writer_<schema>` | Per-schema policy service role.                                                |
 
-Init-db creates the `rls` schema and its functions, tables, policies, and grants. `rls.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `rls` doesn't grant application table access.
+Init-db creates the `data_proxy` schema and its internal functions, procedures, and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
 
 ## Schema and row authorization
 
@@ -236,7 +236,7 @@ See [Proxy](proxy.md) for the routing and cache rules. `/access_policy` is never
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `401 Unauthorized`                            | Check the JWT signature, issuer, audience, expiry, and `role` claim.                                    |
 | `403` with `permission denied to set role`    | Check that CNPG manages `auth.authenticatorRole` with `inRoles: [anon, user]` and `inherit: false`.     |
-| `403` with `permission denied for schema rls` | Check `GRANT USAGE ON SCHEMA rls TO anon/user`.                                                         |
+| `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
 | `404 Unknown schema profile`                  | Check `Accept-Profile` and `sync.config.schemas`.                                                       |
 | Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; don't use the end-user role. |

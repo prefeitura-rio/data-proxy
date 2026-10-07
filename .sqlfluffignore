@@ -19,7 +19,7 @@ src/data_proxy/templates/duckdb/write_remainder.sql
 # Jinja macro source and imports are validated through rendering.
 src/data_proxy/templates/duckdb/macros.sql
 helm/files/templates/postgres/macros.sql
-helm/files/templates/postgres/grant_rls_usage.sql
+helm/files/templates/postgres/grant_app_usage.sql
 src/data_proxy/templates/postgres/access_policy_check.sql
 src/data_proxy/templates/postgres/drop_view_objects.sql
 src/data_proxy/templates/postgres/write_view_signature.sql

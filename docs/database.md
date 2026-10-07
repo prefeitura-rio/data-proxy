@@ -1,6 +1,6 @@
 # Database Schema
 
-CNPG creates and maintains the core roles. Init-db installs extensions, creates the `rls` schema, creates configured application schemas, and creates access policy metadata.
+CNPG creates and maintains the core roles. Init-db installs extensions, creates the internal `data_proxy` schema, creates configured application schemas, and creates access policy metadata.
 
 ## Shared objects
 
@@ -9,7 +9,7 @@ CNPG creates and maintains the core roles. Init-db installs extensions, creates 
 | `postgis` | BigQuery `GEOGRAPHY` support. |
 | `pg_duckdb` | Executes DuckDB scans and reads SeaweedFS Parquet. |
 
-| `rls.pre_request()` | Mirrors JWT claims into PostgreSQL session settings. |
+| `data_proxy.pre_request()` | Mirrors JWT claims into PostgreSQL session settings. |
 
 ## Roles
 
@@ -34,7 +34,7 @@ Each configured schema contains metadata and views:
 | `<schema>.<table>_dl_fn(text, text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads BigQuery when a partitioned BigQuery table sets `fallback: true`. |
 
-The routing functions live in the application schema (`data_proxy` by default): `requested_snapshot`, `covered_by_ducklake`, `covered_by_fallback`, `plan_sources`, `source_label`, and `set_response_headers`. See [Proxy](proxy.md).
+Internal functions and procedures live in the application schema (`data_proxy` by default): request preprocessing, routing, access-log triggers, maintenance procedures, and the filter renderer. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy.md).
 
 PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
 

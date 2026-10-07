@@ -31,7 +31,7 @@ HOUR_MS: Final = 3_600_000
 
 
 class TestPreRequest:
-    """rls.pre_request maps JWT claims into session settings."""
+    """data_proxy.pre_request maps JWT claims into session settings."""
 
     @pytest.mark.parametrize(
         ("claims", "expected"),
@@ -55,11 +55,16 @@ class TestPreRequest:
         claims: dict[str, str | int | list[str]] | None,
         expected: dict[str, str | None],
     ) -> None:
-        await postgres.connection.execute(helm_sql("create_pre_request").encode())
+        await postgres.connection.execute(
+            helm_sql(
+                "create_pre_request",
+                {"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+            ).encode()
+        )
         if claims is not None:
             await set_setting(postgres, "request.jwt.claims", json.dumps(claims))
 
-        await postgres.connection.execute("SELECT rls.pre_request()")
+        await postgres.connection.execute("SELECT data_proxy.pre_request()")
 
         assert {
             name: await scalar(postgres, "SELECT current_setting(%s, true)", name)
@@ -67,21 +72,29 @@ class TestPreRequest:
         } == expected
 
 
-class TestGrantRlsUsage:
-    """grant_rls_usage lets the anonymous and user roles reach the rls schema."""
+class TestGrantAppUsage:
+    """grant_app_usage lets request roles call the pre-request function."""
 
-    async def test_grants_usage_on_the_rls_schema(self, postgres: Postgres) -> None:
+    async def test_grants_usage_and_execute_on_data_proxy(
+        self, postgres: Postgres
+    ) -> None:
         roles = [settings.AUTH_ANON_ROLE, settings.AUTH_USER_ROLE]
         await postgres.connection.execute(
-            SQL("REVOKE USAGE ON SCHEMA rls FROM {}").format(
+            SQL("REVOKE USAGE ON SCHEMA data_proxy FROM {}").format(
+                SQL(", ").join(Identifier(role) for role in roles)
+            )
+        )
+        await postgres.connection.execute(
+            SQL("REVOKE EXECUTE ON FUNCTION data_proxy.pre_request() FROM {}").format(
                 SQL(", ").join(Identifier(role) for role in roles)
             )
         )
 
         await postgres.connection.execute(
             helm_sql(
-                "grant_rls_usage",
+                "grant_app_usage",
                 {
+                    "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                     "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
                     "user_role": Identifier(settings.AUTH_USER_ROLE),
                 },
@@ -90,7 +103,15 @@ class TestGrantRlsUsage:
 
         assert [
             await scalar(
-                postgres, "SELECT has_schema_privilege(%s, 'rls', 'USAGE')", role
+                postgres, "SELECT has_schema_privilege(%s, 'data_proxy', 'USAGE')", role
+            )
+            for role in roles
+        ] == [True, True]
+        assert [
+            await scalar(
+                postgres,
+                "SELECT has_function_privilege(%s, 'data_proxy.pre_request()', 'EXECUTE')",
+                role,
             )
             for role in roles
         ] == [True, True]

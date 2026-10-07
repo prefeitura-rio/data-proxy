@@ -385,7 +385,7 @@ async def scalar(
 
 
 async def set_setting(pg: Postgres, name: str, value: str) -> None:
-    """Set one session setting, as PostgREST and rls.pre_request do per request."""
+    """Set one session setting, as PostgREST and data_proxy.pre_request do per request."""
     await pg.connection.execute("SELECT set_config(%s, %s, false)", (name, value))
 
 
