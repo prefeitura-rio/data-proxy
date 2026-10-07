@@ -29,6 +29,7 @@ RETURNS TABLE(
 DECLARE
   v_subject text;
   v_where text;
+  v_filter jsonb;
   v_pinned bigint;
   v_snapshot bigint;
   v_plan record;
@@ -37,6 +38,15 @@ BEGIN
   v_subject := current_setting('{{ claim_setting }}', true);
 
 {{ rls_where_clause(schema, has_rls, rls_mappings) }}
+
+  v_filter := {{ app_schema }}.request_filter();
+  v_where := {{ app_schema }}.and_where(
+    v_where,
+    {{ app_schema }}.render_ducklake_where(
+      v_filter,
+      ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+    )
+  );
 
   v_pinned := {{ app_schema }}.requested_snapshot();
 

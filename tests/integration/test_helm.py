@@ -117,6 +117,196 @@ class TestGrantAppUsage:
         ] == [True, True]
 
 
+class TestRenderDucklakeWhere:
+    """The proxy-pushed filter is validated and rendered into a WHERE predicate."""
+
+    async def _install(self, postgres: Postgres) -> None:
+        await postgres.connection.execute(
+            render_template(
+                "postgres/views/routing/filter",
+                {"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+            )
+        )
+
+    async def test_renders_where_nodes(self, postgres: Postgres) -> None:
+        await self._install(postgres)
+
+        cases = [
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "id",
+                        "operator": "gte",
+                        "negated": False,
+                        "value": "10",
+                    }
+                },
+                "(\"id\" >= '10')",
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "id",
+                        "operator": "in",
+                        "negated": False,
+                        "value": ["1", "2"],
+                    }
+                },
+                "(\"id\" IN ('1', '2'))",
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "name",
+                        "operator": "ilike",
+                        "negated": False,
+                        "value": "*rio*",
+                    }
+                },
+                "(\"name\" ILIKE '%rio%')",
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "id",
+                        "operator": "eq",
+                        "negated": True,
+                        "value": "1",
+                    }
+                },
+                "NOT ((\"id\" = '1'))",
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "id",
+                        "operator": "is",
+                        "negated": False,
+                        "value": "not_null",
+                    }
+                },
+                '("id" IS NOT NULL)',
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "comparison",
+                        "column": "id",
+                        "operator": "is",
+                        "negated": False,
+                        "value": "unknown",
+                    }
+                },
+                '("id" IS UNKNOWN)',
+            ),
+            (
+                {
+                    "where": {
+                        "kind": "group",
+                        "operator": "or",
+                        "items": [
+                            {
+                                "kind": "comparison",
+                                "column": "id",
+                                "operator": "eq",
+                                "negated": False,
+                                "value": "1",
+                            },
+                            {
+                                "kind": "comparison",
+                                "column": "name",
+                                "operator": "eq",
+                                "negated": False,
+                                "value": "x",
+                            },
+                        ],
+                    }
+                },
+                "((\"id\" = '1') OR (\"name\" = 'x'))",
+            ),
+        ]
+
+        for payload, expected in cases:
+            rendered = await scalar(
+                postgres,
+                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id', 'name']::text[])",
+                json.dumps(payload),
+            )
+            assert rendered == expected
+
+    async def test_rejects_unknown_columns_and_operators(
+        self, postgres: Postgres
+    ) -> None:
+        await self._install(postgres)
+
+        unknown_column = {
+            "where": {
+                "kind": "comparison",
+                "column": "nope",
+                "operator": "eq",
+                "negated": False,
+                "value": "1",
+            }
+        }
+        with pytest.raises(psycopg.Error) as error:
+            await scalar(
+                postgres,
+                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id']::text[])",
+                json.dumps(unknown_column),
+            )
+        assert error.value.sqlstate == "PT400"
+
+        unknown_operator = {
+            "where": {
+                "kind": "comparison",
+                "column": "id",
+                "operator": "fts",
+                "negated": False,
+                "value": "x",
+            }
+        }
+        with pytest.raises(psycopg.Error) as error:
+            await scalar(
+                postgres,
+                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id']::text[])",
+                json.dumps(unknown_operator),
+            )
+        assert error.value.sqlstate == "PT400"
+
+    async def test_request_filter_reads_the_header(self, postgres: Postgres) -> None:
+        await self._install(postgres)
+
+        assert await scalar(postgres, "SELECT data_proxy.request_filter()") is None
+
+        payload = {
+            "where": {
+                "kind": "comparison",
+                "column": "id",
+                "operator": "eq",
+                "negated": False,
+                "value": "1",
+            }
+        }
+        await set_setting(
+            postgres,
+            "request.headers",
+            json.dumps({"x-ducklake-filter": json.dumps(payload)}),
+        )
+        assert await scalar(postgres, "SELECT data_proxy.request_filter()") == payload
+
+        await set_setting(
+            postgres, "request.headers", json.dumps({"x-ducklake-filter": "not-json"})
+        )
+        with pytest.raises(psycopg.Error) as error:
+            await postgres.connection.execute("SELECT data_proxy.request_filter()")
+        assert error.value.sqlstate == "PT400"
+
+
 class TestPolicyWriter:
     """The policy writer manages grants in its own schema only."""
 
