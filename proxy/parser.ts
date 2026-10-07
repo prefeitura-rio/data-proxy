@@ -17,7 +17,7 @@ interface GeneratedGroup {
 
 type GeneratedNode = GeneratedComparison | GeneratedGroup;
 
-export interface ComparisonNode {
+interface ComparisonNode {
     kind: 'comparison';
     column: string;
     operator: FilterOperator;
@@ -25,26 +25,17 @@ export interface ComparisonNode {
     value: string | string[];
 }
 
-export interface GroupNode {
+interface GroupNode {
     kind: 'group';
     operator: 'and' | 'or';
     negated?: boolean;
     items: FilterNode[];
 }
 
-export type FilterNode = ComparisonNode | GroupNode;
+type FilterNode = ComparisonNode | GroupNode;
 
-export interface OrderNode {
-    column: string;
-    direction: 'asc' | 'desc';
-    nulls?: 'first' | 'last';
-}
-
-export interface DuckLakeFilter {
-    where?: FilterNode;
-    order?: OrderNode[];
-    limit?: number;
-    offset?: number;
+interface DuckLakeFilter {
+    where: FilterNode;
 }
 
 type FilterOperator =
@@ -59,11 +50,8 @@ type FilterOperator =
     | 'like'
     | 'ilike';
 
-type Modifier = 'order' | 'limit' | 'offset';
-
 const OPERATOR_PREFIX = /^(?:not\.)?(eq|neq|gt|gte|lt|lte|in|is|like|ilike)(?:\.|$)/;
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const NONNEGATIVE_INTEGER = /^(0|[1-9][0-9]*)$/;
 
 function decode(value: string): string | null {
     try {
@@ -115,52 +103,6 @@ function parseExpression(input: string): FilterNode {
     return nodeFromGenerated(generatedParser.parse(input));
 }
 
-function parseOrder(value: string): OrderNode[] | null {
-    if (value === '') {
-        return null;
-    }
-
-    const result: OrderNode[] = [];
-    const items = value.split(',');
-
-    for (let index = 0; index < items.length; index++) {
-        const item = items[index];
-        const parts = item.split('.');
-        const column = parts.shift() || '';
-        let direction = parts.shift() || 'asc';
-        let nulls = parts.shift();
-        if (['nullsfirst', 'nullslast'].includes(direction) && nulls === undefined) {
-            nulls = direction;
-            direction = 'asc';
-        }
-
-        if (!IDENTIFIER.test(column) || !['asc', 'desc'].includes(direction)) {
-            return null;
-        }
-
-        if (parts.length > 0 || (nulls !== undefined && !['nullsfirst', 'nullslast'].includes(nulls))) {
-            return null;
-        }
-
-        const order: OrderNode = {
-            column: column,
-            direction: direction as 'asc' | 'desc',
-        };
-
-        if (nulls !== undefined) {
-            order.nulls = nulls === 'nullsfirst' ? 'first' : 'last';
-        }
-
-        result.push(order);
-    }
-
-    return result;
-}
-
-function parseInteger(value: string): number | null {
-    return NONNEGATIVE_INTEGER.test(value) ? Number(value) : null;
-}
-
 function supportedOperator(value: string): boolean {
     return OPERATOR_PREFIX.test(value);
 }
@@ -209,18 +151,12 @@ function combineFilters(filters: FilterNode[]): FilterNode | undefined {
     return { kind: 'group', operator: 'and', items: filters };
 }
 
-function modifierName(key: string): Modifier | null {
-    return ['order', 'limit', 'offset'].includes(key) ? key as Modifier : null;
-}
-
 function parseFilter(args: string): DuckLakeFilter | undefined {
     if (args === '') {
         return undefined;
     }
 
     const filters: FilterNode[] = [];
-    const result: DuckLakeFilter = {};
-    let unsupportedPredicate = false;
     const parameters = args.split('&');
 
     for (let index = 0; index < parameters.length; index++) {
@@ -243,25 +179,6 @@ function parseFilter(args: string): DuckLakeFilter | undefined {
             return undefined;
         }
 
-        const modifier = modifierName(key);
-        if (modifier === 'order') {
-            const order = parseOrder(value);
-            if (order === null) {
-                return undefined;
-            }
-            result.order = order;
-            continue;
-        }
-
-        if (modifier === 'limit' || modifier === 'offset') {
-            const number = parseInteger(value);
-            if (number === null) {
-                return undefined;
-            }
-            result[modifier] = number;
-            continue;
-        }
-
         const groupKey = key === 'and' || key === 'or'
             ? key
             : key === 'not.and'
@@ -278,8 +195,6 @@ function parseFilter(args: string): DuckLakeFilter | undefined {
             }
             if (group !== null) {
                 appendFilter(filters, group);
-            } else {
-                unsupportedPredicate = true;
             }
             continue;
         }
@@ -295,12 +210,9 @@ function parseFilter(args: string): DuckLakeFilter | undefined {
             return undefined;
         }
 
-        if (predicate === null) {
-            unsupportedPredicate = true;
-            continue;
+        if (predicate !== null) {
+            appendFilter(filters, predicate);
         }
-
-        appendFilter(filters, predicate);
     }
 
     const where = combineFilters(filters);
@@ -308,14 +220,7 @@ function parseFilter(args: string): DuckLakeFilter | undefined {
         return undefined;
     }
 
-    result.where = where;
-    if (unsupportedPredicate) {
-        delete result.order;
-        delete result.limit;
-        delete result.offset;
-    }
-
-    return result;
+    return { where };
 }
 
 export default { parseFilter };

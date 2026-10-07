@@ -60,7 +60,7 @@ Identifier
     }
 
 Value
-    = List / Quoted / Scalar
+    = List / Quoted / !'"' value:Scalar { return value; }
 
 List
     = "(" head:ListItem tail:("," item:ListItem { return item; })* ")" {
@@ -68,7 +68,7 @@ List
     }
 
 ListItem
-    = Quoted / Unquoted
+    = Quoted / !'"' value:Unquoted { return value; }
 
 Quoted
     = '"' chars:QuotedChar* '"' {

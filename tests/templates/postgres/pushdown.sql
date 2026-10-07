@@ -101,47 +101,13 @@ CREATE FUNCTION pushdown.render_filter(filter jsonb)
 RETURNS text
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    suffix text := '';
-    order_item jsonb;
-    order_parts text[] := ARRAY[]::text[];
-    column_name text;
-    direction text;
-    nulls text;
 BEGIN
     IF filter ? 'where' THEN
-        suffix := ' WHERE ' || pushdown.render_filter_node(
+        RETURN ' WHERE ' || pushdown.render_filter_node(
             filter -> 'where', ARRAY['id', 'name', 'active']
         );
     END IF;
-    IF filter ? 'order' THEN
-        FOR order_item IN SELECT value FROM jsonb_array_elements(filter -> 'order') LOOP
-            column_name := order_item ->> 'column';
-            IF NOT column_name = ANY(ARRAY['id', 'name', 'active']) THEN
-                RAISE EXCEPTION 'unknown order column';
-            END IF;
-            direction := upper(order_item ->> 'direction');
-            IF direction NOT IN ('ASC', 'DESC') THEN
-                RAISE EXCEPTION 'unknown order direction';
-            END IF;
-            nulls := CASE order_item ->> 'nulls'
-                WHEN 'first' THEN ' NULLS FIRST'
-                WHEN 'last' THEN ' NULLS LAST'
-                ELSE ''
-            END;
-            order_parts := array_append(order_parts, format('%I %s%s', column_name, direction, nulls));
-        END LOOP;
-        suffix := suffix || ' ORDER BY ' || array_to_string(order_parts, ', ');
-    ELSE
-        suffix := suffix || ' ORDER BY id';
-    END IF;
-    IF filter ? 'limit' THEN
-        suffix := suffix || ' LIMIT ' || (filter ->> 'limit');
-    END IF;
-    IF filter ? 'offset' THEN
-        suffix := suffix || ' OFFSET ' || (filter ->> 'offset');
-    END IF;
-    RETURN suffix;
+    RETURN '';
 END;
 $$;
 
@@ -160,9 +126,8 @@ DECLARE
 BEGIN
     IF filter IS NOT NULL THEN
         query := query || pushdown.render_filter(filter);
-    ELSE
-        query := query || ' ORDER BY id';
     END IF;
+    query := query || ' ORDER BY id';
     RETURN QUERY EXECUTE query;
 END;
 $$;

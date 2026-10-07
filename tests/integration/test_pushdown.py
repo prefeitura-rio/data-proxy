@@ -87,7 +87,7 @@ def test_filter_pushdown_matches_postgrest(
 ) -> None:
     """The pushed result matches PostgREST's native filter result."""
     native = postgrest_rows(postgrest, query)
-    pushed = postgrest_rows(postgrest, "", parsed_filter(query))
+    pushed = postgrest_rows(postgrest, query, parsed_filter(query))
 
     assert pushed == native
 
@@ -101,7 +101,7 @@ def test_filter_pushdown_preserves_postgrest_rls(
     token = token_for("alice")
 
     native = postgrest_rows(postgrest, query, token=token)
-    pushed = postgrest_rows(postgrest, "", parsed_filter(query), token=token)
+    pushed = postgrest_rows(postgrest, query, parsed_filter(query), token=token)
 
     assert pushed == native
     assert [row["id"] for row in pushed] == [1, 4]
