@@ -50,6 +50,8 @@ interface Scenario {
     sentContentType?: string;
     sentContentProfile?: string;
     sentSnapshot?: string;
+    sentFilter?: string;
+    filter?: string;
     headerShape?: string;
 }
 
@@ -67,6 +69,7 @@ interface Outcome {
     sentContentType: string | null;
     sentContentProfile: string | null;
     sentSnapshot: string | null;
+    sentFilter: string | null;
 }
 
 const UPSTREAM = 'http://pgrst:3000';
@@ -527,11 +530,11 @@ const EVENT_MESSAGES: Record<string, string> = {
 function fakeUpstream(scenario: Scenario): {
     fetch: (url: string, options?: { method?: string, headers?: Record<string, string>, body?: string }) => Promise<{ status: number, text: () => Promise<string>, headers: unknown }>,
     calls: string[],
-    sent: { body: string | null, contentType: string | null, contentProfile: string | null, snapshot: string | null },
+    sent: { body: string | null, contentType: string | null, contentProfile: string | null, snapshot: string | null, filter: string | null },
 } {
     const calls: string[] = [];
-    const sent: { body: string | null, contentType: string | null, contentProfile: string | null, snapshot: string | null } = {
-        body: null, contentType: null, contentProfile: null, snapshot: null,
+    const sent: { body: string | null, contentType: string | null, contentProfile: string | null, snapshot: string | null, filter: string | null } = {
+        body: null, contentType: null, contentProfile: null, snapshot: null, filter: null,
     };
 
     const fetch = async (
@@ -548,6 +551,7 @@ function fakeUpstream(scenario: Scenario): {
         sent.contentType = outgoing['Content-Type'] || null;
         sent.contentProfile = outgoing['Content-Profile'] || null;
         sent.snapshot = outgoing['X-DuckLake-Snapshot'] || null;
+        sent.filter = outgoing['X-DuckLake-Filter'] || sent.filter;
 
         const answer = scenario.answers.find((entry) => call.indexOf(entry.match) !== -1);
 
@@ -592,6 +596,7 @@ function fakeRequest(
     if (scenario.requestContentProfile) { headersIn['Content-Profile'] = scenario.requestContentProfile; }
     if (scenario.range) { headersIn['Range'] = scenario.range; }
     if (scenario.snapshot) { headersIn['X-DuckLake-Snapshot'] = scenario.snapshot; }
+    if (scenario.filter) { headersIn['X-DuckLake-Filter'] = scenario.filter; }
 
     return {
         uri: scenario.uri || PATH,
@@ -654,6 +659,7 @@ async function run(scenario: Scenario): Promise<Outcome> {
         sentContentType: upstream.sent.contentType,
         sentContentProfile: upstream.sent.contentProfile,
         sentSnapshot: upstream.sent.snapshot,
+        sentFilter: upstream.sent.filter,
     };
 }
 
@@ -742,6 +748,9 @@ SCENARIOS.forEach((scenario) => {
             scenario.sentSnapshot === undefined ? null : scenario.sentSnapshot,
             'the snapshot version sent to the upstream differs',
         );
+        if (scenario.sentFilter !== undefined) {
+            assert.equal(outcome.sentFilter, scenario.sentFilter, 'the filter sent to the upstream differs');
+        }
 
         assert.equal(outcome.logs.length, 1, 'a request must write exactly one summary line');
 
@@ -804,6 +813,48 @@ test('proxy: uses the single read upstream for all methods', async () => {
     assertCalls(get.calls, [CACHE_READ, 'GET ' + read + PATH + '?' + QUERY, CACHE_WRITE]);
     assertCalls(head.calls, ['HEAD ' + read + PATH + '?' + QUERY]);
     assertCalls(post.calls, ['POST ' + read + PATH + '?' + QUERY]);
+});
+
+test('proxy injects the parsed filter only for read requests', async () => {
+    const filter = JSON.stringify({
+        where: { kind: 'comparison', column: 'id', operator: 'eq', negated: false, value: '42' },
+    });
+    const common = {
+        args: 'id=eq.42',
+        answers: [{ match: UPSTREAM, status: 200, body: ROWS }],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: null,
+        source: 'upstream',
+        events: [],
+        calls: ['GET ' + UPSTREAM + PATH + '?id=eq.42'],
+        filter: 'client-supplied-value',
+    };
+
+    const get = await run({ name: 'GET filter', ...common });
+    assert.equal(get.sentFilter, filter);
+
+    const head = await run({ name: 'HEAD filter', method: 'HEAD', ...common, calls: ['HEAD ' + UPSTREAM + PATH + '?id=eq.42'] });
+    assert.equal(head.sentFilter, filter);
+
+    const post = await run({ name: 'POST filter', method: 'POST', ...common, calls: ['POST ' + UPSTREAM + PATH + '?id=eq.42'] });
+    assert.equal(post.sentFilter, null);
+
+    const unsupported = await run({
+        name: 'unsupported filter',
+        args: 'name=fts.search',
+        answers: [{ match: UPSTREAM, status: 200, body: ROWS }],
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: null,
+        source: 'upstream',
+        events: [],
+        calls: ['GET ' + UPSTREAM + PATH + '?name=fts.search'],
+        filter: 'client-supplied-value',
+    });
+    assert.equal(unsupported.sentFilter, null);
 });
 
 const ROUTING: { name: string, haMode: string | undefined, method: string, upstream: string }[] = [
@@ -949,8 +1000,10 @@ function assertNjsCompatible(text: string): void {
 }
 
 test('proxy: avoids the globals and methods that the engine does not provide', async () => {
-    const text = readFileSync(fileURLToPath(new URL('./proxy.ts', import.meta.url)), 'utf8');
-    assertNjsCompatible(text);
+    ['proxy.ts', 'parser.ts'].forEach((name) => {
+        const text = readFileSync(fileURLToPath(new URL('./' + name, import.meta.url)), 'utf8');
+        assertNjsCompatible(text);
+    });
 });
 
 test('proxy: compatibility policy permits njs APIs and rejects QuickJS-only APIs', () => {

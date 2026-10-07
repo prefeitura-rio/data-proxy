@@ -88,11 +88,15 @@ def postgres_container(container_network: Network) -> Iterator[PostgresContainer
     """Provide the real PostgreSQL and pg_duckdb integration boundary."""
     files_dir = str((Path(__file__).parent.parent / "files").absolute())
 
-    container = PostgresContainer(
-        "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
-        driver=None,
-        volumes=[(files_dir, "/test-files", "ro")],
-    ).with_network(container_network)
+    container = (
+        PostgresContainer(
+            "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
+            driver=None,
+            volumes=[(files_dir, "/test-files", "ro")],
+        )
+        .with_network(container_network)
+        .with_network_aliases("postgres")
+    )
 
     container.start()
     admin_url = container.get_connection_url()

@@ -143,6 +143,7 @@ markers = [
   "postgres: scenarios that require a PostgreSQL container",
   "s3: scenarios that require S3-compatible object storage",
   "redis: scenarios that require a Redis container",
+  "postgrest: tests that require a PostgREST container",
 ]
 filterwarnings = [
   "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",

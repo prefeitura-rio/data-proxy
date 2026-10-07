@@ -15,10 +15,16 @@ COPY --from=docker.io/library/node:24-slim /usr/local/lib/node_modules /usr/loca
 
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
-COPY proxy/tsconfig.json proxy/tsconfig.build.json proxy/proxy.ts proxy/
+COPY proxy/tsconfig.json proxy/tsconfig.build.json proxy/proxy.ts proxy/parser.ts proxy/
 
-RUN npm install --no-save njs-types@1.0.0 typescript@7.0.2 \
+COPY proxy/peggy/ proxy/peggy/
+
+RUN npm install --no-save njs-types@1.0.0 peggy@4.2.0 typescript@7.0.2 \
+ && node proxy/peggy/build.mjs \
  && ./node_modules/.bin/tsc -p proxy/tsconfig.build.json \
+ && mkdir -p /etc/nginx/peggy \
+ && cp proxy/peggy/filter.generated.js /etc/nginx/peggy/filter.generated.js \
+ && printf '%s\n' 'import proxy from "/etc/nginx/proxy.js"; import parser from "/etc/nginx/parser.js"; if (parser.parseFilter("id=eq.1").where.column !== "id") { throw new Error("parser smoke test failed"); } if (typeof proxy.handle !== "function") { throw new Error("proxy smoke test failed"); }' | njs \
  && rm -rf /build
 
 COPY helm/files/nginx.conf /etc/nginx/templates/nginx.conf.template

@@ -13,3 +13,4 @@ TEST_SQL_DIR = Path(__file__).parent / "templates"
 PARQUET = str(FILES / "people_partition_10.parquet")
 PARQUET_20 = str(FILES / "people_partition_20.parquet")
 ROUTED_TABLE = "p.d.routed"
+POSTGREST_AUTH = "postgrest-test-secret-012345678901234567890123"

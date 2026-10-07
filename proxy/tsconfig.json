@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["proxy.ts", "proxy.test.ts"]
+  "include": ["proxy.ts", "parser.ts", "peggy/filter.generated.d.ts", "proxy.test.ts", "parser.test.ts"]
 }

@@ -51,9 +51,21 @@ in
         };
 
         tasks = {
-          "dp:types" = {
-            exec = "npm install --no-save @types/node njs-types >/dev/null";
-            status = "test -d node_modules/@types/node && test -d node_modules/njs-types";
+          "dp:proxy:deps" = {
+            exec = ''
+              npm install --no-save @types/node njs-types peggy@4.2.0 >/dev/null
+              node proxy/peggy/build.mjs
+            '';
+            execIfModified = [
+              "devenv.nix"
+              "devenv.lock"
+              "node_modules/@types/node"
+              "node_modules/njs-types"
+              "proxy/peggy/filter.peggy"
+              "proxy/peggy/build.mjs"
+              "proxy/peggy/filter.generated.js"
+              "proxy/peggy/filter.generated.d.ts"
+            ];
           };
           "dp:lint:ci" = {
             exec = "actionlint .github/workflows/*.yaml";
@@ -121,7 +133,7 @@ in
           };
           "dp:lint:proxy" = {
             exec = "tsc -p proxy";
-            after = [ "dp:types" ];
+            after = [ "dp:proxy:deps" ];
             execIfModified = [
               "proxy"
               "package.json"
@@ -130,6 +142,7 @@ in
           };
           "dp:test:py" = {
             exec = "uv run pytest";
+            after = [ "dp:proxy:deps" ];
             execIfModified = [
               "src"
               "tests"
@@ -138,7 +151,11 @@ in
             ];
           };
           "dp:test:proxy" = {
-            exec = "node --test proxy/proxy.test.ts";
+            exec = ''
+              node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-include="proxy/parser.ts" proxy/parser.test.ts
+              node --test proxy/proxy.test.ts
+            '';
+            after = [ "dp:proxy:deps" ];
             execIfModified = [ "proxy" ];
           };
           "dp:test:helm" = {

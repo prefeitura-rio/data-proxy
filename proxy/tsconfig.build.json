@@ -4,7 +4,8 @@
     "noEmit": false,
     "allowImportingTsExtensions": false,
     "types": [],
+    "rewriteRelativeImportExtensions": true,
     "outDir": "/etc/nginx"
   },
-  "include": ["proxy.ts"]
+  "include": ["proxy.ts", "parser.ts"]
 }

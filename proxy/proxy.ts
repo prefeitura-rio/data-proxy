@@ -1,6 +1,8 @@
 /// <reference path="../node_modules/njs-types/ngx_http_js_module.d.ts" />
 import crypto from "crypto";
 
+import parser from "./parser.ts";
+
 const WEBDIS_READ = "http://127.0.0.1:7380";
 const WEBDIS_WRITE = "http://127.0.0.1:7379";
 
@@ -242,6 +244,13 @@ function buildHeaders(r: NginxHTTPRequest): Record<string, string> {
             h[name] = value;
         }
     });
+
+    if (READ_METHODS.indexOf(r.method) !== -1) {
+        const filter = parser.parseFilter(r.variables.args || "");
+        if (filter !== undefined) {
+            h["X-DuckLake-Filter"] = JSON.stringify(filter);
+        }
+    }
 
     return h;
 }

@@ -19,6 +19,8 @@ todo.txt
 .coverage*
 .testmondata*
 /proxy/build
+/proxy/peggy/filter.generated.js
+/proxy/peggy/filter.generated.d.ts
 node_modules
 .githooks
 
