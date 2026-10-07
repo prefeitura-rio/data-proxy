@@ -308,14 +308,15 @@ function hashKey(parts: CacheKeyParts): string {
 function buildTableMap(config: SyncConfig | undefined): Record<string, TableEntry> {
     const map: Record<string, TableEntry> = {};
 
-    if (!config || !config.schemas) {
+    const schemas = config && config.schemas;
+    if (!schemas) {
         return map;
     }
 
-    for (const schemaName in config.schemas) {
-        const tables = config.schemas[schemaName].tables;
+    Object.keys(schemas).forEach((schemaName) => {
+        const tables = schemas[schemaName].tables;
         if (!tables) {
-            continue;
+            return;
         }
 
         for (let i = 0; i < tables.length; i++) {
@@ -323,7 +324,7 @@ function buildTableMap(config: SyncConfig | undefined): Record<string, TableEntr
             const parts = table.name.split(".");
             map[parts[parts.length - 1]] = { cacheTtl: table.cache_ttl };
         }
-    }
+    });
 
     return map;
 }
@@ -431,25 +432,15 @@ function log(
     event: string,
     fields: LogFields,
 ): void {
-    const context = [`method=${ctx.method}`, `path=${ctx.uri}`];
-
-    if (fields.status !== undefined) {
-        context.push(`status=${fields.status}`);
-    }
-
-    if (fields.source) {
-        context.push(`source=${fields.source}`);
-    }
-
-    context.push(`duration_ms=${Date.now() - ctx.started}`);
-
-    if (fields.bytes !== undefined) {
-        context.push(`bytes=${fields.bytes}`);
-    }
-
-    if (fields.error) {
-        context.push(`error=${fields.error}`);
-    }
+    const context = [
+        `method=${ctx.method}`,
+        `path=${ctx.uri}`,
+        fields.status !== undefined ? `status=${fields.status}` : "",
+        fields.source ? `source=${fields.source}` : "",
+        `duration_ms=${Date.now() - ctx.started}`,
+        fields.bytes !== undefined ? `bytes=${fields.bytes}` : "",
+        fields.error ? `error=${fields.error}` : "",
+    ].filter((field) => field !== "");
 
     const message = `${LOG_MESSAGES[event] || "Proxy request state changed"}: ${context.join(" ")}`;
 

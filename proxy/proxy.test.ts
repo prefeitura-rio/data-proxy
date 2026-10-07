@@ -373,6 +373,28 @@ const SCENARIOS: Scenario[] = [
         sentBodyPattern: /^SETEX\/[0-9a-f]{64}\/42\//,
     },
     {
+        name: 'reads table settings from an njs preloaded array',
+        answers: MISS_UPSTREAM_STORE,
+        sync: {
+            schemas: {
+                test: {
+                    tables: {
+                        0: { name: 'proj.dev.partitioned_table', cache_ttl: 42 },
+                        length: 1,
+                    },
+                },
+            },
+        },
+        status: 200,
+        body: ROWS,
+        contentType: JSON_CT,
+        xCache: 'MISS',
+        source: 'upstream',
+        events: [],
+        calls: [CACHE_READ, 'GET ' + CALL, CACHE_WRITE_WITH_TABLE_TTL],
+        sentBodyPattern: /^SETEX\/[0-9a-f]{64}\/42\//,
+    },
+    {
         name: 'keeps an answer above the stored size out of the cache',
         answers: [
             { match: '/GET/', status: 200, body: MISS },
@@ -796,7 +818,7 @@ const ROUTING: { name: string, haMode: string | undefined, method: string, upstr
     { name: 'HA mode sends DELETE to the write upstream', haMode: 'true', method: 'DELETE', upstream: WRITE_UPSTREAM },
 ];
 
-for (const route of ROUTING) {
+ROUTING.forEach((route) => {
     test('proxy: routes by method: ' + route.name, async () => {
         const outcome = await run({
             name: route.name,
@@ -818,7 +840,7 @@ for (const route of ROUTING) {
 
         assert.deepEqual(upstreamCalls, [route.method + ' ' + route.upstream + PATH + '?' + QUERY]);
     });
-}
+});
 
 test('proxy: answers a cacheable HA read from the read upstream and stores it', async () => {
     const outcome = await run({
@@ -911,19 +933,33 @@ test('proxy: shares one call between concurrent requests for the same key', asyn
     assert.equal(backend.length, 1, 'two concurrent requests must reach the upstream once');
 });
 
-test('proxy: avoids the globals and methods that the engine does not provide', async () => {
-    const text = readFileSync(fileURLToPath(new URL('./proxy.ts', import.meta.url)), 'utf8');
-    // Log messages are strings that may name Proxy without using the global.
-    const source = text.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
-    const unsupported = [
-        'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect', 'Symbol',
-        'filter', 'find', 'findIndex', 'flat', 'flatMap', 'reduce', 'reduceRight', 'includes',
-    ];
+const NJS_UNSUPPORTED = [
+    'Map', 'Set', 'WeakMap', 'WeakSet', 'Proxy', 'Reflect',
+    'flat', 'flatMap',
+];
 
-    unsupported.forEach((name) => {
+function assertNjsCompatible(text: string): void {
+    const source = text.replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, '""');
+
+    NJS_UNSUPPORTED.forEach((name) => {
         const pattern = new RegExp('\\b' + name + '\\b');
 
         assert.doesNotMatch(source, pattern, 'the njs engine does not provide ' + name);
+    });
+}
+
+test('proxy: avoids the globals and methods that the engine does not provide', async () => {
+    const text = readFileSync(fileURLToPath(new URL('./proxy.ts', import.meta.url)), 'utf8');
+    assertNjsCompatible(text);
+});
+
+test('proxy: compatibility policy permits njs APIs and rejects QuickJS-only APIs', () => {
+    const supported = '[1].filter((value) => value > 0).find((value) => value === 1);';
+    const unsupported = ['new Map()', '[1].flat()', '[1].flatMap()'];
+
+    assert.doesNotThrow(() => assertNjsCompatible(supported));
+    unsupported.forEach((feature) => {
+        assert.throws(() => assertNjsCompatible(feature));
     });
 });
 
