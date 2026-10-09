@@ -82,8 +82,14 @@ def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool,
         } }
 
     {
-        complete: ($conditions | any {|condition| $condition.type == 'Complete' and $condition.status == 'True' })
-        failed: ($conditions | any {|condition| $condition.type == 'Failed' and $condition.status == 'True' })
+        complete: (
+            $conditions
+            | any {|condition| $condition.type == 'Complete' and $condition.status == 'True' }
+        )
+        failed: (
+            $conditions
+            | any {|condition| $condition.type == 'Failed' and $condition.status == 'True' }
+        )
     }
 }
 
@@ -216,38 +222,97 @@ def k6-run [
     }
 }
 
-# Run one k6 performance profile in the requested mode.
-def run-perf [kubecfg: path, profile: string, ha: bool]: nothing -> nothing {
+# Parse traffic shares in the form bottleneck=0.01 fallback=0.01.
+def parse-shares [...shares: string]: nothing -> record {
+    mut result = {}
+    for share in $shares {
+        let parts = $share | split row '='
+        if ($parts | length) != 2 {
+            fail $'Invalid share: ($share). Use bottleneck=0.01 or fallback=0.01.' {
+                command: parse-shares
+                span: (metadata $share).span
+            }
+        }
+        let value = try {
+            $parts.1? | into float
+        } catch {
+            fail $'Invalid share value: ($share)' {
+                command: parse-shares
+                span: (metadata $share).span
+            }
+        }
+        match $parts.0? {
+            bottleneck => { $result = ($result | upsert K6_BOTTLENECK_SHARE $value) }
+            fallback => { $result = ($result | upsert K6_FALLBACK_SHARE $value) }
+            _ => {
+                fail $'Unknown share: ($parts.0). Use bottleneck or fallback.' {
+                    command: parse-shares
+                    span: (metadata $share).span
+                }
+            }
+        }
+    }
+    $result
+}
+
+# Run one k6 profile in the requested mode.
+def run-profile [
+    kubecfg: path
+    profile: string
+    ha: bool
+    settings: record = {}
+    --cache-ttl: int = 0
+]: nothing -> nothing {
     switch-mode $kubecfg $ha
+
+    if $cache_ttl > 0 {
+        let image_tag = local-image-tag
+        log info $'Applying proxy cache TTL ($cache_ttl)s...'
+        wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)' --state-values-set $'proxy.cacheTtl=($cache_ttl)'
+    }
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'
 
     let image_tag = local-image-tag
-    k6-run $kubecfg data-proxy-k6 perf.ts k6/perf.ts data-proxy-perf k6/perf.yaml --image-tag $image_tag --set {
+
+    let run_settings = {
         K6_PROFILE: $profile
         HA_MODE: (if $ha { 'true' } else { 'false' })
-    }
+    } | merge $settings
+
+    k6-run $kubecfg data-proxy-k6 load.ts k6/load.ts data-proxy-load k6/load.yaml --image-tag $image_tag --set $run_settings
 }
 
 # Run the k6 smoke profile: one virtual user for 40 seconds.
 export def "main k6 smoke" [
     --ha # Run in HA mode.
 ]: nothing -> nothing {
-    run-perf (local-kubeconfig) smoke $ha
+    run-profile (local-kubeconfig) smoke $ha
 }
 
 # Run the standard k6 load profile.
 export def "main k6 load" [
     --ha # Run in HA mode.
+    --capacity # Use capacity thresholds and extra VU headroom.
+    --report-only # Do not gate fallback and heavy-route thresholds.
+    --peak-rate: int = 25 # Peak iterations per second.
+    --cache-ttl: int = 300 # Proxy cache TTL used for this run.
+    --shares: string = '' # First traffic share, for example: --shares bottleneck=0.01 fallback=0.01.
+    ...share_values: string
 ]: nothing -> nothing {
-    run-perf (local-kubeconfig) load $ha
-}
-
-# Run the k6 stress profile.
-export def "main k6 stress" [
-    --ha # Run in HA mode.
-]: nothing -> nothing {
-    run-perf (local-kubeconfig) stress $ha
+    let share_args = [$shares ...$share_values]
+    | where $it != ''
+    let share_settings = parse-shares ...$share_args
+    let threshold_mode = if $capacity { 'capacity' } else { 'strict' }
+    let max_vus_multiplier = if $capacity { 6 } else { 3 }
+    let settings = $share_settings
+    | merge {
+            K6_PEAK_RATE: $peak_rate
+            K6_THRESHOLD_MODE: $threshold_mode
+            K6_MAX_VUS_MULTIPLIER: $max_vus_multiplier
+            K6_GATE_CLIENT_RISK: (if $report_only { 'false' } else { 'true' })
+        }
+    run-profile (local-kubeconfig) load $ha $settings --cache-ttl $cache_ttl
 }
 
 # Run the full E2E suite against the requested deployment mode.

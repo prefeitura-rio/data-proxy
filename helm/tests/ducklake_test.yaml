@@ -31,7 +31,11 @@ tests:
         template: cluster-cnpg.yaml
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "4"
+          value: "2"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.max_memory"]
+          value: 1GB
         template: cluster-cnpg.yaml
   - it: gives every PostgreSQL Pod a generated ephemeral catalog claim
     set:
@@ -112,6 +116,7 @@ tests:
           path: spec.pgbouncer.poolMode
           value: session
         template: pooler-cnpg.yaml
+
   - it: mounts the ducklake folder of the shared PVC into DBOS sync workers
     set:
       sync.config:

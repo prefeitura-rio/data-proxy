@@ -82,18 +82,26 @@ See [Using the API](using.md).
 | `cluster k6 e2e`    | Validates the deployed release: sync, RLS, routing, cache, snapshots, and mode. |
 | `cluster k6 e2e --build` | Builds and deploys fresh local images before validation. |
 | `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.  |
-| `cluster k6 load`   | Holds the local peak of 100 req/s for 25 minutes.         |
-| `cluster k6 stress` | Steps to 200 req/s for 570 seconds to find the local breaking point. |
+| `cluster k6 load`   | Ramps to a configurable peak and holds it in single or HA mode. |
 
-Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaults to 100 HTTP requests per second. Because the arrival-rate executor counts iterations and a BigQuery iteration makes two requests, the profile converts the request rate into an iteration rate internally. Override the peak with `K6_PEAK_RATE`, and the traffic mix with `K6_BIGQUERY_SHARE` and `K6_BOTTLENECK_SHARE` (both default to `0.05`). Staging capacity runs set a higher peak outside the local node.
+The load profile derives its rate from `K6_PEAK_RATE`, which defaults to 25 iterations per second. It ramps through 25%, 50%, 75%, and 100% of the peak, then holds the peak before ramping down. Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally.
 
-`cluster k6 smoke`, `cluster k6 load`, and `cluster k6 stress` set the requested mode before the test: Helmfile applies `ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helmfile sync and waits for readiness. Before k6 starts, the command creates a one-off Job from the Helmfile-managed `manifests-sync-trigger` CronJob. This runs one normal DBOS sync to restore data that an earlier E2E run removed. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
+Use flags to control the same scenario. The command uses a 300-second production-shaped cache TTL by default and applies it to the deployed proxy before the run:
+
+```nu
+devenv shell -- nu scripts/cluster.nu k6 load \
+  --peak-rate 100 \
+  --cache-ttl 300 \
+  --shares bottleneck=0.01 fallback=0.01
+```
+
+Use `--cache-ttl 5 --report-only` for the non-gating cold-cache stress run. Use `--capacity` with a higher peak and wider thresholds. The `bottleneck` share selects heavy DuckLake bottleneck cases; the `fallback` share selects configured-source fallback pairs. Staging capacity runs can use a higher peak from a generator outside the cluster host.
+
+`cluster k6 smoke` and `cluster k6 load` set the requested mode before the test: Helmfile applies `ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helmfile sync and waits for readiness. Before k6 starts, the command creates a one-off Job from the Helmfile-managed `manifests-sync-trigger` CronJob. This runs one normal DBOS sync to restore data that an earlier E2E run removed. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
 
 ### Performance thresholds
 
-Each profile gates the stack-owned paths: `checks`, HTTP failure rate, dropped iterations, the cache, and bounded DuckLake reads. It always confirms `dropped_iterations == 0` so a run that can't start an iteration fails. The bounded DuckLake and cache trends carry a `p(99)` bound in addition to `p(95)`, so a concurrent adversarial scan can't hide behind the median.
-
-`bigquery_duration_ms` and the `ducklake_heavy`, `ducklake_selective`, and `ducklake_pinned` trends are client risk: they measure the query a client chose, and an unbounded or large-sort request must not look like a stack regression. They're reported but don't gate a run. Set `K6_GATE_CLIENT_RISK=true` to fail on them anyway.
+A normal load run gates `checks`, HTTP failure rate, dropped iterations, cache latency, bounded DuckLake latency, fallback latency, and heavy/selective/pinned route latency. It always confirms `dropped_iterations == 0` so a run that can't start an iteration fails. The bounded DuckLake and cache trends carry a `p(99)` bound in addition to `p(95)`. Add `--report-only` when the client-risk route trends should be reported without gating the run. The flag sets `K6_GATE_CLIENT_RISK=false`; direct k6 runs can set that variable explicitly.
 
 ### Capacity runs need a separate generator
 
@@ -109,10 +117,10 @@ BASE_URL=http://localhost:3111 \
 API_HOST=data-proxy.local \
 OIDC_TOKEN_URL=http://localhost:8080/realms/dev/protocol/openid-connect/token \
 K6_PROFILE=load K6_PEAK_RATE=500 \
-k6 run k6/perf.ts --summary-export=summary.json
+k6 run k6/load.ts --summary-export=summary.json
 ```
 
-The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_BIGQUERY_SHARE`, and `K6_BOTTLENECK_SHARE` variables as the in-cluster runner. Within the cluster, the runner pod now requests CPU and memory so a starved generator fails its own probes instead of shaping the result without notice. A run that drops iterations fails the `dropped_iterations` threshold, which marks the measurement invalid rather than a capacity limit.
+The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_FALLBACK_SHARE`, and `K6_BOTTLENECK_SHARE` variables as the in-cluster runner. Within the cluster, the runner pod now requests CPU and memory so a starved generator fails its own probes instead of shaping the result without notice. A run that drops iterations fails the `dropped_iterations` threshold, which marks the measurement invalid rather than a capacity limit.
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
 

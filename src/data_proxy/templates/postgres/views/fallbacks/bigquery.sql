@@ -12,7 +12,7 @@
   }
 }
 #}
--- noqa: disable=PRS,LT05
+-- noqa: disable=CP02,PRS,LT05
 {% from "postgres/macros.sql" import column_projection %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text)
 RETURNS void AS $$

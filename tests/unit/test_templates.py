@@ -115,6 +115,46 @@ class TestTemplateRendering:
             "    $duck$\n)\n"
         )
 
+    def test_source_helpers_prepare_typed_views_for_query_results(self) -> None:
+        ducklake = render_template(
+            "postgres/views/ducklake",
+            {
+                "schema": Identifier("app"),
+                "app_schema": Identifier("data_proxy"),
+                "function": Identifier("people_dl_fn"),
+                "columns": [{"name": '"id"', "is_json": False, "raw_json": True}],
+                "duckdb_view": "unused",
+                "source": 'dl."people"',
+                "catalog_local_path": "/catalog.sqlite",
+                "data_path": "s3://bucket/app",
+            },
+        )
+        fallback = render_template(
+            "postgres/views/fallbacks/bigquery",
+            {
+                "schema": Identifier("app"),
+                "app_schema": Identifier("data_proxy"),
+                "function": Identifier("people_bq_fn"),
+                "columns": [{"name": '"id"', "is_json": False, "raw_json": False}],
+                "duckdb_view": "unused",
+                "load": "LOAD bigquery",
+                "source": "bigquery_scan('p.d.people')",
+            },
+        )
+
+        assert "RETURNS void" in ducklake
+        assert "RETURNS void" in fallback
+        assert "CREATE OR REPLACE VIEW" in ducklake
+        assert "CREATE OR REPLACE VIEW" in fallback
+
+    def test_snapshot_validation_uses_a_typed_duckdb_check_view(self) -> None:
+        rendered = render_template(
+            "postgres/views/routing/snapshot", {"schema": Identifier("data_proxy")}
+        )
+
+        assert "duckdb.query('SELECT n FROM dl_snapshot_check')" in rendered
+        assert "CREATE OR REPLACE VIEW dl_snapshot_check" in rendered
+
 
 def template_body(path: Path) -> str:
     """Return a template without its leading metadata comment."""

@@ -487,7 +487,7 @@ async def install_table_function(
             "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
             "function": Identifier("t_fn"),
             "dl_function": Identifier("t_dl_fn"),
-            "dl_view": "ducklake_t",
+            "dl_view": "dl_t",
             "columns": columns,
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),

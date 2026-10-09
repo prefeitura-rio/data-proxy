@@ -19,7 +19,7 @@ The proxy writes one JSON request log per request.
 
 | Field     | Meaning                                      |
 | --------- | -------------------------------------------- |
-| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, `bigquery`, `ducklake+bigquery`), `upstream` when PostgREST sent none, or `none` when it was unreachable. |
+| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, or `ducklake+<configured-fallback>`), `upstream` when PostgREST sent none, or `none` when it was unreachable. |
 | `status`  | HTTP status.                                 |
 | `wait_ms` | Request duration in milliseconds.            |
 | `bytes`   | Response size.                               |
@@ -32,16 +32,39 @@ Use API response headers for client troubleshooting. Use logs for request analys
 | ------------------------------------------ | ----------------------------- | ------------------ |
 | Cache                                      | p95 50 ms, p99 100 ms         | yes                |
 | DuckLake bounded reads                     | p95 300 ms, p99 600 ms        | yes                |
-| BigQuery (`bigquery`, `ducklake+bigquery`) | p95 6000 ms                   | no, client risk    |
+| Configured fallback (`fallback`, `ducklake+<configured-fallback>`) | p95 6000 ms | no, client risk    |
 | DuckLake heavy queries                     | p95 2000 ms, p99 5000 ms      | no, client risk    |
 | DuckLake selective lookups                 | p95 2000 ms, p99 5000 ms      | no, client risk    |
 | DuckLake pinned snapshots                  | p95 2000 ms, p99 5000 ms      | no, client risk    |
 
-Every profile derives its rate from one local peak, `K6_PEAK_RATE`, which defaults to 100 HTTP requests per second. The smoke profile runs one VU for 40 seconds. The open-model profiles offer a fixed iteration rate even when responses slow down: `load` holds the peak for 25 minutes and `stress` steps to two times peak. Stress samples the PostgREST and proxy replica counts every 5 seconds and fails if neither scales above its starting count. Staging capacity runs override `K6_PEAK_RATE` with a higher peak from a generator outside the cluster host.
+The load profile derives its rate from `K6_PEAK_RATE`, which defaults to 25 iterations per second. It ramps through 25%, 50%, 75%, and 100% of that peak, then holds the peak before ramping down. Use `cluster k6 load --peak-rate <n> --cache-ttl <seconds>` to select the target rate and proxy cache lifetime. The default load run uses the production-shaped 300-second cache TTL and gates fallback and heavy-route thresholds. Add `--report-only` for a run that records those routes without gating them.
 
-Because the arrival-rate executor counts iterations and a BigQuery iteration makes two requests, a profile converts the target request rate into an iteration rate internally. Stress may reach latency limits. Its thresholds widen the error budget to measure overload, while the stack-owned paths still require every check, no dropped iterations, and the bounded-read and cache bounds.
+The traffic mix is configurable with `--shares bottleneck=<fraction> fallback=<fraction>`. Normal load defaults to no bottleneck cases and 1% configured-fallback pairs. Add `--capacity` to use the wider capacity thresholds and extra VU headroom. The same single load scenario covers normal and capacity runs.
 
-The default traffic mix models production: 5% bottleneck cases (half heavy queries, a quarter selective lookups, a quarter pinned snapshots), 5% BigQuery pairs (one request to BigQuery and a repeat that must come from the cache), and 90% normal routes. Set `K6_BOTTLENECK_SHARE` and `K6_BIGQUERY_SHARE` to model a different mix.
+Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally. The default load run gates fallback, heavy, selective, and pinned reads. Use `--report-only` when measuring a cold-cache stress run, for example `cluster k6 load --peak-rate 100 --cache-ttl 5 --report-only`.
+
+## Capacity diagnosis
+
+Check these signals during a load run. Compare pool waits with DuckLake and configured-fallback latency in the same PostgREST instance.
+
+```sql
+SELECT state, wait_event_type, wait_event, count(*)
+FROM pg_stat_activity
+WHERE usename = 'postgrest'
+GROUP BY state, wait_event_type, wait_event
+ORDER BY count(*) DESC;
+```
+
+```sql
+SELECT calls, round(total_exec_time::numeric / 1000, 1) AS total_seconds,
+       round(mean_exec_time::numeric, 1) AS mean_ms,
+       left(regexp_replace(query, E'\\s+', ' ', 'g'), 160) AS query
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC
+LIMIT 20;
+```
+
+One PostgREST and one PgBouncer serve both DuckLake and configured fallback reads. The proxy JSON logs separate cache hits, DuckLake reads, and configured fallback reads. A rising `ducklake_duration_ms` p95 with low PostgreSQL execution time indicates pool wait or request queueing. A rising fallback trend indicates external-source latency. Keep the local k3d result as a comparison only: the load generator and services share one host.
 
 ## Scraping
 

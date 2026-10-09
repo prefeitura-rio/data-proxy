@@ -120,7 +120,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.render_ducklake_where(
+CREATE OR REPLACE FUNCTION {{ schema }}.render_dl_where(
   p_filter jsonb,
   p_columns text[]
 ) RETURNS text

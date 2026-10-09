@@ -8,9 +8,9 @@ Feature: SQL template execution against PostgreSQL
     When I reconcile DuckLake views for one table
     Then the view "people" exists
     And the function "people_fn()" exists
-    And the function "people_dl_fn(text, text)" exists
-    And the function "ducklake_changes_people(bigint, bigint)" exists
-    And the function "ducklake_latest_snapshot()" exists
+    And the function "people_dl_fn(text, text, boolean)" exists
+    And the function "dl_changes_people(bigint, bigint)" exists
+    And the function "dl_latest_snapshot()" exists
     And the application function "plan_sources(text, text[], boolean)" exists
     And the function "people_bq_fn(text, text)" does not exist
 
@@ -28,8 +28,8 @@ Feature: SQL template execution against PostgreSQL
     And I reconcile DuckLake views with an empty config
     Then the view "people" does not exist
     And the function "people_fn()" does not exist
-    And the function "people_dl_fn(text, text)" does not exist
-    And the function "ducklake_changes_people(bigint, bigint)" does not exist
+    And the function "people_dl_fn(text, text, boolean)" does not exist
+    And the function "dl_changes_people(bigint, bigint)" does not exist
 
   Scenario: Clearing an S3 prefix removes objects under it
     Given a fresh PostgreSQL schema for templates

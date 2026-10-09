@@ -31,12 +31,34 @@ export def poll [check: closure, config: record<interval: duration, max_attempts
 
 # Build and push every input image record to its configured registry.
 export def build-images []: list<record<image: string, containerfile: string>> -> nothing {
-    for image in $in {
-        log info $'Building ($image.image)...'
-        podman build --tag $image.image --file $image.containerfile .
+    let images = $in
+    let context = $"/tmp/data-proxy-build-(random uuid)"
+    mkdir $context
 
-        log info $'Pushing ($image.image)...'
-        podman push --tls-verify=false $image.image
+    try {
+        ^git ls-files --cached --others --exclude-standard
+        | lines
+        | each {|file|
+            let destination = $context | path join $file
+            mkdir ($destination | path dirname)
+            cp $file $destination
+        }
+        | ignore
+
+        for image in $images {
+            log info $'Building ($image.image)...'
+            podman build --ignorefile ($context | path join .dockerignore) --tag $image.image --file $image.containerfile $context
+
+            log info $'Pushing ($image.image)...'
+            podman push --tls-verify=false $image.image
+        }
+    } catch {|err|
+        fail $'Could not build local images: ($err.msg)' {
+            command: build-images
+            span: (metadata $context).span
+        }
+    } finally {
+        rm --recursive --force $context
     }
 }
 

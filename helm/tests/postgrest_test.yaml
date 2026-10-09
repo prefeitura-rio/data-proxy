@@ -69,19 +69,37 @@ tests:
             - name: proj.dataset.a
               strategy: full
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[4]
-          value:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: PGRST_DB_SCHEMAS
             value: "alpha_schema,zeta_schema"
 
   - it: PGRST_DB_SCHEMAS is empty with no configured schemas
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[4]
-          value:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: PGRST_DB_SCHEMAS
             value: ""
+
+  - it: configures a bounded and persistent PostgREST database pool
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL
+            value: "24"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
+            value: "10"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL_MAX_IDLETIME
+            value: "300"
 
   - it: enables PostgREST aggregate functions by default
     asserts:

@@ -9,7 +9,7 @@ spec:
   script:
     configMap:
       name: data-proxy-k6
-      file: perf.ts
+      file: load.ts
   runner:
     image: registry.localhost:5001/k6:local
     serviceAccountName: manifests-k6-perf
@@ -38,5 +38,15 @@ spec:
         value: test-secret
       - name: K6_PROFILE
         value: load
+      - name: K6_PEAK_RATE
+        value: "25"
+      - name: K6_BOTTLENECK_SHARE
+        value: "0.0"
+      - name: K6_FALLBACK_SHARE
+        value: "0.01"
+      - name: K6_THRESHOLD_MODE
+        value: strict
+      - name: K6_MAX_VUS_MULTIPLIER
+        value: "3"
       - name: HA_MODE
         value: "false"

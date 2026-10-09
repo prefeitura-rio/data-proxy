@@ -76,9 +76,9 @@ class TestGrantAppUsage:
     """grant_app_usage lets request roles call the pre-request function."""
 
     async def test_grants_usage_and_execute_on_data_proxy(
-        self, postgres: Postgres
+        self, postgres: Postgres, policy_writer: str
     ) -> None:
-        roles = [settings.AUTH_ANON_ROLE, settings.AUTH_USER_ROLE]
+        roles = [settings.AUTH_ANON_ROLE, settings.AUTH_USER_ROLE, policy_writer]
         await postgres.connection.execute(
             SQL("REVOKE USAGE ON SCHEMA data_proxy FROM {}").format(
                 SQL(", ").join(Identifier(role) for role in roles)
@@ -97,6 +97,7 @@ class TestGrantAppUsage:
                     "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                     "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
                     "user_role": Identifier(settings.AUTH_USER_ROLE),
+                    "policy_writer_roles": [Identifier(policy_writer)],
                 },
             ).encode()
         )
@@ -234,7 +235,7 @@ class TestRenderDucklakeWhere:
         for payload, expected in cases:
             rendered = await scalar(
                 postgres,
-                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id', 'name']::text[])",
+                "SELECT data_proxy.render_dl_where(%s, ARRAY['id', 'name']::text[])",
                 json.dumps(payload),
             )
             assert rendered == expected
@@ -256,7 +257,7 @@ class TestRenderDucklakeWhere:
         with pytest.raises(psycopg.Error) as error:
             await scalar(
                 postgres,
-                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id']::text[])",
+                "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
                 json.dumps(unknown_column),
             )
         assert error.value.sqlstate == "PT400"
@@ -273,7 +274,7 @@ class TestRenderDucklakeWhere:
         with pytest.raises(psycopg.Error) as error:
             await scalar(
                 postgres,
-                "SELECT data_proxy.render_ducklake_where(%s, ARRAY['id']::text[])",
+                "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
                 json.dumps(unknown_operator),
             )
         assert error.value.sqlstate == "PT400"

@@ -24,7 +24,7 @@ from .mappings import (
 
 def changes_function_name(table: TableConfig) -> str:
     """Return the managed change-feed function name for one table."""
-    return f"ducklake_changes_{table.table_name}"
+    return f"dl_changes_{table.table_name}"
 
 
 def desired_functions(
@@ -32,7 +32,7 @@ def desired_functions(
 ) -> set[tuple[str, str]]:
     """Return managed change-feed and snapshot functions for selected schemas."""
     selected = set(config.schemas) if schema_names is None else schema_names
-    functions = {(schema_name, "ducklake_latest_snapshot") for schema_name in selected}
+    functions = {(schema_name, "dl_latest_snapshot") for schema_name in selected}
     functions.update(
         (schema_name, changes_function_name(table))
         for schema_name, schema_config in config.schemas.items()
@@ -67,7 +67,7 @@ async def existing_functions(
     return {
         (schema, name)
         for schema, name in rows
-        if name.startswith("ducklake_changes_") or name == "ducklake_latest_snapshot"
+        if name.startswith("dl_changes_") or name == "dl_latest_snapshot"
     }
 
 
@@ -101,9 +101,7 @@ async def drop_removed_functions(
     """Drop managed RPC functions no longer present in the configuration."""
     for schema_name, function_name in removed:
         arguments = (
-            "(bigint, bigint)"
-            if function_name.startswith("ducklake_changes_")
-            else "()"
+            "(bigint, bigint)" if function_name.startswith("dl_changes_") else "()"
         )
         await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
             "postgres/drop_function",
@@ -164,7 +162,7 @@ async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> No
         "postgres/create_current_snapshot_function",
         mapping={
             "schema": Identifier(schema),
-            "function": Identifier("ducklake_latest_snapshot"),
+            "function": Identifier("dl_latest_snapshot"),
             "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
             "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
             "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -303,7 +301,7 @@ async def reconcile_schema(
         )
         changed = True
 
-    snapshot_function = (schema_name, "ducklake_latest_snapshot")
+    snapshot_function = (schema_name, "dl_latest_snapshot")
     if changed or snapshot_function not in functions:
         await create_current_snapshot_function(pg_conn, schema_name)
 

@@ -33,5 +33,6 @@ BEGIN
             true
         );
     END LOOP;
+
 END;
 $$ LANGUAGE plpgsql

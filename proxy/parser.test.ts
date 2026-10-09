@@ -133,7 +133,7 @@ test("parses quoted scalar values with reserved characters", () => {
     });
 });
 
-test("leaves non-where parameters to PostgREST", () => {
+test("leaves order and pagination parameters to PostgREST", () => {
     assert.deepEqual(
         parseFilter("id=gte.10&order=id.desc&limit=25&offset=5&select=id,name"),
         {

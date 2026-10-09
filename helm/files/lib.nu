@@ -152,6 +152,7 @@ export def quote-pg [value: string, kind: string]: nothing -> string {
         app_schema: data_proxy
         anonymous_role: anon
         user_role: user
+        policy_writer_roles: [policy_writer_test]
     }
 }
 export def render-sql [name: path, context: record]: nothing -> string {
@@ -173,6 +174,7 @@ export def render-sql [name: path, context: record]: nothing -> string {
         app_schema: data_proxy
         anonymous_role: anon
         user_role: user
+        policy_writer_roles: [policy_writer_test]
     }
 }
 export def execute-sql [

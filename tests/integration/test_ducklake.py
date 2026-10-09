@@ -11,7 +11,7 @@ pytestmark = pytest.mark.postgres
 
 CHECK_VIEWS = """
 SELECT count(*) FROM duckdb.query(
-    'SELECT 1 FROM duckdb_views() WHERE view_name = ''ducklake_snapshot_check'''
+    'SELECT 1 FROM duckdb_views() WHERE view_name = ''dl_snapshot_check'''
 )
 """
 
@@ -115,8 +115,7 @@ class TestLatestSnapshot:
         schema = ducklake_view.namespace.schema
 
         assert (
-            await scalar(ducklake_view, f'SELECT "{schema}".ducklake_latest_snapshot()')
-            == 2
+            await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()') == 2
         )
 
     async def test_reader_snapshot_reads_the_latest_snapshot(

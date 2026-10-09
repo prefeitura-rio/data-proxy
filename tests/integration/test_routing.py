@@ -124,7 +124,7 @@ class TestSelectionCondition:
 
 
 class TestCoveredBy:
-    """covered_by_ducklake and covered_by_fallback behavior tests."""
+    """covered_by_dl and covered_by_fallback behavior tests."""
 
     @pytest.mark.parametrize(
         ("state", "ducklake", "fallback"),
@@ -149,14 +149,14 @@ class TestCoveredBy:
     ) -> None:
         await put_state(routing, ROUTED_TABLE, state)
 
-        covered_by_ducklake = await scalar(
-            routing, "SELECT data_proxy.covered_by_ducklake(%s)", ROUTED_TABLE
+        covered_by_dl = await scalar(
+            routing, "SELECT data_proxy.covered_by_dl(%s)", ROUTED_TABLE
         )
         covered_by_fallback = await scalar(
             routing, "SELECT data_proxy.covered_by_fallback(%s)", ROUTED_TABLE
         )
 
-        assert covered_by_ducklake == ducklake
+        assert covered_by_dl == ducklake
         assert covered_by_fallback == fallback
 
     async def test_reads_state_built_for_a_published_table(
@@ -179,7 +179,7 @@ class TestCoveredBy:
         assert (
             await scalar(
                 routing,
-                "SELECT data_proxy.covered_by_ducklake(%s)",
+                "SELECT data_proxy.covered_by_dl(%s)",
                 ROUTED_TABLE,
             )
             == "TRUE"
@@ -543,5 +543,5 @@ class TestFunctionPrivileges:
         )
 
         assert await can_execute(table_function, "t_fn()")
-        assert not await can_execute(table_function, "p_dl_fn(text, text)")
+        assert not await can_execute(table_function, "p_dl_fn(text, text, boolean)")
         assert not await can_execute(table_function, "p_bq_fn(text, text)")

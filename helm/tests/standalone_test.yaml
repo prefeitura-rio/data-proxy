@@ -181,11 +181,11 @@ tests:
           value: rw
         template: pooler-cnpg.yaml
 
-  - it: defaults duckdb threads to four
+  - it: defaults duckdb threads to two
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "4"
+          value: "2"
         template: cluster-cnpg.yaml
 
   - it: overrides duckdb threads from values

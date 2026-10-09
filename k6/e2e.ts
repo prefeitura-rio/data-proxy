@@ -246,6 +246,7 @@ function seedAccessPolicy(): void {
         Authorization: `Bearer ${token}`,
         Host: HOST,
         "Accept-Profile": SCHEMA,
+        "Content-Profile": SCHEMA,
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",
     };
@@ -1080,7 +1081,7 @@ function verifyDuckLakePublication(token: string): void {
         [FULL_TABLE]: "ducklake",
         [SNAPSHOT_TABLE]: "ducklake",
         [MULTI_RLS_TABLE]: "ducklake",
-        [PARTITIONED_TABLE]: "ducklake+bigquery",
+        [PARTITIONED_TABLE]: "fallback",
     };
 
     TABLES.forEach((table) => {
@@ -1403,8 +1404,8 @@ function verifyDuckLakeSource(token: string): void {
     );
 }
 
-/** Verifies partitions outside DuckLake are served from BigQuery. */
-function verifyBigQueryRows(token: string): void {
+/** Verifies partitions outside DuckLake use the configured fallback. */
+function verifyFallbackRows(token: string): void {
     clearProxyCache(token);
     sleep(1);
 
@@ -1440,16 +1441,16 @@ function verifyBigQueryRows(token: string): void {
     const response = proxyGet(`/${PARTITIONED_TABLE}?${filter}`, token);
     const rows = rowsOf(response) as Array<Record<string, unknown>>;
     expect(
-        "an older partition is served from BigQuery",
-        response.status === 200 && sourceHeader(response) === "ducklake+bigquery",
+        "an older partition is served by the configured fallback",
+        response.status === 200 && sourceHeader(response).startsWith("ducklake+"),
     );
     expect(
-        "the BigQuery rows belong to the older partition",
+        "fallback rows belong to the older partition",
         rows.length > 0 &&
         rows.every((row) => String(row[PARTITION_COLUMN]) < oldest),
     );
     expect(
-        "BigQuery rows obey RLS",
+        "fallback rows obey RLS",
         rows.length > 0 && rows.every((row) => row.unit_id === "unit_1"),
     );
 }
@@ -1472,10 +1473,10 @@ function rowsPerPartition(
 }
 
 /**
- * Verifies a table split in half between DuckLake and BigQuery.
+ * Verifies a table split in half between DuckLake and its configured fallback.
  *
  * The seeded table has twice as many partitions as the sync keeps. DuckLake
- * holds the newest half and BigQuery serves the older half.
+ * holds the newest half and the fallback serves the older half.
  */
 function verifySplitSources(token: string): void {
     clearProxyCache(token);
@@ -1487,12 +1488,12 @@ function verifySplitSources(token: string): void {
     });
     const allDates = [...all.counts.keys()].sort();
     const ducklakeDates = [...ducklake.counts.keys()].sort();
-    const bigqueryDates = allDates.filter((date) => !ducklake.counts.has(date));
+    const fallbackDates = allDates.filter((date) => !ducklake.counts.has(date));
 
     expect(
-        "the split table is served by DuckLake and BigQuery",
+        "the split table is served by DuckLake and its configured fallback",
         all.response.status === 200 &&
-        sourceHeader(all.response) === "ducklake+bigquery",
+        sourceHeader(all.response).startsWith("ducklake+"),
     );
     expect(
         "the pinned split table is served by DuckLake only",
@@ -1509,20 +1510,20 @@ function verifySplitSources(token: string): void {
         ducklakeDates.length * 2 === allDates.length,
     );
     expect(
-        "BigQuery serves the other half of the partitions",
-        bigqueryDates.length === ducklakeDates.length,
+        "the fallback serves the other half of the partitions",
+        fallbackDates.length === ducklakeDates.length,
     );
     expect(
         "DuckLake holds the newest partitions",
-        bigqueryDates.every((date) => date < ducklakeDates[0]),
+        fallbackDates.every((date) => date < ducklakeDates[0]),
     );
     expect(
         "the combined answer keeps the DuckLake rows unchanged",
         ducklakeDates.every((date) => all.counts.get(date) === ducklake.counts.get(date)),
     );
     expect(
-        "the BigQuery partitions have rows",
-        bigqueryDates.every((date) => (all.counts.get(date) || 0) > 0),
+        "the fallback partitions have rows",
+        fallbackDates.every((date) => (all.counts.get(date) || 0) > 0),
     );
 }
 
@@ -1580,6 +1581,82 @@ function verifyIstioJwtValidation(): void {
         "Istio rejects a request with an invalid token",
         invalidToken.status === 401,
     );
+}
+
+/** Verifies supported filters produce the same rows through the proxy and PostgREST. */
+function verifyFilterPushdown(token: string): void {
+    clearProxyCache(token);
+
+    const postgrestUrl = MODE === "ha" ? POSTGREST_READ_URL : POSTGREST_URL;
+    const baseline = directPostgrest(
+        `/${FULL_TABLE}?select=id&order=id.asc&limit=3`,
+        token,
+        {},
+        postgrestUrl,
+    );
+    const baselineRows = rowsOf(baseline) as Array<Record<string, unknown>>;
+    const snapshot = snapshotHeader(baseline);
+    const snapshotHeaders: Record<string, string> = MODE === "ha"
+        ? { "X-DuckLake-Snapshot": snapshot }
+        : {};
+    const ids = baselineRows
+        .map((row) => row.id)
+        .filter(
+            (id): id is string | number =>
+                typeof id === "string" || typeof id === "number",
+        )
+        .map(String);
+    requirePrecondition(
+        "filter pushdown has three authorized IDs",
+        baseline.status === 200 &&
+        ids.length === 3 &&
+        (MODE !== "ha" || /^[0-9]+$/.test(snapshot)),
+        { status: baseline.status, ids, snapshot },
+    );
+
+    const cases = [
+        {
+            name: "scalar filter preserves projection and pagination",
+            query: `id=eq.${ids[0]}&select=id,name,unit_id&order=id.asc&limit=1&offset=0`,
+        },
+        {
+            name: "in filter preserves ordering and pagination",
+            query: `id=in.(${ids.join(",")})&select=id,name&order=id.desc&limit=2&offset=1`,
+        },
+        {
+            name: "repeated filters are combined",
+            query: `id=eq.${ids[0]}&id=eq.${ids[0]}&select=id,name&order=id.asc`,
+        },
+        {
+            name: "nested logical filters are preserved",
+            query: `and=(or(id.eq.${ids[0]},id.eq.${ids[1]}),not.and(id.eq.${ids[0]},id.eq.${ids[0]}))&select=id,name,unit_id&order=id.asc`,
+        },
+    ];
+
+    cases.forEach(({ name, query }) => {
+        const direct = directPostgrest(
+            `/${FULL_TABLE}?${query}`,
+            token,
+            snapshotHeaders,
+            postgrestUrl,
+        );
+        const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, snapshotHeaders);
+        expect(`${name}: direct request succeeds`, direct.status === 200);
+        expect(`${name}: proxy request succeeds`, proxy.status === 200);
+        expect(
+            `${name}: proxy request is not served from cache`,
+            cacheHeader(proxy) === "MISS",
+        );
+        const directRows = rowsOf(direct);
+        const proxyRows = rowsOf(proxy);
+        const rowsMatch = JSON.stringify(proxyRows) === JSON.stringify(directRows);
+        if (!rowsMatch) {
+            console.log(
+                JSON.stringify({ name, query, snapshot, direct: directRows, proxy: proxyRows }),
+            );
+        }
+        expect(`${name}: proxy rows match direct rows`, rowsMatch);
+    });
 }
 
 /** Verifies the proxy cache, its lifetimes, and request coalescing. */
@@ -1848,7 +1925,9 @@ function verifyEndToEnd(k8s: Kubernetes): void {
         return;
     }
 
-    waitForAccessPolicyReplication(userToken());
+    const token = userToken();
+    waitForAccessPolicyReplication(token);
+    verifyFilterPushdown(token);
     verifyHistoricalSnapshot(k8s);
     verifyNoChangeRun(k8s);
     clearProxyCache(userToken());
@@ -1868,7 +1947,7 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyBackupJob(k8s);
     verifyCnpgReaderMount(userToken());
     verifyDuckLakeSource(userToken());
-    verifyBigQueryRows(userToken());
+    verifyFallbackRows(userToken());
     verifySplitSources(userToken());
     verifySnapshotVersion(userToken());
     verifyPartitionChanges(k8s);
@@ -1903,8 +1982,8 @@ function verifyFixtureContract(k8s: Kubernetes): void {
     );
 
     requirePrecondition(
-        "the sync fixture uses the test BigQuery source",
-        schema?.claim === "preferred_username" && schema.source?.type === "bigquery",
+        "the sync fixture declares a configured source",
+        schema?.claim === "preferred_username" && schema.source?.type !== undefined,
         {},
     );
     requirePrecondition(
@@ -1927,7 +2006,7 @@ function verifyFixtureContract(k8s: Kubernetes): void {
     );
 }
 
-/** Restores the BigQuery snapshot fixture to version A and cleans the local state after the scenario. */
+/** Restores the snapshot fixture to version A and cleans the local state after the scenario. */
 export function teardown(): void {
     const k8s = new Kubernetes();
     waitForJob(k8s, mutateSnapshotFixture(k8s, SNAPSHOT_SOURCE, "A"));

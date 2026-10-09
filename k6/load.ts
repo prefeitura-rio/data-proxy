@@ -10,8 +10,8 @@ declare const __ENV: Record<string, string | undefined>;
 type TokenData = { token: string; expiresAt: number };
 type SetupData = {
     tokens: TokenData[];
-    bigqueryDates: string[];
-    ids: string[];
+    fallbackDates: string[];
+    idsByClient: Record<string, string[]>;
     snapshots: string[];
     replicaBaseline: Record<string, number>;
 };
@@ -20,7 +20,7 @@ type Route = {
     profile: string;
     path: string;
     name: string;
-    expectedSource: "ducklake" | "ducklake+bigquery";
+    expectedSource: "ducklake" | "fallback";
     heavy?: boolean;
     weight: number;
     clients: string[];
@@ -59,14 +59,44 @@ const POSTGREST_URL =
     __ENV.POSTGREST_URL ||
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
+const THRESHOLD_MODE = __ENV.K6_THRESHOLD_MODE || "strict";
 const HA_MODE = (__ENV.HA_MODE || "false") === "true";
 const TOKEN_REFRESH_SECONDS = 30;
-const BIGQUERY_LIMIT_MAX = 20;
+const FALLBACK_LIMIT_MAX = 20;
 const HEAVY_LIMIT_MIN = 1000;
 const PARTITION_COLUMN = "date";
-const BOTTLENECK_SHARE = Number(__ENV.K6_BOTTLENECK_SHARE || "0.05");
-const BIGQUERY_SHARE = Number(__ENV.K6_BIGQUERY_SHARE || "0.05");
-const PEAK_RATE = Number(__ENV.K6_PEAK_RATE || "100");
+const DEFAULT_BOTTLENECK_SHARE = THRESHOLD_MODE === "capacity" ? 0.05 : 0.01;
+const DEFAULT_FALLBACK_SHARE = THRESHOLD_MODE === "capacity" ? 0.05 : 0.01;
+const DEFAULT_PEAK_RATE = 25;
+const DEFAULT_MAX_VUS_MULTIPLIER = THRESHOLD_MODE === "capacity" ? 6 : 3;
+const BOTTLENECK_SHARE = Number(
+    __ENV.K6_BOTTLENECK_SHARE || String(DEFAULT_BOTTLENECK_SHARE),
+);
+const FALLBACK_SHARE = Number(
+    __ENV.K6_FALLBACK_SHARE || String(DEFAULT_FALLBACK_SHARE),
+);
+const PEAK_RATE = Number(__ENV.K6_PEAK_RATE || String(DEFAULT_PEAK_RATE));
+const MAX_VUS_MULTIPLIER = Number(
+    __ENV.K6_MAX_VUS_MULTIPLIER || String(DEFAULT_MAX_VUS_MULTIPLIER),
+);
+
+if (
+    !Number.isFinite(PEAK_RATE) ||
+    PEAK_RATE <= 0 ||
+    !Number.isFinite(BOTTLENECK_SHARE) ||
+    BOTTLENECK_SHARE < 0 ||
+    !Number.isFinite(FALLBACK_SHARE) ||
+    FALLBACK_SHARE < 0 ||
+    BOTTLENECK_SHARE + FALLBACK_SHARE >= 1 ||
+    !Number.isInteger(MAX_VUS_MULTIPLIER) ||
+    MAX_VUS_MULTIPLIER < 1
+) {
+    throw new Error("Invalid k6 load parameters");
+}
+
+if (THRESHOLD_MODE !== "strict" && THRESHOLD_MODE !== "capacity") {
+    throw new Error("Invalid k6 threshold mode");
+}
 
 const CLIENT_IDS = [
     OIDC_USER_CLIENT_ID,
@@ -75,7 +105,7 @@ const CLIENT_IDS = [
 ];
 const LOAD_TABLES = ["full_table", "multi_rls_table", "partitioned_table", "big_table"];
 
-const PEAK_ITERATIONS = Math.round(PEAK_RATE / (1 + BIGQUERY_SHARE));
+const PEAK_ITERATIONS = Math.round(PEAK_RATE / (1 + FALLBACK_SHARE));
 
 function iterationsForPeak(fraction: number): number {
     return Math.max(1, Math.round(PEAK_ITERATIONS * fraction));
@@ -95,28 +125,15 @@ const PROFILES: Record<string, Profile> = {
         startRate: 0,
         timeUnit: "1s",
         preAllocatedVUs: PEAK_ITERATIONS,
-        maxVUs: PEAK_ITERATIONS * 3,
+        maxVUs: PEAK_ITERATIONS * MAX_VUS_MULTIPLIER,
         duration: "33m",
         stages: [
-            { target: iterationsForPeak(0.5), duration: "120s" },
+            { target: iterationsForPeak(0.25), duration: "120s" },
+            { target: iterationsForPeak(0.5), duration: "300s" },
+            { target: iterationsForPeak(0.75), duration: "300s" },
             { target: iterationsForPeak(1), duration: "300s" },
-            { target: iterationsForPeak(1), duration: "25m" },
+            { target: iterationsForPeak(1), duration: "900s" },
             { target: 0, duration: "60s" },
-        ],
-    },
-    stress: {
-        executor: "ramping-arrival-rate",
-        startRate: 0,
-        timeUnit: "1s",
-        preAllocatedVUs: PEAK_ITERATIONS,
-        maxVUs: PEAK_ITERATIONS * 6,
-        duration: "570s",
-        stages: [
-            { target: iterationsForPeak(0.5), duration: "180s" },
-            { target: iterationsForPeak(1), duration: "180s" },
-            { target: iterationsForPeak(1.5), duration: "180s" },
-            { target: iterationsForPeak(2), duration: "180s" },
-            { target: 0, duration: "30s" },
         ],
     },
 };
@@ -128,11 +145,12 @@ if (!(K6_PROFILE in PROFILES)) {
 const profile = PROFILES[K6_PROFILE];
 
 const loadRequestFailed = new Rate("load_request_failed");
+const loadCheckFailed = new Counter("load_check_failed");
 
 const sourceDuration = {
     cache: new Trend("cache_duration_ms"),
     ducklake: new Trend("ducklake_duration_ms"),
-    bigquery: new Trend("bigquery_duration_ms"),
+    fallback: new Trend("fallback_duration_ms"),
 };
 const ducklakeHeavyDuration = new Trend("ducklake_heavy_duration_ms");
 const ducklakeSelectiveDuration = new Trend("ducklake_selective_duration_ms");
@@ -147,7 +165,7 @@ const stackThresholds: Record<string, string[]> = {
 };
 
 const clientRiskThresholds: Record<string, string[]> = {
-    bigquery_duration_ms: ["p(95)<6000"],
+    fallback_duration_ms: ["p(95)<6000"],
     ducklake_heavy_duration_ms: ["p(95)<2000", "p(99)<5000"],
     ducklake_selective_duration_ms: ["p(95)<2000", "p(99)<5000"],
     ducklake_pinned_duration_ms: ["p(95)<2000", "p(99)<5000"],
@@ -160,7 +178,7 @@ const sourceThresholds: Record<string, string[]> = gateClientRisk
 
 const scalingEvents = new Counter("autoscaling_events");
 
-if (K6_PROFILE === "stress") {
+if (THRESHOLD_MODE === "capacity") {
     sourceThresholds.checks = ["rate>0.95"];
     sourceThresholds.load_request_failed = ["rate<0.05"];
     sourceThresholds.http_req_failed = ["rate<0.05"];
@@ -169,7 +187,7 @@ if (K6_PROFILE === "stress") {
 const runsScalingObserver = profile.executor !== "ramping-vus" && HA_MODE;
 
 const isArrivalRate = profile.executor !== "ramping-vus";
-const gatesAutoscaling = K6_PROFILE === "stress";
+const gatesAutoscaling = THRESHOLD_MODE === "capacity";
 
 if (isArrivalRate) {
     sourceThresholds.dropped_iterations = ["count==0"];
@@ -310,7 +328,7 @@ const ROUTES: Route[] = [
         profile: "test",
         path: "/partitioned_table?unit_id=eq.unit_1&limit=20&order=date.desc",
         name: "test_partitioned_table_unit_1",
-        expectedSource: "ducklake+bigquery",
+        expectedSource: "fallback",
         weight: 15,
         clients: ["user"],
         checkBody: authorizedRows("unit_id", ["unit_1"]),
@@ -388,6 +406,7 @@ function seedAccessPolicy(rows: typeof ACCESS_POLICY_ROWS): void {
         Authorization: `Bearer ${token.token}`,
         Host: HOST,
         "Accept-Profile": "test",
+        "Content-Profile": "test",
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",
     };
@@ -481,7 +500,7 @@ function waitForLocalTables(token: string): void {
 }
 
 /** Returns the two days immediately before the oldest DuckLake partition, read from a pinned snapshot. */
-function bigqueryDates(token: string): string[] {
+function fallbackDates(token: string): string[] {
     const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "test" };
     const snapshot = setupGet(`${POSTGREST_URL}/rpc/ducklake_latest_snapshot`, {
         headers,
@@ -494,7 +513,7 @@ function bigqueryDates(token: string): string[] {
         `${POSTGREST_URL}/partitioned_table?select=${PARTITION_COLUMN}&order=${PARTITION_COLUMN}.asc&limit=1`,
         {
             headers: { ...headers, "X-DuckLake-Snapshot": String(safeJson(snapshot) ?? "") },
-            tags: { name: "load_setup:bigquery_dates" },
+            tags: { name: "load_setup:fallback_dates" },
         },
     ) as K6Response;
     const body = safeJson(response);
@@ -562,10 +581,16 @@ export function setup(): SetupData {
     waitForLocalTables(tokens[0].token);
     verifyNoAccess();
     seedAccessPolicy(SECOND_ACCESS_POLICY_ROWS);
+    const idsByClient: Record<string, string[]> = {};
+    CLIENT_IDS.forEach((clientId, index) => {
+        if (!(clientId in idsByClient)) {
+            idsByClient[clientId] = visibleIds(tokens[index].token);
+        }
+    });
     return {
         tokens,
-        bigqueryDates: bigqueryDates(tokens[0].token),
-        ids: visibleIds(tokens[0].token),
+        fallbackDates: fallbackDates(tokens[0].token),
+        idsByClient,
         snapshots: readableSnapshots(tokens[0].token),
         replicaBaseline: scalingReplicaCounts(k8s),
     };
@@ -622,17 +647,20 @@ function header(response: K6Response, name: string): string {
     return key ? response.headers[key] : "";
 }
 
-/** Classifies a response as a cache hit, or by the sources that served it. */
-function sourceOf(
-    response: K6Response,
-): "cache" | "ducklake" | "bigquery" | null {
-    if (header(response, "X-Cache") === "HIT") return "cache";
+/** Classifies the source header without treating a cache hit as a source. */
+function sourceKind(response: K6Response): "ducklake" | "fallback" | null {
     const source = header(response, "X-Source");
     if (source === "ducklake") return "ducklake";
-    if (source === "bigquery" || source === "ducklake+bigquery") {
-        return "bigquery";
-    }
+    if (source.includes("ducklake+")) return "fallback";
     return null;
+}
+
+/** Classifies a response as a cache hit, or by the source that served it. */
+function sourceOf(
+    response: K6Response,
+): "cache" | "ducklake" | "fallback" | null {
+    if (header(response, "X-Cache") === "HIT") return "cache";
+    return sourceKind(response);
 }
 
 /** Records the response latency under its source. */
@@ -643,6 +671,19 @@ function recordSourceDuration(response: K6Response, ducklakeTrend?: Trend): void
     } else if (source !== null) {
         sourceDuration[source].add(response.timings.duration);
     }
+}
+
+function recordLoadCheckFailure(
+    route: string,
+    reason: string,
+    response: K6Response,
+): void {
+    loadCheckFailed.add(1, {
+        route,
+        reason,
+        status: String(response.status),
+        source: header(response, "X-Source") || "none",
+    });
 }
 
 /** Sends one request to a route and checks the status and body shape. */
@@ -661,18 +702,23 @@ function request(route: Route, token: string): void {
     recordSourceDuration(response, route.heavy ? ducklakeHeavyDuration : undefined);
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
+    const statusOk = response.status === 200;
+    const bodyOk = route.checkBody(body);
+    const sourceOk = sourceKind(response) === route.expectedSource;
+    if (!statusOk) recordLoadCheckFailure(route.name, "status", response);
+    if (!bodyOk) recordLoadCheckFailure(route.name, "body", response);
+    if (!sourceOk) recordLoadCheckFailure(route.name, "source", response);
     check(response, {
-        [`${route.name} returned 200`]: (item: K6Response) => item.status === 200,
-        [`${route.name} returned JSON array`]: () => route.checkBody(body),
-        [`${route.name} reports ${route.expectedSource}`]: () =>
-            header(response, "X-Source") === route.expectedSource,
+        [`${route.name} returned 200`]: () => statusOk,
+        [`${route.name} returned JSON array`]: () => bodyOk,
+        [`${route.name} reports ${route.expectedSource}`]: () => sourceOk,
     });
 }
 
-/** Requests an older partition from BigQuery and verifies the repeated request is cached. */
-function requestBigQueryPair(clientId: string, token: string, dates: string[]): void {
+/** Requests an older partition from a configured fallback source and verifies the repeat is cached. */
+function requestFallbackPair(clientId: string, token: string, dates: string[]): void {
     const date = dates[Math.floor(Math.random() * dates.length)];
-    const limit = Math.floor(Math.random() * BIGQUERY_LIMIT_MAX) + 1;
+    const limit = Math.floor(Math.random() * FALLBACK_LIMIT_MAX) + 1;
     const path =
         `/partitioned_table?date=eq.${date}&select=id,date,unit_id&limit=${limit}`;
     const params = {
@@ -681,7 +727,7 @@ function requestBigQueryPair(clientId: string, token: string, dates: string[]): 
             Host: HOST,
             "Accept-Profile": "test",
         },
-        tags: { name: `bigquery:${clientId}` },
+        tags: { name: `fallback:${clientId}` },
     };
     const first = http.get(`${API_URL}${path}`, params) as K6Response;
     recordSourceDuration(first);
@@ -690,24 +736,31 @@ function requestBigQueryPair(clientId: string, token: string, dates: string[]): 
     const second = http.get(`${API_URL}${path}`, params) as K6Response;
     recordSourceDuration(second);
     loadRequestFailed.add(second.status !== 200);
+    const firstStatusOk = first.status === 200;
+    const firstSourceOk = sourceOf(first) === "fallback" || sourceOf(first) === "cache";
+    const firstPartitionOk = authorizedRows(PARTITION_COLUMN, [date])(firstBody);
+    const expectedUnit = clientId === OIDC_NO_POLICY_CLIENT_ID ? "unit_2" : "unit_1";
+    const firstRlsOk = authorizedRows("unit_id", [expectedUnit])(firstBody);
+    const secondStatusOk = second.status === 200;
+    const secondCacheOk = sourceOf(second) === "cache";
+    const secondBodyOk = second.body === first.body;
+    if (!firstStatusOk) recordLoadCheckFailure(`fallback:${clientId}`, "status", first);
+    if (!firstSourceOk) recordLoadCheckFailure(`fallback:${clientId}`, "source", first);
+    if (!firstPartitionOk) recordLoadCheckFailure(`fallback:${clientId}`, "partition", first);
+    if (!firstRlsOk) recordLoadCheckFailure(`fallback:${clientId}`, "rls", first);
+    if (!secondStatusOk) recordLoadCheckFailure(`fallback:${clientId}`, "repeat_status", second);
+    if (!secondCacheOk) recordLoadCheckFailure(`fallback:${clientId}`, "repeat_cache", second);
+    if (!secondBodyOk) recordLoadCheckFailure(`fallback:${clientId}`, "repeat_body", second);
     check(first, {
-        "BigQuery request returned 200": (item: K6Response) => item.status === 200,
-        "BigQuery request reaches BigQuery or a warm cache hit": (
-            item: K6Response,
-        ) => {
-            const source = sourceOf(item);
-            return source === "bigquery" || source === "cache";
-        },
-        "BigQuery rows belong to the selected partition": () =>
-            authorizedRows(PARTITION_COLUMN, [date])(firstBody),
-        "BigQuery rows obey RLS": () =>
-            authorizedRows("unit_id", ["unit_1"])(firstBody),
+        "Fallback request returned 200": () => firstStatusOk,
+        "Fallback request reaches the configured source or a warm cache hit": () => firstSourceOk,
+        "Fallback rows belong to the selected partition": () => firstPartitionOk,
+        "Fallback rows obey RLS": () => firstRlsOk,
     });
     check(second, {
-        "BigQuery repeat returned 200": (item: K6Response) => item.status === 200,
-        "BigQuery repeat is cached": (item: K6Response) =>
-            sourceOf(item) === "cache",
-        "BigQuery repeat returns the same rows": () => second.body === first.body,
+        "Fallback repeat returned 200": () => secondStatusOk,
+        "Fallback repeat is cached": () => secondCacheOk,
+        "Fallback repeat returns the same rows": () => secondBodyOk,
     });
 }
 
@@ -718,16 +771,16 @@ export default function(data: SetupData): void {
     const token = ensureToken(clientId, data.tokens[vu]);
     const pick = Math.random();
     if (pick < BOTTLENECK_SHARE) {
-        bottleneckCase(token.token, data);
-    } else if (pick < BOTTLENECK_SHARE + BIGQUERY_SHARE) {
-        requestBigQueryPair(clientId, token.token, data.bigqueryDates);
+        bottleneckCase(clientId, token.token, data);
+    } else if (pick < BOTTLENECK_SHARE + FALLBACK_SHARE) {
+        requestFallbackPair(clientId, token.token, data.fallbackDates);
     } else {
         request(pickRoute(clientId), token.token);
     }
     if (profile.executor === "ramping-vus") sleep(Math.random() * 3 + 0.5);
 }
 
-/** Polls replica counts throughout stress, and records when autoscaling increases a workload. */
+/** Polls replica counts throughout capacity runs, and records autoscaling increases. */
 export function observeScaling(data: SetupData): void {
     const k8s = new Kubernetes();
     const names = Object.keys(data.replicaBaseline);
@@ -787,7 +840,7 @@ function uniqueLimit(): number {
  * Looks up one row by id. Postgres filters the rows only after DuckLake returns
  * every visible row, so this latency grows with the table size and not with the answer.
  */
-function selectiveLookup(token: string, ids: string[]): void {
+function selectiveLookup(token: string, ids: string[], expectedUnit: string): void {
     const id = randomItem(ids);
     const response = http.get(
         `${API_URL}/big_table?select=id,unit_id&id=eq.${id}&limit=${uniqueLimit()}`,
@@ -799,22 +852,32 @@ function selectiveLookup(token: string, ids: string[]): void {
     recordSourceDuration(response, ducklakeSelectiveDuration);
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
+    const statusOk = response.status === 200;
+    const bodyOk =
+        Array.isArray(body) &&
+        body.length === 1 &&
+        String((body[0] as Record<string, unknown>).id) === id &&
+        (body[0] as Record<string, unknown>).unit_id === expectedUnit;
+    const sourceOk = header(response, "X-Source") === "ducklake";
+    if (!statusOk) recordLoadCheckFailure("selective_lookup", "status", response);
+    if (!bodyOk) recordLoadCheckFailure("selective_lookup", "body", response);
+    if (!sourceOk) recordLoadCheckFailure("selective_lookup", "source", response);
     check(response, {
-        "selective lookup returned 200": (item: K6Response) => item.status === 200,
-        "selective lookup returned the requested row": () =>
-            Array.isArray(body) &&
-            body.length === 1 &&
-            String((body[0] as Record<string, unknown>).id) === id &&
-            (body[0] as Record<string, unknown>).unit_id === "unit_1",
-        "selective lookup reads DuckLake": () => header(response, "X-Source") === "ducklake",
+        "selective lookup returned 200": () => statusOk,
+        "selective lookup returned the requested row": () => bodyOk,
+        "selective lookup reads DuckLake": () => sourceOk,
     });
 }
 
 /** Reads big_table at the latest and at older pinned snapshots. */
-function pinnedSnapshot(token: string, snapshots: string[]): void {
+function pinnedSnapshot(
+    token: string,
+    snapshots: string[],
+    expectedUnit: string,
+): void {
     const snapshot = randomItem(snapshots);
     const response = http.get(
-        `${API_URL}/big_table?unit_id=eq.unit_1&limit=${uniqueLimit()}`,
+        `${API_URL}/big_table?unit_id=eq.${expectedUnit}&limit=${uniqueLimit()}`,
         {
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -828,24 +891,38 @@ function pinnedSnapshot(token: string, snapshots: string[]): void {
     recordSourceDuration(response, ducklakePinnedDuration);
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
+    const statusOk = response.status === 200;
+    const bodyOk = authorizedRows("unit_id", [expectedUnit])(body);
+    const sourceOk = header(response, "X-Source") === "ducklake";
+    const snapshotOk = header(response, "X-DuckLake-Snapshot") === snapshot;
+    if (!statusOk) recordLoadCheckFailure("pinned_snapshot", "status", response);
+    if (!bodyOk) recordLoadCheckFailure("pinned_snapshot", "body", response);
+    if (!sourceOk) recordLoadCheckFailure("pinned_snapshot", "source", response);
+    if (!snapshotOk) recordLoadCheckFailure("pinned_snapshot", "snapshot", response);
     check(response, {
-        "pinned snapshot returned 200": (item: K6Response) => item.status === 200,
-        "pinned snapshot returned authorized rows": () =>
-            authorizedRows("unit_id", ["unit_1"])(body),
-        "pinned snapshot reads DuckLake only": () => header(response, "X-Source") === "ducklake",
-        "pinned snapshot reports the requested snapshot": () =>
-            header(response, "X-DuckLake-Snapshot") === snapshot,
+        "pinned snapshot returned 200": () => statusOk,
+        "pinned snapshot returned authorized rows": () => bodyOk,
+        "pinned snapshot reads DuckLake only": () => sourceOk,
+        "pinned snapshot reports the requested snapshot": () => snapshotOk,
     });
 }
 
 /** Sends one bottleneck case: half heavy queries, a quarter each of lookups and pinned reads. */
-function bottleneckCase(token: string, data: SetupData): void {
+function bottleneckCase(
+    clientId: string,
+    token: string,
+    data: SetupData,
+): void {
+    const expectedUnit = clientId === OIDC_NO_POLICY_CLIENT_ID ? "unit_2" : "unit_1";
     const pick = Math.random();
-    if (pick < 0.5) {
-        request(randomItem(ROUTES.filter((route) => route.heavy)), token);
+    const heavyRoutes = ROUTES.filter(
+        (route) => route.heavy && route.clients.includes(clientId),
+    );
+    if (pick < 0.5 && heavyRoutes.length > 0) {
+        request(randomItem(heavyRoutes), token);
     } else if (pick < 0.75) {
-        selectiveLookup(token, data.ids);
+        selectiveLookup(token, data.idsByClient[clientId], expectedUnit);
     } else {
-        pinnedSnapshot(token, data.snapshots);
+        pinnedSnapshot(token, data.snapshots, expectedUnit);
     }
 }

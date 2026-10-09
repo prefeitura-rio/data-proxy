@@ -16,6 +16,8 @@ repositories:
     url: https://istio-release.storage.googleapis.com/charts
   - name: cloudpirates
     url: https://cloudpirates-io.github.io/helm-charts/
+  - name: seaweedfs
+    url: https://seaweedfs.github.io/seaweedfs/helm
 
 releases:
   - name: cnpg

@@ -8,6 +8,6 @@
 }
 #}
 SELECT change_snapshot_id, change_type, count(*) AS row_count
-FROM {{ schema }}.ducklake_changes_people(%(start_snapshot)s, %(end_snapshot)s)
+FROM {{ schema }}.dl_changes_people(%(start_snapshot)s, %(end_snapshot)s)
 GROUP BY change_snapshot_id, change_type
 ORDER BY change_snapshot_id

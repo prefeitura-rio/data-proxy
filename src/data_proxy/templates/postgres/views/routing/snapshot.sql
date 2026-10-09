@@ -35,11 +35,11 @@ DECLARE
   v_found bigint;
 BEGIN
   PERFORM duckdb.raw_query(
-    'CREATE OR REPLACE VIEW ducklake_snapshot_check AS '
+    'CREATE OR REPLACE VIEW dl_snapshot_check AS '
     || 'SELECT count(*) AS n FROM dl.snapshots() WHERE snapshot_id = ' || p_snapshot
   );
 
-  SELECT r['n']::bigint INTO v_found FROM duckdb.query('SELECT n FROM ducklake_snapshot_check') r;
+  SELECT r['n']::bigint INTO v_found FROM duckdb.query('SELECT n FROM dl_snapshot_check') r;
 
   IF v_found = 0 THEN
     RAISE EXCEPTION 'snapshot % does not exist', p_snapshot USING ERRCODE = 'PT404';

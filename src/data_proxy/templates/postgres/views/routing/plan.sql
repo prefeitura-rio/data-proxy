@@ -28,8 +28,12 @@ BEGIN
     RETURN;
   END IF;
 
-  v_ducklake := {{ schema }}.covered_by_ducklake(p_table);
-  v_remaining := {{ schema }}.covered_by_fallback(p_table);
+  v_ducklake := {{ schema }}.covered_by_dl(p_table);
+  v_remaining := CASE
+    WHEN v_ducklake IS NULL THEN 'TRUE'
+    WHEN v_ducklake = 'TRUE' THEN NULL
+    ELSE 'NOT (' || v_ducklake || ')'
+  END;
 
   IF v_ducklake IS NULL THEN
     IF coalesce(array_length(p_fallbacks, 1), 0) = 0 THEN

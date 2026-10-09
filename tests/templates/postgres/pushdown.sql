@@ -31,7 +31,7 @@ STABLE
 AS $$
 DECLARE
     filter jsonb := data_proxy.request_filter();
-    predicate text := data_proxy.render_ducklake_where(
+    predicate text := data_proxy.render_dl_where(
         filter, ARRAY['id', 'name', 'active']::text[]
     );
     query text := 'SELECT id, name, active FROM pushdown.items_data';

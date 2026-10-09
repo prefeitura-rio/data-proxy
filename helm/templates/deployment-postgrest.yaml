@@ -94,6 +94,12 @@ spec:
                   key: password
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgresPoolerDsn" (dict "root" . "pooler" $variant.pooler) | quote }}
+            - name: PGRST_DB_POOL
+              value: {{ .Values.postgrest.dbPool | quote }}
+            - name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
+              value: {{ .Values.postgrest.dbPoolAcquisitionTimeout | quote }}
+            - name: PGRST_DB_POOL_MAX_IDLETIME
+              value: {{ .Values.postgrest.dbPoolMaxIdleTime | quote }}
             - name: PGRST_DB_PREPARED_STATEMENTS
               value: "false"
             - name: PGRST_DB_CHANNEL_ENABLED

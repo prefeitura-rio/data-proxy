@@ -13,9 +13,9 @@
   }
 }
 #}
--- noqa: disable=PRS,LT05
+-- noqa: disable=CP02,PRS,LT05
 {% from "postgres/macros.sql" import column_projection, ducklake_attach %}
-CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text)
+CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text, p_validate_snapshot boolean)
 RETURNS void AS $$
 DECLARE
   v_snapshot bigint;
@@ -24,17 +24,18 @@ BEGIN
 
   v_snapshot := p_arg::bigint;
 
-  IF {{ app_schema }}.requested_snapshot() IS NOT NULL THEN
+  IF p_validate_snapshot THEN
     PERFORM {{ app_schema }}.assert_snapshot_exists(v_snapshot);
   END IF;
 
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW {{ duckdb_view }} AS ' ||
     'SELECT {{ column_projection(columns) }} ' ||
-    'FROM {{ source }} AT (VERSION => ' || v_snapshot || ') ' || p_where
+    'FROM {{ source }} AT (VERSION => ' || v_snapshot || ') ' ||
+    coalesce(p_where, '')
   );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
-REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text) FROM PUBLIC
+REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text, boolean) FROM PUBLIC

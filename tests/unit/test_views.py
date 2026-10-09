@@ -187,7 +187,7 @@ class TestCreateTableViews:
 
 CONFIGURED_VIEWS: Final = frozenset({("app", "people")})
 CONFIGURED_FUNCTIONS: Final = frozenset(
-    {("app", "ducklake_latest_snapshot"), ("app", "ducklake_changes_people")}
+    {("app", "dl_latest_snapshot"), ("app", "dl_changes_people")}
 )
 
 

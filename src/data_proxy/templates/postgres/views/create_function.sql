@@ -42,12 +42,11 @@ BEGIN
   v_filter := {{ app_schema }}.request_filter();
   v_where := {{ app_schema }}.and_where(
     v_where,
-    {{ app_schema }}.render_ducklake_where(
+    {{ app_schema }}.render_dl_where(
       v_filter,
       ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
     )
   );
-
   v_pinned := {{ app_schema }}.requested_snapshot();
 
   FOR v_plan IN
@@ -64,17 +63,21 @@ BEGIN
     v_sources := v_sources || ARRAY[v_plan.name];
 
     IF v_plan.name = 'ducklake' THEN
-      v_snapshot := coalesce(v_pinned, {{ schema }}.ducklake_latest_snapshot());
-      PERFORM {{ schema }}.{{ dl_function }}(v_where, v_snapshot::text);
-      RETURN QUERY
+      v_snapshot := coalesce(v_pinned, {{ schema }}.dl_latest_snapshot());
+      PERFORM {{ schema }}.{{ dl_function }}(
+        v_where, v_snapshot::text, v_pinned IS NOT NULL
+      );
+      RETURN QUERY EXECUTE $ducklake_query$
 {{ return_query_select(columns) }}
-{{ duckdb_query_select(columns, dl_view) }};
+{{ duckdb_query_select(columns, dl_view) }}
+$ducklake_query$;
 {% for f in fallbacks %}
     ELSIF v_plan.name = '{{ f.name }}' THEN
       PERFORM {{ schema }}.{{ f.function }}(v_where, v_plan.arg);
-      RETURN QUERY
+      RETURN QUERY EXECUTE $fallback_query$
 {{ return_query_select(columns) }}
-{{ duckdb_query_select(columns, f.view) }};
+{{ duckdb_query_select(columns, f.view) }}
+$fallback_query$;
 {% endfor %}
     END IF;
   END LOOP;

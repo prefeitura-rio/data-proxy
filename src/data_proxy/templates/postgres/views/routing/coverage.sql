@@ -32,7 +32,7 @@ LANGUAGE sql IMMUTABLE AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.covered_by_ducklake(p_table text) RETURNS text
+CREATE OR REPLACE FUNCTION {{ schema }}.covered_by_dl(p_table text) RETURNS text
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_state jsonb;
@@ -64,5 +64,5 @@ LANGUAGE sql STABLE AS $$
     WHEN covered.condition = 'TRUE' THEN NULL
     ELSE 'NOT (' || covered.condition || ')'
   END
-  FROM (SELECT {{ schema }}.covered_by_ducklake(p_table) AS condition) AS covered
+  FROM (SELECT {{ schema }}.covered_by_dl(p_table) AS condition) AS covered
 $$;

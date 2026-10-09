@@ -7,4 +7,4 @@
   }
 }
 #}
-SELECT {{ schema }}.ducklake_latest_snapshot()
+SELECT {{ schema }}.dl_latest_snapshot()
