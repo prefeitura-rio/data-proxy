@@ -54,14 +54,14 @@ curl \
   --data-urlencode "end_snapshot=15"
 ```
 
-Use the schema RPC `ducklake_latest_snapshot` to get the current cursor before or after reading a range:
+Use the schema RPC `dl_latest_snapshot` to get the current cursor before or after reading a range:
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --header "Accept-Profile: my_schema" \
   --request POST \
-  "${BASE_URL}/rpc/ducklake_latest_snapshot"
+  "${BASE_URL}/rpc/dl_latest_snapshot"
 ```
 
 Snapshot bounds are inclusive. Deleted rows are returned as preimages. The same schema scope and row-level policy apply to change rows, including deleted preimages. Snapshot history is retained for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.

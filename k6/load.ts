@@ -502,7 +502,7 @@ function waitForLocalTables(token: string): void {
 /** Returns the two days immediately before the oldest DuckLake partition, read from a pinned snapshot. */
 function fallbackDates(token: string): string[] {
     const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "test" };
-    const snapshot = setupGet(`${POSTGREST_URL}/rpc/ducklake_latest_snapshot`, {
+    const snapshot = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
         headers,
         tags: { name: "load_setup:snapshot" },
     }) as K6Response;
@@ -552,7 +552,7 @@ function visibleIds(token: string): string[] {
 /** Returns the latest snapshot and the older snapshots that big_table can still be read at. */
 function readableSnapshots(token: string): string[] {
     const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "test" };
-    const latest = setupGet(`${POSTGREST_URL}/rpc/ducklake_latest_snapshot`, {
+    const latest = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
         headers,
         tags: { name: "load_setup:snapshot" },
     }) as K6Response;

@@ -654,7 +654,7 @@ function rowsOf(r: K6Response): unknown[] {
 /** Reads the current DuckLake snapshot through the exposed RPC. */
 function snapshotValue(token: string): string {
     const response = directPostgrest(
-        "/rpc/ducklake_latest_snapshot",
+        "/rpc/dl_latest_snapshot",
         token,
     );
     const body = safeJson(response);
@@ -1073,7 +1073,7 @@ function verifyInstanceCatalogs(k8s: Kubernetes, token: string): void {
         runCommandJob(
             k8s,
             `instance-snapshot-${instance.metadata.name}`,
-            `test "$(psql "${dsn}" -tAc ${JSON.stringify(`SELECT ${SCHEMA}.ducklake_latest_snapshot()`)})" = ${JSON.stringify(snapshot)}`,
+            `test "$(psql "${dsn}" -tAc ${JSON.stringify(`SELECT ${SCHEMA}.dl_latest_snapshot()`)})" = ${JSON.stringify(snapshot)}`,
         );
     }
 }
