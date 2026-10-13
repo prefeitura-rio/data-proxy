@@ -143,3 +143,69 @@ check("cache.to_entry", function(case) return cache.to_entry(case.response) end,
 		expected = { body = '[{"id":1}]', headers = { ["X-Source"] = "bigquery" } },
 	},
 })
+
+--- A cache store that counts its calls, so a case can see which one ran.
+---@param stored CachedEntry|nil Value that read gives.
+---@param stored_write boolean Value that write gives.
+---@return CacheStore store
+---@return { reads: integer, writes: integer, loads: integer } calls
+local function store_with(stored, stored_write)
+	local calls = { reads = 0, writes = 0, loads = 0 }
+	---@type CacheStore
+	local store = {
+		read = function(_, _)
+			calls.reads = calls.reads + 1
+			return stored
+		end,
+		write = function(_, _, _, _)
+			calls.writes = calls.writes + 1
+			return stored_write
+		end,
+	}
+	return store, calls
+end
+
+check("cache.fetch", function(case)
+	local store, calls = store_with(case.stored, case.stored_write)
+	local result = cache.fetch(case.context, "key", function()
+		calls.loads = calls.loads + 1
+		return case.response
+	end, store)
+	return { source = result.source, reads = calls.reads, writes = calls.writes, loads = calls.loads }
+end, {
+	{
+		name = "answers from the store on a hit, without asking PostgREST",
+		context = context_with(),
+		stored = { body = '[{"id":1}]', headers = { ["X-Source"] = "ducklake" } },
+		response = response_with(),
+		expected = { source = "cache", reads = 1, writes = 0, loads = 0 },
+	},
+	{
+		name = "answers from PostgREST and stores a cacheable answer on a miss",
+		context = context_with(),
+		response = response_with(),
+		stored_write = true,
+		expected = { source = "postgrest", reads = 1, writes = 1, loads = 1 },
+	},
+	{
+		name = "answers from PostgREST when the store is down",
+		context = context_with(),
+		response = response_with(),
+		stored_write = false,
+		expected = { source = "postgrest", reads = 1, writes = 1, loads = 1 },
+	},
+	{
+		name = "does not store an answer that is not cacheable",
+		context = context_with(),
+		response = response_with({ status = 404 }),
+		stored_write = true,
+		expected = { source = "postgrest", reads = 1, writes = 0, loads = 1 },
+	},
+	{
+		name = "gives no source when PostgREST does not answer",
+		context = context_with(),
+		response = nil,
+		stored_write = true,
+		expected = { source = "none", reads = 1, writes = 0, loads = 1 },
+	},
+})
