@@ -208,3 +208,30 @@ HTTP 200
 X-Cache: MISS
 [Asserts]
 bytes count > 262144
+
+# A HEAD request is never cached, and it does not leave an empty entry for a later GET.
+HEAD http://{{host}}/people?case=head
+
+HTTP 200
+[Asserts]
+header "X-Cache" == "MISS"
+
+HEAD http://{{host}}/people?case=head
+
+HTTP 200
+[Asserts]
+header "X-Cache" == "MISS"
+
+GET http://{{host}}/people?case=head
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.upstream" == "read"
+
+GET http://{{host}}/people?case=head
+
+HTTP 200
+X-Cache: HIT
+[Asserts]
+jsonpath "$.upstream" == "read"
