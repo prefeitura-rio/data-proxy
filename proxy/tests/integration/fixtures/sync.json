@@ -1,5 +1,5 @@
 {
-    "noCachePaths": ["/private"],
+    "noCachePaths": ["/access_policy", "/private"],
     "schemas": {
         "test": {
             "tables": [
