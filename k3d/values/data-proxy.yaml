@@ -99,10 +99,10 @@ seaweedfs:
 redis:
   existingSecret: data-proxy-redis
   writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
-  webdisHost: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
-  webdisPort: 6379
-  webdisReadHost: data-proxy-valkey.data-proxy.svc.cluster.local
-  webdisReadPort: 6379
+  writerHost: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
+  writerPort: 6379
+  readerHost: data-proxy-valkey.data-proxy.svc.cluster.local
+  readerPort: 6379
 gcp:
   existingSecret: gcp
 swaggerUi:

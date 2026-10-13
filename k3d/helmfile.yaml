@@ -27,7 +27,7 @@ releases:
 
   - name: manifests
     namespace: data-proxy
-    chart: ./scripts/manifests
+    chart: ./manifests
     values:
       - redisSecret:
           enabled: true
@@ -39,7 +39,7 @@ releases:
           enabled: true
         gateway:
           enabled: false
-      - scripts/values/images.yaml.gotmpl
+      - values/images.yaml.gotmpl
 
   - name: valkey
     namespace: data-proxy
@@ -48,7 +48,7 @@ releases:
     needs:
       - data-proxy/manifests
     values:
-      - scripts/values/valkey.yaml
+      - values/valkey.yaml
 
   - name: keda
     namespace: keda
@@ -85,7 +85,7 @@ releases:
 
   - name: manifests-gateway
     namespace: istio-system
-    chart: ./scripts/manifests
+    chart: ./manifests
     needs:
       - istio-ingress/istio-ingressgateway
     values:
@@ -105,11 +105,11 @@ releases:
     chart: cloudpirates/keycloak
     version: 0.21.41
     values:
-      - scripts/values/keycloak.yaml
+      - values/keycloak.yaml
 
   - name: data-proxy
     namespace: data-proxy
-    chart: ./helm
+    chart: ../helm
     waitForJobs: true
     needs:
       - cnpg-system/cnpg
@@ -120,9 +120,9 @@ releases:
       - keda/keda
       - keycloak/keycloak
     values:
-      - scripts/values/data-proxy.yaml
-      - scripts/values/images.yaml.gotmpl
-      - scripts/values/ha.yaml.gotmpl
+      - values/data-proxy.yaml
+      - values/images.yaml.gotmpl
+      - values/ha.yaml.gotmpl
     hooks:
       - events:
           - postsync
