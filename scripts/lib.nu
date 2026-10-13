@@ -45,7 +45,7 @@ export def build-images []: list<record<image: string, containerfile: string>> -
 
         for image in $images {
             log info $'Building ($image.image)...'
-            podman build --ignorefile ($context | path join .dockerignore) --tag $image.image --file $image.containerfile $context
+            podman build --format docker --ignorefile ($context | path join .dockerignore) --tag $image.image --file $image.containerfile $context
 
             log info $'Pushing ($image.image)...'
             podman push --tls-verify=false $image.image
