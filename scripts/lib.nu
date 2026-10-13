@@ -33,17 +33,15 @@ export def poll [check: closure, config: record<interval: duration, max_attempts
 export def build-images []: list<record<image: string, containerfile: string>> -> nothing {
     let images = $in
     let context = $"/tmp/data-proxy-build-(random uuid)"
-    mkdir $context
 
     try {
-        ^git ls-files --cached --others --exclude-standard
-        | lines
-        | each {|file|
+        mkdir $context
+
+        for file in (git ls-files --cached --others --exclude-standard | lines) {
             let destination = $context | path join $file
             mkdir ($destination | path dirname)
             cp $file $destination
         }
-        | ignore
 
         for image in $images {
             log info $'Building ($image.image)...'

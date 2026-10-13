@@ -245,7 +245,7 @@ def parse-shares [...shares: string]: nothing -> record {
             bottleneck => { $result = ($result | upsert K6_BOTTLENECK_SHARE $value) }
             fallback => { $result = ($result | upsert K6_FALLBACK_SHARE $value) }
             _ => {
-                fail $'Unknown share: ($parts.0). Use bottleneck or fallback.' {
+                fail $'Unknown share: ($parts.0?). Use bottleneck or fallback.' {
                     command: parse-shares
                     span: (metadata $share).span
                 }
