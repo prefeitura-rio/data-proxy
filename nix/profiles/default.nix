@@ -1,5 +1,6 @@
 {
   pkgs,
+  config,
   ...
 }:
 {
@@ -24,7 +25,7 @@
         let
           nushell = file: {
             package = pkgs.nushell;
-            binary = "nu";
+            binary = "nu --include-path ${config.devenv.root}/scripts";
             exec = file;
           };
         in
