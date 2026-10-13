@@ -1161,7 +1161,7 @@ function verifyChangeFeed(token: string): void {
     ];
 
     for (const feed of feeds) {
-        const path = `/rpc/ducklake_changes_${feed.table}?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
+        const path = `/rpc/dl_changes_${feed.table}?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
         const all = proxyGet(path, token);
         const rows = rowsOf(all) as Array<Record<string, unknown>>;
         const bounded = proxyGet(`${path}&end_snapshot=${latest}`, token);
@@ -1707,7 +1707,7 @@ function proxyHaMode(k8s: Kubernetes): string {
     const env = deploymentPodSpec(k8s, PROXY_DEPLOYMENT).containers.flatMap(
         (container) => container.env ?? [],
     );
-    return env.find((entry) => entry.name === "HA_MODE")?.value ?? "";
+    return env.find((entry) => entry.name === "PROXY_HA_MODE")?.value ?? "";
 }
 
 /** Reports whether every PostgreSQL pod mounts the shared S3 secret folder. */
