@@ -4,7 +4,7 @@
 ---@class Constants
 ---@field headers HeaderConstants Names of HTTP headers.
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
----@field cache CacheConstants Cache rules.
+---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
 ---@field log LogConstants Log messages and fields.
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
@@ -23,15 +23,12 @@
 --- HTTP methods, statuses, media types and the 502 answer.
 ---@class HttpConstants
 ---@field read_methods table<string, boolean>
+---@field body_methods table<string, boolean> Methods that must send a body, because resty.http refuses nil.
 ---@field retry_statuses table<integer, boolean> Statuses from PostgREST (502, 503, 504) after which an HA read retries.
 ---@field default_media_type string Media type assumed if the client sends no usable Accept.
 ---@field json_type string Content-Type written if PostgREST sent none.
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
 ---@field unavailable_status integer
-
---- Cache rules.
----@class CacheConstants
----@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
 
 --- Log messages and fields.
 ---@class LogConstants

@@ -36,7 +36,7 @@ local function send(context, target)
 	local http_response, request_error = client:request_uri(request_url(target, context), {
 		method = context.method,
 		headers = context.headers,
-		body = context.body ~= "" and context.body or nil,
+		body = context.body ~= "" and context.body or (constants.http.body_methods[context.method] and "" or nil),
 		keepalive = true,
 	})
 

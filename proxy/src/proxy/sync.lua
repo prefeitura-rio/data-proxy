@@ -39,7 +39,7 @@ function sync.load(path)
 
 	return {
 		tables = tables,
-		disabled_endpoints = document.noCachePaths or constants.cache.disabled_endpoints,
+		disabled_endpoints = document.noCachePaths or constants.disabled_endpoints,
 	}
 end
 
