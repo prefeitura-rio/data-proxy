@@ -1,0 +1,159 @@
+[project]
+name = "sync"
+version = "1.0.0"
+description = "Sync service: copies BigQuery tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
+
+requires-python = ">=3.14"
+dependencies = [
+  "duckdb==1.5.4",
+  "dbos>=3.0.0",
+  "google-cloud-bigquery>=3.42.3",
+  "psycopg[binary]>=3.3.4",
+  "pydantic-settings>=2.14.2",
+  "pydantic>=2.13.4",
+  "redis>=5.0",
+  "asyncer>=0.0.18",
+  "whenever>=0.10.5",
+  "aiobotocore>=3.9.0",
+  "jinja2>=3.1",
+  "more-itertools>=10.0.0",
+  "opentelemetry-sdk>=1.44.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+  "lightkube==1.0.1",
+]
+
+[dependency-groups]
+dev = [
+  "complexipy>=7.0.1",
+  "google-auth-stubs>=0.3.0",
+  "hypothesis>=6.165.10",
+  "minio>=7.2.20",
+  "pytest-asyncio>=0.24.0",
+  "pytest-bdd==8.1.0",
+  "pytest-env>=1.1.5",
+  "pytest-gremlins>=1.9.0",
+  "pytest>=8.0.0",
+  "ruff>=0.9.3",
+  "testcontainers>=4.15.0",
+  "types-aiobotocore[s3]>=3.9.0",
+  "vulture>=2.16",
+]
+
+[tool.uv]
+package = false
+exclude-newer = "7 days"
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+  "A",    # flake8-builtins
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "DTZ",  # flake8-datetimez
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "FLY",  # flynt
+  "I",    # isort
+  "ISC",  # flake8-implicit-str-concat
+  "N",    # pep8-naming
+  "PERF", # perflint
+  "PGH",  # pygrep-hooks
+  "PIE",  # flake8-pie
+  "PT",   # flake8-pytest-style
+  "RET",  # flake8-return
+  "RSE",  # flake8-raise
+  "RUF",  # ruff-specific
+  "S",    # flake8-bandit
+  "SIM",  # flake8-simplify
+  "T10",  # flake8-debugger
+  "TRY",  # tryceratops
+  "UP",   # pyupgrade
+  "W",    # pycodestyle warnings
+]
+ignore = [
+  "E501",    # line too long — handled by formatter
+  "B008",    # function call in default argument
+  "FLY002",  # implicit f-string concat — intentional in some patterns
+  "PERF203", # try-except in loop — acceptable in sync scripts
+  "RET504",  # unnecessary assignment before return — aids readability
+  "S101",    # assert — intentional security guard in sync.py
+  "S311",    # random — intentional, seed script uses synthetic data not crypto
+  "S608",    # SQL via f-string — intentional, documented inline
+  "TRY003",  # long messages in raise — too strict for scripts
+]
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src", "tests"]
+reportUnusedCallResult = false
+reportUnusedParameter = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["src", "."]
+reportPrivateUsage = false
+reportAny = false
+
+
+[tool.vulture]
+ignore_decorators = [
+  "@pytest.fixture",
+  "@model_validator",
+  "@broker.subscriber",
+  "@producer.after_startup",
+]
+ignore_names = [
+  "model_config",
+  "sync_config_path",
+  "settings_instance",
+  "binary",
+  "exc_type",
+  "exc",
+  "exc_value",
+  "traceback",
+  "parameters",
+  "params",
+  "ex",
+  "expect",
+  "seconds",
+  "groupname",
+  "id",
+  "mkstream",
+  "max",
+  "consumername",
+  "job_config",
+  "approximate",
+  "res",
+  "patch_type",
+  "for_conditions",
+  "raise_for_conditions",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+strict = true
+addopts = ["--import-mode=importlib"]
+env_files = [".env.test"]
+pythonpath = ["src"]
+bdd_features_base_dir = "tests/integration/features"
+markers = [
+  "postgres: scenarios that require a PostgreSQL container",
+  "s3: scenarios that require S3-compatible object storage",
+  "redis: scenarios that require a Redis container",
+  "postgrest: tests that require a PostgREST container",
+  "proxy: tests for the OpenResty proxy migration",
+]
+filterwarnings = [
+  "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
+  "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
+  "ignore::DeprecationWarning:gherkin.gherkin_line",
+]
+
+[tool.pytest-gremlins]
+paths = ["src"]
+exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]
