@@ -43,13 +43,13 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 ## DuckLake change feed
 
-Each configured table exposes a read-only RPC named `ducklake_changes_<table>` in its target schema. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
+Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --header "Accept-Profile: my_schema" \
-  --get "${BASE_URL}/rpc/ducklake_changes_participants" \
+  --get "${BASE_URL}/rpc/dl_changes_participants" \
   --data-urlencode "start_snapshot=12" \
   --data-urlencode "end_snapshot=15"
 ```

@@ -58,7 +58,7 @@ Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, 
 | PostgREST  | One Deployment for reads and writes. `postgrest.autoscaling` scales it.         | A fixed `rw` Deployment (`postgrest.replicas`) for writes and `postgrest-ro` for reads, scaled by `postgrest.autoscaling`. |
 | Proxy      | Sends every request to PostgREST.                                               | Sends `GET` and `HEAD` to `postgrest-ro` and all other methods to `postgrest`.                             |
 
-The chart sets `HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy routes by method only when `HA_MODE` is `true`. In HA mode, a read that finds `postgrest-ro` unreachable, or answered with 502, 503, or 504, is retried on `postgrest`, which the primary backs, with a backoff between retries. `proxy.postgrestRetries` sets the number of retries; `proxy.postgrestBackoffMs` sets the delay before the first one. A write is never retried. This keeps reads working while the standbys start after a switch to HA mode, and during a failover.
+The chart sets `PROXY_HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy routes by method only when `PROXY_HA_MODE` is `true`. In HA mode, a read that finds `postgrest-ro` unreachable, or answered with 502, 503, or 504, is retried on `postgrest`, which the primary backs, with a backoff between retries. `proxy.postgrestRetries` sets the number of retries; `proxy.postgrestBackoffMs` sets the delay before the first one. A write is never retried. This keeps reads working while the standbys start after a switch to HA mode, and during a failover.
 
 To change the mode, run one upgrade in either direction:
 
