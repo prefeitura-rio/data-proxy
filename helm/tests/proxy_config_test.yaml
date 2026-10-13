@@ -6,137 +6,129 @@ templates:
   - configmap-proxy.yaml
   - deployment-proxy.yaml
 tests:
-  - it: renders env var placeholders in nginx config
+  - it: passes the proxy settings as environment variables
     set:
       proxy.image: example.invalid/data-proxy-proxy:test
       proxy.cacheRedisDb: 2
-    templates:
-      - configmap-proxy.yaml
-    asserts:
-      - matchRegex:
-          path: data["webdis-write.json"]
-          pattern: '"database": 2'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-webdis
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_cache_ttl "\$\{CACHE_TTL\}"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'js_fetch_max_response_buffer_size \$\{FETCH_BUFFER_SIZE\}'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'js_fetch_timeout \$\{FETCH_TIMEOUT\}'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'large_client_header_buffers \$\{LARGE_CLIENT_HEADER_BUFFERS\}'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest.default.svc.cluster.local:3000"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'default "http://data-proxy-postgrest.default.svc.cluster.local:3000"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'js_preload_object /config/sync.json'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'proxy_pass http://127.0.0.1:7379/'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-
-  - it: loads the proxy script
-    templates:
-      - configmap-proxy.yaml
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'js_import proxy\.js;'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'js_content proxy\.handle;'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'set \$proxy_cache_ttl "\$\{CACHE_TTL\}"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-
-  - it: allows browsers to pin a snapshot version
-    templates:
-      - configmap-proxy.yaml
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'Access-Control-Allow-Headers "[^"]*X-DuckLake-Snapshot'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-
-  - it: sets env vars on the nginx container from helm values
+      proxy.cacheTtl: 42
+      proxy.maxCacheBodyBytes: 1000
+      proxy.postgrestRetries: 2
+      proxy.postgrestBackoffMs: 100
     templates:
       - deployment-proxy.yaml
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value
-          value: "120s"
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="LARGE_CLIENT_HEADER_BUFFERS")].value
-          value: "4 64k"
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_BUFFER_SIZE")].value
-          value: "32m"
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="CACHE_TTL")].value
-          value: "300"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CACHE_TTL
+            value: "42"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_DATABASE
+            value: "2"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_BODY
+            value: "1000"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: redis-writer
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_RETRIES
+            value: "2"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_BACKOFF_MS
+            value: "100"
 
-  - it: overrides env vars from helm values
-    templates:
-      - deployment-proxy.yaml
+  - it: renders concrete OpenResty settings
     set:
-      proxy.fetchTimeout: 30s
+      proxy.image: example.invalid/data-proxy-proxy:test
       proxy.largeClientHeaderBuffers: "8 128k"
+    templates:
+      - configmap-proxy.yaml
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_TIMEOUT")].value
-          value: "30s"
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="LARGE_CLIENT_HEADER_BUFFERS")].value
-          value: "8 128k"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_CACHE_TTL;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_REDIS_PASSWORD;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_POSTGREST_WRITE;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_POSTGREST_RETRIES;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_POSTGREST_BACKOFF_MS;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$|__[A-Z_]+__'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'large_client_header_buffers 8 128k'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_shared_dict proxy_locks'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_package_path "/usr/local/openresty/site/lualib/\?\.lua;/opt/data-proxy/rocks/\?\.lua;/opt/data-proxy/rocks/\?/init\.lua;;"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_package_cpath "/opt/data-proxy/lib/\?\.so;;"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'webdis|js_import|js_content|\$\{'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
 
-  - it: mounts config as envsubst template
+  - it: uses the OpenResty image and config path
     templates:
       - deployment-proxy.yaml
     asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: proxy
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[?(@.name=="config")].mountPath
-          value: /etc/nginx/templates/nginx.conf.template
+          value: /usr/local/openresty/nginx/conf/nginx.conf

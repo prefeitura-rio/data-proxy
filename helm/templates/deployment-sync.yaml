@@ -41,7 +41,7 @@ spec:
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           resources:
             {{- toYaml .Values.sync.resources | nindent 12 }}
-          command: ["python", "-m", "data_proxy.dbos.main"]
+          command: ["python", "-m", "sync.dbos.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
             - name: DBOS__VMID

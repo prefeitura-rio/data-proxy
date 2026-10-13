@@ -241,14 +241,16 @@ seaweedfs:
 ## External Redis-compatible cache.
 redis:
   existingSecret: data-proxy-redis
+  host: redis-writer
+  port: 6379
   readKey: REDIS_READ
   writeKey: REDIS_WRITE
   passwordKey: REDIS_PASSWORD
   writerAddress: redis-writer:6379
-  webdisHost: redis-writer
-  webdisPort: 6379
-  webdisReadHost: redis-reader
-  webdisReadPort: 6379
+  writerHost: redis-writer
+  writerPort: 6379
+  readerHost: redis-reader
+  readerPort: 6379
 ## Maintenance jobs: backup and maintenance.
 jobs:
   ## Shared image for maintenance jobs.
@@ -369,23 +371,20 @@ ingress:
 ## Caching proxy in front of PostgREST.
 proxy:
   cacheTtl: 300
-  fetchBufferSize: 32m
-  fetchTimeout: 120s
+  upstreamTimeout: 120s
+  upstreamKeepalive: 32
+  upstreamKeepaliveTimeout: 60s
   largeClientHeaderBuffers: 4 64k
-  fetchKeepalive: 32
-  fetchKeepaliveTimeout: 60s
+  cacheLockTimeout: 5s
   cacheRedisDb: 1
   maxCacheBodyBytes: 262144
+  postgrestRetries: 1
+  postgrestBackoffMs: 0
   image: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
-  webdisImage: docker.io/nicolas/webdis:0.1.25
   resources:
     requests:
       cpu: 100m
       memory: 64Mi
-  webdisResources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
   autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 3

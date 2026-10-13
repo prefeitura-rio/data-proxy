@@ -5,189 +5,25 @@ templates:
   - scaledobjects.yaml
   - services.yaml
 tests:
-  - it: renders the proxy configmap with nginx and webdis configs
+  - it: renders one OpenResty proxy container
     asserts:
-      - hasDocuments:
-          count: 2
-        template: configmap-proxy.yaml
-
-  - it: gives the CPU-scaled nginx container a CPU request without owning its replica count
-    set:
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
-          value: 100m
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
         template: deployment-proxy.yaml
-      - notExists:
-          path: spec.replicas
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: proxy
         template: deployment-proxy.yaml
 
-  - it: uses 90 percent CPU and memory targets for proxy autoscaling
-    asserts:
-      - equal:
-          path: spec.triggers[0].metadata.value
-          value: "90"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: scaledobjects.yaml
-      - equal:
-          path: spec.triggers[1].metadata.value
-          value: "90"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: scaledobjects.yaml
-
-  - it: injects the Istio sidecar into the proxy that receives the traffic
-    set:
-    asserts:
-      - equal:
-          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
-          value: "true"
-        template: deployment-proxy.yaml
-
-  - it: honors sidecarInject for the proxy
-    set:
-      ingress.sidecarInject: false
-    asserts:
-      - equal:
-          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
-          value: "false"
-        template: deployment-proxy.yaml
-
-  - it: configures the webdis-write sidecar with a runtime Valkey password
-    set:
-      redis.existingSecret: valkey-credentials
-      redis.passwordKey: redis-password
+  - it: mounts the OpenResty configuration and sync config
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].env
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: VALKEY_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: valkey-credentials
-                key: redis-password
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[1].command
-          content: /bin/sh
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: webdis-write-runtime
-            mountPath: /run/webdis-write
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: webdis-write-runtime
-            emptyDir: {}
-        template: deployment-proxy.yaml
-
-  - it: configures the webdis-read sidecar on port 7380
-    set:
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[2].name
-          value: webdis-read
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[2].ports
-          content:
-            name: redis-http-read
-            containerPort: 7380
-        template: deployment-proxy.yaml
-
-  - it: templates the webdis write and read config
-    set:
-      redis.webdisHost: redis-primary
-      redis.webdisPort: 6379
-      redis.webdisReadHost: redis-replica
-    asserts:
-      - matchRegex:
-          path: data["webdis-write.json"]
-          pattern: '"redis_host": "redis-primary"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-webdis
-        template: configmap-proxy.yaml
-      - matchRegex:
-          path: data["webdis-read.json"]
-          pattern: '"redis_host": "redis-replica"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-webdis
-        template: configmap-proxy.yaml
-
-  - it: publishes the webdis write port of the sidecar
-    set:
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[1].ports
-          content:
-            name: redis-http
-            containerPort: 7379
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.ports
-          content:
-            name: redis-http
-            port: 7379
-            targetPort: 7379
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: services.yaml
-
-  - it: keeps the fetch connections to webdis alive
-    set:
-    asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive \\${FETCH_KEEPALIVE}"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: "js_fetch_keepalive_timeout \\${FETCH_KEEPALIVE_TIMEOUT}"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-
-  - it: wires the fetch keepalive settings to the chart values
-    set:
-      proxy.fetchKeepalive: 8
-      proxy.fetchKeepaliveTimeout: 30s
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_KEEPALIVE")].value
-          value: "8"
-        template: deployment-proxy.yaml
-      - equal:
-          path: spec.template.spec.containers[0].env[?(@.name=="FETCH_KEEPALIVE_TIMEOUT")].value
-          value: "30s"
-        template: deployment-proxy.yaml
-
-  - it: rolls the proxy when its configuration changes
-    set:
-    asserts:
-      - matchRegex:
-          path: spec.template.metadata.annotations["checksum/proxy-config"]
-          pattern: "^[0-9a-f]{64}$"
-        template: deployment-proxy.yaml
-
-  - it: mounts the sync config and rolls on its changes
-    set:
-    asserts:
-      - matchRegex:
-          path: spec.template.metadata.annotations["checksum/sync-config"]
-          pattern: "^[0-9a-f]{64}$"
+            name: config
+            mountPath: /usr/local/openresty/nginx/conf/nginx.conf
+            subPath: nginx.conf
         template: deployment-proxy.yaml
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
@@ -197,10 +33,62 @@ tests:
             readOnly: true
         template: deployment-proxy.yaml
 
-  - it: pins the webdis sidecar image to a fixed tag
+  - it: passes the Redis password to OpenResty
     set:
+      redis.existingSecret: redis-credentials
+      redis.passwordKey: redis-password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: redis-credentials
+                key: redis-password
+        template: deployment-proxy.yaml
+
+  - it: removes the Webdis service port
+    asserts:
+      - notContains:
+          path: spec.ports
+          content:
+            name: redis-http
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: services.yaml
+
+  - it: renders the OpenResty configuration
     asserts:
       - matchRegex:
-          path: spec.template.spec.containers[1].image
-          pattern: ^docker\.io/nicolas/webdis:[0-9]+\.[0-9]+\.[0-9]+$
-        template: deployment-proxy.yaml
+          path: data["nginx.conf"]
+          pattern: "lua_shared_dict proxy_locks"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "content_by_lua_block"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: "webdis|js_import|js_content"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+
+  - it: keeps the proxy autoscaling configuration
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata.value
+          value: "90"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml

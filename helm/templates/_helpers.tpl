@@ -308,37 +308,43 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 {{- end }}
 
 {{- define "data-proxy.nginxConfigBody" -}}
-{{- $upstreams := .upstreams -}}
 {{- $root := .root -}}
-{{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams }}
+{{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/nginx.conf") -}}
+{{- end }}
+
+{{- define "data-proxy.proxyEnv" -}}
+{{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
+{{- $read := printf "http://%s%s.%s.svc.cluster.local:3000" $postgrest (ternary "-ro" "" .Values.ha.enabled) .Release.Namespace -}}
+{{- $write := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
+- name: PROXY_CACHE_TTL
+  value: {{ toString .Values.proxy.cacheTtl | quote }}
+- name: PROXY_MAX_BODY
+  value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
+- name: PROXY_HA_MODE
+  value: {{ toString .Values.ha.enabled | quote }}
+- name: PROXY_REDIS_HOST
+  value: {{ .Values.redis.host | quote }}
+- name: PROXY_REDIS_PORT
+  value: {{ toString .Values.redis.port | quote }}
+- name: PROXY_REDIS_DATABASE
+  value: {{ toString .Values.proxy.cacheRedisDb | quote }}
+- name: PROXY_REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ include "data-proxy.redisPasswordKey" . }}
+- name: PROXY_POSTGREST_READ
+  value: {{ $read | quote }}
+- name: PROXY_POSTGREST_WRITE
+  value: {{ $write | quote }}
+- name: PROXY_POSTGREST_RETRIES
+  value: {{ toString .Values.proxy.postgrestRetries | quote }}
+- name: PROXY_POSTGREST_BACKOFF_MS
+  value: {{ toString .Values.proxy.postgrestBackoffMs | quote }}
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}
-{{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.nginxUpstreams" .)) }}
-{{- end }}
-
-{{- define "data-proxy.webdisWriteConfig" -}}
-{
-  "redis_host": "{{ .Values.redis.webdisHost }}",
-  "redis_port": {{ .Values.redis.webdisPort }},
-  "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.proxy.cacheRedisDb }},
-  "http_port": 7379,
-  "daemonize": false,
-  "logfile": "/dev/stdout"
-}
-{{- end }}
-
-{{- define "data-proxy.webdisReadConfig" -}}
-{
-  "redis_host": "{{ .Values.redis.webdisReadHost | default .Values.redis.webdisHost }}",
-  "redis_port": {{ .Values.redis.webdisReadPort | default .Values.redis.webdisPort }},
-  "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.proxy.cacheRedisDb }},
-  "http_port": 7380,
-  "daemonize": false,
-  "logfile": "/dev/stdout"
-}
+{{ include "data-proxy.nginxConfigBody" (dict "root" .) }}
 {{- end }}
 
 {{- define "data-proxy.jwtRules" -}}
@@ -350,20 +356,6 @@ jwtRules:
       - {{ . | quote }}
     {{- end }}
     forwardOriginalToken: true
-{{- end }}
-
-{{- define "data-proxy.nginxUpstreams" -}}
-{{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
-map $http_accept_profile $postgrest_read {
-  default "http://{{ $postgrest }}{{ ternary "-ro" "" .Values.ha.enabled }}.{{ .Release.Namespace }}.svc.cluster.local:3000";
-}
-{{- if .Values.ha.enabled }}
-
-map $http_accept_profile $postgrest_write {
-  default "http://{{ $postgrest }}.{{ .Release.Namespace }}.svc.cluster.local:3000";
-}
-{{- end }}
-
 {{- end }}
 
 {{- define "data-proxy.litestreamConfig" -}}

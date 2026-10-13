@@ -29,7 +29,7 @@ tests:
           value: data-proxy-postgrest
         template: services.yaml
 
-  - it: proxy service is rendered with http and redis ports
+  - it: proxy service is rendered with http only
     asserts:
       - equal:
           path: spec.ports[0].port
@@ -38,9 +38,9 @@ tests:
           path: metadata.name
           value: data-proxy-proxy
         template: services.yaml
-      - equal:
-          path: spec.ports[1].port
-          value: 7379
+      - lengthEqual:
+          path: spec.ports
+          count: 1
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy

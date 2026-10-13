@@ -52,8 +52,10 @@ postgrest:
 redis:
   existingSecret: data-proxy-redis
   writerAddress: redis-writer:6379
-  webdisHost: redis-writer
-  webdisPort: 6379
+  writerHost: redis-writer
+  writerPort: 6379
+  readerHost: redis-reader
+  readerPort: 6379
 
 auth:
   anonRole: anon

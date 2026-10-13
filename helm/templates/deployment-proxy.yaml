@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/proxy-config: {{ printf "%s%s" (include "data-proxy.nginxProxyConfig" .) (include "data-proxy.webdisWriteConfig" .) | sha256sum }}
+        checksum/proxy-config: {{ include "data-proxy.nginxProxyConfig" . | sha256sum }}
         checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
@@ -22,32 +22,17 @@ spec:
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       containers:
-        - name: nginx
+        - name: proxy
           image: {{ required "proxy.image must reference an image built from Containerfile.proxy" .Values.proxy.image | quote }}
           ports:
             - name: http
               containerPort: 8080
           env:
-            - name: CACHE_TTL
-              value: {{ toString .Values.proxy.cacheTtl | quote }}
-            - name: HA_MODE
-              value: {{ .Values.ha.enabled | quote }}
-            - name: MAX_BODY
-              value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
-            - name: FETCH_BUFFER_SIZE
-              value: {{ toString .Values.proxy.fetchBufferSize | quote }}
-            - name: FETCH_TIMEOUT
-              value: {{ toString .Values.proxy.fetchTimeout | quote }}
-            - name: FETCH_KEEPALIVE
-              value: {{ toString .Values.proxy.fetchKeepalive | quote }}
-            - name: FETCH_KEEPALIVE_TIMEOUT
-              value: {{ toString .Values.proxy.fetchKeepaliveTimeout | quote }}
-            - name: LARGE_CLIENT_HEADER_BUFFERS
-              value: {{ toString .Values.proxy.largeClientHeaderBuffers | quote }}
+            {{- include "data-proxy.proxyEnv" . | nindent 12 }}
           volumeMounts:
             {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: config
-              mountPath: /etc/nginx/templates/nginx.conf.template
+              mountPath: /usr/local/openresty/nginx/conf/nginx.conf
               subPath: nginx.conf
           readinessProbe:
             httpGet:
@@ -59,69 +44,8 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-        - name: webdis-write
-          image: {{ .Values.proxy.webdisImage }}
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              escaped_password="$(printf '%s' "${VALKEY_PASSWORD:-}" | sed 's/[\\/&]/\\\\&/g')"
-              sed "s/__VALKEY_PASSWORD__/${escaped_password}/g" /etc/webdis/webdis-write.json > /run/webdis-write/webdis.json
-              exec /usr/local/bin/webdis /run/webdis-write/webdis.json
-          env:
-            - name: VALKEY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.redisSecretName" . }}
-                  key: {{ include "data-proxy.redisPasswordKey" . }}
-          ports:
-            - name: redis-http
-              containerPort: 7379
-          volumeMounts:
-            - name: webdis-config
-              mountPath: /etc/webdis
-              readOnly: true
-            - name: webdis-write-runtime
-              mountPath: /run/webdis-write
-          {{- with .Values.proxy.webdisResources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-        - name: webdis-read
-          image: {{ .Values.proxy.webdisImage }}
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              escaped_password="$(printf '%s' "${VALKEY_PASSWORD:-}" | sed 's/[\\/&]/\\\\&/g')"
-              sed "s/__VALKEY_PASSWORD__/${escaped_password}/g" /etc/webdis/webdis-read.json > /run/webdis-read/webdis.json
-              exec /usr/local/bin/webdis /run/webdis-read/webdis.json
-          env:
-            - name: VALKEY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.redisSecretName" . }}
-                  key: {{ include "data-proxy.redisPasswordKey" . }}
-          ports:
-            - name: redis-http-read
-              containerPort: 7380
-          volumeMounts:
-            - name: webdis-config
-              mountPath: /etc/webdis
-              readOnly: true
-            - name: webdis-read-runtime
-              mountPath: /run/webdis-read
-          {{- with .Values.proxy.webdisResources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         - name: config
           configMap:
             name: {{ include "data-proxy.fullname" . }}-proxy
-        - name: webdis-config
-          configMap:
-            name: {{ include "data-proxy.fullname" . }}-webdis
-        - name: webdis-write-runtime
-          emptyDir: {}
-        - name: webdis-read-runtime
-          emptyDir: {}

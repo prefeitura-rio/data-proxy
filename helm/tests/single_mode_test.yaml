@@ -13,15 +13,14 @@ templates:
   - services.yaml
   - pdbs.yaml
 tests:
-  - it: is the default mode
+  - it: passes single mode to the OpenResty proxy
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: HA_MODE
+            name: PROXY_HA_MODE
             value: "false"
         template: deployment-proxy.yaml
-
   - it: leaves the number of instances to a ScaledObject that pins cnpg.instances
     set:
       cnpg.instances: 2
@@ -181,24 +180,15 @@ tests:
 
   - it: sends every request to the one PostgREST
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'postgrest_read \{\s+default "http://data-proxy-postgrest\.default\.svc\.cluster\.local:3000"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-      - notMatchRegex:
-          path: data["nginx.conf"]
-          pattern: 'postgrest_write'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'set \$ha_mode "\$\{HA_MODE\}"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_READ
+            value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_WRITE
+            value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
+        template: deployment-proxy.yaml

@@ -15,15 +15,14 @@ templates:
 set:
   ha.enabled: true
 tests:
-  - it: tells the proxy that HA mode is on
+  - it: passes the HA mode to the OpenResty proxy
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: HA_MODE
+            name: PROXY_HA_MODE
             value: "true"
         template: deployment-proxy.yaml
-
   - it: leaves the number of instances to the cluster autoscaler
     asserts:
       - notExists:
@@ -503,21 +502,18 @@ tests:
 
   - it: reads from the read PostgREST and writes to the read-write PostgREST
     asserts:
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'postgrest_read \{\s+default "http://data-proxy-postgrest-ro\.default\.svc\.cluster\.local:3000"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: 'postgrest_write \{\s+default "http://data-proxy-postgrest\.default\.svc\.cluster\.local:3000"'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: configmap-proxy.yaml
-
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_READ
+            value: "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000"
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST_WRITE
+            value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
+        template: deployment-proxy.yaml
   - it: configures bounded catalog refresh for sync restarts
     asserts:
       - contains:
