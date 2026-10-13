@@ -98,6 +98,7 @@ seaweedfs:
         secretKey: seaweedfs
 redis:
   existingSecret: data-proxy-redis
+  host: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
   writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
   writerHost: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
   writerPort: 6379
