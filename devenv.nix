@@ -5,6 +5,9 @@
   inputs,
   ...
 }:
+let
+  nuLibDirs = "${config.devenv.root}/scripts";
+in
 {
   name = "data-proxy";
 
@@ -12,7 +15,7 @@
     base.module = {
       env = {
         LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc ];
-        NU_LIB_DIRS = "${config.devenv.root}/scripts";
+        NU_LIB_DIRS = nuLibDirs;
       };
     };
 
@@ -124,6 +127,7 @@
           "dp:proxy:rocks" = {
             before = [ "devenv:enterShell" ];
             package = pkgs.nushell;
+            env.NU_LIB_DIRS = nuLibDirs;
             exec = builtins.readFile ./scripts/lux.nu;
             execIfModified = [
               "proxy/lux.toml"
