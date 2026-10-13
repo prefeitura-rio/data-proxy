@@ -1,0 +1,36 @@
+[
+  {
+    "path": "src/sync/dbos/workflows.py",
+    "file_name": "workflows.py",
+    "functions": [
+      {
+        "name": "refresh_catalogs",
+        "complexity": 11
+      },
+      {
+        "name": "run_sync",
+        "complexity": 12
+      }
+    ]
+  },
+  {
+    "path": "src/sync/ducklake.py",
+    "file_name": "ducklake.py",
+    "functions": [
+      {
+        "name": "plan_publication",
+        "complexity": 13
+      }
+    ]
+  },
+  {
+    "path": "tests/helpers.py",
+    "file_name": "helpers.py",
+    "functions": [
+      {
+        "name": "stub_sync_run",
+        "complexity": 12
+      }
+    ]
+  }
+]
