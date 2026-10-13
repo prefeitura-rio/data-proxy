@@ -102,6 +102,9 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
   "TC002",    # test annotations are cheap, runtime imports keep fixtures simple
   "TC003",    # test annotations are cheap, runtime imports keep fixtures simple
   "S404",     # the psql fixture runs the psql command-line client
+  "S106",     # the Silo credentials are test constants
+  "S603",     # the fixtures run the psql client and the container engine
+  "S607",     # the fixtures find psql on PATH
 ]
 "src/sync/dbos/steps.py" = ["RUF029"]            # DBOS steps are async by contract
 "src/sync/dbos/workflows.py" = [
