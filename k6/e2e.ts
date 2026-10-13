@@ -645,6 +645,21 @@ function snapshotHeader(r: K6Response): string {
     return headerOf(r, "X-DuckLake-Snapshot");
 }
 
+/** Serializes a value with sorted object keys: k6 does not keep the key order of parsed JSON. */
+function stable(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(stable).join(",")}]`;
+    }
+    if (value !== null && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        const entries = Object.keys(record)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stable(record[key])}`);
+        return `{${entries.join(",")}}`;
+    }
+    return JSON.stringify(value);
+}
+
 /** Extracts the rows from a JSON array response, or an empty array. */
 function rowsOf(r: K6Response): unknown[] {
     const body = safeJson(r);
@@ -797,7 +812,7 @@ function verifyProxyCache(token: string, otherToken: string): void {
     );
     expect(
         "a refreshed token receives the same answer",
-        JSON.stringify(rowsOf(rotated)) === JSON.stringify(rowsOf(second)),
+        stable(rowsOf(rotated)) === stable(rowsOf(second)),
     );
 
     const forged = proxyGet(path, "forged.token.value");
@@ -811,13 +826,13 @@ function verifyProxyCache(token: string, otherToken: string): void {
     );
     expect(
         "the cached answer is the same",
-        JSON.stringify(rowsOf(second)) === JSON.stringify(rowsOf(first)),
+        stable(rowsOf(second)) === stable(rowsOf(first)),
     );
 
     const otherSubject = proxyGet(path, otherToken);
     expect(
         "another subject does not receive the answer",
-        JSON.stringify(rowsOf(otherSubject)) !== JSON.stringify(rowsOf(first)),
+        stable(rowsOf(otherSubject)) !== stable(rowsOf(first)),
     );
 
     expect(
@@ -890,8 +905,8 @@ function verifyCoalescing(token: string): void {
     expect("a burst is answered with rows", bodies.length === responses.length);
     expect(
         "a burst is served the same answer",
-        JSON.stringify(rowsOf(responses[0])) ===
-        JSON.stringify(rowsOf(responses[BURST_REQUESTS - 1])),
+        stable(rowsOf(responses[0])) ===
+        stable(rowsOf(responses[BURST_REQUESTS - 1])),
     );
 }
 
@@ -1480,7 +1495,7 @@ function verifySnapshotVersion(token: string): void {
     );
     expect(
         "the latest version returns the same rows as the default request",
-        JSON.stringify(rowsOf(pinned)) === JSON.stringify(rowsOf(latest)),
+        stable(rowsOf(pinned)) === stable(rowsOf(latest)),
     );
 
     const unknown = proxyGet(path, token, {
@@ -1579,7 +1594,7 @@ function verifyFilterPushdown(token: string): void {
         );
         const directRows = rowsOf(direct);
         const proxyRows = rowsOf(proxy);
-        const rowsMatch = JSON.stringify(proxyRows) === JSON.stringify(directRows);
+        const rowsMatch = stable(proxyRows) === stable(directRows);
         if (!rowsMatch) {
             console.log(
                 JSON.stringify({ name, query, snapshot, direct: directRows, proxy: proxyRows }),
