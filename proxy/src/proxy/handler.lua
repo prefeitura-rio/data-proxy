@@ -11,6 +11,22 @@ local routing = require("proxy.routing")
 ---@class Handler
 local handler = {}
 
+--- Read the request body. nginx keeps a body that is larger than client_body_buffer_size in a temporary file.
+---@return string body The body, or an empty text if the request has none.
+local function read_body()
+	ngx.req.read_body()
+	local data = ngx.req.get_body_data()
+	if data then return data end
+
+	local path = ngx.req.get_body_file()
+	local file = path and io.open(path, "rb")
+	if not file then return "" end
+
+	local content = file:read("*a")
+	file:close()
+	return content or ""
+end
+
 --- Copy the current nginx request into an NgxRequest.
 ---@param config Config
 ---@return NgxRequest
@@ -19,7 +35,7 @@ local function read_nginx_request(config)
 		method = ngx.req.get_method(),
 		uri = ngx.var.uri,
 		args = ngx.var.args or "",
-		body = ngx.req.get_body_data() or "",
+		body = read_body(),
 		headers_in = ngx.req.get_headers() --[[@as table<string,string|nil>]],
 		headers_out = ngx.header --[[@as table<string,string>]],
 		cache_ttl = config.cache_ttl,
