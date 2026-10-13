@@ -1,4 +1,4 @@
-use ./lib.nu [
+use lib.nu [
     apply-gcp-secret
     build-local-images
     fail
@@ -133,8 +133,8 @@ def k6-run [
         '--from-file=lib.ts=k6/lib.ts'
     ] | if $with_trigger {
         append [
-            '--from-file=trigger.py=scripts/manifests/files/trigger.py'
-            '--from-file=mutate.py=scripts/manifests/files/mutate.py'
+            '--from-file=trigger.py=k3d/manifests/files/trigger.py'
+            '--from-file=mutate.py=k3d/manifests/files/mutate.py'
         ]
     } else { }
 
@@ -269,6 +269,11 @@ def run-profile [
         let image_tag = local-image-tag
         log info $'Applying proxy cache TTL ($cache_ttl)s...'
         wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)' --state-values-set $'proxy.cacheTtl=($cache_ttl)'
+        [
+            'data-proxy/data-proxy-proxy'
+            'data-proxy/data-proxy-postgrest'
+            'data-proxy/data-proxy-sync'
+        ] | wait-for deployment $kubecfg
     }
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'

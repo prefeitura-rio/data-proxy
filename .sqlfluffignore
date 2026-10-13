@@ -1,53 +1,53 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
-src/data_proxy/templates/postgres/insert_error.sql
-src/data_proxy/templates/postgres/read_state.sql
-src/data_proxy/templates/postgres/upsert_state.sql
+sync/src/sync/templates/postgres/insert_error.sql
+sync/src/sync/templates/postgres/read_state.sql
+sync/src/sync/templates/postgres/upsert_state.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
-src/data_proxy/templates/postgres/macros.sql
+sync/src/sync/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
-src/data_proxy/templates/duckdb/describe_source.sql
-src/data_proxy/templates/duckdb/setup.sql
-src/data_proxy/templates/bigquery/partitions.sql
+sync/src/sync/templates/duckdb/describe_source.sql
+sync/src/sync/templates/duckdb/setup.sql
+sync/src/sync/templates/bigquery/partitions.sql
 
 # Dynamic Jinja projection renders a long line for SQLFluff's static parser.
-src/data_proxy/templates/duckdb/write_all.sql
-src/data_proxy/templates/duckdb/write_partition.sql
-src/data_proxy/templates/duckdb/write_remainder.sql
+sync/src/sync/templates/duckdb/write_all.sql
+sync/src/sync/templates/duckdb/write_partition.sql
+sync/src/sync/templates/duckdb/write_remainder.sql
 
 # Jinja macro source and imports are validated through rendering.
-src/data_proxy/templates/duckdb/macros.sql
+sync/src/sync/templates/duckdb/macros.sql
 helm/files/templates/postgres/macros.sql
 helm/files/templates/postgres/grant_app_usage.sql
-src/data_proxy/templates/postgres/access_policy_check.sql
-src/data_proxy/templates/postgres/drop_view_objects.sql
-src/data_proxy/templates/postgres/write_view_signature.sql
-src/data_proxy/templates/postgres/views/ducklake.sql
-src/data_proxy/templates/postgres/views/fallbacks/bigquery.sql
+sync/src/sync/templates/postgres/access_policy_check.sql
+sync/src/sync/templates/postgres/drop_view_objects.sql
+sync/src/sync/templates/postgres/write_view_signature.sql
+sync/src/sync/templates/postgres/views/ducklake.sql
+sync/src/sync/templates/postgres/views/fallbacks/bigquery.sql
 helm/files/templates/postgres/configure_ducklake.sql
 
 # Test templates with prepared parameters; validated through execution tests.
-tests/templates/bigquery/partitions.sql
-tests/templates/bigquery/table_metadata.sql
-tests/templates/duckdb/write_evolved_parquet.sql
-tests/templates/postgres/call_cleanup_stale_objects.sql
-tests/templates/postgres/delete_access_policy.sql
-tests/templates/postgres/delete_workflows.sql
-tests/templates/postgres/function_exists.sql
-tests/templates/postgres/has_schema_usage.sql
-tests/templates/postgres/has_table_select.sql
-tests/templates/postgres/insert_access_log.sql
-tests/templates/postgres/insert_access_policy.sql
-tests/templates/postgres/insert_workflow.sql
-tests/templates/postgres/log_trigger_is_security_definer.sql
-tests/templates/postgres/policy_names.sql
-tests/templates/postgres/relation_exists.sql
-tests/templates/postgres/role_memberships.sql
-tests/templates/postgres/schema_names.sql
-tests/templates/postgres/select_changes.sql
-tests/templates/postgres/select_grants.sql
-tests/templates/postgres/select_plan_sources.sql
-tests/templates/postgres/select_workflows.sql
-tests/templates/postgres/update_access_policy.sql
-tests/templates/postgres/view_columns.sql
+sync/tests/templates/bigquery/partitions.sql
+sync/tests/templates/bigquery/table_metadata.sql
+sync/tests/templates/duckdb/write_evolved_parquet.sql
+sync/tests/templates/postgres/call_cleanup_stale_objects.sql
+sync/tests/templates/postgres/delete_access_policy.sql
+sync/tests/templates/postgres/delete_workflows.sql
+sync/tests/templates/postgres/function_exists.sql
+sync/tests/templates/postgres/has_schema_usage.sql
+sync/tests/templates/postgres/has_table_select.sql
+sync/tests/templates/postgres/insert_access_log.sql
+sync/tests/templates/postgres/insert_access_policy.sql
+sync/tests/templates/postgres/insert_workflow.sql
+sync/tests/templates/postgres/log_trigger_is_security_definer.sql
+sync/tests/templates/postgres/policy_names.sql
+sync/tests/templates/postgres/relation_exists.sql
+sync/tests/templates/postgres/role_memberships.sql
+sync/tests/templates/postgres/schema_names.sql
+sync/tests/templates/postgres/select_changes.sql
+sync/tests/templates/postgres/select_grants.sql
+sync/tests/templates/postgres/select_plan_sources.sql
+sync/tests/templates/postgres/select_workflows.sql
+sync/tests/templates/postgres/update_access_policy.sql
+sync/tests/templates/postgres/view_columns.sql

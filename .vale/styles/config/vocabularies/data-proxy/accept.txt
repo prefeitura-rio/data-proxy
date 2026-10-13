@@ -164,3 +164,13 @@ autoscaling
 Poolers
 poolers
 nullable
+Lua
+lockfile
+LPeg
+[Ll]uacheck
+globals
+stylua
+Penlight
+tableshape
+metatable
+backoff

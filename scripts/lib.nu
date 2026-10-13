@@ -1,7 +1,7 @@
 use std/log
 
 export const IMAGE_REGISTRY = 'registry.localhost:5001'
-export const IMAGE_TAG_FILE = '.k3d/tag'
+export const IMAGE_TAG_FILE = 'k3d/.tmp/tag'
 export const CLUSTER_NAME = 'data-proxy'
 export const PROFILE = 'k3d-data-proxy'
 export const NAMESPACE = 'data-proxy'
@@ -69,7 +69,7 @@ export def git-root []: nothing -> string {
 
 # Return the local k3d kubeconfig path.
 export def local-kubeconfig []: nothing -> string {
-    git-root | path join .kubeconfig
+    git-root | path join k3d .kubeconfig
 }
 
 # Read the immutable local image tag from the latest build.
@@ -206,7 +206,7 @@ export def --wrapped wrap-helmfile [kubecfg: path, --image-tag: string, ...rest:
     | if $image_tag == null { } else { upsert LOCAL_IMAGE_TAG $image_tag }
 
     with-env $helm_env {
-        helmfile --file (git-root | path join helmfile.yaml) ...$rest
+        helmfile --file (git-root | path join k3d helmfile.yaml) ...$rest
     }
 }
 

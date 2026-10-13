@@ -1,5 +1,5 @@
 use std/log
-use ./lib.nu [fail]
+use lib.nu [fail]
 
 # CI platform configuration with GitHub Actions defaults.
 let ci = {
@@ -58,7 +58,7 @@ def 'main changes' []: nothing -> nothing {
             containerfile: Containerfile.sync
             suffix: -sync
             tag_prefix: ""
-            pattern: '^Containerfile\.sync$|^src/|^pyproject\.toml$|^uv\.lock$'
+            pattern: '^Containerfile\.sync$|^sync/(src/|pyproject\.toml$|uv\.lock$)'
         }
         {
             name: Proxy

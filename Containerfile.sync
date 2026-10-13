@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN useradd --create-home --uid 10001 appuser
 
-COPY pyproject.toml uv.lock ./
+COPY sync/pyproject.toml sync/uv.lock ./
 
 RUN uv sync --frozen --no-dev \
   && chown -R appuser:appuser /app
@@ -13,7 +13,7 @@ USER appuser
 
 RUN .venv/bin/python -c "from duckdb import connect; c = connect(); c.execute('INSTALL httpfs'); c.execute('LOAD httpfs'); c.execute('INSTALL ducklake'); c.execute('LOAD ducklake'); c.execute('INSTALL sqlite'); c.execute('LOAD sqlite'); c.execute('INSTALL postgres_scanner'); c.execute('LOAD postgres_scanner'); c.execute('INSTALL bigquery FROM community'); c.execute('LOAD bigquery')"
 
-COPY --chown=appuser:appuser src/ src/
+COPY --chown=appuser:appuser sync/src/ src/
 
 ENV PATH=/app/.venv/bin:$PATH
 ENV PYTHONPATH=/app/src

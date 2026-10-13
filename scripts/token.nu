@@ -1,46 +1,71 @@
-use std/log
-use ./lib.nu [fail local-kubeconfig wrap-kubectl]
+use lib.nu [fail local-kubeconfig NAMESPACE wrap-kubectl]
 
-# Fetch a test OIDC token and print export and curl commands for local testing.
-def main []: nothing -> nothing {
-    let kubecfg = local-kubeconfig
-    let args = [
-        run
-        data-proxy-token-client
-        --namespace=data-proxy
-        --rm
-        --stdin=false
-        --restart=Never
-        --image=curlimages/curl:8.12.1
-        --command
-        --
-        curl
-        -sf
-        -X
-        POST
-        http://oidc:8080/token
-        -H
-        "Content-Type: application/x-www-form-urlencoded"
-        -d
-        grant_type=client_credentials
-        -d
-        client_id=user
-        -d
-        client_secret=test-secret
-    ]
+const LOCAL_ISSUER = 'http://keycloak.keycloak.svc.cluster.local:8080/realms/dev'
+const LOCAL_CLIENT_SECRET = 'test-secret'
 
-    let token = try {
-        wrap-kubectl $kubecfg ...$args
-        | from json
-        | get access_token
-    } catch {|err| fail $"Failed to fetch token: ($err.msg)" {
-            command: main
-            span: (metadata $args).span
-        } }
+# Fetch an OIDC access token from a Keycloak realm and return it as a record.
+def main [
+    --issuer: string # Keycloak realm address, for example https://sso.example.com/realms/prod
+    --client-id: string = 'user' # OAuth client ID
+    --client-secret: string # Client secret; falls back to KEYCLOAK_CLIENT_SECRET, then to the local test secret
+    --username: string # Use the password grant for this user
+    --password: string # Password for the password grant
+    --scope: string # Space-separated scopes to request
+]: nothing -> record {
+    let local = $issuer == null
+    let realm = $issuer | default $LOCAL_ISSUER | str trim --right --char '/'
+    let url = $'($realm)/protocol/openid-connect/token'
+    let secret = $client_secret
+    | default $env.KEYCLOAK_CLIENT_SECRET?
+    | default (if $local { $LOCAL_CLIENT_SECRET })
 
-    print $"export TOKEN='($token)'"
-    print "
-# Test RLS:
-kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80 >/tmp/data-proxy-api-port-forward.log 2>&1 &"
-    print $"curl -s http://localhost:3111/full_table -H 'Host: data-proxy.local' -H 'Accept-Profile: test' -H \"Authorization: Bearer ($token)\""
+    if $username != null and $password == null {
+        fail '--password is required with --username' {command: main, span: (metadata $username).span}
+    }
+
+    let form = {
+        grant_type: (if $username == null { 'client_credentials' } else { 'password' })
+        client_id: $client_id
+    }
+    | merge (if $secret != null { {client_secret: $secret} } else { {} })
+    | merge (
+        if $username != null { {username: $username, password: $password} } else { {} }
+    )
+    | merge (if $scope != null { {scope: $scope} } else { {} })
+
+    let response = try {
+        if $local {
+            let fields = $form
+            | items {|key, value| ['--data-urlencode' $'($key)=($value)'] }
+            | flatten
+
+            wrap-kubectl (local-kubeconfig) run data-proxy-token-client $'--namespace=($NAMESPACE)' --rm --attach --quiet --restart=Never --image=curlimages/curl:8.12.1 --command -- curl -sf -X POST $url ...$fields
+            | from json
+        } else {
+            http post --content-type application/x-www-form-urlencoded $url $form
+        }
+    } catch {|err| fail $'Failed to fetch a token from ($url): ($err.msg)' {command: main, span: (metadata $url).span} }
+
+    let token = $response | get --optional access_token
+
+    if $token == null {
+        fail $'The response from ($url) has no access_token' {command: main, span: (metadata $url).span}
+    }
+
+    let result = {
+        token: $token
+        token_type: $response.token_type?
+        expires_in: $response.expires_in?
+        scope: $response.scope?
+        client_id: $client_id
+        issuer: $realm
+    }
+
+    if $local {
+        $result
+        | insert port_forward 'kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80'
+        | insert request $"curl -s http://localhost:3111/full_table -H 'Host: data-proxy.local' -H 'Accept-Profile: test' -H \"Authorization: Bearer $TOKEN\""
+    } else {
+        $result
+    }
 }

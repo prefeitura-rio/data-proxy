@@ -1,5 +1,5 @@
 use std/log
-use ./lib.nu [
+use lib.nu [
     apply-gcp-secret
     build-local-images
     CLUSTER_NAME
@@ -12,7 +12,7 @@ use ./lib.nu [
     wrap-kubectl
     wait-for
 ]
-use ./k6.nu *
+use k6.nu *
 
 const NETWORK = 'data-proxy'
 const REGISTRY = 'registry'
@@ -28,7 +28,7 @@ def "main up" [
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let repo = git-root
-    let catalogs = $repo | path join .k3d catalogs
+    let catalogs = $repo | path join k3d .tmp catalogs
 
     if (podman network exists $NETWORK | complete).exit_code != 0 {
         log info $'Creating Podman network ($NETWORK)...'
@@ -49,8 +49,8 @@ def "main up" [
         } }
 
     try {
-        mkdir .k3d/catalogs/writer
-        chmod 777 .k3d/catalogs/writer
+        mkdir k3d/.tmp/catalogs/writer
+        chmod 777 k3d/.tmp/catalogs/writer
     } catch {|err| fail $'Could not create k3d runtime directories: ($err.msg)' {
             command: main-up
             span: (metadata $repo).span
@@ -69,7 +69,7 @@ def "main up" [
             cluster
             create
             --config
-            k3d.yaml
+            k3d/k3d.yaml
             --volume
             $'($catalogs)/writer:/var/lib/data-proxy/catalogs/writer@server:*;agent:*'
         ]

@@ -54,6 +54,22 @@
         "type": "github"
       }
     },
+    "lpeg-types": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789147978,
+        "narHash": "sha256-/twBBdUVe4KB0y/VVKhSid0LE/wMIpz2m9BolsEz2ho=",
+        "owner": "LuaCATS",
+        "repo": "lpeg",
+        "rev": "84391d4740dce8b836154dd772cc63a884b69316",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LuaCATS",
+        "repo": "lpeg",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "inputs": {
         "nixpkgs-src": "nixpkgs-src"
@@ -90,11 +106,29 @@
         "type": "github"
       }
     },
+    "penlight-types": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775873279,
+        "narHash": "sha256-6/5N9+OloDJfwPd/X4fFmSIgddfXatnTxyxYk6wmAOo=",
+        "owner": "goldenstein64",
+        "repo": "pl-definitions",
+        "rev": "1d22ec2d0a5966cd697d6807b04897145efe26c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "goldenstein64",
+        "repo": "pl-definitions",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "devenv": "devenv",
         "git-hooks": "git-hooks",
-        "nixpkgs": "nixpkgs"
+        "lpeg-types": "lpeg-types",
+        "nixpkgs": "nixpkgs",
+        "penlight-types": "penlight-types"
       }
     }
   },

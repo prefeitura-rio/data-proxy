@@ -2,17 +2,18 @@
   pkgs,
   lib,
   config,
+  inputs,
   ...
 }:
-let
-  crdSchema = "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json";
-in
 {
   name = "data-proxy";
 
   profiles = {
     base.module = {
-      env.LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc ];
+      env = {
+        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc ];
+        NU_LIB_DIRS = "${config.devenv.root}/scripts";
+      };
     };
 
     quality = {
@@ -20,7 +21,9 @@ in
       module = {
         env = {
           UV_LINK_MODE = "copy";
-          UV_PROJECT_ENVIRONMENT = "${config.devenv.root}/.venv";
+          LPEG_TYPES = "${inputs.lpeg-types}/library";
+          PENLIGHT_TYPES = "${inputs.penlight-types}/library";
+          UV_PROJECT_ENVIRONMENT = "${config.devenv.root}/sync/.venv";
         };
 
         packages = with pkgs; [
@@ -28,16 +31,21 @@ in
           hadolint
           helmfile
           kubeconform
+          lua-language-server
+          lux-cli
           minijinja
-          nodejs
           nu-lint
           nushell
           sqlfluff
-          typescript
           vale
         ];
 
         languages = {
+          lua = {
+            enable = true;
+            package = pkgs.luajit;
+            lsp.package = pkgs.lua-language-server;
+          };
           helm = {
             enable = true;
             plugins = [ "helm-unittest" ];
@@ -51,48 +59,30 @@ in
         };
 
         tasks = {
-          "dp:proxy:deps" = {
-            exec = ''
-              npm install --no-save @types/node njs-types peggy@4.2.0 >/dev/null
-              node proxy/peggy/build.mjs
-            '';
-            execIfModified = [
-              "devenv.nix"
-              "devenv.lock"
-              "node_modules/@types/node"
-              "node_modules/njs-types"
-              "proxy/peggy/filter.peggy"
-              "proxy/peggy/build.mjs"
-              "proxy/peggy/filter.generated.js"
-              "proxy/peggy/filter.generated.d.ts"
-            ];
-          };
           "dp:lint:ci" = {
             exec = "actionlint .github/workflows/*.yaml";
             execIfModified = [
               ".github/workflows"
               ".github/actions"
-              "devenv.nix"
-              "devenv.lock"
-              "devenv.yaml"
             ];
           };
-          "dp:lint:py" = {
+          "dp:lint:sync" = {
+            cwd = "sync";
             exec = ''
               uv run ruff check src/ tests/
-              uv run basedpyright src/ tests/
+              basedpyright src/ tests/
               uv run complexipy src/ tests/
               uv run vulture src/ tests/ --min-confidence 90
             '';
             execIfModified = [
-              "src"
-              "tests"
-              "pyproject.toml"
-              "uv.lock"
+              "sync/**/*.py"
+              "sync/pyproject.toml"
+              "sync/uv.lock"
             ];
           };
           "dp:lint:nu" = {
-            exec = "find helm/files scripts -name '*.nu' -exec nu-lint --config .nu-lint.toml {} +";
+            package = pkgs.nushell;
+            exec = builtins.readFile ./scripts/nu-lint.nu;
             execIfModified = [
               "helm/files/**/*.nu"
               "scripts/**/*.nu"
@@ -107,6 +97,7 @@ in
               hadolint Containerfile.proxy
             '';
             execIfModified = [
+              ".hadolint.yaml"
               "Containerfile.sync"
               "Containerfile.postgres"
               "Containerfile.jobs"
@@ -115,70 +106,89 @@ in
           };
           "dp:lint:sql" = {
             exec = ''
-              sqlfluff lint --dialect postgres src/data_proxy/templates/postgres helm/files/templates tests/templates/postgres
-              sqlfluff lint --dialect duckdb src/data_proxy/templates/duckdb tests/templates/duckdb tests/templates/bigquery
-              sqlfluff lint --dialect bigquery src/data_proxy/templates/bigquery
+              sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres
+              sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
+              sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
             '';
             execIfModified = [
               ".sqlfluff"
               ".sqlfluffignore"
-              "helm/files/templates"
-              "src/data_proxy/templates"
-              "tests/templates"
+              "helm/files/templates/**/*.sql"
+              "sync/**/*.sql"
             ];
           };
           "dp:lint:helm" = {
             exec = "helm lint helm/ -f helm/ci/test-values.yaml";
             execIfModified = [ "helm" ];
           };
-          "dp:lint:proxy" = {
-            exec = "tsc -p proxy";
-            after = [ "dp:proxy:deps" ];
+          "dp:proxy:rocks" = {
+            before = [ "devenv:enterShell" ];
+            package = pkgs.nushell;
+            exec = builtins.readFile ./scripts/lux.nu;
             execIfModified = [
-              "proxy"
-              "package.json"
-              "package-lock.json"
+              "proxy/lux.toml"
+              "proxy/lux.lock"
+              "scripts/lux.nu"
             ];
           };
-          "dp:test:py" = {
-            exec = "uv run pytest";
-            after = [ "dp:proxy:deps" ];
+          "dp:lint:proxy" = {
+            after = [ "dp:proxy:rocks" ];
+            cwd = "proxy";
+            exec = ''
+              lx --lua-version jit lint
+              lua-language-server --check . --configpath .luarc.json --logpath .lux/luals-log --checklevel=Hint
+            '';
             execIfModified = [
-              "src"
-              "tests"
-              "pyproject.toml"
-              "uv.lock"
+              "proxy/**/*.lua"
+              "proxy/lux.lock"
+              "proxy/.luarc.json"
+              "proxy/.luacheckrc"
+            ];
+          };
+          "dp:test:sync" = {
+            cwd = "sync";
+            exec = "uv run pytest";
+            execIfModified = [
+              "sync/**/*.py"
+              "sync/**/*.feature"
+              "sync/src/sync/templates/**"
+              "sync/tests/templates/**"
+              "sync/tests/files/**"
+              "sync/.env.test"
+              "sync/pyproject.toml"
+              "sync/uv.lock"
+              "helm/files/templates/**/*.sql"
             ];
           };
           "dp:test:proxy" = {
-            exec = ''
-              node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-include="proxy/parser.ts" proxy/parser.test.ts
-              node --test proxy/proxy.test.ts
-            '';
-            after = [ "dp:proxy:deps" ];
-            execIfModified = [ "proxy" ];
+            after = [ "dp:proxy:rocks" ];
+            cwd = "proxy";
+            exec = "lx --lua-version jit test";
+            execIfModified = [
+              "proxy/**/*.lua"
+              "proxy/tests/unit/fixtures/**"
+              "proxy/lux.toml"
+              "proxy/lux.lock"
+            ];
           };
           "dp:test:helm" = {
-            exec = ''
-              set -eo pipefail
-              helm unittest helm/
-
-              helm template data-proxy helm/ -f helm/ci/test-values.yaml \
-                | nu --stdin -c '$in | from yaml | compact | each {|doc| match $doc.kind { "Cluster" => ($doc | upsert spec.instances 1), _ => $doc } | to json --raw } | str join "\n---\n"' \
-                | kubeconform -strict -summary -ignore-missing-schemas -schema-location default -schema-location '${crdSchema}'
-            '';
-            execIfModified = [ "helm" ];
+            package = pkgs.nushell;
+            exec = builtins.readFile ./scripts/helm.nu;
+            execIfModified = [
+              "helm"
+              "scripts/helm.nu"
+            ];
           };
           "dp:lint:docs" = {
             exec = ''
               vale sync --no-exit
-              vale docs/ README.md STYLEGUIDE.md src/data_proxy/ scripts/
+              vale docs/ README.md STYLEGUIDE.md sync/src/sync/ scripts/
             '';
             execIfModified = [
               "docs"
               "README.md"
               "STYLEGUIDE.md"
-              "src"
+              "sync/src/**/*.py"
               "scripts"
               ".vale.ini"
               ".vale/styles"
@@ -187,7 +197,7 @@ in
           "dp:lint".after = [
             "dp:lint:ci"
             "dp:lint:sql"
-            "dp:lint:py"
+            "dp:lint:sync"
             "dp:lint:helm"
             "dp:lint:proxy"
             "dp:lint:nu"
@@ -195,7 +205,7 @@ in
             "dp:lint:docs"
           ];
           "dp:test".after = [
-            "dp:test:py"
+            "dp:test:sync"
             "dp:test:helm"
             "dp:test:proxy"
           ];
@@ -206,7 +216,7 @@ in
     default = {
       extends = [ "quality" ];
       module = {
-        env.KUBECONFIG = ".kubeconfig";
+        env.KUBECONFIG = "k3d/.kubeconfig";
 
         packages = with pkgs; [
           ast-grep
@@ -220,23 +230,31 @@ in
           ))
         ];
 
-        scripts = {
-          ci.exec = ''nu scripts/ci.nu "$@"'';
-          cluster.exec = ''nu scripts/cluster.nu "$@"'';
-          seed.exec = ''uv run python scripts/seed.py "$@"'';
-          token.exec = "nu scripts/token.nu";
-        };
+        scripts =
+          let
+            nushell = file: {
+              package = pkgs.nushell;
+              binary = "nu";
+              exec = file;
+            };
+          in
+          {
+            ci = nushell ./scripts/ci.nu;
+            cluster = nushell ./scripts/cluster.nu;
+            token = nushell ./scripts/token.nu;
+            seed.exec = ''uv run --project sync python scripts/seed.py "$@"'';
+          };
 
         git-hooks.hooks = {
           ruff.enable = true;
           ruff-format.enable = true;
           ripsecrets.enable = true;
-          basedpyright = {
+          lx-fmt = {
             enable = true;
-            name = "basedpyright";
-            entry = "uv run basedpyright src/ tests/";
+            name = "lx fmt";
+            entry = "bash -c 'cd proxy && lx --lua-version jit fmt'";
             language = "system";
-            types = [ "python" ];
+            files = "^proxy/.*\\.lua$";
             pass_filenames = false;
           };
         };
