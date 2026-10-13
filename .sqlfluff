@@ -2,7 +2,9 @@
 dialect = postgres
 templater = jinja
 max_line_length = 88
-exclude_rules = AL05,AL07,CV09,LT02,OR01,PG01,PG02,RF04,RF06,ST07,ST09,TQ01,TQ02,TQ03,TQ04
+# LT02: Jinja block tags break the indentation check, 33 findings.
+# RF04: the columns action, fields, name and owner are part of the deployed schema, 5 findings.
+exclude_rules = LT02,RF04
 
 [sqlfluff:templater:jinja]
 apply_dbt_builtins = False
