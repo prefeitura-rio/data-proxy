@@ -4,6 +4,9 @@ ARG LUX_VERSION=0.43.5
 ARG LUX_SHA256_X86_64=cff7691b944a26d3becabb715bd0bf2dd2b6f91cc642ee139b5561e5bd9f2869
 ARG LUX_SHA256_AARCH64=ebd2efdfdc1c31ad83ddeddbc3e8fe1b940aad011ecaafcd0ed73774d2000dc8
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev libgpgme11 make pkg-config \
  && rm -rf /var/lib/apt/lists/* \
