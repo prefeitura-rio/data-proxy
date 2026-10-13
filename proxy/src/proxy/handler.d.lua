@@ -1,0 +1,15 @@
+---@meta
+
+--- The nginx request, copied into plain values and functions.
+---@class NgxRequest
+---@field method string HTTP method, for example GET.
+---@field uri string Request path without the query string, for example /people.
+---@field args string|nil Raw query string, for example id=eq.1. nil or empty if absent.
+---@field body string|nil Request body. nil if the request has none.
+---@field headers_in table<string,string|nil> Request headers sent by the client.
+---@field headers_out table<string,string> Response headers that the proxy writes back.
+---@field cache_ttl string|nil Default cache lifetime in seconds, from config.cache_ttl.
+---@field max_body string|number|nil Largest cacheable body in bytes, from config.max_body. 0 means no limit.
+---@field retries integer|nil Number of retry attempts on the retry service, from config.postgrest_retries.
+---@field backoff_ms integer|nil Delay in milliseconds before the first retry, from config.postgrest_backoff_ms.
+---@field respond fun(self: NgxRequest, status: integer, body: string) Writes the status and body to the client.
