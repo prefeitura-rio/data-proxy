@@ -1,3 +1,5 @@
+"""Durable DBOS steps used by the synchronization workflows."""
+
 import asyncio
 from typing import Literal
 

@@ -50,6 +50,7 @@ class DuckLakePaths:
         )
 
     def prepare_catalog_directory(self) -> None:
+        """Create the catalog directory with the mode the reader needs."""
         self.catalog.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         self.catalog.parent.chmod(0o755)
 

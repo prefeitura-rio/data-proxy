@@ -78,7 +78,12 @@ class DuckDB:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncGenerator[None]:
-        """Commit on success and roll back on exception."""
+        """Commit on success and roll back on exception.
+
+        Example:
+            async with duckdb_conn.transaction():
+                await duckdb_conn.execute(insert_sql)
+        """
         await self.execute("BEGIN", params=None)
         try:
             yield

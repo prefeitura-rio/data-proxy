@@ -330,7 +330,10 @@ def group_schema_plans(
 
 @dataclass
 class PlanningContext:
-    """Pipeline state for one synchronization planning run."""
+    """Pipeline state for one synchronization planning run.
+
+    Run the stages in order: detect, expand, plan_partitions, group.
+    """
 
     pg_conn: Postgres
     duckdb_conn: DuckDB

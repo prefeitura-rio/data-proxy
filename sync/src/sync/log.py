@@ -42,6 +42,7 @@ class DomainContextFilter(Filter):
 
     @override
     def filter(self, record: LogRecord) -> bool:
+        """Attach the current schema and table context to every record."""
         record.schema = schemaname.get()
         record.table = tablename.get()
         return True
@@ -52,6 +53,7 @@ class ContextFormatter(Formatter):
 
     @override
     def format(self, record: LogRecord) -> str:
+        """Prefix the message with the workflow, schema, and table context."""
         workflow_id = getattr(record, "operationUUID", None)
         schema = getattr(record, "schema", "-")
         table = getattr(record, "table", "-")

@@ -1,3 +1,5 @@
+"""Start the DBOS sync application and run it until stopped."""
+
 from threading import Event
 
 from dbos import DBOS, DBOSConfig, ScheduleInput

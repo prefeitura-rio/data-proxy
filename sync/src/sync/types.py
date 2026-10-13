@@ -54,7 +54,9 @@ class KubernetesClient(Protocol):
         *,
         namespace: str,
         labels: dict[str, str | Operator[str] | Iterable[str] | None],
-    ) -> AsyncIterable[R]: ...
+    ) -> AsyncIterable[R]:
+        """List resources that match the labels."""
+        ...
 
     def watch(
         self,
@@ -63,7 +65,9 @@ class KubernetesClient(Protocol):
         namespace: str,
         fields: dict[str, str | BinaryOperator | SequenceOperator],
         server_timeout: int | None,
-    ) -> AsyncIterable[tuple[str, Deployment]]: ...
+    ) -> AsyncIterable[tuple[str, Deployment]]:
+        """Watch deployments and yield each field change."""
+        ...
 
     async def patch(
         self,
@@ -73,9 +77,13 @@ class KubernetesClient(Protocol):
         *,
         namespace: str,
         patch_type: PatchType,
-    ) -> Deployment: ...
+    ) -> Deployment:
+        """Patch one deployment and return the result."""
+        ...
 
-    async def create(self, obj: Job) -> Job: ...
+    async def create(self, obj: Job) -> Job:
+        """Create one job."""
+        ...
 
     async def wait(
         self,
@@ -85,7 +93,9 @@ class KubernetesClient(Protocol):
         namespace: str,
         for_conditions: Iterable[str],
         raise_for_conditions: Iterable[str],
-    ) -> Job: ...
+    ) -> Job:
+        """Wait for a job to reach one of the given conditions."""
+        ...
 
     async def delete(
         self,
@@ -94,4 +104,6 @@ class KubernetesClient(Protocol):
         *,
         namespace: str,
         cascade: CascadeType,
-    ) -> None: ...
+    ) -> None:
+        """Delete one job with the given cascade."""
+        ...
