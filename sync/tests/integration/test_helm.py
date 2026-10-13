@@ -1,6 +1,7 @@
 import json
+import re
 from time import time
-from typing import Final
+from typing import Final, cast
 
 import psycopg
 import pytest
@@ -9,7 +10,7 @@ from psycopg.sql import SQL, Identifier, Literal
 from sync.conditions import schema_scope_condition
 from sync.settings import settings
 from sync.templates import render_template
-from tests.constants import TEST_SQL_DIR
+from tests.constants import PROXY_FILTER_CASES, TEST_SQL_DIR
 from tests.fixtures.types import Postgres, Psql
 from tests.helpers import (
     execute_sql,
@@ -26,6 +27,14 @@ from tests.helpers import (
 pytestmark = pytest.mark.postgres
 
 HOUR_MS: Final = 3_600_000
+
+PARSED_FILTERS: Final = [
+    pytest.param(json.dumps(case["expected"]), id=str(case["name"]))
+    for case in cast(
+        "list[dict[str, object]]", json.loads(PROXY_FILTER_CASES.read_text())
+    )
+    if case["expected"]
+]
 
 
 class TestPreRequest:
@@ -247,6 +256,24 @@ class TestRenderDucklakeWhere:
                 json.dumps(payload),
             )
             assert rendered == expected
+
+    @pytest.mark.parametrize("document", PARSED_FILTERS)
+    async def test_renders_every_document_that_the_proxy_parser_builds(
+        self, postgres: Postgres, document: str
+    ) -> None:
+        """Renders each document in the proxy parser fixtures and quotes its columns."""
+        await self._install(postgres)
+        columns = set(re.findall(r'"column": "([^"]+)"', document))
+
+        rendered = await scalar(
+            postgres,
+            "SELECT data_proxy.render_dl_where(%s, %s::text[])",
+            document,
+            sorted(columns),
+        )
+
+        assert isinstance(rendered, str)
+        assert all(f'"{column}"' in rendered for column in columns)
 
     async def test_rejects_unknown_columns_and_operators(
         self, postgres: Postgres
