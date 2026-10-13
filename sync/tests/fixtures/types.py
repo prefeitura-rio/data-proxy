@@ -1,6 +1,8 @@
 import asyncio
+import subprocess
 from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
+from os import environ
 from typing import final, override
 
 from lightkube.core.exceptions import ApiError, ConditionError
@@ -17,10 +19,10 @@ from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
 from pydantic import JsonValue
-from testcontainers.community.postgres import PostgresContainer
 
 from sync.postgres import Postgres as Pg
 from sync.types import KubernetesClient
+from tests.constants import POSTGRES_HOST, POSTGRES_PORT
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,9 +152,8 @@ class Calls:
 
 @dataclass(frozen=True, slots=True)
 class Psql:
-    """psql in the PostgreSQL container, as the Helm jobs run it."""
+    """psql against the PostgreSQL test server, as the Helm jobs run it."""
 
-    container: PostgresContainer
     database: str
 
     def run(self, script: str, variables: Mapping[str, str] | None = None) -> str:
@@ -160,23 +161,26 @@ class Psql:
         settings = [
             f"--set={name}={value}" for name, value in (variables or {}).items()
         ]
-        result = self.container.exec(
+        result = subprocess.run(
             [
-                "sh",
-                "-c",
-                'printf "%s" "$0" | "$@"',
-                script,
                 "psql",
                 "--no-psqlrc",
                 "--quiet",
                 "--set=ON_ERROR_STOP=1",
-                f"--username={self.container.username}",
+                f"--host={POSTGRES_HOST}",
+                f"--port={POSTGRES_PORT}",
+                "--username=test",
                 f"--dbname={self.database}",
                 *settings,
-            ]
+            ],
+            input=script,
+            capture_output=True,
+            text=True,
+            env={**environ, "PGPASSWORD": "test"},
+            check=False,
         )
-        output = result.output.decode()
-        assert result.exit_code == 0, output
+        output = result.stdout + result.stderr
+        assert result.returncode == 0, output
         return output
 
 

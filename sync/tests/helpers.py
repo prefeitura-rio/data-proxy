@@ -1,8 +1,10 @@
 import json
+import shlex
+import subprocess
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from inspect import unwrap
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Final, cast
 from unittest.mock import AsyncMock
@@ -57,7 +59,15 @@ from sync.types import (
     PostgresParams,
     TemplateValue,
 )
-from tests.constants import HELM_SQL, PARQUET, ROUTED_TABLE, TEST_SQL_DIR
+from tests.constants import (
+    CONTAINER_RUNTIME,
+    HELM_SQL,
+    PARQUET,
+    POSTGRES_CONTAINER,
+    ROUTED_TABLE,
+    SILO_ENDPOINT,
+    TEST_SQL_DIR,
+)
 from tests.fixtures.types import Postgres
 
 type Selection = RangeSelection | TimeRangeSelection | RemainderSelection
@@ -603,3 +613,43 @@ async def revoke_anonymous_access(pg_conn: PgConnection, config: SyncConfig) -> 
         )
 
     await pg_conn.commit()
+
+
+def publish_people_catalog(catalog: Path, data_path: str) -> None:
+    """Write the people catalog with the DuckDB of the sync worker, not the database one."""
+    script = render_template(
+        "duckdb/publish_people_snapshots",
+        {
+            "catalog": str(catalog),
+            "data_path": data_path,
+            "endpoint": SILO_ENDPOINT,
+            "first": "s3://test-bucket/app/people/people_partition_10.parquet",
+            "second": "s3://test-bucket/app/people/people_partition_20.parquet",
+        },
+        root=TEST_SQL_DIR,
+    )
+    connection = duckdb.connect()
+    try:
+        for statement in filter(str.strip, script.split(";\n")):
+            connection.execute(statement)
+    finally:
+        connection.close()
+
+
+def copy_to_postgres(source: Path, destination: PurePosixPath) -> None:
+    """Copy one file into the PostgreSQL test container."""
+    with source.open("rb") as stream:
+        subprocess.run(
+            [
+                CONTAINER_RUNTIME,
+                "exec",
+                "-i",
+                POSTGRES_CONTAINER,
+                "sh",
+                "-c",
+                f"cat > {shlex.quote(str(destination))}",
+            ],
+            stdin=stream,
+            capture_output=True,
+            check=True,
+        )

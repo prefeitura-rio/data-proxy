@@ -1,10 +1,9 @@
-import asyncio
 import secrets
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from shlex import quote
 from types import SimpleNamespace
-from typing import Final, cast
-from urllib.parse import urlsplit, urlunsplit
+from typing import cast
 
 import duckdb
 import psycopg
@@ -12,8 +11,6 @@ import pytest
 from dbos._migration import ensure_dbos_schema, run_dbos_migrations
 from psycopg.sql import SQL, Identifier, Literal
 from sqlalchemy import create_engine
-from testcontainers.community.postgres import PostgresContainer
-from testcontainers.core.network import Network
 
 from sync.catalog import CatalogPaths
 from sync.conditions import schema_scope_condition
@@ -38,19 +35,20 @@ from sync.state import ensure_app_schema, write_table_state
 from sync.templates import render_template
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
-from tests.constants import FILES, TEST_SQL_DIR
+from tests.constants import FILES, POSTGRES_URL, SILO_ENDPOINT, TEST_SQL_DIR
 from tests.fixtures.types import (
     Postgres,
     PostgresTestNamespace,
     Psql,
     Silo,
 )
-from tests.helpers import helm_sql, initialize_schemas, psql_script
-
-PG_DUCKDB_SETTINGS: Final = {
-    "duckdb.unsafe_allow_execution_inside_functions": "on",
-    "duckdb.unsafe_allow_mixed_transactions": "on",
-}
+from tests.helpers import (
+    copy_to_postgres,
+    helm_sql,
+    initialize_schemas,
+    psql_script,
+    publish_people_catalog,
+)
 
 
 @pytest.fixture
@@ -81,65 +79,11 @@ def invalid_selection() -> TaskSelection:
     return task.selections[0]
 
 
-@pytest.fixture(scope="session")
-def postgres_container(container_network: Network) -> Iterator[PostgresContainer]:
-    """Provide the real PostgreSQL and pg_duckdb integration boundary."""
-    files_dir = str((Path(__file__).parent.parent / "files").absolute())
-
-    container = (
-        PostgresContainer(
-            "ghcr.io/prefeitura-rio/data-proxy-postgres:latest",
-            driver=None,
-            volumes=[(files_dir, "/test-files", "ro")],
-        )
-        .with_network(container_network)
-        .with_network_aliases("postgres")
-    )
-
-    container.start()
-    admin_url = container.get_connection_url()
-
-    async def bootstrap() -> None:
-        connection = await psycopg.AsyncConnection.connect(admin_url, autocommit=True)
-        try:
-            await connection.execute("CREATE DATABASE test_template")
-            for name, value in PG_DUCKDB_SETTINGS.items():
-                await connection.execute(
-                    SQL("ALTER DATABASE test_template SET {} = {}").format(
-                        Identifier(*name.split(".")), Literal(value)
-                    )
-                )
-        finally:
-            await connection.close()
-
-        clone = await psycopg.AsyncConnection.connect(
-            urlunsplit(urlsplit(admin_url)._replace(path="/test_template"))
-        )
-        try:
-            await clone.execute(
-                render_template("postgres/fixture", {}, root=TEST_SQL_DIR)
-            )
-            await clone.commit()
-        finally:
-            await clone.close()
-
-    asyncio.run(bootstrap())
-
-    try:
-        yield container
-    finally:
-        container.stop()
-
-
 @pytest.fixture
-async def postgres(
-    postgres_container: PostgresContainer,
-    silo: Silo,
-) -> AsyncIterator[Postgres]:
+async def postgres(silo: Silo) -> AsyncIterator[Postgres]:
     """Provide the async PostgreSQL boundary for one isolated schema."""
     namespace = PostgresTestNamespace(f"test_{secrets.token_hex(8)}")
-    admin_url = postgres_container.get_connection_url()
-    dsn = urlunsplit(urlsplit(admin_url)._replace(path="/test_template"))
+    dsn = f"{POSTGRES_URL}/test_template"
 
     setup = await psycopg.AsyncConnection.connect(dsn)
     await setup.execute(SQL("CREATE SCHEMA {}").format(namespace.identifier))
@@ -155,7 +99,7 @@ async def postgres(
     await connection.execute(
         render_template(
             "postgres/create_silo_s3_secret",
-            {"endpoint": "silo:9000"},
+            {"endpoint": SILO_ENDPOINT},
             root=TEST_SQL_DIR,
         ).encode()
     )
@@ -192,37 +136,40 @@ def duckdb_connection() -> Iterator[DuckDB]:
 @pytest.fixture
 async def ducklake_catalog(
     postgres: Postgres,
-    postgres_container: PostgresContainer,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> Postgres:
     """Publish two DuckLake snapshots of people: 10 rows, then 20 rows.
 
-    Each statement commits alone, so each one creates its own snapshot.
+    The catalog comes from the DuckDB that the sync worker uses, and the database
+    only reads it. Each statement commits alone, so each one creates its own snapshot.
     """
     monkeypatch.setattr(
         settings, "DUCKLAKE_CATALOG_LOCAL_PATH", Path("/var/lib/postgresql/ducklake")
     )
     schema = postgres.namespace.schema
     catalog = CatalogPaths.for_schema(schema).local
-    postgres_container.exec(["mkdir", "-p", str(catalog.parent)])
+    written = tmp_path / "catalog.sqlite"
+    publish_people_catalog(
+        written,
+        f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+    )
 
     writer = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
     try:
-        for template, mapping in (
-            ("postgres/create_silo_s3_secret", {"endpoint": "silo:9000"}),
-            (
-                "postgres/publish_people_snapshots",
-                {
-                    "catalog": str(catalog),
-                    "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
-                    "first": "s3://test-bucket/app/people/people_partition_10.parquet",
-                    "second": "s3://test-bucket/app/people/people_partition_20.parquet",
-                },
-            ),
-        ):
-            script = render_template(template, mapping, root=TEST_SQL_DIR)
-            for statement in filter(str.strip, script.split(";\n")):
-                await writer.execute(statement.encode())
+        await writer.execute(
+            SQL("COPY (SELECT 1) TO PROGRAM {}").format(
+                Literal(f"mkdir -p {quote(str(catalog.parent))}")
+            )
+        )
+        copy_to_postgres(written, PurePosixPath(catalog))
+        script = render_template(
+            "postgres/create_silo_s3_secret",
+            {"endpoint": SILO_ENDPOINT},
+            root=TEST_SQL_DIR,
+        )
+        for statement in filter(str.strip, script.split(";\n")):
+            await writer.execute(statement.encode())
     finally:
         await writer.close()
     return postgres
@@ -270,17 +217,17 @@ async def ducklake_view(
 
 
 @pytest.fixture
-def psql(postgres_container: PostgresContainer) -> Psql:
-    """Provide psql against the test database inside the PostgreSQL container."""
-    return Psql(container=postgres_container, database="test_template")
+def psql() -> Psql:
+    """Provide psql against the test database of the PostgreSQL test server."""
+    return Psql(database="test_template")
 
 
 @pytest.fixture(scope="session")
-def dbos_schema(postgres_container: PostgresContainer) -> str:
+def dbos_schema() -> str:
     """Create the DBOS system tables in the test database once."""
-    url = urlsplit(postgres_container.get_connection_url())
     engine = create_engine(
-        urlunsplit(url._replace(scheme="postgresql+psycopg", path="/test_template"))
+        POSTGRES_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+        + "/test_template"
     )
     try:
         ensure_dbos_schema(engine, "dbos")
