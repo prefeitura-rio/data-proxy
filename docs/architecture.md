@@ -13,12 +13,12 @@ PostgreSQL stores metadata only:
 
 PostgREST reads one view per table. The view calls a function that checks the access policy, plans DuckLake and the optional configured-source partition fallback from `data_proxy.state`, and reads them. The function passes the access-policy predicate to DuckDB, so the Parquet scan reads only authorized rows. PostgREST query filters aren't pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
 
-The proxy and Valkey handle response caching. The read order is:
+The proxy and Redis handle response caching. The read order is:
 
 ```text
-Valkey cache
+Redis cache
 → PostgREST table view (DuckLake, and each configured fallback source in order)
-→ Valkey cache result, when the answer is not empty
+→ Redis cache result, when the answer is not empty
 ```
 
 See [Proxy](proxy.md) for the routing rules and the cache.
@@ -65,7 +65,7 @@ There is one active writer per schema catalog. Publishing is parallel across sch
 | `publish_schema` | Inserts scratch Parquet into the local DuckLake catalog. | Litestream replicates the catalog changes. |
 | `apply_ducklake_maintenance` | Runs inside `publish_schema` on the schema writer after a publication. | Expires old snapshots, compacts files, and removes old and orphaned Parquet files. |
 | `refresh_catalogs` | Runs one refresh Job per published schema and instance. | Every instance catalog has the new snapshot. |
-| `finalize_run` | Clears scratch objects and Valkey. | Keeps the DuckLake data prefix intact. |
+| `finalize_run` | Clears scratch objects and Redis. | Keeps the DuckLake data prefix intact. |
 
 Seed and publish run concurrently. After a published snapshot, the workflow refreshes catalogs and restarts all Pooler Deployments and then all PostgREST Deployments. PostgREST also restarts when a view is added or removed.
 
@@ -100,7 +100,7 @@ sequenceDiagram
     R->>PG: instance-local catalog
     O->>PG: restart all Pooler Deployments, then all PostgREST
     O->>S3: remove scratch objects
-    O->>O: flush Valkey
+    O->>O: flush Redis
 ```
 
 ## Kubernetes topology
@@ -115,7 +115,7 @@ The `data-proxy-litestream` Deployment has one writer-only Litestream container.
 sequenceDiagram
     participant C as Client
     participant N as Nginx
-    participant V as Valkey
+    participant V as Redis
     participant API as PostgREST
     participant PG as pg_duckdb
     participant DL as DuckLake

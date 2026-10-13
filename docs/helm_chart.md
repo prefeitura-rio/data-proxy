@@ -45,7 +45,7 @@ Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` t
 
 ## Proxy
 
-Configure the caching proxy under `proxy`. Values include `cacheTtl`, `fetchBufferSize`, `fetchTimeout`, `cacheRedisDb`, and `maxCacheBodyBytes`. See [Proxy](proxy.md) for request flow and cache behavior.
+Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `upstreamTimeout`, `upstreamKeepalive`, `cacheRedisDb`, `maxCacheBodyBytes`, `postgrestRetries`, and `postgrestBackoffMs`. The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly; Webdis isn't deployed. See [Proxy](proxy.md) for request flow and cache behavior.
 
 ## Single and HA mode
 
@@ -58,13 +58,13 @@ Configure the caching proxy under `proxy`. Values include `cacheTtl`, `fetchBuff
 | PostgREST  | One Deployment for reads and writes. `postgrest.autoscaling` scales it.         | A fixed `rw` Deployment (`postgrest.replicas`) for writes and `postgrest-ro` for reads, scaled by `postgrest.autoscaling`. |
 | Proxy      | Sends every request to PostgREST.                                               | Sends `GET` and `HEAD` to `postgrest-ro` and all other methods to `postgrest`.                             |
 
-The chart sets `HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy routes by method only when `HA_MODE` is `true`. In HA mode, a read that finds `postgrest-ro` unreachable, or answered with 502, 503, or 504, is retried once on `postgrest`, which the primary backs. A write is never retried. This keeps reads working while the standbys start after a switch to HA mode, and during a failover.
+The chart sets `HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy routes by method only when `HA_MODE` is `true`. In HA mode, a read that finds `postgrest-ro` unreachable, or answered with 502, 503, or 504, is retried on `postgrest`, which the primary backs, with a backoff between retries. `proxy.postgrestRetries` sets the number of retries; `proxy.postgrestBackoffMs` sets the delay before the first one. A write is never retried. This keeps reads working while the standbys start after a switch to HA mode, and during a failover.
 
 To change the mode, run one upgrade in either direction:
 
 ```sh
-helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=true
-helmfile --file helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=false
+helmfile --file k3d/helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=true
+helmfile --file k3d/helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=false
 ```
 
 Only the primary database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.
@@ -91,9 +91,11 @@ Notes for HA mode:
 ```yaml
 redis:
   existingSecret: data-proxy-redis
+  host: redis-writer
+  port: 6379
 ```
 
-The Redis Secret contains a JSON value under `REDIS`:
+`host` and `port` are the one stable Redis endpoint the proxy uses. The operator provides it, with replication and failover behind it. The Redis Secret contains a JSON value under `REDIS` for the sync workers:
 
 ```json
 {"read":"redis://reader:6379/1","write":"redis://writer:6379/0"}

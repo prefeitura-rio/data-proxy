@@ -187,7 +187,7 @@ In single mode, the proxy sends every request to PostgREST. In HA mode, it sends
 sequenceDiagram
     participant C as Client
     participant N as Proxy
-    participant R as Valkey
+    participant R as Redis
     participant P as PostgREST-ro
     participant RP as CNPG Pooler RO
     participant DB as PostgreSQL

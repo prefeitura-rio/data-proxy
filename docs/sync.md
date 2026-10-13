@@ -60,7 +60,7 @@ The scheduled `run_sync` workflow performs these steps:
 7. Litestream replicates writer catalog WAL changes to SeaweedFS.
 8. After all publishers finish, run one `refresh-catalog` Job for every published schema and ready PostgreSQL instance, and wait for all Jobs. If the primary still reports an older snapshot, because Litestream had not replicated it yet, wait and run the Jobs again for those schemas.
 9. Restart all Pooler Deployments together, then all PostgREST Deployments together.
-10. Flush scratch objects and Valkey.
+10. Flush scratch objects and Redis.
 
 Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
 
@@ -126,7 +126,7 @@ Set `fallback: true` on a partitioned table to let its configured schema source 
 
 ## Adding a source
 
-A source owns synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions. Register the source in `src/data_proxy/sources/registry.py`.
+A source owns synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions. Register the source in `sync/src/sync/sources/registry.py`.
 
 Each PostgreSQL schema has exactly one source. Add `source.settings` only when a source requires non-secret settings. Put credentials in environment variables or Kubernetes Secrets, not in `sync.json`.
 

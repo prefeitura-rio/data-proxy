@@ -75,6 +75,24 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | PostgREST login role. |
 | `PROXY_CACHE_REDIS_DB` | `1` | Redis database for cached proxy responses. |
 
+## OpenResty proxy
+
+The Helm chart sets these variables on the proxy Deployment. The Lua code reads them through `config.load` in `proxy/src/proxy/config.lua`. The proxy loads all settings once at start-up. It collects the text of the variables in one table, and converts and checks the table once with the `config` schema (`proxy/src/proxy/schemas/config.lua`). A variable that isn't set gives the default of its setting. A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting, with an error that names the setting. The variable is `PROXY_` and the upper-case name of the setting. `helm/files/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PROXY_CACHE_TTL` | `300` | Default cache lifetime in seconds, `0` or more. A table in `sync.json` can set its own `cache_ttl`. |
+| `PROXY_MAX_BODY` | `262144` | Largest response body in bytes that the proxy stores. `0` means no limit. |
+| `PROXY_HA_MODE` | `false` | `true` if reads can retry on the write PostgREST. |
+| `PROXY_REDIS_HOST` | required | Redis host for the cache. The operator gives one stable endpoint. |
+| `PROXY_REDIS_PORT` | `6379` | Redis port for the cache, from `1` to `65535`. |
+| `PROXY_REDIS_DATABASE` | `1` | Redis database for cached responses, `0` or more. |
+| `PROXY_REDIS_PASSWORD` | unset | Redis password. Omit it for no login. |
+| `PROXY_POSTGREST_READ` | required | Base address of the PostgREST service for reads. |
+| `PROXY_POSTGREST_WRITE` | required | Base address of the PostgREST service for writes. |
+| `PROXY_POSTGREST_RETRIES` | `1` | Retry attempts on the retry service after the first attempt, from `0` to `10`. |
+| `PROXY_POSTGREST_BACKOFF_MS` | `0` | Delay before the first retry, in milliseconds, from `0` to `60000`. Each retry doubles it. |
+
 ## PostgREST rollout
 
 | Variable | Default | Meaning |

@@ -14,9 +14,9 @@ cluster up
 
 The local synchronization configuration uses BigQuery. `cluster up` stops before Helmfile when application-default credentials are absent.
 
-The k3d configuration mounts `.k3d/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume. Each PostgreSQL Pod gets an ephemeral catalog volume from the k3s `local-path` StorageClass.
+The k3d configuration mounts `k3d/.tmp/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume. Each PostgreSQL Pod gets an ephemeral catalog volume from the k3s `local-path` StorageClass.
 
-The script writes the k3d credentials to the ignored repository `.kubeconfig`. It doesn't change the user kubeconfig.
+The script writes the k3d credentials to the ignored `k3d/.kubeconfig`. It doesn't change the user kubeconfig.
 
 Apply the current immutable local image tag without rebuilding images:
 
@@ -72,6 +72,15 @@ Add this local host entry:
 kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80
 token
 ```
+
+`token` prints a table with the token, its type, lifetime, scope, client, and realm. The local mode adds a port-forward command and a request example that uses `$TOKEN`. In Nushell, run `token | get token` to get only the token. Without options it asks the Keycloak chart in the local cluster for a `user` token. Use `--issuer` to ask any Keycloak realm directly:
+
+```bash
+token --issuer https://sso.example.com/realms/prod --client-id my-client --client-secret "$SECRET"
+token --issuer https://sso.example.com/realms/prod --client-id my-client --username alice --password "$PASSWORD"
+```
+
+The client secret can also come from `KEYCLOAK_CLIENT_SECRET`. `--username` and `--password` switch to the password grant. `--scope` adds scopes.
 
 See [Using the API](using.md).
 
@@ -137,6 +146,16 @@ devenv --profile default tasks run dp:lint dp:test
 ```
 
 E2E tests run against the local cluster or staging environment, not in CI.
+
+### Proxy rocks
+
+The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares every Lua library and `proxy/lux.lock` pins them with source hashes. The Lua code lives in `proxy/src/proxy`, and the unit specs in `proxy/tests/unit`, one file for each module. The proxy request path against real services is covered by `sync/tests/integration/proxy/`. The language server reads the OpenResty types that LuaLS bundles through `${3rd}` entries in `proxy/.luarc.json`. The Penlight types come from the `penlight-types` input in `devenv.yaml` (`goldenstein64/pl-definitions`). devenv exports them as `PENLIGHT_TYPES`, and `proxy/.luarc.json` lists `${env:PENLIGHT_TYPES}` as a library. The definition files have no module name, so cast each Penlight `require` to its module class (`pl.ClassModule`, `pl.ListClass`, `pl.tablex`, `pl.stringx`). Without the cast, LuaLS types the module from the rock source, which has no annotations, and hover shows `{ properties: unknown }` for `pl.class`. A `List(items)` built from a plain array has no item type for the language server, so annotate it if you need the type. The `luafilesystem` rock that Penlight needs is a C module and builds in the same image stage as `lpeg`. The LPeg types come from the `lpeg-types` input in `devenv.yaml` (`LuaCATS/lpeg`). devenv exports them as `LPEG_TYPES`, and `proxy/.luarc.json` lists `${env:LPEG_TYPES}` as a library. The `lpeg` rock is a C module: the image build stage installs a compiler and copies the built library to `/opt/data-proxy/lib`. `dp:lint:proxy` runs luacheck (through `lx lint`) and the LuaLS type check with every rule that works for this code. Luacheck uses the `ngx_lua` globals, a 120-character line limit and a limit of 10 branches per function. LuaLS has every diagnostic group on, down to the hint level. `codestyle-check` is off because stylua formats the code, `spell-check` is off because it flags names such as `PostgREST`, and `name-style-check` and `no-unknown` are off because they reject conventions that the code uses on purpose. Lux installs `busted` for `lx test` and `stylua` and `luacheck` for `lx fmt` and `lx lint`, so Nix provides only LuaJIT, the language server for editors, and `lx`. `Containerfile.proxy` runs `lx build --only-deps` against the same lockfile, so the image gets the runtime rocks and no test rocks.
+
+```bash
+devenv tasks run dp:proxy:rocks
+```
+
+The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `dp:lint:proxy` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `dp:lint:proxy` and `dp:test:proxy`.
 
 ### Nushell tests
 

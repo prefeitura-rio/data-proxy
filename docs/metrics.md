@@ -19,7 +19,7 @@ The proxy writes one JSON request log per request.
 
 | Field     | Meaning                                      |
 | --------- | -------------------------------------------- |
-| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, or `ducklake+<configured-fallback>`), `upstream` when PostgREST sent none, or `none` when it was unreachable. |
+| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, or `ducklake+<configured-fallback>`), `postgrest` when PostgREST sent none, or `none` when it was unreachable. |
 | `status`  | HTTP status.                                 |
 | `wait_ms` | Request duration in milliseconds.            |
 | `bytes`   | Response size.                               |
