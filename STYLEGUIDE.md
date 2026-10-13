@@ -42,11 +42,11 @@ devenv --profile default tasks run dp:lint dp:test
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
-| Level       | Location                                         | Runs against                                                 | Covers                                                                  |
-| ----------- | ------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Level       | Location                                               | Runs against                                                 | Covers                                                                  |
+| ----------- | ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB            | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
-| Integration | `sync/tests/integration/`                        | Testcontainers: PostgreSQL with pg_duckdb, Silo (S3), Valkey | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
-| E2E         | `k6/e2e.ts`, `k6/load.ts`                        | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)    | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
+| Integration | `sync/tests/integration/`                              | Testcontainers: PostgreSQL with pg_duckdb, Silo (S3), Valkey | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
+| E2E         | `k6/e2e.ts`, `k6/load.ts`                              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)    | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
 
 - Unit tests don't start containers or open network connections.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
@@ -190,7 +190,7 @@ end
 - Write one spec file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat.
 - Write table-driven Busted specs. Use one `describe` for each function and `it(case.name)` for each case.
 - Give each case a name that states the behavior, for example `retries a 503 on the retry service`.
-- Keep fakes and fixtures in `proxy/tests/unit/helpers` and `proxy/tests/unit/fixtures`. Make fakes follow the real API, for example the raw bytes from `resty.sha256`.
+- Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, for example the 32 raw bytes that `resty.sha256` gives.
 - Test pure functions only. A function that has an effect, such as a request, a socket, or an nginx phase, belongs to `sync/tests/integration/proxy/` or to k6, not to the unit specs.
 - Compare a rewrite with the old code on random inputs before you delete the old code.
 
