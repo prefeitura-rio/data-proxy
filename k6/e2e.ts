@@ -74,7 +74,6 @@ declare const __ENV: Record<string, string | undefined>;
 const API_URL =
     __ENV.BASE_URL ||
     "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
-const WEBDIS_WRITE_URL = __ENV.WEBDIS_WRITE_URL || `${API_URL}/webdis/write`;
 const PROXY_CACHE_REDIS_DB = __ENV.PROXY_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
     __ENV.OIDC_TOKEN_URL ||
@@ -687,6 +686,7 @@ interface CommandJobOptions {
     podSpec?: KubernetesPodSpec;
     image?: string;
     serviceAccountName?: string;
+    env?: KubernetesPodSpec["containers"][number]["env"];
 }
 
 /** Runs one shell command from a short-lived Job and fails when it fails. */
@@ -719,7 +719,7 @@ function runCommandJob(
                             image: options.image ?? PG_IMAGE,
                             command: ["/bin/sh"],
                             args: ["-c", command],
-                            env: podSpec.containers[0].env,
+                            env: [...(podSpec.containers[0].env || []), ...(options.env || [])],
                             volumeMounts: podSpec.containers[0].volumeMounts,
                         },
                     ],
@@ -996,63 +996,27 @@ function waitForPipeline(timeoutSeconds: number): boolean {
     return false;
 }
 
-/** Sends one Valkey command through the proxy and returns the parsed answer. */
-function redisCommand(
-    token: string,
-    url: string,
-    command: string,
-    database: string = PROXY_CACHE_REDIS_DB,
-): Record<string, unknown> | null {
-    const response = http.get(`${url}/${database}/${command}`, {
-        headers: authHeaders(token),
-        tags: { name: `redis:${command.split("/")[0]}` },
-    }) as K6Response;
-    const body = response.status === 200 ? safeJson(response) : null;
-    return body !== null && typeof body === "object"
-        ? (body as Record<string, unknown>)
-        : null;
-}
+let activeKubernetes: Kubernetes | null = null;
 
-/** Clears cached table responses without touching sync streams. */
-function clearProxyCache(token: string): void {
-    const answer = redisCommand(
-        token,
-        WEBDIS_WRITE_URL,
-        "FLUSHDB",
-        PROXY_CACHE_REDIS_DB,
-    );
-    check(null, {
-        "proxy response cache cleared": () => answer !== null,
+/** Clears the proxy cache with a short-lived Valkey Job. */
+function clearProxyCache(): void {
+    if (activeKubernetes === null) {
+        throw new Error("Kubernetes is not active");
+    }
+    runCommandJob(activeKubernetes, "clear-proxy-cache", "valkey-cli -h \"$VALKEY_HOST\" -p \"$VALKEY_PORT\" -a \"$VALKEY_PASSWORD\" --no-auth-warning -n \"$PROXY_CACHE_REDIS_DB\" FLUSHDB", {
+        image: "docker.io/valkey/valkey:8-alpine",
+        env: [
+            { name: "VALKEY_HOST", value: "data-proxy-valkey" },
+            { name: "VALKEY_PORT", value: "6379" },
+            { name: "PROXY_CACHE_REDIS_DB", value: PROXY_CACHE_REDIS_DB },
+            {
+                name: "VALKEY_PASSWORD",
+                valueFrom: {
+                    secretKeyRef: { name: "data-proxy-redis", key: "REDIS_PASSWORD" },
+                },
+            },
+        ],
     });
-}
-
-/**
- * Verifies the webdis sidecar has not restarted.
- *
- * webdis frees a client while a command is in flight when a request asks it to
- * close the connection, which crashes it. The proxy keeps its connections alive
- * so that cannot happen, and this check fails the run when it happens anyway.
- */
-function verifyWebdisStable(k8s: Kubernetes): void {
-    const pods = k8s.list("Pod", NAMESPACE) as PodObject[];
-    const proxyPods = pods.filter(
-        (pod) =>
-            (pod.metadata.labels?.["app.kubernetes.io/component"] || "") ===
-            "proxy",
-    );
-    const webdis = proxyPods
-        .flatMap((pod) => pod.status?.containerStatuses || [])
-        .filter((status) => status.name === "webdis-write");
-
-    expect("the proxy pod is present", proxyPods.length > 0);
-    expect(
-        "webdis reports one container status",
-        webdis.length === proxyPods.length,
-    );
-    expect(
-        "webdis has not restarted",
-        webdis.every((status) => status.restartCount === 0),
-    );
 }
 
 /** Lists pods that match a component label. */
@@ -1394,7 +1358,7 @@ function verifyCnpgReaderMount(token: string): void {
 
 /** Verifies a table without fallbacks reports DuckLake as its only source. */
 function verifyDuckLakeSource(token: string): void {
-    clearProxyCache(token);
+    clearProxyCache();
     sleep(1);
 
     const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
@@ -1406,7 +1370,7 @@ function verifyDuckLakeSource(token: string): void {
 
 /** Verifies partitions outside DuckLake use the configured fallback. */
 function verifyFallbackRows(token: string): void {
-    clearProxyCache(token);
+    clearProxyCache();
     sleep(1);
 
     const pinned = { "X-DuckLake-Snapshot": snapshotValue(token) };
@@ -1479,7 +1443,7 @@ function rowsPerPartition(
  * holds the newest half and the fallback serves the older half.
  */
 function verifySplitSources(token: string): void {
-    clearProxyCache(token);
+    clearProxyCache();
     sleep(1);
 
     const all = rowsPerPartition(token);
@@ -1585,7 +1549,7 @@ function verifyIstioJwtValidation(): void {
 
 /** Verifies supported filters produce the same rows through the proxy and PostgREST. */
 function verifyFilterPushdown(token: string): void {
-    clearProxyCache(token);
+    clearProxyCache();
 
     const postgrestUrl = MODE === "ha" ? POSTGREST_READ_URL : POSTGREST_URL;
     const baseline = directPostgrest(
@@ -1930,7 +1894,7 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyFilterPushdown(token);
     verifyHistoricalSnapshot(k8s);
     verifyNoChangeRun(k8s);
-    clearProxyCache(userToken());
+    clearProxyCache();
     sleep(2);
     verifyMetrics();
     verifyNoAccess();
@@ -1952,7 +1916,6 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifySnapshotVersion(userToken());
     verifyPartitionChanges(k8s);
     verifyIstioJwtValidation();
-    verifyWebdisStable(k8s);
     verifyProxy();
 }
 
@@ -2015,6 +1978,7 @@ export function teardown(): void {
 
 export default function(): void {
     const k8s = new Kubernetes();
+    activeKubernetes = k8s;
     try {
         verifyEndToEnd(k8s);
         verifyMode(k8s, EXPECT_HA);

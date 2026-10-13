@@ -28,8 +28,6 @@ spec:
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
         value: data-proxy.local
-      - name: WEBDIS_WRITE_URL
-        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/write
       - name: NAMESPACE
         value: data-proxy
       - name: PIPELINE
