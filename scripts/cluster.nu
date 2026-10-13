@@ -131,7 +131,7 @@ def "main down" []: nothing -> nothing {
 
     try {
         rm --force $kubecfg
-        rm --recursive --force $catalogs
+        podman unshare rm --recursive --force $catalogs
     } catch {|err| fail $'Could not remove the k3d state: ($err.msg)' {
             command: main-down
             span: (metadata $kubecfg).span
