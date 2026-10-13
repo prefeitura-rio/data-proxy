@@ -1,6 +1,6 @@
 use lib.nu [fail]
 
-# Install the locked rocks and fail when `lux.lock` changed, ignoring Lux's random `binaries` order. Run it from the repository root.
+# Install the locked rocks and fail when `lux.lock` changed, ignoring Lux's random `binaries` order. Restore the committed file after a clean install, so repeated runs leave no diff. Run it from the repository root.
 def main []: nothing -> nothing {
     cd proxy
 
@@ -38,6 +38,12 @@ def main []: nothing -> nothing {
         | hash sha256
     }
 
+    let original = try {
+        open --raw $lockfile
+    } catch {|err| fail $'Could not read ($lockfile): ($err.msg)' {
+            command: main
+            span: (metadata $lockfile).span
+        } }
     let before = do $digest
 
     lx --no-prompt true --lua-version jit sync
@@ -48,4 +54,6 @@ def main []: nothing -> nothing {
             span: (metadata $lockfile).span
         }
     }
+
+    $original | save --force --raw $lockfile
 }
