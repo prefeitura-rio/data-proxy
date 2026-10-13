@@ -37,6 +37,7 @@ LANGUAGE plpgsql STABLE AS $$
 DECLARE
   kind text;
   column_name text;
+  quoted_column text;
   operator_name text;
   value_text text;
   rendered text;
@@ -50,6 +51,7 @@ BEGIN
       RAISE EXCEPTION 'unknown filter column' USING ERRCODE = 'PT400';
     END IF;
 
+    quoted_column := '"' || replace(column_name, '"', '""') || '"';
     operator_name := node ->> 'operator';
 
     IF jsonb_typeof(node -> 'value') = 'array' THEN
@@ -59,24 +61,24 @@ BEGIN
       SELECT array_agg(format('%L', value))
       INTO parts
       FROM jsonb_array_elements_text(node -> 'value') AS values(value);
-      rendered := format('%I IN (%s)', column_name, array_to_string(parts, ', '));
+      rendered := format('%s IN (%s)', quoted_column, array_to_string(parts, ', '));
     ELSE
       value_text := node ->> 'value';
       rendered := CASE operator_name
-        WHEN 'eq'    THEN format('%I = %L', column_name, value_text)
-        WHEN 'neq'   THEN format('%I <> %L', column_name, value_text)
-        WHEN 'gt'    THEN format('%I > %L', column_name, value_text)
-        WHEN 'gte'   THEN format('%I >= %L', column_name, value_text)
-        WHEN 'lt'    THEN format('%I < %L', column_name, value_text)
-        WHEN 'lte'   THEN format('%I <= %L', column_name, value_text)
-        WHEN 'like'  THEN format('%I LIKE %L', column_name, replace(value_text, '*', '%'))
-        WHEN 'ilike' THEN format('%I ILIKE %L', column_name, replace(value_text, '*', '%'))
+        WHEN 'eq'    THEN format('%s = %L', quoted_column, value_text)
+        WHEN 'neq'   THEN format('%s <> %L', quoted_column, value_text)
+        WHEN 'gt'    THEN format('%s > %L', quoted_column, value_text)
+        WHEN 'gte'   THEN format('%s >= %L', quoted_column, value_text)
+        WHEN 'lt'    THEN format('%s < %L', quoted_column, value_text)
+        WHEN 'lte'   THEN format('%s <= %L', quoted_column, value_text)
+        WHEN 'like'  THEN format('%s LIKE %L', quoted_column, replace(value_text, '*', '%'))
+        WHEN 'ilike' THEN format('%s ILIKE %L', quoted_column, replace(value_text, '*', '%'))
         WHEN 'is'    THEN CASE value_text
-          WHEN 'not_null' THEN format('%I IS NOT NULL', column_name)
-          WHEN 'null'     THEN format('%I IS NULL', column_name)
-          WHEN 'true'     THEN format('%I IS TRUE', column_name)
-          WHEN 'false'    THEN format('%I IS FALSE', column_name)
-          WHEN 'unknown'  THEN format('%I IS UNKNOWN', column_name)
+          WHEN 'not_null' THEN format('%s IS NOT NULL', quoted_column)
+          WHEN 'null'     THEN format('%s IS NULL', quoted_column)
+          WHEN 'true'     THEN format('%s IS TRUE', quoted_column)
+          WHEN 'false'    THEN format('%s IS FALSE', quoted_column)
+          WHEN 'unknown'  THEN format('%s IS UNKNOWN', quoted_column)
           ELSE NULL
         END
         ELSE NULL
@@ -86,6 +88,8 @@ BEGIN
     IF rendered IS NULL THEN
       RAISE EXCEPTION 'unknown filter operator' USING ERRCODE = 'PT400';
     END IF;
+
+    rendered := '(' || rendered || ')';
 
     IF COALESCE((node ->> 'negated')::boolean, false) THEN
       rendered := 'NOT (' || rendered || ')';
