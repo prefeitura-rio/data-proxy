@@ -51,10 +51,10 @@ jobs:
           CI_REPOSITORY: ${{ github.repository }}
           CI_OUTPUT_FILE: ${{ github.output }}
         run: devenv shell -- ci changes
-  quality:
+  checks:
     defaults:
       run:
-        shell: devenv --profile quality shell -- bash -e {0}
+        shell: devenv --profile checks shell -- bash -e {0}
     name: Lint and test
     needs: changes
     runs-on: ubuntu-latest
@@ -62,46 +62,67 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-devenv
-      - name: Restore quality virtual environment
-        id: quality-venv-cache
+      - name: Restore checks virtual environment
+        id: checks-venv-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: sync/.venv
-          key: quality-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
-      - name: Restore quality task state
-        id: quality-tasks-cache
+          key: checks-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
+      - name: Restore checks task state
+        id: checks-tasks-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            .devenv/profiles/quality/state/tasks.db*
-            .devenv/profiles/quality/state/files.json
-          key: quality-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-${{ github.sha }}
+            .devenv/profiles/checks/state/tasks.db*
+            .devenv/profiles/checks/state/files.json
+          key: checks-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-${{ github.sha }}
           restore-keys: |
-            quality-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-
-      - run: devenv --profile quality tasks run dp:lint dp:test
-      - name: Save quality virtual environment
-        if: steps.quality-venv-cache.outputs.cache-hit != 'true'
+            checks-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-
+      - run: devenv --profile checks tasks run lint:all test:all
+      - name: Save checks virtual environment
+        if: steps.checks-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: sync/.venv
-          key: ${{ steps.quality-venv-cache.outputs.cache-primary-key }}
-      - name: Save quality task state
-        if: steps.quality-tasks-cache.outputs.cache-hit != 'true'
+          key: ${{ steps.checks-venv-cache.outputs.cache-primary-key }}
+      - name: Save checks task state
+        if: steps.checks-tasks-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            .devenv/profiles/quality/state/tasks.db*
-            .devenv/profiles/quality/state/files.json
-          key: ${{ steps.quality-tasks-cache.outputs.cache-primary-key }}
+            .devenv/profiles/checks/state/tasks.db*
+            .devenv/profiles/checks/state/files.json
+          key: ${{ steps.checks-tasks-cache.outputs.cache-primary-key }}
+  test-sync:
+    name: Sync integration tests
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup-devenv
+      - run: podman --version
+      - run: devenv --profile sync test
+  test-proxy:
+    name: Proxy integration tests
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup-devenv
+      - run: devenv --profile proxy test
   build-images:
     name: Build ${{ matrix.name }} image
     needs:
       - changes
-      - quality
+      - checks
+      - test-sync
+      - test-proxy
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
-    if: always() && github.ref == 'refs/heads/main' && needs.quality.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -130,14 +151,16 @@ jobs:
   helm:
     defaults:
       run:
-        shell: devenv --profile helm shell -- bash -e {0}
+        shell: devenv --profile chart shell -- bash -e {0}
     name: Release Helm chart
     timeout-minutes: 15
     needs:
       - changes
-      - quality
+      - checks
+      - test-sync
+      - test-proxy
       - build-images
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.quality.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
