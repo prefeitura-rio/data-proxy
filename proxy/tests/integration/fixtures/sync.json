@@ -1,0 +1,10 @@
+{
+    "noCachePaths": ["/private"],
+    "schemas": {
+        "test": {
+            "tables": [
+                { "name": "project.test.people", "cache_ttl": 60 }
+            ]
+        }
+    }
+}
