@@ -1024,7 +1024,7 @@ function verifyDuckLakePublication(token: string): void {
         [FULL_TABLE]: "ducklake",
         [SNAPSHOT_TABLE]: "ducklake",
         [MULTI_RLS_TABLE]: "ducklake",
-        [PARTITIONED_TABLE]: "fallback",
+        [PARTITIONED_TABLE]: "ducklake+bigquery",
     };
 
     TABLES.forEach((table) => {
