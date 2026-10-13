@@ -127,10 +127,12 @@ def "main down" []: nothing -> nothing {
     k3d cluster delete $CLUSTER_NAME
 
     let kubecfg = local-kubeconfig
+    let catalogs = git-root | path join k3d .tmp catalogs
 
     try {
         rm --force $kubecfg
-    } catch {|err| fail $'Could not remove k3d kubeconfig: ($err.msg)' {
+        rm --recursive --force $catalogs
+    } catch {|err| fail $'Could not remove the k3d state: ($err.msg)' {
             command: main-down
             span: (metadata $kubecfg).span
         } }
