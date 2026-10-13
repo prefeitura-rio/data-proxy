@@ -9,9 +9,9 @@ check("utils.percent_decode", function(case) return utils.percent_decode(case.va
 	{ name = "keeps a plus character", value = "a+b", expected = "a+b" },
 	{ name = "keeps text without escapes", value = "plain", expected = "plain" },
 	{ name = "decodes an empty text", value = "", expected = "" },
-	{ name = "gives nil for a percent that ends the text", value = "100%", expected = nil },
-	{ name = "gives nil for a percent with one digit", value = "a%2", expected = nil },
-	{ name = "gives nil for an escape that is not hexadecimal", value = "%zz", expected = nil },
+	{ name = "gives nil for a percent that ends the text", value = "100%", expected = helpers.NULL },
+	{ name = "gives nil for a percent with one digit", value = "a%2", expected = helpers.NULL },
+	{ name = "gives nil for an escape that is not hexadecimal", value = "%zz", expected = helpers.NULL },
 })
 
 check("utils.encode_path", function(case) return utils.encode_path(case.value) end, {
@@ -80,7 +80,7 @@ check("utils.exceeds_body_limit", function(case) return utils.exceeds_body_limit
 check("utils.decode_base64url", function(case) return utils.decode_base64url(case.value) end, {
 	{ name = "maps the url-safe characters to the standard ones", value = "a-b_c", expected = "a+b/c" },
 	{ name = "keeps text without url-safe characters", value = "aGk", expected = "aGk" },
-	{ name = "gives nil when the decoder gives nil", value = "!!!", expected = nil },
+	{ name = "gives nil when the decoder gives nil", value = "!!!", expected = helpers.NULL },
 })
 
 check("utils.split_parameters", function(case) return utils.split_parameters(case.args) end, {

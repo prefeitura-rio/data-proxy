@@ -82,5 +82,5 @@ end, {
 	{ name = "finds a table by the first path segment", uri = "/people", expected = 42 },
 	{ name = "ignores the query string", uri = "/people?id=eq.1", expected = 42 },
 	{ name = "ignores deeper path segments", uri = "/people/1", expected = 42 },
-	{ name = "gives nil for an unknown table", uri = "/unknown", expected = nil },
+	{ name = "gives nil for an unknown table", uri = "/unknown", expected = helpers.NULL },
 })

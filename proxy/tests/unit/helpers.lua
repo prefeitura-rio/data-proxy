@@ -4,7 +4,10 @@ local tablex = require("pl.tablex") --[[@as pl.tablex]]
 
 --- The helpers that the specs share.
 ---@class SpecHelpers
+---@field NULL table The expected value of a case whose call gives nil.
 local helpers = {}
+
+helpers.NULL = {}
 
 local FIXED_NOW = 1000
 local LOG_LEVELS = { ERR = 4, WARN = 5, INFO = 7 }
@@ -15,6 +18,9 @@ local LOG_LEVELS = { ERR = 4, WARN = 5, INFO = 7 }
 function helpers.encode_url(text) return (text:gsub("_", "%%5F"):gsub("-", "%%2D")) end
 
 --- Fill the ngx names that the proxy modules need, because the unit specs run without nginx.
+--- utils.percent_decode calls ngx.unescape_uri, utils.encode_path calls ngx.escape_uri, and
+--- utils.decode_base64url calls ngx.decode_base64. The decode keeps the text, so a payload round
+--- trips, and gives nil for a "!", so a spec can test that path.
 local function install_ngx_stubs()
 	_G.ngx = _G.ngx or {}
 	---@type table<string, any>
@@ -23,16 +29,12 @@ local function install_ngx_stubs()
 		now = function() return FIXED_NOW end,
 		log = function() end,
 		sleep = function() end,
-		-- utils.percent_decode calls ngx.unescape_uri.
 		unescape_uri = function(value)
 			return (value:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
 		end,
-		-- utils.encode_path calls ngx.escape_uri, and nginx keeps the / separator.
 		escape_uri = function(value)
 			return (value:gsub("([^%w%-%._~/])", function(char) return string.format("%%%02X", string.byte(char)) end))
 		end,
-		-- utils.decode_base64url calls ngx.decode_base64. Keeping the text lets a payload round trip,
-		-- and giving nil for a "!" lets a spec test the nil path.
 		decode_base64 = function(text)
 			if text:find("!", 1, true) then return nil end
 			return (text:gsub("%%5F", "_"):gsub("%%2D", "-"))
@@ -46,10 +48,19 @@ local function install_ngx_stubs()
 	end)
 end
 
+--- The comparison of one case, by the field that the case uses to select it.
 local comparisons = {
-	expected = function(case, call) assert.same(case.expected, call(case)) end,
+	--- The value equals expected. The value NULL means that the call gives nil.
+	expected = function(case, call)
+		local expected = case.expected
+		if expected == helpers.NULL or expected == cjson.null or expected == ngx.null then expected = nil end
+		assert.same(expected, call(case))
+	end,
+	--- The value does not equal not_expected.
 	not_expected = function(case, call) assert.is_not.same(case.not_expected, call(case)) end,
+	--- The value equals case.value, the input of the call.
 	valid = function(case, call) assert.same(case.value, call(case)) end,
+	--- The call gives nil and a reason that matches the pattern.
 	reason = function(case, call)
 		local value, reason = call(case)
 		assert.is_nil(value)
@@ -64,6 +75,11 @@ local shapes = { "reason", "valid", "not_expected" }
 ---@param case table
 ---@return function
 local function comparison_of(case)
+	assert.is_true(
+		case.expected ~= nil or case.reason ~= nil or case.valid == true or case.not_expected ~= nil,
+		"case needs expected, valid, not_expected, or reason: " .. case.name
+	)
+
 	local shape = "expected"
 
 	tablex.foreach(shapes, function(field)
@@ -98,11 +114,6 @@ function helpers.load_filter_cases(path)
 	file:close()
 	---@type table[]
 	local cases = assert(cjson.decode(content))
-	tablex.foreach(cases, function(case)
-		if case.expected == cjson.null or case.expected == ngx.null or tostring(case.expected) == "userdata: NULL" then
-			case.expected = nil
-		end
-	end)
 	return cases
 end
 
