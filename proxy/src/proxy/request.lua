@@ -69,7 +69,7 @@ function request.make_headers(input)
 		return input.headers_in[name]
 	end
 
-	local names = List(constants.headers.forwarded)
+	local names = List(tablex.copy(constants.headers.forwarded))
 	if filter_json then names:append(constants.headers.filter) end
 	return tablex.pairmap(function(_, name) return value_of(name), name end, names)
 end

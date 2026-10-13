@@ -1,6 +1,7 @@
 ---@diagnostic disable: missing-fields
 
 local cjson = require("cjson.safe")
+local constants = require("proxy.constants")
 local helpers = require("tests.unit.helpers")
 local parser = require("proxy.parser.main")
 local request = require("proxy.request")
@@ -65,6 +66,29 @@ describe("request.make_headers", function()
 		local headers_in = { Authorization = "Bearer t", ["X-DuckLake-Filter"] = "client-value" }
 		request.make_headers({ method = "GET", args = "id=eq.1", headers_in = headers_in })
 		assert.same({ Authorization = "Bearer t", ["X-DuckLake-Filter"] = "client-value" }, headers_in)
+	end)
+
+	describe("when a read with a filter is the first call", function()
+		local forwarded
+
+		before_each(function()
+			forwarded = constants.headers.forwarded
+			constants.headers.forwarded = { unpack(forwarded) }
+		end)
+
+		after_each(function() constants.headers.forwarded = forwarded end)
+
+		it("does not change the list of forwarded headers", function()
+			local before = #constants.headers.forwarded
+			request.make_headers({ method = "GET", args = "id=eq.1", headers_in = {} })
+			assert.equal(before, #constants.headers.forwarded)
+		end)
+
+		it("gives the same headers for every read with a filter", function()
+			local input = { method = "GET", args = "id=eq.1", headers_in = {} }
+			request.make_headers(input)
+			assert.same({ ["X-DuckLake-Filter"] = filter_json }, request.make_headers(input))
+		end)
 	end)
 end)
 
