@@ -1,5 +1,3 @@
-"""Integration steps for response cache invalidation."""
-
 import asyncio
 from dataclasses import dataclass
 

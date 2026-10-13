@@ -1,5 +1,3 @@
-"""Behavior tests for source helper and table-function mappings."""
-
 from typing import Final
 from unittest.mock import AsyncMock
 

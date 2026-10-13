@@ -1,5 +1,3 @@
-"""Protocols used by test fixtures."""
-
 from collections.abc import Sequence
 from typing import Protocol
 

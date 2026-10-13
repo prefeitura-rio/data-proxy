@@ -1,5 +1,3 @@
-"""Tests for BigQuery-to-Parquet extraction operations."""
-
 from typing import Final
 from unittest.mock import AsyncMock
 

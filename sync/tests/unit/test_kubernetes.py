@@ -1,5 +1,3 @@
-"""Behavior tests for the Kubernetes helpers."""
-
 from copy import deepcopy
 from datetime import UTC, datetime
 
@@ -44,6 +42,7 @@ class TestRolloutComplete:
     """A rollout is complete only when every replica runs the new generation."""
 
     def test_accepts_a_finished_rollout(self) -> None:
+        """Accepts a finished rollout."""
         assert is_rollout_complete(
             deployment(status=READY, metadata=METADATA, replicas=2)
         )
@@ -86,6 +85,7 @@ class TestRolloutComplete:
         metadata: ObjectMeta | None,
         replicas: int | None,
     ) -> None:
+        """Rejects an unfinished rollout."""
         assert not is_rollout_complete(
             deployment(status=status, metadata=metadata, replicas=replicas)
         )
@@ -96,6 +96,7 @@ class TestListDeployments:
 
     @pytest.mark.asyncio
     async def test_returns_the_sorted_names_for_the_labels(self) -> None:
+        """Returns the sorted names for the labels."""
         client = FakeKubernetes(
             [
                 deployment(status=None, metadata=ObjectMeta(name=name), replicas=1)
@@ -116,6 +117,7 @@ class TestRestartDeployment:
     async def test_patches_the_deployment_before_waiting_for_its_rollout(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Patches the deployment before waiting for its rollout."""
         client = FakeKubernetes()
         events: list[str] = []
 
@@ -134,6 +136,7 @@ class TestRestartDeployment:
     async def test_fails_at_once_when_the_stream_ends_before_the_rollout_completes(
         self,
     ) -> None:
+        """Fails at once when the stream ends before the rollout completes."""
         stuck = deployment(status=None, metadata=ObjectMeta(name="pgrst"), replicas=2)
         client = FakeKubernetes(watched=[stuck])
 
@@ -144,6 +147,7 @@ class TestRestartDeployment:
     async def test_stops_waiting_on_a_hung_stream_when_the_timeout_expires(
         self,
     ) -> None:
+        """Stops waiting on a hung stream when the timeout expires."""
         client = FakeKubernetes(hang_watch=True)
 
         with pytest.raises(TimeoutError, match="pgrst"):
@@ -162,6 +166,7 @@ class TestRestartDeployment:
     async def test_asks_the_server_to_end_the_stream_at_the_timeout(
         self, timeout: float, expected: int
     ) -> None:
+        """Asks the server to end the stream at the timeout."""
         done = deployment(
             status=READY, metadata=ObjectMeta(name="pgrst", generation=3), replicas=2
         )
@@ -175,6 +180,7 @@ class TestRestartDeployment:
 
     @pytest.mark.asyncio
     async def test_finishes_when_the_watch_reports_a_complete_rollout(self) -> None:
+        """Finishes when the watch reports a complete rollout."""
         done = deployment(
             status=READY, metadata=ObjectMeta(name="pgrst", generation=3), replicas=2
         )
@@ -217,6 +223,7 @@ class TestPodReady:
         ],
     )
     def test_reads_the_ready_condition(self, candidate: Pod, expected: bool) -> None:
+        """Reads the ready condition."""
         assert is_pod_ready(candidate) is expected
 
 
@@ -225,6 +232,7 @@ class TestListCatalogClaims:
 
     @pytest.mark.asyncio
     async def test_maps_ready_pods_to_their_ephemeral_claims(self) -> None:
+        """Maps ready pods to their ephemeral claims."""
         client = FakeKubernetes(
             [
                 pod("data-proxy-2"),
@@ -278,12 +286,14 @@ class TestBuildRefreshJob:
 
     @staticmethod
     def build(template: Job) -> Job:
+        """Build one refresh job from the template."""
         assert template.spec is not None
         return build_refresh_job(
             template.spec, "app", "test", "pg-1", "pg-1-claim", "refresh-test-pg-1-ab"
         )
 
     def test_names_and_labels_the_job_and_its_pod(self) -> None:
+        """Names and labels the job and its pod."""
         job = self.build(template_job())
 
         labels = {
@@ -298,6 +308,7 @@ class TestBuildRefreshJob:
         assert job.spec.template.metadata == ObjectMeta(labels=labels)
 
     def test_clears_the_generated_selector_and_runs_once(self) -> None:
+        """Clears the generated selector and runs once."""
         job = self.build(template_job())
 
         assert job.spec is not None
@@ -306,6 +317,7 @@ class TestBuildRefreshJob:
         assert job.spec.ttlSecondsAfterFinished == 300
 
     def test_swaps_only_the_catalog_volume_for_the_claim(self) -> None:
+        """Swaps only the catalog volume for the claim."""
         job = self.build(template_job())
 
         assert job.spec is not None
@@ -319,6 +331,7 @@ class TestBuildRefreshJob:
         assert volumes["litestream-config"] == Volume(name="litestream-config")
 
     def test_leaves_the_template_unchanged(self) -> None:
+        """Leaves the template unchanged."""
         template = template_job()
         original = deepcopy(template)
 
@@ -332,6 +345,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_creates_a_runnable_copy_for_the_instance_claim(self) -> None:
+        """Creates a runnable copy for the instance claim."""
         template = template_job()
         original = deepcopy(template)
         client = FakeKubernetes([template])
@@ -368,6 +382,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_waits_for_completion_and_fails_on_job_failure(self) -> None:
+        """Waits for completion and fails on job failure."""
         client = FakeKubernetes(
             [template_job()], wait_error=ConditionError("jobs/refresh", ["Job failed"])
         )
@@ -381,6 +396,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_deletes_the_finished_job_so_its_pod_releases_the_claim(self) -> None:
+        """Deletes the finished job so its pod releases the claim."""
         client = FakeKubernetes([template_job()])
 
         name = await run_job(client, "app", "test", "pg-1", "claim-1")
@@ -389,6 +405,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_ignores_a_job_that_is_already_gone(self) -> None:
+        """Ignores a job that is already gone."""
         client = FakeKubernetes(
             [template_job()],
             delete_error=ApiError(status=Status(code=404, message="not found")),
@@ -400,6 +417,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_shows_a_delete_error_that_is_not_a_missing_job(self) -> None:
+        """Shows a delete error that is not a missing job."""
         client = FakeKubernetes(
             [template_job()],
             delete_error=ApiError(status=Status(code=403, message="forbidden")),
@@ -410,6 +428,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_gives_every_run_a_different_name(self) -> None:
+        """Gives every run a different name."""
         client = FakeKubernetes([template_job()])
 
         names = {
@@ -420,6 +439,7 @@ class TestRunJob:
 
     @pytest.mark.asyncio
     async def test_keeps_names_within_the_kubernetes_limit(self) -> None:
+        """Keeps names within the kubernetes limit."""
         name = await run_job(
             FakeKubernetes([template_job()]), "app", "s" * 80, "pg-1", "claim-1"
         )
@@ -429,6 +449,7 @@ class TestRunJob:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("templates", [0, 2])
     async def test_requires_exactly_one_template(self, templates: int) -> None:
+        """Requires exactly one template."""
         client = FakeKubernetes([template_job() for _ in range(templates)])
 
         with pytest.raises(RuntimeError, match="Expected one refresh Job template"):

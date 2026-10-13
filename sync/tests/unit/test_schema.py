@@ -1,5 +1,3 @@
-"""Tests for the schema initialization and revocation test helpers."""
-
 from collections.abc import Mapping
 from unittest.mock import AsyncMock
 

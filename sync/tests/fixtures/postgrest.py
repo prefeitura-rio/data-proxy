@@ -1,5 +1,3 @@
-"""A real PostgREST service for HTTP integration tests."""
-
 from collections.abc import Iterator
 from time import monotonic, sleep
 from urllib.parse import urlsplit, urlunsplit

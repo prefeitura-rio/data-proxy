@@ -1,5 +1,3 @@
-"""Unit tests for DBOS utility behavior."""
-
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -70,6 +68,7 @@ class TestCatalogLockRetryClassification:
     def test_retries_only_the_catalog_lock_error(
         self, error: BaseException, expected: bool
     ) -> None:
+        """Retries only the catalog lock error."""
         assert utils.retry_catalog_locked(error) is expected
 
 
@@ -107,6 +106,7 @@ class TestRunSyncRefreshesServing:
         snapshot_id: int | None,
         expected: list[str],
     ) -> None:
+        """Refreshes and restarts only what changed."""
         calls, events = stub_sync_run(
             monkeypatch,
             postgrest_restart_required=postgrest_restart_required,
@@ -209,6 +209,7 @@ class TestRefreshCatalogsWorkflow:
     async def test_enqueues_every_schema_instance_pair_before_the_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Enqueues every schema instance pair before the check."""
         events = self.stub(monkeypatch, [{}])
 
         await workflow_body(workflows.refresh_catalogs)({"one": 1, "two": 2})
@@ -227,6 +228,7 @@ class TestRefreshCatalogsWorkflow:
     async def test_runs_again_only_for_the_schemas_that_still_lag(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Runs again only for the schemas that still lag."""
         events = self.stub(monkeypatch, [{"two": 2}, {}])
 
         await workflow_body(workflows.refresh_catalogs)({"one": 1, "two": 2})
@@ -242,6 +244,7 @@ class TestRefreshCatalogsWorkflow:
     async def test_fails_when_the_primary_never_reports_the_snapshot(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Fails when the primary never reports the snapshot."""
         events = self.stub(monkeypatch, [{"one": 1}] * 3)
 
         with pytest.raises(RuntimeError, match=r"after 3 attempts: \['one'\]"):
@@ -288,6 +291,7 @@ class TestServingSteps:
     async def test_lists_poolers_and_postgrest_by_their_selectors(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Lists poolers and postgrest by their selectors."""
         client = FakeKubernetes()
         namespaces = open_client(monkeypatch, client)
         clients: list[KubernetesClient] = []
@@ -316,6 +320,7 @@ class TestServingSteps:
     async def test_starts_both_lookups_before_either_finishes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Starts both lookups before either finishes."""
         open_client(monkeypatch, FakeKubernetes())
         events: list[str] = []
 
@@ -354,6 +359,7 @@ class TestServingSteps:
         postgrest: list[str],
         kind: str,
     ) -> None:
+        """Fails when a selector matches no deployment."""
         open_client(monkeypatch, FakeKubernetes())
 
         async def list_by_selector(
@@ -370,6 +376,7 @@ class TestServingSteps:
     async def test_opens_a_client_for_the_namespace_and_passes_it_down(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Opens a client for the namespace and passes it down."""
         client = FakeKubernetes()
         namespaces = open_client(monkeypatch, client)
         namespace = settings.KUBERNETES_NAMESPACE
@@ -411,6 +418,8 @@ class TestServingSteps:
         reported: dict[str, int | None],
         expected: dict[str, int],
     ) -> None:
+        """Returns the snapshots that the primary does not report."""
+
         async def reader_snapshot(_conn: object, schema_name: str) -> int | None:
             return reported[schema_name]
 
@@ -431,6 +440,7 @@ class TestApplyDucklakeMaintenanceStep:
     async def test_maintains_the_schema_catalog_and_returns_its_snapshot(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Maintains the schema catalog and returns its snapshot."""
         connection = object()
         connections: list[object] = []
         maintain = AsyncMock(return_value=9)
@@ -461,6 +471,7 @@ class TestPublishSchemaOrder:
     async def test_commits_state_after_the_snapshot_and_returns_it(
         self, calls: Calls
     ) -> None:
+        """Commits state after the snapshot and returns it."""
         snapshot_id = await publish(SyncPlan(schema_name="app"))
 
         assert calls.names == [
@@ -474,6 +485,7 @@ class TestPublishSchemaOrder:
     async def test_returns_no_snapshot_when_nothing_was_published(
         self, calls: Calls
     ) -> None:
+        """Returns no snapshot when nothing was published."""
         calls.snapshot_id = None
 
         assert await publish(SyncPlan(schema_name="app")) is None
@@ -482,6 +494,7 @@ class TestPublishSchemaOrder:
     async def test_returns_the_published_snapshot_when_maintenance_fails(
         self, calls: Calls
     ) -> None:
+        """Returns the published snapshot when maintenance fails."""
         calls.maintenance_error = RuntimeError("boom")
 
         snapshot_id = await publish(SyncPlan(schema_name="app"))

@@ -1,5 +1,3 @@
-"""Models used by the test fixtures."""
-
 from datetime import datetime
 
 from google.cloud.bigquery import (

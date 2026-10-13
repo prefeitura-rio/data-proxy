@@ -1,9 +1,3 @@
-"""Integration steps for SQL template execution against PostgreSQL.
-
-These steps exercise view reconciliation and S3 cleanup against real
-PostgreSQL and Silo instances.
-"""
-
 import asyncio
 from dataclasses import dataclass
 from io import BytesIO
@@ -35,6 +29,8 @@ from tests.helpers import (
 
 @dataclass
 class TemplateScenario:
+    """State shared by the template steps of one scenario."""
+
     postgres: Postgres
 
 
@@ -162,6 +158,7 @@ def reconcile_empty_config(
 
 @then(parsers.re(r'the view "(?P<view>[^"]+)" (?P<state>exists|does not exist)$'))
 def check_view(template_context: TemplateScenario, view: str, state: str) -> None:
+    """Check view."""
     database = template_context.postgres
     found = asyncio.run(relation_exists(database, database.namespace.schema, view))
     assert found is (state == "exists")
@@ -173,6 +170,7 @@ def check_view(template_context: TemplateScenario, view: str, state: str) -> Non
 def check_function(
     template_context: TemplateScenario, signature: str, state: str
 ) -> None:
+    """Check function."""
     database = template_context.postgres
     found = asyncio.run(function_exists(database, database.namespace.schema, signature))
     assert found is (state == "exists")
@@ -182,6 +180,7 @@ def check_function(
 def check_application_function(
     template_context: TemplateScenario, signature: str
 ) -> None:
+    """Check application function."""
     database = template_context.postgres
     assert asyncio.run(function_exists(database, settings.DBOS_APP_SCHEMA, signature))
 
@@ -190,6 +189,7 @@ def check_application_function(
 def check_view_columns(
     template_context: TemplateScenario, view: str, columns: str
 ) -> None:
+    """Check view columns."""
     database = template_context.postgres
     rows = asyncio.run(
         fetch_all(

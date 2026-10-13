@@ -1,5 +1,3 @@
-"""Unit tests for BigQuery partition configuration, metadata, and normalization."""
-
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast

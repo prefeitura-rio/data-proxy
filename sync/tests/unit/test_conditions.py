@@ -1,5 +1,3 @@
-"""Unit tests for SQL predicate construction."""
-
 import pytest
 
 from sync.conditions import partition_condition, schema_scope_condition

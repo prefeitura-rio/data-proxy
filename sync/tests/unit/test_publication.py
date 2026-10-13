@@ -1,5 +1,3 @@
-"""Unit tests for DuckLake publication planning logic."""
-
 from sync.ducklake import (
     empty_incremental_tables,
     failed_partition_ids,

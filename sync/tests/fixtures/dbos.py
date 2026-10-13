@@ -1,5 +1,3 @@
-"""DBOS workflow fixtures."""
-
 import pytest
 
 from sync.dbos import workflows

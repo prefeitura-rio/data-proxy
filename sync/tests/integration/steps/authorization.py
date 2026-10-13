@@ -27,6 +27,8 @@ from tests.helpers import (
 
 @dataclass
 class AuthorizationScenario:
+    """State shared by the authorization steps of one scenario."""
+
     postgres: Postgres
     table: str = "table"
 
@@ -114,6 +116,7 @@ def production_access_policy_schema(postgres: Postgres) -> str:
 def apply_unprotected_authorization(
     authorization_context: AuthorizationScenario,
 ) -> None:
+    """Apply unprotected authorization."""
     database = authorization_context.postgres
     create_table(database, authorization_context.table, "region_id")
     asyncio.run(
@@ -131,6 +134,7 @@ def apply_unprotected_authorization(
 def apply_protected_authorization(
     authorization_context: AuthorizationScenario,
 ) -> None:
+    """Apply protected authorization."""
     database = authorization_context.postgres
     create_table(database, authorization_context.table, "region_id")
     asyncio.run(create_access_policy(database))
@@ -149,6 +153,7 @@ def apply_protected_authorization(
 def check_schema_scoped_policy(
     authorization_context: AuthorizationScenario,
 ) -> None:
+    """Check schema scoped policy."""
     database = authorization_context.postgres
     assert policy_names(database, authorization_context.table) == [("schema_scoped",)]
 
@@ -157,6 +162,7 @@ def check_schema_scoped_policy(
 def check_user_select_access(
     authorization_context: AuthorizationScenario,
 ) -> None:
+    """Check user select access."""
     database = authorization_context.postgres
     rows = asyncio.run(
         fetch_all(
@@ -176,6 +182,7 @@ def check_user_select_access(
 def check_access_policy(
     authorization_context: AuthorizationScenario,
 ) -> None:
+    """Check access policy."""
     database = authorization_context.postgres
     assert policy_names(database, authorization_context.table) == [
         ("access_policy_scoped",)
@@ -189,6 +196,7 @@ def setup_protected_visible_table(
     postgres: Postgres,
     access_policy_schema: str,
 ) -> None:
+    """Setup protected visible table."""
     create_table(postgres, "visible", "region_id")
     asyncio.run(
         execute_sql(
@@ -217,11 +225,13 @@ def query_protected_table(
     postgres: Postgres,
     access_policy_schema: str,
 ) -> None:
+    """Query protected table."""
     claim(postgres, schemas=access_policy_schema, preferred_username="alice")
 
 
 @then("the protected table shows the allowed row")
 def check_protected_visible(postgres: Postgres) -> None:
+    """Check protected visible."""
     rows = asyncio.run(
         fetch_all(
             postgres,
@@ -234,6 +244,7 @@ def check_protected_visible(postgres: Postgres) -> None:
 
 @when('I delete the access-policy grant for "alice"')
 def delete_grant(postgres: Postgres) -> None:
+    """Delete grant."""
     asyncio.run(postgres.connection.execute(b"RESET ROLE"))
     asyncio.run(
         execute_sql(
@@ -247,6 +258,7 @@ def delete_grant(postgres: Postgres) -> None:
 
 @then("the protected table shows no rows")
 def check_protected_empty(postgres: Postgres) -> None:
+    """Check protected empty."""
     rows = asyncio.run(
         fetch_all(
             postgres,
@@ -287,6 +299,7 @@ def setup_multi_rls_table(postgres: Postgres, access_policy_schema: str) -> None
 
 @when("I apply authorization to a schema-scoped table")
 def apply_scoped_authorization(postgres: Postgres) -> None:
+    """Apply scoped authorization."""
     schema = postgres.namespace.schema
     create_table(postgres, "scoped", "id")
     asyncio.run(
@@ -314,11 +327,13 @@ def apply_scoped_authorization(postgres: Postgres) -> None:
 
 @when("I query the scoped table with the matching schema claim")
 def query_scoped_matching(postgres: Postgres) -> None:
+    """Query scoped matching."""
     claim(postgres, schemas=postgres.namespace.schema)
 
 
 @then("the scoped table shows the visible row")
 def check_scoped_visible(postgres: Postgres) -> None:
+    """Check scoped visible."""
     rows = asyncio.run(
         fetch_all(
             postgres,
@@ -331,11 +346,13 @@ def check_scoped_visible(postgres: Postgres) -> None:
 
 @when("I query the scoped table with a non-matching schema claim")
 def query_scoped_nonmatching(postgres: Postgres) -> None:
+    """Query scoped nonmatching."""
     claim(postgres, schemas="other")
 
 
 @then("the scoped table shows no visible rows")
 def check_scoped_empty(postgres: Postgres) -> None:
+    """Check scoped empty."""
     rows = asyncio.run(
         fetch_all(
             postgres,
@@ -365,6 +382,7 @@ def check_multi_rls_rows(postgres: Postgres, access_policy_schema: str) -> None:
 
 @then("the access-log trigger is a security definer")
 def check_trigger_definer(postgres: Postgres) -> None:
+    """Check trigger definer."""
     row = asyncio.run(
         fetch_one(
             postgres,
@@ -377,17 +395,20 @@ def check_trigger_definer(postgres: Postgres) -> None:
 
 @when('I insert an access-policy grant for "123"')
 def insert_policy_grant_123(postgres: Postgres) -> None:
+    """Insert policy grant 123."""
     asyncio.run(insert_access_policy(postgres, "123", "region", "42"))
     asyncio.run(postgres.connection.commit())
 
 
 @then('the access-log records an insert for "123"')
 def check_insert_log(postgres: Postgres) -> None:
+    """Check insert log."""
     assert access_log(postgres) == [("123", "region", "42", "insert")]
 
 
 @when('I insert and update the access-policy grant for "456"')
 def insert_and_update_grant(postgres: Postgres) -> None:
+    """Insert and update grant."""
     asyncio.run(insert_access_policy(postgres, "456", "group", "7"))
     asyncio.run(postgres.connection.commit())
     asyncio.run(
@@ -403,6 +424,7 @@ def insert_and_update_grant(postgres: Postgres) -> None:
 
 @then('the access-log records an insert and update for "456"')
 def check_update_log(postgres: Postgres) -> None:
+    """Check update log."""
     assert access_log(postgres) == [
         ("456", "group", "7", "insert"),
         ("456", "group", "7", "update"),
@@ -411,6 +433,7 @@ def check_update_log(postgres: Postgres) -> None:
 
 @when('I insert and delete the access-policy grant for "789"')
 def insert_and_delete_grant(postgres: Postgres) -> None:
+    """Insert and delete grant."""
     asyncio.run(insert_access_policy(postgres, "789", "ap", "1"))
     asyncio.run(postgres.connection.commit())
     asyncio.run(
@@ -426,6 +449,7 @@ def insert_and_delete_grant(postgres: Postgres) -> None:
 
 @then('the access-log records an insert and delete for "789"')
 def check_delete_log(postgres: Postgres) -> None:
+    """Check delete log."""
     assert access_log(postgres) == [
         ("789", "ap", "1", "insert"),
         ("789", "ap", "1", "delete"),
@@ -434,12 +458,14 @@ def check_delete_log(postgres: Postgres) -> None:
 
 @when('I insert a recent access-policy grant for "recent"')
 def insert_recent_grant(postgres: Postgres) -> None:
+    """Insert recent grant."""
     asyncio.run(insert_access_policy(postgres, "recent", "region", "1"))
     asyncio.run(postgres.connection.commit())
 
 
 @when('I insert a stale access-log entry for "stale"')
 def insert_stale_log(postgres: Postgres) -> None:
+    """Insert stale log."""
     asyncio.run(
         execute_sql(
             postgres,
@@ -462,6 +488,7 @@ def prune_access_log(
     postgres: Postgres,
     access_policy_schema: str,
 ) -> None:
+    """Prune access log."""
     asyncio.run(
         postgres.connection.execute(
             b"CALL data_proxy.prune_access_log(%s::interval, %s)",
@@ -473,4 +500,5 @@ def prune_access_log(
 
 @then("only the recent access-log entry remains")
 def check_pruned_log(postgres: Postgres) -> None:
+    """Check pruned log."""
     assert access_log(postgres) == [("recent", "region", "1", "insert")]

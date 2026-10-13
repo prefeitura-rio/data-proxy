@@ -1,8 +1,3 @@
-"""Shared fixtures for the data-proxy test suite.
-
-Service fixtures live under ``tests/fixtures`` and are registered as plugins.
-"""
-
 from logging import getLogger
 
 import pytest

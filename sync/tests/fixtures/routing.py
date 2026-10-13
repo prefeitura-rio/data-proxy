@@ -1,5 +1,3 @@
-"""Routing function fixtures."""
-
 import pytest
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier

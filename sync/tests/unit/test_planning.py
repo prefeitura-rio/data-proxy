@@ -1,5 +1,3 @@
-"""Tests for planning result types."""
-
 from unittest.mock import AsyncMock, MagicMock
 
 import hypothesis

@@ -1,5 +1,3 @@
-"""Shared constants for the data-proxy test suite."""
-
 from datetime import UTC, datetime
 from pathlib import Path
 

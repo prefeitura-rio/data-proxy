@@ -20,6 +20,7 @@ from sync.settings import settings
 
 
 def test_catalog_format_matches_pg_duckdb_support(tmp_path: Path) -> None:
+    """Catalog format matches pg duckdb support."""
     catalog = tmp_path / "catalog.sqlite"
     connection = duckdb.connect()
     connection.execute("LOAD ducklake")
@@ -36,6 +37,7 @@ def test_catalog_format_matches_pg_duckdb_support(tmp_path: Path) -> None:
 
 
 def test_catalog_directory_allows_postgres_to_read(tmp_path: Path) -> None:
+    """Catalog directory allows postgres to read."""
     paths = DuckLakePaths(
         catalog=tmp_path / "schema" / "catalog.sqlite",
         data="s3://bucket/ducklake/schema",
@@ -49,6 +51,7 @@ def test_catalog_directory_allows_postgres_to_read(tmp_path: Path) -> None:
 def test_catalog_directory_permissions_are_fixed_on_existing_path(
     tmp_path: Path,
 ) -> None:
+    """Catalog directory permissions are fixed on existing path."""
     catalog_dir = tmp_path / "schema"
     catalog_dir.mkdir(mode=0o700)
     catalog_dir.chmod(0o700)
@@ -73,6 +76,7 @@ class TestApplyMaintenance:
     async def test_keeps_the_rows_and_returns_the_current_snapshot(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expiration: str
     ) -> None:
+        """Keeps the rows and returns the current snapshot."""
         monkeypatch.setattr(settings, "DUCKLAKE_SNAPSHOT_EXPIRATION", expiration)
         connection = duckdb.connect()
         connection.execute("LOAD ducklake")
@@ -101,6 +105,7 @@ class TestReaderSnapshot:
     """reader_snapshot behavior tests."""
 
     async def test_returns_snapshot_from_reader_function(self) -> None:
+        """Returns snapshot from reader function."""
         pg_conn = AsyncMock(spec=Postgres)
         pg_conn.query.return_value = [(7,)]
 
@@ -108,6 +113,7 @@ class TestReaderSnapshot:
         pg_conn.commit.assert_awaited_once()
 
     async def test_returns_none_when_reader_catalog_is_missing(self) -> None:
+        """Returns none when reader catalog is missing."""
         pg_conn = AsyncMock(spec=Postgres)
         pg_conn.query.side_effect = psycopg.errors.InternalError_("no catalog")
 

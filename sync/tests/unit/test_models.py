@@ -1,5 +1,3 @@
-"""Unit tests for synchronization data models."""
-
 from collections.abc import Callable
 from datetime import date, timedelta
 

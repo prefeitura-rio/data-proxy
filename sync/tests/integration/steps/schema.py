@@ -1,5 +1,3 @@
-"""Integration steps for PostgreSQL schema lifecycle."""
-
 import asyncio
 from dataclasses import dataclass
 
@@ -24,6 +22,8 @@ from tests.helpers import (
 
 @dataclass
 class SchemaScenario:
+    """State shared by the schema steps of one scenario."""
+
     postgres: Postgres
     other_schema: str | None = None
     memberships_unchanged: bool = False
@@ -31,11 +31,13 @@ class SchemaScenario:
 
 @given("a fresh PostgreSQL schema", target_fixture="schema_context")
 def fresh_postgres_schema(postgres: Postgres) -> SchemaScenario:
+    """Fresh postgres schema."""
     return SchemaScenario(postgres=postgres)
 
 
 @when("I initialize two configured application schemas")
 def initialize_two_schemas(schema_context: SchemaScenario) -> None:
+    """Initialize two schemas."""
     database = schema_context.postgres
     schema = database.namespace.schema
     other = f"{schema}_two"
@@ -51,6 +53,7 @@ def initialize_two_schemas(schema_context: SchemaScenario) -> None:
 
 @when("I initialize one configured application schema")
 def initialize_one_schema(schema_context: SchemaScenario) -> None:
+    """Initialize one schema."""
     database = schema_context.postgres
     schema = database.namespace.schema
     before = asyncio.run(authenticator_memberships(database))
@@ -64,6 +67,7 @@ def initialize_one_schema(schema_context: SchemaScenario) -> None:
 
 @when("I revoke anonymous access for the configured schema")
 def revoke_schema_access(schema_context: SchemaScenario) -> None:
+    """Revoke schema access."""
     database = schema_context.postgres
     schema = database.namespace.schema
     config = SyncConfig(
@@ -84,6 +88,7 @@ def revoke_schema_access(schema_context: SchemaScenario) -> None:
 
 @when("I create a stale view and clean schema objects")
 def clean_stale_view(schema_context: SchemaScenario) -> None:
+    """Clean stale view."""
     database = schema_context.postgres
     schema = database.namespace.schema
     config = SyncConfig(
@@ -112,6 +117,7 @@ def clean_stale_view(schema_context: SchemaScenario) -> None:
 
 @then("the maintenance procedures are installed")
 def check_maintenance_procedures(schema_context: SchemaScenario) -> None:
+    """Check maintenance procedures."""
     database = schema_context.postgres
     assert [
         asyncio.run(function_exists(database, settings.DBOS_APP_SCHEMA, signature))
@@ -124,6 +130,7 @@ def check_maintenance_procedures(schema_context: SchemaScenario) -> None:
 
 @then("both configured schemas exist")
 def check_configured_schemas(schema_context: SchemaScenario) -> None:
+    """Check configured schemas."""
     database = schema_context.postgres
     schema = database.namespace.schema
     assert schema_context.other_schema is not None
@@ -139,11 +146,13 @@ def check_configured_schemas(schema_context: SchemaScenario) -> None:
 
 @then("authenticator memberships are unchanged")
 def check_memberships(schema_context: SchemaScenario) -> None:
+    """Check memberships."""
     assert schema_context.memberships_unchanged
 
 
 @then("anonymous schema usage is disabled")
 def check_schema_usage(schema_context: SchemaScenario) -> None:
+    """Check schema usage."""
     database = schema_context.postgres
     assert asyncio.run(
         fetch_one(
@@ -159,6 +168,7 @@ def check_schema_usage(schema_context: SchemaScenario) -> None:
 
 @then("anonymous table access is disabled")
 def check_table_access(schema_context: SchemaScenario) -> None:
+    """Check table access."""
     database = schema_context.postgres
     assert asyncio.run(
         fetch_one(
@@ -174,6 +184,7 @@ def check_table_access(schema_context: SchemaScenario) -> None:
 
 @then("the stale view does not exist")
 def check_stale_view_removed(schema_context: SchemaScenario) -> None:
+    """Check stale view removed."""
     database = schema_context.postgres
     assert not asyncio.run(
         relation_exists(database, database.namespace.schema, "stale")
@@ -182,11 +193,13 @@ def check_stale_view_removed(schema_context: SchemaScenario) -> None:
 
 @when("I initialize the application state schema")
 def init_state_schema(schema_context: SchemaScenario) -> None:
+    """Init state schema."""
     asyncio.run(ensure_app_schema(schema_context.postgres.backend))
 
 
 @then("the state and errors tables exist")
 def check_state_tables(schema_context: SchemaScenario) -> None:
+    """Check state tables."""
     database = schema_context.postgres
     assert [
         asyncio.run(relation_exists(database, settings.DBOS_APP_SCHEMA, table))

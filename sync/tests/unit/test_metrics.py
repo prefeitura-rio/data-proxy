@@ -1,5 +1,3 @@
-"""Tests for workflow metric observation."""
-
 import pytest
 
 from sync.metrics import observe

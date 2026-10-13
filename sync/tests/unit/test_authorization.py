@@ -1,5 +1,3 @@
-"""Unit tests for authorization validation."""
-
 from unittest.mock import AsyncMock
 
 import pytest

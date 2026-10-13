@@ -1,5 +1,3 @@
-"""Integration steps for persisted synchronization state."""
-
 import asyncio
 
 import pytest
@@ -28,11 +26,13 @@ from tests.helpers import partition
 
 @pytest.fixture
 def written_table() -> str | None:
+    """Written table."""
     return None
 
 
 @given("an empty application state database", target_fixture="state_connection")
 def empty_state_database(dbos_conn: AsyncConnection) -> Postgres:
+    """Empty state database."""
     return Postgres(connection=dbos_conn)
 
 
@@ -47,6 +47,7 @@ def write_full_table_state(
     table: str,
     signature: str,
 ) -> str:
+    """Write full table state."""
     asyncio.run(
         write_table_states(
             state_connection,
@@ -63,6 +64,7 @@ def replace_table_state(
     old: str,
     new: str,
 ) -> None:
+    """Replace table state."""
     asyncio.run(
         write_table_states(
             state_connection,
@@ -82,6 +84,7 @@ def record_extraction_error(
     state_connection: Postgres,
     table: str,
 ) -> None:
+    """Record extraction error."""
     asyncio.run(
         emit_error(
             state_connection,
@@ -100,6 +103,7 @@ def read_written_signature(
     signature: str,
     written_table: str | None = None,
 ) -> None:
+    """Read written signature."""
     if written_table is not None:
         assert written_table == table
     assert asyncio.run(read_table_signature(state_connection, table)) == signature
@@ -110,6 +114,7 @@ def read_missing_state(
     state_connection: Postgres,
     table: str,
 ) -> None:
+    """Read missing state."""
     assert asyncio.run(read_table_state(state_connection, table)) is None
 
 
@@ -119,6 +124,7 @@ def read_latest_error(
     table: str,
     reason: str,
 ) -> None:
+    """Read latest error."""
     cursor = asyncio.run(
         state_connection.connection.execute(
             b"SELECT reason, fields FROM data_proxy.errors ORDER BY id DESC LIMIT 1"
@@ -138,6 +144,7 @@ def write_partitioned_state(
     state_connection: Postgres,
     table: str,
 ) -> str:
+    """Write partitioned state."""
     physical = partition("1")
     state = TableState(
         strategy=Strategy.PARTITIONED,
@@ -156,6 +163,7 @@ def check_partition_manifest(
     table: str,
     partitioned_table: str,
 ) -> None:
+    """Check partition manifest."""
     assert partitioned_table == table
     assert asyncio.run(read_table_state(state_connection, table)) == TableState(
         strategy=Strategy.PARTITIONED,
@@ -173,6 +181,7 @@ def write_two_states(
     published: str,
     unpublished: str,
 ) -> str:
+    """Write two states."""
     asyncio.run(
         write_table_states(
             state_connection,
@@ -192,6 +201,7 @@ def build_states_for_published(
     state_connection: Postgres,
     published: str,
 ) -> None:
+    """Build states for published."""
     schema = published.split(".")[1]
     table = FullTable(name=published, resolved_schema=schema)
     config = SyncConfig(schemas={schema: SchemaConfig(tables=[table])})
@@ -211,5 +221,6 @@ def check_unpublished_state(
     unpublished: str,
     unpublished_table: str,
 ) -> None:
+    """Check unpublished state."""
     assert unpublished_table == unpublished
     assert asyncio.run(read_table_signature(state_connection, unpublished)) == "unpub"

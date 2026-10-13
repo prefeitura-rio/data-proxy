@@ -1,5 +1,3 @@
-"""API and external service fixtures."""
-
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from time import monotonic, sleep

@@ -1,5 +1,3 @@
-"""Shared test builders and database helpers for the data-proxy test suite."""
-
 import json
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime

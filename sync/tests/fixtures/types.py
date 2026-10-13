@@ -1,5 +1,3 @@
-"""Test boundary types shared by service fixtures."""
-
 import asyncio
 from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -217,10 +215,12 @@ class FakeKubernetes(KubernetesClient):
         namespace: str,
         labels: dict[str, str | Operator[str] | Iterable[str] | None],
     ) -> AsyncIterable[R]:
+        """Record the label selector and serve the stored objects."""
         self.list_labels.append(labels)
         return self.serve(res)
 
     async def serve[R: NamespacedResource](self, res: type[R]) -> AsyncIterator[R]:
+        """Yield every stored object of the given kind."""
         for item in self.objects:
             if isinstance(item, res):
                 yield item
@@ -234,10 +234,12 @@ class FakeKubernetes(KubernetesClient):
         fields: dict[str, str | BinaryOperator | SequenceOperator],
         server_timeout: int | None,
     ) -> AsyncIterable[tuple[str, Deployment]]:
+        """Record the timeout and stream the stored watch events."""
         self.watch_timeouts.append(server_timeout)
         return self.stream()
 
     async def stream(self) -> AsyncIterator[tuple[str, Deployment]]:
+        """Yield each watched deployment, and hang if the scenario asks."""
         for item in self.watched:
             yield "MODIFIED", item
 
@@ -254,6 +256,7 @@ class FakeKubernetes(KubernetesClient):
         namespace: str,
         patch_type: PatchType,
     ) -> Deployment:
+        """Record the patch and return a minimal deployment."""
         self.patched.append(name)
         return Deployment(
             metadata=ObjectMeta(name=name),
@@ -264,6 +267,7 @@ class FakeKubernetes(KubernetesClient):
 
     @override
     async def create(self, obj: Job) -> Job:
+        """Record the job and return it."""
         self.created.append(obj)
         return obj
 
@@ -277,6 +281,7 @@ class FakeKubernetes(KubernetesClient):
         for_conditions: Iterable[str],
         raise_for_conditions: Iterable[str],
     ) -> Job:
+        """Record the wait conditions and return a minimal job."""
         self.waited.append((name, list(for_conditions), list(raise_for_conditions)))
 
         if self.wait_error is not None:
@@ -293,6 +298,7 @@ class FakeKubernetes(KubernetesClient):
         namespace: str,
         cascade: CascadeType,
     ) -> None:
+        """Record the deletion and honour the configured error."""
         self.deleted.append((name, cascade))
 
         if self.delete_error is not None:

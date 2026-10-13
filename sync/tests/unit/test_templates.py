@@ -1,11 +1,3 @@
-"""SQL template rendering and execution tests.
-
-Rendering mechanics are tested with synthetic templates. DuckDB DuckLake
-templates are executed against a real in-memory DuckDB instance with a
-file-based DuckLake catalog. BigQuery partition templates are tested
-against the mocked BigQuery fixture.
-"""
-
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -104,6 +96,7 @@ class TestTemplateRendering:
         assert "LOAD bigquery;" in rendered
 
     def test_renders_an_source_source_in_a_nested_query(self) -> None:
+        """Renders an source source in a nested query."""
         rendered = render_template(
             "postgres/describe_source",
             {"source": "bigquery_scan('rj-ia-desenvolvimento.dev.test_table')"},
@@ -116,6 +109,7 @@ class TestTemplateRendering:
         )
 
     def test_source_helpers_prepare_typed_views_for_query_results(self) -> None:
+        """Source helpers prepare typed views for query results."""
         ducklake = render_template(
             "postgres/views/ducklake",
             {
@@ -148,6 +142,7 @@ class TestTemplateRendering:
         assert "CREATE OR REPLACE VIEW" in fallback
 
     def test_snapshot_validation_uses_a_typed_duckdb_check_view(self) -> None:
+        """Snapshot validation uses a typed duckdb check view."""
         rendered = render_template(
             "postgres/views/routing/snapshot", {"schema": Identifier("data_proxy")}
         )

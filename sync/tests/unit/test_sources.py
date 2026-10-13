@@ -1,5 +1,3 @@
-"""Tests for ingestion source adapters."""
-
 from unittest.mock import AsyncMock
 
 import pytest

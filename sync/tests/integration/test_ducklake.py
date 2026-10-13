@@ -1,5 +1,3 @@
-"""Integration tests for the table view, change feed, and snapshots over a real DuckLake catalog."""
-
 import psycopg
 import pytest
 
@@ -29,6 +27,7 @@ class TestTableView:
     async def test_reads_the_requested_snapshot(
         self, ducklake_view: Postgres, pinned: str | None, rows: int, snapshot: str
     ) -> None:
+        """Reads the requested snapshot."""
         if pinned is not None:
             await set_request_headers(ducklake_view, {"x-ducklake-snapshot": pinned})
 
@@ -46,6 +45,7 @@ class TestTableView:
     async def test_rejects_a_pinned_snapshot_that_does_not_exist(
         self, ducklake_view: Postgres
     ) -> None:
+        """Rejects a pinned snapshot that does not exist."""
         await set_request_headers(ducklake_view, {"x-ducklake-snapshot": "99"})
 
         with pytest.raises(psycopg.Error) as error:
@@ -65,6 +65,7 @@ class TestTableView:
     async def test_checks_the_snapshot_only_when_the_request_pins_it(
         self, ducklake_view: Postgres, pinned: str | None, checked: bool
     ) -> None:
+        """Checks the snapshot only when the request pins it."""
         if pinned is not None:
             await set_request_headers(ducklake_view, {"x-ducklake-snapshot": pinned})
         await scalar(
@@ -96,6 +97,7 @@ class TestChangeFeed:
         end: int | None,
         expected: list[tuple[int, str, int]],
     ) -> None:
+        """Returns the changed rows."""
         rows = await fetch_all(
             ducklake_view,
             "postgres/select_changes",
@@ -112,6 +114,7 @@ class TestLatestSnapshot:
     async def test_snapshot_function_returns_the_latest_snapshot(
         self, ducklake_view: Postgres
     ) -> None:
+        """Snapshot function returns the latest snapshot."""
         schema = ducklake_view.namespace.schema
 
         assert (
@@ -121,6 +124,7 @@ class TestLatestSnapshot:
     async def test_reader_snapshot_reads_the_latest_snapshot(
         self, ducklake_view: Postgres
     ) -> None:
+        """Reader snapshot reads the latest snapshot."""
         schema = ducklake_view.namespace.schema
 
         assert await reader_snapshot(ducklake_view.backend, schema) == 2

@@ -1,5 +1,3 @@
-"""Behavior tests for persisted table state."""
-
 from sync.models import (
     FullTable,
     PartitionedTable,

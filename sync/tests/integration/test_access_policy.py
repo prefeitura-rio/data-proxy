@@ -1,5 +1,3 @@
-"""Integration tests for the access-policy table that the sync service installs."""
-
 import pytest
 from psycopg.sql import SQL, Identifier
 
@@ -18,6 +16,7 @@ class TestAccessPolicyCommit:
     async def test_policy_writes_wait_for_the_standbys_but_other_commits_do_not(
         self, postgres: Postgres
     ) -> None:
+        """Policy writes wait for the standbys but other commits do not."""
         schema = postgres.namespace.schema
         await initialize_schemas(
             postgres.backend, SyncConfig(schemas={schema: SchemaConfig()})

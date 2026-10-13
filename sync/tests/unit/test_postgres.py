@@ -1,5 +1,3 @@
-"""Unit tests for the PostgreSQL transaction helper."""
-
 from unittest.mock import AsyncMock
 
 import pytest

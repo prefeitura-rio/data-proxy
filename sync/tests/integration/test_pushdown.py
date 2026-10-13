@@ -1,5 +1,3 @@
-"""Differential filter checks against a real PostgREST service."""
-
 import base64
 import hashlib
 import hmac

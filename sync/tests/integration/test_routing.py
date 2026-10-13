@@ -1,5 +1,3 @@
-"""Integration tests for the SQL routing functions and the per-table function."""
-
 import json
 from typing import Final
 
@@ -68,6 +66,7 @@ class TestRequestedSnapshot:
     async def test_reads_the_pinned_version(
         self, routing: Postgres, headers: dict[str, str] | None, expected: int | None
     ) -> None:
+        """Reads the pinned version."""
         if headers is not None:
             await set_request_headers(routing, headers)
 
@@ -79,6 +78,7 @@ class TestRequestedSnapshot:
     async def test_rejects_a_version_that_is_not_a_whole_number(
         self, routing: Postgres, value: str
     ) -> None:
+        """Rejects a version that is not a whole number."""
         await set_request_headers(routing, {"x-ducklake-snapshot": value})
 
         with pytest.raises(psycopg.Error) as error:
@@ -114,6 +114,7 @@ class TestSelectionCondition:
         routing: Postgres,
         selection: TimeRangeSelection | RangeSelection | RemainderSelection,
     ) -> None:
+        """Renders the same predicate as python."""
         rendered = await scalar(
             routing,
             "SELECT data_proxy.selection_condition(%s::jsonb)",
@@ -147,6 +148,7 @@ class TestCoveredBy:
         ducklake: str | None,
         fallback: str | None,
     ) -> None:
+        """Splits the table between the sources."""
         await put_state(routing, ROUTED_TABLE, state)
 
         covered_by_dl = await scalar(
@@ -256,6 +258,7 @@ class TestPlanSources:
         pinned: bool,
         expected: list[tuple[str, bool, str | None]],
     ) -> None:
+        """Applies the first matching rule."""
         await put_state(routing, ROUTED_TABLE, state)
 
         rows = await fetch_all(
@@ -274,6 +277,7 @@ class TestPlanSources:
     async def test_rejects_an_unpublished_table_that_has_no_fallback(
         self, routing: Postgres
     ) -> None:
+        """Rejects an unpublished table that has no fallback."""
         await put_state(routing, ROUTED_TABLE, None)
 
         with pytest.raises(psycopg.Error) as error:
@@ -309,6 +313,7 @@ class TestSourceLabel:
         sources: list[str],
         expected: str | None,
     ) -> None:
+        """Names the sources queried."""
         label = await scalar(
             routing,
             "SELECT data_proxy.source_label(%s)",
@@ -338,6 +343,7 @@ class TestAndWhere:
     async def test_adds_a_condition_to_the_where_clause(
         self, routing: Postgres, where: str, condition: str | None, expected: str
     ) -> None:
+        """Adds a condition to the where clause."""
         combined = await scalar(
             routing, "SELECT data_proxy.and_where(%s, %s)", where, condition
         )
@@ -370,6 +376,7 @@ class TestSetResponseHeaders:
         snapshot: int | None,
         expected: list[dict[str, str]],
     ) -> None:
+        """Sets the postgrest response headers."""
         await routing.connection.execute(
             "SELECT data_proxy.set_response_headers(%s, %s)", (label, snapshot)
         )
@@ -384,6 +391,7 @@ class TestTableFunction:
     async def test_stops_a_denied_user_before_any_source_and_sets_no_headers(
         self, table_function: Postgres
     ) -> None:
+        """Stops a denied user before any source and sets no headers."""
         await install_table_function(
             table_function, has_rls=True, fallbacks=["bigquery"]
         )
@@ -449,6 +457,7 @@ class TestTableFunction:
         label: str,
         snapshot: str | None,
     ) -> None:
+        """Calls only the planned helpers."""
         await install_table_function(table_function, has_rls=True, fallbacks=fallbacks)
         await put_state(table_function, ROUTED_TABLE, state)
         await grant_unit(table_function, "u")
@@ -464,6 +473,7 @@ class TestTableFunction:
     async def test_passes_the_rls_predicate_and_the_bigquery_coverage(
         self, table_function: Postgres
     ) -> None:
+        """Passes the rls predicate and the bigquery coverage."""
         await install_table_function(
             table_function, has_rls=True, fallbacks=["bigquery"]
         )
@@ -480,6 +490,7 @@ class TestTableFunction:
     async def test_passes_an_empty_predicate_without_rls(
         self, table_function: Postgres
     ) -> None:
+        """Passes an empty predicate without rls."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
 
@@ -490,6 +501,7 @@ class TestTableFunction:
     async def test_an_empty_ducklake_result_never_calls_bigquery(
         self, table_function: Postgres
     ) -> None:
+        """An empty ducklake result never calls bigquery."""
         await install_table_function(
             table_function, has_rls=True, fallbacks=["bigquery"]
         )
@@ -509,6 +521,7 @@ class TestFunctionPrivileges:
     async def test_the_user_role_runs_the_table_function_but_not_the_helpers(
         self, table_function: Postgres
     ) -> None:
+        """The user role runs the table function but not the helpers."""
         schema = table_function.namespace.schema
         columns = function_columns([("source", "VARCHAR")], raw_json=True)
         common = {

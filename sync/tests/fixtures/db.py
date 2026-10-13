@@ -1,5 +1,3 @@
-"""Database and model fixtures."""
-
 import asyncio
 import secrets
 from collections.abc import AsyncIterator, Iterator

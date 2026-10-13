@@ -1,5 +1,3 @@
-"""Integration tests for the SQL that the Helm jobs install and run."""
-
 import json
 from time import time
 from typing import Final
@@ -55,6 +53,7 @@ class TestPreRequest:
         claims: dict[str, str | int | list[str]] | None,
         expected: dict[str, str | None],
     ) -> None:
+        """Maps each claim to an app setting."""
         await postgres.connection.execute(
             helm_sql(
                 "create_pre_request",
@@ -78,6 +77,7 @@ class TestGrantAppUsage:
     async def test_grants_usage_and_execute_on_data_proxy(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
+        """Grants usage and execute on data proxy."""
         roles = [settings.AUTH_ANON_ROLE, settings.AUTH_USER_ROLE, policy_writer]
         await postgres.connection.execute(
             SQL("REVOKE USAGE ON SCHEMA data_proxy FROM {}").format(
@@ -122,6 +122,7 @@ class TestRenderDucklakeWhere:
     """The proxy-pushed filter is validated and rendered into a WHERE predicate."""
 
     async def _install(self, postgres: Postgres) -> None:
+        """Install the routing filter function under test."""
         await postgres.connection.execute(
             render_template(
                 "postgres/views/routing/filter",
@@ -130,6 +131,7 @@ class TestRenderDucklakeWhere:
         )
 
     async def test_renders_where_nodes(self, postgres: Postgres) -> None:
+        """Renders where nodes."""
         await self._install(postgres)
 
         cases = [
@@ -243,6 +245,7 @@ class TestRenderDucklakeWhere:
     async def test_rejects_unknown_columns_and_operators(
         self, postgres: Postgres
     ) -> None:
+        """Rejects unknown columns and operators."""
         await self._install(postgres)
 
         unknown_column = {
@@ -280,6 +283,7 @@ class TestRenderDucklakeWhere:
         assert error.value.sqlstate == "PT400"
 
     async def test_request_filter_reads_the_header(self, postgres: Postgres) -> None:
+        """Request filter reads the header."""
         await self._install(postgres)
 
         assert await scalar(postgres, "SELECT data_proxy.request_filter()") is None
@@ -314,6 +318,7 @@ class TestPolicyWriter:
     async def test_writes_grants_in_its_schema_and_logs_them(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
+        """Writes grants in its schema and logs them."""
         await postgres.connection.execute(
             SQL("SET ROLE {}").format(Identifier(policy_writer))
         )
@@ -330,6 +335,7 @@ class TestPolicyWriter:
     async def test_leaves_the_authenticator_membership_to_cnpg(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
+        """Leaves the authenticator membership to cnpg."""
         memberships = await fetch_all(
             postgres,
             "postgres/role_memberships",
@@ -341,6 +347,7 @@ class TestPolicyWriter:
     async def test_cannot_write_grants_in_another_schema(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
+        """Cannot write grants in another schema."""
         await postgres.connection.execute(
             SQL("SET ROLE {}").format(Identifier(policy_writer))
         )
@@ -371,6 +378,7 @@ class TestPolicyWriter:
         claimed: str,
         visible: list[tuple[str]],
     ) -> None:
+        """User reads grants only for a claimed schema."""
         schema = postgres.namespace.schema
         await insert_access_policy(postgres, "test_user_1", "unit", "unit_1")
         await set_setting(
@@ -398,6 +406,7 @@ class TestCleanupStaleObjects:
     async def test_drops_only_views_missing_from_the_config(
         self, postgres: Postgres, psql: Psql
     ) -> None:
+        """Drops only views missing from the config."""
         schema = postgres.namespace.schema
         target = postgres.namespace.identifier
         psql.run(
@@ -441,6 +450,7 @@ class TestPruneAccessLog:
     """The backup job deletes access-log rows older than the retention window."""
 
     async def test_keeps_only_recent_rows(self, postgres: Postgres, psql: Psql) -> None:
+        """Keeps only recent rows."""
         schema = postgres.namespace.schema
         target = postgres.namespace.identifier
         psql.run(
@@ -490,6 +500,7 @@ class TestRecoverOrphanedWorkflows:
     async def test_re_enqueues_only_orphaned_workflows(
         self, postgres: Postgres, psql: Psql, dbos_schema: str
     ) -> None:
+        """Re enqueues only orphaned workflows."""
         schema = postgres.namespace.schema
         dbos = {"dbos_schema": Identifier(dbos_schema)}
         prefix = f"{schema}-"
