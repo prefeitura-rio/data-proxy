@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from types import SimpleNamespace, TracebackType
+from types import SimpleNamespace
 from typing import final
 from unittest.mock import AsyncMock, MagicMock
 
@@ -263,12 +263,7 @@ class FakeConnection:
     async def __aenter__(self) -> KubernetesClient:
         return self.client
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
+    async def __aexit__(self, *_: object) -> None:
         return None
 
 
@@ -427,7 +422,10 @@ class TestServingSteps:
         monkeypatch.setattr(Postgres, "connect", MagicMock())
 
         lagging = await workflow_body(steps.find_lagging_snapshots)(
-            {"two": 5, "one": 4}
+            {
+                "two": 5,
+                "one": 4,
+            }
         )
 
         assert lagging == expected

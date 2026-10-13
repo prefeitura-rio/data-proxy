@@ -1,12 +1,16 @@
 """Render SQL templates and execute statements or typed queries."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
 from .templates import render_template
-from .types import DatabaseConnection, TemplateValue
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from .types import DatabaseConnection, TemplateValue
 
 
 @dataclass(frozen=True, slots=True)

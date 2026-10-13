@@ -2,15 +2,17 @@
 
 from functools import cached_property
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
-from dbos._queue import QueueRateLimit
 from pydantic import Field, field_validator
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
 from .models import SyncConfig
+
+if TYPE_CHECKING:
+    from dbos._queue import QueueRateLimit
 
 
 class Settings(BaseSettings):
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     S3_ENDPOINT: str = "localhost:8333"
     S3_REGION: str = "us-east-1"
     S3_SCRATCH_PREFIX: str = "tmp"
-    S3_SECRET_KEY: str = "seaweedfs-local"  # noqa: S105
+    S3_SECRET_KEY: str = "seaweedfs-local"  # ruff: ignore[hardcoded-password-string]
     S3_USE_SSL: bool = False
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)

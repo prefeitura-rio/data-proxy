@@ -27,7 +27,7 @@ def test_catalog_format_matches_pg_duckdb_support(tmp_path: Path) -> None:
     options = f"DATA_PATH '{tmp_path / 'data'}', DATA_INLINING_ROW_LIMIT 0"
     connection.execute(f"ATTACH 'ducklake:sqlite:{catalog}' AS dl ({options})")
 
-    version = (
+    version: str = (
         sqlite3.connect(catalog)
         .execute("SELECT value FROM ducklake_metadata WHERE key = 'version'")
         .fetchone()[0]

@@ -41,7 +41,7 @@ from sync.sources.partitions import (
 from tests.helpers import metadata_row
 from tests.strategies import identifiers, ordered_bounds
 
-table_from_api = cast(Callable[[dict[str, object]], Table], Table.from_api_repr)
+table_from_api = cast("Callable[[dict[str, object]], Table]", Table.from_api_repr)
 
 
 class TestTimeGranularity:

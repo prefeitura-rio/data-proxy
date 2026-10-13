@@ -6,14 +6,17 @@ counts) is owned by DBOS workflows and isn't stored here.
 """
 
 from json import dumps
+from typing import TYPE_CHECKING
 
 from psycopg.rows import TupleRow
 
 from .executor import Executor
 from .models import PublicationResult, SyncConfig, TableState
-from .postgres import Postgres
 from .schema import schema
 from .types import PostgresParams
+
+if TYPE_CHECKING:
+    from .postgres import Postgres
 
 
 async def ensure_app_schema(pg_conn: Postgres) -> None:

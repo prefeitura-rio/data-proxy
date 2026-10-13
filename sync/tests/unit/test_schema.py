@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import sync.executor as executor
-import tests.helpers as helpers
+from sync import executor
 from sync.models import SchemaConfig, SyncConfig
 from sync.types import TemplateValue
+from tests import helpers
 
 
 class TestInitializeSchemas:

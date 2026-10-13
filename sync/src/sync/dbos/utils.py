@@ -1,8 +1,11 @@
 """Pure DBOS configuration and retry helpers."""
 
+from typing import TYPE_CHECKING
+
 from duckdb import TransactionException
 
-from ..settings import Settings
+if TYPE_CHECKING:
+    from sync.settings import Settings
 
 
 def endpoint_list(endpoint: str) -> list[str]:

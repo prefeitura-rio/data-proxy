@@ -1,16 +1,18 @@
 """Step functions for source view reconciliation."""
 
+from typing import TYPE_CHECKING
+
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
-from ..catalog import CatalogPaths
-from ..constants import PROTECTED_VIEW_NAMES
-from ..executor import Executor
-from ..models import PartitionedTable, SyncConfig, TableConfig
-from ..postgres import Postgres
-from ..settings import settings
-from ..sources.registry import sources
-from ..types import PostgresParams
+from sync.catalog import CatalogPaths
+from sync.constants import PROTECTED_VIEW_NAMES
+from sync.executor import Executor
+from sync.models import PartitionedTable, SyncConfig, TableConfig
+from sync.settings import settings
+from sync.sources.registry import sources
+from sync.types import PostgresParams
+
 from .mappings import (
     boundary_view_mapping,
     column_types_from_duckdb,
@@ -20,6 +22,9 @@ from .mappings import (
     table_changes_function_mapping,
     table_function_mapping,
 )
+
+if TYPE_CHECKING:
+    from sync.postgres import Postgres
 
 
 def changes_function_name(table: TableConfig) -> str:

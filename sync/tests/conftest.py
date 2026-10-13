@@ -1,13 +1,9 @@
 from logging import getLogger
 
-import pytest
-
 logger = getLogger("data_proxy")
 
 
-def pytest_bdd_before_scenario(
-    request: pytest.FixtureRequest, feature: object, scenario: object
-) -> None:
+def pytest_bdd_before_scenario(feature: object, scenario: object) -> None:
     """Log before a BDD scenario starts."""
     logger.info(
         "BDD scenario started: %s > %s",
@@ -16,9 +12,7 @@ def pytest_bdd_before_scenario(
     )
 
 
-def pytest_bdd_after_scenario(
-    request: pytest.FixtureRequest, feature: object, scenario: object
-) -> None:
+def pytest_bdd_after_scenario(feature: object, scenario: object) -> None:
     """Log after a BDD scenario completes."""
     logger.info(
         "BDD scenario completed: %s > %s",

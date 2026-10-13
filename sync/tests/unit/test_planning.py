@@ -5,8 +5,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-import sync.planning as planning
 import sync.sources.registry as source_registry
+from sync import planning
 from sync.duckdb import DuckDB
 from sync.models import (
     DuckLakeTableConfig,

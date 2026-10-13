@@ -5,7 +5,6 @@ import pytest
 
 import sync.views.mappings as utils
 import sync.views.reconcile as views_module
-import sync.views.stages as stages
 from sync.models import (
     FullTable,
     PartitionedTable,
@@ -15,6 +14,7 @@ from sync.models import (
 )
 from sync.sources.registry import sources
 from sync.templates import to_sql
+from sync.views import stages
 
 
 class TestSourceMappings:
@@ -185,7 +185,10 @@ class TestCreateTableViews:
 
 CONFIGURED_VIEWS: Final = frozenset({("app", "people")})
 CONFIGURED_FUNCTIONS: Final = frozenset(
-    {("app", "dl_latest_snapshot"), ("app", "dl_changes_people")}
+    {
+        ("app", "dl_latest_snapshot"),
+        ("app", "dl_changes_people"),
+    }
 )
 
 

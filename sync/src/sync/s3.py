@@ -1,6 +1,5 @@
 """S3 bucket operations for temporary parquet artifacts."""
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
@@ -8,6 +7,8 @@ from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 from .settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 

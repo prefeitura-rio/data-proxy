@@ -9,16 +9,18 @@ from collections.abc import (
     Sequence,
 )
 from datetime import datetime
-from typing import Annotated, Literal, LiteralString, Protocol
+from typing import TYPE_CHECKING, Annotated, Literal, LiteralString, Protocol
 
 from lightkube.core.resource import NamespacedResource
-from lightkube.operators import BinaryOperator, Operator, SequenceOperator
-from lightkube.resources.apps_v1 import Deployment
-from lightkube.resources.batch_v1 import Job
-from lightkube.types import CascadeType, PatchType
 from psycopg.sql import Composable
 from pydantic import Field, JsonValue
 from whenever import Instant
+
+if TYPE_CHECKING:
+    from lightkube.operators import BinaryOperator, Operator, SequenceOperator
+    from lightkube.resources.apps_v1 import Deployment
+    from lightkube.resources.batch_v1 import Job
+    from lightkube.types import CascadeType, PatchType
 
 type DatabaseValue = bool | int | float | str | datetime | Instant | None
 type DatabaseRow = tuple[object, ...]

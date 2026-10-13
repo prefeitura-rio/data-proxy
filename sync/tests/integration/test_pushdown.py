@@ -41,13 +41,14 @@ def postgrest_rows(
         headers["X-DuckLake-Filter"] = filter_header
     if token is not None:
         headers["Authorization"] = "Bearer " + token
-    request = Request(  # noqa: S310
+    request = Request(  # ruff: ignore[suspicious-url-open-usage]
         service.url + "/rpc/items" + ("?" + query if query else ""),
         headers=headers,
     )
     try:
-        with urlopen(request, timeout=5) as response:  # noqa: S310
-            rows = json.loads(response.read())
+        with urlopen(request, timeout=5) as response:  # ruff: ignore[suspicious-url-open-usage]
+            body: bytes = response.read()
+        rows: list[dict[str, bool | int | str]] = json.loads(body)
     except HTTPError as error:
         raise AssertionError(error.read().decode()) from error
     return rows
@@ -85,13 +86,13 @@ def render(node: Node, top: bool = False) -> str:
     if node["kind"] == "comparison":
         value = node["value"]
         text = (
-            "in.(" + ",".join(cast(list[str], value)) + ")"
+            "in.(" + ",".join(cast("list[str]", value)) + ")"
             if node["operator"] == "in"
             else f"{node['operator']}.{value}"
         )
         return f"{node['column']}{'=' if top else '.'}{text}"
     prefix = "not." if node.get("negated") else ""
-    items = ",".join(render(item) for item in cast(list[Node], node["items"]))
+    items = ",".join(render(item) for item in cast("list[Node]", node["items"]))
     return f"{prefix}{node['operator']}{'=' if top else ''}({items})"
 
 

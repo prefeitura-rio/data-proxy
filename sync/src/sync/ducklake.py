@@ -1,8 +1,7 @@
 """Publish scratch Parquet files into per-schema DuckLake catalogs."""
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import assert_never
+from typing import TYPE_CHECKING, assert_never
 from urllib.parse import quote
 
 import psycopg
@@ -11,7 +10,6 @@ from psycopg.sql import Composable, Identifier, Literal
 
 from .catalog import CatalogPaths
 from .conditions import partition_condition
-from .duckdb import DuckDB
 from .executor import Executor
 from .models import (
     DuckLakePartition,
@@ -22,7 +20,6 @@ from .models import (
     SyncPlan,
     TableConfig,
 )
-from .postgres import Postgres
 from .settings import settings
 from .sources.partitions import (
     PhysicalPartition,
@@ -32,6 +29,12 @@ from .sources.partitions import (
 )
 from .state import emit_error
 from .types import DatabaseRow, DuckDBParams, PostgresParams
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .duckdb import DuckDB
+    from .postgres import Postgres
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +67,7 @@ def planned_paths(
             return [
                 change.path
                 for change in partitioned.changes.values()
-                if change.kind in ("add", "update")
+                if change.kind in {"add", "update"}
             ]
         case None:
             return plan.paths.get(table, [])
@@ -88,7 +91,7 @@ def failed_partition_ids(
     return {
         partition_id
         for partition_id, change in table_plan.changes.items()
-        if change.kind in ("add", "update") and change.path in failed_paths
+        if change.kind in {"add", "update"} and change.path in failed_paths
     }
 
 
@@ -290,7 +293,9 @@ async def apply_sort(
         )
         validate_sort_columns(table, {row[0] for row in source_rows})
 
-    active_sort = await current_sort(duckdb_conn, table.table_name) if existing else []
+    active_sort: list[str] = (
+        await current_sort(duckdb_conn, table.table_name) if existing else []
+    )
 
     if active_sort != configured_sort and (configured_sort or existing):
         sort_columns = ", ".join(

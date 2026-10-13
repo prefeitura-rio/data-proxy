@@ -2,14 +2,17 @@
 
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
-from pathlib import Path
-from typing import LiteralString, cast
+from typing import TYPE_CHECKING, LiteralString, cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from psycopg.sql import Composable
 
 from .constants import SQL_DIR
-from .types import TemplateValue
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .types import TemplateValue
 
 
 @lru_cache

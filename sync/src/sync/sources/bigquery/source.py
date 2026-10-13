@@ -3,14 +3,13 @@
 import json
 import re
 from dataclasses import dataclass, field, replace
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from psycopg.sql import SQL, Composable, Literal
 from pydantic import BaseModel, ConfigDict, JsonValue
 
-from ...constants import BIGQUERY_TABLE_REFERENCE_PATTERN
-from ..partitions import PartitionRequest, PhysicalPartition
-from ..source import Fallback
+from sync.constants import BIGQUERY_TABLE_REFERENCE_PATTERN
+
 from .clients import BigQuery
 from .fallback import BigQueryFallback
 from .partitions import (
@@ -18,6 +17,10 @@ from .partitions import (
     physical_partitions,
     table_modified,
 )
+
+if TYPE_CHECKING:
+    from sync.sources.partitions import PartitionRequest, PhysicalPartition
+    from sync.sources.source import Fallback
 
 
 class BigQuerySourceSettings(BaseModel):

@@ -9,13 +9,13 @@ from google.cloud.bigquery import (
     TimePartitioning,
 )
 
-from ..partitions import (
+from sync.sources.partitions import (
     PartitionKindConfig,
     RangeConfig,
     TimeConfig,
     TimeGranularity,
 )
-from ..partitions import (
+from sync.sources.partitions import (
     partitioned_table_signature as source_partitioned_table_signature,
 )
 
@@ -84,5 +84,5 @@ def partitioned_table_signature(
     return source_partitioned_table_signature(
         config_json,
         kind_config,
-        repr(cast(list[SchemaField], metadata.schema)),
+        repr(cast("list[SchemaField]", metadata.schema)),
     )

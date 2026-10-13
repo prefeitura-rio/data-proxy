@@ -1,12 +1,13 @@
 """Contracts and registry for external synchronization sources."""
 
 from dataclasses import dataclass, field
-from typing import Protocol, Self, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
 
-from psycopg.sql import Composable
-from pydantic import JsonValue
+if TYPE_CHECKING:
+    from psycopg.sql import Composable
+    from pydantic import JsonValue
 
-from .partitions import PartitionRequest, PhysicalPartition
+    from .partitions import PartitionRequest, PhysicalPartition
 
 
 class Fallback(Protocol):

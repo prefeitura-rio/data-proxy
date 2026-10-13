@@ -5,16 +5,15 @@ import secrets
 from contextlib import suppress
 from copy import deepcopy
 from math import ceil
+from typing import TYPE_CHECKING
 
 from lightkube.core.exceptions import ApiError
-from lightkube.models.batch_v1 import JobSpec
 from lightkube.models.core_v1 import PersistentVolumeClaimVolumeSource
 from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.apps_v1 import Deployment
 from lightkube.resources.batch_v1 import Job
 from lightkube.resources.core_v1 import Pod
 from lightkube.types import CascadeType, PatchType
-from pydantic import JsonValue
 
 from .constants import (
     CATALOG_VOLUME,
@@ -31,7 +30,12 @@ from .constants import (
     TEMPLATE_LABEL,
 )
 from .log import logger
-from .types import KubernetesClient
+
+if TYPE_CHECKING:
+    from lightkube.models.batch_v1 import JobSpec
+    from pydantic import JsonValue
+
+    from .types import KubernetesClient
 
 
 def is_rollout_complete(deployment: Deployment) -> bool:

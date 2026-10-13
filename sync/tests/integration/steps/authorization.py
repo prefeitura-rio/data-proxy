@@ -196,7 +196,7 @@ def setup_protected_visible_table(
     postgres: Postgres,
     access_policy_schema: str,
 ) -> None:
-    """Setup protected visible table."""
+    """Set up protected visible table."""
     create_table(postgres, "visible", "region_id")
     asyncio.run(
         execute_sql(

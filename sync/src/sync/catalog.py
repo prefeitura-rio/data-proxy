@@ -1,10 +1,13 @@
 """Local DuckLake catalog paths."""
 
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from .settings import settings
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)

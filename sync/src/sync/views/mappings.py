@@ -1,20 +1,25 @@
 """Column and mapping helpers for source view generation."""
 
-from psycopg.rows import TupleRow
+from typing import TYPE_CHECKING
+
 from psycopg.sql import Identifier, Literal
 
-from ..catalog import CatalogPaths
-from ..constants import DUCKDB_VIEW_PREFIX
-from ..executor import Executor
-from ..models import PartitionedTable, TableConfig
-from ..postgres import Postgres
-from ..schema import schema as app_schema
-from ..settings import settings
-from ..sources.registry import sources
-from ..sources.source import Source
-from ..templates import render_template
-from ..types import PostgresParams, TemplateValue
-from ..utils import json_digest
+from sync.catalog import CatalogPaths
+from sync.constants import DUCKDB_VIEW_PREFIX
+from sync.executor import Executor
+from sync.models import PartitionedTable, TableConfig
+from sync.schema import schema as app_schema
+from sync.settings import settings
+from sync.sources.registry import sources
+from sync.templates import render_template
+from sync.utils import json_digest
+
+if TYPE_CHECKING:
+    from psycopg.rows import TupleRow
+
+    from sync.postgres import Postgres
+    from sync.sources.source import Source
+    from sync.types import PostgresParams, TemplateValue
 
 
 def is_nested_or_json(duckdb_type: str) -> bool:
@@ -201,7 +206,7 @@ def table_function_mapping(
 
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
 
-    fallback = []
+    fallback: list[dict[str, TemplateValue]] = []
     if isinstance(table, PartitionedTable) and table.fallback:
         fallback_helper = source.fallback
         if fallback_helper is None:  # pragma: no cover
@@ -223,7 +228,7 @@ def table_function_mapping(
         "claim_setting": f"app.claim_{claim_name}",
         "has_rls": "true" if table.rls else "false",
         "rls_mappings": [
-            {"column": str(mapping.column), "unit_type": str(mapping.unit_type)}
+            {"column": mapping.column, "unit_type": mapping.unit_type}
             for mapping in (table.rls or [])
         ],
         "source_table": Literal(table.name),
@@ -249,7 +254,7 @@ def table_changes_function_mapping(
         "claim_setting": f"app.claim_{claim_name}",
         "has_rls": "true" if table.rls else "false",
         "rls_mappings": [
-            {"column": str(mapping.column), "unit_type": str(mapping.unit_type)}
+            {"column": mapping.column, "unit_type": mapping.unit_type}
             for mapping in (table.rls or [])
         ],
         "catalog_local_path": str(CatalogPaths.for_schema(schema).local),

@@ -1,14 +1,14 @@
 """Source view reconciliation pipeline."""
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from psycopg.rows import TupleRow
 
-from ..executor import Executor
-from ..models import SyncConfig
-from ..postgres import Postgres
-from ..schema import schema as app_schema
-from ..types import PostgresParams
+from sync.executor import Executor
+from sync.schema import schema as app_schema
+from sync.types import PostgresParams
+
 from .stages import (
     desired_functions,
     desired_views,
@@ -19,6 +19,10 @@ from .stages import (
     existing_views,
     reconcile_schema,
 )
+
+if TYPE_CHECKING:
+    from sync.models import SyncConfig
+    from sync.postgres import Postgres
 
 
 @dataclass

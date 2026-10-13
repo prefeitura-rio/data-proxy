@@ -1,12 +1,16 @@
 """Async view of a synchronous BigQuery client."""
 
-from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from asyncer import asyncify
 from google.cloud.bigquery import Client, QueryJobConfig
-from google.cloud.bigquery.table import Row, Table
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Sequence
+
+    from google.cloud.bigquery.table import Row, Table
 
 
 @dataclass(frozen=True, slots=True)

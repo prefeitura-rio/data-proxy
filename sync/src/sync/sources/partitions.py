@@ -1,17 +1,19 @@
 """Neutral physical partition configuration types for ingestion sources."""
 
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from functools import partial
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue, model_validator
 from whenever import PlainDateTime
 
-from ..constants import TIME_GRANULARITY_SPECS
-from ..types import NonEmptyString
-from ..utils import json_digest
+from sync.constants import TIME_GRANULARITY_SPECS
+from sync.types import NonEmptyString
+from sync.utils import json_digest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class AllSelection(BaseModel):

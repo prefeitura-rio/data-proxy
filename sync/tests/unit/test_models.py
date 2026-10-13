@@ -161,7 +161,7 @@ class TestTableConfiguration:
     ) -> None:
         """Build an extraction path from table configuration."""
         task = table.to_task(run_id, bucket, "tmp", [AllSelection()])
-        scratch_prefix = f"s3://{bucket}/tmp/"  # noqa: S108
+        scratch_prefix = f"s3://{bucket}/tmp/"  # ruff: ignore[hardcoded-temp-file]
         assert task.bucket_path == (
             scratch_prefix + f"{table.resolved_schema}/{table.table_name}/data.parquet"
         )

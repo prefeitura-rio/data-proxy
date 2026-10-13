@@ -1,14 +1,15 @@
 """DBOS synchronization workflows."""
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
 
-from ..constants import DUMP_QUEUE, REFRESH_QUEUE, publish_queue
-from ..log import logger, schemaname, tablename
-from ..metrics import observe
-from ..models import DumpResult, DumpStatus, DumpTask, SyncPlan
-from ..settings import settings
+from sync.constants import DUMP_QUEUE, REFRESH_QUEUE, publish_queue
+from sync.log import logger, schemaname, tablename
+from sync.metrics import observe
+from sync.models import DumpResult, DumpStatus, DumpTask, SyncPlan
+from sync.settings import settings
+
 from .steps import (
     apply_ducklake_maintenance,
     build_sync_work,
@@ -28,6 +29,9 @@ from .steps import (
     run_refresh_job,
     seed_schemas,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 @DBOS.workflow()

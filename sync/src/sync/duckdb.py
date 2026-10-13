@@ -4,9 +4,9 @@ A DuckDB connection serves one query at a time, so concurrent calls on one
 instance serialize. Open one instance per concurrent task to run in parallel.
 """
 
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import duckdb
 from asyncer import asyncify
@@ -16,7 +16,11 @@ from psycopg.sql import Literal
 from .settings import settings
 from .sources.registry import sources
 from .templates import render_template
-from .types import DatabaseRow, DuckDBParams
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from .types import DatabaseRow, DuckDBParams
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +87,7 @@ class DuckDB:
         Example:
             async with duckdb_conn.transaction():
                 await duckdb_conn.execute(insert_sql)
+
         """
         await self.execute("BEGIN", params=None)
         try:

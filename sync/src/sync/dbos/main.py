@@ -4,9 +4,10 @@ from threading import Event
 
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
-from ..constants import DUMP_QUEUE, REFRESH_QUEUE, SYNC_QUEUE, publish_queue
-from ..log import logger
-from ..settings import settings
+from sync.constants import DUMP_QUEUE, REFRESH_QUEUE, SYNC_QUEUE, publish_queue
+from sync.log import logger
+from sync.settings import settings
+
 from .utils import endpoint_list, otlp_enabled
 from .workflows import run_sync
 

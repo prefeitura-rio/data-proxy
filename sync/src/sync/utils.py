@@ -1,10 +1,13 @@
 """Shared helpers for the synchronization service."""
 
-from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from json import dumps
+from typing import TYPE_CHECKING
 
-from pydantic import JsonValue
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from pydantic import JsonValue
 
 
 def sha256_hex(text: str) -> str:

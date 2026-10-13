@@ -1,15 +1,18 @@
 """Async PostgreSQL connection wrapper."""
 
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import LiteralString
+from typing import TYPE_CHECKING, LiteralString
 
 from psycopg import AsyncConnection
-from psycopg.cursor_async import AsyncCursor
-from psycopg.rows import TupleRow
 
-from .types import PostgresParams
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from psycopg.cursor_async import AsyncCursor
+    from psycopg.rows import TupleRow
+
+    from .types import PostgresParams
 
 
 @dataclass(frozen=True, slots=True)

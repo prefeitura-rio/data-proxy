@@ -1,16 +1,19 @@
 """PostgreSQL authorization and row-level security operations."""
 
-from typing import assert_never
+from typing import TYPE_CHECKING, assert_never
 
-from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
 from .conditions import schema_scope_condition
 from .executor import Executor
-from .models import UnitMapping
-from .postgres import Postgres
 from .settings import settings
-from .types import PostgresParams
+
+if TYPE_CHECKING:
+    from psycopg.rows import TupleRow
+
+    from .models import UnitMapping
+    from .postgres import Postgres
+    from .types import PostgresParams
 
 
 async def ensure_schema_policy_writer(pg_conn: Postgres, schema: str) -> None:

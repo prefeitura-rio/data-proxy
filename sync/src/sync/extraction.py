@@ -1,12 +1,10 @@
 """Source-to-Parquet extraction statement builders and runner."""
 
-from typing import assert_never
+from typing import TYPE_CHECKING, assert_never
 
 from psycopg.sql import Identifier, Literal
 
-from .duckdb import DuckDB
 from .executor import Executor
-from .models import DumpTask
 from .sources.partitions import (
     AllSelection,
     RangeSelection,
@@ -15,7 +13,11 @@ from .sources.partitions import (
     TimeRangeSelection,
 )
 from .sources.registry import sources
-from .types import DatabaseRow, DuckDBParams, TemplateValue
+
+if TYPE_CHECKING:
+    from .duckdb import DuckDB
+    from .models import DumpTask
+    from .types import DatabaseRow, DuckDBParams, TemplateValue
 
 
 def build_extraction_query(

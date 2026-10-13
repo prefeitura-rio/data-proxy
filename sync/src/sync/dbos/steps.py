@@ -1,31 +1,31 @@
 """Durable DBOS steps used by the synchronization workflows."""
 
 import asyncio
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from dbos import DBOS
 from lightkube import AsyncClient
 from whenever import Instant
 
-from ..cache import clear_cache
-from ..constants import POOLER_SELECTOR, POSTGREST_SELECTOR
-from ..duckdb import DuckDB
-from ..ducklake import (
+from sync.cache import clear_cache
+from sync.constants import POOLER_SELECTOR, POSTGREST_SELECTOR
+from sync.duckdb import DuckDB
+from sync.ducklake import (
     DuckLakePaths,
     apply_maintenance,
     publish_schema,
     reader_snapshot,
 )
-from ..extraction import run_extraction
-from ..kubernetes import (
+from sync.extraction import run_extraction
+from sync.kubernetes import (
     list_catalog_claims,
     list_deployments,
     restart_deployment,
     run_job,
 )
-from ..log import logger, schemaname
-from ..metrics import metrics
-from ..models import (
+from sync.log import logger, schemaname
+from sync.metrics import metrics
+from sync.models import (
     DumpTask,
     PublicationResult,
     ServingDeployments,
@@ -33,19 +33,22 @@ from ..models import (
     SyncPlan,
     SyncWork,
 )
-from ..planning import run_planning
-from ..postgres import Postgres
-from ..s3 import clear_s3_prefix
-from ..settings import settings
-from ..state import (
+from sync.planning import run_planning
+from sync.postgres import Postgres
+from sync.s3 import clear_s3_prefix
+from sync.settings import settings
+from sync.state import (
     build_table_states,
     emit_error,
     ensure_app_schema,
     write_table_states,
 )
-from ..types import RunStatus
-from ..views.reconcile import reconcile_views
+from sync.views.reconcile import reconcile_views
+
 from .utils import retry_catalog_locked, retry_transient
+
+if TYPE_CHECKING:
+    from sync.types import RunStatus
 
 
 @DBOS.step(

@@ -3,16 +3,15 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import ClassVar, assert_never
+from typing import TYPE_CHECKING, ClassVar, assert_never
 
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row, Table
 from pydantic import BaseModel, ConfigDict
 from whenever import PlainDateTime
 
-from ...executor import Executor
-from ...utils import sha256_hex
-from ..partitions import (
+from sync.executor import Executor
+from sync.sources.partitions import (
     PartitionKindConfig,
     PhysicalPartition,
     RangeConfig,
@@ -22,8 +21,12 @@ from ..partitions import (
     TimeGranularity,
     TimeRangeSelection,
 )
-from .clients import BigQuery
+from sync.utils import sha256_hex
+
 from .config import partition_kind_config, partitioned_table_signature
+
+if TYPE_CHECKING:
+    from .clients import BigQuery
 
 
 class PartitionMetadata(BaseModel):

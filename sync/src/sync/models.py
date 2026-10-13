@@ -381,7 +381,7 @@ class PartitionedTablePlan(BaseModel):
     def validate_partition_sets(self) -> Self:
         """Require add/update changes to exist in the current manifest and removes to not."""
         for change in self.changes.values():
-            if change.kind in ("add", "update"):
+            if change.kind in {"add", "update"}:
                 if change.partition_id not in self.current_partitions:
                     msg = "Add/update partitions must exist in the current manifest"
                     raise ValueError(msg)

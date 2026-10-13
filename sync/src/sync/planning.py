@@ -1,9 +1,8 @@
 """Change detection and task planning for synchronization runs."""
 
 from dataclasses import dataclass, field
-from typing import assert_never
+from typing import TYPE_CHECKING, assert_never
 
-from .duckdb import DuckDB
 from .executor import Executor
 from .log import logger
 from .models import (
@@ -19,7 +18,6 @@ from .models import (
     TableConfig,
     TableState,
 )
-from .postgres import Postgres
 from .settings import settings
 from .sources import registry
 from .sources.partitions import (
@@ -32,6 +30,10 @@ from .sources.source import PartitionedSource, Source
 from .state import read_table_signature, read_table_state
 from .types import DatabaseRow, DuckDBParams
 from .utils import json_digest
+
+if TYPE_CHECKING:
+    from .duckdb import DuckDB
+    from .postgres import Postgres
 
 
 def configured_source(table: TableConfig, active: dict[str, Source]) -> Source:
@@ -151,7 +153,7 @@ def find_partition_changes(
     table_signature: str,
 ) -> dict[str, PartitionChange]:
     """Return one PartitionChange per added, updated, or removed partition."""
-    previous = (
+    previous: dict[str, PhysicalPartition] = (
         stored.partitions
         if stored is not None and stored.partitions is not None
         else {}
@@ -194,7 +196,7 @@ def build_partition_tasks(
 ) -> tuple[dict[str, PartitionChange], DumpTask]:
     """Fill extraction paths on add/update changes and return the updated diff and task."""
     extractable_ids = order_partition_ids(
-        {pid for pid, c in changes.items() if c.kind in ("add", "update")}
+        {pid for pid, c in changes.items() if c.kind in {"add", "update"}}
     )
 
     task = table.to_task(
@@ -237,7 +239,7 @@ async def plan_partitioned_table(
         return None, []
 
     tasks: list[DumpTask] = []
-    if any(c.kind in ("add", "update") for c in changes.values()):
+    if any(c.kind in {"add", "update"} for c in changes.values()):
         json_columns = await discover_json_columns(duckdb_conn, source, table.name)
         changes, task = build_partition_tasks(
             table,
