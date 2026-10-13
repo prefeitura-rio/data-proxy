@@ -55,7 +55,7 @@ The two suites use different ports, so they can run at the same time:
 | Suite | Ports |
 | --- | --- |
 | `sync` | 13000 (PostgREST), 15432 (PostgreSQL), 16379 (Valkey), 19000 and 19001 (Silo) |
-| `proxy` | 18080 (proxy), 18081 and 18082 (mock PostgREST), 18379 (Valkey) |
+| `proxy` | 18080 (proxy), 18081 and 18082 (mock PostgREST), 18090 to 18092 (proxy with Redis down), 18379 (Valkey) |
 
 The `default` profile runs both suites in one `devenv test`. Both suites then share one Valkey on port 18379.
 

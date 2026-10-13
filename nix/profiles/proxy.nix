@@ -89,7 +89,7 @@ in
 
       enterTest = ''
         set -e
-        ${pkgs.hurl}/bin/hurl --test --max-time 30 --variable host=$TEST_PROXY_HOST ${config.devenv.root}/proxy/tests/integration/*.hurl
+        ${pkgs.hurl}/bin/hurl --test --max-time 30 --variable host=$TEST_PROXY_HOST --variable host_redis_down=$TEST_PROXY_REDIS_DOWN_HOST ${config.devenv.root}/proxy/tests/integration/*.hurl
       '';
     };
   };
