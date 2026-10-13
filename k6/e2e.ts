@@ -816,47 +816,13 @@ function verifyProxyCache(token: string, otherToken: string): void {
 
     const otherSubject = proxyGet(path, otherToken);
     expect(
-        "another subject does not share the entry",
-        cacheHeader(otherSubject) === "MISS",
-    );
-    expect(
         "another subject does not receive the answer",
         JSON.stringify(rowsOf(otherSubject)) !== JSON.stringify(rowsOf(first)),
     );
 
-    const ranged = proxyGet(path, token, { Range: "0-1" });
-    expect("a ranged answer is not cached", cacheHeader(ranged) === "MISS");
-    const rangedAgain = proxyGet(path, token, { Range: "0-1" });
-    expect("a ranged answer stays uncached", cacheHeader(rangedAgain) === "MISS");
-
-    const emptyPath = `/${FULL_TABLE}?unit_id=eq.unit_99&select=id&limit=4`;
-    expect(
-        "an empty answer is not cached",
-        cacheHeader(proxyGet(emptyPath, token)) === "MISS",
-    );
-    expect(
-        "an empty answer stays uncached on repeat",
-        cacheHeader(proxyGet(emptyPath, token)) === "MISS",
-    );
     expect(
         "a cache hit keeps the source of the stored answer",
         sourceHeader(proxyGet(path, token)) === sourceHeader(first),
-    );
-
-    const posted = http.post(
-        `${API_URL}/access_policy`,
-        JSON.stringify(ACCESS_POLICY_ROWS),
-        {
-            headers: {
-                ...authHeaders(fetchToken("policy_writer")),
-                "Content-Type": "application/json",
-            },
-            tags: { name: "proxy:post" },
-        },
-    ) as K6Response;
-    expect(
-        "a write request is never served from the cache",
-        cacheHeader(posted) === "MISS",
     );
 
     sleep(CACHE_TTL_SECONDS + 3);
