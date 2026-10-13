@@ -74,7 +74,6 @@ declare const __ENV: Record<string, string | undefined>;
 const API_URL =
     __ENV.BASE_URL ||
     "http://istio-ingressgateway.istio-ingress.svc.cluster.local";
-const PROXY_CACHE_REDIS_DB = __ENV.PROXY_CACHE_REDIS_DB || "1";
 const OIDC_TOKEN_URL =
     __ENV.OIDC_TOKEN_URL ||
     "http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token";
@@ -989,7 +988,6 @@ function clearProxyCache(): void {
         env: [
             { name: "VALKEY_HOST", value: "data-proxy-valkey" },
             { name: "VALKEY_PORT", value: "6379" },
-            { name: "PROXY_CACHE_REDIS_DB", value: PROXY_CACHE_REDIS_DB },
             {
                 name: "VALKEY_PASSWORD",
                 valueFrom: {
