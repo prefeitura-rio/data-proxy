@@ -32,6 +32,43 @@ Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the
 cluster
 ```
 
+## Tests
+
+Run the unit tests that need no services with `devenv --profile default tasks run test:all`. The command runs the proxy specs, the chart tests, and the sync unit tests (`test:sync`).
+
+Run the two integration suites with separate commands. Each command starts only the processes that its suite needs, runs the tests, and stops the processes:
+
+```bash
+devenv --profile sync test    # PostgreSQL, PostgREST, Silo, Valkey, then pytest
+devenv --profile proxy test   # OpenResty with a mock PostgREST, Valkey, then the Hurl files
+```
+
+The `sync` profile starts these processes:
+
+- PostgreSQL, built from `Containerfile.postgres` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
+- Silo for S3, Valkey, and PostgREST.
+
+The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs no container engine.
+
+The two suites use different ports, so they can run at the same time:
+
+| Suite | Ports |
+| --- | --- |
+| `sync` | 13000 (PostgREST), 15432 (PostgreSQL), 16379 (Valkey), 19000 and 19001 (Silo) |
+| `proxy` | 18080 (proxy), 18081 and 18082 (mock PostgREST), 18379 (Valkey) |
+
+The `default` profile runs both suites in one `devenv test`. Both suites then share one Valkey on port 18379.
+
+If the database setup in `scripts/db.nu` fails, PostgREST stops at once with the message `database bootstrap failed`, and the run ends in seconds. A marker file, `database-ready` in `.devenv/test`, tells PostgREST that the setup finished.
+
+The PostgreSQL image installs the `ducklake` extension while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
+
+On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s, and a cold `devenv --profile sync test` run takes about 60 s, so CI keeps no layer cache.
+
+PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test`.
+
+To add another test container, declare `processes.<name> = mkPodmanProcess { ... }` with the function from `nix/lib.nix`, as `nix/processes/postgres.nix` does. Set `build.file` to build a Containerfile or `image` to run an existing image. Use `before` for shell lines that run before the container starts, and `ready` for a command that runs in the container. For a one-shot step after the container is ready, declare a normal process `after-<name>` with `after = [ "devenv:processes:<name>" ]`. The function uses the host Podman, or the engine in `CONTAINER_RUNTIME`.
+
 ## Chart releases
 
 CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
@@ -142,20 +179,20 @@ Run `cluster k6 e2e` after changing local images, sync configuration, fallback, 
 Run the static and focused checks with devenv tasks:
 
 ```bash
-devenv --profile default tasks run dp:lint dp:test
+devenv --profile default tasks run lint:all test:all
 ```
 
 E2E tests run against the local cluster or staging environment, not in CI.
 
 ### Proxy rocks
 
-The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares every Lua library and `proxy/lux.lock` pins them with source hashes. The Lua code lives in `proxy/src/proxy`, and the unit specs in `proxy/tests/unit`, one file for each module. The proxy request path against real services is covered by `sync/tests/integration/proxy/`. The language server reads the OpenResty types that LuaLS bundles through `${3rd}` entries in `proxy/.luarc.json`. The Penlight types come from the `penlight-types` input in `devenv.yaml` (`goldenstein64/pl-definitions`). devenv exports them as `PENLIGHT_TYPES`, and `proxy/.luarc.json` lists `${env:PENLIGHT_TYPES}` as a library. The definition files have no module name, so cast each Penlight `require` to its module class (`pl.ClassModule`, `pl.ListClass`, `pl.tablex`, `pl.stringx`). Without the cast, LuaLS types the module from the rock source, which has no annotations, and hover shows `{ properties: unknown }` for `pl.class`. A `List(items)` built from a plain array has no item type for the language server, so annotate it if you need the type. The `luafilesystem` rock that Penlight needs is a C module and builds in the same image stage as `lpeg`. The LPeg types come from the `lpeg-types` input in `devenv.yaml` (`LuaCATS/lpeg`). devenv exports them as `LPEG_TYPES`, and `proxy/.luarc.json` lists `${env:LPEG_TYPES}` as a library. The `lpeg` rock is a C module: the image build stage installs a compiler and copies the built library to `/opt/data-proxy/lib`. `dp:lint:proxy` runs luacheck (through `lx lint`) and the LuaLS type check with every rule that works for this code. Luacheck uses the `ngx_lua` globals, a 120-character line limit and a limit of 10 branches per function. LuaLS has every diagnostic group on, down to the hint level. `codestyle-check` is off because stylua formats the code, `spell-check` is off because it flags names such as `PostgREST`, and `name-style-check` and `no-unknown` are off because they reject conventions that the code uses on purpose. Lux installs `busted` for `lx test` and `stylua` and `luacheck` for `lx fmt` and `lx lint`, so Nix provides only LuaJIT, the language server for editors, and `lx`. `Containerfile.proxy` runs `lx build --only-deps` against the same lockfile, so the image gets the runtime rocks and no test rocks.
+The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares every Lua library and `proxy/lux.lock` pins them with source hashes. The Lua code lives in `proxy/src/proxy`, and the unit specs in `proxy/tests/unit`, one file for each module. The proxy request path against a real nginx, Redis, and a mock PostgREST is covered by the Hurl suite in `proxy/tests/integration/`; `devenv --profile proxy test` starts and stops those processes. The language server reads the OpenResty types that LuaLS bundles through `${3rd}` entries in `proxy/.luarc.json`. The Penlight types come from the `penlight-types` input in `devenv.yaml` (`goldenstein64/pl-definitions`). devenv exports them as `PENLIGHT_TYPES`, and `proxy/.luarc.json` lists `${env:PENLIGHT_TYPES}` as a library. The definition files have no module name, so cast each Penlight `require` to its module class (`pl.ClassModule`, `pl.ListClass`, `pl.tablex`, `pl.stringx`). Without the cast, LuaLS types the module from the rock source, which has no annotations, and hover shows `{ properties: unknown }` for `pl.class`. A `List(items)` built from a plain array has no item type for the language server, so annotate it if you need the type. The `luafilesystem` rock that Penlight needs is a C module and builds in the same image stage as `lpeg`. The LPeg types come from the `lpeg-types` input in `devenv.yaml` (`LuaCATS/lpeg`). devenv exports them as `LPEG_TYPES`, and `proxy/.luarc.json` lists `${env:LPEG_TYPES}` as a library. The `lpeg` rock is a C module: the image build stage installs a compiler and copies the built library to `/opt/data-proxy/lib`. `lint:proxy` runs luacheck (through `lx lint`) and the LuaLS type check with every rule that works for this code. Luacheck uses the `ngx_lua` globals, a 120-character line limit and a limit of 10 branches per function. LuaLS has every diagnostic group on, down to the hint level. `codestyle-check` is off because stylua formats the code, `spell-check` is off because it flags names such as `PostgREST`, and `name-style-check` and `no-unknown` are off because they reject conventions that the code uses on purpose. Lux installs `busted` for `lx test` and `stylua` and `luacheck` for `lx fmt` and `lx lint`, so Nix provides only LuaJIT, the language server for editors, and `lx`. `Containerfile.proxy` runs `lx build --only-deps` against the same lockfile, so the image gets the runtime rocks and no test rocks.
 
 ```bash
-devenv tasks run dp:proxy:rocks
+devenv tasks run proxy:rocks
 ```
 
-The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `dp:lint:proxy` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `dp:lint:proxy` and `dp:test:proxy`.
+The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `lint:proxy` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `lint:proxy` and `test:proxy`.
 
 ### Nushell tests
 

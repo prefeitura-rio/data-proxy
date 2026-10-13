@@ -37,15 +37,20 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 Run the checks before you finish a change:
 
 ```bash
-devenv --profile default tasks run dp:lint dp:test
+devenv --profile default tasks run lint:all test:all
+devenv --profile sync test
+devenv --profile proxy test
 ```
+
+`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
 | Level       | Location                                               | Runs against                                                 | Covers                                                                  |
 | ----------- | ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB            | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
-| Integration | `sync/tests/integration/`                              | Testcontainers: PostgreSQL with pg_duckdb, Silo (S3), Valkey | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
+| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
+| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST        | Proxy request path: routing, retry, cache, filter pushdown              |
 | E2E         | `k6/e2e.ts`, `k6/load.ts`                              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)    | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
 
 - Unit tests don't start containers or open network connections.
@@ -168,7 +173,7 @@ end
 - Put the types of a module in `<module>.d.lua`, next to `<module>.lua`. Start the file with `---@meta`, and write no other file comment. Put a type in the file of the module that creates it. Don't write types in `<module>.lua`, except the `---@class` of the module table itself, and the class of an object that the module implements with methods. LuaLS reports `inject-field` for a function that a file adds to a class that another file declares. Keep that class next to its `local` table, and declare no `---@field` for functions that the file defines.
 - Don't use `table` or `any` if a named type exists.
 - Define the fields of each schema in its own file, `proxy/src/proxy/schemas/definitions/<name>.lua`. The file returns only the fields: a table of field name to field type, built with `tableshape` (`require("tableshape").types`). `schemas/schema.lua` holds the `Schema` class: it makes the checker (`types.shape(fields, { open = true })`) and gives `validate`. Call one field type a field, not a shape, and keep the word `shape` for the `types.shape` call. `schemas/main.lua` is the registry singleton: when the module loads, at start-up, it registers each `<name>.lua` of `definitions/` as the schema `<name>`. A caller reads a schema as a field, `schemas.cached_entry`, with no call. Every checker is open, because every schema describes data from outside that can have other fields. To add a schema: make the file, and add `---@field <name> Schema<T>` to `SchemasModule` in the `.d.lua` file of the module that owns the data type `T`. Read data that the proxy doesn't create (files, Redis entries, tokens, environment variables) only through `schemas.<name>:validate(value)`, at the boundary where it enters. It gives the value, converted if the checker converts, or nil and a reason that names the field.
-- Test the registry and every schema in `schemas_spec.lua`, table-driven: valid values, and invalid values with the field in the reason. For `config`, give a typed `Config` that has every field and compare it with the result. The language server can't compare a definition with its type, so a drift fails there: a new field of `Config` makes the typed value incomplete, and the spec fails if the definition has a field that the type lacks. The specs of the modules that parse data (`sync`, `cache`, `request`) cover the rest.
+- Test the registry and every schema in `schemas_spec.lua`, table-driven: valid values, and invalid values with the field in the reason. For `config`, give a typed `Config` that has every field and compare it with the result. The language server can't compare a definition with its type, so a drift fails there: a new field of `Config` makes the typed value incomplete, and the test fails if the definition has a field that the type lacks. The specs of the modules that parse data (`sync`, `cache`, `request`) cover the rest.
 - Write a one-line `---` description above every `---@class` and `---@alias`.
 - Write a `---` summary line above every function and every constant. Use Simplified Technical English: short sentences, present tense, active voice. Write the word `if`, not `when`.
 - Write comments as plain text. Don't use Markdown headings, tables, backticks, ASCII diagrams, or section banners.
@@ -187,7 +192,7 @@ end
 
 ### Tests
 
-- Write one spec file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat.
+- Write one test file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat.
 - Write table-driven Busted specs. Use one `describe` for each function and `it(case.name)` for each case.
 - Give each case a name that states the behavior, for example `retries a 503 on the retry service`.
 - Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, for example the 32 raw bytes that `resty.sha256` gives.
@@ -196,8 +201,8 @@ end
 
 ### Checks
 
-- Run `devenv tasks run dp:lint:proxy dp:test:proxy` before review.
-- `dp:lint:proxy` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
+- Run `devenv tasks run lint:proxy test:proxy` before review.
+- `lint:proxy` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
 - The git hook runs `lx fmt` (StyLua). Use tabs.
 - Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it.
 - Start the editor inside the devenv shell, so that LuaLS can read `LPEG_TYPES`.
