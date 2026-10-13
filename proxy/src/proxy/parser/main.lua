@@ -38,6 +38,21 @@ local function make_parameter_result(node)
 	return { node = node, readable = true }
 end
 
+--- Split one key=value query parameter and percent-decode both parts.
+---@param parameter string One part of the query string, for example id=eq.42.
+---@return {key: string, value: string}|nil decoded nil if the parameter cannot be used.
+---@return ParameterResult|nil failure The result to return when decoded is nil.
+local function decode_parameter(parameter)
+	local key, raw_value = parameter:match(regex.parameter)
+	if not key or not raw_value then return nil, SKIPPED end
+
+	local decoded_key = utils.percent_decode(key)
+	local decoded_value = utils.percent_decode(raw_value)
+	if not decoded_key or not decoded_value then return nil, UNREADABLE end
+
+	return { key = decoded_key, value = decoded_value }
+end
+
 --- Parse one key=value query parameter and make its filter result.
 ---
 --- ```lua
@@ -50,21 +65,22 @@ end
 ---@param parameter string One part of the query string, for example id=eq.42.
 ---@return ParameterResult result
 local function parse_parameter(parameter)
-	local key, raw_value = parameter:match(regex.parameter)
-	if not key or not raw_value then return SKIPPED end
-
-	local decoded_key = utils.percent_decode(key)
-	local decoded_value = utils.percent_decode(raw_value)
-	if not decoded_key or not decoded_value then return UNREADABLE end
-	if constants.filter.non_filter_keys[decoded_key] then return SKIPPED end
-
-	if constants.filter.group_keys[decoded_key] then
-		if decoded_value:sub(1, 1) ~= "(" then return SKIPPED end
-		return make_parameter_result(patterns.filter_grammar:match(decoded_key .. decoded_value))
+	local decoded, failure = decode_parameter(parameter)
+	if not decoded then
+		---@cast failure ParameterResult
+		return failure
 	end
 
-	if not patterns.whole_column_name:match(decoded_key) then return SKIPPED end
-	return make_parameter_result(patterns.filter_grammar:match(decoded_key .. "." .. decoded_value))
+	local key, value = decoded.key, decoded.value
+	if constants.filter.non_filter_keys[key] then return SKIPPED end
+
+	if constants.filter.group_keys[key] then
+		if value:sub(1, 1) ~= "(" then return SKIPPED end
+		return make_parameter_result(patterns.filter_grammar:match(key .. value))
+	end
+
+	if not patterns.whole_column_name:match(key) then return SKIPPED end
+	return make_parameter_result(patterns.filter_grammar:match(key .. "." .. value))
 end
 
 --- Join filter nodes into one filter document. One node is used as it is.
