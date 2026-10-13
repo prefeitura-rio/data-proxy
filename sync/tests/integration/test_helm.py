@@ -78,6 +78,12 @@ class TestGrantAppUsage:
         self, postgres: Postgres, policy_writer: str
     ) -> None:
         """Grants usage and execute on data proxy."""
+        await postgres.connection.execute(
+            helm_sql(
+                "create_pre_request",
+                {"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+            ).encode()
+        )
         roles = [settings.AUTH_ANON_ROLE, settings.AUTH_USER_ROLE, policy_writer]
         await postgres.connection.execute(
             SQL("REVOKE USAGE ON SCHEMA data_proxy FROM {}").format(
@@ -107,7 +113,7 @@ class TestGrantAppUsage:
                 postgres, "SELECT has_schema_privilege(%s, 'data_proxy', 'USAGE')", role
             )
             for role in roles
-        ] == [True, True]
+        ] == [True, True, True]
         assert [
             await scalar(
                 postgres,
@@ -115,7 +121,7 @@ class TestGrantAppUsage:
                 role,
             )
             for role in roles
-        ] == [True, True]
+        ] == [True, True, True]
 
 
 class TestRenderDucklakeWhere:
@@ -258,11 +264,12 @@ class TestRenderDucklakeWhere:
             }
         }
         with pytest.raises(psycopg.Error) as error:
-            await scalar(
-                postgres,
-                "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
-                json.dumps(unknown_column),
-            )
+            async with postgres.connection.transaction():
+                await scalar(
+                    postgres,
+                    "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
+                    json.dumps(unknown_column),
+                )
         assert error.value.sqlstate == "PT400"
 
         unknown_operator = {
@@ -275,11 +282,12 @@ class TestRenderDucklakeWhere:
             }
         }
         with pytest.raises(psycopg.Error) as error:
-            await scalar(
-                postgres,
-                "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
-                json.dumps(unknown_operator),
-            )
+            async with postgres.connection.transaction():
+                await scalar(
+                    postgres,
+                    "SELECT data_proxy.render_dl_where(%s, ARRAY['id']::text[])",
+                    json.dumps(unknown_operator),
+                )
         assert error.value.sqlstate == "PT400"
 
     async def test_request_filter_reads_the_header(self, postgres: Postgres) -> None:
