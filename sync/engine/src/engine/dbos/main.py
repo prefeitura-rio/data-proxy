@@ -1,7 +1,8 @@
 """Start the DBOS sync application and run it until stopped."""
 
-from threading import Event
+from asyncio import Event
 
+import uvloop
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
 from engine.constants import DUMP_QUEUE, REFRESH_QUEUE, SYNC_QUEUE, publish_queue
@@ -12,8 +13,8 @@ from .utils import endpoint_list, otlp_enabled
 from .workflows import run_sync
 
 
-def main() -> None:
-    """Configure, launch, and run the DBOS sync application until stopped."""
+async def serve() -> None:
+    """Configure and launch DBOS on the running event loop, then wait until stopped."""
     config: DBOSConfig = {
         "name": settings.DBOS_APPLICATION_NAME,
         "application_version": settings.DBOS_APPLICATION_VERSION,
@@ -34,21 +35,23 @@ def main() -> None:
 
     DBOS.launch()
 
-    DBOS.register_queue(SYNC_QUEUE, concurrency=settings.SYNC_QUEUE_CONCURRENCY)
-    DBOS.register_queue(
+    await DBOS.register_queue_async(
+        SYNC_QUEUE, concurrency=settings.SYNC_QUEUE_CONCURRENCY
+    )
+    await DBOS.register_queue_async(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
         limiter=settings.dump_queue_limiter,
     )
 
-    DBOS.register_queue(
+    await DBOS.register_queue_async(
         REFRESH_QUEUE, worker_concurrency=settings.READER_REFRESH_CONCURRENCY
     )
 
     for queue in publish_queues:
-        DBOS.register_queue(queue, concurrency=1)
+        await DBOS.register_queue_async(queue, concurrency=1)
 
-    DBOS.apply_schedules(
+    await DBOS.apply_schedules_async(
         [
             ScheduleInput(
                 schedule_name=settings.SYNC_SCHEDULE_NAME,
@@ -61,7 +64,12 @@ def main() -> None:
     )
 
     logger.info("Sync application started")
-    Event().wait()
+    await Event().wait()
+
+
+def main() -> None:
+    """Run the DBOS sync application on uvloop until it stops."""
+    uvloop.run(serve())
 
 
 if __name__ == "__main__":

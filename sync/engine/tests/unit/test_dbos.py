@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engine.constants import POOLER_SELECTOR, POSTGREST_SELECTOR
+from engine.dbos import main as dbos_main
 from engine.dbos import steps, utils, workflows
 from engine.duckdb import DuckDB
 from engine.ducklake import DuckLakePaths
@@ -499,3 +500,22 @@ class TestPublishSchemaOrder:
 
         assert calls.names[-1] == "apply_ducklake_maintenance"
         assert snapshot_id == 42
+
+
+class TestMain:
+    """Entrypoint behavior tests."""
+
+    def test_runs_the_application_on_uvloop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Run the application on uvloop, so DBOS adopts it as its main loop."""
+        loops: list[str] = []
+
+        async def serve() -> None:
+            loops.append(type(asyncio.get_running_loop()).__module__)
+
+        monkeypatch.setattr(dbos_main, "serve", serve)
+
+        dbos_main.main()
+
+        assert loops == ["uvloop"]
