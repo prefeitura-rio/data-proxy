@@ -10,22 +10,37 @@ let
       port = 18080;
       readPort = 18081;
       writePort = 18082;
+      adminPort = 18083;
       redisPort = config.processes.redis.ports.main.value;
       maxInflight = 0;
+      console = false;
     };
     proxy-redis-down = {
       port = 18090;
       readPort = 18091;
       writePort = 18092;
+      adminPort = 18093;
       redisPort = 18399;
       maxInflight = 0;
+      console = false;
     };
     proxy-limited = {
       port = 18100;
       readPort = 18101;
       writePort = 18102;
+      adminPort = 18103;
       redisPort = config.processes.redis.ports.main.value;
       maxInflight = 1;
+      console = false;
+    };
+    proxy-reload = {
+      port = 18110;
+      readPort = 18111;
+      writePort = 18112;
+      adminPort = 18113;
+      redisPort = config.processes.redis.ports.main.value;
+      maxInflight = 0;
+      console = true;
     };
   };
 
@@ -44,6 +59,8 @@ let
         "__WRITE_PORT__" = toString instance.writePort;
         "__REDIS_PORT__" = toString instance.redisPort;
         "__MAX_INFLIGHT__" = toString instance.maxInflight;
+        "__ADMIN_PORT__" = toString instance.adminPort;
+        "__CONFIG_URL__" = lib.optionalString instance.console "http://127.0.0.1:${toString instance.readPort}/console/sync.json";
         "__LUA_ROCKS__" = "${runDir}/rocks";
         "__LUA_LIB__" = "${runDir}/lib";
       };
@@ -72,6 +89,10 @@ in
   env.TEST_PROXY_HOST = "127.0.0.1:${toString instances.proxy.port}";
   env.TEST_PROXY_REDIS_DOWN_HOST = "127.0.0.1:${toString instances.proxy-redis-down.port}";
   env.TEST_PROXY_LIMITED_HOST = "127.0.0.1:${toString instances.proxy-limited.port}";
+  env.TEST_PROXY_RELOAD_HOST = "127.0.0.1:${toString instances.proxy-reload.port}";
+  env.TEST_PROXY_ADMIN_HOST = "127.0.0.1:${toString instances.proxy.adminPort}";
+  env.TEST_PROXY_RELOAD_ADMIN_HOST = "127.0.0.1:${toString instances.proxy-reload.adminPort}";
+  env.TEST_PROXY_RELOAD_CONSOLE_HOST = "127.0.0.1:${toString instances.proxy-reload.readPort}";
 
   processes = lib.mkIf config.devenv.isTesting (lib.mapAttrs mkProcess instances);
 }

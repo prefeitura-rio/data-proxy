@@ -50,6 +50,25 @@ check("sync.load", function(case) return sync_from(case.content) end, {
 	},
 })
 
+check("sync.parse", function(case) return sync.parse(case.content) end, {
+	{
+		name = "reads the cache time of a table from the text of a document",
+		content = PEOPLE_JSON,
+		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },
+	},
+	{
+		name = "uses the no-cache paths of the document",
+		content = '{"noCachePaths":["/private"]}',
+		expected = { tables = {}, disabled_endpoints = { "/private" } },
+	},
+	{ name = "gives nil and a reason for text that is not JSON", content = "not json", reason = "Expected" },
+	{
+		name = "gives nil and a reason that names sync.json for a document that does not match",
+		content = '{"noCachePaths":[1]}',
+		reason = 'Invalid sync.json: field "noCachePaths"',
+	},
+})
+
 describe("sync module state", function()
 	it("loads into the returned value, not into the module", function()
 		sync_from(PEOPLE_JSON)

@@ -125,6 +125,12 @@ check("schemas.config rejects", function(case) return schemas.config:validate(te
 	{ name = "rejects an empty host", changes = { redis_host = "" }, reason = 'field "redis_host"' },
 	{ name = "rejects a missing host", changes = { redis_host = false }, reason = 'field "redis_host"' },
 	{ name = "rejects a missing URL", changes = { postgrest_read = false }, reason = 'field "postgrest_read"' },
+	{
+		name = "rejects a refresh time of 0",
+		changes = { config_refresh_seconds = "0" },
+		reason = 'field "config_refresh_seconds"',
+	},
+	{ name = "rejects an empty console URL", changes = { config_url = "" }, reason = 'field "config_url"' },
 })
 
 describe("schemas.config", function()
@@ -143,6 +149,8 @@ describe("schemas.config", function()
 			postgrest_retries = "3",
 			postgrest_backoff_ms = "100",
 			max_inflight = "64",
+			config_url = "http://console/config/sync.json",
+			config_refresh_seconds = "30",
 		}
 		---@type Config
 		local expected = {
@@ -158,6 +166,8 @@ describe("schemas.config", function()
 			postgrest_retries = 3,
 			postgrest_backoff_ms = 100,
 			max_inflight = 64,
+			config_url = "http://console/config/sync.json",
+			config_refresh_seconds = 30,
 		}
 
 		assert.same(expected, schemas.config:validate(full_text))
@@ -175,6 +185,8 @@ describe("schemas.config", function()
 		assert.same(1, config.postgrest_retries)
 		assert.same(0, config.postgrest_backoff_ms)
 		assert.same(0, config.max_inflight)
+		assert.is_nil(config.config_url)
+		assert.same(60, config.config_refresh_seconds)
 	end)
 
 	it("does not change the text that it reads", function()
