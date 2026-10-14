@@ -50,7 +50,6 @@ jobs:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
-          CI_OUTPUT_FILE: ${{ github.output }}
         run: devenv shell -- ci changes
   checks:
     defaults:
