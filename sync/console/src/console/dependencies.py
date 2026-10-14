@@ -61,7 +61,7 @@ Author = Annotated[str, Depends(author)]
 class Write:
     """What a write request says: the revision it read, who it is, and what it wants."""
 
-    expected: int
+    expected: int | None
     author: str
     comment: str
     dry_run: bool
@@ -78,4 +78,15 @@ def write(
     return Write(expected=expected, author=who, comment=comment, dry_run=dry_run)
 
 
+def resource_write(
+    who: Author,
+    *,
+    comment: str = "",
+    dry_run: bool = False,
+) -> Write:
+    """Read a write to one resource. Its guard is the ETag of the resource, not the revision."""
+    return Write(expected=None, author=who, comment=comment, dry_run=dry_run)
+
+
 Writing = Annotated[Write, Depends(write)]
+ResourceWriting = Annotated[Write, Depends(resource_write)]

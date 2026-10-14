@@ -53,6 +53,28 @@ The engine needs no reload, because each run loads the active configuration agai
 
 A configuration that isn't valid gets 422 with `application/problem+json`. Each error has a JSON Pointer to the part that causes it. The engine's own `SyncConfig` model does the validation, so the console accepts exactly what the engine accepts.
 
+## Schemas and tables
+
+A client that manages one schema or one table, such as a Terraform provider, can use the resources of the configuration. They write through the same revisions, so the history, the rollback and the `GET /config/sync.json` document stay the same.
+
+| Request                                          | What it does                                            |
+| ------------------------------------------------ | ------------------------------------------------------- |
+| `GET /schemas`                                   | Lists the schemas, each with the names of its tables.   |
+| `GET`, `PUT`, `PATCH`, `DELETE /schemas/{s}`     | Reads, creates or replaces, merges, and removes a schema. |
+| `GET /schemas/{s}/tables`                        | Shows the tables of a schema as a map.                  |
+| `GET`, `PUT`, `PATCH`, `DELETE /schemas/{s}/tables/{t}` | The same four operations for one table.          |
+
+Each schema and each table has its own `ETag`, a hash of its content. A read returns it. A write needs one of two headers:
+
+- `If-Match` with the `ETag` that the caller read, to replace, patch or delete. A resource that changed since gets 412.
+- `If-None-Match: *` to create. A resource that exists already gets 412.
+
+A write without either header gets 428. The `ETag` is per resource, so two callers can change two tables of one schema without a conflict. A write answers with the resource, its new `ETag`, and the id of the new revision in `X-Revision`. A delete answers 204.
+
+The table name in the path must be the last part of `source_table`. Add `?dry_run=true` to any write to get `{valid, errors, changes}` and no revision, and `?comment=` to record why. A 422 has the same JSON Pointers as `PUT /config`, because the console validates the whole configuration after each edit.
+
+A delete removes the schema or the table from the configuration only. The synced data stays in DuckLake, and the next sync run drops the PostgreSQL views of what you removed.
+
 ## Monitoring streams
 
 These endpoints send server-sent events. Each one sends the current state at once, and then again each time it changes. A browser can use `EventSource`.

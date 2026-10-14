@@ -189,6 +189,13 @@ class Status(BaseModel):
     status: Literal["ok"]
 
 
+class SchemaSummary(BaseModel):
+    """A schema of the config with the names of its tables."""
+
+    name: str
+    tables: list[str]
+
+
 class Started(BaseModel):
     """A workflow that the console enqueued."""
 

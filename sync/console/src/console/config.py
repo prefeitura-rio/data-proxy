@@ -245,17 +245,26 @@ async def change(
     engine: AsyncEngine,
     write: Write,
     edit: Callable[[dict[str, object]], dict[str, object]],
+    check: Callable[[dict[str, object]], None] | None = None,
 ) -> Config | ConfigCheck:
     """Edit the active config in one transaction, or only check the edit.
 
-    The transaction locks the active revision and refuses when the caller read
-    an older one. It validates the whole result before it writes anything.
+    The transaction locks the active revision. A write that names the revision it read is
+    refused when that revision isn't the active one. Another write passes its own check
+    instead, which sees the active document. The whole result is validated before anything
+    is written.
     """
     async with engine.begin() as connection:
-        current = await revisions.lock_active(connection, write.expected)
+        current = (
+            await revisions.active(connection, lock=True)
+            if write.expected is None
+            else await revisions.lock_active(connection, write.expected)
+        )
         before: dict[str, object] = (
             to_api(current.document) if current else {"schemas": {}}
         )
+        if check is not None:
+            check(before)
         after = edit(before)
         stored, errors = validate(after)
         if write.dry_run:
