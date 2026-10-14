@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from dbos import DBOS
 
-from sync.constants import SYNC_QUEUE, VALIDATE_QUEUE
+from sync.constants import SYNC_QUEUE
 from sync.dbos import workflows
 from sync.models import (
     LoadedConfig,
@@ -80,10 +80,9 @@ async def sync_worker(
             "system_database_url": f"{POSTGRES_URL}/test",
         }
     )
-    DBOS.listen_queues([SYNC_QUEUE, VALIDATE_QUEUE])
+    DBOS.listen_queues([SYNC_QUEUE])
     DBOS.launch()
-    for queue in (SYNC_QUEUE, VALIDATE_QUEUE):
-        await DBOS.register_queue_async(queue, on_conflict="never_update")
+    await DBOS.register_queue_async(SYNC_QUEUE, on_conflict="never_update")
     try:
         yield scopes
     finally:

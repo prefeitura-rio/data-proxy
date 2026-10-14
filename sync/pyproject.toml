@@ -175,7 +175,6 @@ max-complexity-allowed = 10
 
 [tool.vulture]
 ignore_decorators = [
-  "@DBOS.workflow*", # DBOS starts a workflow by name from the queue, so no code calls it
   "@pytest.fixture",
   "@given",
   "@when",

@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 
 import psycopg
 import pytest
-from psycopg.types.json import Jsonb
 
 from tests.helpers import rows
 
@@ -17,19 +16,6 @@ INSERT INTO dbos.workflow_status (
     authenticated_user, parent_workflow_id, created_at, started_at_epoch_ms, completed_at
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
-
-CONFIG: dict[str, object] = {
-    "schemas": {
-        "alpha": {
-            "source": {"type": "bigquery"},
-            "tables": [
-                {"name": "p.d.one", "strategy": "full"},
-                {"name": "p.d.two", "strategy": "partitioned", "n": 4},
-            ],
-        },
-        "beta": {"source": {"type": "bigquery"}, "tables": []},
-    }
-}
 
 
 async def workflow(
@@ -60,16 +46,6 @@ async def workflow(
             START_MS,
             END_MS,
         ),
-    )
-
-
-async def revision(
-    connection: psycopg.AsyncConnection, document: dict[str, object], *, active: bool
-) -> None:
-    """Insert one configuration revision."""
-    await connection.execute(
-        b"INSERT INTO data_proxy.revisions (author, comment, document, active, valid) VALUES ('ana', 'note', %s, %s, %s)",
-        (Jsonb(document), active, True),
     )
 
 
@@ -237,84 +213,8 @@ class TestQueues:
 
 
 @pytest.mark.postgres
-class TestConfiguration:
-    """The configuration views show the revisions and what the active one defines."""
-
-    async def test_revisions_report_their_size_and_the_active_one(
-        self, admin_db: psycopg.AsyncConnection
-    ) -> None:
-        """A revision counts its schemas and tables, and active_config returns the active document."""
-        await admin_db.execute(b"DELETE FROM data_proxy.revisions")
-        await revision(admin_db, {"schemas": {}}, active=False)
-        await revision(admin_db, CONFIG, active=True)
-
-        revisions = await rows(
-            admin_db,
-            "SELECT author, comment, active, schema_count, table_count FROM admin.revisions ORDER BY id",
-        )
-        active = await rows(admin_db, "SELECT document FROM admin.config")
-
-        assert revisions == [
-            ("ana", "note", False, 0, 0),
-            ("ana", "note", True, 2, 2),
-        ]
-        assert active == [(CONFIG,)]
-
-    async def test_schemas_join_the_configuration_with_the_provisioned_state(
-        self, admin_db: psycopg.AsyncConnection
-    ) -> None:
-        """A schema shows its source, table count, provisioning status, and which objects exist."""
-        await admin_db.execute(b"DELETE FROM data_proxy.revisions")
-        await admin_db.execute(b"DELETE FROM data_proxy.schemas")
-        await revision(admin_db, CONFIG, active=True)
-        await admin_db.execute(
-            b"INSERT INTO data_proxy.schemas (name, status) VALUES ('alpha', 'ready'), ('gamma', 'detached')"
-        )
-        await admin_db.execute(b"CREATE SCHEMA alpha")
-        await admin_db.execute(b"CREATE TABLE alpha.access_policy (subject text)")
-        await admin_db.execute(b"CREATE VIEW alpha.people AS SELECT 1 AS id")
-        await admin_db.execute(b"CREATE ROLE policy_writer_alpha")
-
-        result = await rows(
-            admin_db,
-            "SELECT name, configured, status, source_type, table_count, schema_exists, access_policy, policy_writer, view_count FROM admin.schemas ORDER BY name",
-        )
-
-        assert result == [
-            ("alpha", True, "ready", "bigquery", 2, True, True, True, 1),
-            ("beta", True, None, "bigquery", 0, False, False, False, 0),
-            ("gamma", False, "detached", None, 0, False, False, False, 0),
-        ]
-
-    async def test_tables_join_the_configuration_with_the_synced_state(
-        self, admin_db: psycopg.AsyncConnection
-    ) -> None:
-        """A table shows its strategy and whether a sync committed its state."""
-        await admin_db.execute(b"DELETE FROM data_proxy.revisions")
-        await admin_db.execute(b"DELETE FROM data_proxy.state")
-        await revision(admin_db, CONFIG, active=True)
-        await admin_db.execute(
-            b"INSERT INTO data_proxy.state (table_name, state) VALUES ('p.d.two', %s)",
-            (
-                Jsonb(
-                    {
-                        "strategy": "partitioned",
-                        "signature": "abc",
-                        "partitions": {"0": {}, "1": {}},
-                    }
-                ),
-            ),
-        )
-
-        result = await rows(
-            admin_db,
-            "SELECT schema_name, name, strategy, synced, signature, partition_count FROM admin.tables ORDER BY name",
-        )
-
-        assert result == [
-            ("alpha", "p.d.one", "full", False, None, 0),
-            ("alpha", "p.d.two", "partitioned", True, "abc", 2),
-        ]
+class TestErrors:
+    """The errors view lists what the sync recorded."""
 
     async def test_errors_list_the_recorded_events_newest_first(
         self, admin_db: psycopg.AsyncConnection

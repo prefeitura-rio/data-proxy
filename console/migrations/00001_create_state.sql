@@ -1,4 +1,6 @@
 -- +goose Up
+CREATE SCHEMA IF NOT EXISTS data_proxy;
+
 CREATE TABLE IF NOT EXISTS data_proxy.state (
     table_name text PRIMARY KEY,
     state jsonb NOT NULL

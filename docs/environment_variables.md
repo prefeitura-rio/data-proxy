@@ -10,7 +10,7 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `REDIS_READ` | `redis://localhost:6379/1` | Redis address for cache reads. |
 | `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for cache writes. |
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database address. |
-| `SYNC_CONFIG_PATH` | `config/sync.json` | Sync configuration file. The engine reads it while no configuration revision is active in the database. |
+| `SYNC_CONFIG_PATH` | `config/sync.json` | Sync configuration file. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | unset | BigQuery credentials file. Omit with Workload Identity. |
 
 `schemas.<schema>.source` contains only non-secret source configuration. Put BigQuery and future source credentials in environment variables or Kubernetes Secrets.

@@ -30,7 +30,6 @@ from sync.models import (
 )
 from sync.planning import run_planning
 from sync.postgres import Postgres
-from sync.revisions import read_active_config, read_revision, write_validation
 from sync.s3 import clear_s3_prefix
 from sync.settings import settings
 from sync.state import (
@@ -39,7 +38,6 @@ from sync.state import (
     ensure_app_schema,
     write_table_states,
 )
-from sync.validation import check_config
 from sync.views.reconcile import reconcile_views
 
 from . import logs
@@ -61,20 +59,15 @@ def schema_config(document: str, schema: str) -> SyncConfig:
     should_retry=retry_transient,
 )
 async def load_sync_config() -> LoadedConfig:
-    """Load the sync.json that one run uses, from the active revision or from the file.
+    """Load the sync.json that one run uses, from the file.
 
-    The run keeps this document from start to end, so a revision that someone activates
-    afterward never reaches a run that already started. The file serves a database
-    that has no active revision yet.
+    The run keeps this document from start to end, so a change never reaches a run
+    that already started.
     """
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
-        loaded = await read_active_config(pg_conn)
-
-    if loaded is None:
-        loaded = LoadedConfig(
-            revision="file",
-            document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
-        )
+    loaded = LoadedConfig(
+        revision="file",
+        document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
+    )
 
     config = SyncConfig.model_validate_json(loaded.document)
     await logs.info(
@@ -342,21 +335,3 @@ async def finalize_run() -> None:
 
     await clear_cache()
     await logs.info("Sync finalization completed")
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def check_revision(revision_id: int) -> None:
-    """Validate one draft configuration and record the result."""
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
-        document = await read_revision(pg_conn, revision_id)
-        if document is None:
-            return
-
-        async with pg_conn.atomic():
-            await write_validation(
-                pg_conn, revision_id, document, check_config(document)
-            )

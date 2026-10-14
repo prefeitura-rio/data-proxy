@@ -5,7 +5,7 @@ from asyncio import Event
 import uvloop
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
-from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE, VALIDATE_QUEUE
+from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
 from sync.log import logger
 from sync.settings import settings
 
@@ -27,7 +27,7 @@ async def serve() -> None:
 
     DBOS(config=config)
 
-    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, PUBLISH_QUEUE, VALIDATE_QUEUE])
+    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, PUBLISH_QUEUE])
 
     DBOS.launch()
 
@@ -45,7 +45,6 @@ async def serve() -> None:
     await DBOS.register_queue_async(
         PUBLISH_QUEUE, partition_concurrency=1, on_conflict="never_update"
     )
-    await DBOS.register_queue_async(VALIDATE_QUEUE, on_conflict="never_update")
 
     if await DBOS.get_schedule_async(settings.SYNC_SCHEDULE_NAME) is None:
         await DBOS.apply_schedules_async(
