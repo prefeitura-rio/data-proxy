@@ -36,18 +36,18 @@ target-version = "py314"
 preview = true
 select = ["ALL"]
 ignore = [
-  "COM812",  # trailing comma — conflicts with the formatter
-  "CPY",     # copyright header — not used in this repository
-  "D203",    # blank line before class docstring — conflicts with D211
-  "D213",    # summary on second line — conflicts with D212
-  "E501",    # line too long — handled by formatter
-  "ISC001",  # implicit string concat on one line — conflicts with the formatter
-  "TRY003",  # long messages in raise — too strict for scripts
-  "DOC201",  # docstring Returns section — docstrings are one-line summaries
-  "DOC402",  # docstring Yields section — docstrings are one-line summaries
-  "DOC501",  # docstring Raises section — docstrings are one-line summaries
-  "EM101",   # raw string in exception — same policy as TRY003
-  "EM102",   # f-string in exception — same policy as TRY003
+  "COM812", # trailing comma — conflicts with the formatter
+  "CPY",    # copyright header — not used in this repository
+  "D203",   # blank line before class docstring — conflicts with D211
+  "D213",   # summary on second line — conflicts with D212
+  "E501",   # line too long — handled by formatter
+  "ISC001", # implicit string concat on one line — conflicts with the formatter
+  "TRY003", # long messages in raise — too strict for scripts
+  "DOC201", # docstring Returns section — docstrings are one-line summaries
+  "DOC402", # docstring Yields section — docstrings are one-line summaries
+  "DOC501", # docstring Raises section — docstrings are one-line summaries
+  "EM101",  # raw string in exception — same policy as TRY003
+  "EM102",  # f-string in exception — same policy as TRY003
 ]
 
 [tool.ruff.lint.flake8-type-checking]
@@ -58,13 +58,14 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = [
-  "S101",    # assert — the way a test states its expectation
-  "D100",    # test modules have no module docstring by project rule
-  "INP001",  # tests run with importlib import mode, not as a package
-  "PLR2004", # magic numbers are the expected values in assertions
-  "PLR6301", # test class methods group cases and do not use self
-  "TC002",   # test annotations are cheap, runtime imports keep fixtures simple
-  "TC003",   # test annotations are cheap, runtime imports keep fixtures simple
+  "S101",     # assert — the way a test states its expectation
+  "ASYNC109", # test doubles keep the signature of the real function
+  "D100",     # test modules have no module docstring by project rule
+  "INP001",   # tests run with importlib import mode, not as a package
+  "PLR2004",  # magic numbers are the expected values in assertions
+  "PLR6301",  # test class methods group cases and do not use self
+  "TC002",    # test annotations are cheap, runtime imports keep fixtures simple
+  "TC003",    # test annotations are cheap, runtime imports keep fixtures simple
 ]
 
 [tool.basedpyright]

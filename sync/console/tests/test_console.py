@@ -1,4 +1,6 @@
 import sys
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -9,10 +11,11 @@ from dbos import StepInfo, WorkflowStatus
 from fastapi import APIRouter
 from fastapi.routing import iter_route_contexts
 from httpx2 import ASGITransport, AsyncClient
+from psycopg_pool import PoolTimeout
 from whenever import Instant
 
 from console import routes
-from console.dependencies import get_client
+from console.dependencies import get_client, get_pool
 from console.main import app
 from console.registry import discover_routers
 
@@ -90,9 +93,45 @@ class FakeClient:
             raise ConnectionError("database is down")
 
 
-async def request_to(fake: FakeClient, path: str) -> tuple[int, Any]:
-    """Send one GET request to the app, with the fake client in place of DBOS."""
+class FakeConnection:
+    """A database connection that records the queries that it runs."""
+
+    queries: list[str]
+
+    def __init__(self, queries: list[str]) -> None:
+        """Share the list of queries with the pool."""
+        self.queries = queries
+
+    async def execute(self, query: str) -> None:
+        """Record the query."""
+        self.queries.append(query)
+
+
+class FakePool:
+    """A connection pool that answers from memory."""
+
+    reachable: bool
+    queries: list[str]
+
+    def __init__(self, *, reachable: bool = True) -> None:
+        """Create a pool whose database is reachable or not."""
+        self.reachable = reachable
+        self.queries = []
+
+    @asynccontextmanager
+    async def connection(self, *, timeout: float) -> AsyncGenerator[FakeConnection]:
+        """Hand out a connection, or time out like the real pool does."""
+        if not self.reachable:
+            raise PoolTimeout(f"pool is down after {timeout} s")
+        yield FakeConnection(self.queries)
+
+
+async def request_to(
+    fake: FakeClient, path: str, pool: FakePool | None = None
+) -> tuple[int, Any]:
+    """Send one GET request to the app, with fakes in place of DBOS and the pool."""
     app.dependency_overrides[get_client] = lambda: fake
+    app.dependency_overrides[get_pool] = lambda: pool or FakePool()
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
@@ -108,14 +147,41 @@ class TestHealth:
 
     async def test_reports_that_the_process_is_alive(self) -> None:
         """Answer the liveness probe without touching the database."""
-        assert await request_to(FakeClient(connected=False), "/health") == (
+        pool = FakePool(reachable=False)
+
+        assert await request_to(FakeClient(connected=False), "/health", pool) == (
             200,
             {"status": "ok"},
         )
+        assert pool.queries == []
 
-    async def test_reports_ready_when_the_database_answers(self) -> None:
-        """Answer the readiness probe when the DBOS database is reachable."""
-        assert await request_to(FakeClient(), "/ready") == (200, {"status": "ok"})
+    async def test_reports_ready_when_both_databases_answer(self) -> None:
+        """Answer the readiness probe when DBOS and the app database are reachable."""
+        pool = FakePool()
+
+        assert await request_to(FakeClient(), "/ready", pool) == (
+            200,
+            {"status": "ok"},
+        )
+        assert pool.queries == ["SELECT 1"]
+
+    async def test_reports_not_ready_when_the_app_database_is_down(self) -> None:
+        """Answer 503 with the same generic reason when only the pool fails."""
+        status, body = await request_to(
+            FakeClient(), "/ready", FakePool(reachable=False)
+        )
+
+        assert status == 503
+        assert body == {"detail": "database unavailable"}
+
+    async def test_logs_the_reason_that_the_app_database_is_down(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Keep the pool error in the log, where the operator can read it."""
+        with caplog.at_level("ERROR"):
+            await request_to(FakeClient(), "/ready", FakePool(reachable=False))
+
+        assert "pool is down" in caplog.text
 
     async def test_reports_not_ready_when_the_database_is_down(self) -> None:
         """Answer 503 with a generic reason, without the details of the failure."""

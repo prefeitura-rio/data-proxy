@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
+    PG_DATABASE_URL: str = Field(default=...)
 
 
 settings = Settings()

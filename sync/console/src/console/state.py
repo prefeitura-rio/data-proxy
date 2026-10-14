@@ -6,12 +6,14 @@ from fastapi import Request
 
 if TYPE_CHECKING:
     from dbos import DBOSClient
+    from psycopg_pool import AsyncConnectionPool
 
 
 class AppState(TypedDict):
     """The values that the lifespan opens at startup and shares with every request."""
 
     client: DBOSClient
+    pool: AsyncConnectionPool
 
 
 class AppRequest(Request[AppState]):

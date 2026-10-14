@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from dbos import DBOSClient
 from fastapi import FastAPI
+from psycopg_pool import AsyncConnectionPool
 
 from console import routes
 from console.registry import discover_routers
@@ -18,14 +19,18 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
-    """Open the DBOS client when the application starts and close it when it stops."""
+    """Open the DBOS client and the connection pool at startup and close them at shutdown."""
     client = DBOSClient(
         system_database_url=settings.DBOS_SYSTEM_DATABASE_URL,
         dbos_system_schema=settings.DBOS_SYSTEM_SCHEMA,
         lazy=True,
     )
     try:
-        yield {"client": client}
+        pool: AsyncConnectionPool = AsyncConnectionPool(
+            settings.PG_DATABASE_URL, open=False
+        )
+        async with pool:
+            yield {"client": client, "pool": pool}
     finally:
         client.destroy()
 

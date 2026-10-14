@@ -64,25 +64,24 @@ extend-ignore = [
 
 [tool.ruff.lint.extend-per-file-ignores]
 "tests/**" = [
-  "ARG001",   # pytest fixtures must be requested by parameter even when unused
-  "ARG002",   # test doubles keep the signature of the real method
-  "ASYNC109", # test doubles keep the signature of the real function
-  "D104",     # test packages have no package docstring by project rule
-  "D105",     # test doubles skip dunder docstrings
-  "D107",     # test doubles skip __init__ docstrings
-  "FBT002",   # boolean default positional argument — flags are part of public signatures
-  "FBT003",   # boolean positional value in call — flags are part of public signatures
-  "PLC0415",  # lazy imports in tests keep optional services out of collection
-  "PLC2701",  # tests import private names of the code under test
-  "PLW1514",  # test files are ASCII
-  "RUF029",   # async test doubles keep the awaitable signature
-  "S106",     # the Silo credentials are test constants
-  "S404",     # the psql fixture runs the psql command-line client
-  "S603",     # the fixtures run the psql client and the container engine
-  "S607",     # the fixtures find psql on PATH
-  "S608",     # the fixtures build SQL from constants
-  "SLF001",   # tests read private state of the code under test
-  "TC001",    # test annotations are cheap, runtime imports keep fixtures simple
+  "ARG001",  # pytest fixtures must be requested by parameter even when unused
+  "ARG002",  # test doubles keep the signature of the real method
+  "D104",    # test packages have no package docstring by project rule
+  "D105",    # test doubles skip dunder docstrings
+  "D107",    # test doubles skip __init__ docstrings
+  "FBT002",  # boolean default positional argument — flags are part of public signatures
+  "FBT003",  # boolean positional value in call — flags are part of public signatures
+  "PLC0415", # lazy imports in tests keep optional services out of collection
+  "PLC2701", # tests import private names of the code under test
+  "PLW1514", # test files are ASCII
+  "RUF029",  # async test doubles keep the awaitable signature
+  "S106",    # the Silo credentials are test constants
+  "S404",    # the psql fixture runs the psql command-line client
+  "S603",    # the fixtures run the psql client and the container engine
+  "S607",    # the fixtures find psql on PATH
+  "S608",    # the fixtures build SQL from constants
+  "SLF001",  # tests read private state of the code under test
+  "TC001",   # test annotations are cheap, runtime imports keep fixtures simple
 ]
 "src/engine/dbos/steps.py" = ["RUF029"] # DBOS steps are async by contract
 "src/engine/dbos/workflows.py" = [
@@ -90,8 +89,12 @@ extend-ignore = [
   "ARG001", # DBOS passes the context argument to scheduled workflows
 ]
 "src/engine/executor.py" = ["ARG002"] # expect only types the result
-"src/engine/kubernetes.py" = ["ASYNC109"] # the timeout argument bounds the rollout watch
-"src/engine/sources/bigquery/source.py" = ["PLR6301"] # validate implements the Source protocol
+"src/engine/kubernetes.py" = [
+  "ASYNC109",
+] # the timeout argument bounds the rollout watch
+"src/engine/sources/bigquery/source.py" = [
+  "PLR6301",
+] # validate implements the Source protocol
 
 [tool.basedpyright]
 extends = "../pyproject.toml"
@@ -126,4 +129,3 @@ ignore_names = [
   "expect",
   "patch_type",
 ]
-

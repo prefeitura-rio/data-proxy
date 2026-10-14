@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 dependencies = [
   "dbos>=3.0.0",
   "fastapi>=0.142.2",
+  "psycopg[binary,pool]>=3.3.4",
   "pydantic-settings>=2.14.2",
   "granian[uvloop]>=2.8.4",
   "whenever>=0.10.5",
@@ -27,7 +28,9 @@ extend = "../pyproject.toml"
 src = ["src"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"src/console/dependencies.py" = ["TC001"] # FastAPI reads the annotations of a dependency at runtime
+"src/console/dependencies.py" = [
+  "TC001",
+] # FastAPI reads the annotations of a dependency at runtime
 "src/console/routes/*.py" = [
   "TC001", # FastAPI reads the annotations of a route at runtime
   "TC003", # FastAPI reads the annotations of a route at runtime
@@ -43,7 +46,8 @@ reportAny = false         # the tests read decoded JSON bodies
 reportExplicitAny = false # the tests annotate decoded JSON bodies as Any
 
 [tool.vulture]
-exclude = ["src/console/models.py"] # response models: FastAPI reads their fields
+exclude = [
+  "src/console/models.py",
+] # response models: FastAPI reads their fields
 ignore_decorators = ["@router.*"]
 ignore_names = ["model_config"]
-
