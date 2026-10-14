@@ -174,3 +174,4 @@ tableshape
 metatable
 backoff
 Containerfile
+uv

@@ -20,12 +20,11 @@ dependencies = [
   "opentelemetry-sdk>=1.44.0",
   "opentelemetry-exporter-otlp-proto-http>=1.44.0",
   "lightkube==1.0.1",
-  "fastapi>=0.142.2",
-  "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
+  "console",
   "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
   "hypothesis>=6.165.10",
@@ -46,8 +45,15 @@ dev = [
 package = false
 exclude-newer = "7 days"
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+console = { workspace = true }
+
 [tool.ruff]
 line-length = 88
+src = [".", "src", "packages/*/src"] # first-party roots: the root project and every workspace member
 target-version = "py314"
 
 [tool.ruff.lint]
@@ -85,7 +91,7 @@ ignore = [
 runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = [
+"**/tests/**" = [
   "ARG001",   # pytest fixtures must be requested by parameter even when unused
   "ARG002",   # test doubles keep the signature of the real method
   "ASYNC109", # test doubles keep the signature of the real function
@@ -109,14 +115,14 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
   "S603",     # the fixtures run the psql client and the container engine
   "S607",     # the fixtures find psql on PATH
 ]
-"src/console/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
-"src/console/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
+"packages/console/src/console/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
+"packages/console/src/console/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
 "src/sync/dbos/steps.py" = ["RUF029"]            # DBOS steps are async by contract
 "src/sync/dbos/workflows.py" = [
   "BLE001",   # workflows catch every failure to record it and continue the run
   "ARG001",   # DBOS passes the context argument to scheduled workflows
 ]
-"src/console/routes/health.py" = ["BLE001"]          # readiness reports every failure of the check as 503
+"packages/console/src/console/routes/health.py" = ["BLE001"]          # readiness reports every failure of the check as 503
 "src/sync/executor.py" = ["ARG002"]              # expect only types the result
 "src/sync/kubernetes.py" = ["ASYNC109"]          # the timeout argument bounds the rollout watch
 "src/sync/sources/bigquery/source.py" = ["PLR6301"] # validate implements the Source protocol
@@ -125,20 +131,27 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
 typeCheckingMode = "all"
 venvPath = "."
 venv = ".venv"
-extraPaths = ["src", "tests"]
+extraPaths = ["src", "tests", "packages/console/src"] # workspace members resolve as local source, not as installed packages
 reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
 reportUnusedCallResult = false # calls such as execute and set are made for their effect
 
 [[tool.basedpyright.executionEnvironments]]
+root = "packages/console/tests"
+extraPaths = ["packages/console/src"]
+reportPrivateUsage = false
+reportAny = false
+reportExplicitAny = false # the console tests read decoded JSON bodies
+
+[[tool.basedpyright.executionEnvironments]]
 root = "tests"
-extraPaths = ["src", "."]
+extraPaths = ["src", ".", "packages/console/src"]
 reportPrivateUsage = false
 reportAny = false
 reportExplicitAny = false # the API tests read decoded JSON bodies
 
 
 [tool.pyrefly]
-project-includes = ["src", "tests"]
+project-includes = ["src", "tests", "packages"]
 search-path = ["src", "."]
 python-version = "3.14"
 python-interpreter-path = ".venv/bin/python"
@@ -149,7 +162,7 @@ implicit-bool = false # truthiness checks are the code style
 unused-call-result = false # calls such as execute and set are made for their effect
 
 [[tool.pyrefly.sub-config]]
-matches = "tests/**"
+matches = "**/tests/**"
 
 [tool.pyrefly.sub-config.errors]
 explicit-any = false # the API tests read decoded JSON bodies
@@ -160,7 +173,7 @@ max-complexity-allowed = 10
 [tool.vulture]
 min_confidence = 60
 exclude = [
-  "src/console/models.py", # response models: FastAPI reads their fields
+  "packages/console/src/console/models.py", # response models: FastAPI reads their fields
 ]
 ignore_decorators = [
   "@router.*",
@@ -211,7 +224,7 @@ ignore_names = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/*/tests"]
 asyncio_mode = "auto"
 strict = true
 addopts = ["--import-mode=importlib"]

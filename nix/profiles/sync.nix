@@ -43,7 +43,7 @@
       tasks = {
         "test:sync" = {
           cwd = "sync";
-          exec = "uv run --frozen pytest tests/unit";
+          exec = "uv run --frozen pytest tests/unit packages/console/tests";
           execIfModified = [
             "sync/**/*.py"
             "sync/pyproject.toml"
@@ -57,11 +57,11 @@
         "lint:sync" = {
           cwd = "sync";
           exec = ''
-            uv run --frozen ruff check src/ tests/
-            basedpyright src/ tests/
+            uv run --frozen ruff check src/ tests/ packages/
+            basedpyright src/ tests/ packages/
             uv run --frozen pyrefly check
-            uv run --frozen complexipy src/ tests/
-            uv run --frozen vulture src/ tests/
+            uv run --frozen complexipy src/ tests/ packages/
+            uv run --frozen vulture src/ tests/ packages/
           '';
           execIfModified = [
             "sync/**/*.py"

@@ -6,6 +6,12 @@ requires-python = ">=3.14"
 exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
+[manifest]
+members = [
+    "console",
+    "sync",
+]
+
 [[package]]
 name = "aiobotocore"
 version = "3.9.1"
@@ -453,6 +459,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/52/a2/e6f7a5442d6571adc8adeff946b91ab92d605e1face7e7cbbb5015e18101/complexipy-8.0.1-cp315-cp315-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e2cef6e40764553b7daa192068e9fd24311046c0f6758f11e462717c4de6a572", size = 3778554, upload-time = "2026-09-07T02:28:09.874Z" },
     { url = "https://files.pythonhosted.org/packages/ac/57/1bed68de8b8451d03ad87cdeb6c40a2db41124409bbfdb728e98090df69c/complexipy-8.0.1-cp315-cp315t-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e3521f282c554fbd3a24aec6dad4ba80044e935b4e42417db6c4cf96615ff9f0", size = 4019065, upload-time = "2026-09-07T02:28:11.21Z" },
     { url = "https://files.pythonhosted.org/packages/c5/01/6f24448bd5ad4f8f094deaacb365a01a5270d0703c40f651060d450de662/complexipy-8.0.1-cp315-cp315t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3ae988ed8f8a4ab2d410ef7fad74b87cb21a60c8fd73c25e8be7536fccc66405", size = 3779893, upload-time = "2026-09-07T02:28:12.761Z" },
+]
+
+[[package]]
+name = "console"
+version = "0.1.0"
+source = { editable = "packages/console" }
+dependencies = [
+    { name = "dbos" },
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dbos", specifier = ">=3.0.0" },
+    { name = "fastapi", specifier = ">=0.142.2" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
 
 [[package]]
@@ -1981,7 +2006,6 @@ dependencies = [
     { name = "asyncer" },
     { name = "dbos" },
     { name = "duckdb" },
-    { name = "fastapi" },
     { name = "google-cloud-bigquery" },
     { name = "jinja2" },
     { name = "lightkube" },
@@ -1992,13 +2016,13 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "redis" },
-    { name = "uvicorn", extra = ["standard"] },
     { name = "whenever" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "complexipy" },
+    { name = "console" },
     { name = "google-auth-stubs" },
     { name = "httpx2" },
     { name = "hypothesis" },
@@ -2020,7 +2044,6 @@ requires-dist = [
     { name = "asyncer", specifier = ">=0.0.18" },
     { name = "dbos", specifier = ">=3.0.0" },
     { name = "duckdb", specifier = "==1.5.4" },
-    { name = "fastapi", specifier = ">=0.142.2" },
     { name = "google-cloud-bigquery", specifier = ">=3.42.3" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lightkube", specifier = "==1.0.1" },
@@ -2031,13 +2054,13 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "redis", specifier = ">=5.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
     { name = "whenever", specifier = ">=0.10.5" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "complexipy", specifier = ">=7.0.1" },
+    { name = "console", editable = "packages/console" },
     { name = "google-auth-stubs", specifier = ">=0.3.0" },
     { name = "httpx2", specifier = ">=2.13.0" },
     { name = "hypothesis", specifier = ">=6.165.10" },

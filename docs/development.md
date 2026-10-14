@@ -69,6 +69,19 @@ PostgreSQL starts empty on every run. The other services keep their files in `.d
 
 To add another test container, declare `processes.<name> = mkPodmanProcess { ... }` with the function from `nix/lib.nix`, as `nix/processes/postgres.nix` does. Set `build.file` to build a Containerfile or `image` to run an existing image. Use `before` for shell lines that run before the container starts, and `ready` for a command that runs in the container. For a one-shot step after the container is ready, declare a normal process `after-<name>` with `after = [ "devenv:processes:<name>" ]`. The function uses the host Podman, or the engine in `CONTAINER_RUNTIME`.
 
+## Python workspace
+
+`sync/` is a uv workspace. The root project is the sync worker (`sync/src/sync`). Each directory in `sync/packages/` is a member with its own `pyproject.toml`, source and tests. All members share one lock file, `sync/uv.lock`, and one environment, `sync/.venv`.
+
+| Member | Path | Purpose |
+| --- | --- | --- |
+| `sync` (root) | `sync/src/sync` | The sync worker: DBOS workflows, DuckLake and PostgreSQL views |
+| `console` | `sync/packages/console` | The operator console: a FastAPI service that reads the DBOS runs and the data state |
+
+The `dev` group of the root project installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev`, so it doesn't install the members. Run the console with `uvicorn console.main:app`, and one member's tests with `uv run pytest packages/console/tests`.
+
+To add a member, create `sync/packages/<name>/pyproject.toml` with the `uv_build` backend, add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`, and run `uv lock`.
+
 ## Chart releases
 
 CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
