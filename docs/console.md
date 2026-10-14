@@ -23,13 +23,14 @@ The configuration is one JSON document. The database keeps every version as a re
 }
 ```
 
-The key of a table must be the last part of its `source_table`. The database stores the document in the `sync.json` shape, so the engine can read it without a conversion. The engine doesn't read the active revision yet. It still reads `sync.json`.
+The key of a table must be the last part of its `source_table`. The database stores the document in the `sync.json` shape, so the engine can read it without a conversion. `GET /config/sync.json` serves that stored document untouched. Its `ETag` is the id of the active revision, and a consumer that sends the `ETag` it holds in `If-None-Match` gets 304 while nothing changed. The engine doesn't read this endpoint yet. It still reads the file `sync.json`.
 
 | Request | What it does |
 | --- | --- |
 | `GET /config` | Shows the active configuration and its revision. |
 | `PUT /config` | Replaces the whole configuration. |
 | `PATCH /config` | Changes part of it with a JSON Merge Patch: objects merge, `null` removes a key, and anything else replaces. |
+| `GET /config/sync.json` | Serves the active configuration exactly as `sync.json`, for the engine and the proxy. |
 | `GET /config/revisions` | Lists the revisions, newest first, without their documents. |
 | `GET /config/revisions/{id}` | Shows one revision with its document. |
 | `POST /config/revisions/{id}/activate` | Rolls back by making an older revision active. The history stays. |
