@@ -12,35 +12,39 @@ The configuration is one JSON document. The database keeps every version as a re
 {
   "schemas": {
     "bigquery_a": {
-      "source": {"type": "bigquery"},
+      "source": { "type": "bigquery" },
       "claim": "preferred_username",
-      "ducklake": {"encrypted": false},
+      "ducklake": { "encrypted": false },
       "tables": {
-        "people": {"source_table": "project.dataset.people", "strategy": "full"}
+        "people": { "source_table": "project.dataset.people", "strategy": "full" }
       }
     }
   }
 }
 ```
 
-The key of a table must be the last part of its `source_table`. The database stores the document in the `sync.json` shape, so the engine can read it without a conversion. `GET /config/sync.json` serves that stored document untouched. Its `ETag` is the id of the active revision, and a consumer that sends the `ETag` it holds in `If-None-Match` gets 304 while nothing changed. The engine doesn't read this endpoint yet. It still reads the file `sync.json`.
+The key of a table must be the last part of its `source_table`. The database stores the document in the `sync.json` shape, so the engine can read it without a conversion. `GET /config/sync.json` serves that stored document untouched. Its `ETag` is the id of the active revision, and a consumer that sends the `ETag` it holds in `If-None-Match` gets 304 while nothing changed. The engine loads it once at the start of each run, from `SYNC_CONFIG_URL`.
 
-| Request | What it does |
-| --- | --- |
-| `GET /config` | Shows the active configuration and its revision. |
-| `PUT /config` | Replaces the whole configuration. |
-| `PATCH /config` | Changes part of it with a JSON Merge Patch: objects merge, `null` removes a key, and anything else replaces. |
-| `GET /config/sync.json` | Serves the active configuration exactly as `sync.json`, for the engine and the proxy. |
-| `GET /config/revisions` | Lists the revisions, newest first, without their documents. |
-| `GET /config/revisions/{id}` | Shows one revision with its document. |
-| `POST /config/revisions/{id}/activate` | Rolls back by making an older revision active. The history stays. |
+| Request                                | What it does                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `GET /config`                          | Shows the active configuration and its revision.                                                             |
+| `PUT /config`                          | Replaces the whole configuration.                                                                            |
+| `PATCH /config`                        | Changes part of it with a JSON Merge Patch: objects merge, `null` removes a key, and anything else replaces. |
+| `GET /config/sync.json`                | Serves the active configuration exactly as `sync.json`, for the engine and the proxy.                        |
+| `GET /config/revisions`                | Lists the revisions, newest first, without their documents.                                                  |
+| `GET /config/revisions/{id}`           | Shows one revision with its document.                                                                        |
+| `POST /config/revisions/{id}/activate` | Rolls back by making an older revision active. The history stays.                                            |
 
 Every write needs `If-Match` with the `ETag` that the caller read. The `ETag` is the id of the active revision, and `"0"` before the first write. A write over a newer revision gets 412, and a write without the header gets 428. Send `X-Forwarded-User` to record who wrote the revision, and `?comment=` to say why.
 
 Add `?dry_run=true` to `PUT` or `PATCH` to check a configuration without writing it. The answer lists the problems and the parts that would change:
 
 ```json
-{"valid": true, "errors": [], "changes": [{"pointer": "/schemas/bigquery_a/tables/orders", "change": "added"}]}
+{
+  "valid": true,
+  "errors": [],
+  "changes": [{ "pointer": "/schemas/bigquery_a/tables/orders", "change": "added" }]
+}
 ```
 
 A configuration that isn't valid gets 422 with `application/problem+json`. Each error has a JSON Pointer to the part that causes it. The engine's own `SyncConfig` model does the validation, so the console accepts exactly what the engine accepts.
@@ -49,12 +53,12 @@ A configuration that isn't valid gets 422 with `application/problem+json`. Each 
 
 These endpoints send server-sent events. Each one sends the current state at once, and then again each time it changes. A browser can use `EventSource`.
 
-| Stream | Event | Ends |
-| --- | --- | --- |
-| `GET /queues/stream` | `queues`: the same data as `GET /queues`, with the depth of each queue | Never. The client disconnects. |
-| `GET /runs/{id}/stream` | `run`: the status, the visible steps and the child workflows by status | With the run, after an `end` event. |
-| `GET /config/stream` | `revision`: the active revision | Never. |
-| `GET /workflows/{id}/logs` | `log`: one log line of the workflow | With the workflow, after an `end` event. |
+| Stream                     | Event                                                                  | Ends                                     |
+| -------------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
+| `GET /queues/stream`       | `queues`: the same data as `GET /queues`, with the depth of each queue | Never. The client disconnects.           |
+| `GET /runs/{id}/stream`    | `run`: the status, the visible steps and the child workflows by status | With the run, after an `end` event.      |
+| `GET /config/stream`       | `revision`: the active revision                                        | Never.                                   |
+| `GET /workflows/{id}/logs` | `log`: one log line of the workflow                                    | With the workflow, after an `end` event. |
 
 The server polls every `STREAM_INTERVAL_SECONDS` and sends an event only when the data differs from the last one. The log stream uses the offset of a line as the event id, so a client that reconnects with `Last-Event-ID` continues at the next line.
 

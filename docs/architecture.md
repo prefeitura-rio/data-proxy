@@ -53,7 +53,7 @@ A PostgreSQL backend keeps its DuckLake attachment, so it can keep an old catalo
 
 New Pooler connections open new backends, which attach the refreshed catalog.
 
-There is one active writer per schema catalog. Publishing is parallel across schemas and sequential within each schema queue.
+There is one active writer per schema catalog. Publishing is parallel across schemas and sequential within each schema. One `publish` queue serves all schemas, and the schema name is its partition key, so a new schema needs no new queue.
 
 ## Sync service
 
