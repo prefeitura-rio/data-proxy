@@ -69,33 +69,32 @@ PostgreSQL starts empty on every run. The other services keep their files in `.d
 
 To add another test container, declare `processes.<name> = mkPodmanProcess { ... }` with the function from `nix/lib.nix`, as `nix/processes/postgres.nix` does. Set `build.file` to build a Containerfile or `image` to run an existing image. Use `before` for shell lines that run before the container starts, and `ready` for a command that runs in the container. For a one-shot step after the container is ready, declare a normal process `after-<name>` with `after = [ "devenv:processes:<name>" ]`. The function uses the host Podman, or the engine in `CONTAINER_RUNTIME`.
 
-## Python workspace
+## Python project
 
-`sync/` is a uv workspace. The root holds no code. It holds the lock file `sync/uv.lock`, the environment `sync/.venv`, and the lint settings that all members share. Each directory in `sync/` that has a `pyproject.toml` is a member with its own source and tests.
+`sync/` is one flat Python project: `sync/pyproject.toml`, the lock file `sync/uv.lock`, the environment `sync/.venv`, the code in `sync/src/sync`, and the tests in `sync/tests`. `ruff`, `basedpyright`, `pyrefly`, `complexipy`, `vulture` and `pytest` all read their settings from that one `pyproject.toml`.
 
-| Member | Path | Purpose |
-| --- | --- | --- |
-| `engine` | `sync/engine` | The sync worker: DBOS workflows, DuckLake and PostgreSQL views |
-| `console` | `sync/console` | The operator console: a FastAPI service that reads the DBOS runs and the data state |
+`uv sync` prepares the environment. The sync image runs `uv sync --frozen --no-dev --no-install-project` and sets `PYTHONPATH=/app/src`. The chart starts the worker with `python -m sync.dbos.main`.
 
-The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Run the console with `granian --interface asgi --loop uvloop console.main:app`. The `--loop uvloop` option is explicit, so the server never falls back to the native event loop. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
+## Console
 
-Version bounds follow the same rule. A library that two or more members use gets its bound once, in `constraint-dependencies` under `[tool.uv]` in `sync/pyproject.toml`. A member lists only the name and the extras that it needs, such as `psycopg[binary,pool]`. A constraint doesn't add a dependency, so a member must still list every library that it imports. Lint settings follow the same scope. `sync/pyproject.toml` holds the rules that apply to every member. Each member adds only what its own code needs:
+`console/` is the admin web app. It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. The `console` profile provides Node, pnpm, TypeScript and `goose`:
 
-| Tool | Root | Member |
-| --- | --- | --- |
-| `ruff` | `[tool.ruff]` | `extend = "../pyproject.toml"`, then `extend-ignore` and `extend-per-file-ignores` |
-| `basedpyright` | `[tool.basedpyright]` | `extends = "../pyproject.toml"`, then its own options and test environment |
-| `vulture` | none | `[tool.vulture]`, because vulture reads one file |
-| `pyrefly`, `complexipy` | `[tool.pyrefly]`, `[tool.complexipy]` | none, because they can't inherit a configuration |
+```bash
+devenv --profile console shell
+cd console
+pnpm install      # install the dependencies
+pnpm dev          # start the dev server
+pnpm check        # type-check the Svelte and TypeScript code
+pnpm build        # build the Node server in console/build
+```
 
-To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend. Add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`. Add the `extend` and `extends` lines and a `[tool.pytest.ini_options]` section. Add its source path to the `search-path` of `pyrefly`. Then run `uv lock`.
+`devenv --profile console tasks run lint:console` installs the locked dependencies and runs `pnpm check`. The `checks` profile includes it in `lint:all`.
 
-## Console migrations
+## Database migrations
 
-The console owns its tables in the `data_proxy` schema. The migrations are plain SQL files in `console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `public.goose_db_version`. The first migration creates the `data_proxy` schema when it's missing, so the console doesn't depend on the engine.
+The console owns its tables and views in the `data_proxy` schema. The migrations are plain SQL files in `console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `public.goose_db_version`. The first migration creates the `data_proxy` schema when it's missing, so the console doesn't depend on the engine.
 
-Set `PG_DATABASE_URL` and run the `migrate` command in the sync shell:
+Set `PG_DATABASE_URL` and run the `migrate` command in the console shell:
 
 ```text
 migrate up        # apply every new migration

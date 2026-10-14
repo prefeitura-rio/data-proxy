@@ -35,7 +35,6 @@
       };
 
       scripts.seed.exec = ''uv run --project sync python scripts/seed.py "$@"'';
-      scripts.migrate.exec = ''nu ${config.devenv.root}/scripts/migrate.nu "$@"'';
 
       git-hooks.hooks = {
         ruff.enable = true;

@@ -6,6 +6,7 @@
   profiles.checks = {
     extends = [
       "sync"
+      "console"
       "proxy"
       "chart"
     ];
@@ -68,7 +69,7 @@
             "docs"
             "README.md"
             "STYLEGUIDE.md"
-            "sync/*/src/**/*.py"
+            "sync/src/**/*.py"
             "scripts"
             ".vale.ini"
             ".vale/styles"
@@ -80,6 +81,7 @@
         "lint:ci"
         "lint:sql"
         "lint:sync"
+        "lint:console"
         "lint:chart"
         "lint:proxy"
         "lint:nu"

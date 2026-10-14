@@ -174,3 +174,4 @@ metatable
 backoff
 Containerfile
 uv
+pnpm
