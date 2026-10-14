@@ -1,6 +1,31 @@
+[project]
+name = "sync"
+version = "1.0.0"
+description = "Sync service: copies BigQuery tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
+
+requires-python = ">=3.14"
+dependencies = [
+  "duckdb==1.5.4",
+  "dbos>=3.0.0",
+  "google-cloud-bigquery>=3.42.3",
+  "httpx2>=2.13.0",
+  "psycopg[binary]>=3.3.4",
+  "pydantic-settings>=2.14.2",
+  "pydantic>=2.13.4",
+  "redis>=5.0",
+  "asyncer>=0.0.18",
+  "whenever>=0.10.5",
+  "aiobotocore>=3.9.0",
+  "jinja2>=3.1",
+  "more-itertools>=10.0.0",
+  "opentelemetry-sdk>=1.44.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+  "lightkube==1.0.1",
+  "uvloop>=0.23.0",
+]
+
 [dependency-groups]
 dev = [
-  "engine",
   "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
   "hypothesis>=6.165.10",
@@ -14,31 +39,43 @@ dev = [
   "ruff>=0.9.3",
   "types-aiobotocore[s3]>=3.9.0",
   "vulture>=2.16",
-  "httpx2>=2.13.0",
 ]
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-constraint-dependencies = [
-  "dbos>=3.0.0",
-  "httpx2>=2.13.0",
-  "psycopg>=3.3.4",
-  "pydantic>=2.13.4",
-  "pydantic-settings>=2.14.2",
-  "sqlalchemy>=2.0.54",
-  "uvloop>=0.23.0",
-  "whenever>=0.10.5",
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+strict = true
+addopts = ["--import-mode=importlib"]
+env_files = [".env.test"]
+pythonpath = ["."]
+bdd_features_base_dir = "tests/integration/features"
+markers = [
+  "postgres: scenarios that require the PostgreSQL test service",
+  "s3: scenarios that require S3-compatible object storage",
+  "redis: scenarios that require the Valkey test service",
+  "postgrest: tests that require the PostgREST test service",
+]
+filterwarnings = [
+  "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
+  "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
+  "ignore::DeprecationWarning:gherkin.gherkin_line",
 ]
 
-[tool.uv.workspace]
-members = ["*"]
-
-[tool.uv.sources]
-engine = { workspace = true }
+[tool.pytest-gremlins]
+paths = ["src"]
+exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]
 
 [tool.ruff]
 line-length = 88
 target-version = "py314"
+src = ["src", "."]
 
 [tool.ruff.lint]
 preview = true
@@ -48,8 +85,12 @@ ignore = [
   "CPY",    # copyright header — not used in this repository
   "D203",   # blank line before class docstring — conflicts with D211
   "D213",   # summary on second line — conflicts with D212
+  "D421",   # property docstring starts with a verb — properties use noun summaries
   "E501",   # line too long — handled by formatter
+  "FBT001", # boolean positional argument — flags are part of public signatures
   "ISC001", # implicit string concat on one line — conflicts with the formatter
+  "PLR0913", # too many arguments — functions mirror SQL template inputs
+  "PLR0917", # too many positional arguments — functions mirror SQL template inputs
   "TRY003", # long messages in raise — too strict for scripts
   "DOC201", # docstring Returns section — docstrings are one-line summaries
   "DOC402", # docstring Yields section — docstrings are one-line summaries
@@ -65,7 +106,7 @@ runtime-evaluated-base-classes = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = [
+"tests/**" = [
   "S101",     # assert — the way a test states its expectation
   "ASYNC109", # test doubles keep the signature of the real function
   "RUF029",   # async test doubles keep the awaitable signature
@@ -75,17 +116,53 @@ runtime-evaluated-base-classes = [
   "PLR6301",  # test class methods group cases and do not use self
   "TC002",    # test annotations are cheap, runtime imports keep fixtures simple
   "TC003",    # test annotations are cheap, runtime imports keep fixtures simple
+  "ARG001",   # pytest fixtures must be requested by parameter even when unused
+  "ARG002",   # test doubles keep the signature of the real method
+  "D104",     # test packages have no package docstring by project rule
+  "D105",     # test doubles skip dunder docstrings
+  "D107",     # test doubles skip __init__ docstrings
+  "FBT002",   # boolean default positional argument — flags are part of public signatures
+  "FBT003",   # boolean positional value in call — flags are part of public signatures
+  "PLC0415",  # lazy imports in tests keep optional services out of collection
+  "PLC2701",  # tests import private names of the code under test
+  "PLW1514",  # test files are ASCII
+  "S106",     # the Silo credentials are test constants
+  "S404",     # the psql fixture runs the psql command-line client
+  "S603",     # the fixtures run the psql client and the container engine
+  "S607",     # the fixtures find psql on PATH
+  "S608",     # the fixtures build SQL from constants
+  "SLF001",   # tests read private state of the code under test
+  "TC001",    # test annotations are cheap, runtime imports keep fixtures simple
 ]
+"src/sync/dbos/steps.py" = ["RUF029"] # DBOS steps are async by contract
+"src/sync/dbos/workflows.py" = [
+  "BLE001", # workflows catch every failure to record it and continue the run
+  "ARG001", # DBOS passes the context argument to scheduled workflows
+]
+"src/sync/executor.py" = ["ARG002"] # expect only types the result
+"src/sync/kubernetes.py" = [
+  "ASYNC109",
+] # the timeout argument bounds the rollout watch
+"src/sync/sources/bigquery/source.py" = [
+  "PLR6301",
+] # validate implements the Source protocol
 
 [tool.basedpyright]
 typeCheckingMode = "all"
 venvPath = "."
 venv = ".venv"
+extraPaths = ["src", "."]
 reportUnusedCallResult = false # calls such as execute and set are made for their effect
+reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportAny = false          # tests read mock calls and decoded values
+reportPrivateUsage = false # tests read private state of the code under test
 
 [tool.pyrefly]
-project-includes = ["*/src", "*/tests"]
-search-path = ["engine/src", "engine"]
+project-includes = ["src", "tests"]
+search-path = ["src", "."]
 python-version = "3.14"
 python-interpreter-path = ".venv/bin/python"
 preset = "all"
@@ -96,3 +173,29 @@ unused-call-result = false # calls such as execute and set are made for their ef
 
 [tool.complexipy]
 max-complexity-allowed = 10
+
+[tool.vulture]
+ignore_decorators = [
+  "@pytest.fixture",
+  "@given",
+  "@when",
+  "@then",
+  "@field_validator",
+  "@model_validator",
+]
+ignore_names = [
+  "pytest_*",
+  "pytestmark",
+  "propagate",
+  "cache_ttl",
+  "side_effect",
+  "return_value",
+  "__aenter__",
+  "__aexit__",
+  "SchemaField",
+  "model_config",
+  "expect",
+  "patch_type",
+  "do_GET",
+  "log_message",
+]

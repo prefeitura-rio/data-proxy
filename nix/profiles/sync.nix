@@ -47,41 +47,40 @@
           cwd = "sync";
           exec = ''
             set -e
-            (cd engine && uv run --frozen pytest tests/unit)
+            uv run --frozen pytest tests/unit
           '';
           execIfModified = [
             "sync/**/*.py"
             "sync/pyproject.toml"
             "sync/uv.lock"
             "sync/.env.test"
-            "sync/engine/tests/files"
-            "sync/engine/tests/templates"
-            "sync/engine/src/engine/templates"
+            "sync/tests/files"
+            "sync/tests/templates"
+            "sync/src/sync/templates"
           ];
         };
         "lint:sync" = {
           cwd = "sync";
           exec = ''
-            uv run --frozen ruff check */src */tests
-            (cd engine && basedpyright)
+            uv run --frozen ruff check src tests
+            basedpyright
             uv run --frozen pyrefly check
-            uv run --frozen complexipy */src */tests
-            (cd engine && uv run --frozen vulture --min-confidence 60 src tests)
+            uv run --frozen complexipy src tests
+            uv run --frozen vulture --min-confidence 60 src tests
           '';
           execIfModified = [
             "sync/**/*.py"
             "sync/pyproject.toml"
-            "sync/*/pyproject.toml"
             "sync/uv.lock"
             "sync/complexipy-snapshot.json"
           ];
         };
         "lint:sql" = {
           exec = ''
-            sqlfluff lint --dialect postgres sync/engine/src/engine/templates/postgres helm/files/templates sync/engine/tests/templates/postgres console/migrations
+            sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres console/migrations
             goose -dir console/migrations validate
-            sqlfluff lint --dialect duckdb sync/engine/src/engine/templates/duckdb sync/engine/tests/templates/duckdb sync/engine/tests/templates/bigquery
-            sqlfluff lint --dialect bigquery sync/engine/src/engine/templates/bigquery
+            sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
+            sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
           '';
           execIfModified = [
             ".sqlfluff"
@@ -94,7 +93,7 @@
 
       enterTest = ''
         set -e
-        (cd ${config.devenv.root}/sync/engine && uv run --frozen pytest)
+        (cd ${config.devenv.root}/sync && uv run --frozen pytest)
       '';
     };
   };

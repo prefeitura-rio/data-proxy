@@ -12,7 +12,6 @@ from typing import ClassVar, cast
 from uuid import uuid4
 
 import tomllib
-from engine.models import SyncConfig
 from google.cloud.bigquery import (
     Client,
     LoadJobConfig,
@@ -23,6 +22,7 @@ from google.cloud.bigquery import (
     WriteDisposition,
 )
 from pydantic import BaseModel, ConfigDict, PositiveInt
+from sync.models import SyncConfig
 
 basicConfig(level=INFO)
 logger = getLogger(__name__)
@@ -100,13 +100,13 @@ def parse_args() -> Config:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("sync/engine/config/seed.toml"),
+        default=Path("sync/config/seed.toml"),
         help="TOML file with the seed, partition days, and row count of each table",
     )
     parser.add_argument(
         "--sync-config",
         type=Path,
-        default=Path("sync/engine/config/sync.test.json"),
+        default=Path("sync/config/sync.test.json"),
         help="Sync configuration that lists the test tables",
     )
 

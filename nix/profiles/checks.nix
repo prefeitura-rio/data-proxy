@@ -62,7 +62,7 @@
         "lint:docs" = {
           exec = ''
             vale sync --no-exit
-            vale docs/ README.md STYLEGUIDE.md sync/engine/src/engine/ scripts/
+            vale docs/ README.md STYLEGUIDE.md sync/src/sync/ scripts/
           '';
           execIfModified = [
             "docs"

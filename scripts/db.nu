@@ -37,8 +37,8 @@ def run-sql [database: string, port: string]: string -> nothing {
 # Create the test databases, including the DuckLake catalog database, and put the PostgREST schema in `test`.
 def main []: nothing -> nothing {
     let port = $env.TEST_POSTGRES_PORT
-    let templates = $env.DEVENV_ROOT | path join sync engine tests templates postgres
-    let filter = $env.DEVENV_ROOT | path join sync engine src engine templates postgres views routing filter.sql
+    let templates = $env.DEVENV_ROOT | path join sync tests templates postgres
+    let filter = $env.DEVENV_ROOT | path join sync src sync templates postgres views routing filter.sql
     let pushdown = $templates | path join pushdown.sql
     $env.PGPASSWORD = 'test'
 
