@@ -1,5 +1,11 @@
 [sqlfluff:templater:jinja:context]
-catalog = /tmp/catalog.sqlite
+catalog_url = postgresql://test:test@localhost/ducklake
+metadata_schema = pic
+host = localhost
+port = 5432
+database = ducklake
+user = test
+password = test
 data_path = s3://bucket/ducklake/pic
 first = s3://bucket/first.parquet
 second = s3://bucket/second.parquet

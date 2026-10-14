@@ -1,7 +1,6 @@
 import secrets
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path, PurePosixPath
-from shlex import quote
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -12,9 +11,9 @@ from dbos._migration import ensure_dbos_schema, run_dbos_migrations
 from psycopg.sql import SQL, Identifier, Literal
 from sqlalchemy import create_engine
 
-from engine.catalog import CatalogPaths
 from engine.conditions import schema_scope_condition
 from engine.duckdb import DuckDB
+from engine.ducklake import DuckLakePaths
 from engine.models import (
     DumpTask,
     FullTable,
@@ -43,7 +42,6 @@ from tests.fixtures.types import (
     Silo,
 )
 from tests.helpers import (
-    copy_to_postgres,
     helm_sql,
     initialize_schemas,
     psql_script,
@@ -133,36 +131,49 @@ def duckdb_connection() -> Iterator[DuckDB]:
         connection.close()
 
 
+async def drop_catalog_schema(name: str) -> None:
+    """Remove one metadata schema from the catalog database."""
+    catalog = await psycopg.AsyncConnection.connect(
+        settings.DUCKLAKE_CATALOG_URL, autocommit=True
+    )
+    try:
+        await catalog.execute(
+            SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(Identifier(name))
+        )
+    finally:
+        await catalog.close()
+
+
 @pytest.fixture
-async def ducklake_catalog(
-    postgres: Postgres,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> Postgres:
+async def catalog_paths(tmp_path: Path) -> AsyncIterator[DuckLakePaths]:
+    """Give the test an empty metadata schema named app in the catalog database."""
+    await drop_catalog_schema("app")
+    try:
+        yield DuckLakePaths(
+            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+            data=str(tmp_path / "data"),
+            metadata_schema="app",
+        )
+    finally:
+        await drop_catalog_schema("app")
+
+
+@pytest.fixture
+async def ducklake_catalog(postgres: Postgres) -> Postgres:
     """Publish two DuckLake snapshots of people: 10 rows, then 20 rows.
 
-    The catalog comes from the DuckDB that the sync worker uses, and the database
-    only reads it. Each statement commits alone, so each one creates its own snapshot.
+    The catalog comes from the DuckDB that the sync worker uses, in the catalog
+    database. The serving database only reads it, with the reader secrets that the test
+    database setup creates. The metadata schema stays after the test, because the reader keeps it locked.
+    Each statement commits alone, so each one creates its own snapshot.
     """
-    monkeypatch.setattr(
-        settings, "DUCKLAKE_CATALOG_LOCAL_PATH", Path("/var/lib/postgresql/ducklake")
-    )
     schema = postgres.namespace.schema
-    catalog = CatalogPaths.for_schema(schema).local
-    written = tmp_path / "catalog.sqlite"
     publish_people_catalog(
-        written,
+        schema,
         f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
     )
-
     writer = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
     try:
-        await writer.execute(
-            SQL("COPY (SELECT 1) TO PROGRAM {}").format(
-                Literal(f"mkdir -p {quote(str(catalog.parent))}")
-            )
-        )
-        copy_to_postgres(written, PurePosixPath(catalog))
         script = render_template(
             "postgres/create_silo_s3_secret",
             {"endpoint": SILO_ENDPOINT},

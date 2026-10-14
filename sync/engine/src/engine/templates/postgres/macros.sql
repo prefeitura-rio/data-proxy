@@ -76,18 +76,18 @@
 {
   "kind": "macro",
   "name": "postgres.ducklake_attach",
-  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog.",
+  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog of one schema. The DuckDB secret ducklake_reader holds the catalog address and credentials.",
   "inputs": {
-    "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
+    "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment."
   },
   "returns": "A PL/pgSQL PERFORM duckdb.raw_query statement."
 }
 #}
-{% macro ducklake_attach(catalog_local_path, data_path) -%}
+{% macro ducklake_attach(metadata_schema, data_path) -%}
   PERFORM duckdb.raw_query(
-    'ATTACH IF NOT EXISTS ''ducklake:sqlite:{{ catalog_local_path }}'' AS dl '
-    || '(DATA_PATH ''{{ data_path }}'', READ_ONLY)'
+    'ATTACH IF NOT EXISTS ''ducklake:ducklake_reader'' AS dl '
+    || '(DATA_PATH ''{{ data_path }}'', METADATA_SCHEMA ''{{ metadata_schema }}'', READ_ONLY)'
   );
 {%- endmacro %}
 

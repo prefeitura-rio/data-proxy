@@ -8,7 +8,7 @@
     "function": "PostgreSQL function being created.",
     "duckdb_view": "DuckDB intermediate view name.",
     "source": "FROM clause body, e.g. dl.table.",
-    "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
+    "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment."
   }
 }
@@ -20,7 +20,7 @@ RETURNS void AS $$
 DECLARE
   v_snapshot bigint;
 BEGIN
-{{ ducklake_attach(catalog_local_path, data_path) }}
+{{ ducklake_attach(metadata_schema, data_path) }}
 
   v_snapshot := p_arg::bigint;
 

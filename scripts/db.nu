@@ -1,7 +1,5 @@
 use lib.nu [fail]
 
-const CATALOG_DIR = '/var/lib/postgresql/ducklake'
-
 const DUCKDB_SETTINGS = [
     'duckdb.unsafe_allow_execution_inside_functions'
     'duckdb.unsafe_allow_mixed_transactions'
@@ -36,28 +34,27 @@ def run-sql [database: string, port: string]: string -> nothing {
     }
 }
 
-# Create the DuckLake catalog directory and the test databases, and put the PostgREST schema in `test`.
+# Create the test databases, including the DuckLake catalog database, and put the PostgREST schema in `test`.
 def main []: nothing -> nothing {
     let port = $env.TEST_POSTGRES_PORT
-    let container = $env.TEST_POSTGRES_CONTAINER
     let templates = $env.DEVENV_ROOT | path join sync engine tests templates postgres
     let filter = $env.DEVENV_ROOT | path join sync engine src engine templates postgres views routing filter.sql
     let pushdown = $templates | path join pushdown.sql
     $env.PGPASSWORD = 'test'
-
-    let runtime = $env.CONTAINER_RUNTIME? | default 'podman'
-    ^$runtime exec $container mkdir -p $CATALOG_DIR
 
     let databases = ['test_template' 'test']
     | each {|database|
         $DUCKDB_SETTINGS | each {|name| $"ALTER DATABASE ($database) SET ($name) = 'on';" }
     }
     | flatten
-    | prepend ['CREATE DATABASE test_template;' 'CREATE DATABASE dbos_system;']
+    | prepend ['CREATE DATABASE test_template;' 'CREATE DATABASE dbos_system;' 'CREATE DATABASE ducklake;']
     | str join (char nl)
     $databases | run-sql postgres $port
 
     render ($templates | path join fixture.sql) | run-sql test_template $port
+
+    # DuckDB reads persistent secrets once per backend, so create them before any test backend starts.
+    render ($templates | path join create_ducklake_reader_secret.sql) 'host=localhost' $'port=($port)' 'database=ducklake' 'user=test' 'password=test' | run-sql test $port
 
     'CREATE EXTENSION IF NOT EXISTS pg_duckdb; CREATE SCHEMA IF NOT EXISTS data_proxy;' | run-sql test $port
 

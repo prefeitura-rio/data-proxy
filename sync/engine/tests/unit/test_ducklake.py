@@ -1,104 +1,28 @@
-import sqlite3
-import stat
-from pathlib import Path
 from unittest.mock import AsyncMock
 
-import duckdb
 import psycopg
 import pytest
 
-from engine.duckdb import DuckDB
 from engine.ducklake import (
     DuckLakePaths,
-    apply_maintenance,
-    attach_catalog,
-    current_snapshot_id,
     reader_snapshot,
 )
 from engine.postgres import Postgres
 from engine.settings import settings
 
 
-def test_catalog_format_matches_pg_duckdb_support(tmp_path: Path) -> None:
-    """Catalog format matches pg duckdb support."""
-    catalog = tmp_path / "catalog.sqlite"
-    connection = duckdb.connect()
-    connection.execute("LOAD ducklake")
-    options = f"DATA_PATH '{tmp_path / 'data'}', DATA_INLINING_ROW_LIMIT 0"
-    connection.execute(f"ATTACH 'ducklake:sqlite:{catalog}' AS dl ({options})")
-
-    version: str = (
-        sqlite3.connect(catalog)
-        .execute("SELECT value FROM ducklake_metadata WHERE key = 'version'")
-        .fetchone()[0]
-    )
-
-    assert version == "1.0"
-
-
-def test_catalog_directory_allows_postgres_to_read(tmp_path: Path) -> None:
-    """Catalog directory allows postgres to read."""
-    paths = DuckLakePaths(
-        catalog=tmp_path / "schema" / "catalog.sqlite",
-        data="s3://bucket/ducklake/schema",
-    )
-
-    paths.prepare_catalog_directory()
-
-    assert stat.S_IMODE(paths.catalog.parent.stat().st_mode) == 0o755
-
-
-def test_catalog_directory_permissions_are_fixed_on_existing_path(
-    tmp_path: Path,
+@pytest.mark.parametrize("schema", ["app", "bigquery_a"])
+def test_each_schema_gets_its_own_metadata_schema_in_the_catalog_database(
+    schema: str,
 ) -> None:
-    """Catalog directory permissions are fixed on existing path."""
-    catalog_dir = tmp_path / "schema"
-    catalog_dir.mkdir(mode=0o700)
-    catalog_dir.chmod(0o700)
-    paths = DuckLakePaths(
-        catalog=catalog_dir / "catalog.sqlite",
-        data="s3://bucket/ducklake/schema",
+    """Point every schema at the catalog database, with the schema name as the metadata schema."""
+    paths = DuckLakePaths.for_schema(schema)
+
+    assert paths == DuckLakePaths(
+        catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+        data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+        metadata_schema=schema,
     )
-
-    paths.prepare_catalog_directory()
-
-    assert stat.S_IMODE(catalog_dir.stat().st_mode) == 0o755
-
-
-class TestApplyMaintenance:
-    """Maintenance runs on a real catalog and keeps the table readable."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "expiration",
-        [pytest.param("7d", id="default"), pytest.param("30d", id="thirty-days")],
-    )
-    async def test_keeps_the_rows_and_returns_the_current_snapshot(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expiration: str
-    ) -> None:
-        """Keeps the rows and returns the current snapshot."""
-        monkeypatch.setattr(settings, "DUCKLAKE_SNAPSHOT_EXPIRATION", expiration)
-        connection = duckdb.connect()
-        connection.execute("LOAD ducklake")
-        duckdb_conn = DuckDB(connection=connection)
-        paths = DuckLakePaths(
-            catalog=tmp_path / "schema" / "catalog.sqlite",
-            data=str(tmp_path / "data"),
-        )
-        paths.prepare_catalog_directory()
-        await attach_catalog(duckdb_conn, paths, encrypted=False)
-        connection.execute("CREATE TABLE dl.items (id INTEGER)")
-        connection.execute("INSERT INTO dl.items VALUES (1)")
-        connection.execute("INSERT INTO dl.items VALUES (2)")
-        connection.execute("DETACH dl")
-
-        snapshot_id = await apply_maintenance(duckdb_conn, paths, encrypted=False)
-
-        assert snapshot_id == await current_snapshot_id(duckdb_conn)
-        assert connection.execute("SELECT id FROM dl.items ORDER BY id").fetchall() == [
-            (1,),
-            (2,),
-        ]
 
 
 class TestReaderSnapshot:

@@ -1,10 +1,8 @@
 import json
-import shlex
-import subprocess
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from inspect import unwrap
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar, Final, Self, cast
 from unittest.mock import AsyncMock
@@ -61,10 +59,8 @@ from engine.types import (
     TemplateValue,
 )
 from tests.constants import (
-    CONTAINER_RUNTIME,
     HELM_SQL,
     PARQUET,
-    POSTGRES_CONTAINER,
     ROUTED_TABLE,
     SILO_ENDPOINT,
     TEST_SQL_DIR,
@@ -656,12 +652,13 @@ async def revoke_anonymous_access(pg_conn: PgConnection, config: SyncConfig) -> 
     await pg_conn.commit()
 
 
-def publish_people_catalog(catalog: Path, data_path: str) -> None:
+def publish_people_catalog(metadata_schema: str, data_path: str) -> None:
     """Write the people catalog with the DuckDB of the sync worker, not the database one."""
     script = render_template(
         "duckdb/publish_people_snapshots",
         {
-            "catalog": str(catalog),
+            "catalog_url": settings.DUCKLAKE_CATALOG_URL,
+            "metadata_schema": metadata_schema,
             "data_path": data_path,
             "endpoint": SILO_ENDPOINT,
             "first": "s3://test-bucket/app/people/people_partition_10.parquet",
@@ -675,22 +672,3 @@ def publish_people_catalog(catalog: Path, data_path: str) -> None:
             connection.execute(statement)
     finally:
         connection.close()
-
-
-def copy_to_postgres(source: Path, destination: PurePosixPath) -> None:
-    """Copy one file into the PostgreSQL test container."""
-    with source.open("rb") as stream:
-        subprocess.run(
-            [
-                CONTAINER_RUNTIME,
-                "exec",
-                "-i",
-                POSTGRES_CONTAINER,
-                "sh",
-                "-c",
-                f"cat > {shlex.quote(str(destination))}",
-            ],
-            stdin=stream,
-            capture_output=True,
-            check=True,
-        )

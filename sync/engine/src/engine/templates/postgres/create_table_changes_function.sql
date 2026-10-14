@@ -11,7 +11,7 @@
     "claim_setting": "PostgreSQL session setting containing the current claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
-    "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
+    "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment.",
     "user_role": "Role allowed to execute the function."
   }
@@ -37,7 +37,7 @@ DECLARE
   v_where text;
   v_end_snapshot bigint;
 BEGIN
-{{ ducklake_attach(catalog_local_path, data_path) }}
+{{ ducklake_attach(metadata_schema, data_path) }}
 
   v_subject := current_setting('{{ claim_setting }}', true);
 

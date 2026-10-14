@@ -5,7 +5,7 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the function.",
     "function": "PostgreSQL function being created or called.",
-    "catalog_local_path": "Local filesystem path to the SQLite catalog file.",
+    "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment.",
     "user_role": "Role allowed to execute the function."
   }
@@ -15,7 +15,7 @@
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS bigint AS $$
 BEGIN
-{{ ducklake_attach(catalog_local_path, data_path) }}
+{{ ducklake_attach(metadata_schema, data_path) }}
 
   RETURN (
     SELECT r['id']::bigint

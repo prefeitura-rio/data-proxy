@@ -14,7 +14,6 @@
 -- noqa: PRS
 LOAD httpfs;
 LOAD ducklake;
-LOAD sqlite;
 {% for extension in source_extensions | default([]) %}
 LOAD {{ extension }};
 {% endfor %}

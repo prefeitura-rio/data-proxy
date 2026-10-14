@@ -1,6 +1,5 @@
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 from jinja2 import UndefinedError
@@ -8,19 +7,14 @@ from psycopg.sql import Identifier, Literal
 
 from engine.duckdb import DuckDB
 from engine.ducklake import (
-    DuckLakePaths,
     commit_table,
     evolve_table_schema,
-    publish_schema,
 )
 from engine.executor import Executor
 from engine.models import (
     FullTable,
     PartitionChange,
     PartitionedTablePlan,
-    SchemaConfig,
-    SyncConfig,
-    SyncPlan,
 )
 from engine.sources.bigquery.clients import BigQuery
 from engine.sources.bigquery.partitions import PartitionMetadata, partition_rows
@@ -30,7 +24,6 @@ from tests.constants import (
     HELM_SQL,
     MODIFIED,
     PARQUET,
-    PARQUET_20,
     SOURCE_SQL,
     TEST_SQL_DIR,
 )
@@ -119,7 +112,7 @@ class TestTemplateRendering:
                 "columns": [{"name": '"id"', "is_json": False, "raw_json": True}],
                 "duckdb_view": "unused",
                 "source": 'dl."people"',
-                "catalog_local_path": "/catalog.sqlite",
+                "metadata_schema": "app",
                 "data_path": "s3://bucket/app",
             },
         )
@@ -386,6 +379,7 @@ class TestDuckdbMetadataTemplates:
         )
         rows = await executor.query(
             "duckdb/get_sort",
+            {"metadata": "__ducklake_metadata_dl"},
             params=["people"],
             expect=tuple[str],
         )
@@ -421,24 +415,6 @@ class TestBigQueryPartitionTemplate:
             )
             for partition_id in ("0", "20")
         }
-
-
-class TestDucklakeCommitTable:
-    """DuckLake commit_table behavior against a real catalog."""
-
-    @pytest.mark.asyncio
-    async def test_inserts_and_replaces_rows(
-        self, duckdb: DuckDB, tmp_path: Path
-    ) -> None:
-        """Insert rows from Parquet, then replace them with a new file."""
-        await attach_ducklake(duckdb, tmp_path)
-        table = FullTable(name="p.d.people", resolved_schema="app")
-
-        await commit_table(duckdb, table, [PARQUET], None)
-        assert await ducklake_row_count(duckdb, "people") == 10
-
-        await commit_table(duckdb, table, [PARQUET_20], None)
-        assert await ducklake_row_count(duckdb, "people") == 10
 
 
 class TestDucklakePartitionCommit:
@@ -513,89 +489,3 @@ class TestDucklakeEvolveSchema:
         columns = {row[0]: row[1] for row in rows}
         assert set(columns) == {"cpf", "active", "score"}
         assert columns["cpf"].upper() == "DOUBLE"
-
-
-class TestDucklakePublishSchema:
-    """DuckLake publish_schema behavior against a real catalog."""
-
-    @pytest.mark.asyncio
-    async def test_publishes_full_table_into_catalog(
-        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Create a DuckLake table and insert rows from a full-table plan."""
-        catalog = tmp_path / "catalog.sqlite"
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        def local_paths(schema: str) -> DuckLakePaths:
-            return DuckLakePaths(catalog=catalog, data=str(data_dir))
-
-        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(local_paths))
-
-        table = FullTable(name="p.d.people", resolved_schema="app")
-        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.d.people": "sig"},
-            paths={"p.d.people": [PARQUET]},
-        )
-        pg_conn = AsyncMock()
-
-        result = await publish_schema(duckdb, pg_conn, config, plan, set())
-
-        assert result.published_tables == {"p.d.people"}
-        assert await ducklake_row_count(duckdb, "people") == 10
-
-    @pytest.mark.asyncio
-    async def test_returns_committed_snapshot_id(
-        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Return the snapshot that holds the published tables."""
-        catalog = tmp_path / "catalog.sqlite"
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        def local_paths(schema: str) -> DuckLakePaths:
-            return DuckLakePaths(catalog=catalog, data=str(data_dir))
-
-        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(local_paths))
-
-        table = FullTable(name="p.d.people", resolved_schema="app")
-        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.d.people": "sig"},
-            paths={"p.d.people": [PARQUET]},
-        )
-
-        result = await publish_schema(duckdb, AsyncMock(), config, plan, set())
-
-        rows = await duckdb.query("SELECT id FROM dl.current_snapshot()")
-        assert result.snapshot_id == rows[0][0]
-
-    @pytest.mark.asyncio
-    async def test_returns_no_snapshot_when_nothing_is_published(
-        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Return no snapshot when every table is blocked by a failed path."""
-        catalog = tmp_path / "catalog.sqlite"
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        def local_paths(schema: str) -> DuckLakePaths:
-            return DuckLakePaths(catalog=catalog, data=str(data_dir))
-
-        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(local_paths))
-
-        table = FullTable(name="p.d.people", resolved_schema="app")
-        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.d.people": "sig"},
-            paths={"p.d.people": [PARQUET]},
-        )
-
-        result = await publish_schema(duckdb, AsyncMock(), config, plan, {PARQUET})
-
-        assert result.published_tables == set()
-        assert result.snapshot_id is None

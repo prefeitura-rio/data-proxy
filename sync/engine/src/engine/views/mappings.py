@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from psycopg.sql import Identifier, Literal
 
-from engine.catalog import CatalogPaths
 from engine.constants import DUCKDB_VIEW_PREFIX
 from engine.executor import Executor
 from engine.models import PartitionedTable, TableConfig
@@ -104,7 +103,7 @@ def ducklake_function_mapping(
         "columns": function_columns(columns, raw_json=True),
         "duckdb_view": f"dl_{schema}_{table_name}",
         "source": f"dl.{quoted_identifier(table_name)}",
-        "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
+        "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
     }
 
@@ -257,7 +256,7 @@ def table_changes_function_mapping(
             {"column": mapping.column, "unit_type": mapping.unit_type}
             for mapping in (table.rls or [])
         ],
-        "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
+        "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
         "user_role": Identifier(settings.AUTH_USER_ROLE),
     }

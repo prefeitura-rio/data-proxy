@@ -8,7 +8,6 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.sql import Composable, Identifier, Literal
 
-from .catalog import CatalogPaths
 from .conditions import partition_condition
 from .executor import Executor
 from .models import (
@@ -31,31 +30,26 @@ from .state import emit_error
 from .types import DatabaseRow, DuckDBParams, PostgresParams
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .duckdb import DuckDB
     from .postgres import Postgres
 
 
 @dataclass(frozen=True, slots=True)
 class DuckLakePaths:
-    """Local catalog and S3 data locations for one schema."""
+    """Catalog address, metadata schema and S3 data location for one schema."""
 
-    catalog: Path
+    catalog: str
     data: str
+    metadata_schema: str
 
     @classmethod
     def for_schema(cls, schema: str) -> DuckLakePaths:
-        """Build locations for one schema."""
+        """Build locations for one schema: its own metadata schema in the catalog database."""
         return cls(
-            catalog=CatalogPaths.for_schema(schema).local,
+            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
             data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
+            metadata_schema=schema,
         )
-
-    def prepare_catalog_directory(self) -> None:
-        """Create the catalog directory with the mode the reader needs."""
-        self.catalog.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-        self.catalog.parent.chmod(0o755)
 
 
 def planned_paths(
@@ -245,11 +239,14 @@ async def evolve_table_schema(
         )
 
 
-async def current_sort(duckdb_conn: DuckDB, table_name: str) -> list[str]:
+async def current_sort(duckdb_conn: DuckDB, table: TableConfig) -> list[str]:
     """Return the active DuckLake sort columns for a table."""
     rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
         "duckdb/get_sort",
-        params=[table_name],
+        {
+            "metadata": f"__ducklake_metadata_dl.{Identifier(table.resolved_schema).as_string(None)}"
+        },
+        params=[table.table_name],
         expect=tuple[str],
     )
 
@@ -293,9 +290,7 @@ async def apply_sort(
         )
         validate_sort_columns(table, {row[0] for row in source_rows})
 
-    active_sort: list[str] = (
-        await current_sort(duckdb_conn, table.table_name) if existing else []
-    )
+    active_sort: list[str] = await current_sort(duckdb_conn, table) if existing else []
 
     if active_sort != configured_sort and (configured_sort or existing):
         sort_columns = ", ".join(
@@ -427,8 +422,9 @@ async def attach_catalog(
     await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
         "duckdb/attach",
         mapping={
-            "catalog": Literal(f"ducklake:sqlite:{paths.catalog}"),
+            "catalog": Literal(paths.catalog),
             "data_path": Literal(paths.data),
+            "metadata_schema": Literal(paths.metadata_schema),
             "encrypted": encrypted,
         },
     )
@@ -530,7 +526,7 @@ async def publish_schema(
     plan: SyncPlan,
     failed_paths: set[str],
 ) -> PublicationResult:
-    """Publish one schema sequentially into its local SQLite catalog."""
+    """Publish one schema sequentially into its metadata schema of the catalog database."""
     reduced_plan, blocked_tables, _failed = plan_publication(plan, failed_paths)
     changed = plan.signatures.keys() | plan.partitioned_tables.keys()
     empty = empty_incremental_tables(reduced_plan)
@@ -538,12 +534,9 @@ async def publish_schema(
 
     await emit_blocked_errors(pg_conn, blocked_tables, empty)
 
-    paths = DuckLakePaths.for_schema(plan.schema_name)
-    paths.prepare_catalog_directory()
-
     await configure_catalog(
         duckdb_conn,
-        paths,
+        DuckLakePaths.for_schema(plan.schema_name),
         config.schemas[plan.schema_name].ducklake.encrypted,
     )
     published = await publish_tables(duckdb_conn, config, reduced_plan, eligible)

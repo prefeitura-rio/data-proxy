@@ -540,7 +540,7 @@ class TestFunctionPrivileges:
                 "function": Identifier("p_dl_fn"),
                 "duckdb_view": "p_view",
                 "source": "dl.p",
-                "catalog_local_path": "/var/lib/ducklake/catalogs/p/catalog.sqlite",
+                "metadata_schema": "p",
                 "data_path": "s3://bucket/p",
             },
         )

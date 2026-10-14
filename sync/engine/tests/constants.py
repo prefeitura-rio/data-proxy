@@ -16,8 +16,6 @@ ROUTED_TABLE = "p.d.routed"
 POSTGREST_AUTH = environ.get(
     "TEST_POSTGREST_AUTH", "postgrest-test-secret-012345678901234567890123"
 )
-CONTAINER_RUNTIME = environ.get("CONTAINER_RUNTIME", "podman")
-POSTGRES_CONTAINER = environ.get("TEST_POSTGRES_CONTAINER", "data-proxy-test-postgres")
 POSTGRES_HOST = "127.0.0.1"
 POSTGRES_PORT = environ.get("TEST_POSTGRES_PORT", "15432")
 POSTGRES_URL = f"postgresql://test:test@{POSTGRES_HOST}:{POSTGRES_PORT}"

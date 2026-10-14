@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
     DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
-    DUCKLAKE_CATALOG_LOCAL_PATH: Path = Path("/var/lib/ducklake/catalogs")
     DUCKLAKE_CATALOG_PATH: str = "ducklake"
+    DUCKLAKE_CATALOG_URL: str = "postgresql://test:test@localhost:5432/ducklake"
     DUCKLAKE_COMMIT_MAX_ATTEMPTS: int = Field(default=60, gt=0)
     DUCKLAKE_COMMIT_RETRY_SECONDS: float = Field(default=1.0, gt=0)
     DUCKLAKE_MAX_COMPACTED_FILES: int = Field(default=10, gt=0)

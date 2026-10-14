@@ -7,5 +7,5 @@
 #}
 -- noqa: disable=PRS
 SELECT count(*)
-FROM __ducklake_metadata_dl.ducklake_table
-WHERE table_name = ?
+FROM duckdb_tables()
+WHERE database_name = 'dl' AND table_name = ?

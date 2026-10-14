@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
-from engine.catalog import CatalogPaths
 from engine.constants import PROTECTED_VIEW_NAMES
 from engine.executor import Executor
 from engine.models import PartitionedTable, SyncConfig, TableConfig
@@ -168,7 +167,7 @@ async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> No
         mapping={
             "schema": Identifier(schema),
             "function": Identifier("dl_latest_snapshot"),
-            "catalog_local_path": str(CatalogPaths.for_schema(schema).local),
+            "metadata_schema": schema,
             "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
             "user_role": Identifier(settings.AUTH_USER_ROLE),
         },
