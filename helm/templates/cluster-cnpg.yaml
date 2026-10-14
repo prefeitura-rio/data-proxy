@@ -99,3 +99,12 @@ spec:
         login: false
         bypassrls: false
       {{- end }}
+      {{- range $role := list "writer" "reader" }}
+      - name: {{ printf "ducklake_%s" $role | quote }}
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: {{ include "data-proxy.ducklakeSecretName" (dict "root" $root "role" $role) }}
+      {{- end }}

@@ -175,6 +175,10 @@ ducklake:
   maxCompactedFiles: 10
   ## Rewrite files when this fraction of rows is deleted.
   rewriteDeleteThreshold: 0.95
+  ## Passwords of the catalog roles ducklake_writer (sync workers) and ducklake_reader (PostgreSQL).
+  ## Empty: generated once and kept on upgrades.
+  writerPassword: ""
+  readerPassword: ""
   ## Small volume that holds the persistent DuckDB secrets (S3 credentials), shared by every PostgreSQL Pod.
   secrets:
     storage:

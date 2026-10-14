@@ -81,6 +81,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.dbSecretName" . }}
                   key: password
+            - name: DUCKLAKE_ADMIN_URL
+              value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+            - name: DUCKLAKE_READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.ducklakeSecretName" (dict "root" . "role" "reader") }}
+                  key: password
             - name: AUTH_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: AUTH_USER_ROLE

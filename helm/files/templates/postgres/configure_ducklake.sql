@@ -1,12 +1,13 @@
 {#
 {
   "kind": "template",
-  "description": "Persist DuckLake S3 credentials for new pg_duckdb sessions.",
+  "description": "Persist the DuckLake S3 credentials and the catalog reader credentials for new pg_duckdb sessions.",
   "inputs": {
     "s3_key_id": "S3 access key.",
     "s3_secret_key": "S3 secret key.",
     "s3_endpoint": "S3 endpoint.",
-    "s3_use_ssl": "Whether S3 uses TLS."
+    "s3_use_ssl": "Whether S3 uses TLS.",
+    "reader_password": "Password of the ducklake_reader role."
   }
 }
 #}
@@ -19,4 +20,13 @@ SELECT duckdb.raw_query(
         '{{ s3_endpoint }}',
         '{{ s3_use_ssl }}'
     )
+);
+SELECT duckdb.raw_query(
+    format(
+        'CREATE OR REPLACE PERSISTENT SECRET ducklake_reader_pg (TYPE postgres, HOST ''localhost'', PORT 5432, DATABASE ''ducklake'', USER ''ducklake_reader'', PASSWORD %L)',
+        '{{ reader_password }}'
+    )
+);
+SELECT duckdb.raw_query(
+    'CREATE OR REPLACE PERSISTENT SECRET ducklake_reader (TYPE ducklake, METADATA_PATH '''', METADATA_PARAMETERS MAP {''TYPE'': ''postgres'', ''SECRET'': ''ducklake_reader_pg''})'
 )

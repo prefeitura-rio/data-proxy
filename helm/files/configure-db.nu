@@ -16,8 +16,20 @@ def configure-ducklake []: nothing -> nothing {
         s3_secret_key: $env.S3_SECRET_KEY
         s3_endpoint: $env.S3_ENDPOINT
         s3_use_ssl: $env.S3_USE_SSL
+        reader_password: $env.DUCKLAKE_READER_PASSWORD
     }
-    log info 'DuckLake S3 secret configuration completed'
+    log info 'DuckLake S3 and catalog reader secret configuration completed'
+}
+
+# Let the reader role read every metadata schema that the writer role creates in the catalog database
+def configure-catalog []: nothing -> nothing {
+    wait-for-postgres $env.DUCKLAKE_ADMIN_URL
+
+    execute-sql postgres/configure_catalog.sql --dsn $env.DUCKLAKE_ADMIN_URL {
+        writer_role: (quote-pg ducklake_writer identifier)
+        reader_role: (quote-pg ducklake_reader identifier)
+    }
+    log info 'DuckLake catalog privilege setup completed'
 }
 
 # Create application schemas with access policy and policy-writer roles
@@ -90,6 +102,7 @@ def main []: nothing -> nothing {
     try {
         wait-for-postgres $env.PG_DATABASE_URL
         configure-ducklake
+        configure-catalog
         create-schemas
         create-pre-request
         install-maintenance

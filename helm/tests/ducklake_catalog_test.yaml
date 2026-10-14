@@ -1,0 +1,139 @@
+suite: DuckLake catalog database
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - cluster-cnpg.yaml
+  - database-ducklake.yaml
+  - secrets.yaml
+  - deployment-sync.yaml
+  - jobs.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: declares the catalog database owned by the writer role
+    asserts:
+      - equal:
+          path: spec
+          value:
+            name: ducklake
+            owner: ducklake_writer
+            cluster:
+              name: data-proxy
+            databaseReclaimPolicy: retain
+        template: database-ducklake.yaml
+
+  - it: manages a writer and a reader role that are not superusers
+    asserts:
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: ducklake_writer
+            ensure: present
+            login: true
+            superuser: false
+            bypassrls: false
+            passwordSecret:
+              name: data-proxy-ducklake-writer
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: ducklake_reader
+            ensure: present
+            login: true
+            superuser: false
+            bypassrls: false
+            passwordSecret:
+              name: data-proxy-ducklake-reader
+        template: cluster-cnpg.yaml
+
+  - it: generates a password for each catalog role
+    asserts:
+      - matchRegex:
+          path: stringData.password
+          pattern: "^[A-Za-z0-9]{32}$"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-writer
+        template: secrets.yaml
+      - equal:
+          path: stringData.username
+          value: ducklake_writer
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-writer
+        template: secrets.yaml
+      - matchRegex:
+          path: stringData.password
+          pattern: "^[A-Za-z0-9]{32}$"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-reader
+        template: secrets.yaml
+      - equal:
+          path: stringData.username
+          value: ducklake_reader
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-reader
+        template: secrets.yaml
+
+  - it: lets values set the catalog passwords
+    set:
+      ducklake.writerPassword: writer-secret
+      ducklake.readerPassword: reader-secret
+    asserts:
+      - equal:
+          path: stringData.password
+          value: writer-secret
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-writer
+        template: secrets.yaml
+      - equal:
+          path: stringData.password
+          value: reader-secret
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-ducklake-reader
+        template: secrets.yaml
+
+  - it: gives the sync workers the catalog address and the writer password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_WRITER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-ducklake-writer
+                key: password
+        template: deployment-sync.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_CATALOG_URL
+            value: postgresql://ducklake_writer:$(DUCKLAKE_WRITER_PASSWORD)@data-proxy-rw:5432/ducklake
+        template: deployment-sync.yaml
+
+  - it: gives the configure-db Job the reader password and the catalog address
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-configure-db-0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_READER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-ducklake-reader
+                key: password
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_ADMIN_URL
+            value: postgresql://admin@data-proxy-rw:5432/ducklake
+        template: jobs.yaml

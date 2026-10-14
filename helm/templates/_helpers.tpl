@@ -126,6 +126,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-cnpg-authenticator" (include "data-proxy.fullname" .) }}
 {{- end }}
 
+{{- define "data-proxy.ducklakeSecretName" -}}
+{{- printf "%s-ducklake-%s" (include "data-proxy.fullname" .root) .role }}
+{{- end }}
+
 {{- define "data-proxy.s3SecretName" -}}
 {{- include "data-proxy.fullname" . }}-s3
 {{- end }}
