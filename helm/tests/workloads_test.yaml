@@ -374,7 +374,7 @@ tests:
           path: spec.suspend
         template: jobs.yaml
 
-  - it: restores one schema catalog as the PostgreSQL user with a single command
+  - it: restores one schema catalog as the PostgreSQL user, replacing the file in one step
     set:
       sync.config:
         schemas:
@@ -389,16 +389,24 @@ tests:
           value: docker.io/litestream/litestream:0.5.12
         template: jobs.yaml
       - equal:
-          path: spec.template.spec.containers[0].args
-          value:
-            - restore
-            - -force
-            - -config
-            - /config/litestream.yaml
-            - /var/lib/ducklake/catalogs/app/catalog.sqlite
-        template: jobs.yaml
-      - notExists:
           path: spec.template.spec.containers[0].command
+          value: [/bin/sh, -ec]
+        template: jobs.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'restore -config /config/litestream.yaml -o "\$target.new" "\$target"'
+        template: jobs.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'mv -f "\$target.new" "\$target"'
+        template: jobs.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-force'
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args[2]
+          value: /var/lib/ducklake/catalogs/app/catalog.sqlite
         template: jobs.yaml
       - notExists:
           path: spec.template.metadata

@@ -524,11 +524,15 @@ template:
       - name: refresh
         image: {{ include "data-proxy.litestreamImage" .root | quote }}
         imagePullPolicy: IfNotPresent
+        command: [/bin/sh, -ec]
         args:
-          - restore
-          - -force
-          - -config
-          - /config/litestream.yaml
+          - |
+            target="$1"
+            rm -f "$target.new"
+            litestream restore -config /config/litestream.yaml -o "$target.new" "$target"
+            rm -f "$target-wal" "$target-shm"
+            mv -f "$target.new" "$target"
+          - refresh
           - {{ printf "%s/%s/catalog.sqlite" .root.Values.ducklake.catalogLocalPath .schema | quote }}
         env:
           - name: S3_ACCESS_KEY
