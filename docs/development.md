@@ -80,7 +80,7 @@ To add another test container, declare `processes.<name> = mkPodmanProcess { ...
 
 The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Run the console with `granian --interface asgi --loop uvloop console.main:app`. The `--loop uvloop` option is explicit, so the server never falls back to the native event loop. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
 
-Lint settings follow the same scope. `sync/pyproject.toml` holds the rules that apply to every member. Each member adds only what its own code needs:
+Version bounds follow the same rule. A library that two or more members use gets its bound once, in `constraint-dependencies` under `[tool.uv]` in `sync/pyproject.toml`. A member lists only the name and the extras that it needs, such as `psycopg[binary,pool]`. A constraint doesn't add a dependency, so a member must still list every library that it imports. Lint settings follow the same scope. `sync/pyproject.toml` holds the rules that apply to every member. Each member adds only what its own code needs:
 
 | Tool | Root | Member |
 | --- | --- | --- |

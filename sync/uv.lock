@@ -11,6 +11,14 @@ members = [
     "console",
     "engine",
 ]
+constraints = [
+    { name = "dbos", specifier = ">=3.0.0" },
+    { name = "psycopg", specifier = ">=3.3.4" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "uvloop", specifier = ">=0.23.0" },
+    { name = "whenever", specifier = ">=0.10.5" },
+]
 
 [manifest.dependency-groups]
 dev = [
@@ -490,18 +498,20 @@ dependencies = [
     { name = "fastapi" },
     { name = "granian", extra = ["uvloop"] },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "whenever" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "dbos", specifier = ">=3.0.0" },
+    { name = "dbos" },
     { name = "fastapi", specifier = ">=0.142.2" },
     { name = "granian", extras = ["uvloop"], specifier = ">=2.8.4" },
-    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.4" },
-    { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "whenever", specifier = ">=0.10.5" },
+    { name = "psycopg", extras = ["binary", "pool"] },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "whenever" },
 ]
 
 [[package]]
@@ -674,6 +684,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "redis" },
+    { name = "uvloop" },
     { name = "whenever" },
 ]
 
@@ -681,7 +692,7 @@ dependencies = [
 requires-dist = [
     { name = "aiobotocore", specifier = ">=3.9.0" },
     { name = "asyncer", specifier = ">=0.0.18" },
-    { name = "dbos", specifier = ">=3.0.0" },
+    { name = "dbos" },
     { name = "duckdb", specifier = "==1.5.4" },
     { name = "google-cloud-bigquery", specifier = ">=3.42.3" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -689,11 +700,12 @@ requires-dist = [
     { name = "more-itertools", specifier = ">=10.0.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.44.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.44.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "psycopg", extras = ["binary"] },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "redis", specifier = ">=5.0" },
-    { name = "whenever", specifier = ">=0.10.5" },
+    { name = "uvloop" },
+    { name = "whenever" },
 ]
 
 [[package]]
