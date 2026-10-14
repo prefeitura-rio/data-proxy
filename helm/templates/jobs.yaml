@@ -13,6 +13,8 @@ data:
 {{ .Files.Get "files/lib.nu" | nindent 4 }}
   wait-for-postgres.nu: |
 {{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
+  wait-for-relation.nu: |
+{{ .Files.Get "files/wait-for-relation.nu" | nindent 4 }}
   fetch-jwks.nu: |
 {{ .Files.Get "files/fetch-jwks.nu" | nindent 4 }}
 ---
@@ -143,6 +145,65 @@ spec:
                 path: {{ base (dir $path) }}/{{ base $path }}
 {{- end }}
 
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-migrate-db-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate-db
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate-db
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-state
+          image: {{ .Values.jobs.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [nu, /scripts/wait-for-relation.nu]
+          workingDir: /scripts
+          env:
+            - name: RELATION
+              value: data_proxy.state
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.cnpg.db.user | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.dbSecretName" . }}
+                  key: password
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      containers:
+        - name: migrate-db
+          image: {{ .Values.sync.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - dbos migrate --sys-db-url "$DBOS_SYSTEM_DATABASE_URL" --schema "$DBOS_SYSTEM_SCHEMA" && goose -dir /app/migrations postgres "$PG_DATABASE_URL" up
+          env:
+            {{- include "data-proxy.appEnv" . | nindent 12 }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-configure-db-script
 ---
 apiVersion: batch/v1
 kind: Job

@@ -60,6 +60,38 @@ export def sync-config []: nothing -> record {
     } }
 }
 
+# Wait until a relation exists in PostgreSQL or fail after the configured timeout.
+@example "Wait for the state table" {
+    wait-for-relation data_proxy.state --timeout 1min
+}
+export def wait-for-relation [
+    relation: string
+    --timeout: duration = 10min
+    --interval: duration = 2sec
+]: nothing -> nothing {
+    let deadline = (date now) + $timeout
+    let query = 'SELECT to_regclass(' + (quote-pg $relation literal) + ') IS NOT NULL'
+
+    loop {
+        let result = psql --no-psqlrc --quiet -t -A -c $query | complete
+
+        if $result.exit_code == 0 and ($result.stdout | str trim) == 't' {
+            log info $'Relation ($relation) exists'
+            return
+        }
+
+        if (date now) >= $deadline {
+            fail $'Timed out after ($timeout) waiting for relation ($relation)' {
+                command: wait-for-relation
+                span: (metadata $timeout).span
+            }
+        }
+
+        log info $'Relation ($relation) is missing'
+        sleep $interval
+    }
+}
+
 # Return the psql arguments for one PostgreSQL readiness probe.
 @example "Include a connection DSN" {
     postgres-ready-args postgres://test

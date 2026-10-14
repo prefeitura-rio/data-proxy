@@ -35,7 +35,12 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 ## Database initialization and readiness
 
-The init-db callback waits for its CNPG writer and runs idempotent reconciliation with `ON_ERROR_STOP=1`. CNPG owns core database roles and memberships. Init-db owns extensions, schemas, tables, functions, RLS policies, and database S3 secrets.
+Two Jobs prepare the database on every install and upgrade, and each one waits for what it needs.
+
+1. **`configure-db`** waits for its CNPG writer and runs idempotent SQL with `ON_ERROR_STOP=1`. It owns the system objects: extensions, the state and error tables of the engine, the pre-request function, the maintenance procedures, and the DuckLake secrets. CNPG owns core database roles and memberships.
+2. **`migrate-db`** runs in the sync image. It waits for the state tables, then runs `dbos migrate` and `goose up`. It owns the `admin` schema of the console. The image holds `goose` and the files of `console/migrations`.
+
+[Development](development.md#database-migrations) explains what belongs to the chart and what belongs to the migrations.
 
 Each PostgREST Deployment (`postgrest`, and `postgrest-ro` in HA mode) uses an HTTP readiness probe on `/`. A Deployment isn't Ready until PostgREST is serving its configured schema.
 
