@@ -86,6 +86,7 @@
             ".sqlfluffignore"
             "helm/files/templates/**/*.sql"
             "sync/**/*.sql"
+            "console/migrations/*.sql"
           ];
         };
       };

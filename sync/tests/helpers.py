@@ -13,7 +13,7 @@ from lightkube.models.apps_v1 import DeploymentSpec, DeploymentStatus
 from lightkube.models.core_v1 import PodTemplateSpec
 from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
 from lightkube.resources.apps_v1 import Deployment
-from psycopg import AsyncCursor
+from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Identifier, Literal
 
@@ -660,3 +660,9 @@ def publish_people_catalog(metadata_schema: str, data_path: str) -> None:
             connection.execute(statement)
     finally:
         connection.close()
+
+
+async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]]:
+    """Return every row of one inline query."""
+    cursor = await connection.execute(sql.encode())
+    return await cursor.fetchall()

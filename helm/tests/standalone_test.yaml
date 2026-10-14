@@ -29,7 +29,13 @@ tests:
         template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[3].inRoles
-          value: ["anon", "user"]
+          value:
+            - anon
+            - user
+            - console_viewer
+            - console_operator
+            - console_editor
+            - console_admin
         template: cluster-cnpg.yaml
       - equal:
           path: spec.bootstrap.initdb.postInitApplicationSQL
@@ -52,7 +58,15 @@ tests:
     asserts:
       - equal:
           path: spec.managed.roles[3].inRoles
-          value: ["anon", "user", "policy_writer_test", "policy_writer_test2"]
+          value:
+            - anon
+            - user
+            - policy_writer_test
+            - policy_writer_test2
+            - console_viewer
+            - console_operator
+            - console_editor
+            - console_admin
         template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[4]
@@ -69,6 +83,44 @@ tests:
             ensure: present
             login: false
             bypassrls: false
+        template: cluster-cnpg.yaml
+
+  - it: manages the console permission levels as roles that inherit the levels below
+    asserts:
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: console_viewer
+            ensure: present
+            login: false
+            bypassrls: false
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: console_operator
+            ensure: present
+            login: false
+            bypassrls: false
+            inRoles: [console_viewer]
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: console_editor
+            ensure: present
+            login: false
+            bypassrls: false
+            inRoles: [console_viewer]
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: console_admin
+            ensure: present
+            login: false
+            bypassrls: false
+            inRoles: [console_operator, console_editor]
         template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster

@@ -20,6 +20,19 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 | `tables` | The configured tables with their strategy and the committed sync state. |
 | `errors` | The errors that the sync recorded, newest first. |
 
+## Permission levels
+
+The JWT of a user carries the level in its `role` claim, and PostgREST switches to that database role. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.
+
+| Role | Can do |
+| --- | --- |
+| `console_viewer` | Read the views. |
+| `console_operator` | Viewer, plus start a sync run and change queues and schedules. |
+| `console_editor` | Viewer, plus create and edit draft configurations. |
+| `console_admin` | Operator and editor, plus activate a revision and provision schemas. |
+
+Today only the viewer grants exist. A viewer can't read the tables behind the views, and it can't change anything. The other levels get their grants together with the functions they call.
+
 ## Direction
 
 The database is the API. The console reads these views, and it writes through the read/write PostgREST with the same pattern as `access_policy`: a database role per capability, grants and row-level security. The sync worker does what SQL can't: it validates a draft configuration with its own model, and it runs commands such as a sync run. A SQL function starts a run with `dbos.enqueue_workflow`, so the console needs no DBOS client.

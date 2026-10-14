@@ -60,6 +60,16 @@ def main []: nothing -> nothing {
 
     let url = $'postgresql://test:test@127.0.0.1:($port)/test'
 
+    # The chart declares the console permission levels as CNPG managed roles. The test server creates them here.
+    [
+        'CREATE ROLE console_viewer NOLOGIN'
+        'CREATE ROLE console_operator NOLOGIN IN ROLE console_viewer'
+        'CREATE ROLE console_editor NOLOGIN IN ROLE console_viewer'
+        'CREATE ROLE console_admin NOLOGIN IN ROLE console_operator, console_editor'
+    ]
+    | str join ";\n"
+    | run-sql test $port
+
     # The admin views read the DBOS tables, so DBOS creates them before goose runs.
     uv run --frozen --project ($env.DEVENV_ROOT | path join sync) dbos migrate --sys-db-url $url
 

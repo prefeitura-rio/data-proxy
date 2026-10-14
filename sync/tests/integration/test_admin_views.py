@@ -4,6 +4,8 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+from tests.helpers import rows
+
 START_MS = 1_700_000_000_000
 START = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
 END = datetime(2023, 11, 14, 22, 13, 50, tzinfo=UTC)
@@ -28,14 +30,6 @@ CONFIG: dict[str, object] = {
         "beta": {"source": {"type": "bigquery"}, "tables": []},
     }
 }
-
-
-async def rows(
-    connection: psycopg.AsyncConnection, sql: str
-) -> list[tuple[object, ...]]:
-    """Return every row of one inline query."""
-    cursor = await connection.execute(sql.encode())
-    return await cursor.fetchall()
 
 
 async def workflow(

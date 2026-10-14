@@ -93,6 +93,10 @@ spec:
           {{- range $schema := keys ($root.Values.sync.config.schemas | default dict) | sortAlpha }}
           - {{ printf "policy_writer_%s" $schema | quote }}
           {{- end }}
+          - console_viewer
+          - console_operator
+          - console_editor
+          - console_admin
       {{- range $schema := keys ($root.Values.sync.config.schemas | default dict) | sortAlpha }}
       - name: {{ printf "policy_writer_%s" $schema | quote }}
         ensure: present
@@ -108,3 +112,26 @@ spec:
         passwordSecret:
           name: {{ include "data-proxy.ducklakeSecretName" (dict "root" $root "role" $role) }}
       {{- end }}
+      - name: console_viewer
+        ensure: present
+        login: false
+        bypassrls: false
+      - name: console_operator
+        ensure: present
+        login: false
+        bypassrls: false
+        inRoles:
+          - console_viewer
+      - name: console_editor
+        ensure: present
+        login: false
+        bypassrls: false
+        inRoles:
+          - console_viewer
+      - name: console_admin
+        ensure: present
+        login: false
+        bypassrls: false
+        inRoles:
+          - console_operator
+          - console_editor

@@ -94,6 +94,8 @@ pnpm build        # build the Node server in console/build
 
 The console owns its tables and views in the `data_proxy` schema. The migrations are plain SQL files in `console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `public.goose_db_version`. The first migration creates the `data_proxy` schema when it's missing, so the console doesn't depend on the engine.
 
+Migrations change the schema: tables, views, functions, and grants on them. Roles and role membership belong to the infrastructure: the chart in production and `scripts/db.nu` on the test server.
+
 The `admin` schema holds views over the DBOS tables, so `dbos migrate` must run before `goose up`. `scripts/db.nu` does this for the test database.
 
 Set `PG_DATABASE_URL` and run the `migrate` command in the console shell:
