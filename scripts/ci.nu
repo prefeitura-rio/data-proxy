@@ -38,12 +38,19 @@ def write-output [name: string, value: string]: nothing -> nothing {
     }
 }
 
+# Return the commit to compare with. GitHub reports all zeros for the first push of a branch, so compare with main.
+def base-commit [before: string, after: string]: nothing -> string {
+    if ($before | str replace --all '0' '' | is-not-empty) { return $before }
+
+    try { git merge-base origin/main $after | str trim } catch { 'HEAD~1' }
+}
+
 # Detect changed components and write the build outputs.
 def 'main changes' []: nothing -> nothing {
     log info 'Detecting changed components...'
     let force_full = ($env.FORCE_FULL? | default 'false') == 'true'
-    let before = $env.BEFORE? | default HEAD~1
     let after = $env.GITHUB_SHA? | default HEAD
+    let before = base-commit ($env.BEFORE? | default HEAD~1) $after
 
     let files = if $force_full {
         log info 'Force full build requested.'
