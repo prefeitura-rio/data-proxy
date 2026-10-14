@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from console.models import Revision, RevisionDetail
+from console.models import RevisionDetail
 from console.problems import Problem
 from console.tables import Revisions
 
@@ -50,19 +50,6 @@ async def active(
     return None if row is None else RevisionDetail.model_validate(dict(row))
 
 
-async def listing(
-    connection: AsyncConnection, limit: int, offset: int
-) -> list[Revision]:
-    """List the revisions without their documents, newest first."""
-    result = await connection.execute(
-        select(*SUMMARY)
-        .order_by(Revisions.revision_id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
-    return [Revision.model_validate(dict(row)) for row in result.mappings()]
-
-
 async def lock_active(
     connection: AsyncConnection, expected: int
 ) -> RevisionDetail | None:
@@ -74,16 +61,6 @@ async def lock_active(
     if (current.id if current else 0) != expected:
         raise Problem(412, "The config changed since you read it")
     return current
-
-
-async def set_active(connection: AsyncConnection, revision_id: int) -> None:
-    """Make one revision the only active one."""
-    await deactivate(connection)
-    await connection.execute(
-        update(Revisions.table)
-        .where(Revisions.revision_id == revision_id)
-        .values(active=True)
-    )
 
 
 async def save(

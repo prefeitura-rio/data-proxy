@@ -3,11 +3,13 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Response
+from sqlalchemy import select, update
 
 from console import config, revisions
 from console.dependencies import Engine, IfMatch, Writing
 from console.models import Config, ConfigCheck, Revision, RevisionDetail
 from console.problems import Problem
+from console.tables import Revisions
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -16,9 +18,12 @@ router = APIRouter(prefix="/config", tags=["config"])
 async def get_config(engine: Engine, response: Response) -> Config:
     """Show the active config. The ETag is the id of its revision, or 0 before the first write."""
     async with engine.connect() as connection:
-        found = config.config_of(await revisions.active(connection))
-    response.headers["ETag"] = config.etag_of(found)
-    return found
+        current = await revisions.active(connection)
+    response.headers["ETag"] = f'"{current.id if current else 0}"'
+    return Config(
+        revision=current,
+        document=config.to_api(current.document) if current else {"schemas": {}},
+    )
 
 
 @router.put("")
@@ -28,7 +33,7 @@ async def put_config(
     """Replace the whole config. With dry_run, only check it and list the changes."""
     result = await config.change(engine, writing, lambda _: body)
     if isinstance(result, Config):
-        response.headers["ETag"] = config.etag_of(result)
+        response.headers["ETag"] = f'"{result.revision.id if result.revision else 0}"'
     return result
 
 
@@ -41,7 +46,7 @@ async def patch_config(
         engine, writing, lambda before: config.merge_patch(before, body)
     )
     if isinstance(result, Config):
-        response.headers["ETag"] = config.etag_of(result)
+        response.headers["ETag"] = f'"{result.revision.id if result.revision else 0}"'
     return result
 
 
@@ -52,8 +57,21 @@ async def get_revisions(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Revision]:
     """List the revisions, newest first, without their documents."""
+    statement = (
+        select(
+            Revisions.revision_id,
+            Revisions.created_at,
+            Revisions.author,
+            Revisions.comment,
+            Revisions.active,
+        )
+        .order_by(Revisions.revision_id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     async with engine.connect() as connection:
-        return await revisions.listing(connection, limit, offset)
+        result = await connection.execute(statement)
+    return [Revision.model_validate(dict(row)) for row in result.mappings()]
 
 
 @router.get("/revisions/{revision_id}")
@@ -76,7 +94,14 @@ async def activate_revision(
         target = await revisions.get(connection, revision_id)
         if target is None:
             raise Problem(404, "Revision not found")
-        await revisions.set_active(connection, revision_id)
-    result = config.config_of(target.model_copy(update={"active": True}))
-    response.headers["ETag"] = config.etag_of(result)
-    return result
+        await revisions.deactivate(connection)
+        await connection.execute(
+            update(Revisions.table)
+            .where(Revisions.revision_id == revision_id)
+            .values(active=True)
+        )
+    response.headers["ETag"] = f'"{revision_id}"'
+    return Config(
+        revision=target.model_copy(update={"active": True}),
+        document=config.to_api(target.document),
+    )

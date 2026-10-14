@@ -7,7 +7,7 @@ from engine.models import SyncConfig
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from console import revisions
-from console.models import Change, Config, ConfigCheck, ErrorItem, RevisionDetail
+from console.models import Change, Config, ConfigCheck, ErrorItem
 from console.problems import Problem
 
 if TYPE_CHECKING:
@@ -241,18 +241,6 @@ def changes(
     return found
 
 
-def config_of(revision: RevisionDetail | None) -> Config:
-    """Build the API answer for a revision. No revision means an empty config."""
-    if revision is None:
-        return Config(revision=None, document={"schemas": {}})
-    return Config(revision=revision, document=to_api(revision.document))
-
-
-def etag_of(config: Config) -> str:
-    """Return the ETag of a config: its revision id, or 0 before the first write."""
-    return f'"{config.revision.id if config.revision else 0}"'
-
-
 async def change(
     engine: AsyncEngine,
     write: Write,
@@ -265,7 +253,9 @@ async def change(
     """
     async with engine.begin() as connection:
         current = await revisions.lock_active(connection, write.expected)
-        before = config_of(current).document
+        before: dict[str, object] = (
+            to_api(current.document) if current else {"schemas": {}}
+        )
         after = edit(before)
         stored, errors = validate(after)
         if write.dry_run:
@@ -275,4 +265,4 @@ async def change(
         if errors:
             raise Problem(422, "The config is not valid", errors)
         saved = await revisions.save(connection, stored, write.author, write.comment)
-        return config_of(saved)
+        return Config(revision=saved, document=to_api(saved.document))
