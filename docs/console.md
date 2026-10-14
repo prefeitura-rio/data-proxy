@@ -32,7 +32,9 @@ The JWT of a user carries the level in its `role` claim, and PostgREST switches 
 | `console_editor` | Viewer, plus create and edit draft configurations. |
 | `console_admin` | Operator and editor, plus activate a revision and provision schemas. |
 
-A viewer can't read the tables behind the views, and it can't change anything. Editors write drafts through the `drafts` view. They can set the comment and the document, and the author always comes from the token: the `preferred_username` claim, then `sub`. A change to the document clears the validation of the draft. The other levels get their grants together with the functions they call.
+A viewer can't read the tables behind the views, and it can't change anything. Editors write drafts through the `drafts` view. They can set the comment and the document, and the author always comes from the token: the `preferred_username` claim, then `sub`. A change to the document clears the validation of the draft.
+
+Admins call `POST /rpc/activate_revision` with a revision `id`. The function refuses a revision that hasn't passed validation with a 400 error, and an unknown revision with a 404 error. It replaces the active revision in one transaction. A rollback is the same call with an earlier revision. The other levels get their grants together with the functions they call.
 
 ## Direction
 
