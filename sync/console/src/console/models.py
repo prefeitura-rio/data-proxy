@@ -189,6 +189,22 @@ class Status(BaseModel):
     status: Literal["ok"]
 
 
+class Check(BaseModel):
+    """One thing that a schema needs, and whether it exists."""
+
+    name: str
+    ok: bool
+    detail: str
+
+
+class SchemaStatus(BaseModel):
+    """What exists for one schema. It is ready when every check passes."""
+
+    schema_name: str = Field(serialization_alias="schema")
+    ready: bool
+    checks: list[Check]
+
+
 class SchemaSummary(BaseModel):
     """A schema of the config with the names of its tables."""
 

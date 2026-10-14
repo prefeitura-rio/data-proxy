@@ -21,8 +21,14 @@ def get_engine(request: AppRequest) -> AsyncEngine:
     return request.state["engine"]
 
 
+def get_catalog(request: AppRequest) -> AsyncEngine | None:
+    """Return the engine of the catalog database, or None when the console has no address for it."""
+    return request.state["catalog"]
+
+
 Client = Annotated[DBOSClient, Depends(get_client)]
 Engine = Annotated[AsyncEngine, Depends(get_engine)]
+Catalog = Annotated[AsyncEngine | None, Depends(get_catalog)]
 
 
 async def require_workflow(workflow_id: str, client: Client) -> None:

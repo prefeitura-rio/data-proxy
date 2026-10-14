@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from starlette.types import Message, Scope
 from whenever import Instant
 
-from console.dependencies import get_client, get_engine
+from console.dependencies import get_catalog, get_client, get_engine
 from console.main import app
 
 NOW_MS = 1_800_000_000_000
@@ -277,6 +277,7 @@ async def send(  # ruff: ignore[too-many-arguments]
     """Send one request to the app, with a fake DBOS client and the given database engine."""
     app.dependency_overrides[get_client] = lambda: fake or FakeClient()
     app.dependency_overrides[get_engine] = lambda: engine or unreachable_engine()
+    app.dependency_overrides[get_catalog] = lambda: None
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"

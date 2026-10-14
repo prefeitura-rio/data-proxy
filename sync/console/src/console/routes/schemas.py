@@ -3,8 +3,11 @@
 from fastapi import APIRouter, Response
 
 from console.config import is_object
+from console.dependencies import Catalog
 from console.editor import Edit, Guard
-from console.models import ConfigCheck, SchemaSummary
+from console.models import ConfigCheck, SchemaStatus, SchemaSummary
+from console.problems import Problem
+from console.status import schema_status
 
 router = APIRouter(prefix="/schemas", tags=["schemas"])
 
@@ -23,6 +26,18 @@ async def list_schemas(edit: Edit) -> list[SchemaSummary]:
 async def get_schema(schema: str, edit: Edit) -> dict[str, object]:
     """Show one schema with its tables. The ETag names its content."""
     return await edit.show(("schemas", schema))
+
+
+@router.get("/{schema}/status", response_model_by_alias=True)
+async def get_schema_status(schema: str, edit: Edit, catalog: Catalog) -> SchemaStatus:
+    """Report which objects of a schema exist: its PostgreSQL objects, its views and its catalog.
+
+    The console only reads. A check for the catalog appears when the console has its address.
+    """
+    known = (await edit.document()).schemas.get(schema)
+    if known is None:
+        raise Problem(404, "Not found")
+    return await schema_status(edit.engine, catalog, schema, sorted(known.tables))
 
 
 @router.put("/{schema}")

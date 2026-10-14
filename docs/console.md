@@ -73,6 +73,16 @@ A write without either header gets 428. The `ETag` is per resource, so two calle
 
 The table name in the path must be the last part of `source_table`. Add `?dry_run=true` to any write to get `{valid, errors, changes}` and no revision, and `?comment=` to record why. A 422 has the same JSON Pointers as `PUT /config`, because the console validates the whole configuration after each edit.
 
+`GET /schemas/{s}/status` reports which objects of a schema exist. It only reads. Each check has a name, a result and a reason, and the schema is `ready` when all pass:
+
+| Check             | Passes when                                                                |
+| ----------------- | -------------------------------------------------------------------------- |
+| `postgres_schema` | The PostgreSQL schema exists.                                              |
+| `access_policy`   | `access_policy` and `access_log` exist in it.                              |
+| `policy_writer`   | The role `policy_writer_<schema>` exists and the PostgREST role is a member. |
+| `views`           | Every configured table has a view. The reason lists the ones that miss.    |
+| `catalog`         | The catalog database has a metadata schema for it. Only with `DUCKLAKE_CATALOG_URL`. |
+
 A delete removes the schema or the table from the configuration only. The synced data stays in DuckLake, and the next sync run drops the PostgreSQL views of what you removed.
 
 ## Monitoring streams

@@ -14,6 +14,7 @@ class AppState(TypedDict):
 
     client: DBOSClient
     engine: AsyncEngine
+    catalog: AsyncEngine | None
 
 
 class AppRequest(Request[AppState]):

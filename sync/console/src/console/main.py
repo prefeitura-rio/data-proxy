@@ -28,10 +28,17 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
         lazy=True,
     )
     engine = create_engine(settings.PG_DATABASE_URL)
+    catalog = (
+        None
+        if settings.DUCKLAKE_CATALOG_URL is None
+        else create_engine(settings.DUCKLAKE_CATALOG_URL)
+    )
     try:
-        yield {"client": client, "engine": engine}
+        yield {"client": client, "engine": engine, "catalog": catalog}
     finally:
         await engine.dispose()
+        if catalog is not None:
+            await catalog.dispose()
         client.destroy()
 
 

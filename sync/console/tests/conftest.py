@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from console.database import create_engine
-from console.dependencies import get_client, get_engine
+from console.dependencies import get_catalog, get_client, get_engine
 from console.main import app
 from console.settings import settings
 from helpers import FakeClient, ProxyAdmin
@@ -38,6 +38,7 @@ def fake() -> FakeClient:
 async def api(engine: AsyncEngine, fake: FakeClient) -> AsyncGenerator[AsyncClient]:
     """Call the console app over HTTP, with the test database and a fake DBOS client."""
     app.dependency_overrides[get_client] = lambda: fake
+    app.dependency_overrides.setdefault(get_catalog, lambda: None)
     app.dependency_overrides[get_engine] = lambda: engine
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

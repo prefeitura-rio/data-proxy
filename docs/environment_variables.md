@@ -22,8 +22,10 @@ The console reads two databases. Both addresses should point at a PgBouncer pool
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | The role of PostgREST. The schema status checks that it's a member of the policy writer role of each schema. |
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database. Use the read/write pooler, because the console enqueues, cancels and updates workflows. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | Schema of the DBOS tables. |
+| `DUCKLAKE_CATALOG_URL` | unset | Connection URI of the catalog database, with a role that can read its schema list. When it's set, the schema status also checks the catalog. |
 | `PG_DATABASE_URL` | required | Application database. The console writes the configuration revisions there, so it needs the read/write pooler. |
 | `PROXY_ADMIN_URL` | unset | Reload address of the proxies, for example `http://data-proxy-proxy-admin:8081/reload`. The host name should resolve to every proxy pod, as the headless admin Service does. The console posts to each address after every change of the configuration. |
 | `STREAM_INTERVAL_SECONDS` | `2.0` | Seconds between two polls of a monitoring stream. |
