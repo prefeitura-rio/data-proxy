@@ -52,6 +52,27 @@ tests:
           pattern: '"image":"ghcr.io/prefeitura-rio/data-proxy-postgres:[^"]*","imagePullPolicy":"IfNotPresent","name":"prepare-duckdb-secrets"'
         template: cluster-cnpg.yaml
 
+  - it: shares the DuckDB secrets volume even when the values name no schema, because editors add them later
+    set:
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pvc-duckdb.yaml
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"claimName":"data-proxy-duckdb"'
+        template: cluster-cnpg.yaml
+
+  - it: leaves the volume out until a storage class is set
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: pvc-duckdb.yaml
+      - notExists:
+          path: metadata.annotations["cnpg.io/podPatch"]
+        template: cluster-cnpg.yaml
+
   - it: restarts sync pods when Secret data changes
     asserts:
       - matchRegex:

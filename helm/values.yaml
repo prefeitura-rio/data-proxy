@@ -182,7 +182,8 @@ ducklake:
   secrets:
     storage:
       size: 1Gi
-      ## Required RWX StorageClass. Use k3d-rwx locally, filestore-rwx in GKE.
+      ## RWX StorageClass for the DuckDB secrets. Set it to serve data, because the console adds
+      ## schemas after the install. Use k3d-rwx locally, filestore-rwx in GKE.
       storageClass: ""
       accessMode: ReadWriteMany
 ## SeaweedFS object store, deployed as a subchart.

@@ -8,8 +8,7 @@ metadata:
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: postgres
-  {{- $schemas := $root.Values.sync.config.schemas }}
-  {{- if gt (len $schemas) 0 }}
+  {{- if $root.Values.ducklake.secrets.storage.storageClass }}
   annotations:
     cnpg.io/podPatch: {{ include "data-proxy.cnpgPodPatch" $root | quote }}
   {{- end }}

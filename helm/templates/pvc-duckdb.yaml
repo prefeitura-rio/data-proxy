@@ -1,6 +1,5 @@
-{{- $schemas := .Values.sync.config.schemas -}}
-{{- if gt (len $schemas) 0 }}
-{{- $storageClass := required "ducklake.secrets.storage.storageClass is required when sync schemas are configured" .Values.ducklake.secrets.storage.storageClass -}}
+{{- with .Values.ducklake.secrets.storage.storageClass }}
+{{- $storageClass := . -}}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
