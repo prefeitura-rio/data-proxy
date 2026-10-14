@@ -28,6 +28,7 @@ from engine.sources.bigquery.partitions import (
     parse_table_reference,
     partition_rows,
     physical_partitions,
+    table_modified,
 )
 from engine.sources.partitions import (
     PartitionKindConfig,
@@ -69,6 +70,106 @@ class TestTimeGranularity:
         spec = granularity.spec()
         assert start.format(spec.output_pattern) == lower
         assert spec.step(start).format(spec.output_pattern) == upper
+
+
+class TestTimeBounds:
+    """Time partition bounds behavior tests."""
+
+    @pytest.mark.parametrize(
+        ("granularity", "partition_id", "bounds"),
+        [
+            pytest.param(
+                TimeGranularity.HOUR,
+                "2025010112",
+                ("2025-01-01 12:00:00", "2025-01-01 13:00:00"),
+                id="hour",
+            ),
+            pytest.param(
+                TimeGranularity.DAY, "20251231", ("2025-12-31", "2026-01-01"), id="day"
+            ),
+            pytest.param(
+                TimeGranularity.MONTH,
+                "202512",
+                ("2025-12-01", "2026-01-01"),
+                id="month",
+            ),
+            pytest.param(
+                TimeGranularity.YEAR, "2025", ("2025-01-01", "2026-01-01"), id="year"
+            ),
+        ],
+    )
+    def test_returns_the_bounds_of_a_partition(
+        self,
+        granularity: TimeGranularity,
+        partition_id: str,
+        bounds: tuple[str, str],
+    ) -> None:
+        """Return the start and the exclusive end that one partition id covers."""
+        normalizer = PartitionNormalizer(
+            TimeConfig(field="ts", granularity=granularity), "p.d.t", "signature"
+        )
+
+        assert normalizer.time_bounds(partition_id, granularity) == bounds
+
+    @pytest.mark.parametrize(
+        ("granularity", "partition_id"),
+        [
+            pytest.param(TimeGranularity.HOUR, "20250101", id="hour-without-hour"),
+            pytest.param(TimeGranularity.DAY, "2025-01-01", id="day-with-dashes"),
+            pytest.param(TimeGranularity.MONTH, "202513", id="month-13"),
+            pytest.param(TimeGranularity.YEAR, "20x5", id="year-with-letter"),
+        ],
+    )
+    def test_rejects_a_malformed_partition_id(
+        self, granularity: TimeGranularity, partition_id: str
+    ) -> None:
+        """Reject an id that does not match the granularity."""
+        normalizer = PartitionNormalizer(
+            TimeConfig(field="ts", granularity=granularity), "p.d.t", "signature"
+        )
+
+        with pytest.raises(ValueError, match=r"Invalid time partition ID"):
+            normalizer.time_bounds(partition_id, granularity)
+
+
+class TestTableModified:
+    """Table modification time behavior tests."""
+
+    @pytest.mark.parametrize(
+        ("modified", "expected"),
+        [
+            pytest.param(
+                datetime(2025, 1, 1, tzinfo=UTC), "1735689600000", id="whole-second"
+            ),
+            pytest.param(
+                datetime(2025, 1, 1, 0, 0, 0, 123_000, tzinfo=UTC),
+                "1735689600123",
+                id="milliseconds",
+            ),
+        ],
+    )
+    async def test_returns_epoch_milliseconds(
+        self, modified: datetime, expected: str
+    ) -> None:
+        """Return the modification time as epoch milliseconds in text."""
+        conn = AsyncMock(spec=BigQuery)
+        table = table_from_api(
+            {"tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"}}
+        )
+        conn.get_table.return_value = table
+        table._properties["lastModifiedTime"] = str(int(modified.timestamp() * 1000))
+
+        assert await table_modified(conn, "p.d.t") == expected
+
+    async def test_rejects_a_table_without_a_modification_time(self) -> None:
+        """Fail when BigQuery reports no modification time."""
+        conn = AsyncMock(spec=BigQuery)
+        conn.get_table.return_value = table_from_api(
+            {"tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"}}
+        )
+
+        with pytest.raises(ValueError, match="Missing BigQuery modification time"):
+            await table_modified(conn, "p.d.t")
 
 
 class TestRangeConfiguration:

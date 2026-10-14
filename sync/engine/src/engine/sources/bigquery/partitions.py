@@ -2,13 +2,13 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, assert_never
 
 from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
 from google.cloud.bigquery.table import Row, Table
 from pydantic import BaseModel, ConfigDict
-from whenever import PlainDateTime
+from whenever import Instant, PlainDateTime
 
 from engine.executor import Executor
 from engine.sources.partitions import (
@@ -157,14 +157,13 @@ class PartitionNormalizer:
         spec = granularity.spec()
 
         try:
-            parsed = datetime.strptime(partition_id, spec.strptime_format).replace(
-                tzinfo=UTC
+            start = PlainDateTime.parse(
+                partition_id + spec.id_suffix, format=spec.parse_pattern
             )
         except ValueError as error:
             msg = f"Invalid time partition ID {partition_id}: {self.table}"
             raise ValueError(msg) from error
 
-        start = PlainDateTime(parsed.year, parsed.month, parsed.day, parsed.hour)
         end = spec.step(start)
 
         return start.format(spec.output_pattern), end.format(spec.output_pattern)
@@ -177,7 +176,7 @@ async def table_modified(bq_conn: BigQuery, table: str) -> str:
     if metadata.modified is None:
         raise ValueError(f"Missing BigQuery modification time: {table}")
 
-    return str(int(metadata.modified.timestamp() * 1000))
+    return str(Instant(metadata.modified).timestamp_millis())
 
 
 def parse_table_reference(table: str) -> TableReference:

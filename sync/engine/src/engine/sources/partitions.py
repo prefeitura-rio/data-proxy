@@ -128,9 +128,10 @@ class TimeGranularity(StrEnum):
 
     def spec(self) -> TimePartitionSpec:
         """Return the parse and step specification for this granularity."""
-        fmt, unit, pattern = TIME_GRANULARITY_SPECS[self.value]
+        parse_pattern, id_suffix, unit, pattern = TIME_GRANULARITY_SPECS[self.value]
         return TimePartitionSpec(
-            fmt,
+            parse_pattern,
+            id_suffix,
             partial(PlainDateTime.add, **{unit: 1}, naive_arithmetic_ok=True),
             pattern,
         )
@@ -140,7 +141,8 @@ class TimeGranularity(StrEnum):
 class TimePartitionSpec:
     """How to parse and step through a time partition granularity."""
 
-    strptime_format: str
+    parse_pattern: str
+    id_suffix: str
     step: Callable[[PlainDateTime], PlainDateTime]
     output_pattern: str
 

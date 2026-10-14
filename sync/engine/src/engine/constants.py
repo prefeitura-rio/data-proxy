@@ -17,10 +17,10 @@ BIGQUERY_TABLE_REFERENCE_PATTERN = (
 
 TIME_GRANULARITY_SPECS = MappingProxyType(
     {
-        "HOUR": ("%Y%m%d%H", "hours", "YYYY-MM-DD hh:mm:ss"),
-        "DAY": ("%Y%m%d", "days", "YYYY-MM-DD"),
-        "MONTH": ("%Y%m", "months", "YYYY-MM-DD"),
-        "YEAR": ("%Y", "years", "YYYY-MM-DD"),
+        "HOUR": ("YYYYMMDDhh", "", "hours", "YYYY-MM-DD hh:mm:ss"),
+        "DAY": ("YYYYMMDD", "", "days", "YYYY-MM-DD"),
+        "MONTH": ("YYYYMMDD", "01", "months", "YYYY-MM-DD"),
+        "YEAR": ("YYYYMMDD", "0101", "years", "YYYY-MM-DD"),
     }
 )
 
