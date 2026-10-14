@@ -6,15 +6,14 @@ from typing import TYPE_CHECKING
 from dbos import DBOSClient
 from fastapi import FastAPI
 
-from api.routes import health, runs
+from api import routes
+from api.registry import discover_routers
 from sync.settings import settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from api.state import AppState
-
-ROUTERS = [health.router, runs.router]
 
 
 @asynccontextmanager
@@ -33,5 +32,5 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
 
 app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
 
-for router in ROUTERS:
+for router in discover_routers(routes):
     app.include_router(router)
