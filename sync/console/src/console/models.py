@@ -104,3 +104,36 @@ class RunPage(BaseModel):
     limit: int
     offset: int
     has_more: bool
+
+
+class RateLimit(BaseModel):
+    """At most this many workflows start in each period."""
+
+    limit: int
+    period_seconds: float
+
+
+class Queue(BaseModel):
+    """A DBOS queue with its limits and the workflows that it holds."""
+
+    name: str
+    global_concurrency: int | None
+    worker_concurrency: int | None
+    rate_limit: RateLimit | None
+    partitioned: bool
+    polling_interval_seconds: float
+    depth: dict[str, int]
+
+
+class Schedule(BaseModel):
+    """A cron schedule that starts a workflow."""
+
+    id: str
+    name: str
+    workflow_name: str
+    cron: str
+    status: Literal["ACTIVE", "PAUSED"]
+    last_fired_at: Time | None
+    automatic_backfill: bool
+    timezone: str | None
+    queue: str | None

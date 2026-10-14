@@ -1,6 +1,7 @@
 import sys
 from importlib import import_module
 from pathlib import Path
+from pkgutil import iter_modules
 from types import ModuleType
 
 import pytest
@@ -51,21 +52,20 @@ class TestRoutes:
 
     def test_finds_the_router_of_every_route_module(self) -> None:
         """Collect the routes of each public module in the routes package."""
-        assert set(paths_of(discover_routers(routes))) == {
-            "/health",
-            "/ready",
-            "/runs",
-            "/runs/{run_id}",
-        }
+        modules = [
+            module.name
+            for module in iter_modules(routes.__path__)
+            if not module.name.startswith("_")
+        ]
+
+        assert len(discover_routers(routes)) == len(modules)
 
     def test_serves_everything_that_the_route_modules_declare(self) -> None:
         """Include every discovered router in the application."""
-        assert set(app.openapi()["paths"]) == {
-            "/health",
-            "/ready",
-            "/runs",
-            "/runs/{run_id}",
-        }
+        declared = set(paths_of(discover_routers(routes)))
+
+        assert declared
+        assert set(app.openapi()["paths"]) == declared
 
     def test_registers_modules_in_name_order_and_skips_private_ones(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

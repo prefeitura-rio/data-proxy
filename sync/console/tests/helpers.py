@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from dbos import StepInfo, WorkflowStatus
@@ -38,29 +39,51 @@ def at(milliseconds: int) -> str:
     return Instant.from_timestamp_millis(milliseconds).format_iso()
 
 
+@dataclass
+class FakeQueue:
+    """A DBOS queue that holds its configuration in memory."""
+
+    name: str
+    global_concurrency: int | None = None
+    worker_concurrency: int | None = None
+    limiter: dict[str, float] | None = None
+    partition_concurrency: int | None = None
+    partition_worker_concurrency: int | None = None
+    partition_limiter: dict[str, float] | None = None
+    polling_interval_sec: float = 1.0
+
+
+def schedule(**fields: object) -> dict[str, object]:
+    """Build the DBOS record of the nightly sync schedule."""
+    values: dict[str, object] = {
+        "schedule_id": "schedule-1",
+        "schedule_name": "sync",
+        "workflow_name": "run_sync",
+        "workflow_class_name": None,
+        "schedule": "0 2 * * *",
+        "status": "ACTIVE",
+        "context": None,
+        "last_fired_at": None,
+        "automatic_backfill": False,
+        "cron_timezone": None,
+        "queue_name": "sync",
+        "application_name": None,
+    }
+    return values | fields
+
+
+@dataclass
 class FakeClient:
     """A DBOS client that answers from memory."""
 
-    connected: bool
-    workflows: list[WorkflowStatus]
-    children: dict[str, list[WorkflowStatus]]
-    steps: dict[str, list[StepInfo]]
-    calls: list[dict[str, object]]
-
-    def __init__(
-        self,
-        *,
-        connected: bool = True,
-        workflows: list[WorkflowStatus] | None = None,
-        children: dict[str, list[WorkflowStatus]] | None = None,
-        steps: dict[str, list[StepInfo]] | None = None,
-    ) -> None:
-        """Create a client that is connected or not, and knows some workflows."""
-        self.connected = connected
-        self.workflows = workflows or []
-        self.children = children or {}
-        self.steps = steps or {}
-        self.calls = []
+    connected: bool = True
+    workflows: list[WorkflowStatus] = field(default_factory=list)
+    children: dict[str, list[WorkflowStatus]] = field(default_factory=dict)
+    steps: dict[str, list[StepInfo]] = field(default_factory=dict)
+    queues: list[FakeQueue] = field(default_factory=list)
+    queued: list[WorkflowStatus] = field(default_factory=list)
+    schedules: list[dict[str, object]] = field(default_factory=list)
+    calls: list[dict[str, object]] = field(default_factory=list)
 
     async def list_workflows_async(self, **filters: object) -> list[WorkflowStatus]:
         """Record the filters and answer like DBOS: by id, by parent, or all."""
@@ -77,6 +100,18 @@ class FakeClient:
     ) -> list[StepInfo]:
         """Return the steps that the test prepared for one workflow."""
         return self.steps.get(workflow_id, [])
+
+    async def list_queues_async(self) -> list[FakeQueue]:
+        """Return the queues that the test prepared."""
+        return self.queues
+
+    async def list_queued_workflows_async(self, **_: object) -> list[WorkflowStatus]:
+        """Return the workflows that wait on a queue or run from one."""
+        return self.queued
+
+    async def list_schedules_async(self) -> list[dict[str, object]]:
+        """Return the schedules that the test prepared."""
+        return self.schedules
 
     async def check_connection_async(self) -> None:
         """Fail like the DBOS client does when the database is down."""
