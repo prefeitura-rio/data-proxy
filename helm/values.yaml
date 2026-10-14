@@ -349,10 +349,6 @@ cnpg:
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.
     backupRetention: 7
-## Pushgateway for metrics push from short-lived worker pods.
-pushgateway:
-  enabled: true
-  url: ""
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ingress:
   sidecarInject: true
@@ -372,11 +368,7 @@ ingress:
 ## Caching proxy in front of PostgREST.
 proxy:
   cacheTtl: 300
-  upstreamTimeout: 120s
-  upstreamKeepalive: 32
-  upstreamKeepaliveTimeout: 60s
   largeClientHeaderBuffers: 4 64k
-  cacheLockTimeout: 5s
   cacheRedisDb: 1
   maxCacheBodyBytes: 262144
   postgrestRetries: 1

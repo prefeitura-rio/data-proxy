@@ -4,9 +4,6 @@ sync:
   imagePullPolicy: Always
   trigger:
     enabled: true
-  dumper:
-    visibilityTimeoutMs: 60000
-    batchMegaBytes: 60000
   recovery:
     enabled: true
     intervalSeconds: 30

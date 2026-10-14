@@ -1,6 +1,6 @@
 # Metrics
 
-Workers push the current metric registry to Pushgateway after running. Push failures are logged and ignored.
+Sync workers send their metrics through OpenTelemetry (OTLP) when `OTLP_METRICS_ENDPOINT` is set.
 
 ## Worker metrics
 
@@ -79,13 +79,6 @@ CNPG exposes metrics on port 9187. SigNoz should scrape the CNPG pod metrics end
 The external Redis platform owns the Redis exporter and its metrics endpoint. The data-proxy chart doesn't deploy Redis metrics resources or Prometheus Operator resources.
 
 PostgREST and nginx use Metrics Server for their default CPU and memory autoscalers. Istio exposes their traffic metrics for custom Prometheus-based KEDA triggers.
-
-```yaml
-scrape_configs:
-  - job_name: pushgateway
-    static_configs:
-      - targets: ["<release>-pushgateway.<namespace>.svc.cluster.local:9091"]
-```
 
 ## Queries
 
