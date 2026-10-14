@@ -113,9 +113,6 @@ proxy:
   cacheTtl: 5
   image: registry.localhost:5001/data-proxy-proxy:local
 cnpg:
-  pooler:
-    poolSize: 50
-    maxClientConns: 200
   db:
     name: data-proxy
     user: admin
@@ -124,7 +121,6 @@ cnpg:
   init:
     image: registry.localhost:5001/data-proxy-jobs:local
   mode: shared
-  instances: 1
   image: registry.localhost:5001/data-proxy-postgres:17.0.0-local
   storage:
     size: 2Gi
