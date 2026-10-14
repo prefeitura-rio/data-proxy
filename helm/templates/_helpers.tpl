@@ -318,14 +318,11 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 
 {{- define "data-proxy.proxyEnv" -}}
 {{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
-{{- $read := printf "http://%s%s.%s.svc.cluster.local:3000" $postgrest (ternary "-ro" "" .Values.ha.enabled) .Release.Namespace -}}
-{{- $write := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
+{{- $address := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
 - name: PROXY_CACHE_TTL
   value: {{ toString .Values.proxy.cacheTtl | quote }}
 - name: PROXY_MAX_BODY
   value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
-- name: PROXY_HA_MODE
-  value: {{ toString .Values.ha.enabled | quote }}
 - name: PROXY_REDIS_HOST
   value: {{ required "redis.host is required: the proxy stores its answers in this Redis" .Values.redis.host | quote }}
 - name: PROXY_REDIS_PORT
@@ -337,18 +334,12 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
     secretKeyRef:
       name: {{ include "data-proxy.redisSecretName" . }}
       key: {{ include "data-proxy.redisPasswordKey" . }}
-- name: PROXY_POSTGREST_READ
-  value: {{ $read | quote }}
-- name: PROXY_POSTGREST_WRITE
-  value: {{ $write | quote }}
-- name: PROXY_POSTGREST_RETRIES
-  value: {{ toString .Values.proxy.postgrestRetries | quote }}
-- name: PROXY_POSTGREST_BACKOFF_MS
-  value: {{ toString .Values.proxy.postgrestBackoffMs | quote }}
+- name: PROXY_POSTGREST
+  value: {{ $address | quote }}
 - name: PROXY_MAX_INFLIGHT
   value: {{ toString .Values.proxy.maxInflight | quote }}
 - name: PROXY_CONFIG_URL
-  value: {{ printf "%s/rpc/config" $read | quote }}
+  value: {{ printf "%s/rpc/config" $address | quote }}
 - name: PROXY_CONFIG_REFRESH_SECONDS
   value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
 {{- end }}

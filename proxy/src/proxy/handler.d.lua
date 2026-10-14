@@ -11,6 +11,5 @@
 ---@field generation integer Policy generation that the store reports. 0 if unknown, or for a write.
 ---@field cache_ttl string|nil Default cache lifetime in seconds, from config.cache_ttl.
 ---@field max_body string|number|nil Largest cacheable body in bytes, from config.max_body. 0 means no limit.
----@field retries integer|nil Number of retry attempts on the retry service, from config.postgrest_retries.
----@field backoff_ms integer|nil Delay in milliseconds before the first retry, from config.postgrest_backoff_ms.
+---@field postgrest string Base URL of the PostgREST service, from config.postgrest.
 ---@field respond fun(self: NgxRequest, status: integer, body: string) Writes the status and body to the client.

@@ -6,6 +6,6 @@ HTTP 200
 X-Cache: MISS
 X-Source: ducklake
 [Asserts]
-jsonpath "$.upstream" == "read"
+jsonpath "$.upstream" == "postgrest"
 jsonpath "$.n" == 1
 jsonpath "$.auth" == "Bearer t"

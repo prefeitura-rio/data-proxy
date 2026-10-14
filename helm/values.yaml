@@ -372,8 +372,6 @@ proxy:
   largeClientHeaderBuffers: 4 64k
   cacheRedisDb: 1
   maxCacheBodyBytes: 262144
-  postgrestRetries: 1
-  postgrestBackoffMs: 0
   ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
   maxInflight: 32
   image: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba

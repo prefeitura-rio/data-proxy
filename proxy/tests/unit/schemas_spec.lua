@@ -22,8 +22,7 @@ local function sync_json(tables) return { schemas = { s = { tables = tables } } 
 
 local required = {
 	redis_host = "redis",
-	postgrest_read = "http://read",
-	postgrest_write = "http://write",
+	postgrest = "http://postgrest",
 }
 
 --- The text of the required variables, with the changes of the case.
@@ -100,31 +99,17 @@ check("schemas.jwt_claims", function(case) return schemas.jwt_claims:validate(ca
 	{ name = "rejects a list with a number", value = { schemas = { "a", 1 } }, reason = 'field "schemas"' },
 })
 
-check(
-	"schemas.config ha_mode",
-	function(case) return assert(schemas.config:validate(text_of({ ha_mode = case.text }))).ha_mode end,
-	{
-		{ name = "reads ha_mode true as true", text = "true", expected = true },
-		{ name = "reads ha_mode TRUE as true", text = "TRUE", expected = true },
-		{ name = "reads ha_mode 1 as true", text = "1", expected = true },
-		{ name = "reads ha_mode false as false", text = "false", expected = false },
-		{ name = "reads ha_mode FALSE as false", text = "FALSE", expected = false },
-		{ name = "reads ha_mode 0 as false", text = "0", expected = false },
-	}
-)
-
 check("schemas.config rejects", function(case) return schemas.config:validate(text_of(case.changes)) end, {
 	{ name = "rejects a ttl that is not a number", changes = { cache_ttl = "abc" }, reason = 'field "cache_ttl"' },
 	{ name = "rejects a ttl in hexadecimal", changes = { cache_ttl = "0x10" }, reason = 'field "cache_ttl"' },
 	{ name = "rejects a ttl that is not whole", changes = { cache_ttl = "1.5" }, reason = 'field "cache_ttl"' },
 	{ name = "rejects a negative ttl", changes = { cache_ttl = "-1" }, reason = 'field "cache_ttl"' },
-	{ name = "rejects a boolean that is not a word", changes = { ha_mode = "maybe" }, reason = 'field "ha_mode"' },
 	{ name = "rejects port 0", changes = { redis_port = "0" }, reason = 'field "redis_port"' },
 	{ name = "rejects a port over 65535", changes = { redis_port = "70000" }, reason = 'field "redis_port"' },
 	{ name = "rejects a negative database", changes = { redis_database = "-1" }, reason = 'field "redis_database"' },
 	{ name = "rejects an empty host", changes = { redis_host = "" }, reason = 'field "redis_host"' },
 	{ name = "rejects a missing host", changes = { redis_host = false }, reason = 'field "redis_host"' },
-	{ name = "rejects a missing URL", changes = { postgrest_read = false }, reason = 'field "postgrest_read"' },
+	{ name = "rejects a missing URL", changes = { postgrest = false }, reason = 'field "postgrest"' },
 	{
 		name = "rejects a refresh time of 0",
 		changes = { config_refresh_seconds = "0" },
@@ -139,15 +124,11 @@ describe("schemas.config", function()
 		local full_text = {
 			cache_ttl = "60",
 			max_body = "1000",
-			ha_mode = "true",
 			redis_host = "redis",
 			redis_port = "6380",
 			redis_database = "2",
 			redis_password = "secret",
-			postgrest_read = "http://read",
-			postgrest_write = "http://write",
-			postgrest_retries = "3",
-			postgrest_backoff_ms = "100",
+			postgrest = "http://postgrest",
 			max_inflight = "64",
 			config_url = "http://console/config/sync.json",
 			config_refresh_seconds = "30",
@@ -156,15 +137,11 @@ describe("schemas.config", function()
 		local expected = {
 			cache_ttl = 60,
 			max_body = 1000,
-			ha_mode = true,
 			redis_host = "redis",
 			redis_port = 6380,
 			redis_database = 2,
 			redis_password = "secret",
-			postgrest_read = "http://read",
-			postgrest_write = "http://write",
-			postgrest_retries = 3,
-			postgrest_backoff_ms = 100,
+			postgrest = "http://postgrest",
 			max_inflight = 64,
 			config_url = "http://console/config/sync.json",
 			config_refresh_seconds = 30,
@@ -178,12 +155,9 @@ describe("schemas.config", function()
 		local config = assert(schemas.config:validate(text_of()))
 		assert.same(300, config.cache_ttl)
 		assert.same(262144, config.max_body)
-		assert.is_false(config.ha_mode)
 		assert.same(6379, config.redis_port)
 		assert.same(1, config.redis_database)
 		assert.is_nil(config.redis_password)
-		assert.same(1, config.postgrest_retries)
-		assert.same(0, config.postgrest_backoff_ms)
 		assert.same(0, config.max_inflight)
 		assert.is_nil(config.config_url)
 		assert.same(60, config.config_refresh_seconds)

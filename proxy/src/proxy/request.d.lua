@@ -18,10 +18,7 @@
 
 --- A request with all the values that the proxy needs. It does not depend on nginx.
 ---@class RequestContext: CacheKeyParts
----@field postgrest string Base URL of the PostgREST service that gets the request first.
----@field retry_postgrest string|nil Base URL tried if the first one fails with a retryable status.
----@field retries integer Number of retry attempts on the retry service.
----@field backoff_ms integer Delay in milliseconds before the first retry.
+---@field postgrest string Base URL of the PostgREST service.
 ---@field cache_ttl string Cache lifetime in seconds. Empty if the request must not be cached.
 ---@field max_body number Largest cacheable body in bytes. 0 means no limit.
 ---@field body string Request body. Empty if absent.

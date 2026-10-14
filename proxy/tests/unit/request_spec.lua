@@ -144,11 +144,10 @@ check("request.jwt_identity", function(case) return request.jwt_identity(case.he
 })
 
 local cfg = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/private" } }
-local route = { postgrest = "http://read", retry_postgrest = "http://write" }
 --- Make the context of one request with the config and the fixed clock of the cases.
 ---@param input table
 ---@return RequestContext
-local function context_of(input) return request.make_context(input, route, { config = cfg, now = 1234.5 }) end
+local function context_of(input) return request.make_context(input, { config = cfg, now = 1234.5 }) end
 
 check("request.make_context", function(case) return context_of(case.input)[case.field] end, {
 	{
@@ -194,22 +193,10 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		expected = 0,
 	},
 	{
-		name = "copies the routes",
-		input = { method = "GET", uri = "/other", headers_in = {} },
-		field = "retry_postgrest",
-		expected = "http://write",
-	},
-	{
-		name = "copies the retry count from the nginx request",
-		input = { method = "GET", uri = "/other", headers_in = {}, retries = 3, backoff_ms = 100 },
-		field = "retries",
-		expected = 3,
-	},
-	{
-		name = "copies the backoff from the nginx request",
-		input = { method = "GET", uri = "/other", headers_in = {}, retries = 3, backoff_ms = 100 },
-		field = "backoff_ms",
-		expected = 100,
+		name = "copies the PostgREST address from the nginx request",
+		input = { method = "GET", uri = "/other", headers_in = {}, postgrest = "http://postgrest" },
+		field = "postgrest",
+		expected = "http://postgrest",
 	},
 	{
 		name = "reads the Accept-Profile header",

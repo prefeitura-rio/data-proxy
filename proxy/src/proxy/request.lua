@@ -136,13 +136,12 @@ function request.cache_key(parts)
 	return utils.sha256_hex(payload)
 end
 
---- Make the request context from the nginx request and the selected route.
+--- Make the request context from the nginx request.
 --- If the table has its own cache_ttl, the proxy uses it. Otherwise it uses the default of config.cache_ttl.
 ---@param input NgxRequest The request from nginx.
----@param route Route The PostgREST endpoints that proxy.routing selected.
 ---@param deps RequestDeps The configuration and the current time. The function reads nothing else.
 ---@return RequestContext context
-function request.make_context(input, route, deps)
+function request.make_context(input, deps)
 	local identity = request.jwt_identity(input.headers_in.Authorization)
 
 	local table_settings = sync.table_for(deps.config, input.uri)
@@ -157,10 +156,7 @@ function request.make_context(input, route, deps)
 		profile = input.headers_in["Accept-Profile"] or "",
 		generation = input.generation,
 		headers = request.make_headers(input),
-		postgrest = route.postgrest,
-		retry_postgrest = route.retry_postgrest,
-		retries = input.retries,
-		backoff_ms = input.backoff_ms,
+		postgrest = input.postgrest,
 		cache_ttl = tostring(ttl_seconds),
 		max_body = tonumber(input.max_body) or 0,
 		body = input.body or "",

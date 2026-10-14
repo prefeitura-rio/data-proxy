@@ -16,14 +16,6 @@ set:
   ha.enabled: true
   redis.host: redis-writer
 tests:
-  - it: passes the HA mode to the OpenResty proxy
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_HA_MODE
-            value: "true"
-        template: deployment-proxy.yaml
   - it: leaves the number of instances to the cluster autoscaler
     asserts:
       - notExists:
@@ -501,17 +493,11 @@ tests:
           value: data-proxy-postgrest-ro
         template: pdbs.yaml
 
-  - it: reads from the read PostgREST and writes to the read-write PostgREST
+  - it: sends every request to the PostgREST service
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: PROXY_POSTGREST_READ
-            value: "http://data-proxy-postgrest-ro.default.svc.cluster.local:3000"
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_POSTGREST_WRITE
+            name: PROXY_POSTGREST
             value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
         template: deployment-proxy.yaml

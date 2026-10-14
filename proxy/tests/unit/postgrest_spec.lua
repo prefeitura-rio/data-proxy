@@ -5,24 +5,20 @@ local postgrest = require("proxy.postgrest")
 
 local check = helpers.check(describe, it)
 
-local with_retry = { retry_postgrest = "http://write" }
+describe("postgrest.query", function()
+	it("sends the request once, to the PostgREST address of the context", function()
+		local calls = {}
+		local answer = { status = 503 }
+		local response = postgrest.query({ postgrest = "http://postgrest" }, function(context, base)
+			calls[#calls + 1] = { context = context, base = base }
+			return answer
+		end)
 
-check("postgrest.should_retry", function(case) return postgrest.should_retry(case.context, case.response) end, {
-	{ name = "retries a 502", context = with_retry, response = { status = 502 }, expected = true },
-	{ name = "retries a 503", context = with_retry, response = { status = 503 }, expected = true },
-	{ name = "retries a 504", context = with_retry, response = { status = 504 }, expected = true },
-	{ name = "retries when the attempt failed", context = with_retry, response = nil, expected = true },
-	{ name = "does not retry a 200", context = with_retry, response = { status = 200 }, expected = false },
-	{ name = "does not retry a 404", context = with_retry, response = { status = 404 }, expected = false },
-	{ name = "does not retry a 500", context = with_retry, response = { status = 500 }, expected = false },
-	{
-		name = "does not retry without a retry service",
-		context = {},
-		response = { status = 503 },
-		expected = false,
-	},
-	{ name = "does not retry a failure without a retry service", context = {}, response = nil, expected = false },
-})
+		assert.same(answer, response)
+		assert.same(1, #calls)
+		assert.same("http://postgrest", calls[1].base)
+	end)
+end)
 
 check("postgrest.forwarded_headers", function(case) return postgrest.forwarded_headers(case.headers) end, {
 	{

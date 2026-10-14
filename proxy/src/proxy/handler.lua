@@ -7,7 +7,6 @@ local limiter = require("proxy.limiter")
 local postgrest = require("proxy.postgrest")
 local request = require("proxy.request")
 local response = require("proxy.response")
-local routing = require("proxy.routing")
 
 --- The function that handles one request.
 ---@class Handler
@@ -43,8 +42,7 @@ local function read_nginx_request(config)
 		headers_out = ngx.header --[[@as table<string,string>]],
 		cache_ttl = config.cache_ttl,
 		max_body = config.max_body,
-		retries = config.postgrest_retries,
-		backoff_ms = config.postgrest_backoff_ms,
+		postgrest = config.postgrest,
 		respond = function(_, status, body)
 			ngx.status = status
 			ngx.print(body)
@@ -66,8 +64,7 @@ function handler.handle(loaded_config, config)
 
 	local store = Redis(config)
 	if constants.http.read_methods[ngx_request.method] then ngx_request.generation = store:generation() end
-	local route = routing.select(ngx_request.method, config)
-	local context = request.make_context(ngx_request, route, { config = loaded_config, now = ngx.now() })
+	local context = request.make_context(ngx_request, { config = loaded_config, now = ngx.now() })
 	local cache_key = request.cache_key(context)
 	local inflight = ngx.shared[constants.limiter.dict]
 	local function ask_postgrest()

@@ -8,8 +8,7 @@ let
   instances = {
     proxy = {
       port = 18080;
-      readPort = 18081;
-      writePort = 18082;
+      postgrestPort = 18081;
       adminPort = 18083;
       redisPort = config.processes.redis.ports.main.value;
       maxInflight = 0;
@@ -17,8 +16,7 @@ let
     };
     proxy-redis-down = {
       port = 18090;
-      readPort = 18091;
-      writePort = 18092;
+      postgrestPort = 18091;
       adminPort = 18093;
       redisPort = 18399;
       maxInflight = 0;
@@ -26,8 +24,7 @@ let
     };
     proxy-limited = {
       port = 18100;
-      readPort = 18101;
-      writePort = 18102;
+      postgrestPort = 18101;
       adminPort = 18103;
       redisPort = config.processes.redis.ports.main.value;
       maxInflight = 1;
@@ -35,8 +32,7 @@ let
     };
     proxy-reload = {
       port = 18110;
-      readPort = 18111;
-      writePort = 18112;
+      postgrestPort = 18111;
       adminPort = 18113;
       redisPort = config.processes.redis.ports.main.value;
       maxInflight = 0;
@@ -55,12 +51,11 @@ let
         "__LUALIB__" = "${pkgs.openresty}/lualib";
         "__SYNC_JSON__" = "${config.devenv.root}/proxy/tests/integration/fixtures/sync.json";
         "__PROXY_PORT__" = toString instance.port;
-        "__READ_PORT__" = toString instance.readPort;
-        "__WRITE_PORT__" = toString instance.writePort;
+        "__POSTGREST_PORT__" = toString instance.postgrestPort;
         "__REDIS_PORT__" = toString instance.redisPort;
         "__MAX_INFLIGHT__" = toString instance.maxInflight;
         "__ADMIN_PORT__" = toString instance.adminPort;
-        "__CONFIG_URL__" = lib.optionalString instance.console "http://127.0.0.1:${toString instance.readPort}/rpc/config";
+        "__CONFIG_URL__" = lib.optionalString instance.console "http://127.0.0.1:${toString instance.postgrestPort}/rpc/config";
         "__LUA_ROCKS__" = "${runDir}/rocks";
         "__LUA_LIB__" = "${runDir}/lib";
       };
@@ -92,7 +87,7 @@ in
   env.TEST_PROXY_RELOAD_HOST = "127.0.0.1:${toString instances.proxy-reload.port}";
   env.TEST_PROXY_ADMIN_HOST = "127.0.0.1:${toString instances.proxy.adminPort}";
   env.TEST_PROXY_RELOAD_ADMIN_HOST = "127.0.0.1:${toString instances.proxy-reload.adminPort}";
-  env.TEST_PROXY_RELOAD_CONSOLE_HOST = "127.0.0.1:${toString instances.proxy-reload.readPort}";
+  env.TEST_PROXY_RELOAD_CONSOLE_HOST = "127.0.0.1:${toString instances.proxy-reload.postgrestPort}";
 
   processes = lib.mkIf config.devenv.isTesting (lib.mapAttrs mkProcess instances);
 }

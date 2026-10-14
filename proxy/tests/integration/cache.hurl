@@ -227,14 +227,14 @@ GET http://{{host}}/people?case=head
 HTTP 200
 X-Cache: MISS
 [Asserts]
-jsonpath "$.upstream" == "read"
+jsonpath "$.upstream" == "postgrest"
 
 GET http://{{host}}/people?case=head
 
 HTTP 200
 X-Cache: HIT
 [Asserts]
-jsonpath "$.upstream" == "read"
+jsonpath "$.upstream" == "postgrest"
 
 # A successful write to the access policy makes every cached answer stale, so nobody reads an answer
 # from before the change. A repeat of the read after that is cached again.

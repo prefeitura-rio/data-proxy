@@ -15,14 +15,6 @@ templates:
 set:
   redis.host: redis-writer
 tests:
-  - it: passes single mode to the OpenResty proxy
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_HA_MODE
-            value: "false"
-        template: deployment-proxy.yaml
   - it: leaves the number of instances to a ScaledObject that pins cnpg.instances
     set:
       cnpg.instances: 2
@@ -185,12 +177,6 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: PROXY_POSTGREST_READ
-            value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_POSTGREST_WRITE
+            name: PROXY_POSTGREST
             value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
         template: deployment-proxy.yaml

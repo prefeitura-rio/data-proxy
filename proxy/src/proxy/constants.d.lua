@@ -12,7 +12,6 @@
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
 ---@field jwt JwtConstants Reading the bearer token.
----@field routing RoutingConstants Choosing the PostgREST service.
 ---@field filter FilterConstants Reading the filter parameters of a query.
 ---@field config ConfigConstants Reading the config from the environment.
 
@@ -27,7 +26,6 @@
 ---@class HttpConstants
 ---@field read_methods table<string, boolean>
 ---@field body_methods table<string, boolean> Methods that must send a body, because resty.http refuses nil.
----@field retry_statuses table<integer, boolean> Statuses from PostgREST (502, 503, 504) after which an HA read retries.
 ---@field default_media_type string Media type assumed if the client sends no usable Accept.
 ---@field json_type string Content-Type written if PostgREST sent none.
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
@@ -66,10 +64,6 @@
 ---@class JwtConstants
 ---@field anonymous_sub string
 
---- Rules that choose the PostgREST service.
----@class RoutingConstants
----@field rules table<string, table<string, RouteRule>> Rule by mode (single, ha) and request kind (read, write).
-
 --- Values for reading the filter parameters of a query.
 ---@class FilterConstants
 ---@field group_keys table<string, boolean> Parameter keys that start a group: and, or, not.and, not.or.
@@ -81,4 +75,3 @@
 --- Values for reading the config from the environment.
 ---@class ConfigConstants
 ---@field env_prefix string Start of the name of every setting variable: cache_ttl is read from PROXY_CACHE_TTL.
----@field boolean_words table<string, boolean> Texts that a boolean setting accepts, in lower case, and their values.

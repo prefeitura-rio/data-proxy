@@ -79,15 +79,11 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | --- | --- | --- |
 | `PROXY_CACHE_TTL` | `300` | Default cache lifetime in seconds, `0` or more. A table in `sync.json` can set its own `cache_ttl`. |
 | `PROXY_MAX_BODY` | `262144` | Largest response body in bytes that the proxy stores. `0` means no limit. |
-| `PROXY_HA_MODE` | `false` | `true` if reads can retry on the write PostgREST. |
 | `PROXY_REDIS_HOST` | required | Redis host for the cache. The operator gives one stable endpoint. |
 | `PROXY_REDIS_PORT` | `6379` | Redis port for the cache, from `1` to `65535`. |
 | `PROXY_REDIS_DATABASE` | `1` | Redis database for cached responses, `0` or more. |
 | `PROXY_REDIS_PASSWORD` | unset | Redis password. Omit it for no login. |
-| `PROXY_POSTGREST_READ` | required | Base address of the PostgREST service for reads. |
-| `PROXY_POSTGREST_WRITE` | required | Base address of the PostgREST service for writes. |
-| `PROXY_POSTGREST_RETRIES` | `1` | Retry attempts on the retry service after the first attempt, from `0` to `10`. |
-| `PROXY_POSTGREST_BACKOFF_MS` | `0` | Delay before the first retry, in milliseconds, from `0` to `60000`. Each retry doubles it. |
+| `PROXY_POSTGREST` | required | Base address of the PostgREST service. |
 | `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
 | `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `admin` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
 | `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of PostgREST for a new document. The check is a safety net: the sync workers also call the reload endpoint at once after a change. |

@@ -1,12 +1,12 @@
-# HA: both endpoints fail, so the proxy returns the last answer.
+# PostgREST answers 503. The proxy returns that answer and asks PostgREST only once.
 GET http://{{host}}/always-down
 
 HTTP 503
 [Asserts]
-jsonpath "$.upstream" == "write"
-jsonpath "$.n" == 2
+jsonpath "$.upstream" == "postgrest"
+jsonpath "$.n" == 1
 
-# PostgREST closes both connections, so the proxy answers with its own 502.
+# PostgREST closes the connection, so the proxy answers with its own 502.
 GET http://{{host}}/closed
 
 HTTP 502
@@ -43,4 +43,4 @@ GET http://{{host_limited}}/people?case=after-limit
 
 HTTP 200
 [Asserts]
-jsonpath "$.upstream" == "read"
+jsonpath "$.upstream" == "postgrest"

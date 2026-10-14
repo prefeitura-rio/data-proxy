@@ -14,8 +14,6 @@ tests:
       proxy.cacheRedisDb: 2
       proxy.cacheTtl: 42
       proxy.maxCacheBodyBytes: 1000
-      proxy.postgrestRetries: 2
-      proxy.postgrestBackoffMs: 100
       proxy.maxInflight: 10
     templates:
       - deployment-proxy.yaml
@@ -45,16 +43,6 @@ tests:
           content:
             name: PROXY_REDIS_HOST
             value: redis-writer
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_POSTGREST_RETRIES
-            value: "2"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_POSTGREST_BACKOFF_MS
-            value: "100"
 
   - it: renders concrete OpenResty settings
     set:
@@ -77,19 +65,7 @@ tests:
           value: data-proxy-proxy
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: '(?m)^env PROXY_POSTGREST_WRITE;$'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: '(?m)^env PROXY_POSTGREST_RETRIES;$'
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-      - matchRegex:
-          path: data["nginx.conf"]
-          pattern: '(?m)^env PROXY_POSTGREST_BACKOFF_MS;$'
+          pattern: '(?m)^env PROXY_POSTGREST;$'
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy
