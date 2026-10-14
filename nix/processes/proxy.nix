@@ -11,12 +11,21 @@ let
       readPort = 18081;
       writePort = 18082;
       redisPort = config.processes.redis.ports.main.value;
+      maxInflight = 0;
     };
     proxy-redis-down = {
       port = 18090;
       readPort = 18091;
       writePort = 18092;
       redisPort = 18399;
+      maxInflight = 0;
+    };
+    proxy-limited = {
+      port = 18100;
+      readPort = 18101;
+      writePort = 18102;
+      redisPort = config.processes.redis.ports.main.value;
+      maxInflight = 1;
     };
   };
 
@@ -34,6 +43,7 @@ let
         "__READ_PORT__" = toString instance.readPort;
         "__WRITE_PORT__" = toString instance.writePort;
         "__REDIS_PORT__" = toString instance.redisPort;
+        "__MAX_INFLIGHT__" = toString instance.maxInflight;
         "__LUA_ROCKS__" = "${runDir}/rocks";
         "__LUA_LIB__" = "${runDir}/lib";
       };
@@ -61,6 +71,7 @@ in
 {
   env.TEST_PROXY_HOST = "127.0.0.1:${toString instances.proxy.port}";
   env.TEST_PROXY_REDIS_DOWN_HOST = "127.0.0.1:${toString instances.proxy-redis-down.port}";
+  env.TEST_PROXY_LIMITED_HOST = "127.0.0.1:${toString instances.proxy-limited.port}";
 
   processes = lib.mkIf config.devenv.isTesting (lib.mapAttrs mkProcess instances);
 }
