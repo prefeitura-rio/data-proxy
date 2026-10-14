@@ -19,6 +19,7 @@ from .steps import (
     extract_task,
     finalize_run,
     load_sync_config,
+    notify_proxies,
     record_dump_failure,
     record_dump_metrics,
     record_publish_metrics,
@@ -146,3 +147,9 @@ async def run_sync(
         await finalize_run()
 
         await logs.info("Sync workflow completed")
+
+
+@DBOS.workflow()
+async def reload_proxy() -> None:
+    """Ask the proxy pods to read the configuration after a change in the console tables."""
+    await notify_proxies()

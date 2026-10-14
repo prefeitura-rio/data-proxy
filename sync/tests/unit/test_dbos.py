@@ -472,6 +472,7 @@ class TestServe:
             ("sync", "never_update"),
             ("dump", "never_update"),
             ("publish", "never_update"),
+            ("proxy", "never_update"),
         ]
 
     @pytest.mark.asyncio
@@ -508,3 +509,51 @@ class TestMain:
         dbos_main.main()
 
         assert loops == ["uvloop"]
+
+
+class TestNotifyProxies:
+    """The reload workflow asks every proxy pod to read the configuration again."""
+
+    async def test_resolves_the_pods_and_reloads_each_of_them(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The step passes the addresses of the headless service to the notifier."""
+        reload = AsyncMock()
+        monkeypatch.setattr(
+            settings, "PROXY_ADMIN_URL", "http://proxy-admin:8081/reload"
+        )
+        monkeypatch.setattr(
+            steps, "proxy_addresses", AsyncMock(return_value=["10.0.0.1"])
+        )
+        monkeypatch.setattr(steps, "reload_proxies", reload)
+
+        await workflow_body(steps.notify_proxies)()
+
+        assert reload.await_args is not None
+        assert reload.await_args.args[1:] == (
+            "http://proxy-admin:8081/reload",
+            ["10.0.0.1"],
+        )
+
+    async def test_does_nothing_without_an_address_for_the_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment without a proxy has nobody to notify."""
+        resolve = AsyncMock()
+        monkeypatch.setattr(settings, "PROXY_ADMIN_URL", None)
+        monkeypatch.setattr(steps, "proxy_addresses", resolve)
+
+        await workflow_body(steps.notify_proxies)()
+
+        resolve.assert_not_awaited()
+
+    async def test_the_workflow_runs_the_step(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reload_proxy is one step."""
+        notify = AsyncMock()
+        monkeypatch.setattr(workflows, "notify_proxies", notify)
+
+        await workflow_body(workflows.reload_proxy)()
+
+        notify.assert_awaited_once_with()

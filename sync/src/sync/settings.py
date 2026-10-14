@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     SYNC_SCHEDULE: str = "0 2 * * *"
     SYNC_SCHEDULE_NAME: str = "sync"
     SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
+    PROXY_ADMIN_URL: str | None = None
 
     @cached_property
     def dump_queue_limiter(self) -> QueueRateLimit | None:

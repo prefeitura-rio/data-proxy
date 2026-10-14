@@ -4,6 +4,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from dbos import DBOS
+from httpx2 import AsyncClient as HttpClient
 from lightkube import AsyncClient
 from whenever import Instant
 
@@ -30,6 +31,7 @@ from sync.models import (
 )
 from sync.planning import run_planning
 from sync.postgres import Postgres
+from sync.proxies import proxy_addresses, reload_proxies
 from sync.s3 import clear_s3_prefix
 from sync.settings import settings
 from sync.state import (
@@ -335,3 +337,24 @@ async def finalize_run() -> None:
 
     await clear_cache()
     await logs.info("Sync finalization completed")
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def notify_proxies() -> None:
+    """Ask every proxy pod to read the configuration again."""
+    url = settings.PROXY_ADMIN_URL
+
+    if url is None:
+        await logs.info("Proxy reload skipped", reason="PROXY_ADMIN_URL is not set")
+        return
+
+    addresses = await proxy_addresses(url)
+
+    async with HttpClient(timeout=5) as client:
+        await reload_proxies(client, url, addresses)
+
+    await logs.info("Proxy reload completed", pods=len(addresses))

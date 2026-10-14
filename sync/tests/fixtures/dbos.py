@@ -1,10 +1,13 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+from typing import override
 from unittest.mock import AsyncMock
 
 import pytest
 from dbos import DBOS
 
-from sync.constants import SYNC_QUEUE
+from sync.constants import PROXY_QUEUE, SYNC_QUEUE
 from sync.dbos import workflows
 from sync.models import (
     LoadedConfig,
@@ -80,10 +83,44 @@ async def sync_worker(
             "system_database_url": f"{POSTGRES_URL}/test",
         }
     )
-    DBOS.listen_queues([SYNC_QUEUE])
+    DBOS.listen_queues([SYNC_QUEUE, PROXY_QUEUE])
     DBOS.launch()
-    await DBOS.register_queue_async(SYNC_QUEUE, on_conflict="never_update")
+    for queue in (SYNC_QUEUE, PROXY_QUEUE):
+        await DBOS.register_queue_async(queue, on_conflict="never_update")
     try:
         yield scopes
     finally:
         DBOS.destroy(destroy_registry=False)
+
+
+@pytest.fixture
+def proxy_admin(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, str]]]:
+    """Serve a proxy admin port on a loopback port and record each request that it gets."""
+    received: list[tuple[str, str]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        """Answer every POST like a proxy that reloaded."""
+
+        def do_POST(self) -> None:
+            """Record the request and say that the settings changed."""
+            received.append((self.command, self.path))
+            payload = b'{"changed":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        @override
+        def log_message(self, format: str, *args: object) -> None:
+            """Keep the test output quiet."""
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    monkeypatch.setattr(
+        settings, "PROXY_ADMIN_URL", f"http://127.0.0.1:{server.server_port}/reload"
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield received
+    server.shutdown()
+    server.server_close()
