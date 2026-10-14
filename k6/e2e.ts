@@ -839,6 +839,12 @@ function verifyProxyCache(token: string, otherToken: string): void {
         sourceHeader(proxyGet(path, token)) === sourceHeader(first),
     );
 
+    seedAccessPolicy();
+    expect(
+        "a change of the access policy makes a cached answer stale",
+        cacheHeader(proxyGet(path, token)) === "MISS",
+    );
+
     sleep(CACHE_TTL_SECONDS + 3);
     expect(
         "an entry expires after the configured lifetime",
