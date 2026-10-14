@@ -1,5 +1,4 @@
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import duckdb
@@ -9,7 +8,7 @@ from google.cloud.bigquery import Client, Table
 from minio import Minio
 from psycopg.sql import SQL, Identifier
 
-from sync.settings import Settings, settings
+from sync.settings import settings
 from sync.sources.bigquery.clients import BigQuery
 from sync.templates import render_template
 from tests.constants import (
@@ -26,14 +25,6 @@ from tests.protocols import BigQueryQueryConfig
 
 
 @pytest.fixture
-def sync_config_path(tmp_path: Path) -> Path:
-    """Provide the synchronization configuration file path."""
-    path = tmp_path / "sync.json"
-    path.write_text('{"schemas": {}}')
-    return path
-
-
-@pytest.fixture
 def redis() -> MagicMock:
     """Return a mock async Redis client for cache tests."""
     client = MagicMock()
@@ -41,16 +32,6 @@ def redis() -> MagicMock:
     client.__aexit__ = AsyncMock(return_value=None)
     client.flushdb = AsyncMock()
     return client
-
-
-@pytest.fixture
-def test_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    sync_config_path: Path,
-) -> Settings:
-    """Provide settings configured with test dependency objects."""
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", sync_config_path)
-    return settings
 
 
 @pytest.fixture

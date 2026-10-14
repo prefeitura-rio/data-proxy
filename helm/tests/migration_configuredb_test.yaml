@@ -68,14 +68,14 @@ tests:
   - it: mounts both ConfigMaps
     asserts:
       - equal:
-          path: spec.template.spec.volumes[2].name
+          path: spec.template.spec.volumes[1].name
           value: configure-db-script
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-0
         template: jobs.yaml
       - equal:
-          path: spec.template.spec.volumes[3].name
+          path: spec.template.spec.volumes[2].name
           value: configure-db-sql
         documentSelector:
           path: metadata.name

@@ -238,9 +238,9 @@ tests:
         template: jobs.yaml
       - lengthEqual:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
-          count: 5
+          count: 4
         template: jobs.yaml
       - lengthEqual:
           path: spec.jobTemplate.spec.template.spec.volumes
-          count: 2
+          count: 1
         template: jobs.yaml

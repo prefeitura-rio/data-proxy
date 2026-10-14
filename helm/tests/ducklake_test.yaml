@@ -81,12 +81,8 @@ tests:
             persistentVolumeClaim:
               claimName: data-proxy-duckdb
         template: deployment-sync.yaml
-      - notContains:
+      - isNullOrEmpty:
           path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: duckdb
-            mountPath: /var/lib/ducklake/catalogs
-            subPath: ducklake
         template: deployment-sync.yaml
       - notContains:
           path: spec.template.spec.containers[0].env

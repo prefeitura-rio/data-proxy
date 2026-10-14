@@ -1,0 +1,133 @@
+suite: Provision schemas
+templates:
+  - jobs.yaml
+tests:
+  - it: provisions the schemas of the console in a Job on every install and upgrade
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [nu, /scripts/provision.nu]
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+        skipEmptyTemplate: true
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-config
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: RELATION
+            value: admin.schemas
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+
+  - it: restarts PostgREST with the service account that may patch deployments
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: data-proxy
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+
+  - it: loads the values file only to fill an empty configuration
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SYNC_CONFIG_PATH
+            value: /config/sync.json
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_AUTHENTICATOR_ROLE
+            value: postgrest
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+
+  - it: applies every schema again on an upgrade, and only the new ones on the schedule
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROVISION_ALL
+            value: "true"
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PROVISION_ALL
+            value: "true"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+
+  - it: provisions again every minute for the schemas that editors add
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "* * * * *"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+
+  - it: takes the schedule from the values
+    set:
+      jobs.provision.schedule: "*/5 * * * *"
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "*/5 * * * *"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+
+  - it: does not mount the sync configuration into the maintenance job
+    set:
+      jobs.maintenance.enabled: true
+    asserts:
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: sync-config
+            configMap:
+              name: data-proxy-sync
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        template: jobs.yaml

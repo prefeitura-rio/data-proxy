@@ -1,7 +1,6 @@
 """Application settings loaded from environment variables."""
 
 from functools import cached_property
-from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 from pydantic import Field, field_validator
@@ -57,7 +56,6 @@ class Settings(BaseSettings):
     S3_SCRATCH_PREFIX: str = "tmp"
     S3_SECRET_KEY: str = "seaweedfs-local"  # ruff: ignore[hardcoded-password-string]
     S3_USE_SSL: bool = False
-    SYNC_CONFIG_PATH: Path = Path("config/sync.json")
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
     SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
     SYNC_SCHEDULE: str = "0 2 * * *"

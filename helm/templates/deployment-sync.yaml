@@ -56,7 +56,6 @@ spec:
                 fieldRef:
                   fieldPath: metadata.uid
           volumeMounts:
-            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}
             - name: sync-trigger
@@ -64,7 +63,6 @@ spec:
               readOnly: true
             {{ end }}
       volumes:
-        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
         {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
         {{ if .Values.sync.trigger.enabled }}

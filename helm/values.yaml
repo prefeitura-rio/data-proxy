@@ -75,8 +75,9 @@ sync:
     applicationVersion: 0.1.0
     systemSchema: dbos
     appSchema: data_proxy
-  ## Sync configuration rendered as sync.json and mounted into each sync container.
-  ## See docs/sync.md for the full field reference.
+  ## The first sync configuration. The provision job imports it once, when the configuration
+  ## tables of the console are empty. Editors own the configuration afterward, so a change here
+  ## has no effect on a database that already has schemas. See docs/sync.md for the field reference.
   config:
     ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
     ## schema's identity claim and its list of tables.
@@ -247,6 +248,11 @@ redis:
 jobs:
   ## Shared image for maintenance jobs.
   image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
+  ## Provision CronJob: serves the schemas that editors add in the console. It creates each schema,
+  ## its access policy, and its policy-writer role, then restarts PostgREST when the list changes.
+  provision:
+    schedule: "* * * * *"
+    activeDeadlineSeconds: 300
   ## Backup CronJob: exports access_policy, access_log, and restored catalogs.
   backup:
     enabled: false

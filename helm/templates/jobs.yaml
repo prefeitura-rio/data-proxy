@@ -15,6 +15,8 @@ data:
 {{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
   wait-for-relation.nu: |
 {{ .Files.Get "files/wait-for-relation.nu" | nindent 4 }}
+  provision.nu: |
+{{ .Files.Get "files/provision.nu" | nindent 4 }}
   fetch-jwks.nu: |
 {{ .Files.Get "files/fetch-jwks.nu" | nindent 4 }}
 ---
@@ -112,12 +114,9 @@ spec:
               value: {{ include "data-proxy.s3Endpoint" . | quote }}
             - name: S3_USE_SSL
               value: {{ .Values.s3.useSsl | quote }}
-            - name: SYNC_CONFIG_PATH
-              value: /config/sync.json
             - name: SQL_TEMPLATE_DIR
               value: /templates
           volumeMounts:
-            {{- include "data-proxy.syncConfigVolumeMount" . | nindent 12 }}
             - name: configure-db-script
               mountPath: /scripts
               readOnly: true
@@ -125,7 +124,6 @@ spec:
               mountPath: /templates
               readOnly: true
       volumes:
-        {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
         - name: configure-db-script
           configMap:
@@ -388,8 +386,6 @@ spec:
                       key: password
                 - name: PG_DATABASE_URL
                   value: {{ include "data-proxy.appPgDsn" $root | quote }}
-                - name: SYNC_CONFIG_PATH
-                  value: /config/sync.json
                 - name: DBOS_APP_SCHEMA
                   value: {{ $root.Values.sync.dbos.appSchema | quote }}
                 - name: SQL_TEMPLATE_DIR
@@ -397,9 +393,6 @@ spec:
               volumeMounts:
                 - name: scripts
                   mountPath: /scripts
-                  readOnly: true
-                - name: sync-config
-                  mountPath: /config
                   readOnly: true
           volumes:
             - name: scripts
@@ -419,7 +412,48 @@ spec:
                   - key: {{ base (dir $path) }}_{{ base $path }}
                     path: {{ base (dir $path) }}/{{ base $path }}
 {{- end }}
-            - name: sync-config
-              configMap:
-                name: {{ include "data-proxy.fullname" $root }}-sync
 {{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-provision-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: provision
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: provision
+    spec:
+      {{- include "data-proxy.provisionPodSpec" (dict "root" . "all" true) | nindent 6 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-provision
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: provision-schedule
+spec:
+  schedule: {{ .Values.jobs.provision.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.jobs.provision.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: provision-schedule
+        spec:
+          {{- include "data-proxy.provisionPodSpec" (dict "root" . "all" false) | nindent 10 }}

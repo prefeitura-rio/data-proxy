@@ -98,7 +98,7 @@ tests:
             value: "ducklake"
         template: deployment-sync.yaml
       - matchRegex:
-          path: spec.template.spec.containers[0].env[21].value
+          path: spec.template.spec.containers[0].env[20].value
           pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy
         template: deployment-sync.yaml
       - contains:

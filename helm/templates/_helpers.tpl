@@ -464,8 +464,6 @@ jwtRules:
   value: {{ .Values.ducklake.maxCompactedFiles | quote }}
 - name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
   value: {{ .Values.ducklake.rewriteDeleteThreshold | quote }}
-- name: SYNC_CONFIG_PATH
-  value: /config/sync.json
 - name: PROXY_CACHE_REDIS_DB
   value: {{ .Values.proxy.cacheRedisDb | quote }}
 - name: DUMP_QUEUE_MAX_ATTEMPTS
@@ -572,4 +570,82 @@ jwtRules:
 {{- end -}}
 {{- $params := mergeOverwrite $defaults (default (dict) .Values.cnpg.postgresql.parameters) -}}
 {{- toYaml $params -}}
+{{- end }}
+
+{{- define "data-proxy.provisionPodSpec" -}}
+{{- $root := .root -}}
+restartPolicy: OnFailure
+serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
+automountServiceAccountToken: true
+initContainers:
+  - name: wait-for-config
+    image: {{ $root.Values.jobs.image | quote }}
+    imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/wait-for-relation.nu]
+    workingDir: /scripts
+    env:
+      - name: RELATION
+        value: admin.schemas
+      - name: PGHOST
+        value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
+      - name: PGPORT
+        value: "5432"
+      - name: PGDATABASE
+        value: {{ $root.Values.cnpg.db.name | quote }}
+      - name: PGUSER
+        value: {{ $root.Values.cnpg.db.user | quote }}
+      - name: PGPASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" $root }}
+            key: password
+    volumeMounts:
+      - name: scripts
+        mountPath: /scripts
+        readOnly: true
+containers:
+  - name: provision
+    image: {{ $root.Values.jobs.image | quote }}
+    imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/provision.nu]
+    workingDir: /scripts
+    env:
+      - name: PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" $root }}
+            key: password
+      - name: PG_DATABASE_URL
+        value: {{ include "data-proxy.appPgDsn" $root | quote }}
+      - name: AUTH_USER_ROLE
+        value: {{ $root.Values.auth.userRole | quote }}
+      - name: AUTH_AUTHENTICATOR_ROLE
+        value: {{ $root.Values.auth.authenticatorRole | quote }}
+      - name: DBOS_APP_SCHEMA
+        value: {{ $root.Values.sync.dbos.appSchema | quote }}
+      - name: SYNC_CONFIG_PATH
+        value: /config/sync.json
+      {{- if .all }}
+      - name: PROVISION_ALL
+        value: "true"
+      {{- end }}
+      - name: SQL_TEMPLATE_DIR
+        value: /templates
+    volumeMounts:
+      - name: scripts
+        mountPath: /scripts
+        readOnly: true
+      - name: templates
+        mountPath: /templates
+        readOnly: true
+      {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 6 }}
+volumes:
+  - name: scripts
+    configMap:
+      name: {{ include "data-proxy.fullname" $root }}-configure-db-script
+      defaultMode: 0555
+  - name: templates
+    configMap:
+      name: {{ include "data-proxy.fullname" $root }}-configure-db-sql
+  {{- include "data-proxy.syncConfigVolume" $root | nindent 2 }}
 {{- end }}

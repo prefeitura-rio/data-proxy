@@ -59,41 +59,15 @@ tests:
           path: spec.replicas
         template: deployment-postgrest.yaml
 
-  - it: rolls PostgREST when syncConfig changes
+  - it: starts PostgREST with the admin schema, and the provision job adds the others
     set:
-      sync.config.schemas.test.tables:
-        - name: proj.dataset.cpf
-          strategy: full
-    asserts:
-      - matchRegex:
-          path: spec.template.metadata.annotations["checksum/sync-config"]
-          pattern: "^[0-9a-f]{64}$"
-
-  - it: derives PGRST_DB_SCHEMAS from sync.config.schemas
-    set:
-      sync.config.schemas:
-        zeta_schema:
-          tables:
-            - name: proj.dataset.z
-              strategy: full
-        alpha_schema:
-          tables:
-            - name: proj.dataset.a
-              strategy: full
+      sync.config.schemas.test.tables: []
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: PGRST_DB_SCHEMAS
-            value: "alpha_schema,zeta_schema"
-
-  - it: PGRST_DB_SCHEMAS is empty with no configured schemas
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PGRST_DB_SCHEMAS
-            value: ""
+            value: admin
 
   - it: configures a bounded and persistent PostgREST database pool
     asserts:

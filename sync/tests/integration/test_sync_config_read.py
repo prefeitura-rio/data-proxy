@@ -1,7 +1,7 @@
-import json
+from json import loads
 
-import psycopg
 import pytest
+from psycopg import AsyncConnection
 
 from sync.postgres import Postgres
 from sync.state import read_sync_config
@@ -12,20 +12,21 @@ class TestReadSyncConfig:
     """The sync reads the configuration from the endpoint function of the database."""
 
     async def test_returns_the_document_of_the_tables(
-        self, admin_db: psycopg.AsyncConnection
+        self, admin_db: AsyncConnection
     ) -> None:
         """The text is the sync.json that the tables describe."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
 
         document = await read_sync_config(Postgres(connection=admin_db))
 
-        assert document is not None
-        assert json.loads(document) == {
+        assert loads(document) == {
             "schemas": {"alpha": {"source": {"type": "bigquery"}, "tables": []}}
         }
 
-    async def test_returns_nothing_while_the_tables_are_empty(
-        self, admin_db: psycopg.AsyncConnection
+    async def test_returns_an_empty_configuration_while_the_tables_are_empty(
+        self, admin_db: AsyncConnection
     ) -> None:
-        """Without a schema the caller falls back to the file."""
-        assert await read_sync_config(Postgres(connection=admin_db)) is None
+        """Without a schema there is nothing to sync."""
+        document = await read_sync_config(Postgres(connection=admin_db))
+
+        assert loads(document) == {"schemas": {}}

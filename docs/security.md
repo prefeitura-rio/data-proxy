@@ -89,8 +89,8 @@ CNPG manages the core roles:
 | ------------------------ | ------------------------------------------------------------------------------ |
 | `anon`                   | Unauthenticated PostgreSQL role with no application table access.              |
 | `user`                   | Authenticated read role, subject to schema and row policies.                   |
-| `postgrest`              | PostgREST login role (`auth.authenticatorRole`). It's `NOINHERIT` and can switch to `anon`, `user`, and `policy_writer_<schema>`. |
-| `policy_writer_<schema>` | Per-schema policy service role.                                                |
+| `postgrest`              | PostgREST login role (`auth.authenticatorRole`). It's `NOINHERIT` and can switch to `anon`, `user`, `policy_writer_<schema>`, and the console roles. |
+| `policy_writer_<schema>` | Per-schema policy service role. The provision job creates it.                  |
 
 Init-db creates the `data_proxy` schema and its internal functions, procedures, and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
 
@@ -238,7 +238,7 @@ See [Proxy](proxy.md) for the routing and cache rules. `/access_policy` is never
 | `403` with `permission denied to set role`    | Check that CNPG manages `auth.authenticatorRole` with `inRoles: [anon, user]` and `inherit: false`.     |
 | `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
-| `404 Unknown schema profile`                  | Check `Accept-Profile` and `sync.config.schemas`.                                                       |
+| `404 Unknown schema profile`                  | Check `Accept-Profile`, and check that the provision job ran for the schema.                                                       |
 | Policy write fails                            | Use the exact `policy_writer_<schema>` role and matching `Accept-Profile`; don't use the end-user role. |
 | Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`; every source uses the same JWT and RLS rules. |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |

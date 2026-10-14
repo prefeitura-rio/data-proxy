@@ -23,7 +23,6 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
         checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
         {{- if .Values.postgrest.metrics.enabled }}
         prometheus.io/scrape: "true"
@@ -118,7 +117,7 @@ spec:
             - name: PGRST_DB_CHANNEL_ENABLED
               value: "false"
             - name: PGRST_DB_SCHEMAS
-              value: {{ keys (.Values.sync.config.schemas | default dict) | sortAlpha | join "," | quote }}
+              value: admin
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY

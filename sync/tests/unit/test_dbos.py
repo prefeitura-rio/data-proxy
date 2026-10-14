@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import ClassVar, final
 from unittest.mock import AsyncMock
 
@@ -188,19 +187,6 @@ class TestLoadSyncConfig:
         assert loaded == LoadedConfig(
             revision=sha256_hex(DOCUMENT)[:12], document=DOCUMENT
         )
-
-    @pytest.mark.usefixtures("stored")
-    async def test_reads_the_file_while_the_tables_are_empty(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Fall back to the file, which has no revision."""
-        path = tmp_path / "sync.json"
-        path.write_text(DOCUMENT)
-        monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", path)
-
-        loaded = await workflow_body(steps.load_sync_config)()
-
-        assert loaded == LoadedConfig(revision="file", document=DOCUMENT)
 
     async def test_rejects_a_document_that_the_engine_cannot_use(
         self, stored: AsyncMock

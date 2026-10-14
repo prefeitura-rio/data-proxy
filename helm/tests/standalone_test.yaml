@@ -44,45 +44,28 @@ tests:
             - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
         template: cluster-cnpg.yaml
 
-  - it: grants policy writer membership per configured schema
+  - it: leaves the policy writer roles of the schemas to the provision job
     set:
       sync.config:
         schemas:
           test:
             claim: preferred_username
             tables: []
-          test2:
-            claim: preferred_username
-            tables: []
       ducklake.secrets.storage.storageClass: local-path
     asserts:
+      - lengthEqual:
+          path: spec.managed.roles
+          count: 10
+        template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[3].inRoles
           value:
             - anon
             - user
-            - policy_writer_test
-            - policy_writer_test2
             - console_viewer
             - console_operator
             - console_editor
             - console_admin
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[4]
-          value:
-            name: policy_writer_test
-            ensure: present
-            login: false
-            bypassrls: false
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[5]
-          value:
-            name: policy_writer_test2
-            ensure: present
-            login: false
-            bypassrls: false
         template: cluster-cnpg.yaml
 
   - it: manages the console permission levels as roles that inherit the levels below

@@ -19,8 +19,8 @@ def main [
             run: { test quote-pg-escapes-identifier-and-literal }
         }
         {
-            name: sync-config-fails-for-missing-file
-            run: { test sync-config-fails-for-missing-file }
+            name: sync-config-fails-without-a-database
+            run: { test sync-config-fails-without-a-database }
         }
         {
             name: postgres-ready-args-include-dsn

@@ -37,10 +37,10 @@ export def "test quote-pg-escapes-identifier-and-literal" []: nothing -> nothing
     assert equal (quote-pg "a'b" literal) "'a''b'"
 }
 
-# Verify that sync-config reports an unavailable configuration file.
-export def "test sync-config-fails-for-missing-file" []: nothing -> nothing {
+# Verify that sync-config reports a database that it cannot read.
+export def "test sync-config-fails-without-a-database" []: nothing -> nothing {
     with-env {
-        SYNC_CONFIG_PATH: /tmp/helm-files-tests-missing-sync.json
+        PG_DATABASE_URL: postgresql://nobody@127.0.0.1:1/missing?connect_timeout=1
     } {
         let failed = try {
             sync-config

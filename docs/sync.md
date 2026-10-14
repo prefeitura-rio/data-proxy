@@ -1,6 +1,6 @@
 # Sync
 
-The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The tables of the `admin` schema hold the configuration ([Console](console.md#configuration-tables)), and the engine reads it with `admin.sync_config()`. While those tables have no schema, the engine reads the file at `SYNC_CONFIG_PATH`.
+The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The tables of the `admin` schema hold the configuration ([Console](console.md#configuration-tables)), and the engine reads it with `admin.sync_config()`. An empty configuration means there is nothing to sync.
 
 ```json
 {
@@ -141,7 +141,7 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ## Schema initialization
 
-The sync workflow creates configured schemas, `access_policy`, `access_log`, policies, triggers, and `policy_writer_<schema>` roles. It doesn't create application data tables in PostgreSQL. Application table names are PostgreSQL views over DuckLake functions.
+The provision job creates configured schemas, `access_policy`, `access_log`, policies, triggers, and `policy_writer_<schema>` roles. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views. Application table names are PostgreSQL views over DuckLake functions.
 
 ---
 

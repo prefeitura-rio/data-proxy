@@ -47,17 +47,21 @@ export def schema-list []: record -> list<string> {
     $all | where $it == $target
 }
 
-# Read the configured synchronization JSON or fail with contextual logging.
+# Read the synchronization configuration from the admin tables or fail with contextual logging.
 @example "Read configured schemas" {
     sync-config | get schemas | columns
 }
 export def sync-config []: nothing -> record {
-    try {
-        open $env.SYNC_CONFIG_PATH
-    } catch {|err| fail $'Failed to open sync config path=($env.SYNC_CONFIG_PATH) error=($err.msg)' {
-        command: sync-config
-        span: (metadata $env.SYNC_CONFIG_PATH).span
-    } }
+    let result = psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -c 'SELECT admin.sync_config()' | complete
+
+    if $result.exit_code != 0 {
+        fail $'Failed to read the sync configuration: ($result.stderr | str trim)' {
+            command: sync-config
+            span: (metadata $result).span
+        }
+    }
+
+    $result.stdout | from json
 }
 
 # Wait until a relation exists in PostgreSQL or fail after the configured timeout.
