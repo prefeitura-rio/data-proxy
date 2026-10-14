@@ -1,4 +1,6 @@
 -- +goose Up
+CREATE SCHEMA IF NOT EXISTS data_proxy;
+
 CREATE TABLE data_proxy.config_revisions (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at timestamptz NOT NULL DEFAULT now(),

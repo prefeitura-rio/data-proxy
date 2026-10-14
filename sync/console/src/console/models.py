@@ -162,3 +162,9 @@ class LogEnd(BaseModel):
 
     workflow_id: str
     status: RunStatus
+
+
+class Status(BaseModel):
+    """The answer of a probe."""
+
+    status: Literal["ok"]
