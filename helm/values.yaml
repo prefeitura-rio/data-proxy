@@ -108,6 +108,8 @@ postgrest:
   maxRows: 1000
   ## Maximum backend connections held by each PostgREST replica.
   dbPool: 24
+  ## Seconds that a stopping PostgREST pod waits before it closes its port. The mesh needs this time to stop sending it requests.
+  preStopSleepSeconds: 5
   ## Seconds to wait for a backend connection before returning an error.
   dbPoolAcquisitionTimeout: 10
   ## Seconds to keep an idle backend connection before closing it.

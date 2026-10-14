@@ -141,6 +141,10 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ .Values.postgrest.preStopSleepSeconds }}
           {{- with .Values.postgrest.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
