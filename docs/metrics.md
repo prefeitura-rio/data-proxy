@@ -32,6 +32,18 @@ The cache is optional, so a Redis failure doesn't fail a request. The proxy writ
 
 Use API response headers for client troubleshooting. Use logs for request analysis. See [Using the API](using.md#response-source-and-cache).
 
+## PostgREST metrics
+
+PostgREST serves Prometheus metrics at `/metrics` on its admin port, 3001 by default. The pod carries the `prometheus.io/*` scrape annotations. Set `postgrest.metrics.enabled` to `false` to turn the admin port off. The port is open to the pods in the cluster, and `/schema_cache` on it shows the schema structure.
+
+| Metric                          | Meaning                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `pgrst_db_pool_waiting`         | Requests that wait for a database connection. A value above 0 means that the pool is full. |
+| `pgrst_db_pool_available`       | Free connections in the pool.                                                         |
+| `pgrst_db_pool_timeouts_total`  | Requests that gave up after `dbPoolAcquisitionTimeout` seconds. A rising value means that clients get errors. |
+
+Alert when `pgrst_db_pool_waiting` stays above 0, and when the timeouts counter rises. Both point to a database that needs more capacity, or to a request mix that's too heavy.
+
 ## Load profile limits
 
 | Source                                     | Bound                         | Gates a run        |
