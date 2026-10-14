@@ -446,5 +446,7 @@ class TestRoutes:
             tmp_path, monkeypatch, "broken_routes", {"forgotten": "value = 1"}
         )
 
-        with pytest.raises(AttributeError, match="router"):
+        with pytest.raises(
+            TypeError, match=r"broken_routes\.forgotten must declare a router"
+        ):
             discover_routers(package)
