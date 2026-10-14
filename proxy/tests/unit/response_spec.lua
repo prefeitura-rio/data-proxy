@@ -19,6 +19,17 @@ check("response.plan", function(case) return response.plan(case.result) end, {
 		},
 	},
 	{
+		name = "plans a 503 with a retry delay when the proxy is overloaded",
+		result = { response = nil, source = "none", error = "overloaded" },
+		expected = {
+			status = 503,
+			body = '{"error":"Proxy overloaded"}',
+			headers = { ["Retry-After"] = "1" },
+			default_content_type = "application/json; charset=utf-8",
+			log_fields = { status = 503, source = "none", bytes = 28, error = "overloaded" },
+		},
+	},
+	{
 		name = "plans a PostgREST answer as a cache miss",
 		result = { response = { status = 200, body = "[1]", headers = {} }, source = "postgrest" },
 		expected = {

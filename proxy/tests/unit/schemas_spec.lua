@@ -142,6 +142,7 @@ describe("schemas.config", function()
 			postgrest_write = "http://write",
 			postgrest_retries = "3",
 			postgrest_backoff_ms = "100",
+			max_inflight = "64",
 		}
 		---@type Config
 		local expected = {
@@ -156,6 +157,7 @@ describe("schemas.config", function()
 			postgrest_write = "http://write",
 			postgrest_retries = 3,
 			postgrest_backoff_ms = 100,
+			max_inflight = 64,
 		}
 
 		assert.same(expected, schemas.config:validate(full_text))
@@ -172,6 +174,7 @@ describe("schemas.config", function()
 		assert.is_nil(config.redis_password)
 		assert.same(1, config.postgrest_retries)
 		assert.same(0, config.postgrest_backoff_ms)
+		assert.same(0, config.max_inflight)
 	end)
 
 	it("does not change the text that it reads", function()

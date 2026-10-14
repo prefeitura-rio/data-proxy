@@ -13,6 +13,7 @@
 ---@field postgrest_write string Base URL of the PostgREST service for writes.
 ---@field postgrest_retries integer Number of retry attempts on the retry service after the first attempt.
 ---@field postgrest_backoff_ms integer Delay in milliseconds before the first retry. It doubles each retry.
+---@field max_inflight integer Most requests that wait for PostgREST at the same time in one proxy. 0 means no limit.
 
 --- The schema of the config. It reads the text of the variables.
 ---@class SchemasModule

@@ -18,6 +18,20 @@ local response = {}
 ---@return ResponsePlan plan
 function response.plan(result)
 	local answer = result.response
+	if not answer and result.error == constants.http.overloaded_reason then
+		return {
+			status = constants.http.overloaded_status,
+			body = constants.http.overloaded_body,
+			headers = { ["Retry-After"] = constants.http.retry_after_seconds },
+			default_content_type = constants.http.json_type,
+			log_fields = {
+				status = constants.http.overloaded_status,
+				source = "none",
+				bytes = #constants.http.overloaded_body,
+				error = result.error,
+			},
+		}
+	end
 	if not answer then
 		return {
 			status = constants.http.unavailable_status,

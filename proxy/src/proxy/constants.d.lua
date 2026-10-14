@@ -3,6 +3,7 @@
 --- All named constants of the proxy, in groups.
 ---@class Constants
 ---@field headers HeaderConstants Names of HTTP headers.
+---@field limiter LimiterConstants Counter of the requests that wait for PostgREST.
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
 ---@field policy_endpoints string[] Path prefixes of the access policy. A write there makes cached answers stale.
@@ -30,6 +31,15 @@
 ---@field json_type string Content-Type written if PostgREST sent none.
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
 ---@field unavailable_status integer
+---@field overloaded_body string Body of the 503 answer. The proxy sends it when too many requests wait for PostgREST.
+---@field overloaded_status integer
+---@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
+---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
+
+--- The shared counter of the requests that wait for PostgREST.
+---@class LimiterConstants
+---@field dict string Name of the lua_shared_dict in nginx.conf.
+---@field key string Key of the counter in that dictionary.
 
 --- Log messages and fields.
 ---@class LogConstants
