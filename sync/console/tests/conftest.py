@@ -1,4 +1,6 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
@@ -9,7 +11,7 @@ from console.database import create_engine
 from console.dependencies import get_client, get_engine
 from console.main import app
 from console.settings import settings
-from helpers import FakeClient
+from helpers import FakeClient, ProxyAdmin
 
 
 @pytest.fixture
@@ -36,3 +38,29 @@ async def api(engine: AsyncEngine) -> AsyncGenerator[AsyncClient]:
     ) as http:
         yield http
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def proxy_admin(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProxyAdmin]:
+    """Serve a proxy admin endpoint on a loopback port, and point the console at it."""
+    state = ProxyAdmin(url="")
+
+    class Handler(BaseHTTPRequestHandler):
+        """Answer every POST and write down its path."""
+
+        def do_POST(self) -> None:
+            """Remember the path and answer with an empty JSON object."""
+            state.calls.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    state.url = f"http://127.0.0.1:{server.server_port}/reload"
+    monkeypatch.setattr(settings, "PROXY_ADMIN_URL", state.url)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield state
+    server.shutdown()
+    server.server_close()

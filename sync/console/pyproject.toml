@@ -55,4 +55,4 @@ exclude = [
   "src/console/models.py",
 ] # response models: FastAPI reads their fields
 ignore_decorators = ["@router.*"]
-ignore_names = ["model_config"]
+ignore_names = ["model_config", "do_POST"] # do_POST: http.server calls the handler method by name

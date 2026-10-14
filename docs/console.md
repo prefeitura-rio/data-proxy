@@ -47,6 +47,10 @@ Add `?dry_run=true` to `PUT` or `PATCH` to check a configuration without writing
 }
 ```
 
+After each write, patch, or activation, the console calls `POST /reload` on every proxy that `PROXY_ADMIN_URL` resolves to, so the proxies use the new settings at once. The call runs after the console has answered. A proxy that the console can't reach doesn't fail the write: it catches up at its next periodic check. See [Proxy](proxy.md#table-settings-from-the-console). A dry run calls nothing.
+
+The engine needs no reload, because each run loads the active configuration again at its start.
+
 A configuration that isn't valid gets 422 with `application/problem+json`. Each error has a JSON Pointer to the part that causes it. The engine's own `SyncConfig` model does the validation, so the console accepts exactly what the engine accepts.
 
 ## Monitoring streams

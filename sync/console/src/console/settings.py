@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
     PG_DATABASE_URL: str = Field(default=...)
+    PROXY_ADMIN_URL: str | None = None
     STREAM_INTERVAL_SECONDS: float = Field(default=2.0, gt=0)
 
 

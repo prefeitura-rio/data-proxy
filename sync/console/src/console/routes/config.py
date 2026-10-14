@@ -3,12 +3,12 @@
 from collections.abc import AsyncIterable
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Header, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import select, update
 
-from console import config, revisions, streaming
+from console import config, proxies, revisions, streaming
 from console.dependencies import Engine, IfMatch, Writing
 from console.models import (
     ActiveRevision,
@@ -82,18 +82,27 @@ async def stream_config(engine: Engine) -> AsyncIterable[ServerSentEvent]:
 
 @router.put("")
 async def put_config(
-    body: dict[str, object], engine: Engine, writing: Writing, response: Response
+    body: dict[str, object],
+    engine: Engine,
+    writing: Writing,
+    response: Response,
+    background: BackgroundTasks,
 ) -> Config | ConfigCheck:
     """Replace the whole config. With dry_run, only check it and list the changes."""
     result = await config.change(engine, writing, lambda _: body)
     if isinstance(result, Config):
         response.headers["ETag"] = f'"{result.revision.id if result.revision else 0}"'
+        background.add_task(proxies.notify, settings.PROXY_ADMIN_URL)
     return result
 
 
 @router.patch("")
 async def patch_config(
-    body: dict[str, object], engine: Engine, writing: Writing, response: Response
+    body: dict[str, object],
+    engine: Engine,
+    writing: Writing,
+    response: Response,
+    background: BackgroundTasks,
 ) -> Config | ConfigCheck:
     """Change part of the config with a JSON Merge Patch. A null value removes a key."""
     result = await config.change(
@@ -101,6 +110,7 @@ async def patch_config(
     )
     if isinstance(result, Config):
         response.headers["ETag"] = f'"{result.revision.id if result.revision else 0}"'
+        background.add_task(proxies.notify, settings.PROXY_ADMIN_URL)
     return result
 
 
@@ -140,7 +150,11 @@ async def get_revision(revision_id: int, engine: Engine) -> RevisionDetail:
 
 @router.post("/revisions/{revision_id}/activate")
 async def activate_revision(
-    revision_id: int, engine: Engine, expected: IfMatch, response: Response
+    revision_id: int,
+    engine: Engine,
+    expected: IfMatch,
+    response: Response,
+    background: BackgroundTasks,
 ) -> Config:
     """Roll back to an older revision by making it the active one."""
     async with engine.begin() as connection:
@@ -155,6 +169,7 @@ async def activate_revision(
             .values(active=True)
         )
     response.headers["ETag"] = f'"{revision_id}"'
+    background.add_task(proxies.notify, settings.PROXY_ADMIN_URL)
     return Config(
         revision=target.model_copy(update={"active": True}),
         document=config.to_api(target.document),

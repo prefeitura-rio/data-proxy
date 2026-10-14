@@ -16,6 +16,14 @@ from console.main import app
 NOW_MS = 1_800_000_000_000
 
 
+@dataclass
+class ProxyAdmin:
+    """A proxy admin server that remembers the paths that it was called with."""
+
+    url: str
+    calls: list[str] = field(default_factory=list)
+
+
 def replace_status(source: WorkflowStatus, status: str) -> WorkflowStatus:
     """Return a copy of a workflow status that has another status."""
     changed = copy(source)

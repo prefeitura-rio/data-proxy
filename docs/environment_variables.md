@@ -25,6 +25,7 @@ The console reads two databases. Both addresses should point at a PgBouncer pool
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database. Use the read/write pooler, because the console enqueues, cancels and updates workflows. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | Schema of the DBOS tables. |
 | `PG_DATABASE_URL` | required | Application database. The console writes the configuration revisions there, so it needs the read/write pooler. |
+| `PROXY_ADMIN_URL` | unset | Reload address of the proxies, for example `http://data-proxy-proxy-admin:8081/reload`. The host name should resolve to every proxy pod, as the headless admin Service does. The console posts to each address after every change of the configuration. |
 | `STREAM_INTERVAL_SECONDS` | `2.0` | Seconds between two polls of a monitoring stream. |
 
 Each pooled connection holds one server connection for its whole life. One console replica opens up to 10: the DBOS client uses at most 5 plus one for notifications, and the database engine of the console opens up to 4 on demand. Keep this in mind when you size `cnpg.pooler.poolSize`. Transaction mode isn't supported: it breaks `LISTEN/NOTIFY`.
