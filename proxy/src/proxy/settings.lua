@@ -1,5 +1,6 @@
 -- The table settings of the proxy: shared by every worker, and replaced when the console changes them.
 
+local constants = require("proxy.constants")
 local sync = require("proxy.sync")
 
 --- The functions that keep the settings in a shared dictionary and read them again after a change.
@@ -62,7 +63,9 @@ function settings.fetch(url)
 	local client, client_error = require("resty.http").new()
 	if client == nil then return nil, client_error end
 	client:set_timeouts(2000, 5000, 5000)
-	local response, reason = client:request_uri(url, { headers = { Accept = "application/json" } })
+	local response, reason = client:request_uri(url, {
+		headers = { Accept = "application/json", ["Accept-Profile"] = constants.internal_profile },
+	})
 	if response == nil then return nil, reason end
 	return { status = response.status, body = response.body, etag = response.headers["ETag"] }
 end

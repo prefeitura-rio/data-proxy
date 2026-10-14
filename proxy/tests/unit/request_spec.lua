@@ -92,6 +92,13 @@ describe("request.make_headers", function()
 	end)
 end)
 
+check("request.asks_for_admin", function(case) return request.asks_for_admin(case.headers) end, {
+	{ name = "lets a request without a profile pass", headers = {}, expected = false },
+	{ name = "lets a data schema pass", headers = { ["Accept-Profile"] = "alpha" }, expected = false },
+	{ name = "refuses the admin profile on a read", headers = { ["Accept-Profile"] = "admin" }, expected = true },
+	{ name = "refuses the admin profile on a write", headers = { ["Content-Profile"] = "admin" }, expected = true },
+})
+
 check("request.jwt_identity", function(case) return request.jwt_identity(case.header) end, {
 	{
 		name = "uses preferred_username first",

@@ -60,7 +60,7 @@ let
         "__REDIS_PORT__" = toString instance.redisPort;
         "__MAX_INFLIGHT__" = toString instance.maxInflight;
         "__ADMIN_PORT__" = toString instance.adminPort;
-        "__CONFIG_URL__" = lib.optionalString instance.console "http://127.0.0.1:${toString instance.readPort}/console/sync.json";
+        "__CONFIG_URL__" = lib.optionalString instance.console "http://127.0.0.1:${toString instance.readPort}/rpc/config";
         "__LUA_ROCKS__" = "${runDir}/rocks";
         "__LUA_LIB__" = "${runDir}/lib";
       };

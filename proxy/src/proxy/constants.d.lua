@@ -5,6 +5,7 @@
 ---@field headers HeaderConstants Names of HTTP headers.
 ---@field limiter LimiterConstants Counter of the requests that wait for PostgREST.
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
+---@field internal_profile string The schema profile that only the cluster may use. The proxy refuses it.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
 ---@field policy_endpoints string[] Path prefixes of the access policy. A write there makes cached answers stale.
 ---@field log LogConstants Log messages and fields.
@@ -32,6 +33,7 @@
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
 ---@field unavailable_status integer
 ---@field overloaded_body string Body of the 503 answer. The proxy sends it when too many requests wait for PostgREST.
+---@field forbidden_body string Body of the 403 answer, for a request that asks for the admin profile.
 ---@field overloaded_status integer
 ---@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.

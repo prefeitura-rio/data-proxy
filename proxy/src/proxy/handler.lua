@@ -58,8 +58,13 @@ end
 ---@param config Config The config from the environment.
 ---@return nil
 function handler.handle(loaded_config, config)
-	local store = Redis(config)
 	local ngx_request = read_nginx_request(config)
+	if request.asks_for_admin(ngx_request.headers_in) then
+		ngx.header["Content-Type"] = "application/json"
+		return ngx_request:respond(ngx.HTTP_FORBIDDEN, constants.http.forbidden_body)
+	end
+
+	local store = Redis(config)
 	if constants.http.read_methods[ngx_request.method] then ngx_request.generation = store:generation() end
 	local route = routing.select(ngx_request.method, config)
 	local context = request.make_context(ngx_request, route, { config = loaded_config, now = ngx.now() })

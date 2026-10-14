@@ -34,6 +34,7 @@ return {
 		unavailable_body = '{"error":"PostgREST unavailable"}',
 		unavailable_status = 502,
 		overloaded_body = '{"error":"Proxy overloaded"}',
+		forbidden_body = '{"error":"The admin schema is not available through the proxy"}',
 		overloaded_status = 503,
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
@@ -42,6 +43,7 @@ return {
 		dict = "proxy_inflight",
 		key = "inflight",
 	},
+	internal_profile = "admin",
 	disabled_endpoints = { "/access_policy" },
 	policy_endpoints = { "/access_policy" },
 	log = {

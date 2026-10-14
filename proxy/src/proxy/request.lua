@@ -74,6 +74,14 @@ function request.make_headers(input)
 	return tablex.pairmap(function(_, name) return value_of(name), name end, names)
 end
 
+--- Tell whether a request asks for the internal profile, which only the cluster may use.
+---@param headers table<string, string|nil> The request headers.
+---@return boolean
+function request.asks_for_admin(headers)
+	local internal = constants.internal_profile
+	return headers["Accept-Profile"] == internal or headers["Content-Profile"] == internal
+end
+
 --- Get the identity from the Authorization header: the user and the schemas.
 --- The anonymous identity is used if the header is not a valid token.
 ---
