@@ -35,6 +35,7 @@ return {
 		unavailable_status = 502,
 	},
 	disabled_endpoints = { "/access_policy" },
+	policy_endpoints = { "/access_policy" },
 	log = {
 		messages = {
 			request = "Proxy request completed",
@@ -49,6 +50,7 @@ return {
 		keepalive_idle_ms = 60000,
 		keepalive_pool_size = 32,
 		warning_interval_s = 30,
+		generation_key = "policy:generation",
 	},
 	postgrest = {
 		timeout_ms = 120000,

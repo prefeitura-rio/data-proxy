@@ -8,6 +8,7 @@
 ---@field body string|nil Request body. nil if the request has none.
 ---@field headers_in table<string,string|nil> Request headers sent by the client.
 ---@field headers_out table<string,string> Response headers that the proxy writes back.
+---@field generation integer Policy generation that the store reports. 0 if unknown, or for a write.
 ---@field cache_ttl string|nil Default cache lifetime in seconds, from config.cache_ttl.
 ---@field max_body string|number|nil Largest cacheable body in bytes, from config.max_body. 0 means no limit.
 ---@field retries integer|nil Number of retry attempts on the retry service, from config.postgrest_retries.

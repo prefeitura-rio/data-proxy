@@ -13,6 +13,7 @@
 ---@field sub string User name taken from the JWT, or anon.
 ---@field schemas string Comma-separated schemas claim of the JWT. Empty if absent.
 ---@field profile string Value of the Accept-Profile header. Empty if absent.
+---@field generation integer Policy generation. A change of the access policy gives every cached answer a new key.
 ---@field headers table<string,string|nil> Request headers that are forwarded to PostgREST.
 
 --- A request with all the values that the proxy needs. It does not depend on nginx.

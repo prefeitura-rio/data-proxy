@@ -209,3 +209,54 @@ end, {
 		expected = { source = "none", reads = 1, writes = 0, loads = 1 },
 	},
 })
+
+check("cache.changes_policy", function(case) return cache.changes_policy(case.context, case.response) end, {
+	{
+		name = "is true for a successful insert into the access policy",
+		context = context_with({ method = "POST", uri = "/access_policy" }),
+		response = response_with({ status = 201 }),
+		expected = true,
+	},
+	{
+		name = "is true for a successful delete in the access policy",
+		context = context_with({ method = "DELETE", uri = "/access_policy" }),
+		response = response_with({ status = 204 }),
+		expected = true,
+	},
+	{
+		name = "is true for a successful update below the access policy path",
+		context = context_with({ method = "PATCH", uri = "/access_policy/1" }),
+		response = response_with({ status = 200 }),
+		expected = true,
+	},
+	{
+		name = "is false when the write failed",
+		context = context_with({ method = "POST", uri = "/access_policy" }),
+		response = response_with({ status = 403 }),
+		expected = false,
+	},
+	{
+		name = "is false for a read of the access policy",
+		context = context_with({ method = "GET", uri = "/access_policy" }),
+		response = response_with({ status = 200 }),
+		expected = false,
+	},
+	{
+		name = "is false for a write to another table",
+		context = context_with({ method = "POST", uri = "/people" }),
+		response = response_with({ status = 201 }),
+		expected = false,
+	},
+	{
+		name = "is false for a path that only starts with the same letters",
+		context = context_with({ method = "POST", uri = "/access_policy_extra" }),
+		response = response_with({ status = 201 }),
+		expected = false,
+	},
+	{
+		name = "is false when PostgREST did not answer",
+		context = context_with({ method = "POST", uri = "/access_policy" }),
+		response = nil,
+		expected = false,
+	},
+})

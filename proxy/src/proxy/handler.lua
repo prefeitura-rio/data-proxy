@@ -2,6 +2,7 @@
 
 local Redis = require("proxy.redis")
 local cache = require("proxy.cache")
+local constants = require("proxy.constants")
 local postgrest = require("proxy.postgrest")
 local request = require("proxy.request")
 local response = require("proxy.response")
@@ -36,6 +37,7 @@ local function read_nginx_request(config)
 		uri = ngx.var.uri,
 		args = ngx.var.args or "",
 		body = read_body(),
+		generation = 0,
 		headers_in = ngx.req.get_headers() --[[@as table<string,string|nil>]],
 		headers_out = ngx.header --[[@as table<string,string>]],
 		cache_ttl = config.cache_ttl,
@@ -55,11 +57,14 @@ end
 ---@param config Config The config from the environment.
 ---@return nil
 function handler.handle(loaded_config, config)
+	local store = Redis(config)
 	local ngx_request = read_nginx_request(config)
+	if constants.http.read_methods[ngx_request.method] then ngx_request.generation = store:generation() end
 	local route = routing.select(ngx_request.method, config)
 	local context = request.make_context(ngx_request, route, { config = loaded_config, now = ngx.now() })
 	local cache_key = request.cache_key(context)
-	local result = cache.fetch(context, cache_key, function() return postgrest.query(context) end, Redis(config))
+	local result = cache.fetch(context, cache_key, function() return postgrest.query(context) end, store)
+	if cache.changes_policy(context, result.response) then store:bump_generation() end
 
 	response.send(ngx_request, context, result)
 end

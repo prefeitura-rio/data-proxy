@@ -78,6 +78,45 @@ function Redis:read(key)
 	return (schemas.cached_entry:validate(cjson.decode(raw)))
 end
 
+--- Read the policy generation: a counter that grows each time the access policy changes.
+--- Every cache key includes it, so a change makes all earlier entries unreachable.
+---@return integer generation 0 if no change was counted, or if Redis does not answer.
+function Redis:generation()
+	local connection, open_error = self:open()
+	if not connection then
+		warn("connection", open_error)
+		return 0
+	end
+
+	local raw, read_error = connection:get(constants.redis.generation_key)
+	self:release(connection)
+	if read_error then
+		warn("read", read_error)
+		return 0
+	end
+
+	return tonumber(raw) or 0
+end
+
+--- Count one change of the access policy.
+---@return boolean counted false if Redis did not answer.
+function Redis:bump_generation()
+	local connection, open_error = self:open()
+	if not connection then
+		warn("connection", open_error)
+		return false
+	end
+
+	local count, incr_error = connection:incr(constants.redis.generation_key)
+	self:release(connection)
+	if not count then
+		warn("write", incr_error)
+		return false
+	end
+
+	return true
+end
+
 --- Store one entry. The entry expires after the TTL.
 ---@param key string Cache key.
 ---@param ttl string|number Lifetime in seconds.

@@ -109,6 +109,7 @@ function request.cache_identity(parts)
 		parts.headers.Prefer or "",
 		request.normalize_accept(parts.headers.Accept or ""),
 		parts.headers["X-DuckLake-Snapshot"] or "",
+		tostring(parts.generation or 0),
 	}
 end
 
@@ -146,6 +147,7 @@ function request.make_context(input, route, deps)
 		sub = identity.sub,
 		schemas = identity.schemas,
 		profile = input.headers_in["Accept-Profile"] or "",
+		generation = input.generation,
 		headers = request.make_headers(input),
 		postgrest = route.postgrest,
 		retry_postgrest = route.retry_postgrest,

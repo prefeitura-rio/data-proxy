@@ -66,6 +66,23 @@ function cache.to_entry(response)
 	return { body = response.body, headers = utils.pick(response.headers, constants.headers.cached) }
 end
 
+--- Check if a response means that the access policy changed: a successful write to the access policy path.
+--- Every cached answer depends on the policy, so the proxy then moves to a new policy generation.
+---
+--- ```lua
+--- cache.changes_policy({ method = "POST", uri = "/access_policy" }, { status = 201 })  --> true
+--- cache.changes_policy({ method = "GET", uri = "/access_policy" }, { status = 200 })   --> false
+--- ```
+---@param context RequestContext
+---@param response Response|nil The answer of PostgREST. nil if it did not answer.
+---@return boolean changed
+function cache.changes_policy(context, response)
+	if not response or constants.http.read_methods[context.method] then return false end
+	if response.status < 200 or response.status >= 300 then return false end
+
+	return utils.matches_path_prefix(context.uri, constants.policy_endpoints)
+end
+
 --- Fetch the answer of a request: from the cache, or from PostgREST, which the proxy then stores.
 --- The load function runs only if the cache has no answer.
 ---

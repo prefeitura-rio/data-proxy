@@ -163,6 +163,12 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		expected = "",
 	},
 	{
+		name = "copies the policy generation from the nginx request",
+		input = { method = "GET", uri = "/other", headers_in = {}, generation = 5 },
+		field = "generation",
+		expected = 5,
+	},
+	{
 		name = "uses the time that the caller gives",
 		input = { method = "GET", uri = "/other", headers_in = {} },
 		field = "started",
@@ -216,6 +222,7 @@ local function key_parts()
 		sub = "user",
 		schemas = "test",
 		profile = "test",
+		generation = 0,
 		headers = {},
 	}
 end
@@ -235,7 +242,7 @@ describe("request.cache_identity", function()
 		parts.headers =
 			{ Range = "items=0-1", Prefer = "count=exact", Accept = "text/csv", ["X-DuckLake-Snapshot"] = "7" }
 		assert.same(
-			{ "GET", "/t", "id=eq.1", "user", "test", "test", "items=0-1", "count=exact", "text/csv", "7" },
+			{ "GET", "/t", "id=eq.1", "user", "test", "test", "items=0-1", "count=exact", "text/csv", "7", "0" },
 			request.cache_identity(parts)
 		)
 	end)
@@ -244,7 +251,7 @@ describe("request.cache_identity", function()
 		"uses empty texts and the default media type for missing headers",
 		function()
 			assert.same(
-				{ "GET", "/t", "id=eq.1", "user", "test", "test", "", "", "application/json", "" },
+				{ "GET", "/t", "id=eq.1", "user", "test", "test", "", "", "application/json", "", "0" },
 				request.cache_identity(key_parts())
 			)
 		end
@@ -269,6 +276,7 @@ describe("request.cache_identity", function()
 		{ name = "the user", change = function(parts) parts.sub = "other" end, not_expected = base },
 		{ name = "the schemas", change = function(parts) parts.schemas = "other" end, not_expected = base },
 		{ name = "the profile", change = function(parts) parts.profile = "other" end, not_expected = base },
+		{ name = "the policy generation", change = function(parts) parts.generation = 1 end, not_expected = base },
 		{
 			name = "the Range header",
 			change = function(parts) parts.headers.Range = "items=0-1" end,

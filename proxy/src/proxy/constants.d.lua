@@ -5,6 +5,7 @@
 ---@field headers HeaderConstants Names of HTTP headers.
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
+---@field policy_endpoints string[] Path prefixes of the access policy. A write there makes cached answers stale.
 ---@field log LogConstants Log messages and fields.
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
@@ -43,6 +44,7 @@
 ---@field keepalive_idle_ms integer
 ---@field keepalive_pool_size integer
 ---@field warning_interval_s integer Seconds between two warnings about a failed cache operation.
+---@field generation_key string Redis key of the policy generation, a counter that is part of every cache key.
 
 --- Limits for the calls to PostgREST.
 ---@class PostgrestConstants
