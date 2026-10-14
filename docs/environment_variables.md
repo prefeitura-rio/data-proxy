@@ -73,9 +73,6 @@ Each pooled connection holds one server connection for its whole life. One conso
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DUMPER_BATCH_BYTES` | `629145600` | Uncompressed batch target in bytes. |
-| `DUMPER_BATCH_MAX_PARTITIONS` | `256` | Maximum partitions in one task. |
-| `DUMPER_SCRATCH_DIR` | system temporary directory | Local extraction scratch directory. |
 | `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
 
 ## Auth and proxy

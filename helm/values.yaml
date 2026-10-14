@@ -24,8 +24,6 @@ sync:
   ## Maximum concurrent run_sync workflows across all workers.
   ## One at a time prevents overlapping sync runs.
   queueConcurrency: 1
-  ## Maximum number of Parquet files one dump task processes before the next task.
-  dumpTaskFileLimit: 256
   ## Maximum DBOS step retry attempts for one dump task.
   dumpStepMaxAttempts: 3
   ## Maximum attempts for safe transient DBOS steps.

@@ -468,12 +468,6 @@ jwtRules:
   value: /config/sync.json
 - name: PROXY_CACHE_REDIS_DB
   value: {{ .Values.proxy.cacheRedisDb | quote }}
-- name: DUMPER_BATCH_BYTES
-  value: "0"
-- name: DUMPER_BATCH_MAX_PARTITIONS
-  value: {{ .Values.sync.dumpTaskFileLimit | quote }}
-- name: DUMPER_SCRATCH_DIR
-  value: /tmp
 - name: DUMP_QUEUE_MAX_ATTEMPTS
   value: {{ .Values.sync.dumpStepMaxAttempts | quote }}
 - name: DUMP_QUEUE_RATE_LIMIT

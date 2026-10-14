@@ -27,8 +27,6 @@ triggers:
 | `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
 | `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
-| `dumper.batchMegaBytes` | `600` | Uncompressed batch target in MiB. |
-| `dumper.batchMaxPartitions` | `256` | Maximum partitions in one batch. |
 
 ## Catalogs
 
