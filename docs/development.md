@@ -174,14 +174,6 @@ Run `cluster k6 e2e` after changing local images, sync configuration, fallback, 
 
 `MODE` in `k6/e2e.yaml` is `single` or `ha` and identifies the topology that the mode checks verify.
 
-### Run the suite on GitHub
-
-The `E2E` workflow in `.github/workflows/e2e.yaml` runs `cluster up`, then the single and HA suites, on a GitHub runner. Start it by hand from the Actions tab. It needs the secret `GCP_SA_KEY`: a service account key with access to the BigQuery fixtures in `rj-ia-desenvolvimento.dev`.
-
-The suite changes the shared `snapshot_table` fixture, so the workflow uses one concurrency group and never runs two copies at once. Don't run the suite on your machine while the workflow runs.
-
-A run takes about 40 minutes. The workflow hasn't run on GitHub yet, so expect to adjust the Podman setup on the first run. A fully hermetic suite needs a second source type that doesn't use BigQuery. Add it behind the `Source` protocol in `sync/src/sync/sources/`.
-
 ## Development checks
 
 Run the static and focused checks with devenv tasks:
