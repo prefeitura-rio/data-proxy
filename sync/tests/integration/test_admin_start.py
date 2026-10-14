@@ -18,7 +18,7 @@ async def configure(connection: psycopg.AsyncConnection) -> None:
     """Make one revision with the schema alpha the active configuration."""
     await connection.execute(b"DELETE FROM data_proxy.revisions")
     await connection.execute(
-        b"INSERT INTO data_proxy.revisions (author, document, valid, active) VALUES ('ana', %s, TRUE, TRUE)",
+        b"INSERT INTO data_proxy.revisions (author, document, valid, active, activated_at) VALUES ('ana', %s, TRUE, TRUE, now())",
         (Jsonb(CONFIG),),
     )
 
@@ -92,19 +92,27 @@ class TestWorkerRunsStartedSync:
         identifier = await start(admin_db, "ARRAY['alpha'], ARRAY['p.d.one']")
         await admin_db.commit()
 
-        status = "ENQUEUED"
-        for _ in range(100):
-            result = await rows(
-                admin_db,
-                f"SELECT status FROM admin.runs WHERE id = '{identifier}'",
-            )
-            await admin_db.commit()
-            status = str(result[0][0])
-            if status not in {"ENQUEUED", "PENDING"}:
-                break
-            await asyncio.sleep(0.1)
+        try:
+            status = "ENQUEUED"
+            for _ in range(100):
+                result = await rows(
+                    admin_db,
+                    f"SELECT status FROM admin.runs WHERE id = '{identifier}'",
+                )
+                await admin_db.commit()
+                status = str(result[0][0])
+                if status not in {"ENQUEUED", "PENDING"}:
+                    break
+                await asyncio.sleep(0.1)
 
-        assert (status, sync_worker) == (
-            "SUCCESS",
-            [SyncScope(schemas=["alpha"], tables=["p.d.one"])],
-        )
+            assert (status, sync_worker) == (
+                "SUCCESS",
+                [SyncScope(schemas=["alpha"], tables=["p.d.one"])],
+            )
+        finally:
+            await admin_db.execute(
+                b"DELETE FROM dbos.workflow_status WHERE workflow_uuid = %s",
+                (identifier,),
+            )
+            await admin_db.execute(b"DELETE FROM data_proxy.revisions")
+            await admin_db.commit()
