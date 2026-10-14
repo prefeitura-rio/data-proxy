@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING
 
 from dbos import DBOSClient
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from console import routes
 from console.database import create_engine
-from console.problems import Problem, problem_handler
+from console.problems import Problem, problem_handler, validation_handler
 from console.registry import discover_routers
 from console.settings import settings
 
@@ -36,6 +37,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
 
 app = FastAPI(title="Data Proxy sync console", lifespan=lifespan)
 app.add_exception_handler(Problem, problem_handler)
+app.add_exception_handler(RequestValidationError, validation_handler)
 
 for router in discover_routers(routes):
     app.include_router(router)

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from dbos import StepInfo, WorkflowStatus
+from dbos._error import DBOSException  # ruff: ignore[import-private-name]
 from httpx2 import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from starlette.types import Message, Scope
@@ -117,6 +118,7 @@ class FakeClient:
     enqueued: list[tuple[dict[str, object], tuple[object, ...]]] = field(
         default_factory=list
     )
+    applied: list[dict[str, object]] = field(default_factory=list)
 
     def poll[T](self, kind: str, values: list[T]) -> T:
         """Return the value for the next poll of one kind. The last value repeats."""
@@ -176,6 +178,81 @@ class FakeClient:
         """Record the enqueue and return a handle with a fixed workflow id."""
         self.enqueued.append((options, args))
         return FakeHandle()
+
+    async def retrieve_queue_async(self, name: str) -> FakeQueue | None:
+        """Return one queue by name, or None."""
+        return next((queue for queue in self.queues if queue.name == name), None)
+
+    async def register_queue_async(  # ruff: ignore[too-many-arguments]
+        self,
+        name: str,
+        *,
+        global_concurrency: int | None = None,
+        worker_concurrency: int | None = None,
+        limiter: dict[str, float] | None = None,
+        partition_concurrency: int | None = None,
+        partition_worker_concurrency: int | None = None,
+        partition_limiter: dict[str, float] | None = None,
+        polling_interval_sec: float = 1.0,
+        on_conflict: str = "always_update",
+    ) -> FakeQueue:
+        """Replace the whole queue, and refuse a worker limit above the global one, like DBOS."""
+        assert on_conflict == "always_update"
+        if (
+            worker_concurrency is not None
+            and global_concurrency is not None
+            and worker_concurrency > global_concurrency
+        ):
+            raise ValueError(
+                "concurrency must be greater than or equal to worker_concurrency"
+            )
+        queue = FakeQueue(
+            name,
+            global_concurrency,
+            worker_concurrency,
+            limiter,
+            partition_concurrency,
+            partition_worker_concurrency,
+            partition_limiter,
+            polling_interval_sec,
+        )
+        self.queues = [item for item in self.queues if item.name != name] + [queue]
+        return queue
+
+    async def apply_schedules_async(self, entries: list[dict[str, object]]) -> None:
+        """Replace each schedule, which becomes active again, and refuse a cron without 5 or 6 fields."""
+        for entry in entries:
+            if len(str(entry["schedule"]).split()) not in {5, 6}:
+                raise DBOSException(f"Invalid cron schedule: '{entry['schedule']}'")
+            self.schedules = [
+                item
+                for item in self.schedules
+                if item["schedule_name"] != entry["schedule_name"]
+            ] + [
+                schedule(
+                    schedule_name=entry["schedule_name"],
+                    workflow_name=entry["workflow_name"],
+                    schedule=entry["schedule"],
+                    cron_timezone=entry.get("cron_timezone"),
+                    queue_name=entry.get("queue_name"),
+                    automatic_backfill=entry.get("automatic_backfill", False),
+                )
+            ]
+        self.applied.extend(entries)
+
+    def pause_schedule(self, name: str) -> None:
+        """Pause one schedule."""
+        self.set_status(name, "PAUSED")
+
+    def resume_schedule(self, name: str) -> None:
+        """Resume one schedule."""
+        self.set_status(name, "ACTIVE")
+
+    def set_status(self, name: str, status: str) -> None:
+        """Change the status of one schedule."""
+        for item in self.schedules:
+            if item["schedule_name"] == name:
+                item["status"] = status
 
     async def check_connection_async(self) -> None:
         """Fail like the DBOS client does when the database is down."""

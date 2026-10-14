@@ -148,6 +148,22 @@ class Schedule(BaseModel):
     queue: str | None
 
 
+class QueuePatch(BaseModel):
+    """The limits of a queue to change. A field that is left out stays, and null removes a limit."""
+
+    global_concurrency: Annotated[int | None, Field(ge=1)] = None
+    worker_concurrency: Annotated[int | None, Field(ge=1)] = None
+    rate_limit: RateLimit | None = None
+
+
+class SchedulePatch(BaseModel):
+    """The parts of a schedule to change. A field that is left out stays."""
+
+    cron: str | None = Field(default=None, min_length=1)
+    timezone: str | None = None
+    status: Literal["ACTIVE", "PAUSED"] | None = None
+
+
 class LogLine(BaseModel):
     """One line of the log that a workflow wrote to its DBOS stream."""
 

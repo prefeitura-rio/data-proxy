@@ -70,6 +70,16 @@ The server polls every `STREAM_INTERVAL_SECONDS` and sends an event only when th
 
 `GET /runs` and `GET /runs/{id}` show the sync runs and their steps. The steps that DBOS records for itself are hidden unless the request has `?include_internal=true`. `GET /queues` and `GET /schedules` show the queue limits, the queue depths and the cron schedules.
 
+## Queues and schedules
+
+`PATCH /queues/{name}` changes the limits of a queue with a JSON Merge Patch: `global_concurrency`, `worker_concurrency` and `rate_limit` (`{"limit": 100, "period_seconds": 60}`). A field that the body leaves out stays, and null removes a limit. DBOS refuses limits that contradict each other, for example a worker limit above the global limit, and the answer is 422. The partition limits and the polling interval stay as they are.
+
+`PATCH /schedules/{name}` changes `cron`, `timezone` or `status` (`ACTIVE` or `PAUSED`) the same way. A new cron or time zone replaces the schedule, which resets its last fire time. A paused schedule stays paused. A cron that DBOS can't parse gets 422 with the pointer `/cron`.
+
+The engine creates its queues and its schedule only when they don't exist, so a restart or a new worker keeps what the console set. A write has no `ETag`: the last write wins.
+
+Every 422, also for a body that doesn't match the model, is `application/problem+json` with a JSON Pointer to the field.
+
 ## Starting a run
 
 `POST /syncs` starts a sync run now and answers `202` with `{"workflow_id": "…"}` and a `Location` header for `GET /runs/{id}`. The run waits on the sync queue, so it never overlaps another run.

@@ -2,12 +2,14 @@
 
 from typing import TYPE_CHECKING
 
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+from console.models import ErrorItem
 
 if TYPE_CHECKING:
     from fastapi import Request
-
-    from console.models import ErrorItem
+    from pydantic_core import ErrorDetails
 
 
 class Problem(Exception):  # ruff: ignore[error-suffix-on-exception-name]
@@ -25,6 +27,20 @@ class Problem(Exception):  # ruff: ignore[error-suffix-on-exception-name]
         self.status = status
         self.title = title
         self.errors = errors or []
+
+
+def validation_handler(request: Request, error: Exception) -> JSONResponse:
+    """Turn a request that FastAPI refuses into a problem+json answer, with JSON Pointers."""
+    if not isinstance(error, RequestValidationError):
+        raise error
+    details: list[ErrorDetails] = list(error.errors())
+    errors = [
+        ErrorItem(
+            pointer="".join(f"/{part}" for part in item["loc"][1:]), message=item["msg"]
+        )
+        for item in details
+    ]
+    return problem_handler(request, Problem(422, "The request isn't valid", errors))
 
 
 def problem_handler(_: Request, error: Exception) -> JSONResponse:
