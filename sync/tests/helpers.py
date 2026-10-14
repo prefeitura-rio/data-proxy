@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import hmac
 import json
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -60,6 +63,7 @@ from sync.types import (
 from tests.constants import (
     HELM_SQL,
     PARQUET,
+    POSTGREST_AUTH,
     ROUTED_TABLE,
     SILO_ENDPOINT,
     TEST_SQL_DIR,
@@ -671,3 +675,14 @@ async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]
 async def become(connection: AsyncConnection, role: str) -> None:
     """Switch the session to one role, as PostgREST does for a JWT."""
     await connection.execute(SQL("SET ROLE {}").format(Identifier(role)))
+
+
+def sign_token(claims: dict[str, str]) -> str:
+    """Sign an HS256 token with the secret of the test PostgREST instance."""
+    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
+    payload = base64.urlsafe_b64encode(
+        json.dumps(claims, separators=(",", ":")).encode()
+    ).rstrip(b"=")
+    message = header + b"." + payload
+    signature = hmac.new(POSTGREST_AUTH.encode(), message, hashlib.sha256).digest()
+    return f"{message.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"

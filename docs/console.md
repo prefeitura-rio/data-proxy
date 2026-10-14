@@ -38,6 +38,23 @@ Admins call `POST /rpc/activate_revision` with a revision `id`. The function ref
 
 Operators change a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. They can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
 
+## HTTP interface
+
+The console talks to PostgREST only. `sync/tests/integration/test_console_http.py` tests this contract against the PostgREST process of `devenv test`.
+
+- Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
+- Send `Prefer: return=representation` to get the written row back.
+- Reads are `GET /runs`, `GET /schemas`, and the other views. Drafts are `POST /drafts` and `PATCH /drafts?id=eq.<id>`. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`. Functions are `POST /rpc/start_sync` and `POST /rpc/activate_revision`.
+
+| Status | Meaning |
+| --- | --- |
+| 200, 201 | Done, with the row or the value in the body. |
+| 204 | Done, and there is nothing to return. `activate_revision` answers this way. |
+| 400 | The value is wrong: a bad document, a bad queue limit, a revision that didn't pass validation, or an unknown schema. The body has the reason. |
+| 401 | No token, or an anonymous one. |
+| 403 | The level of the token isn't enough. |
+| 404 | The revision doesn't exist. |
+
 ## Direction
 
 The database is the API. The console reads these views, and it writes through the read/write PostgREST with the same pattern as `access_policy`: a database role per capability, grants and row-level security. The sync worker does what SQL can't: it validates a draft configuration with its own model, and it runs commands such as a sync run. A SQL function starts a run with `dbos.enqueue_workflow`, so the console needs no DBOS client.

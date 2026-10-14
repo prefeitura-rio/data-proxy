@@ -1,6 +1,3 @@
-import base64
-import hashlib
-import hmac
 import json
 from typing import cast
 from urllib.error import HTTPError
@@ -10,23 +7,13 @@ import hypothesis.strategies as st
 import pytest
 from hypothesis import given, settings
 
-from tests.constants import POSTGREST_AUTH
 from tests.fixtures.types import Postgrest
+from tests.helpers import sign_token
 
 
 def token_for(subject: str) -> str:
-    """Build the HS256 token accepted by the test PostgREST instance."""
-    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"role": "anon", "sub": subject}, separators=(",", ":")).encode()
-    ).rstrip(b"=")
-    message = header + b"." + payload
-    signature = hmac.new(POSTGREST_AUTH.encode(), message, hashlib.sha256).digest()
-    return (
-        ".".join(part.decode() for part in (message.split(b".")))
-        + "."
-        + base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
-    )
+    """Build the token of an anonymous-role user for the test PostgREST instance."""
+    return sign_token({"role": "anon", "sub": subject})
 
 
 def postgrest_rows(
