@@ -1,6 +1,6 @@
 """Routes that follow one workflow."""
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncGenerator, AsyncIterable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query
@@ -29,7 +29,7 @@ async def get_logs(
     reconnects with ``Last-Event-ID`` resumes at the next line.
     """
     position = offset if last_event_id is None else last_event_id + 1
-    stream: AsyncIterable[object] = client.read_stream_async(
+    stream: AsyncGenerator[object] = client.read_stream_async(
         workflow_id, "logs", offset=position
     )
     async for value in stream:
