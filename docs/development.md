@@ -69,6 +69,10 @@ PostgreSQL starts empty on every run. The other services keep their files in `.d
 
 To add another test container, declare `processes.<name> = mkPodmanProcess { ... }` with the function from `nix/lib.nix`, as `nix/processes/postgres.nix` does. Set `build.file` to build a Containerfile or `image` to run an existing image. Use `before` for shell lines that run before the container starts, and `ready` for a command that runs in the container. For a one-shot step after the container is ready, declare a normal process `after-<name>` with `after = [ "devenv:processes:<name>" ]`. The function uses the host Podman, or the engine in `CONTAINER_RUNTIME`.
 
+## CI on branches
+
+CI runs the lint and the unit and integration tests on pull requests and on pushes to `main` and `staging`. Only `main` builds and pushes images and releases the chart, so a push to `staging` checks the code and builds nothing.
+
 ## Chart releases
 
 CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
