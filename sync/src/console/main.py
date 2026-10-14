@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from console import routes
 from console.registry import discover_routers
-from sync.settings import settings
+from console.settings import settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
