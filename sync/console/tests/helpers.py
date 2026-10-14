@@ -1,14 +1,13 @@
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from dbos import StepInfo, WorkflowStatus
-from httpx2 import ASGITransport, AsyncClient
-from psycopg_pool import PoolTimeout
+from httpx2 import ASGITransport, AsyncClient, Response
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from whenever import Instant
 
-from console.dependencies import get_client, get_pool
+from console.dependencies import get_client, get_engine
 from console.main import app
 
 NOW_MS = 1_800_000_000_000
@@ -128,52 +127,35 @@ class FakeClient:
             raise ConnectionError("database is down")
 
 
-class FakeConnection:
-    """A database connection that records the queries that it runs."""
-
-    queries: list[str]
-
-    def __init__(self, queries: list[str]) -> None:
-        """Share the list of queries with the pool."""
-        self.queries = queries
-
-    async def execute(self, query: str) -> None:
-        """Record the query."""
-        self.queries.append(query)
+def unreachable_engine() -> AsyncEngine:
+    """Return an engine for a database that nobody listens on. It connects only when used."""
+    return create_async_engine("postgresql+psycopg://nobody@127.0.0.1:1/nobody")
 
 
-class FakePool:
-    """A connection pool that answers from memory."""
-
-    reachable: bool
-    queries: list[str]
-
-    def __init__(self, *, reachable: bool = True) -> None:
-        """Create a pool whose database is reachable or not."""
-        self.reachable = reachable
-        self.queries = []
-
-    @asynccontextmanager
-    async def connection(self, *, timeout: float) -> AsyncGenerator[FakeConnection]:
-        """Hand out a connection, or time out like the real pool does."""
-        if not self.reachable:
-            raise PoolTimeout(f"pool is down after {timeout} s")
-        yield FakeConnection(self.queries)
-
-
-async def request_to(
-    fake: FakeClient, path: str, pool: FakePool | None = None
-) -> tuple[int, Any]:
-    """Send one GET request to the app, with fakes in place of DBOS and the pool."""
-    app.dependency_overrides[get_client] = lambda: fake
-    app.dependency_overrides[get_pool] = lambda: pool or FakePool()
+async def send(
+    method: str,
+    path: str,
+    fake: FakeClient | None = None,
+    engine: AsyncEngine | None = None,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """Send one request to the app, with a fake DBOS client and the given database engine."""
+    app.dependency_overrides[get_client] = lambda: fake or FakeClient()
+    app.dependency_overrides[get_engine] = lambda: engine or unreachable_engine()
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as http:
-            response = await http.get(path)
+            return await http.request(method, path, headers=headers)
     finally:
         app.dependency_overrides.clear()
+
+
+async def request_to(
+    fake: FakeClient, path: str, engine: AsyncEngine | None = None
+) -> tuple[int, Any]:
+    """Send one GET request and return the status and the JSON body."""
+    response = await send("GET", path, fake, engine)
     return response.status_code, response.json()
 
 
@@ -181,14 +163,7 @@ async def events_from(
     fake: FakeClient, path: str, headers: dict[str, str] | None = None
 ) -> tuple[int, list[dict[str, str]]]:
     """Read a server-sent event stream and return its events as field maps."""
-    app.dependency_overrides[get_client] = lambda: fake
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as http:
-            response = await http.get(path, headers=headers)
-    finally:
-        app.dependency_overrides.clear()
+    response = await send("GET", path, fake, headers=headers)
 
     events: list[dict[str, str]] = []
     for block in response.text.split("\n\n"):

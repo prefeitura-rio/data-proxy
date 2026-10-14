@@ -4,7 +4,7 @@ from typing import Annotated
 
 from dbos import DBOSClient
 from fastapi import Depends, HTTPException
-from psycopg_pool import AsyncConnectionPool
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from console.state import AppRequest
 
@@ -14,13 +14,13 @@ def get_client(request: AppRequest) -> DBOSClient:
     return request.state["client"]
 
 
-def get_pool(request: AppRequest) -> AsyncConnectionPool:
-    """Return the connection pool that the lifespan opened at startup."""
-    return request.state["pool"]
+def get_engine(request: AppRequest) -> AsyncEngine:
+    """Return the database engine that the lifespan created at startup."""
+    return request.state["engine"]
 
 
 Client = Annotated[DBOSClient, Depends(get_client)]
-Pool = Annotated[AsyncConnectionPool, Depends(get_pool)]
+Engine = Annotated[AsyncEngine, Depends(get_engine)]
 
 
 async def require_workflow(workflow_id: str, client: Client) -> None:

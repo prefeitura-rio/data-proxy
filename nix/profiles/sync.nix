@@ -48,7 +48,7 @@
           exec = ''
             set -e
             (cd engine && uv run --frozen pytest tests/unit)
-            (cd console && uv run --frozen pytest)
+            (cd console && uv run --frozen pytest -m "not postgres")
           '';
           execIfModified = [
             "sync/**/*.py"

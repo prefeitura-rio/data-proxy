@@ -7,9 +7,10 @@ dependencies = [
   "dbos",
   "fastapi>=0.142.2",
   "granian[uvloop]>=2.8.4",
-  "psycopg[binary,pool]",
+  "psycopg[binary]",
   "pydantic",
   "pydantic-settings",
+  "sqlalchemy[asyncio]",
   "whenever",
 ]
 
@@ -24,6 +25,7 @@ strict = true
 addopts = ["--import-mode=importlib"]
 env_files = ["../.env.test"]
 pythonpath = ["tests"]
+markers = ["postgres: tests that need the PostgreSQL test service"]
 
 [tool.ruff]
 extend = "../pyproject.toml"

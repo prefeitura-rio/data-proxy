@@ -6,14 +6,14 @@ from fastapi import Request
 
 if TYPE_CHECKING:
     from dbos import DBOSClient
-    from psycopg_pool import AsyncConnectionPool
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class AppState(TypedDict):
     """The values that the lifespan opens at startup and shares with every request."""
 
     client: DBOSClient
-    pool: AsyncConnectionPool
+    engine: AsyncEngine
 
 
 class AppRequest(Request[AppState]):

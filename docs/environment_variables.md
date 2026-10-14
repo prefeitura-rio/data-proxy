@@ -25,7 +25,7 @@ The console reads two databases. Both addresses should point at a PgBouncer pool
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | Schema of the DBOS tables. |
 | `PG_DATABASE_URL` | required | Application database. The read-only pooler is enough, because the console only reads. |
 
-Each pooled connection holds one server connection for its whole life. One console replica opens up to 10: the DBOS client uses at most 5 plus one for notifications, and its `psycopg` pool grows from 1 to 4. Keep this in mind when you size `cnpg.pooler.poolSize`. Transaction mode isn't supported: it breaks `LISTEN/NOTIFY`.
+Each pooled connection holds one server connection for its whole life. One console replica opens up to 10: the DBOS client uses at most 5 plus one for notifications, and the database engine of the console opens up to 4 on demand. Keep this in mind when you size `cnpg.pooler.poolSize`. Transaction mode isn't supported: it breaks `LISTEN/NOTIFY`.
 
 ## S3 and DuckLake
 

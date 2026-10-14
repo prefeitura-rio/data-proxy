@@ -1,10 +1,12 @@
 """Liveness and readiness probes."""
 
+import asyncio
 from logging import getLogger
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import text
 
-from console.dependencies import Client, Pool
+from console.dependencies import Client, Engine
 from console.models import Status
 
 router = APIRouter(tags=["health"])
@@ -17,12 +19,12 @@ async def health() -> Status:
 
 
 @router.get("/ready")
-async def ready(client: Client, pool: Pool) -> Status:
+async def ready(client: Client, engine: Engine) -> Status:
     """Report that the DBOS system database and the app database answer."""
     try:
         await client.check_connection_async()
-        async with pool.connection(timeout=2) as connection:
-            await connection.execute("SELECT 1")
+        async with asyncio.timeout(2), engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
     except Exception as error:
         getLogger(__name__).exception("Readiness check failed")
         raise HTTPException(status_code=503, detail="database unavailable") from error

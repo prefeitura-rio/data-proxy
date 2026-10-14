@@ -25,6 +25,7 @@ constraint-dependencies = [
   "psycopg>=3.3.4",
   "pydantic>=2.13.4",
   "pydantic-settings>=2.14.2",
+  "sqlalchemy>=2.0.54",
   "uvloop>=0.23.0",
   "whenever>=0.10.5",
 ]
