@@ -8,6 +8,7 @@ on:
       - .github/actions/**
       - sync/**
       - k3d/**
+      - nix/**
       - proxy/**
       - helm/**
       - scripts/**
