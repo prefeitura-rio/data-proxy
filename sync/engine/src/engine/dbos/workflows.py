@@ -2,9 +2,9 @@
 
 from typing import TYPE_CHECKING
 
-from dbos import DBOS, SetWorkflowTimeout, WorkflowHandleAsync
+from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
 
-from engine.constants import DUMP_QUEUE, REFRESH_QUEUE, publish_queue
+from engine.constants import DUMP_QUEUE, PUBLISH_QUEUE, REFRESH_QUEUE
 from engine.log import schemaname, tablename
 from engine.metrics import observe
 from engine.models import DumpResult, DumpStatus, DumpTask, SyncPlan
@@ -21,6 +21,7 @@ from .steps import (
     find_lagging_snapshots,
     list_instance_claims,
     list_serving_deployments,
+    load_sync_config,
     record_dump_failure,
     record_dump_metrics,
     record_publish_metrics,
@@ -63,17 +64,17 @@ async def dump_task(task: DumpTask) -> DumpResult:
 
 @DBOS.workflow()
 async def publish_schema(
-    run_id: str, plan: SyncPlan, failed_paths: set[str]
+    run_id: str, plan: SyncPlan, failed_paths: set[str], document: str
 ) -> int | None:
     """Publish and maintain one schema, then return its new snapshot, if any."""
     schemaname.set(plan.schema_name)
 
     await logs.info("Publish started", run_id=run_id)
 
-    outcome = await commit_ducklake_snapshot(plan, failed_paths)
+    outcome = await commit_ducklake_snapshot(plan, failed_paths, document)
 
     await record_publish_metrics(outcome, plan.schema_name)
-    await commit_table_state(plan, outcome)
+    await commit_table_state(plan, outcome, document)
     await logs.info(
         "Publish completed",
         run_id=run_id,
@@ -84,7 +85,7 @@ async def publish_schema(
         return None
 
     try:
-        return await apply_ducklake_maintenance(plan.schema_name)
+        return await apply_ducklake_maintenance(plan.schema_name, document)
     except Exception as error:
         await logs.error("DuckLake maintenance failed", run_id=run_id, error=str(error))
         return outcome.snapshot_id
@@ -149,7 +150,8 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
     await logs.info("Sync workflow started", scheduled_at=scheduled_at.isoformat())
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
-        work = await build_sync_work(run_id)
+        loaded = await load_sync_config()
+        work = await build_sync_work(run_id, loaded.document)
         if not work.plans:
             await logs.info("Sync planning completed", changes="none")
             return
@@ -163,19 +165,21 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
         for handle in dump_handles:
             failed_paths.update((await handle.get_result()).failed_paths)
 
-        postgrest_restart_required = await seed_schemas(work.plans)
+        postgrest_restart_required = await seed_schemas(work.plans, loaded.document)
 
         await record_seed_metrics(work.plans)
 
         publish_handles: list[tuple[str, WorkflowHandleAsync[int | None]]] = []
         for plan in work.plans:
-            handle = await DBOS.enqueue_workflow_async(
-                publish_queue(plan.schema_name),
-                publish_schema,
-                run_id,
-                plan,
-                failed_paths,
-            )
+            with SetEnqueueOptions(queue_partition_key=plan.schema_name):
+                handle = await DBOS.enqueue_workflow_async(
+                    PUBLISH_QUEUE,
+                    publish_schema,
+                    run_id,
+                    plan,
+                    failed_paths,
+                    loaded.document,
+                )
             publish_handles.append((plan.schema_name, handle))
 
         results = {

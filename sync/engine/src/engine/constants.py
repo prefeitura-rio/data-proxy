@@ -47,6 +47,4 @@ POOLER_SELECTOR: Final = {"cnpg.io/podRole": "pooler"}
 POSTGREST_SELECTOR: Final = {"data-proxy.io/serving": "postgrest"}
 
 
-def publish_queue(schema: str) -> str:
-    """Return the DBOS publish queue owned by one schema."""
-    return f"publish:{schema}"
+PUBLISH_QUEUE: Final = "publish"

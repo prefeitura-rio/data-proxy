@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from inspect import unwrap
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from typing import Final, cast
+from typing import ClassVar, Final, Self, cast
 from unittest.mock import AsyncMock
 
 import duckdb
@@ -27,6 +27,7 @@ from engine.executor import Executor
 from engine.models import (
     DumpResult,
     DumpTask,
+    LoadedConfig,
     PartitionChange,
     PartitionedTablePlan,
     SchemaConfig,
@@ -214,9 +215,45 @@ def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
     return cast("Callable[P, R]", unwrap(workflow))
 
 
+DOCUMENT = '{"schemas": {}}'
+
+
+class RecordedOptions:
+    """Stand in for SetEnqueueOptions and remember the options that are active."""
+
+    active: ClassVar[dict[str, object]] = {}
+    options: dict[str, object]
+
+    def __init__(self, **options: object) -> None:
+        """Keep the options of one enqueue."""
+        self.options = options
+
+    def __enter__(self) -> Self:
+        """Make the options active."""
+        RecordedOptions.active = self.options
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Clear the options."""
+        RecordedOptions.active = {}
+
+
 async def publish(plan: SyncPlan) -> int | None:
     """Run the publish workflow body for one plan with no failed paths."""
-    return await workflow_body(workflows.publish_schema)("run", plan, set())
+    return await workflow_body(workflows.publish_schema)("run", plan, set(), DOCUMENT)
+
+
+def enqueue_label(workflow: object, args: tuple[object, ...]) -> str:
+    """Name what an enqueued workflow works on: a dump task's table or a plan's schema."""
+    if workflow is workflows.dump_task:
+        task = args[0]
+        if not isinstance(task, DumpTask):
+            raise TypeError("Dump workflow requires a dump task")
+        return task.table
+    plan = args[1]
+    if not isinstance(plan, SyncPlan):
+        raise TypeError("Publish workflow requires a sync plan")
+    return plan.schema_name
 
 
 def stub_sync_run(
@@ -227,6 +264,7 @@ def stub_sync_run(
     snapshot_ids: dict[str, int | None] | None = None,
     plans: list[SyncPlan] | None = None,
     tasks: list[DumpTask] | None = None,
+    publishes: list[tuple[str, object]] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Stub run_sync steps and return the serving calls and the queue events."""
     calls: list[str] = []
@@ -239,18 +277,15 @@ def stub_sync_run(
         calls.append(f"restart:{kind}:{names}")
 
     async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
-        if workflow is workflows.dump_task:
-            task = args[0]
-            if not isinstance(task, DumpTask):
-                raise TypeError("Dump workflow requires a dump task")
-            label = task.table
-            result: DumpResult | int | None = DumpResult()
-        else:
-            plan = args[1]
-            if not isinstance(plan, SyncPlan):
-                raise TypeError("Publish workflow requires a sync plan")
-            label = plan.schema_name
+        label = enqueue_label(workflow, args)
+        is_dump = workflow is workflows.dump_task
+        result: DumpResult | int | None = DumpResult()
+        if not is_dump:
             result = snapshot_ids[label] if snapshot_ids is not None else snapshot_id
+            if publishes is not None:
+                publishes.append(
+                    (queue, RecordedOptions.active.get("queue_partition_key"))
+                )
         events.append(f"enqueue:{label}")
 
         async def get_result() -> DumpResult | int | None:
@@ -266,6 +301,12 @@ def stub_sync_run(
             workflow_id="run",
             enqueue_workflow_async=AsyncMock(side_effect=enqueue_workflow),
         ),
+    )
+    monkeypatch.setattr(workflows, "SetEnqueueOptions", RecordedOptions)
+    monkeypatch.setattr(
+        workflows,
+        "load_sync_config",
+        AsyncMock(return_value=LoadedConfig(revision="3", document=DOCUMENT)),
     )
     monkeypatch.setattr(
         workflows,

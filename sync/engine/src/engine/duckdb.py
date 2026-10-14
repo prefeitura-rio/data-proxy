@@ -44,10 +44,8 @@ class DuckDB:
                 "source_extensions": sorted(
                     {
                         extension
-                        for schema in settings.sync_config.schemas.values()
-                        for extension in sources.configure(
-                            schema.source.type, schema.source.settings
-                        ).extensions
+                        for source in sources.all()
+                        for extension in source.extensions
                     }
                 ),
             },

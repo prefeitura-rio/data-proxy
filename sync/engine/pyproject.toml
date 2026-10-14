@@ -8,6 +8,7 @@ dependencies = [
   "duckdb==1.5.4",
   "dbos",
   "google-cloud-bigquery>=3.42.3",
+  "httpx2",
   "psycopg[binary]",
   "pydantic-settings",
   "pydantic",
@@ -128,4 +129,6 @@ ignore_names = [
   "model_config",
   "expect",
   "patch_type",
+  "do_GET",
+  "log_message",
 ]

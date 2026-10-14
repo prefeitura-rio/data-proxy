@@ -34,16 +34,6 @@ class TemplateScenario:
     postgres: Postgres
 
 
-def set_sync_config(
-    monkeypatch: pytest.MonkeyPatch, config: SyncConfig, tmp_path: Path
-) -> None:
-    """Point settings at one config file and invalidate the cached property."""
-    config_path = tmp_path / "sync.json"
-    config_path.write_text(config.model_dump_json())
-    monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", config_path)
-    monkeypatch.delattr(settings, "sync_config", raising=False)
-
-
 @given("a fresh PostgreSQL schema for templates", target_fixture="template_context")
 def fresh_postgres_schema(postgres: Postgres) -> TemplateScenario:
     """Provide one isolated PostgreSQL schema for template execution."""
@@ -77,7 +67,6 @@ def reconcile(
     ) -> list[tuple[str, str]]:
         return columns
 
-    set_sync_config(monkeypatch, config, tmp_path)
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
     asyncio.run(initialize_schemas(database.backend, config))
     asyncio.run(reconcile_views(database.backend, config))
@@ -152,7 +141,6 @@ def reconcile_empty_config(
     schema = database.namespace.schema
     config = SyncConfig(schemas={schema: SchemaConfig(tables=[])})
 
-    set_sync_config(monkeypatch, config, tmp_path)
     asyncio.run(reconcile_views(database.backend, config))
 
 

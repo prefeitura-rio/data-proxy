@@ -9,8 +9,6 @@ from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
-from .models import SyncConfig
-
 if TYPE_CHECKING:
     from dbos._queue import QueueRateLimit
 
@@ -63,6 +61,7 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = "seaweedfs-local"  # ruff: ignore[hardcoded-password-string]
     S3_USE_SSL: bool = False
     SYNC_CONFIG_PATH: Path = Path("config/sync.json")
+    SYNC_CONFIG_URL: str | None = None
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
     SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
     SYNC_SCHEDULE: str = "0 2 * * *"
@@ -84,11 +83,6 @@ class Settings(BaseSettings):
         if not v.endswith("d") or not v[:-1].isdigit() or int(v[:-1]) <= 0:
             raise ValueError("DUCKLAKE_SNAPSHOT_EXPIRATION must be like '7d'")
         return v
-
-    @cached_property
-    def sync_config(self) -> SyncConfig:
-        """Return the synchronization configuration from the config file."""
-        return SyncConfig.model_validate_json(self.SYNC_CONFIG_PATH.read_text())
 
     def redis(
         self,

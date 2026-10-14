@@ -22,15 +22,5 @@
         "complexity": 13
       }
     ]
-  },
-  {
-    "path": "engine/tests/helpers.py",
-    "file_name": "helpers.py",
-    "functions": [
-      {
-        "name": "stub_sync_run",
-        "complexity": 12
-      }
-    ]
   }
 ]

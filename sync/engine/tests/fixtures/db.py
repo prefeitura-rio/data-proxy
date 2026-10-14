@@ -193,7 +193,6 @@ async def ducklake_view(
     async def source_columns(pg_conn: Pg, table: TableConfig) -> list[tuple[str, str]]:
         return [("cpf", "BIGINT"), ("name", "VARCHAR")]
 
-    monkeypatch.setitem(settings.__dict__, "sync_config", config)
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
     await initialize_schemas(ducklake_catalog.backend, config)
     await reconcile_views(ducklake_catalog.backend, config)

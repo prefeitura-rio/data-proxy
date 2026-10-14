@@ -3,6 +3,7 @@
 import asyncio
 from typing import TYPE_CHECKING, Literal
 
+import httpx2
 from dbos import DBOS
 from lightkube import AsyncClient
 from whenever import Instant
@@ -27,6 +28,7 @@ from engine.log import schemaname
 from engine.metrics import metrics
 from engine.models import (
     DumpTask,
+    LoadedConfig,
     PublicationResult,
     ServingDeployments,
     SyncConfig,
@@ -52,12 +54,50 @@ if TYPE_CHECKING:
     from engine.types import RunStatus
 
 
+def schema_config(document: str, schema: str) -> SyncConfig:
+    """Return the config of a run, reduced to one schema."""
+    schemas = SyncConfig.model_validate_json(document).schemas
+    return SyncConfig(schemas={schema: schemas[schema]})
+
+
 @DBOS.step(
     retries_allowed=True,
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def build_sync_work(run_id: str) -> SyncWork:
+async def load_sync_config() -> LoadedConfig:
+    """Load the sync.json that one run uses, from the console or from the file.
+
+    The run keeps this document from start to end, so a change in the console
+    never reaches a run that already started.
+    """
+    if settings.SYNC_CONFIG_URL is None:
+        loaded = LoadedConfig(
+            revision="file",
+            document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
+        )
+    else:
+        async with httpx2.AsyncClient(timeout=10) as http:
+            response = await http.get(settings.SYNC_CONFIG_URL)
+        response.raise_for_status()
+        loaded = LoadedConfig(
+            revision=response.headers.get("ETag", "").strip('"'),
+            document=response.text,
+        )
+
+    config = SyncConfig.model_validate_json(loaded.document)
+    await logs.info(
+        "Sync config loaded", revision=loaded.revision, schemas=len(config.schemas)
+    )
+    return loaded
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def build_sync_work(run_id: str, document: str) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     await logs.info("Sync planning started")
 
@@ -69,7 +109,7 @@ async def build_sync_work(run_id: str) -> SyncWork:
         work = await run_planning(
             pg_conn,
             duckdb_conn,
-            settings.sync_config,
+            SyncConfig.model_validate_json(document),
             run_id,
             settings.S3_BUCKET,
         )
@@ -120,7 +160,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def seed_schemas(plans: list[SyncPlan]) -> bool:
+async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
     """Reconcile planned serving schemas and report a PostgREST restart need."""
     await logs.info("Schema seeding started", plans=len(plans))
 
@@ -132,7 +172,7 @@ async def seed_schemas(plans: list[SyncPlan]) -> bool:
 
     async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
         postgrest_restart_required = await reconcile_views(
-            pg_conn, settings.sync_config, schema_names, table_names
+            pg_conn, SyncConfig.model_validate_json(document), schema_names, table_names
         )
 
     await logs.info(
@@ -194,15 +234,13 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
     should_retry=retry_catalog_locked,
 )
 async def commit_ducklake_snapshot(
-    plan: SyncPlan, failed_paths: set[str]
+    plan: SyncPlan, failed_paths: set[str], document: str
 ) -> PublicationResult:
     """Commit scratch Parquet files into DuckLake for one schema plan."""
     schemaname.set(plan.schema_name)
     await logs.info("DuckLake commit started", failed_paths=len(failed_paths))
 
-    config = SyncConfig(
-        schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
-    )
+    config = schema_config(document, plan.schema_name)
 
     async with (
         DuckDB.connect() as duckdb_conn,
@@ -230,7 +268,7 @@ async def commit_ducklake_snapshot(
     max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
     should_retry=retry_catalog_locked,
 )
-async def apply_ducklake_maintenance(schema_name: str) -> int:
+async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     """Apply DuckLake maintenance to one schema and return its snapshot."""
     schemaname.set(schema_name)
     await logs.info("DuckLake maintenance started")
@@ -239,7 +277,9 @@ async def apply_ducklake_maintenance(schema_name: str) -> int:
         snapshot_id = await apply_maintenance(
             duckdb_conn,
             DuckLakePaths.for_schema(schema_name),
-            settings.sync_config.schemas[schema_name].ducklake.encrypted,
+            schema_config(document, schema_name)
+            .schemas[schema_name]
+            .ducklake.encrypted,
         )
 
     await logs.info("DuckLake maintenance completed", snapshot_id=snapshot_id)
@@ -363,11 +403,11 @@ async def restart_serving(
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
+async def commit_table_state(
+    plan: SyncPlan, result: PublicationResult, document: str
+) -> None:
     """Persist committed table state for one published schema."""
-    config = SyncConfig(
-        schemas={plan.schema_name: settings.sync_config.schemas[plan.schema_name]}
-    )
+    config = schema_config(document, plan.schema_name)
     states = build_table_states(result, config)
     await logs.info("State commit started", tables=len(states))
     async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:

@@ -430,6 +430,13 @@ class SyncWork:
     tasks: list[DumpTask]
 
 
+class LoadedConfig(BaseModel):
+    """The sync.json that one run uses, and the revision that it came from."""
+
+    revision: str
+    document: str
+
+
 class ServingDeployments(BaseModel):
     """Names of the Deployments that serve reads and must restart after a publication."""
 

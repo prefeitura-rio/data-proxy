@@ -11,7 +11,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
     recorded = Calls()
 
     async def commit_ducklake_snapshot(
-        plan: SyncPlan, failed_paths: set[str]
+        plan: SyncPlan, failed_paths: set[str], document: str
     ) -> PublicationResult:
         recorded.names.append("commit_ducklake_snapshot")
         return PublicationResult(
@@ -21,10 +21,12 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
     async def record_publish_metrics(result: PublicationResult, name: str) -> None:
         recorded.names.append("record_publish_metrics")
 
-    async def commit_table_state(plan: SyncPlan, result: PublicationResult) -> None:
+    async def commit_table_state(
+        plan: SyncPlan, result: PublicationResult, document: str
+    ) -> None:
         recorded.names.append("commit_table_state")
 
-    async def apply_ducklake_maintenance(schema_name: str) -> int:
+    async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
         recorded.names.append("apply_ducklake_maintenance")
         if recorded.maintenance_error is not None:
             raise recorded.maintenance_error

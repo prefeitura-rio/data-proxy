@@ -1,23 +1,34 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from typing import final
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx2
 import pytest
+from pydantic import ValidationError
 
-from engine.constants import POOLER_SELECTOR, POSTGREST_SELECTOR
+from engine.constants import POOLER_SELECTOR, POSTGREST_SELECTOR, PUBLISH_QUEUE
 from engine.dbos import main as dbos_main
 from engine.dbos import steps, utils, workflows
 from engine.duckdb import DuckDB
 from engine.ducklake import DuckLakePaths
-from engine.models import FullTable, ServingDeployments, SyncPlan
+from engine.models import (
+    FullTable,
+    LoadedConfig,
+    ServingDeployments,
+    SyncPlan,
+    SyncWork,
+)
 from engine.postgres import Postgres
 from engine.settings import settings
 from engine.types import KubernetesClient
+from tests.fixtures.console import Console
 from tests.fixtures.types import Calls, FakeKubernetes
 from tests.helpers import (
+    DOCUMENT,
     catalog_commit_error,
     dump_task,
     publish,
@@ -161,6 +172,102 @@ class TestRunSyncRefreshesServing:
             "enqueue:app",
             "wait:app",
         ]
+
+
+class TestLoadSyncConfig:
+    """load_sync_config step behavior tests."""
+
+    async def test_fetches_the_document_and_its_revision_from_the_console(
+        self, console: Console, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Take the body as the document and the ETag as the revision."""
+        console.etag = '"7"'
+        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+
+        loaded = await workflow_body(steps.load_sync_config)()
+
+        assert loaded == LoadedConfig(revision="7", document=console.body)
+
+    async def test_reads_the_file_when_no_console_is_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fall back to the file, which has no revision."""
+        path = tmp_path / "sync.json"
+        path.write_text(DOCUMENT)
+        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", None)
+        monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", path)
+
+        loaded = await workflow_body(steps.load_sync_config)()
+
+        assert loaded == LoadedConfig(revision="file", document=DOCUMENT)
+
+    async def test_rejects_a_document_that_the_engine_cannot_use(
+        self, console: Console, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail the run at its start, before any work."""
+        console.body = '{"schemas": {"app": 1}}'
+        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+
+        with pytest.raises(ValidationError):
+            await workflow_body(steps.load_sync_config)()
+
+    async def test_fails_when_the_console_answers_with_an_error(
+        self, console: Console, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Raise, so that DBOS retries the step."""
+        console.status = 503
+        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+
+        with pytest.raises(httpx2.HTTPStatusError):
+            await workflow_body(steps.load_sync_config)()
+
+
+class TestRunSyncUsesOneConfig:
+    """run_sync loads the config once and hands the same document to every step."""
+
+    @pytest.mark.asyncio
+    async def test_hands_the_loaded_document_to_planning_seeding_and_publishing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pass the document that the first step returned, never a second copy."""
+        plan = SyncPlan(schema_name="app")
+        publishes: list[tuple[str, object]] = []
+        stub_sync_run(
+            monkeypatch,
+            postgrest_restart_required=False,
+            snapshot_id=None,
+            publishes=publishes,
+        )
+        load = AsyncMock(return_value=LoadedConfig(revision="9", document=DOCUMENT))
+        build = AsyncMock(return_value=SyncWork(plans=[plan], tasks=[]))
+        seed = AsyncMock(return_value=False)
+        monkeypatch.setattr(workflows, "load_sync_config", load)
+        monkeypatch.setattr(workflows, "build_sync_work", build)
+        monkeypatch.setattr(workflows, "seed_schemas", seed)
+
+        await run_sync()
+
+        load.assert_awaited_once_with()
+        build.assert_awaited_once_with("run", DOCUMENT)
+        seed.assert_awaited_once_with([plan], DOCUMENT)
+
+    @pytest.mark.asyncio
+    async def test_publishes_every_schema_on_one_queue_partitioned_by_its_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Use the publish queue, so a schema added later needs no new queue."""
+        publishes: list[tuple[str, object]] = []
+        stub_sync_run(
+            monkeypatch,
+            postgrest_restart_required=False,
+            snapshot_ids={"one": None, "two": None},
+            plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
+            publishes=publishes,
+        )
+
+        await run_sync()
+
+        assert publishes == [(PUBLISH_QUEUE, "one"), (PUBLISH_QUEUE, "two")]
 
 
 class TestRefreshCatalogsWorkflow:
@@ -449,13 +556,14 @@ class TestApplyDucklakeMaintenanceStep:
             connections.append(connection)
             yield connection
 
-        monkeypatch.setitem(
-            settings.__dict__, "sync_config", sync_config([FullTable(name="p.d.t")])
-        )
         monkeypatch.setattr(DuckDB, "connect", connect)
         monkeypatch.setattr(steps, "apply_maintenance", maintain)
 
-        snapshot_id = await workflow_body(steps.apply_ducklake_maintenance)("app")
+        document = sync_config([FullTable(name="p.d.t")]).model_dump_json()
+
+        snapshot_id = await workflow_body(steps.apply_ducklake_maintenance)(
+            "app", document
+        )
 
         assert snapshot_id == 9
         assert connections == [connection]

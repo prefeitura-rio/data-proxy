@@ -5,7 +5,7 @@ from asyncio import Event
 import uvloop
 from dbos import DBOS, DBOSConfig, ScheduleInput
 
-from engine.constants import DUMP_QUEUE, REFRESH_QUEUE, SYNC_QUEUE, publish_queue
+from engine.constants import DUMP_QUEUE, PUBLISH_QUEUE, REFRESH_QUEUE, SYNC_QUEUE
 from engine.log import logger
 from engine.settings import settings
 
@@ -27,11 +27,7 @@ async def serve() -> None:
 
     DBOS(config=config)
 
-    publish_queues = [
-        publish_queue(schema) for schema in sorted(settings.sync_config.schemas)
-    ]
-
-    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, REFRESH_QUEUE, *publish_queues])
+    DBOS.listen_queues([SYNC_QUEUE, DUMP_QUEUE, REFRESH_QUEUE, PUBLISH_QUEUE])
 
     DBOS.launch()
 
@@ -48,8 +44,7 @@ async def serve() -> None:
         REFRESH_QUEUE, worker_concurrency=settings.READER_REFRESH_CONCURRENCY
     )
 
-    for queue in publish_queues:
-        await DBOS.register_queue_async(queue, concurrency=1)
+    await DBOS.register_queue_async(PUBLISH_QUEUE, partition_concurrency=1)
 
     await DBOS.apply_schedules_async(
         [

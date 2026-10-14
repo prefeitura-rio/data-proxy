@@ -13,6 +13,7 @@ members = [
 ]
 constraints = [
     { name = "dbos", specifier = ">=3.0.0" },
+    { name = "httpx2", specifier = ">=2.13.0" },
     { name = "psycopg", specifier = ">=3.3.4" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
@@ -496,6 +497,7 @@ version = "0.1.0"
 source = { editable = "console" }
 dependencies = [
     { name = "dbos" },
+    { name = "engine" },
     { name = "fastapi" },
     { name = "granian", extra = ["uvloop"] },
     { name = "psycopg", extra = ["binary"] },
@@ -508,6 +510,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dbos" },
+    { name = "engine", editable = "engine" },
     { name = "fastapi", specifier = ">=0.142.2" },
     { name = "granian", extras = ["uvloop"], specifier = ">=2.8.4" },
     { name = "psycopg", extras = ["binary"] },
@@ -678,6 +681,7 @@ dependencies = [
     { name = "dbos" },
     { name = "duckdb" },
     { name = "google-cloud-bigquery" },
+    { name = "httpx2" },
     { name = "jinja2" },
     { name = "lightkube" },
     { name = "more-itertools" },
@@ -698,6 +702,7 @@ requires-dist = [
     { name = "dbos" },
     { name = "duckdb", specifier = "==1.5.4" },
     { name = "google-cloud-bigquery", specifier = ">=3.42.3" },
+    { name = "httpx2" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lightkube", specifier = "==1.0.1" },
     { name = "more-itertools", specifier = ">=10.0.0" },
