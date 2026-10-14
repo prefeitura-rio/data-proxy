@@ -1266,7 +1266,7 @@ function verifyPartitionChanges(k8s: Kubernetes): void {
     }
 }
 
-/** Shell prefix that points rclone at the backup store and today's backup folder. */
+/** Shell prefix that points rclone at the backup store. */
 const BACKUP_STORE = [
     "export RCLONE_CONFIG=/dev/null RCLONE_CONFIG_STORE_TYPE=s3 RCLONE_CONFIG_STORE_PROVIDER=Other",
     'RCLONE_CONFIG_STORE_ENDPOINT="$S3_ENDPOINT" RCLONE_CONFIG_STORE_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"',
@@ -1278,7 +1278,7 @@ const BACKUP_STORE = [
 function verifyBackupJob(k8s: Kubernetes): void {
     const podSpec = cronJobPodSpec(k8s, BACKUP_CRONJOB);
     const image = podSpec.containers[0].image;
-    const folder = `dir="store:$S3_BUCKET/$BACKUP_PREFIX/${SCHEMA}/$(date -u +%F)"`;
+    const base = `base="store:$S3_BUCKET/$BACKUP_PREFIX/${SCHEMA}"`;
 
     runSqlJob(
         k8s,
@@ -1288,7 +1288,7 @@ function verifyBackupJob(k8s: Kubernetes): void {
     runCommandJob(
         k8s,
         "reset-backup-folder",
-        `${BACKUP_STORE}; ${folder}; rclone purge "$dir" || true`,
+        `${BACKUP_STORE}; ${base}; rclone purge "$base" || true`,
         { podSpec, image },
     );
 
@@ -1297,7 +1297,7 @@ function verifyBackupJob(k8s: Kubernetes): void {
     runCommandJob(
         k8s,
         "check-backup-objects",
-        `${BACKUP_STORE}; ${folder}; test "$(rclone lsf "$dir" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump catalog.sqlite "`,
+        `${BACKUP_STORE}; ${base}; latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"; test "$(rclone lsf "$base/$latest" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump catalog.sqlite "`,
         { podSpec, image },
     );
 
