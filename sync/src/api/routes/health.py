@@ -1,11 +1,14 @@
 """Liveness and readiness probes."""
 
+from logging import getLogger
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import Client
+
+logger = getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -28,5 +31,6 @@ async def ready(client: Client) -> Status:
     try:
         await client.check_connection_async()
     except Exception as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        logger.exception("Readiness check failed")
+        raise HTTPException(status_code=503, detail="database unavailable") from error
     return Status(status="ok")

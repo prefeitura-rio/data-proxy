@@ -112,11 +112,20 @@ class TestHealth:
         assert await request_to(FakeClient(), "/ready") == (200, {"status": "ok"})
 
     async def test_reports_not_ready_when_the_database_is_down(self) -> None:
-        """Answer 503 with the reason when the DBOS database is unreachable."""
+        """Answer 503 with a generic reason, without the details of the failure."""
         status, body = await request_to(FakeClient(connected=False), "/ready")
 
         assert status == 503
-        assert body == {"detail": "database is down"}
+        assert body == {"detail": "database unavailable"}
+
+    async def test_logs_the_reason_that_the_database_is_down(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Keep the real error in the log, where the operator can read it."""
+        with caplog.at_level("ERROR"):
+            await request_to(FakeClient(connected=False), "/ready")
+
+        assert "database is down" in caplog.text
 
 
 class TestRuns:
