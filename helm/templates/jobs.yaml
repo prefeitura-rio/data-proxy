@@ -236,8 +236,7 @@ spec:
 ---
 {{- if .Values.jobs.backup.enabled }}
 {{- $root := . }}
-{{- range $schema, $_ := .Values.sync.config.schemas }}
-{{- $backupName := printf "%s-%s-backup" (include "data-proxy.fullname" $root) ($schema | replace "_" "-") }}
+{{- $backupName := printf "%s-backup" (include "data-proxy.fullname" $root) }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -247,7 +246,6 @@ metadata:
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: backup
-    data-proxy.io/schema: {{ $schema | quote }}
 spec:
   schedule: {{ $root.Values.jobs.backup.schedule | quote }}
   startingDeadlineSeconds: {{ $root.Values.jobs.backup.startingDeadlineSeconds }}
@@ -264,7 +262,6 @@ spec:
           labels:
             {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
             app.kubernetes.io/component: backup
-            data-proxy.io/schema: {{ $schema | quote }}
         spec:
           restartPolicy: Never
           initContainers:
@@ -275,8 +272,6 @@ spec:
               command: [nu, /scripts/backup.nu]
               workingDir: /scripts
               env:
-                - name: SCHEMA
-                  value: {{ $schema | quote }}
                 - name: PGHOST
                   value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
                 - name: PGPORT
@@ -343,7 +338,6 @@ spec:
 {{- end }}
             {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
             {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
-{{- end }}
 {{- end }}
 ---
 {{- if .Values.jobs.maintenance.enabled }}

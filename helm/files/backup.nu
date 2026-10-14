@@ -1,5 +1,5 @@
 use std/log
-use ./lib.nu [dump-table quote-pg execute-sql fail]
+use ./lib.nu [dump-table execute-sql fail quote-pg schema-list sync-config]
 
 # Return the configured object-store endpoint with an explicit scheme.
 def endpoint-url []: nothing -> string {
@@ -58,11 +58,11 @@ def backup-table [context: record<schema: string, remote_prefix: string>, dump: 
     }
 }
 
-def main []: nothing -> nothing {
-    let schema = $env.SCHEMA? | default test
+# Back up the access policy and the access log of one schema, then prune the log.
+def backup-schema [schema: string]: nothing -> nothing {
     let dumps = [
-        {table: access_policy, file: '/tmp/access_policy.dump'}
-        {table: access_log, file: '/tmp/access_log.dump'}
+        {table: access_policy, file: $'/tmp/($schema)-access_policy.dump'}
+        {table: access_log, file: $'/tmp/($schema)-access_log.dump'}
     ]
 
     let object_date = date now | format date '%Y-%m-%d'
@@ -70,9 +70,6 @@ def main []: nothing -> nothing {
     let remote_prefix = $'store:($object_prefix)'
 
     log info $'Backup started: schema=($schema)'
-
-    load-env {RCLONE_CONFIG: '/dev/null'}
-    load-env (rclone-env)
 
     for dump in $dumps {
         backup-table {schema: $schema, remote_prefix: $remote_prefix} $dump
@@ -95,4 +92,31 @@ def main []: nothing -> nothing {
             rm --force $file
         }
     } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
+}
+
+# Back up every schema in the configuration, and fail at the end if any schema failed.
+def main []: nothing -> nothing {
+    load-env {RCLONE_CONFIG: '/dev/null'}
+    load-env (rclone-env)
+
+    let failed = sync-config
+    | schema-list
+    | where {
+        let schema = $in
+
+        try {
+            backup-schema $schema
+            false
+        } catch {|err|
+            log error $'Backup failed: schema=($schema) error=($err.msg)'
+            true
+        }
+    }
+
+    if ($failed | is-not-empty) {
+        fail $'Backup failed for: ($failed | str join ", ")' {
+            command: main
+            span: (metadata $failed).span
+        }
+    }
 }

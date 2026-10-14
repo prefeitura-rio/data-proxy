@@ -2,7 +2,7 @@ suite: Backup CronJob
 templates:
   - jobs.yaml
 tests:
-  - it: renders one schema backup with the configured schedule and image
+  - it: renders one backup for every schema with the configured schedule and image
     set:
       jobs.backup.enabled: true
       jobs.backup.schedule: "30 4 * * *"
@@ -11,49 +11,75 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         isKind:
           of: CronJob
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         equal:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         equal:
           path: spec.schedule
           value: "30 4 * * *"
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
           value: postgres:17-alpine
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[0]
           pattern: '^nu$'
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[1]
           value: /scripts/backup.nu
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
           value: data-proxy-scripts
+
+  - it: renders one backup even when the values name several schemas, because the job reads them from the database
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas:
+        alpha:
+          tables: []
+        beta:
+          tables: []
+    asserts:
+      - documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: backup
+        equal:
+          path: metadata.name
+          value: data-proxy-backup
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
+        notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: SCHEMA
+            value: alpha
 
   - it: connects as the admin role
     set:
@@ -61,11 +87,10 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -73,7 +98,7 @@ tests:
             value: admin
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -90,11 +115,10 @@ tests:
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
       gcp.existingSecret: gcp
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -102,7 +126,7 @@ tests:
             value: /gcp/key.json
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes
           content:
@@ -117,11 +141,10 @@ tests:
       jobs.backup.s3.endpointURL: http://seaweedfs-s3:8333
       jobs.backup.s3.existingSecret: backup-s3-creds
       gcp.existingSecret: ""
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         notContains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -133,11 +156,10 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -153,11 +175,10 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: https://storage.googleapis.com
       jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
           content:
@@ -165,7 +186,7 @@ tests:
             path: backup.nu
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
           content:
@@ -215,11 +236,10 @@ tests:
       jobs.backup.s3.bucket: backup-bucket
       jobs.backup.s3.endpointURL: http://storage:8333
       jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
     asserts:
       - documentSelector:
           path: metadata.name
-          value: data-proxy-test-backup
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:

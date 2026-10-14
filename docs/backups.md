@@ -4,7 +4,7 @@ A sync rebuilds application tables from BigQuery. It doesn't rebuild access gran
 
 ## Operation
 
-Set `backup.enabled` to create one CronJob per configured schema. Each job exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`:
+Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `admin.schemas` table, so a schema that an editor adds in the console is backed up from its first night. For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
 
 ```text
 <backup.prefix>/<schema>/<date>/access_policy.dump
