@@ -7,7 +7,7 @@ dependencies = [
   "dbos>=3.0.0",
   "fastapi>=0.142.2",
   "pydantic-settings>=2.14.2",
-  "uvicorn[standard]>=0.54.0",
+  "granian[uvloop]>=2.8.4",
   "whenever>=0.10.5",
 ]
 

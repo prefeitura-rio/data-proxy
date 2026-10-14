@@ -78,7 +78,7 @@ To add another test container, declare `processes.<name> = mkPodmanProcess { ...
 | `engine` | `sync/engine` | The sync worker: DBOS workflows, DuckLake and PostgreSQL views |
 | `console` | `sync/console` | The operator console: a FastAPI service that reads the DBOS runs and the data state |
 
-The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
+The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Run the console with `granian --interface asgi --loop uvloop console.main:app`. The `--loop uvloop` option is explicit, so the server never falls back to the native event loop. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
 
 Lint settings follow the same scope. `sync/pyproject.toml` holds the rules that apply to every member. Each member adds only what its own code needs:
 
