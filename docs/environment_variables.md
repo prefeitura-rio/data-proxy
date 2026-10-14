@@ -21,7 +21,7 @@ The console reads two databases. Both addresses should point at a PgBouncer pool
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database. Use the read-write pooler, because the console enqueues, cancels and updates workflows. |
+| `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database. Use the read/write pooler, because the console enqueues, cancels and updates workflows. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | Schema of the DBOS tables. |
 | `PG_DATABASE_URL` | required | Application database. The read-only pooler is enough, because the console only reads. |
 

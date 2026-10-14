@@ -81,7 +81,8 @@
         };
         "lint:sql" = {
           exec = ''
-            sqlfluff lint --dialect postgres sync/engine/src/engine/templates/postgres helm/files/templates sync/engine/tests/templates/postgres
+            sqlfluff lint --dialect postgres sync/engine/src/engine/templates/postgres helm/files/templates sync/engine/tests/templates/postgres sync/console/migrations
+            goose -dir sync/console/migrations validate
             sqlfluff lint --dialect duckdb sync/engine/src/engine/templates/duckdb sync/engine/tests/templates/duckdb sync/engine/tests/templates/bigquery
             sqlfluff lint --dialect bigquery sync/engine/src/engine/templates/bigquery
           '';

@@ -60,6 +60,10 @@ def main []: nothing -> nothing {
     render ($templates | path join fixture.sql) | run-sql test_template $port
 
     'CREATE EXTENSION IF NOT EXISTS pg_duckdb; CREATE SCHEMA IF NOT EXISTS data_proxy;' | run-sql test $port
+
+    with-env {PG_DATABASE_URL: $'postgresql://test:test@127.0.0.1:($port)/test'} {
+        nu ($env.DEVENV_ROOT | path join scripts migrate.nu) up
+    }
     render $filter 'schema="data_proxy"' | run-sql test $port
 
     let pushdown_sql = try {

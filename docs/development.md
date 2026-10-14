@@ -91,6 +91,22 @@ Version bounds follow the same rule. A library that two or more members use gets
 
 To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend. Add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`. Add the `extend` and `extends` lines and a `[tool.pytest.ini_options]` section. Add its source path to the `search-path` of `pyrefly`. Then run `uv lock`.
 
+## Console migrations
+
+The console owns its tables in the `data_proxy` schema. The migrations are plain SQL files in `sync/console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `data_proxy.goose_db_version`, in the same schema.
+
+Set `PG_DATABASE_URL` and run the `migrate` command in the sync shell:
+
+```text
+migrate up        # apply every new migration
+migrate status    # list the applied migrations
+migrate down      # undo the last migration
+```
+
+The command creates the `data_proxy` schema first when it's missing. `devenv test` runs `migrate up` on the test database, so a broken migration fails the test setup. `lint:sql` checks the files with `sqlfluff` and `goose validate`.
+
+To add a migration, run `goose -dir sync/console/migrations create <name> sql`. Write both the `Up` and the `Down` part. Never edit a migration that a shared database has applied. Add a new one instead.
+
 ## Chart releases
 
 CI uses `scripts/ci.nu` for repository logic. It calculates the next Helm version from Conventional Commit subjects since the previous `helm-v*` tag:
