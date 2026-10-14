@@ -156,7 +156,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: PROXY_MAX_INFLIGHT
-            value: "64"
+            value: "32"
 
   - it: lets nginx pass the limit to the proxy and keeps a counter for it
     template: configmap-proxy.yaml

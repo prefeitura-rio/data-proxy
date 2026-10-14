@@ -92,7 +92,7 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | `PROXY_POSTGREST_WRITE` | required | Base address of the PostgREST service for writes. |
 | `PROXY_POSTGREST_RETRIES` | `1` | Retry attempts on the retry service after the first attempt, from `0` to `10`. |
 | `PROXY_POSTGREST_BACKOFF_MS` | `0` | Delay before the first retry, in milliseconds, from `0` to `60000`. Each retry doubles it. |
-| `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `64`. |
+| `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
 
 ## PostgREST rollout
 
