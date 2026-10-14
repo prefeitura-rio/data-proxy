@@ -30,10 +30,6 @@ engine = { workspace = true }
 
 [tool.ruff]
 line-length = 88
-src = [
-  "*/src",
-  "engine",
-] # first-party roots: the source of every member and the sync tests package
 target-version = "py314"
 
 [tool.ruff.lint]
@@ -45,26 +41,13 @@ ignore = [
   "D203",    # blank line before class docstring — conflicts with D211
   "D213",    # summary on second line — conflicts with D212
   "E501",    # line too long — handled by formatter
-  "B008",    # function call in default argument
-  "FLY002",  # implicit f-string concat — intentional in some patterns
   "ISC001",  # implicit string concat on one line — conflicts with the formatter
-  "PERF203", # try-except in loop — acceptable in sync scripts
-  "RET504",  # unnecessary assignment before return — aids readability
-  "S101",    # assert — intentional security guard in sync.py
-  "S311",    # random — intentional, seed script uses synthetic data not crypto
-  "S608",    # SQL via f-string — intentional, documented inline
   "TRY003",  # long messages in raise — too strict for scripts
   "DOC201",  # docstring Returns section — docstrings are one-line summaries
   "DOC402",  # docstring Yields section — docstrings are one-line summaries
   "DOC501",  # docstring Raises section — docstrings are one-line summaries
-  "D421",    # property docstring starts with a verb — properties use noun summaries
   "EM101",   # raw string in exception — same policy as TRY003
   "EM102",   # f-string in exception — same policy as TRY003
-  "FBT001",  # boolean positional argument — flags are part of public signatures
-  "FBT002",  # boolean default positional argument — flags are part of public signatures
-  "FBT003",  # boolean positional value in call — flags are part of public signatures
-  "PLR0913", # too many arguments — functions mirror SQL template inputs
-  "PLR0917", # too many positional arguments — functions mirror SQL template inputs
 ]
 
 [tool.ruff.lint.flake8-type-checking]
@@ -75,80 +58,20 @@ runtime-evaluated-base-classes = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = [
-  "ARG001",   # pytest fixtures must be requested by parameter even when unused
-  "ARG002",   # test doubles keep the signature of the real method
-  "ASYNC109", # test doubles keep the signature of the real function
-  "D100",     # test modules have no module docstring by project rule
-  "D104",     # test packages have no package docstring by project rule
-  "D105",     # test doubles skip dunder docstrings
-  "D107",     # test doubles skip __init__ docstrings
-  "INP001",   # tests run with importlib import mode, not as a package
-  "PLC0415",  # lazy imports in tests keep optional services out of collection
-  "PLC2701",  # tests import private names of the code under test
-  "PLR2004",  # magic numbers are the expected values in assertions
-  "PLR6301",  # test class methods group cases and do not use self
-  "PLW1514",  # test files are ASCII
-  "RUF029",   # async test doubles keep the awaitable signature
-  "SLF001",   # tests read private state of the code under test
-  "TC001",    # test annotations are cheap, runtime imports keep fixtures simple
-  "TC002",    # test annotations are cheap, runtime imports keep fixtures simple
-  "TC003",    # test annotations are cheap, runtime imports keep fixtures simple
-  "S404",     # the psql fixture runs the psql command-line client
-  "S106",     # the Silo credentials are test constants
-  "S603",     # the fixtures run the psql client and the container engine
-  "S607",     # the fixtures find psql on PATH
+  "S101",    # assert — the way a test states its expectation
+  "D100",    # test modules have no module docstring by project rule
+  "INP001",  # tests run with importlib import mode, not as a package
+  "PLR2004", # magic numbers are the expected values in assertions
+  "PLR6301", # test class methods group cases and do not use self
+  "TC002",   # test annotations are cheap, runtime imports keep fixtures simple
+  "TC003",   # test annotations are cheap, runtime imports keep fixtures simple
 ]
-"console/src/console/dependencies.py" = [
-  "TC001",
-] # FastAPI reads the annotations of a dependency at runtime
-"console/src/console/routes/*.py" = [
-  "TC001",
-  "TC003",
-] # FastAPI reads the annotations of a route at runtime
-"engine/src/engine/dbos/steps.py" = [
-  "RUF029",
-] # DBOS steps are async by contract
-"engine/src/engine/dbos/workflows.py" = [
-  "BLE001", # workflows catch every failure to record it and continue the run
-  "ARG001", # DBOS passes the context argument to scheduled workflows
-]
-"console/src/console/routes/health.py" = [
-  "BLE001",
-] # readiness reports every failure of the check as 503
-"engine/src/engine/executor.py" = ["ARG002"] # expect only types the result
-"engine/src/engine/kubernetes.py" = [
-  "ASYNC109",
-] # the timeout argument bounds the rollout watch
-"engine/src/engine/sources/bigquery/source.py" = [
-  "PLR6301",
-] # validate implements the Source protocol
 
 [tool.basedpyright]
 typeCheckingMode = "all"
 venvPath = "."
 venv = ".venv"
-extraPaths = [
-  "engine/src",
-  "engine",
-  "console/src",
-] # workspace members resolve as local source, not as installed packages
-reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
 reportUnusedCallResult = false # calls such as execute and set are made for their effect
-
-[[tool.basedpyright.executionEnvironments]]
-root = "console/tests"
-extraPaths = ["console/src"]
-reportPrivateUsage = false
-reportAny = false
-reportExplicitAny = false    # the console tests read decoded JSON bodies
-
-[[tool.basedpyright.executionEnvironments]]
-root = "engine/tests"
-extraPaths = ["engine/src", "engine", "console/src"]
-reportPrivateUsage = false
-reportAny = false
-reportExplicitAny = false                            # the API tests read decoded JSON bodies
-
 
 [tool.pyrefly]
 project-includes = ["*/src", "*/tests"]
@@ -162,63 +85,10 @@ implicit-bool = false      # truthiness checks are the code style
 unused-call-result = false # calls such as execute and set are made for their effect
 
 [[tool.pyrefly.sub-config]]
-matches = "**/tests/**"
+matches = "console/tests/**"
 
 [tool.pyrefly.sub-config.errors]
-explicit-any = false # the API tests read decoded JSON bodies
+explicit-any = false # the console tests read decoded JSON bodies
 
 [tool.complexipy]
 max-complexity-allowed = 10
-
-[tool.vulture]
-min_confidence = 60
-exclude = [
-  "console/src/console/models.py", # response models: FastAPI reads their fields
-]
-ignore_decorators = [
-  "@router.*",
-  "@pytest.fixture",
-  "@given",
-  "@when",
-  "@then",
-  "@field_validator",
-  "@model_validator",
-  "@broker.subscriber",
-  "@producer.after_startup",
-]
-ignore_names = [
-  "pytest_*",
-  "pytest_plugins",
-  "propagate",
-  "cache_ttl",
-  "side_effect",
-  "return_value",
-  "pytestmark",
-  "__aenter__",
-  "__aexit__",
-  "SchemaField",
-  "model_config",
-  "sync_config_path",
-  "settings_instance",
-  "binary",
-  "exc_type",
-  "exc",
-  "exc_value",
-  "traceback",
-  "parameters",
-  "params",
-  "ex",
-  "expect",
-  "seconds",
-  "groupname",
-  "id",
-  "mkstream",
-  "max",
-  "consumername",
-  "job_config",
-  "approximate",
-  "res",
-  "patch_type",
-  "for_conditions",
-  "raise_for_conditions",
-]

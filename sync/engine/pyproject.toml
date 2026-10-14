@@ -49,3 +49,81 @@ filterwarnings = [
 [tool.pytest-gremlins]
 paths = ["src"]
 exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]
+
+[tool.ruff]
+extend = "../pyproject.toml"
+src = ["src", "."]
+
+[tool.ruff.lint]
+extend-ignore = [
+  "D421",    # property docstring starts with a verb — properties use noun summaries
+  "FBT001",  # boolean positional argument — flags are part of public signatures
+  "PLR0913", # too many arguments — functions mirror SQL template inputs
+  "PLR0917", # too many positional arguments — functions mirror SQL template inputs
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**" = [
+  "ARG001",   # pytest fixtures must be requested by parameter even when unused
+  "ARG002",   # test doubles keep the signature of the real method
+  "ASYNC109", # test doubles keep the signature of the real function
+  "D104",     # test packages have no package docstring by project rule
+  "D105",     # test doubles skip dunder docstrings
+  "D107",     # test doubles skip __init__ docstrings
+  "FBT002",   # boolean default positional argument — flags are part of public signatures
+  "FBT003",   # boolean positional value in call — flags are part of public signatures
+  "PLC0415",  # lazy imports in tests keep optional services out of collection
+  "PLC2701",  # tests import private names of the code under test
+  "PLW1514",  # test files are ASCII
+  "RUF029",   # async test doubles keep the awaitable signature
+  "S106",     # the Silo credentials are test constants
+  "S404",     # the psql fixture runs the psql command-line client
+  "S603",     # the fixtures run the psql client and the container engine
+  "S607",     # the fixtures find psql on PATH
+  "S608",     # the fixtures build SQL from constants
+  "SLF001",   # tests read private state of the code under test
+  "TC001",    # test annotations are cheap, runtime imports keep fixtures simple
+]
+"src/engine/dbos/steps.py" = ["RUF029"] # DBOS steps are async by contract
+"src/engine/dbos/workflows.py" = [
+  "BLE001", # workflows catch every failure to record it and continue the run
+  "ARG001", # DBOS passes the context argument to scheduled workflows
+]
+"src/engine/executor.py" = ["ARG002"] # expect only types the result
+"src/engine/kubernetes.py" = ["ASYNC109"] # the timeout argument bounds the rollout watch
+"src/engine/sources/bigquery/source.py" = ["PLR6301"] # validate implements the Source protocol
+
+[tool.basedpyright]
+extends = "../pyproject.toml"
+extraPaths = ["src", "."]
+reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportAny = false          # tests read mock calls and decoded values
+reportPrivateUsage = false # tests read private state of the code under test
+
+[tool.vulture]
+ignore_decorators = [
+  "@pytest.fixture",
+  "@given",
+  "@when",
+  "@then",
+  "@field_validator",
+  "@model_validator",
+]
+ignore_names = [
+  "pytest_*",
+  "pytestmark",
+  "propagate",
+  "cache_ttl",
+  "side_effect",
+  "return_value",
+  "__aenter__",
+  "__aexit__",
+  "SchemaField",
+  "model_config",
+  "expect",
+  "patch_type",
+]
+

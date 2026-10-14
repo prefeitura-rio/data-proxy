@@ -62,14 +62,17 @@
           cwd = "sync";
           exec = ''
             uv run --frozen ruff check */src */tests
-            basedpyright */src */tests
+            (cd engine && basedpyright)
+            (cd console && basedpyright)
             uv run --frozen pyrefly check
             uv run --frozen complexipy */src */tests
-            uv run --frozen vulture */src */tests
+            (cd engine && uv run --frozen vulture --min-confidence 60 src tests)
+            (cd console && uv run --frozen vulture --min-confidence 60 src tests)
           '';
           execIfModified = [
             "sync/**/*.py"
             "sync/pyproject.toml"
+            "sync/*/pyproject.toml"
             "sync/uv.lock"
             "sync/complexipy-snapshot.json"
           ];

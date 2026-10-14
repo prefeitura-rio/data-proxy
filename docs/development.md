@@ -80,7 +80,16 @@ To add another test container, declare `processes.<name> = mkPodmanProcess { ...
 
 The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
 
-To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend. Add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`. Add its source path to the `extraPaths` and `search-path` settings of the type checkers. Then run `uv lock`.
+Lint settings follow the same scope. `sync/pyproject.toml` holds the rules that apply to every member. Each member adds only what its own code needs:
+
+| Tool | Root | Member |
+| --- | --- | --- |
+| `ruff` | `[tool.ruff]` | `extend = "../pyproject.toml"`, then `extend-ignore` and `extend-per-file-ignores` |
+| `basedpyright` | `[tool.basedpyright]` | `extends = "../pyproject.toml"`, then its own options and test environment |
+| `vulture` | none | `[tool.vulture]`, because vulture reads one file |
+| `pyrefly`, `complexipy` | `[tool.pyrefly]`, `[tool.complexipy]` | none, because they can't inherit a configuration |
+
+To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend. Add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`. Add the `extend` and `extends` lines and a `[tool.pytest.ini_options]` section. Add its source path to the `search-path` of `pyrefly`. Then run `uv lock`.
 
 ## Chart releases
 

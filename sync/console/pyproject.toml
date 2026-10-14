@@ -20,3 +20,29 @@ asyncio_mode = "auto"
 strict = true
 addopts = ["--import-mode=importlib"]
 env_files = ["../.env.test"]
+
+[tool.ruff]
+extend = "../pyproject.toml"
+src = ["src"]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"src/console/dependencies.py" = ["TC001"] # FastAPI reads the annotations of a dependency at runtime
+"src/console/routes/*.py" = [
+  "TC001", # FastAPI reads the annotations of a route at runtime
+  "TC003", # FastAPI reads the annotations of a route at runtime
+]
+
+[tool.basedpyright]
+extends = "../pyproject.toml"
+extraPaths = ["src"]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportAny = false         # the tests read decoded JSON bodies
+reportExplicitAny = false # the tests annotate decoded JSON bodies as Any
+
+[tool.vulture]
+exclude = ["src/console/models.py"] # response models: FastAPI reads their fields
+ignore_decorators = ["@router.*"]
+ignore_names = ["model_config"]
+
