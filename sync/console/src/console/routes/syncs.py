@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from dbos import WorkflowSerializationFormat
+from dbos import WorkflowHandleAsync, WorkflowSerializationFormat
 from engine.constants import SYNC_QUEUE
 from engine.models import SyncConfig, SyncScope
 from fastapi import APIRouter, Body, Response
@@ -48,7 +48,7 @@ async def start_sync(
         if errors:
             raise Problem(422, "The scope doesn't match the active config", errors)
 
-    handle = await client.enqueue_async(
+    handle: WorkflowHandleAsync[None] = await client.enqueue_async(
         {
             "queue_name": SYNC_QUEUE,
             "workflow_name": SYNC_WORKFLOW,

@@ -70,6 +70,20 @@ The server polls every `STREAM_INTERVAL_SECONDS` and sends an event only when th
 
 `GET /runs` and `GET /runs/{id}` show the sync runs and their steps. The steps that DBOS records for itself are hidden unless the request has `?include_internal=true`. `GET /queues` and `GET /schedules` show the queue limits, the queue depths and the cron schedules.
 
+## Starting a run
+
+`POST /syncs` starts a sync run now and answers `202` with `{"workflow_id": "…"}` and a `Location` header for `GET /runs/{id}`. The run waits on the sync queue, so it never overlaps another run.
+
+The body is optional. Without it, the run plans every table, like the nightly run. With a body, it plans only part of the configuration:
+
+```json
+{ "schemas": ["bigquery_a"], "tables": ["bigquery_b.orders"] }
+```
+
+A schema in `schemas` picks all its tables. A table in `tables` is written as `schema.table`. Both lists can name different parts at once. A name that the active configuration doesn't know gets 422 with a JSON Pointer to it, and nothing starts.
+
+A scoped run still reconciles the views of whole schemas, so a table outside the scope keeps its view.
+
 ## Tests
 
 The API tests call the app over HTTP. The tests that use the application database carry the `postgres` marker. `test:sync` skips them, and `devenv test` runs them against the test database.
