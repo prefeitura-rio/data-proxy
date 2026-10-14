@@ -36,7 +36,7 @@ DECLARE
 BEGIN
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW dl_snapshot_check AS '
-    || 'SELECT count(*) AS n FROM dl.snapshots() WHERE snapshot_id = ' || p_snapshot
+    || 'SELECT count(*) AS n FROM __ducklake_metadata_dl.ducklake_snapshot WHERE snapshot_id = ' || p_snapshot
   );
 
   SELECT r['n']::bigint INTO v_found FROM duckdb.query('SELECT n FROM dl_snapshot_check') r;
