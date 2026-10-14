@@ -320,9 +320,9 @@ def stub_sync_run(
     return calls, events
 
 
-async def run_sync() -> None:
+async def run_sync(context: dict[str, list[str]] | None = None) -> None:
     """Run the sync workflow body."""
-    await workflow_body(workflows.run_sync)(datetime.now(UTC), None)
+    await workflow_body(workflows.run_sync)(datetime.now(UTC), context)
 
 
 async def attach_ducklake(duckdb: DuckDB, tmp_path: Path) -> None:

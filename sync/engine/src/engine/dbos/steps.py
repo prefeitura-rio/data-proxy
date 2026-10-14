@@ -26,6 +26,7 @@ from engine.models import (
     PublicationResult,
     SyncConfig,
     SyncPlan,
+    SyncScope,
     SyncWork,
 )
 from engine.planning import run_planning
@@ -90,7 +91,7 @@ async def load_sync_config() -> LoadedConfig:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def build_sync_work(run_id: str, document: str) -> SyncWork:
+async def build_sync_work(run_id: str, document: str, scope: SyncScope) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     await logs.info("Sync planning started")
 
@@ -102,7 +103,7 @@ async def build_sync_work(run_id: str, document: str) -> SyncWork:
         work = await run_planning(
             pg_conn,
             duckdb_conn,
-            SyncConfig.model_validate_json(document),
+            SyncConfig.model_validate_json(document).scoped(scope),
             run_id,
             settings.S3_BUCKET,
         )

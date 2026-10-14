@@ -173,6 +173,12 @@ class Status(BaseModel):
     status: Literal["ok"]
 
 
+class Started(BaseModel):
+    """A workflow that the console enqueued."""
+
+    workflow_id: str
+
+
 class ErrorItem(BaseModel):
     """One problem in a request, with a JSON Pointer to the part that causes it."""
 

@@ -90,6 +90,15 @@ def schedule(**fields: object) -> dict[str, object]:
 
 
 @dataclass
+class FakeHandle:
+    """The handle of an enqueued workflow."""
+
+    def get_workflow_id(self) -> str:
+        """Return a fixed workflow id."""
+        return "run-new"
+
+
+@dataclass
 class FakeClient:
     """A DBOS client that answers from memory."""
 
@@ -105,6 +114,9 @@ class FakeClient:
     queued_timeline: list[list[WorkflowStatus]] = field(default_factory=list)
     polls: dict[str, int] = field(default_factory=dict)
     calls: list[dict[str, object]] = field(default_factory=list)
+    enqueued: list[tuple[dict[str, object], tuple[object, ...]]] = field(
+        default_factory=list
+    )
 
     def poll[T](self, kind: str, values: list[T]) -> T:
         """Return the value for the next poll of one kind. The last value repeats."""
@@ -158,6 +170,13 @@ class FakeClient:
         for line in self.streams.get(workflow_id, [])[offset:]:
             yield line
 
+    async def enqueue_async(
+        self, options: dict[str, object], *args: object
+    ) -> FakeHandle:
+        """Record the enqueue and return a handle with a fixed workflow id."""
+        self.enqueued.append((options, args))
+        return FakeHandle()
+
     async def check_connection_async(self) -> None:
         """Fail like the DBOS client does when the database is down."""
         if not self.connected:
@@ -169,12 +188,14 @@ def unreachable_engine() -> AsyncEngine:
     return create_async_engine("postgresql+psycopg://nobody@127.0.0.1:1/nobody")
 
 
-async def send(
+async def send(  # ruff: ignore[too-many-arguments]
     method: str,
     path: str,
     fake: FakeClient | None = None,
     engine: AsyncEngine | None = None,
+    *,
     headers: dict[str, str] | None = None,
+    json: object | None = None,
 ) -> Response:
     """Send one request to the app, with a fake DBOS client and the given database engine."""
     app.dependency_overrides[get_client] = lambda: fake or FakeClient()
@@ -183,7 +204,7 @@ async def send(
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as http:
-            return await http.request(method, path, headers=headers)
+            return await http.request(method, path, headers=headers, json=json)
     finally:
         app.dependency_overrides.clear()
 

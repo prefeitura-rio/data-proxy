@@ -29,9 +29,15 @@ async def engine() -> AsyncGenerator[AsyncEngine]:
 
 
 @pytest.fixture
-async def api(engine: AsyncEngine) -> AsyncGenerator[AsyncClient]:
+def fake() -> FakeClient:
+    """Give the tests the one fake DBOS client that the app uses, to read what it received."""
+    return FakeClient()
+
+
+@pytest.fixture
+async def api(engine: AsyncEngine, fake: FakeClient) -> AsyncGenerator[AsyncClient]:
     """Call the console app over HTTP, with the test database and a fake DBOS client."""
-    app.dependency_overrides[get_client] = FakeClient
+    app.dependency_overrides[get_client] = lambda: fake
     app.dependency_overrides[get_engine] = lambda: engine
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

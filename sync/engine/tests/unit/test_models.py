@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import date, timedelta
+from typing import ClassVar
 
 import pytest
 from hypothesis import given
@@ -19,6 +20,7 @@ from engine.models import (
     SourceConfig,
     SyncConfig,
     SyncPlan,
+    SyncScope,
     TableConfig,
     UnitMapping,
 )
@@ -261,6 +263,55 @@ class TestSchemaConfiguration:
                     )
                 }
             )
+
+
+class TestSyncScope:
+    """A sync scope picks the tables that one run plans."""
+
+    CONFIG: ClassVar[SyncConfig] = SyncConfig(
+        schemas={
+            "one": SchemaConfig(
+                tables=[FullTable(name="p.d.first"), FullTable(name="p.d.second")]
+            ),
+            "two": SchemaConfig(tables=[FullTable(name="p.d.third")]),
+        }
+    )
+
+    @pytest.mark.parametrize(
+        ("scope", "expected"),
+        [
+            pytest.param(
+                SyncScope(),
+                ["one.first", "one.second", "two.third"],
+                id="empty-scope-picks-everything",
+            ),
+            pytest.param(
+                SyncScope(schemas=["one"]), ["one.first", "one.second"], id="one-schema"
+            ),
+            pytest.param(
+                SyncScope(tables=["one.second"]), ["one.second"], id="one-table"
+            ),
+            pytest.param(
+                SyncScope(schemas=["two"], tables=["one.first"]),
+                ["one.first", "two.third"],
+                id="a-schema-and-a-table-of-another-schema",
+            ),
+            pytest.param(
+                SyncScope(tables=["one.third"]), [], id="a-table-of-another-schema-only"
+            ),
+            pytest.param(SyncScope(schemas=["missing"]), [], id="unknown-schema"),
+        ],
+    )
+    def test_keeps_only_the_tables_in_scope(
+        self, scope: SyncScope, expected: list[str]
+    ) -> None:
+        """Keep the picked tables, and drop a schema that has none left."""
+        scoped = self.CONFIG.scoped(scope)
+
+        assert [
+            f"{table.resolved_schema}.{table.table_name}" for table in scoped.tables
+        ] == expected
+        assert all(schema.tables for schema in scoped.schemas.values())
 
 
 class TestModelDefaults:

@@ -18,6 +18,7 @@ from engine.models import (
     FullTable,
     LoadedConfig,
     SyncPlan,
+    SyncScope,
     SyncWork,
 )
 from engine.settings import settings
@@ -233,7 +234,26 @@ class TestRunSyncUsesOneConfig:
         await run_sync()
 
         load.assert_awaited_once_with()
-        build.assert_awaited_once_with("run", DOCUMENT)
+        build.assert_awaited_once_with("run", DOCUMENT, SyncScope())
+        seed.assert_awaited_once_with([plan], DOCUMENT)
+
+    @pytest.mark.asyncio
+    async def test_plans_only_the_scope_of_an_on_demand_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Hand the scope of the request to planning, and the whole document to seeding."""
+        plan = SyncPlan(schema_name="app")
+        stub_sync_run(monkeypatch, postgrest_restart_required=False, snapshot_id=None)
+        build = AsyncMock(return_value=SyncWork(plans=[plan], tasks=[]))
+        seed = AsyncMock(return_value=False)
+        monkeypatch.setattr(workflows, "build_sync_work", build)
+        monkeypatch.setattr(workflows, "seed_schemas", seed)
+
+        await run_sync({"schemas": ["app"], "tables": ["other.t"]})
+
+        build.assert_awaited_once_with(
+            "run", DOCUMENT, SyncScope(schemas=["app"], tables=["other.t"])
+        )
         seed.assert_awaited_once_with([plan], DOCUMENT)
 
     @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsyn
 from engine.constants import DUMP_QUEUE, PUBLISH_QUEUE
 from engine.log import schemaname, tablename
 from engine.metrics import observe
-from engine.models import DumpResult, DumpStatus, DumpTask, SyncPlan
+from engine.models import DumpResult, DumpStatus, DumpTask, SyncPlan, SyncScope
 from engine.settings import settings
 
 from . import logs
@@ -89,8 +89,13 @@ async def publish_schema(
 
 @DBOS.workflow()
 @observe(record_run_status)
-async def run_sync(scheduled_at: datetime, context: None) -> None:
-    """Build work, fan out queued children, fan in results, and finalize."""
+async def run_sync(
+    scheduled_at: datetime, context: dict[str, list[str]] | None
+) -> None:
+    """Build work, fan out queued children, fan in results, and finalize.
+
+    The context is the scope of an on-demand run. A scheduled run has none and plans every table.
+    """
     run_id = DBOS.workflow_id
 
     if run_id is None:
@@ -100,7 +105,9 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         loaded = await load_sync_config()
-        work = await build_sync_work(run_id, loaded.document)
+        work = await build_sync_work(
+            run_id, loaded.document, SyncScope.model_validate(context or {})
+        )
         if not work.plans:
             await logs.info("Sync planning completed", changes="none")
             return

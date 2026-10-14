@@ -217,10 +217,38 @@ class SchemaConfig(BaseModel):
     tables: list[TableConfig] = Field(default_factory=list)
 
 
+class SyncScope(BaseModel):
+    """The tables that one on-demand run plans. Both lists empty means every table."""
+
+    schemas: list[str] = Field(default_factory=list)
+    tables: list[str] = Field(
+        default_factory=list, description='Tables written as "schema.table".'
+    )
+
+
 class SyncConfig(BaseModel):
     """The full set of schemas and their nested tables a synchronization run manages."""
 
     schemas: dict[str, SchemaConfig] = Field(default_factory=dict)
+
+    def scoped(self, scope: SyncScope) -> SyncConfig:
+        """Return the config reduced to the tables in scope, without schemas that have none."""
+        if not scope.schemas and not scope.tables:
+            return self
+
+        schemas = {
+            name: schema.model_copy(update={"tables": tables})
+            for name, schema in self.schemas.items()
+            if (
+                tables := [
+                    table
+                    for table in schema.tables
+                    if name in scope.schemas
+                    or f"{name}.{table.table_name}" in scope.tables
+                ]
+            )
+        }
+        return SyncConfig(schemas=schemas)
 
     @property
     def tables(self) -> list[TableConfig]:
