@@ -30,5 +30,6 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
 
 
 app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
-app.include_router(health.router)
-app.include_router(runs.router)
+
+for router in (health.router, runs.router):
+    app.include_router(router)
