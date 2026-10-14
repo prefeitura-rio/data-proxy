@@ -264,6 +264,25 @@ function seedAccessPolicy(): void {
     });
 }
 
+/** Changes the access policy through the proxy with the policy writer, and returns the status. */
+function changeAccessPolicy(method: "POST" | "DELETE", query: string, rows?: unknown): number {
+    const params = {
+        headers: {
+            Authorization: `Bearer ${fetchToken("policy_writer")}`,
+            Host: HOST,
+            "Accept-Profile": SCHEMA,
+            "Content-Profile": SCHEMA,
+            "Content-Type": "application/json",
+        },
+        tags: { name: "change_access_policy" },
+    };
+    const url = `${API_URL}/access_policy${query}`;
+    const response = (
+        method === "POST" ? http.post(url, JSON.stringify(rows), params) : http.del(url, null, params)
+    ) as K6Response;
+    return response.status;
+}
+
 /** Waits until the seeded policy authorizes the user through the read path. */
 function waitForAccessPolicyReplication(token: string): void {
     const deadline = Date.now() + POLICY_REPLICATION_TIMEOUT_SECONDS * 1000;
@@ -839,10 +858,15 @@ function verifyProxyCache(token: string, otherToken: string): void {
         sourceHeader(proxyGet(path, token)) === sourceHeader(first),
     );
 
-    seedAccessPolicy();
+    const probe = [{ subject: "e2e_cache_probe", unit_type: "unit", unit_id: "unit_cache" }];
+    expect("a new policy row is stored", changeAccessPolicy("POST", "", probe) === 201);
     expect(
         "a change of the access policy makes a cached answer stale",
         cacheHeader(proxyGet(path, token)) === "MISS",
+    );
+    expect(
+        "the new policy row is removed again",
+        changeAccessPolicy("DELETE", "?subject=eq.e2e_cache_probe") < 300,
     );
 
     sleep(CACHE_TTL_SECONDS + 3);
