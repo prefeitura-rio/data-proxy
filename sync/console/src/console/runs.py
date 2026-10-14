@@ -1,8 +1,9 @@
 """Read the runs of the sync workflow from DBOS."""
 
 from collections import Counter
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+
+from whenever import Instant
 
 from console.models import ChildRun, Run, RunDetail, RunPage, Step
 
@@ -14,11 +15,11 @@ if TYPE_CHECKING:
 SYNC_WORKFLOW = "run_sync"
 
 
-def to_time(milliseconds: int | None) -> datetime | None:
-    """Turn a DBOS timestamp, in milliseconds since the epoch, into a UTC time."""
+def to_time(milliseconds: int | None) -> Instant | None:
+    """Turn a DBOS timestamp, in milliseconds since the epoch, into an instant."""
     if milliseconds is None:
         return None
-    return datetime.fromtimestamp(milliseconds / 1000, UTC)
+    return Instant.from_timestamp_millis(milliseconds)
 
 
 def seconds_between(started: int | None, finished: int | None) -> float | None:
@@ -94,7 +95,7 @@ async def list_runs(
     client: DBOSClient,
     *,
     status: RunStatus | None,
-    since: datetime | None,
+    since: Instant | None,
     limit: int,
     offset: int,
 ) -> RunPage:
@@ -105,7 +106,7 @@ async def list_runs(
     workflows = await client.list_workflows_async(
         name=SYNC_WORKFLOW,
         status=status,
-        start_time=None if since is None else since.isoformat(),
+        start_time=None if since is None else since.format_iso(),
         limit=limit + 1,
         offset=offset,
         sort_desc=True,

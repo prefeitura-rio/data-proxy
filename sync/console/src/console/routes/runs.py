@@ -1,12 +1,11 @@
 """Routes that show the runs of the sync workflow."""
 
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
 from console.dependencies import Client
-from console.models import RunDetail, RunPage, RunStatus
+from console.models import RunDetail, RunPage, RunStatus, Time
 from console.runs import get_run, list_runs
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -16,7 +15,7 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 async def get_runs(
     client: Client,
     status: Annotated[RunStatus | None, Query()] = None,
-    since: Annotated[datetime | None, Query(description="Earliest start time.")] = None,
+    since: Annotated[Time | None, Query(description="Earliest start time.")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> RunPage:

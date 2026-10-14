@@ -1,9 +1,26 @@
 """The response models of the console."""
 
-from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
+from whenever import Instant
+
+
+def parse_time(value: object) -> Instant:
+    """Read an ISO 8601 timestamp that has an offset, or pass an instant through."""
+    if isinstance(value, Instant):
+        return value
+    if isinstance(value, str):
+        return Instant.parse_iso(value)
+    raise ValueError("expected an ISO 8601 timestamp")
+
+
+Time = Annotated[
+    Instant,
+    PlainValidator(parse_time),
+    PlainSerializer(Instant.format_iso, return_type=str),
+    WithJsonSchema({"type": "string", "format": "date-time"}),
+]
 
 RunStatus = Literal[
     "DELAYED",
@@ -24,9 +41,9 @@ class RunFields(TypedDict):
     trigger: Literal["schedule", "manual"]
     schedule_name: str | None
     queue: str | None
-    created_at: datetime | None
-    started_at: datetime | None
-    finished_at: datetime | None
+    created_at: Time | None
+    started_at: Time | None
+    finished_at: Time | None
     duration_seconds: float | None
     error: str | None
 
@@ -39,9 +56,9 @@ class Run(BaseModel):
     trigger: Literal["schedule", "manual"]
     schedule_name: str | None
     queue: str | None
-    created_at: datetime | None
-    started_at: datetime | None
-    finished_at: datetime | None
+    created_at: Time | None
+    started_at: Time | None
+    finished_at: Time | None
     duration_seconds: float | None
     error: str | None
 
@@ -51,8 +68,8 @@ class Step(BaseModel):
 
     id: int
     name: str
-    started_at: datetime | None
-    finished_at: datetime | None
+    started_at: Time | None
+    finished_at: Time | None
     duration_seconds: float | None
     child_workflow_id: str | None
     error: str | None
@@ -64,8 +81,8 @@ class ChildRun(BaseModel):
     id: str
     name: str
     status: RunStatus
-    started_at: datetime | None
-    finished_at: datetime | None
+    started_at: Time | None
+    finished_at: Time | None
     duration_seconds: float | None
     error: str | None
 

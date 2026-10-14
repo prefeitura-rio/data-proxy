@@ -1,5 +1,4 @@
 import sys
-from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -10,6 +9,7 @@ from dbos import StepInfo, WorkflowStatus
 from fastapi import APIRouter
 from fastapi.routing import iter_route_contexts
 from httpx2 import ASGITransport, AsyncClient
+from whenever import Instant
 
 from console import routes
 from console.dependencies import get_client
@@ -40,12 +40,8 @@ def workflow(**fields: object) -> WorkflowStatus:
 
 
 def at(milliseconds: int) -> str:
-    """Return the ISO text that the API writes for a DBOS timestamp."""
-    return (
-        datetime.fromtimestamp(milliseconds / 1000, UTC)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    """Return the ISO text that the console writes for a DBOS timestamp."""
+    return Instant.from_timestamp_millis(milliseconds).format_iso()
 
 
 class FakeClient:
@@ -229,11 +225,36 @@ class TestRuns:
         await request_to(fake, "/runs?status=ERROR&since=2026-10-01T00:00:00Z")
 
         assert fake.calls[0]["status"] == "ERROR"
-        assert fake.calls[0]["start_time"] == "2026-10-01T00:00:00+00:00"
+        assert fake.calls[0]["start_time"] == "2026-10-01T00:00:00Z"
+
+    async def test_normalizes_the_start_time_to_utc(self) -> None:
+        """Convert a start time with an offset to the same instant in UTC."""
+        fake = FakeClient()
+
+        await request_to(fake, "/runs?since=2026-10-01T03:00:00%2B03:00")
+
+        assert fake.calls[0]["start_time"] == "2026-10-01T00:00:00Z"
+
+    async def test_documents_the_start_time_as_a_date_time(self) -> None:
+        """Keep the OpenAPI schema of the start time a date-time string."""
+        _, body = await request_to(FakeClient(), "/openapi.json")
+
+        parameters: list[dict[str, Any]] = body["paths"]["/runs"]["get"]["parameters"]
+        since: dict[str, Any] = next(
+            item for item in parameters if item["name"] == "since"
+        )
+        assert {"type": "string", "format": "date-time"} in since["schema"]["anyOf"]
 
     @pytest.mark.parametrize(
         "query",
-        ["status=BROKEN", "limit=0", "limit=201", "offset=-1", "since=yesterday"],
+        [
+            "status=BROKEN",
+            "limit=0",
+            "limit=201",
+            "offset=-1",
+            "since=yesterday",
+            "since=2026-10-01T00:00:00",
+        ],
     )
     async def test_rejects_an_invalid_filter(self, query: str) -> None:
         """Answer 422 and do not ask DBOS for a filter that is not valid."""

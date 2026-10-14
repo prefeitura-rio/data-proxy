@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.142.2",
   "pydantic-settings>=2.14.2",
   "uvicorn[standard]>=0.54.0",
+  "whenever>=0.10.5",
 ]
 
 [build-system]
