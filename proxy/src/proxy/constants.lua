@@ -38,10 +38,6 @@ return {
 	log = {
 		messages = {
 			request = "Proxy request completed",
-			["cache-read-failed"] = "Proxy cache read failed",
-			["cache-write-rejected"] = "Proxy cache write was rejected",
-			["cache-body-too-large"] = "Proxy cache write was skipped",
-			["cache-write-failed"] = "Proxy cache write failed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
 		},
 		fallback_message = "Proxy request state changed",
