@@ -241,7 +241,8 @@ seaweedfs:
 ## External Redis-compatible cache.
 redis:
   existingSecret: data-proxy-redis
-  host: redis-writer
+  ## Required. The one Redis endpoint that the proxy uses for its cache.
+  host: ""
   port: 6379
   readKey: REDIS_READ
   writeKey: REDIS_WRITE

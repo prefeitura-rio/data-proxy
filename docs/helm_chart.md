@@ -95,7 +95,7 @@ redis:
   port: 6379
 ```
 
-`host` and `port` are the one stable Redis endpoint the proxy uses. The operator provides it, with replication and failover behind it. The Redis Secret contains a JSON value under `REDIS` for the sync workers:
+`host` and `port` are the one stable Redis endpoint the proxy uses. `host` has no default, and the chart fails to render without it. The operator provides it, with replication and failover behind it. The Redis Secret contains a JSON value under `REDIS` for the sync workers:
 
 ```json
 {"read":"redis://reader:6379/1","write":"redis://writer:6379/0"}

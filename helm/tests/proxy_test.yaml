@@ -4,6 +4,8 @@ templates:
   - deployment-proxy.yaml
   - scaledobjects.yaml
   - services.yaml
+set:
+  redis.host: redis-writer
 tests:
   - it: renders one OpenResty proxy container
     asserts:

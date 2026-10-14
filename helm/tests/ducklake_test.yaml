@@ -8,6 +8,8 @@ templates:
   - configmap-litestream.yaml
   - deployment-litestream.yaml
   - pvc-duckdb.yaml
+set:
+  redis.host: redis-writer
 tests:
   - it: renders one CNPG cluster with DuckLake PostgreSQL parameters
     asserts:

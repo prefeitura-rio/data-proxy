@@ -14,6 +14,7 @@ templates:
   - pdbs.yaml
 set:
   ha.enabled: true
+  redis.host: redis-writer
 tests:
   - it: passes the HA mode to the OpenResty proxy
     asserts:

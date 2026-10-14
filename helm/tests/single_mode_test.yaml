@@ -12,6 +12,8 @@ templates:
   - configmap-proxy.yaml
   - services.yaml
   - pdbs.yaml
+set:
+  redis.host: redis-writer
 tests:
   - it: passes single mode to the OpenResty proxy
     asserts:

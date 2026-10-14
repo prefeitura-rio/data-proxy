@@ -323,7 +323,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 - name: PROXY_HA_MODE
   value: {{ toString .Values.ha.enabled | quote }}
 - name: PROXY_REDIS_HOST
-  value: {{ .Values.redis.host | quote }}
+  value: {{ required "redis.host is required: the proxy stores its answers in this Redis" .Values.redis.host | quote }}
 - name: PROXY_REDIS_PORT
   value: {{ toString .Values.redis.port | quote }}
 - name: PROXY_REDIS_DATABASE

@@ -5,6 +5,8 @@ release:
 templates:
   - configmap-proxy.yaml
   - deployment-proxy.yaml
+set:
+  redis.host: redis-writer
 tests:
   - it: passes the proxy settings as environment variables
     set:
@@ -132,3 +134,11 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[?(@.name=="config")].mountPath
           value: /usr/local/openresty/nginx/conf/nginx.conf
+
+  - it: fails to render when the Redis host is not set
+    template: deployment-proxy.yaml
+    set:
+      redis.host: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "redis.host is required: the proxy stores its answers in this Redis"
