@@ -235,3 +235,39 @@ HTTP 200
 X-Cache: HIT
 [Asserts]
 jsonpath "$.upstream" == "read"
+
+# A successful write to the access policy makes every cached answer stale, so nobody reads an answer
+# from before the change. A repeat of the read after that is cached again.
+GET http://{{host}}/people?case=policy
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 1
+
+GET http://{{host}}/people?case=policy
+
+HTTP 200
+X-Cache: HIT
+[Asserts]
+jsonpath "$.n" == 1
+
+POST http://{{host}}/access_policy
+Content-Type: application/json
+{"subject":"alice","unit_type":"unit","unit_id":"unit_1"}
+
+HTTP 200
+
+GET http://{{host}}/people?case=policy
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 2
+
+GET http://{{host}}/people?case=policy
+
+HTTP 200
+X-Cache: HIT
+[Asserts]
+jsonpath "$.n" == 2
