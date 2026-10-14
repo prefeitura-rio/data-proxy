@@ -26,9 +26,16 @@ async def get_runs(
 
 
 @router.get("/{run_id}")
-async def get_run_detail(run_id: str, client: Client) -> RunDetail:
+async def get_run_detail(
+    run_id: str,
+    client: Client,
+    *,
+    include_internal: Annotated[
+        bool, Query(description="Also list the steps that DBOS records itself.")
+    ] = False,
+) -> RunDetail:
     """Show one sync run with its steps and the workflows that it started."""
-    run = await get_run(client, run_id)
+    run = await get_run(client, run_id, include_internal=include_internal)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return run

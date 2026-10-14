@@ -2,7 +2,13 @@
 
 from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
+from pydantic import (
+    BaseModel,
+    Field,
+    PlainSerializer,
+    PlainValidator,
+    WithJsonSchema,
+)
 from whenever import Instant
 
 
@@ -137,3 +143,22 @@ class Schedule(BaseModel):
     automatic_backfill: bool
     timezone: str | None
     queue: str | None
+
+
+class LogLine(BaseModel):
+    """One line of the log that a workflow wrote to its DBOS stream."""
+
+    time: Time
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    message: str
+    fields: dict[str, str | int | float | bool]
+    workflow_id: str
+    schema_name: str | None = Field(validation_alias="schema")
+    table_name: str | None = Field(validation_alias="table")
+
+
+class LogEnd(BaseModel):
+    """The last event of a log stream: the workflow has ended."""
+
+    workflow_id: str
+    status: RunStatus

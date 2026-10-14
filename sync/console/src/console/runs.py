@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from console.models import RunFields, RunStatus
 
 SYNC_WORKFLOW = "run_sync"
+INTERNAL_STEP_PREFIX = "DBOS."
 
 
 def to_time(milliseconds: int | None) -> Instant | None:
@@ -121,7 +122,9 @@ async def list_runs(
     )
 
 
-async def get_run(client: DBOSClient, run_id: str) -> RunDetail | None:
+async def get_run(
+    client: DBOSClient, run_id: str, *, include_internal: bool
+) -> RunDetail | None:
     """Return one sync run with its steps and child workflows, or None if it is unknown."""
     runs = await client.list_workflows_async(
         name=SYNC_WORKFLOW,
@@ -139,7 +142,12 @@ async def get_run(client: DBOSClient, run_id: str) -> RunDetail | None:
     children = [to_child(workflow) for workflow in workflows]
     return RunDetail(
         **run_fields(runs[0]),
-        steps=[to_step(step) for step in steps],
+        steps=[
+            to_step(step)
+            for step in steps
+            if include_internal
+            or not step["function_name"].startswith(INTERNAL_STEP_PREFIX)
+        ],
         children=children,
         child_counts=count_children(children),
     )

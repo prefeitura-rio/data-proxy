@@ -83,6 +83,7 @@ class FakeClient:
     queues: list[FakeQueue] = field(default_factory=list)
     queued: list[WorkflowStatus] = field(default_factory=list)
     schedules: list[dict[str, object]] = field(default_factory=list)
+    streams: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     calls: list[dict[str, object]] = field(default_factory=list)
 
     async def list_workflows_async(self, **filters: object) -> list[WorkflowStatus]:
@@ -112,6 +113,14 @@ class FakeClient:
     async def list_schedules_async(self) -> list[dict[str, object]]:
         """Return the schedules that the test prepared."""
         return self.schedules
+
+    async def read_stream_async(
+        self, workflow_id: str, key: str, *, offset: int = 0, **_: object
+    ) -> AsyncGenerator[dict[str, object]]:
+        """Replay the stream lines of one workflow, from an offset, then end."""
+        self.calls.append({"stream": key, "workflow_id": workflow_id, "offset": offset})
+        for line in self.streams.get(workflow_id, [])[offset:]:
+            yield line
 
     async def check_connection_async(self) -> None:
         """Fail like the DBOS client does when the database is down."""
@@ -166,6 +175,50 @@ async def request_to(
     finally:
         app.dependency_overrides.clear()
     return response.status_code, response.json()
+
+
+async def events_from(
+    fake: FakeClient, path: str, headers: dict[str, str] | None = None
+) -> tuple[int, list[dict[str, str]]]:
+    """Read a server-sent event stream and return its events as field maps."""
+    app.dependency_overrides[get_client] = lambda: fake
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as http:
+            response = await http.get(path, headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    events: list[dict[str, str]] = []
+    for block in response.text.split("\n\n"):
+        event: dict[str, str] = {}
+        for line in block.splitlines():
+            name, separator, value = line.partition(": ")
+            if separator:
+                event[name] = value
+        if event:
+            events.append(event)
+    return response.status_code, events
+
+
+def stream_reads(fake: FakeClient) -> list[dict[str, object]]:
+    """Return the calls that read a log stream, in order."""
+    return [call for call in fake.calls if "stream" in call]
+
+
+def log_line(message: str, **fields: object) -> dict[str, object]:
+    """Build one value of the log stream, as the engine writes it."""
+    values: dict[str, object] = {
+        "time": "2027-01-15T08:00:01.5Z",
+        "level": "INFO",
+        "message": message,
+        "fields": {},
+        "workflow_id": "run-1",
+        "schema": None,
+        "table": None,
+    }
+    return values | fields
 
 
 def step(

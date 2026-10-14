@@ -140,6 +140,37 @@ class TestRuns:
 class TestRun:
     """One sync run with its steps and child workflows."""
 
+    async def test_hides_the_internal_steps_of_dbos_by_default(self) -> None:
+        """Leave out the steps that DBOS records for its own operations."""
+        fake = FakeClient(
+            workflows=[workflow()],
+            steps={
+                "run-1": [
+                    step(1, "DBOS.writeStream"),
+                    step(2, "build_sync_work"),
+                    step(3, "DBOS.writeStream"),
+                ]
+            },
+        )
+
+        _, body = await request_to(fake, "/runs/run-1")
+
+        assert [item["name"] for item in body["steps"]] == ["build_sync_work"]
+
+    async def test_shows_the_internal_steps_when_asked(self) -> None:
+        """Keep every step when the caller asks for the internal ones."""
+        fake = FakeClient(
+            workflows=[workflow()],
+            steps={"run-1": [step(1, "DBOS.writeStream"), step(2, "build_sync_work")]},
+        )
+
+        _, body = await request_to(fake, "/runs/run-1?include_internal=true")
+
+        assert [item["name"] for item in body["steps"]] == [
+            "DBOS.writeStream",
+            "build_sync_work",
+        ]
+
     async def test_shows_the_run_with_its_steps_and_children(self) -> None:
         """Return the run, its ordered steps, its children and their counts."""
         fake = FakeClient(
