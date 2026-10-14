@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - main
-      - staging
     paths: &ci_paths
       - .github/workflows/**
       - .github/actions/**
