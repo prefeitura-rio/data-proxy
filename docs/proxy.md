@@ -63,6 +63,7 @@ The parser reads the query parameters that hold comparisons, and the `and`, `or`
 - OpenResty doesn't cache ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never cached.
 - Cache reads use the Redis reader endpoint. Cache writes use the Redis writer endpoint. Webdis isn't part of the request path.
 - The sync flushes the cache after each run.
+- A successful write to `/access_policy` through the proxy raises the policy generation, a counter in Redis. Every key includes it, so answers from before the change are never served again. A change made directly in the database doesn't raise it. Those answers stay until their lifetime ends or the next sync flushes the cache.
 
 See [Using the API](using.md#response-source-and-cache) for the response headers.
 
