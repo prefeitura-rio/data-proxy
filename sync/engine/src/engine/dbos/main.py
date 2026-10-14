@@ -32,27 +32,32 @@ async def serve() -> None:
     DBOS.launch()
 
     await DBOS.register_queue_async(
-        SYNC_QUEUE, concurrency=settings.SYNC_QUEUE_CONCURRENCY
+        SYNC_QUEUE,
+        concurrency=settings.SYNC_QUEUE_CONCURRENCY,
+        on_conflict="never_update",
     )
     await DBOS.register_queue_async(
         DUMP_QUEUE,
         worker_concurrency=settings.DUMP_QUEUE_WORKER_CONCURRENCY,
         limiter=settings.dump_queue_limiter,
+        on_conflict="never_update",
+    )
+    await DBOS.register_queue_async(
+        PUBLISH_QUEUE, partition_concurrency=1, on_conflict="never_update"
     )
 
-    await DBOS.register_queue_async(PUBLISH_QUEUE, partition_concurrency=1)
-
-    await DBOS.apply_schedules_async(
-        [
-            ScheduleInput(
-                schedule_name=settings.SYNC_SCHEDULE_NAME,
-                workflow_fn=run_sync,
-                schedule=settings.SYNC_SCHEDULE,
-                context=None,
-                queue_name=SYNC_QUEUE,
-            )
-        ]
-    )
+    if await DBOS.get_schedule_async(settings.SYNC_SCHEDULE_NAME) is None:
+        await DBOS.apply_schedules_async(
+            [
+                ScheduleInput(
+                    schedule_name=settings.SYNC_SCHEDULE_NAME,
+                    workflow_fn=run_sync,
+                    schedule=settings.SYNC_SCHEDULE,
+                    context=None,
+                    queue_name=SYNC_QUEUE,
+                )
+            ]
+        )
 
     logger.info("Sync application started")
     await Event().wait()

@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import final
+from typing import ClassVar, final
 from unittest.mock import AsyncMock
 
 import httpx2
@@ -408,6 +408,90 @@ class TestPublishSchemaOrder:
 
         assert calls.names[-1] == "apply_ducklake_maintenance"
         assert snapshot_id == 42
+
+
+class RecordingDbos:
+    """Stand-in for the DBOS class that records how the application sets itself up."""
+
+    queues: ClassVar[list[tuple[str, str]]] = []
+    applied: ClassVar[list[str]] = []
+    existing: ClassVar[object | None] = None
+
+    def __init__(self, **_: object) -> None:
+        """Accept the configuration."""
+
+    @classmethod
+    def listen_queues(cls, queues: list[str]) -> None:
+        """Ignore the queues to listen to."""
+
+    @classmethod
+    def launch(cls) -> None:
+        """Ignore the launch."""
+
+    @classmethod
+    async def register_queue_async(
+        cls, name: str, *, on_conflict: str = "always_update", **_: object
+    ) -> None:
+        """Record the queue and how it treats an existing one."""
+        cls.queues.append((name, on_conflict))
+
+    @classmethod
+    async def get_schedule_async(cls, _name: str) -> object | None:
+        """Answer with the schedule that the test prepared, if any."""
+        return cls.existing
+
+    @classmethod
+    async def apply_schedules_async(cls, schedules: list[dict[str, object]]) -> None:
+        """Record the names of the applied schedules."""
+        cls.applied.extend(str(entry["schedule_name"]) for entry in schedules)
+
+
+class ReturnsAtOnce:
+    """An event that never blocks, so that serve returns."""
+
+    async def wait(self) -> None:
+        """Return at once."""
+
+
+@pytest.mark.usefixtures("recording")
+class TestServe:
+    """Startup creates the queues and the schedule when they are missing, and never overwrites them."""
+
+    @pytest.fixture
+    def recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Replace DBOS, and reset what it recorded."""
+        RecordingDbos.queues = []
+        RecordingDbos.applied = []
+        RecordingDbos.existing = None
+        monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
+        monkeypatch.setattr(dbos_main, "Event", ReturnsAtOnce)
+
+    @pytest.mark.asyncio
+    async def test_leaves_the_stored_queues_alone(self) -> None:
+        """Seed each queue once, so a limit that the console changed survives a restart."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.queues == [
+            ("sync", "never_update"),
+            ("dump", "never_update"),
+            ("publish", "never_update"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_creates_the_schedule_when_it_is_missing(self) -> None:
+        """Create the nightly schedule on the first start."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.applied == ["sync"]
+
+    @pytest.mark.asyncio
+    async def test_leaves_the_stored_schedule_alone(self) -> None:
+        """Keep a schedule that exists, because the console may have changed it."""
+        RecordingDbos.existing = object()
+
+        await dbos_main.serve()
+
+        assert RecordingDbos.applied == []
 
 
 class TestMain:

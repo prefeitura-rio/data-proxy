@@ -16,7 +16,7 @@ sync:
   trigger:
     enabled: false
     configMap: manifests-sync-trigger-script
-  ## Cron expression for the DBOS sync schedule.
+  ## Cron expression for the DBOS sync schedule. Only the first value: the console API changes it later.
   ## Default: daily at 02:00 UTC.
   schedule: 0 2 * * *
   ## Maximum wall-clock time for one DBOS sync workflow.

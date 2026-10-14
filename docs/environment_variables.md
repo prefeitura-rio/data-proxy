@@ -61,13 +61,15 @@ Each pooled connection holds one server connection for its whole life. One conso
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SYNC_SCHEDULE` | `0 2 * * *` | DBOS schedule for `run_sync`. |
+| `SYNC_SCHEDULE` | `0 2 * * *` | Initial DBOS schedule for `run_sync`. |
 | `SYNC_SCHEDULE_NAME` | `sync` | DBOS schedule name. |
-| `SYNC_QUEUE_CONCURRENCY` | `1` | Sync workflow concurrency. |
+| `SYNC_QUEUE_CONCURRENCY` | `1` | Initial sync workflow concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
-| `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Dump worker concurrency. |
-| `DUMP_QUEUE_RATE_LIMIT` | `50` | Dump tasks per minute. |
+| `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Initial dump worker concurrency. |
+| `DUMP_QUEUE_RATE_LIMIT` | `50` | Initial dump tasks per minute. |
+
+The engine creates the queues and the schedule when they don't exist, and never overwrites them. These values are only the first ones. Change them later with the console API (`PATCH /queues/{name}` and `PATCH /schedules/{name}`), because a restart keeps the stored values.
 
 ## Dumper
 
