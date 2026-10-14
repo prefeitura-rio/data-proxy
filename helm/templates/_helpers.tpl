@@ -343,6 +343,12 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
   value: {{ toString .Values.proxy.postgrestBackoffMs | quote }}
 - name: PROXY_MAX_INFLIGHT
   value: {{ toString .Values.proxy.maxInflight | quote }}
+{{- with .Values.proxy.configUrl }}
+- name: PROXY_CONFIG_URL
+  value: {{ . | quote }}
+{{- end }}
+- name: PROXY_CONFIG_REFRESH_SECONDS
+  value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
 {{- end }}
 
 {{- define "data-proxy.nginxProxyConfig" -}}

@@ -75,6 +75,23 @@ Measure the limit against the database, not the proxy: one PostgreSQL pod with 8
 
 The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postgrest.dbPoolAcquisitionTimeout` seconds (3 by default) for a free database connection before it answers with an error.
 
+## Table settings from the console
+
+The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cache_ttl`) and the paths that it never caches (`noCachePaths`). With `PROXY_CONFIG_URL` set, it takes both from the console endpoint `GET /config/sync.json`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
+
+The first `sync.json` comes from the file `/config/sync.json` when the file exists. Without a file and before the first answer of the console, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+
+The proxy takes a new `sync.json` in two ways:
+
+| Way | When |
+| --- | --- |
+| `POST /reload` on the admin port 8081 | The console calls it right after a change. The answer is `{"changed":true,"revision":"\"7\""}`, or `changed` is `false` when the proxy already has that revision. |
+| A check every `PROXY_CONFIG_REFRESH_SECONDS` | Worker 0 asks the console, so a proxy that missed a call still catches up. |
+
+A console that fails, or a document that doesn't match the schema, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
+
+The admin port has no authentication, so no ingress may route it. The chart renders a headless Service, `<release>-proxy-admin`, only when `proxy.configUrl` is set. Its DNS name resolves to the address of every proxy pod, so the console can call each one.
+
 ## Settings
 
 The Helm Deployment sets the proxy settings as `PROXY_*` environment variables. See [Environment Variables](environment_variables.md#openresty-proxy) for each variable, its default, and its meaning. `helm/files/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables. Lua code reads settings only through the table that `config.load` returns. `main` loads it once at start-up, in `init_by_lua`, and passes it down. The load collects the text of every variable in one table, and converts and checks the table once with the `config` schema. The schema also gives the defaults. A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting, with an error that names the setting. The variable is `PROXY_` and the upper-case name of the setting. `sync.json` sets only the cache time of each table and the paths that are never cached, and the proxy checks it with a schema when it starts. The proxy checks the other data that it doesn't create in the same way: the entries that it reads from Redis, and the claims of a bearer token. The `Schema` class is in `proxy/src/proxy/schemas/schema.lua`, and the registry is `proxy/src/proxy/schemas/main.lua` (`schemas:register(name, fields)`). When the registry module loads at start-up, it registers every file `proxy/src/proxy/schemas/definitions/<name>.lua` as the schema `<name>`. A definition file gives only the fields. Code checks data with `schemas.<name>:validate(value)`.

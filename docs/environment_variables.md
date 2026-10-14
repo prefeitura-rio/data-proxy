@@ -107,6 +107,8 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | `PROXY_POSTGREST_RETRIES` | `1` | Retry attempts on the retry service after the first attempt, from `0` to `10`. |
 | `PROXY_POSTGREST_BACKOFF_MS` | `0` | Delay before the first retry, in milliseconds, from `0` to `60000`. Each retry doubles it. |
 | `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
+| `PROXY_CONFIG_URL` | unset | Address where the console serves `sync.json`, for example `http://console:8000/config/sync.json`. When it's set, the proxy takes its table settings from the console. |
+| `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of the console for a new `sync.json`. The check is a safety net: the console also calls the reload endpoint at once after a change. |
 
 ## PostgREST rollout
 
