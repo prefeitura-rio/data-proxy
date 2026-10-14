@@ -93,7 +93,7 @@ To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend
 
 ## Console migrations
 
-The console owns its tables in the `data_proxy` schema. The migrations are plain SQL files in `sync/console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `data_proxy.goose_db_version`, in the same schema.
+The console owns its tables in the `data_proxy` schema. The migrations are plain SQL files in `sync/console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `public.goose_db_version`. The first migration creates the `data_proxy` schema when it's missing, so the console doesn't depend on the engine.
 
 Set `PG_DATABASE_URL` and run the `migrate` command in the sync shell:
 
@@ -103,7 +103,7 @@ migrate status    # list the applied migrations
 migrate down      # undo the last migration
 ```
 
-The command creates the `data_proxy` schema first when it's missing. `devenv test` runs `migrate up` on the test database, so a broken migration fails the test setup. `lint:sql` checks the files with `sqlfluff` and `goose validate`.
+`devenv test` runs `migrate up` on the test database, so a broken migration fails the test setup. `lint:sql` checks the files with `sqlfluff` and `goose validate`.
 
 To add a migration, run `goose -dir sync/console/migrations create <name> sql`. Write both the `Up` and the `Down` part. Never edit a migration that a shared database has applied. Add a new one instead.
 
