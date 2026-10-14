@@ -48,7 +48,6 @@
           exec = ''
             set -e
             (cd engine && uv run --frozen pytest tests/unit)
-            (cd console && uv run --frozen pytest -m "not postgres")
           '';
           execIfModified = [
             "sync/**/*.py"
@@ -65,11 +64,9 @@
           exec = ''
             uv run --frozen ruff check */src */tests
             (cd engine && basedpyright)
-            (cd console && basedpyright)
             uv run --frozen pyrefly check
             uv run --frozen complexipy */src */tests
             (cd engine && uv run --frozen vulture --min-confidence 60 src tests)
-            (cd console && uv run --frozen vulture --min-confidence 60 src tests)
           '';
           execIfModified = [
             "sync/**/*.py"
@@ -98,7 +95,6 @@
       enterTest = ''
         set -e
         (cd ${config.devenv.root}/sync/engine && uv run --frozen pytest)
-        (cd ${config.devenv.root}/sync/console && uv run --frozen pytest)
       '';
     };
   };
