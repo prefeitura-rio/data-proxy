@@ -69,6 +69,7 @@ runtime-evaluated-base-classes = [
 "**/tests/**" = [
   "S101",     # assert — the way a test states its expectation
   "ASYNC109", # test doubles keep the signature of the real function
+  "RUF029",   # async test doubles keep the awaitable signature
   "D100",     # test modules have no module docstring by project rule
   "INP001",   # tests run with importlib import mode, not as a package
   "PLR2004",  # magic numbers are the expected values in assertions

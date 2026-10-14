@@ -1,16 +1,26 @@
+import asyncio
 from collections.abc import AsyncGenerator
+from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from dbos import StepInfo, WorkflowStatus
 from httpx2 import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from starlette.types import Message, Scope
 from whenever import Instant
 
 from console.dependencies import get_client, get_engine
 from console.main import app
 
 NOW_MS = 1_800_000_000_000
+
+
+def replace_status(source: WorkflowStatus, status: str) -> WorkflowStatus:
+    """Return a copy of a workflow status that has another status."""
+    changed = copy(source)
+    vars(changed)["status"] = status
+    return changed
 
 
 def workflow(**fields: object) -> WorkflowStatus:
@@ -83,7 +93,24 @@ class FakeClient:
     queued: list[WorkflowStatus] = field(default_factory=list)
     schedules: list[dict[str, object]] = field(default_factory=list)
     streams: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    statuses: list[str] = field(default_factory=list)
+    queued_timeline: list[list[WorkflowStatus]] = field(default_factory=list)
+    polls: dict[str, int] = field(default_factory=dict)
     calls: list[dict[str, object]] = field(default_factory=list)
+
+    def poll[T](self, kind: str, values: list[T]) -> T:
+        """Return the value for the next poll of one kind. The last value repeats."""
+        count = self.polls.get(kind, 0)
+        self.polls[kind] = count + 1
+        return values[min(count, len(values) - 1)]
+
+    def by_id(self, wanted: list[str], *, polled: bool) -> list[WorkflowStatus]:
+        """Find workflows by id. A polled run takes the next status of the timeline."""
+        found = [w for w in self.workflows if w.workflow_id in wanted]
+        if self.statuses and polled:
+            status = self.poll("status", self.statuses)
+            return [replace_status(w, status) for w in found]
+        return found
 
     async def list_workflows_async(self, **filters: object) -> list[WorkflowStatus]:
         """Record the filters and answer like DBOS: by id, by parent, or all."""
@@ -92,7 +119,7 @@ class FakeClient:
             return self.children.get(str(parent), [])
         if "workflow_ids" in filters:
             wanted = cast("list[str]", filters["workflow_ids"])
-            return [w for w in self.workflows if w.workflow_id in wanted]
+            return self.by_id(wanted, polled=bool(filters.get("name")))
         return self.workflows
 
     async def list_workflow_steps_async(
@@ -107,6 +134,8 @@ class FakeClient:
 
     async def list_queued_workflows_async(self, **_: object) -> list[WorkflowStatus]:
         """Return the workflows that wait on a queue or run from one."""
+        if self.queued_timeline:
+            return self.poll("queued", self.queued_timeline)
         return self.queued
 
     async def list_schedules_async(self) -> list[dict[str, object]]:
@@ -159,22 +188,75 @@ async def request_to(
     return response.status_code, response.json()
 
 
-async def events_from(
-    fake: FakeClient, path: str, headers: dict[str, str] | None = None
-) -> tuple[int, list[dict[str, str]]]:
-    """Read a server-sent event stream and return its events as field maps."""
-    response = await send("GET", path, fake, headers=headers)
+def parse_events(text: str) -> list[dict[str, str]]:
+    """Split the text of a server-sent event stream into complete events, as field maps."""
+    blocks = text.split("\n\n")
+    if not text.endswith("\n\n"):
+        blocks = blocks[:-1]
 
     events: list[dict[str, str]] = []
-    for block in response.text.split("\n\n"):
+    for block in blocks:
         event: dict[str, str] = {}
         for line in block.splitlines():
             name, separator, value = line.partition(": ")
-            if separator:
+            if separator and name:
                 event[name] = value
         if event:
             events.append(event)
-    return response.status_code, events
+    return events
+
+
+async def events_from(
+    fake: FakeClient, path: str, headers: dict[str, str] | None = None
+) -> tuple[int, list[dict[str, str]]]:
+    """Read a server-sent event stream that ends, and return its events as field maps."""
+    response = await send("GET", path, fake, headers=headers)
+    return response.status_code, parse_events(response.text)
+
+
+async def first_events(
+    path: str, count: int, fake: FakeClient | None = None
+) -> list[dict[str, str]]:
+    """Read the first events of a stream that may never end, and then disconnect.
+
+    A caller that already installed its own overrides passes no fake.
+    """
+    received = bytearray()
+    enough = asyncio.Event()
+
+    async def receive() -> Message:
+        await enough.wait()
+        return {"type": "http.disconnect"}
+
+    async def send_message(message: Message) -> None:
+        if message["type"] == "http.response.body":
+            received.extend(message.get("body", b""))
+            if len(parse_events(received.decode())) >= count:
+                enough.set()
+
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [],
+        "server": ("test", 80),
+        "client": ("test", 1),
+    }
+    if fake is not None:
+        app.dependency_overrides[get_client] = lambda: fake
+        app.dependency_overrides[get_engine] = unreachable_engine
+    try:
+        await asyncio.wait_for(app(scope, receive, send_message), timeout=5)
+    finally:
+        if fake is not None:
+            app.dependency_overrides.clear()
+    return parse_events(received.decode())[:count]
 
 
 def stream_reads(fake: FakeClient) -> list[dict[str, object]]:

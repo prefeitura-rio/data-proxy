@@ -1,14 +1,23 @@
 """Routes that read and write the sync config."""
 
+from collections.abc import AsyncIterable
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Response
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import select, update
 
-from console import config, revisions
+from console import config, revisions, streaming
 from console.dependencies import Engine, IfMatch, Writing
-from console.models import Config, ConfigCheck, Revision, RevisionDetail
+from console.models import (
+    ActiveRevision,
+    Config,
+    ConfigCheck,
+    Revision,
+    RevisionDetail,
+)
 from console.problems import Problem
+from console.settings import settings
 from console.tables import Revisions
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -24,6 +33,30 @@ async def get_config(engine: Engine, response: Response) -> Config:
         revision=current,
         document=config.to_api(current.document) if current else {"schemas": {}},
     )
+
+
+@router.get("/stream", response_class=EventSourceResponse)
+async def stream_config(engine: Engine) -> AsyncIterable[ServerSentEvent]:
+    """Send the active revision now, and again each time another one becomes active."""
+
+    async def read() -> ActiveRevision:
+        statement = select(
+            Revisions.revision_id,
+            Revisions.created_at,
+            Revisions.author,
+            Revisions.comment,
+            Revisions.active,
+        ).where(Revisions.active.is_(True))
+        async with engine.connect() as connection:
+            row = (await connection.execute(statement)).mappings().first()
+        return ActiveRevision(
+            revision=None if row is None else Revision.model_validate(dict(row))
+        )
+
+    async for active in streaming.changes(
+        read, interval=settings.STREAM_INTERVAL_SECONDS
+    ):
+        yield ServerSentEvent(data=active, event="revision")
 
 
 @router.put("")

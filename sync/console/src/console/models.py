@@ -160,8 +160,8 @@ class LogLine(BaseModel):
     table_name: str | None = Field(validation_alias="table")
 
 
-class LogEnd(BaseModel):
-    """The last event of a log stream: the workflow has ended."""
+class End(BaseModel):
+    """The last event of a stream that follows a workflow: the workflow has ended."""
 
     workflow_id: str
     status: RunStatus
@@ -216,3 +216,17 @@ class Config(BaseModel):
 
     revision: Revision | None
     document: dict[str, object]
+
+
+class RunProgress(BaseModel):
+    """The phases of a run: its status, its visible steps and its children by status."""
+
+    status: RunStatus
+    steps: list[Step]
+    child_counts: dict[str, dict[str, int]]
+
+
+class ActiveRevision(BaseModel):
+    """The revision that is active now. It is None before the first write."""
+
+    revision: Revision | None

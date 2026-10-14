@@ -1,12 +1,16 @@
 """Routes that show the runs of the sync workflow."""
 
+from collections.abc import AsyncIterable
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from console.dependencies import Client
-from console.models import RunDetail, RunPage, RunStatus, Time
+from console import streaming
+from console.dependencies import Client, require_workflow
+from console.models import End, RunDetail, RunPage, RunProgress, RunStatus, Time
 from console.runs import get_run, list_runs
+from console.settings import settings
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -39,3 +43,36 @@ async def get_run_detail(
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+@router.get(
+    "/{workflow_id}/stream",
+    response_class=EventSourceResponse,
+    dependencies=[Depends(require_workflow)],
+)
+async def stream_run(
+    workflow_id: str, client: Client
+) -> AsyncIterable[ServerSentEvent]:
+    """Send the phases of a run each time they change, and end when the run ends."""
+
+    async def read() -> RunProgress | None:
+        run = await get_run(client, workflow_id, include_internal=False)
+        if run is None:
+            return None
+        return RunProgress(
+            status=run.status, steps=run.steps, child_counts=run.child_counts
+        )
+
+    finished = {"SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"}
+    async for progress in streaming.changes(
+        read,
+        interval=settings.STREAM_INTERVAL_SECONDS,
+        is_last=lambda progress: progress is None or progress.status in finished,
+    ):
+        if progress is None:
+            return
+        yield ServerSentEvent(data=progress, event="run")
+        if progress.status in finished:
+            yield ServerSentEvent(
+                data=End(workflow_id=workflow_id, status=progress.status), event="end"
+            )

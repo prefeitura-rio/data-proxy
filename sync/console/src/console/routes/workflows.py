@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, Query
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from console.dependencies import Client, require_workflow
-from console.models import LogEnd, LogLine
+from console.models import End, LogLine
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -42,7 +42,7 @@ async def get_logs(
         workflow_ids=[workflow_id], load_input=False, load_output=False
     )
     yield ServerSentEvent(
-        data=LogEnd.model_validate(
+        data=End.model_validate(
             {"workflow_id": workflow_id, "status": workflows[0].status}
         ),
         event="end",

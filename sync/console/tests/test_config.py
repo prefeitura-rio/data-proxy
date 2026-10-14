@@ -1,7 +1,10 @@
+import asyncio
+import json
+
 import pytest
 from httpx2 import AsyncClient
 
-from helpers import document, table
+from helpers import document, first_events, table
 
 
 async def put(
@@ -221,3 +224,17 @@ class TestConfig:
         )
 
         assert (stale.status_code, unknown.status_code) == (412, 404)
+
+    async def test_streams_the_active_revision_and_each_new_one(
+        self, api: AsyncClient
+    ) -> None:
+        """Send the revision that is active now, and again each time it changes."""
+        reading = asyncio.create_task(first_events("/config/stream", 2))
+        await asyncio.sleep(0.2)
+        assert await put(api, document()) == 200
+
+        events = await reading
+
+        assert [event["event"] for event in events] == ["revision", "revision"]
+        revisions = [json.loads(event["data"])["revision"] for event in events]
+        assert [item and item["id"] for item in revisions] == [None, 1]
