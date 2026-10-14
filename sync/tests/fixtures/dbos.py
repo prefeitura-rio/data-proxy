@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from dbos import DBOS
+from psycopg import AsyncConnection
 
 from sync.constants import PROXY_QUEUE, SYNC_QUEUE
 from sync.dbos import workflows
@@ -91,6 +92,11 @@ async def sync_worker(
         yield scopes
     finally:
         DBOS.destroy(destroy_registry=False)
+        cleanup = await AsyncConnection.connect(f"{POSTGRES_URL}/test", autocommit=True)
+        await cleanup.execute(
+            b"DELETE FROM dbos.workflow_status WHERE name = 'reload_proxy'"
+        )
+        await cleanup.close()
 
 
 @pytest.fixture
