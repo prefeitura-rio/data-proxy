@@ -36,6 +36,14 @@ def create-state []: nothing -> nothing {
     log info 'Application state tables setup completed'
 }
 
+# Create the functions that tell PostgREST and the proxy to read the database again
+def create-reload []: nothing -> nothing {
+    execute-sql postgres/create_reload.sql {
+        schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
+    }
+    log info 'Reload functions setup completed'
+}
+
 # Create the pre_request function that mirrors JWT claims into session variables
 def create-pre-request []: nothing -> nothing {
     let schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
@@ -78,6 +86,7 @@ def main []: nothing -> nothing {
         configure-ducklake
         configure-catalog
         create-state
+        create-reload
         create-pre-request
         install-maintenance
 

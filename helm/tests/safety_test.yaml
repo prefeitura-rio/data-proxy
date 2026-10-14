@@ -55,7 +55,7 @@ tests:
           value: data-proxy-proxy
         template: scaledobjects.yaml
 
-  - it: limits the sync ServiceAccount to PostgREST restarts
+  - it: limits the sync ServiceAccount to listing pods
     documentSelector:
       path: kind
       value: Role
@@ -77,9 +77,9 @@ tests:
       - contains:
           path: rules
           content:
-            apiGroups: ["apps"]
-            resources: ["deployments"]
-            verbs: ["get", "list", "watch", "patch"]
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list"]
         template: rbac.yaml
       - lengthEqual:
           path: rules

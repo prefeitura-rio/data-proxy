@@ -38,7 +38,7 @@ class ReconciliationContext:
     existing_view_signatures: dict[tuple[str, str], str | None] = field(
         default_factory=dict
     )
-    postgrest_restart_required: bool = False
+    postgrest_reload_required: bool = False
 
     async def detect(self) -> None:
         """Compare desired views and functions against the database state."""
@@ -53,7 +53,7 @@ class ReconciliationContext:
         self.existing_view_signatures = await existing_view_signatures(
             self.pg_conn, self.schema_names
         )
-        self.postgrest_restart_required = (
+        self.postgrest_reload_required = (
             self.existing_views != desired or self.existing_functions != desired_rpc
         )
 
@@ -95,12 +95,12 @@ class ReconciliationContext:
                 table_names,
             )
 
-            self.postgrest_restart_required = self.postgrest_restart_required or changed
+            self.postgrest_reload_required = self.postgrest_reload_required or changed
 
     async def commit(self) -> bool:
-        """Commit and report whether Kubernetes must restart PostgREST."""
+        """Commit and report whether PostgREST must reload."""
         await self.pg_conn.commit()
-        return self.postgrest_restart_required
+        return self.postgrest_reload_required
 
 
 async def reconcile_views(
@@ -109,7 +109,7 @@ async def reconcile_views(
     schema_names: list[str] | None = None,
     table_names: dict[str, set[str]] | None = None,
 ) -> bool:
-    """Reconcile planned PostgreSQL schemas and report a restart requirement."""
+    """Reconcile planned PostgreSQL schemas and report a reload requirement."""
     selected = sorted(config.schemas) if schema_names is None else schema_names
     ctx = ReconciliationContext(
         pg_conn=pg_conn,

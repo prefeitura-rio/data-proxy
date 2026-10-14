@@ -193,7 +193,7 @@ CONFIGURED_FUNCTIONS: Final = frozenset(
 
 
 class TestReconciliationChange:
-    """The changed flag decides whether PostgREST must restart."""
+    """The changed flag decides whether PostgREST must reload."""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -247,7 +247,7 @@ class TestReconciliationChange:
 
         await context.detect()
 
-        assert context.postgrest_restart_required is changed
+        assert context.postgrest_reload_required is changed
 
     @pytest.mark.asyncio
     async def test_skips_unplanned_schemas(
@@ -270,7 +270,7 @@ class TestReconciliationChange:
         await context.reconcile()
 
         assert [call.args[1] for call in reconcile.await_args_list] == ["one"]
-        assert context.postgrest_restart_required is False
+        assert context.postgrest_reload_required is False
 
     @pytest.mark.asyncio
     async def test_marks_recreated_objects_as_a_schema_change(
@@ -290,4 +290,4 @@ class TestReconciliationChange:
 
         await context.reconcile()
 
-        assert context.postgrest_restart_required is True
+        assert context.postgrest_reload_required is True

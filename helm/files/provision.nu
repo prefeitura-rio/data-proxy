@@ -111,8 +111,8 @@ def record-db-schemas [schemas: string]: nothing -> nothing {
     }
 }
 
-# Serve every configured schema and restart PostgREST only when the list changed.
-# A failed restart takes the new list back, so that the next run tries again.
+# Serve every configured schema and tell PostgREST to reload only when the list changed.
+# A failed reload takes the new list back, so that the next run tries again.
 def publish-schemas [...names: string]: nothing -> nothing {
     # The first schema is the default profile of PostgREST, so admin comes last.
     let desired = ($names | sort) ++ ['admin'] | str join ','
@@ -124,13 +124,15 @@ def publish-schemas [...names: string]: nothing -> nothing {
 
     record-db-schemas $desired
 
-    let restart = kubectl rollout restart deployment --selector 'data-proxy.io/serving=postgrest' | complete
-
-    if $restart.exit_code != 0 {
+    try {
+        execute-sql postgres/call_reload_postgrest.sql {
+            schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
+        }
+    } catch {|err|
         record-db-schemas $current
-        fail $'Failed to restart PostgREST: ($restart.stderr | str trim)' {
+        fail $'Failed to reload PostgREST: ($err.msg)' {
             command: publish-schemas
-            span: (metadata $restart).span
+            span: (metadata $desired).span
         }
     }
 

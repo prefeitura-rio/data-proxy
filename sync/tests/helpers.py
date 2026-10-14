@@ -12,10 +12,6 @@ from unittest.mock import AsyncMock
 
 import duckdb
 import pytest
-from lightkube.models.apps_v1 import DeploymentSpec, DeploymentStatus
-from lightkube.models.core_v1 import PodTemplateSpec
-from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
-from lightkube.resources.apps_v1 import Deployment
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Identifier, Literal
@@ -192,22 +188,6 @@ def remove_change(partition_id: str, previous: PhysicalPartition) -> PartitionCh
     return PartitionChange(kind="remove", partition_id=partition_id, previous=previous)
 
 
-def deployment(
-    *,
-    status: DeploymentStatus | None,
-    metadata: ObjectMeta | None,
-    replicas: int | None,
-) -> Deployment:
-    """Return a Deployment with the given rollout state."""
-    return Deployment(
-        metadata=metadata,
-        spec=DeploymentSpec(
-            selector=LabelSelector(), template=PodTemplateSpec(), replicas=replicas
-        ),
-        status=status,
-    )
-
-
 def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
     """Return the body of a DBOS workflow so it runs without the DBOS runtime."""
     return cast("Callable[P, R]", unwrap(workflow))
@@ -257,7 +237,7 @@ def enqueue_label(workflow: object, args: tuple[object, ...]) -> str:
 def stub_sync_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    postgrest_restart_required: bool,
+    postgrest_reload_required: bool,
     snapshot_id: int | None = None,
     snapshot_ids: dict[str, int | None] | None = None,
     plans: list[SyncPlan] | None = None,
@@ -269,7 +249,7 @@ def stub_sync_run(
     events: list[str] = []
 
     async def restart() -> None:
-        calls.append("restart_postgrest")
+        calls.append("reload_postgrest")
 
     async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
         label = enqueue_label(workflow, args)
@@ -315,10 +295,10 @@ def stub_sync_run(
     monkeypatch.setattr(
         workflows,
         "seed_schemas",
-        AsyncMock(return_value=postgrest_restart_required),
+        AsyncMock(return_value=postgrest_reload_required),
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
-    monkeypatch.setattr(workflows, "restart_postgrest", restart)
+    monkeypatch.setattr(workflows, "reload_postgrest", restart)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
     return calls, events
 

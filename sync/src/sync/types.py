@@ -1,25 +1,17 @@
 """Shared type aliases and protocols used across Data Proxy modules."""
 
 from collections.abc import (
-    AsyncIterable,
     Awaitable,
     Callable,
-    Iterable,
     Mapping,
     Sequence,
 )
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Literal, LiteralString, Protocol
+from typing import Annotated, Literal, LiteralString, Protocol
 
-from lightkube.core.resource import NamespacedResource
 from psycopg.sql import Composable
-from pydantic import Field, JsonValue
+from pydantic import Field
 from whenever import Instant
-
-if TYPE_CHECKING:
-    from lightkube.operators import BinaryOperator, Operator, SequenceOperator
-    from lightkube.resources.apps_v1 import Deployment
-    from lightkube.types import PatchType
 
 type DatabaseValue = bool | int | float | str | datetime | Instant | None
 type DatabaseRow = tuple[object, ...]
@@ -43,41 +35,4 @@ class DatabaseConnection[Params, Rows](Protocol):
 
     async def query(self, sql: LiteralString, *, params: Params | None = ...) -> Rows:
         """Run one SQL query and return all rows."""
-        ...
-
-
-class KubernetesClient(Protocol):
-    """The part of the Lightkube client the Kubernetes helpers use, with fully known types."""
-
-    def list[R: NamespacedResource](
-        self,
-        res: type[R],
-        *,
-        namespace: str,
-        labels: dict[str, str | Operator[str] | Iterable[str] | None],
-    ) -> AsyncIterable[R]:
-        """List resources that match the labels."""
-        ...
-
-    def watch(
-        self,
-        res: type[Deployment],
-        *,
-        namespace: str,
-        fields: dict[str, str | BinaryOperator | SequenceOperator],
-        server_timeout: int | None,
-    ) -> AsyncIterable[tuple[str, Deployment]]:
-        """Watch deployments and yield each field change."""
-        ...
-
-    async def patch(
-        self,
-        res: type[Deployment],
-        name: str,
-        obj: dict[str, JsonValue],
-        *,
-        namespace: str,
-        patch_type: PatchType,
-    ) -> Deployment:
-        """Patch one deployment and return the result."""
         ...

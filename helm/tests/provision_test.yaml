@@ -29,18 +29,17 @@ tests:
           value: provision
         template: jobs.yaml
 
-  - it: restarts PostgREST with the service account that may patch deployments
+  - it: reloads PostgREST through the database, so it needs no access to Kubernetes
     asserts:
-      - equal:
+      - notExists:
           path: spec.template.spec.serviceAccountName
-          value: data-proxy
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision
         template: jobs.yaml
       - equal:
           path: spec.template.spec.automountServiceAccountToken
-          value: true
+          value: false
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision

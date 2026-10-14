@@ -88,15 +88,6 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `admin` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
 | `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of PostgREST for a new document. The check is a safety net: the sync workers also call the reload endpoint at once after a change. |
 
-## PostgREST rollout
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for conditional rollout. |
-| `DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS` | `300` | PostgREST rollout timeout. |
-
-The workflow discovers the PostgREST Deployments by label. When seed adds or removes views, all PostgREST Deployments restart together after every publisher finishes. A new snapshot alone restarts nothing.
-
 ## Observability
 
 | Variable | Default | Meaning |

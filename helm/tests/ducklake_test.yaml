@@ -129,19 +129,6 @@ tests:
         documentIndex: 0
         template: pvc-duckdb.yaml
 
-  - it: lets the sync ServiceAccount restart Deployments and nothing else
-    asserts:
-      - equal:
-          path: rules
-          value:
-            - apiGroups: ["apps"]
-              resources: ["deployments"]
-              verbs: ["get", "list", "watch", "patch"]
-        documentSelector:
-          path: kind
-          value: Role
-        template: rbac.yaml
-
   - it: does not configure empty response caching
     asserts:
       - notContains:

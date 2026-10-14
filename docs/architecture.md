@@ -58,7 +58,7 @@ There is one active writer per schema catalog. Publishing is parallel across sch
 | `apply_ducklake_maintenance` | Runs inside `publish_schema` on the schema writer after a publication. | Expires old snapshots, compacts files, and removes old and orphaned Parquet files. |
 | `finalize_run` | Clears scratch objects and Redis. | Keeps the DuckLake data prefix intact. |
 
-Seed and publish run concurrently. When a view is added or removed, the workflow restarts all PostgREST Deployments together after every publisher finishes, because PostgREST caches the schema. A new snapshot alone restarts nothing.
+Seed and publish run concurrently. When a view is added or removed, the workflow tells PostgREST to reload its schema after every publisher finishes, because PostgREST caches the schema. The database first waits until every standby replayed the change, so a reload never reads an old schema. A new snapshot alone reloads nothing.
 
 ## Sync sequence
 
@@ -84,7 +84,7 @@ sequenceDiagram
     P->>S3: write Parquet data files
     P->>PG: commit snapshot to the schema catalog
     PG->>PG: replicate the catalog to every standby
-    O->>API: restart all PostgREST when the views changed
+    O->>PG: reload PostgREST when the views changed
     O->>S3: remove scratch objects
     O->>O: flush Redis
 ```
@@ -93,7 +93,7 @@ sequenceDiagram
 
 The chart deploys one CNPG cluster with a primary and at least one standby, one PgDog workload, one PostgREST workload, and one proxy workload. See [Helm Chart](helm_chart.md#topology). KEDA scales the DBOS sync workers. PostgreSQL replicas transfer metadata, including the catalogs, through normal CNPG WAL; they don't receive application table rows.
 
-The sync ServiceAccount can restart the PostgREST Deployment and nothing else.
+The sync ServiceAccount can list pods and nothing else. The workflow recovery needs that.
 
 ## Request sequence
 

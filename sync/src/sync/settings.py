@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     DBOS_APP_SCHEMA: str = "data_proxy"
     DBOS_SYSTEM_DATABASE_URL: str = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
-    DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     DUCKLAKE_CATALOG_PATH: str = "ducklake"
     DUCKLAKE_CATALOG_URL: str = "postgresql://test:test@localhost:5432/ducklake"
     DUCKLAKE_COMMIT_MAX_ATTEMPTS: int = Field(default=60, gt=0)
@@ -40,7 +39,6 @@ class Settings(BaseSettings):
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)
-    KUBERNETES_NAMESPACE: str = "data-proxy"
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     OTLP_LOGS_ENDPOINT: str = Field(default="")
     OTLP_METRICS_ENDPOINT: str = Field(default="")

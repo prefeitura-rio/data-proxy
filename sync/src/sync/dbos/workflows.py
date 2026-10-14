@@ -25,7 +25,7 @@ from .steps import (
     record_publish_metrics,
     record_run_status,
     record_seed_metrics,
-    restart_postgrest,
+    reload_postgrest,
     seed_schemas,
 )
 
@@ -119,7 +119,7 @@ async def run_sync(
         for handle in dump_handles:
             failed_paths.update((await handle.get_result()).failed_paths)
 
-        postgrest_restart_required = await seed_schemas(work.plans, loaded.document)
+        postgrest_reload_required = await seed_schemas(work.plans, loaded.document)
 
         await record_seed_metrics(work.plans)
 
@@ -139,8 +139,8 @@ async def run_sync(
         for handle in publish_handles:
             await handle.get_result()
 
-        if postgrest_restart_required:
-            await restart_postgrest()
+        if postgrest_reload_required:
+            await reload_postgrest()
 
         await logs.info("Sync finalization started")
 

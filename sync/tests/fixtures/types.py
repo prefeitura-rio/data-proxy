@@ -1,24 +1,15 @@
-import asyncio
 import subprocess
-from collections.abc import AsyncIterable, AsyncIterator, Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from os import environ
-from typing import final, override
+from typing import final
 
-from lightkube.core.resource import NamespacedResource
-from lightkube.models.apps_v1 import DeploymentSpec
-from lightkube.models.core_v1 import PodTemplateSpec
-from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
-from lightkube.operators import BinaryOperator, Operator, SequenceOperator
-from lightkube.resources.apps_v1 import Deployment
-from lightkube.types import PatchType
 from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
 from pydantic import JsonValue
 
 from sync.postgres import Postgres as Pg
-from sync.types import KubernetesClient
 from tests.constants import POSTGRES_HOST, POSTGRES_PORT
 
 
@@ -179,82 +170,3 @@ class Psql:
         output = result.stdout + result.stderr
         assert result.returncode == 0, output
         return output
-
-
-@final
-class FakeKubernetes(KubernetesClient):
-    """In-memory Kubernetes client that serves objects and records every call."""
-
-    def __init__(
-        self,
-        objects: Iterable[Deployment] = (),
-        *,
-        watched: Iterable[Deployment] = (),
-        hang_watch: bool = False,
-    ) -> None:
-        self.objects = list(objects)
-        self.watched = list(watched)
-        self.hang_watch = hang_watch
-        self.watch_timeouts: list[int | None] = []
-        self.list_labels: list[
-            dict[str, str | Operator[str] | Iterable[str] | None]
-        ] = []
-        self.patched: list[str] = []
-
-    @override
-    def list[R: NamespacedResource](
-        self,
-        res: type[R],
-        *,
-        namespace: str,
-        labels: dict[str, str | Operator[str] | Iterable[str] | None],
-    ) -> AsyncIterable[R]:
-        """Record the label selector and serve the stored objects."""
-        self.list_labels.append(labels)
-        return self.serve(res)
-
-    async def serve[R: NamespacedResource](self, res: type[R]) -> AsyncIterator[R]:
-        """Yield every stored object of the given kind."""
-        for item in self.objects:
-            if isinstance(item, res):
-                yield item
-
-    @override
-    def watch(
-        self,
-        res: type[Deployment],
-        *,
-        namespace: str,
-        fields: dict[str, str | BinaryOperator | SequenceOperator],
-        server_timeout: int | None,
-    ) -> AsyncIterable[tuple[str, Deployment]]:
-        """Record the timeout and stream the stored watch events."""
-        self.watch_timeouts.append(server_timeout)
-        return self.stream()
-
-    async def stream(self) -> AsyncIterator[tuple[str, Deployment]]:
-        """Yield each watched deployment, and hang if the scenario asks."""
-        for item in self.watched:
-            yield "MODIFIED", item
-
-        if self.hang_watch:
-            await asyncio.Event().wait()
-
-    @override
-    async def patch(
-        self,
-        res: type[Deployment],
-        name: str,
-        obj: dict[str, JsonValue],
-        *,
-        namespace: str,
-        patch_type: PatchType,
-    ) -> Deployment:
-        """Record the patch and return a minimal deployment."""
-        self.patched.append(name)
-        return Deployment(
-            metadata=ObjectMeta(name=name),
-            spec=DeploymentSpec(
-                selector=LabelSelector(), template=PodTemplateSpec(), replicas=1
-            ),
-        )

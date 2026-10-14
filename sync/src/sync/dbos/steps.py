@@ -1,15 +1,11 @@
 """Durable DBOS steps used by the synchronization workflows."""
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from dbos import DBOS
 from httpx2 import AsyncClient as HttpClient
-from lightkube import AsyncClient
-from whenever import Instant
 
 from sync.cache import clear_cache
-from sync.constants import POSTGREST_SELECTOR
 from sync.duckdb import DuckDB
 from sync.ducklake import (
     DuckLakePaths,
@@ -17,7 +13,6 @@ from sync.ducklake import (
     publish_schema,
 )
 from sync.extraction import run_extraction
-from sync.kubernetes import list_deployments, restart_deployment
 from sync.log import schemaname
 from sync.metrics import metrics
 from sync.models import (
@@ -33,6 +28,7 @@ from sync.planning import run_planning
 from sync.postgres import Postgres
 from sync.proxies import proxy_addresses, reload_proxies
 from sync.s3 import clear_s3_prefix
+from sync.schema import notify_postgrest, wait_for_standbys
 from sync.settings import settings
 from sync.state import (
     build_table_states,
@@ -147,7 +143,7 @@ async def record_publish_metrics(result: PublicationResult, schema_name: str) ->
     should_retry=retry_transient,
 )
 async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
-    """Reconcile planned serving schemas and report a PostgREST restart need."""
+    """Reconcile planned serving schemas and report a PostgREST reload need."""
     await logs.info("Schema seeding started", plans=len(plans))
 
     schema_names = sorted({plan.schema_name for plan in plans})
@@ -157,16 +153,16 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
     }
 
     async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
-        postgrest_restart_required = await reconcile_views(
+        postgrest_reload_required = await reconcile_views(
             pg_conn, SyncConfig.model_validate_json(document), schema_names, table_names
         )
 
     await logs.info(
         "Schema seeding completed",
         plans=len(plans),
-        postgrest_restart_required=postgrest_restart_required,
+        postgrest_reload_required=postgrest_reload_required,
     )
-    return postgrest_restart_required
+    return postgrest_reload_required
 
 
 @DBOS.step()
@@ -278,33 +274,12 @@ async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def restart_postgrest() -> None:
-    """Restart the PostgREST Deployments together and wait for their rollouts."""
-    namespace = settings.KUBERNETES_NAMESPACE
+async def reload_postgrest() -> None:
+    """Tell PostgREST to read the schema again."""
+    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+        await notify_postgrest(pg_conn)
 
-    async with AsyncClient(namespace=namespace) as client:
-        names = await list_deployments(client, namespace, POSTGREST_SELECTOR)
-
-        if not names:
-            raise RuntimeError("No PostgREST Deployment found")
-
-        await logs.info("PostgREST restart started", deployments=len(names))
-        restarted_at = Instant.now().format_iso()
-
-        await asyncio.gather(
-            *(
-                restart_deployment(
-                    client,
-                    namespace,
-                    name,
-                    restarted_at,
-                    settings.DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS,
-                )
-                for name in names
-            )
-        )
-
-    await logs.info("PostgREST restart completed", deployments=len(names))
+    await logs.info("PostgREST reload requested")
 
 
 @DBOS.step(
@@ -351,6 +326,9 @@ async def notify_proxies() -> None:
     if url is None:
         await logs.info("Proxy reload skipped", reason="PROXY_ADMIN_URL is not set")
         return
+
+    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+        await wait_for_standbys(pg_conn)
 
     addresses = await proxy_addresses(url)
 

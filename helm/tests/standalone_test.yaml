@@ -177,10 +177,20 @@ tests:
           content: pg_stat_statements
         template: cluster-cnpg.yaml
 
-  - it: renders sync RBAC resources
+  - it: renders sync RBAC resources that only list pods, for the workflow recovery
     asserts:
       - hasDocuments:
           count: 2
+        template: rbac.yaml
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [get, list]
+        documentSelector:
+          path: kind
+          value: Role
         template: rbac.yaml
 
   - it: defaults duckdb threads to two

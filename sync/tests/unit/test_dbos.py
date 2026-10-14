@@ -1,14 +1,14 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import ClassVar, final
+from typing import ClassVar
 from unittest.mock import AsyncMock
 
 import pytest
 from psycopg import OperationalError
 from pydantic import ValidationError
 
-from sync.constants import POSTGREST_SELECTOR, PUBLISH_QUEUE
+from sync.constants import PUBLISH_QUEUE
 from sync.dbos import main as dbos_main
 from sync.dbos import steps, utils, workflows
 from sync.duckdb import DuckDB
@@ -22,9 +22,8 @@ from sync.models import (
 )
 from sync.postgres import Postgres
 from sync.settings import settings
-from sync.types import KubernetesClient
 from sync.utils import sha256_hex
-from tests.fixtures.types import Calls, FakeKubernetes
+from tests.fixtures.types import Calls
 from tests.helpers import (
     DOCUMENT,
     catalog_commit_error,
@@ -82,32 +81,32 @@ class TestCatalogLockRetryClassification:
         assert utils.retry_catalog_locked(error) is expected
 
 
-class TestRunSyncRestartsPostgrest:
-    """run_sync restarts PostgREST once, only when the view set changed."""
+class TestRunSyncReloadsPostgrest:
+    """run_sync reloads PostgREST once, only when the view set changed."""
 
     @pytest.mark.parametrize(
-        ("postgrest_restart_required", "snapshot_id", "expected"),
+        ("postgrest_reload_required", "snapshot_id", "expected"),
         [
             pytest.param(False, None, [], id="nothing-changed"),
             pytest.param(False, 7, [], id="snapshot-published-without-view-change"),
             pytest.param(
-                True, None, ["restart_postgrest"], id="view-change-without-snapshot"
+                True, None, ["reload_postgrest"], id="view-change-without-snapshot"
             ),
-            pytest.param(True, 7, ["restart_postgrest"], id="snapshot-and-view-change"),
+            pytest.param(True, 7, ["reload_postgrest"], id="snapshot-and-view-change"),
         ],
     )
     @pytest.mark.asyncio
-    async def test_restarts_postgrest_only_after_a_view_change(
+    async def test_reloads_postgrest_only_after_a_view_change(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        postgrest_restart_required: bool,
+        postgrest_reload_required: bool,
         snapshot_id: int | None,
         expected: list[str],
     ) -> None:
-        """Restarts postgrest only after a view change."""
+        """Reloads postgrest only after a view change."""
         calls, events = stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=postgrest_restart_required,
+            postgrest_reload_required=postgrest_reload_required,
             snapshot_id=snapshot_id,
         )
 
@@ -117,20 +116,20 @@ class TestRunSyncRestartsPostgrest:
         assert events == ["enqueue:app", "wait:app"]
 
     @pytest.mark.asyncio
-    async def test_waits_for_every_schema_publisher_before_it_restarts(
+    async def test_waits_for_every_schema_publisher_before_it_reloads(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Wait for both publishers, then restart once."""
+        """Wait for both publishers, then reload once."""
         calls, events = stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=True,
+            postgrest_reload_required=True,
             snapshot_ids={"one": 3, "two": None},
             plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
         )
 
         await run_sync()
 
-        assert calls == ["restart_postgrest"]
+        assert calls == ["reload_postgrest"]
         assert events == ["enqueue:one", "enqueue:two", "wait:one", "wait:two"]
 
     @pytest.mark.asyncio
@@ -142,7 +141,7 @@ class TestRunSyncRestartsPostgrest:
         second = dump_task(table="p.d.second")
         calls, events = stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=False,
+            postgrest_reload_required=False,
             snapshot_id=None,
             tasks=[first, second],
         )
@@ -217,7 +216,7 @@ class TestRunSyncUsesOneConfig:
         publishes: list[tuple[str, object]] = []
         stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=False,
+            postgrest_reload_required=False,
             snapshot_id=None,
             publishes=publishes,
         )
@@ -240,7 +239,7 @@ class TestRunSyncUsesOneConfig:
     ) -> None:
         """Hand the scope of the request to planning, and the whole document to seeding."""
         plan = SyncPlan(schema_name="app")
-        stub_sync_run(monkeypatch, postgrest_restart_required=False, snapshot_id=None)
+        stub_sync_run(monkeypatch, postgrest_reload_required=False, snapshot_id=None)
         build = AsyncMock(return_value=SyncWork(plans=[plan], tasks=[]))
         seed = AsyncMock(return_value=False)
         monkeypatch.setattr(workflows, "build_sync_work", build)
@@ -261,7 +260,7 @@ class TestRunSyncUsesOneConfig:
         publishes: list[tuple[str, object]] = []
         stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=False,
+            postgrest_reload_required=False,
             snapshot_ids={"one": None, "two": None},
             plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
             publishes=publishes,
@@ -272,68 +271,33 @@ class TestRunSyncUsesOneConfig:
         assert publishes == [(PUBLISH_QUEUE, "one"), (PUBLISH_QUEUE, "two")]
 
 
-@final
-class FakeConnection:
-    """Async context manager that yields a fixed client, like `AsyncClient(namespace=...)`."""
-
-    def __init__(self, client: KubernetesClient) -> None:
-        self.client = client
-
-    async def __aenter__(self) -> KubernetesClient:
-        return self.client
-
-    async def __aexit__(self, *_: object) -> None:
-        return None
+CONNECTION = object()
 
 
-def open_client(monkeypatch: pytest.MonkeyPatch, client: FakeKubernetes) -> list[str]:
-    """Make the steps open the given client, and return the namespaces they open it for."""
-    namespaces: list[str] = []
-
-    def factory(namespace: str) -> FakeConnection:
-        namespaces.append(namespace)
-        return FakeConnection(client)
-
-    monkeypatch.setattr(steps, "AsyncClient", factory)
-    return namespaces
-
-
-class TestRestartPostgrestStep:
-    """The step restarts every PostgREST Deployment together with one client."""
+class TestReloadPostgrestStep:
+    """The step tells PostgREST to reload through the primary."""
 
     @pytest.mark.asyncio
-    async def test_restarts_the_deployments_that_the_selector_finds(
+    async def test_notifies_postgrest_through_one_connection(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Restarts the deployments that the selector finds."""
-        client = FakeKubernetes()
-        namespaces = open_client(monkeypatch, client)
-        namespace = settings.KUBERNETES_NAMESPACE
-        found = AsyncMock(return_value=["postgrest", "postgrest-ro"])
-        restart = AsyncMock()
-        monkeypatch.setattr(steps, "list_deployments", found)
-        monkeypatch.setattr(steps, "restart_deployment", restart)
+        """Opens the application connection and sends the notification on it."""
+        connection = object()
+        connections: list[object] = []
 
-        await workflow_body(steps.restart_postgrest)()
+        @asynccontextmanager
+        async def connect(dsn: str) -> AsyncGenerator[object]:
+            connections.append(dsn)
+            yield connection
 
-        assert namespaces == [namespace]
-        found.assert_awaited_once_with(client, namespace, POSTGREST_SELECTOR)
-        assert [call.args[:3] for call in restart.await_args_list] == [
-            (client, namespace, "postgrest"),
-            (client, namespace, "postgrest-ro"),
-        ]
-        assert len({call.args[3] for call in restart.await_args_list}) == 1
+        notify = AsyncMock()
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "notify_postgrest", notify)
 
-    @pytest.mark.asyncio
-    async def test_fails_when_the_selector_matches_no_deployment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Fails when the selector matches no deployment."""
-        open_client(monkeypatch, FakeKubernetes())
-        monkeypatch.setattr(steps, "list_deployments", AsyncMock(return_value=[]))
+        await workflow_body(steps.reload_postgrest)()
 
-        with pytest.raises(RuntimeError, match="No PostgREST Deployment found"):
-            await workflow_body(steps.restart_postgrest)()
+        assert connections == [settings.PG_DATABASE_URL]
+        notify.assert_awaited_once_with(connection)
 
 
 class TestApplyDucklakeMaintenanceStep:
@@ -511,8 +475,22 @@ class TestMain:
         assert loops == ["uvloop"]
 
 
+@pytest.mark.usefixtures("standbys")
 class TestNotifyProxies:
     """The reload workflow asks every proxy pod to read the configuration again."""
+
+    @pytest.fixture
+    def standbys(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        """Stand in for the database and return the wait for the standbys."""
+
+        @asynccontextmanager
+        async def connect(dsn: str) -> AsyncGenerator[object]:
+            yield CONNECTION
+
+        wait = AsyncMock()
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "wait_for_standbys", wait)
+        return wait
 
     async def test_resolves_the_pods_and_reloads_each_of_them(
         self, monkeypatch: pytest.MonkeyPatch
@@ -534,6 +512,32 @@ class TestNotifyProxies:
             "http://proxy-admin:8081/reload",
             ["10.0.0.1"],
         )
+
+    async def test_waits_for_the_standbys_before_it_asks_the_pods(
+        self, monkeypatch: pytest.MonkeyPatch, standbys: AsyncMock
+    ) -> None:
+        """The proxy reads the configuration from a standby, so the standbys must have replayed the change first."""
+        events: list[str] = []
+
+        async def wait(pg_conn: object) -> None:
+            assert pg_conn is CONNECTION
+            events.append("wait")
+
+        async def reload(*_: object) -> None:
+            events.append("reload")
+
+        standbys.side_effect = wait
+        monkeypatch.setattr(
+            settings, "PROXY_ADMIN_URL", "http://proxy-admin:8081/reload"
+        )
+        monkeypatch.setattr(
+            steps, "proxy_addresses", AsyncMock(return_value=["10.0.0.1"])
+        )
+        monkeypatch.setattr(steps, "reload_proxies", reload)
+
+        await workflow_body(steps.notify_proxies)()
+
+        assert events == ["wait", "reload"]
 
     async def test_does_nothing_without_an_address_for_the_proxy(
         self, monkeypatch: pytest.MonkeyPatch

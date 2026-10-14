@@ -40,6 +40,30 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
+  - it: ships the functions that reload PostgREST after the standbys replayed the change
+    asserts:
+      - matchRegex:
+          path: data["postgres_create_reload.sql"]
+          pattern: "FUNCTION \\{\\{ schema \\}\\}.wait_for_standbys"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - matchRegex:
+          path: data["postgres_create_reload.sql"]
+          pattern: "pg_notify\\('pgrst', 'reload schema'\\)"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - matchRegex:
+          path: data["postgres_call_reload_postgrest.sql"]
+          pattern: "SELECT \\{\\{ schema \\}\\}.reload_postgrest\\(\\)"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
   - it: makes every access policy write wait for the standbys
     asserts:
       - matchRegex:

@@ -57,7 +57,7 @@ The scheduled `run_sync` workflow performs these steps:
 4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
 5. Enqueue one `publish_schema` workflow per schema.
 6. DBOS sync workers insert scratch Parquet into DuckLake and commit a snapshot to the schema catalog in the `ducklake` database. Streaming replication copies the catalog to every standby.
-7. After all publishers finish, restart all PostgREST Deployments together, only when seed added or removed views.
+7. After all publishers finish, tell PostgREST to reload its schema, only when seed added or removed views.
 8. Flush scratch objects and Redis.
 
 Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.

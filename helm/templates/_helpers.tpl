@@ -491,8 +491,6 @@ jwtRules:
   value: {{ .Values.auth.authenticatorRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
-- name: DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS
-  value: "300"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
   value: {{ .Values.gcp.mountPath | quote }}
@@ -562,8 +560,7 @@ jwtRules:
 {{- define "data-proxy.provisionPodSpec" -}}
 {{- $root := .root -}}
 restartPolicy: OnFailure
-serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
-automountServiceAccountToken: true
+automountServiceAccountToken: false
 initContainers:
   - name: wait-for-config
     image: {{ $root.Values.jobs.image | quote }}

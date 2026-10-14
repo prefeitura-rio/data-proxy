@@ -13,7 +13,7 @@ curl \
 
 The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Helm Chart](helm_chart.md#topology).
 
-Sync restarts the PostgREST Deployment once when generated serving PostgreSQL objects change. A PostgREST pod isn't Ready until its HTTP readiness probe serves `/`. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
+Sync tells PostgREST to reload its schema once when generated serving PostgreSQL objects change. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. No pod restarts. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
 
 ## OpenAPI
 

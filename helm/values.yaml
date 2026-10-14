@@ -264,7 +264,7 @@ jobs:
   ## Shared image for maintenance jobs.
   image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
   ## Provision CronJob: serves the schemas that editors add in the console. It creates each schema,
-  ## its access policy, and its policy-writer role, then restarts PostgREST when the list changes.
+  ## its access policy, and its policy-writer role, then tells PostgREST to reload when the list changes.
   provision:
     schedule: "* * * * *"
     activeDeadlineSeconds: 300

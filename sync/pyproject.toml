@@ -20,7 +20,6 @@ dependencies = [
   "more-itertools>=10.0.0",
   "opentelemetry-sdk>=1.44.0",
   "opentelemetry-exporter-otlp-proto-http>=1.44.0",
-  "lightkube==1.0.1",
   "uvloop>=0.23.0",
 ]
 
@@ -140,9 +139,6 @@ runtime-evaluated-base-classes = [
   "ARG001", # DBOS passes the context argument to scheduled workflows
 ]
 "src/sync/executor.py" = ["ARG002"] # expect only types the result
-"src/sync/kubernetes.py" = [
-  "ASYNC109",
-] # the timeout argument bounds the rollout watch
 "src/sync/sources/bigquery/source.py" = [
   "PLR6301",
 ] # validate implements the Source protocol

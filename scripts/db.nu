@@ -62,6 +62,7 @@ def main []: nothing -> nothing {
 
     # The admin views read the state tables, which the configure job creates before goose runs.
     render ($env.DEVENV_ROOT | path join helm files templates postgres create_state.sql) 'schema="data_proxy"' | run-sql test $port
+    render ($env.DEVENV_ROOT | path join helm files templates postgres create_reload.sql) 'schema="data_proxy"' | run-sql test $port
 
     # The chart declares the console permission levels as CNPG managed roles. The test server creates them here.
     [

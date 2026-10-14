@@ -8,9 +8,9 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: sync
 rules:
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

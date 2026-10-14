@@ -28,11 +28,7 @@ DUMP_QUEUE = "dump"
 SYNC_QUEUE = "sync"
 PROXY_QUEUE = "proxy"
 
-RESTARTED_AT_ANNOTATION: Final = "kubectl.kubernetes.io/restartedAt"
 PROJECT_PATH: Final = "/data_proxy/"
 LOCATION_FRAMES: Final = 3
-
-POSTGREST_SELECTOR: Final = {"data-proxy.io/serving": "postgrest"}
-
 
 PUBLISH_QUEUE: Final = "publish"
