@@ -8,7 +8,7 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 
 | View | Content |
 | --- | --- |
-| `runs` | Sync runs: status, queue, schedule, who started it, and the times. |
+| `runs` | Sync runs: status, queue, schedule, who started it, the times, and the number of tasks and failed tasks. |
 | `tasks` | The dump and publish workflows of a run. |
 | `steps` | The steps of a run and its tasks, with the times and a `failed` flag. |
 | `logs` | The log lines of a run and its tasks, read from the portable DBOS log stream. |
@@ -16,7 +16,7 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 | `schedules` | The schedules with their cron expression and status. |
 | `revisions` | Every configuration revision with its schema and table counts. |
 | `config` | The active configuration document. |
-| `schemas` | The configured and provisioned schemas with their status. |
+| `schemas` | The configured and provisioned schemas with their status, and which objects exist: the schema, `access_policy`, the `policy_writer_<schema>` role, and the views. |
 | `tables` | The configured tables with their strategy and the committed sync state. |
 | `errors` | The errors that the sync recorded, newest first. |
 

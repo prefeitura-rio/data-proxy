@@ -86,7 +86,7 @@ class TestRuns:
     async def test_runs_lists_only_sync_runs_with_readable_times(
         self, admin_db: psycopg.AsyncConnection
     ) -> None:
-        """Only run_sync workflows are runs, and their times are timestamps."""
+        """Only run_sync workflows are runs, with readable times and a count of their tasks."""
         await workflow(
             admin_db,
             "run-1",
@@ -96,14 +96,17 @@ class TestRuns:
             user="ana",
         )
         await workflow(admin_db, "task-1", "dump_task", parent="run-1")
+        await workflow(
+            admin_db, "task-2", "publish_schema", parent="run-1", status="ERROR"
+        )
 
         result = await rows(
             admin_db,
-            "SELECT id, status, queue_name, schedule_name, started_by, created_at, started_at, completed_at FROM admin.runs WHERE id LIKE 'run-%' OR id LIKE 'task-%'",
+            "SELECT id, status, queue_name, schedule_name, started_by, created_at, started_at, completed_at, task_count, failed_task_count FROM admin.runs WHERE id LIKE 'run-%' OR id LIKE 'task-%'",
         )
 
         assert result == [
-            ("run-1", "SUCCESS", "sync", "sync", "ana", START, START, END)
+            ("run-1", "SUCCESS", "sync", "sync", "ana", START, START, END, 2, 1)
         ]
 
     async def test_run_tasks_lists_the_children_of_a_run(
@@ -266,23 +269,27 @@ class TestConfiguration:
     async def test_schemas_join_the_configuration_with_the_provisioned_state(
         self, admin_db: psycopg.AsyncConnection
     ) -> None:
-        """A schema shows its source, table count, and provisioning status."""
+        """A schema shows its source, table count, provisioning status, and which objects exist."""
         await admin_db.execute(b"DELETE FROM data_proxy.revisions")
         await admin_db.execute(b"DELETE FROM data_proxy.schemas")
         await revision(admin_db, CONFIG, active=True)
         await admin_db.execute(
             b"INSERT INTO data_proxy.schemas (name, status) VALUES ('alpha', 'ready'), ('gamma', 'detached')"
         )
+        await admin_db.execute(b"CREATE SCHEMA alpha")
+        await admin_db.execute(b"CREATE TABLE alpha.access_policy (subject text)")
+        await admin_db.execute(b"CREATE VIEW alpha.people AS SELECT 1 AS id")
+        await admin_db.execute(b"CREATE ROLE policy_writer_alpha")
 
         result = await rows(
             admin_db,
-            "SELECT name, configured, status, source_type, table_count FROM admin.schemas ORDER BY name",
+            "SELECT name, configured, status, source_type, table_count, schema_exists, access_policy, policy_writer, view_count FROM admin.schemas ORDER BY name",
         )
 
         assert result == [
-            ("alpha", True, "ready", "bigquery", 2),
-            ("beta", True, None, "bigquery", 0),
-            ("gamma", False, "detached", None, 0),
+            ("alpha", True, "ready", "bigquery", 2, True, True, True, 1),
+            ("beta", True, None, "bigquery", 0, False, False, False, 0),
+            ("gamma", False, "detached", None, 0, False, False, False, 0),
         ]
 
     async def test_tables_join_the_configuration_with_the_synced_state(

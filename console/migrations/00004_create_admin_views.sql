@@ -3,19 +3,23 @@ CREATE SCHEMA admin;
 
 CREATE VIEW admin.runs AS
 SELECT
-    workflow_uuid AS id,
-    status,
-    queue_name,
-    schedule_name,
-    authenticated_user AS started_by,
-    executor_id,
-    application_version,
-    recovery_attempts,
-    to_timestamp(created_at / 1000.0) AS created_at,
-    to_timestamp(started_at_epoch_ms / 1000.0) AS started_at,
-    to_timestamp(completed_at / 1000.0) AS completed_at
-FROM dbos.workflow_status
-WHERE name = 'run_sync';
+    w.workflow_uuid AS id,
+    w.status,
+    w.queue_name,
+    w.schedule_name,
+    w.authenticated_user AS started_by,
+    w.executor_id,
+    w.application_version,
+    w.recovery_attempts,
+    to_timestamp(w.created_at / 1000.0) AS created_at,
+    to_timestamp(w.started_at_epoch_ms / 1000.0) AS started_at,
+    to_timestamp(w.completed_at / 1000.0) AS completed_at,
+    count(t.workflow_uuid)::int AS task_count,
+    count(t.workflow_uuid) FILTER (WHERE t.status = 'ERROR')::int AS failed_task_count
+FROM dbos.workflow_status AS w
+LEFT JOIN dbos.workflow_status AS t ON w.workflow_uuid = t.parent_workflow_id
+WHERE w.name = 'run_sync'
+GROUP BY w.workflow_uuid;
 
 CREATE VIEW admin.tasks AS
 SELECT
@@ -128,19 +132,48 @@ WITH configured AS (
         coalesce(jsonb_array_length(s.value -> 'tables'), 0) AS table_count
     FROM admin.config AS c
     CROSS JOIN LATERAL jsonb_each(c.document -> 'schemas') AS s
+),
+
+known AS (
+    SELECT
+        p.status,
+        p.error,
+        c.source_type,
+        p.created_at,
+        p.updated_at,
+        coalesce(c.name, p.name) AS name,
+        c.name IS NOT NULL AS configured,
+        coalesce(c.table_count, 0)::int AS table_count
+    FROM configured AS c
+    FULL JOIN data_proxy.schemas AS p ON c.name = p.name
+),
+
+objects AS (
+    SELECT
+        n.nspname AS name,
+        bool_or(c.relname = 'access_policy') AS access_policy,
+        count(c.oid) FILTER (WHERE c.relkind = 'v')::int AS view_count
+    FROM pg_catalog.pg_namespace AS n
+    LEFT JOIN pg_catalog.pg_class AS c ON n.oid = c.relnamespace
+    GROUP BY n.nspname
 )
 
 SELECT
-    p.status,
-    p.error,
-    c.source_type,
-    p.created_at,
-    p.updated_at,
-    coalesce(c.name, p.name) AS name,
-    c.name IS NOT NULL AS configured,
-    coalesce(c.table_count, 0)::int AS table_count
-FROM configured AS c
-FULL JOIN data_proxy.schemas AS p ON c.name = p.name;
+    k.name,
+    k.configured,
+    k.status,
+    k.error,
+    k.source_type,
+    k.table_count,
+    k.created_at,
+    k.updated_at,
+    o.name IS NOT NULL AS schema_exists,
+    coalesce(o.access_policy, FALSE) AS access_policy,
+    r.rolname IS NOT NULL AS policy_writer,
+    coalesce(o.view_count, 0) AS view_count
+FROM known AS k
+LEFT JOIN objects AS o ON k.name = o.name
+LEFT JOIN pg_catalog.pg_roles AS r ON 'policy_writer_' || k.name = r.rolname;
 
 CREATE VIEW admin.tables AS
 SELECT
