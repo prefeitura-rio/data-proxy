@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING, TypedDict
 from fastapi import Request
 
 if TYPE_CHECKING:
-    from console.client import WorkflowClient
+    from dbos import DBOSClient
 
 
 class AppState(TypedDict):
     """The values that the lifespan opens at startup and shares with every request."""
 
-    client: WorkflowClient
+    client: DBOSClient
 
 
 class AppRequest(Request[AppState]):

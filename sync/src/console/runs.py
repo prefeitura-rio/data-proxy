@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING
 from console.models import ChildRun, Run, RunDetail, RunPage, Step
 
 if TYPE_CHECKING:
-    from dbos import StepInfo, WorkflowStatus
+    from dbos import DBOSClient, StepInfo, WorkflowStatus
 
-    from console.client import WorkflowClient
     from console.models import RunFields, RunStatus
 
 SYNC_WORKFLOW = "run_sync"
@@ -92,7 +91,7 @@ def count_children(children: list[ChildRun]) -> dict[str, dict[str, int]]:
 
 
 async def list_runs(
-    client: WorkflowClient,
+    client: DBOSClient,
     *,
     status: RunStatus | None,
     since: datetime | None,
@@ -121,7 +120,7 @@ async def list_runs(
     )
 
 
-async def get_run(client: WorkflowClient, run_id: str) -> RunDetail | None:
+async def get_run(client: DBOSClient, run_id: str) -> RunDetail | None:
     """Return one sync run with its steps and child workflows, or None if it is unknown."""
     runs = await client.list_workflows_async(
         name=SYNC_WORKFLOW,

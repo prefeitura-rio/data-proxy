@@ -160,7 +160,6 @@ max-complexity-allowed = 10
 [tool.vulture]
 min_confidence = 60
 exclude = [
-  "src/console/client.py", # a protocol: it declares parameters that the DBOS client uses
   "src/console/models.py", # response models: FastAPI reads their fields
 ]
 ignore_decorators = [

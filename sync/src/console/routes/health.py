@@ -33,4 +33,5 @@ async def ready(client: Client) -> Status:
     except Exception as error:
         logger.exception("Readiness check failed")
         raise HTTPException(status_code=503, detail="database unavailable") from error
+
     return Status(status="ok")
