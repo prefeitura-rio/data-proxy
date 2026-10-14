@@ -1,7 +1,19 @@
-import pytest
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
 
+import pytest
+from dbos import DBOS
+
+from sync.constants import SYNC_QUEUE
 from sync.dbos import workflows
-from sync.models import PublicationResult, SyncPlan
+from sync.models import (
+    LoadedConfig,
+    PublicationResult,
+    SyncPlan,
+    SyncScope,
+    SyncWork,
+)
+from sync.settings import settings
 from tests.fixtures.types import Calls
 
 
@@ -40,3 +52,36 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
     ):
         monkeypatch.setattr(workflows, step.__name__, step)
     return recorded
+
+
+@pytest.fixture
+async def sync_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[list[SyncScope]]:
+    """Run a real DBOS worker on the sync queue and record the scope of each run."""
+    scopes: list[SyncScope] = []
+
+    async def build_sync_work(run_id: str, document: str, scope: SyncScope) -> SyncWork:
+        scopes.append(scope)
+        return SyncWork(plans=[], tasks=[])
+
+    monkeypatch.setattr(
+        workflows,
+        "load_sync_config",
+        AsyncMock(return_value=LoadedConfig(revision="1", document="{}")),
+    )
+    monkeypatch.setattr(workflows, "build_sync_work", build_sync_work)
+    DBOS(
+        config={
+            "name": settings.DBOS_APPLICATION_NAME,
+            "application_version": "test",
+            "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
+        }
+    )
+    DBOS.listen_queues([SYNC_QUEUE])
+    DBOS.launch()
+    await DBOS.register_queue_async(SYNC_QUEUE, on_conflict="never_update")
+    try:
+        yield scopes
+    finally:
+        DBOS.destroy(destroy_registry=False)

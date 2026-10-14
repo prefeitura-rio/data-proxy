@@ -34,7 +34,7 @@ The JWT of a user carries the level in its `role` claim, and PostgREST switches 
 
 A viewer can't read the tables behind the views, and it can't change anything. Editors write drafts through the `drafts` view. They can set the comment and the document, and the author always comes from the token: the `preferred_username` claim, then `sub`. A change to the document clears the validation of the draft.
 
-Admins call `POST /rpc/activate_revision` with a revision `id`. The function refuses a revision that hasn't passed validation with a 400 error, and an unknown revision with a 404 error. It replaces the active revision in one transaction. A rollback is the same call with an earlier revision. The other levels get their grants together with the functions they call.
+Admins call `POST /rpc/activate_revision` with a revision `id`. The function refuses a revision that hasn't passed validation with a 400 error, and an unknown revision with a 404 error. It replaces the active revision in one transaction. A rollback is the same call with an earlier revision. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every table. The function refuses an unknown schema with a 400 error. It enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against it. The other levels get their grants together with the functions they call.
 
 ## Direction
 

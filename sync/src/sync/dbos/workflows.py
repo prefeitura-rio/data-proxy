@@ -1,6 +1,6 @@
 """DBOS synchronization workflows."""
 
-from typing import TYPE_CHECKING
+from datetime import datetime  # ruff: ignore[typing-only-standard-library-import]
 
 from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
 
@@ -27,9 +27,6 @@ from .steps import (
     restart_postgrest,
     seed_schemas,
 )
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 @DBOS.workflow()
