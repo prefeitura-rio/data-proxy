@@ -15,6 +15,18 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 
 `schemas.<schema>.source` contains only non-secret source configuration. Put BigQuery and future source credentials in environment variables or Kubernetes Secrets.
 
+## Console
+
+The console reads two databases. Both addresses should point at a PgBouncer pooler in **session** mode. Session mode keeps prepared statements and `LISTEN/NOTIFY` working, which DBOS uses to wait for log lines.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database. Use the read-write pooler, because the console enqueues, cancels and updates workflows. |
+| `DBOS_SYSTEM_SCHEMA` | `dbos` | Schema of the DBOS tables. |
+| `PG_DATABASE_URL` | required | Application database. The read-only pooler is enough, because the console only reads. |
+
+Each pooled connection holds one server connection for its whole life. One console replica opens up to 10: the DBOS client uses at most 5 plus one for notifications, and its `psycopg` pool grows from 1 to 4. Keep this in mind when you size `cnpg.pooler.poolSize`. Transaction mode isn't supported: it breaks `LISTEN/NOTIFY`.
+
 ## S3 and DuckLake
 
 | Variable | Default | Meaning |

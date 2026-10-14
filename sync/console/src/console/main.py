@@ -17,6 +17,10 @@ if TYPE_CHECKING:
     from console.state import AppState
 
 
+POOL_MIN_SIZE = 1
+POOL_MAX_SIZE = 4
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
     """Open the DBOS client and the connection pool at startup and close them at shutdown."""
@@ -27,7 +31,10 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
     )
     try:
         pool: AsyncConnectionPool = AsyncConnectionPool(
-            settings.PG_DATABASE_URL, open=False
+            settings.PG_DATABASE_URL,
+            min_size=POOL_MIN_SIZE,
+            max_size=POOL_MAX_SIZE,
+            open=False,
         )
         async with pool:
             yield {"client": client, "pool": pool}
