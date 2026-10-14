@@ -3,11 +3,12 @@
 import asyncio
 from logging import getLogger
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from sqlalchemy import text
 
 from console.dependencies import Client, Engine
 from console.models import Status
+from console.problems import Problem
 
 router = APIRouter(tags=["health"])
 
@@ -27,6 +28,6 @@ async def ready(client: Client, engine: Engine) -> Status:
             await connection.execute(text("SELECT 1"))
     except Exception as error:
         getLogger(__name__).exception("Readiness check failed")
-        raise HTTPException(status_code=503, detail="database unavailable") from error
+        raise Problem(503, "database unavailable") from error
 
     return Status(status="ok")

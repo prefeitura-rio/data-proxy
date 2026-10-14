@@ -29,7 +29,7 @@ class TestHealth:
         status, body = await request_to(FakeClient(), "/ready")
 
         assert status == 503
-        assert body == {"detail": "database unavailable"}
+        assert body == {"title": "database unavailable", "status": 503, "errors": []}
 
     @pytest.mark.postgres
     async def test_reports_not_ready_when_dbos_is_down(
@@ -39,4 +39,4 @@ class TestHealth:
         status, body = await request_to(FakeClient(connected=False), "/ready", engine)
 
         assert status == 503
-        assert body == {"detail": "database unavailable"}
+        assert body == {"title": "database unavailable", "status": 503, "errors": []}

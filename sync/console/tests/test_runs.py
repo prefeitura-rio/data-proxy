@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from helpers import NOW_MS, FakeClient, at, child, request_to, step, workflow
+from helpers import NOW_MS, FakeClient, at, child, request_to, send, step, workflow
 
 
 class TestRuns:
@@ -252,7 +252,12 @@ class TestRun:
 
     async def test_answers_404_for_a_run_that_does_not_exist(self) -> None:
         """Answer 404 when DBOS knows no sync run with that id."""
-        status, body = await request_to(FakeClient(), "/runs/missing")
+        response = await send("GET", "/runs/missing")
 
-        assert status == 404
-        assert body == {"detail": "run not found"}
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/problem+json")
+        assert response.json() == {
+            "title": "run not found",
+            "status": 404,
+            "errors": [],
+        }

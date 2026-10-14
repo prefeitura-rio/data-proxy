@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from console import streaming
@@ -17,6 +17,7 @@ from console.models import (
     RunStatus,
     Time,
 )
+from console.problems import Problem
 from console.runs import SYNC_WORKFLOW, get_run, run_fields
 from console.settings import settings
 
@@ -65,7 +66,7 @@ async def get_run_detail(
     """Show one sync run with its steps and the workflows that it started."""
     run = await get_run(client, run_id, include_internal=include_internal)
     if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
+        raise Problem(404, "run not found")
     return run
 
 

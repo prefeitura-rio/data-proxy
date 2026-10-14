@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from dbos import DBOSClient
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from console.problems import Problem
@@ -31,7 +31,7 @@ async def require_workflow(workflow_id: str, client: Client) -> None:
         workflow_ids=[workflow_id], load_input=False, load_output=False
     )
     if not found:
-        raise HTTPException(status_code=404, detail="workflow not found")
+        raise Problem(404, "workflow not found")
 
 
 def if_match(
