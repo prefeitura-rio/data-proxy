@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from dbos import WorkflowStatus
+    from dbos import StepInfo, WorkflowStatus
 
 
 class WorkflowClient(Protocol):
@@ -16,8 +16,10 @@ class WorkflowClient(Protocol):
     async def list_workflows_async(
         self,
         *,
+        workflow_ids: list[str] | None = None,
         name: str | None = None,
         status: str | None = None,
+        parent_workflow_id: str | None = None,
         start_time: str | None = None,
         limit: int | None = None,
         offset: int | None = None,
@@ -26,4 +28,10 @@ class WorkflowClient(Protocol):
         load_output: bool = True,
     ) -> list[WorkflowStatus]:
         """List workflows, filtered by name, status and start time."""
+        ...
+
+    async def list_workflow_steps_async(
+        self, workflow_id: str, *, load_output: bool = True
+    ) -> list[StepInfo]:
+        """List the steps of one workflow in the order that they ran."""
         ...

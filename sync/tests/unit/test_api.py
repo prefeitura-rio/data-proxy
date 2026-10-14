@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from dbos import WorkflowStatus
+from dbos import StepInfo, WorkflowStatus
 from httpx2 import ASGITransport, AsyncClient
 
 from api.dependencies import get_client
@@ -45,20 +45,40 @@ class FakeClient:
 
     connected: bool
     workflows: list[WorkflowStatus]
+    children: dict[str, list[WorkflowStatus]]
+    steps: dict[str, list[StepInfo]]
     calls: list[dict[str, object]]
 
     def __init__(
-        self, *, connected: bool = True, workflows: list[WorkflowStatus] | None = None
+        self,
+        *,
+        connected: bool = True,
+        workflows: list[WorkflowStatus] | None = None,
+        children: dict[str, list[WorkflowStatus]] | None = None,
+        steps: dict[str, list[StepInfo]] | None = None,
     ) -> None:
         """Create a client that is connected or not, and knows some workflows."""
         self.connected = connected
         self.workflows = workflows or []
+        self.children = children or {}
+        self.steps = steps or {}
         self.calls = []
 
     async def list_workflows_async(self, **filters: object) -> list[WorkflowStatus]:
-        """Record the filters and return the workflows that the test prepared."""
+        """Record the filters and answer like DBOS: by id, by parent, or all."""
         self.calls.append(filters)
+        if (parent := filters.get("parent_workflow_id")) is not None:
+            return self.children.get(str(parent), [])
+        if "workflow_ids" in filters:
+            wanted = cast("list[str]", filters["workflow_ids"])
+            return [w for w in self.workflows if w.workflow_id in wanted]
         return self.workflows
+
+    async def list_workflow_steps_async(
+        self, workflow_id: str, **_: object
+    ) -> list[StepInfo]:
+        """Return the steps that the test prepared for one workflow."""
+        return self.steps.get(workflow_id, [])
 
     async def check_connection_async(self) -> None:
         """Fail like the DBOS client does when the database is down."""
@@ -204,3 +224,124 @@ class TestRuns:
 
         assert status == 422
         assert fake.calls == []
+
+
+def step(
+    function_id: int,
+    name: str,
+    *,
+    child_workflow_id: str | None = None,
+    error: Exception | None = None,
+) -> StepInfo:
+    """Build the DBOS record of one finished step."""
+    return {
+        "function_id": function_id,
+        "function_name": name,
+        "output": None,
+        "error": error,
+        "child_workflow_id": child_workflow_id,
+        "started_at_epoch_ms": NOW_MS + function_id * 1_000,
+        "completed_at_epoch_ms": NOW_MS + function_id * 1_000 + 500,
+    }
+
+
+def child(workflow_id: str, name: str, **fields: object) -> WorkflowStatus:
+    """Build a child workflow of the sync run."""
+    return workflow(
+        workflow_id=workflow_id,
+        name=name,
+        schedule_name=None,
+        queue_name="dump",
+        parent_workflow_id="run-1",
+        **fields,
+    )
+
+
+class TestRun:
+    """One sync run with its steps and child workflows."""
+
+    async def test_shows_the_run_with_its_steps_and_children(self) -> None:
+        """Return the run, its ordered steps, its children and their counts."""
+        fake = FakeClient(
+            workflows=[workflow()],
+            steps={
+                "run-1": [
+                    step(1, "build_sync_work"),
+                    step(
+                        2,
+                        "dump_task",
+                        child_workflow_id="dump-1",
+                        error=ValueError("bad row"),
+                    ),
+                ]
+            },
+            children={
+                "run-1": [
+                    child("dump-1", "dump_task"),
+                    child("dump-2", "dump_task", status="ERROR", error=OSError("S3")),
+                    child("publish-1", "publish_schema"),
+                ]
+            },
+        )
+
+        status, body = await request_to(fake, "/runs/run-1")
+
+        assert status == 200
+        assert body["id"] == "run-1"
+        assert body["status"] == "SUCCESS"
+        assert body["duration_seconds"] == pytest.approx(60.0)
+        assert body["steps"] == [
+            {
+                "id": 1,
+                "name": "build_sync_work",
+                "started_at": at(NOW_MS + 1_000),
+                "finished_at": at(NOW_MS + 1_500),
+                "duration_seconds": 0.5,
+                "child_workflow_id": None,
+                "error": None,
+            },
+            {
+                "id": 2,
+                "name": "dump_task",
+                "started_at": at(NOW_MS + 2_000),
+                "finished_at": at(NOW_MS + 2_500),
+                "duration_seconds": 0.5,
+                "child_workflow_id": "dump-1",
+                "error": "ValueError: bad row",
+            },
+        ]
+        assert [(c["id"], c["name"], c["status"]) for c in body["children"]] == [
+            ("dump-1", "dump_task", "SUCCESS"),
+            ("dump-2", "dump_task", "ERROR"),
+            ("publish-1", "publish_schema", "SUCCESS"),
+        ]
+        assert body["children"][1]["error"] == "OSError: S3"
+        assert body["child_counts"] == {
+            "dump_task": {"SUCCESS": 1, "ERROR": 1},
+            "publish_schema": {"SUCCESS": 1},
+        }
+
+    async def test_looks_up_only_the_sync_workflow_and_its_children(self) -> None:
+        """Ask DBOS for the run by id and name, and for the children by parent."""
+        fake = FakeClient(workflows=[workflow()])
+
+        await request_to(fake, "/runs/run-1")
+
+        assert fake.calls[0] == {
+            "name": "run_sync",
+            "workflow_ids": ["run-1"],
+            "load_input": False,
+            "load_output": False,
+        }
+        assert fake.calls[1] == {
+            "parent_workflow_id": "run-1",
+            "load_input": False,
+            "load_output": False,
+        }
+
+    async def test_answers_404_for_a_run_that_does_not_exist(self) -> None:
+        """Answer 404 when DBOS knows no sync run with that id."""
+        status, body = await request_to(FakeClient(), "/runs/missing")
+
+        assert status == 404
+        assert body == {"detail": "run not found"}

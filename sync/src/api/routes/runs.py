@@ -3,11 +3,11 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from api.dependencies import Client
-from api.models import RunPage, RunStatus
-from api.runs import list_runs
+from api.models import RunDetail, RunPage, RunStatus
+from api.runs import get_run, list_runs
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -24,3 +24,12 @@ async def get_runs(
     return await list_runs(
         client, status=status, since=since, limit=limit, offset=offset
     )
+
+
+@router.get("/{run_id}")
+async def get_run_detail(run_id: str, client: Client) -> RunDetail:
+    """Show one sync run with its steps and the workflows that it started."""
+    run = await get_run(client, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
