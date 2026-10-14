@@ -1,5 +1,6 @@
 """The response models of the console."""
 
+from datetime import datetime
 from typing import Annotated, Literal, TypedDict
 
 from pydantic import (
@@ -17,6 +18,8 @@ def parse_time(value: object) -> Instant:
     match value:
         case Instant():
             return value
+        case datetime():
+            return Instant(value)
         case str():
             return Instant.parse_iso(value)
         case _:
@@ -168,3 +171,48 @@ class Status(BaseModel):
     """The answer of a probe."""
 
     status: Literal["ok"]
+
+
+class ErrorItem(BaseModel):
+    """One problem in a request, with a JSON Pointer to the part that causes it."""
+
+    pointer: str
+    message: str
+
+
+class Change(BaseModel):
+    """One part of the config that a write adds, removes or changes."""
+
+    pointer: str
+    change: Literal["added", "removed", "changed"]
+
+
+class ConfigCheck(BaseModel):
+    """The result of a dry run: is the config valid, and what would change."""
+
+    valid: bool
+    errors: list[ErrorItem]
+    changes: list[Change]
+
+
+class Revision(BaseModel):
+    """One stored version of the config."""
+
+    id: int
+    created_at: Time
+    author: str
+    comment: str
+    active: bool
+
+
+class RevisionDetail(Revision):
+    """A revision with its document."""
+
+    document: dict[str, object]
+
+
+class Config(BaseModel):
+    """The active config. The revision is None before the first write."""
+
+    revision: Revision | None
+    document: dict[str, object]

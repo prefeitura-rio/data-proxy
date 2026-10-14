@@ -225,3 +225,24 @@ def child(workflow_id: str, name: str, **fields: object) -> WorkflowStatus:
         parent_workflow_id="run-1",
         **fields,
     )
+
+
+def table(source: str, **fields: object) -> dict[str, object]:
+    """Build one table of the config document, in the form that the API shows."""
+    return {"source_table": source, "strategy": "full", **fields}
+
+
+def document(
+    tables: dict[str, dict[str, object]] | None = None, schema: str = "test"
+) -> dict[str, object]:
+    """Build a config document with one schema, in the form that the API shows."""
+    return {
+        "schemas": {
+            schema: {
+                "source": {"type": "bigquery"},
+                "claim": "preferred_username",
+                "ducklake": {"encrypted": False},
+                "tables": tables or {"full_table": table("proj.ds.full_table")},
+            }
+        }
+    }

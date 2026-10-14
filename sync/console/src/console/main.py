@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from console import routes
 from console.database import create_engine
+from console.problems import Problem, problem_handler
 from console.registry import discover_routers
 from console.settings import settings
 
@@ -34,6 +35,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
 
 
 app = FastAPI(title="Data Proxy sync console", lifespan=lifespan)
+app.add_exception_handler(Problem, problem_handler)
 
 for router in discover_routers(routes):
     app.include_router(router)

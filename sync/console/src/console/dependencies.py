@@ -1,11 +1,13 @@
 """Dependencies that the routes of the console share."""
 
+from dataclasses import dataclass
 from typing import Annotated
 
 from dbos import DBOSClient
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from console.problems import Problem
 from console.state import AppRequest
 
 
@@ -30,3 +32,50 @@ async def require_workflow(workflow_id: str, client: Client) -> None:
     )
     if not found:
         raise HTTPException(status_code=404, detail="workflow not found")
+
+
+def if_match(
+    header: Annotated[str | None, Header(alias="If-Match")] = None,
+) -> int:
+    """Read the revision that the caller says it read, from the If-Match header."""
+    if header is None:
+        raise Problem(428, "Send the ETag that you read in the If-Match header")
+    try:
+        return int(header.removeprefix("W/").strip('"'))
+    except ValueError as error:
+        raise Problem(400, "If-Match must be the ETag of a config") from error
+
+
+def author(
+    forwarded_user: Annotated[str | None, Header(alias="X-Forwarded-User")] = None,
+) -> str:
+    """Read who calls from the header that the gateway sets."""
+    return forwarded_user or "unknown"
+
+
+IfMatch = Annotated[int, Depends(if_match)]
+Author = Annotated[str, Depends(author)]
+
+
+@dataclass
+class Write:
+    """What a write request says: the revision it read, who it is, and what it wants."""
+
+    expected: int
+    author: str
+    comment: str
+    dry_run: bool
+
+
+def write(
+    expected: IfMatch,
+    who: Author,
+    *,
+    comment: str = "",
+    dry_run: bool = False,
+) -> Write:
+    """Read the parts that every write to the config has in common."""
+    return Write(expected=expected, author=who, comment=comment, dry_run=dry_run)
+
+
+Writing = Annotated[Write, Depends(write)]

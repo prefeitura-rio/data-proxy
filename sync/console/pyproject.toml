@@ -5,6 +5,7 @@ description = "Operator console: a FastAPI service that shows the sync runs and 
 requires-python = ">=3.14"
 dependencies = [
   "dbos",
+  "engine",
   "fastapi>=0.142.2",
   "granian[uvloop]>=2.8.4",
   "psycopg[binary]",
@@ -42,7 +43,7 @@ src = ["src", "tests"]
 
 [tool.basedpyright]
 extends = "../pyproject.toml"
-extraPaths = ["src", "tests"]
+extraPaths = ["src", "tests", "../engine/src"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
