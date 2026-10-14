@@ -10,6 +10,7 @@
     module = {
       imports = [
         ../processes/postgres.nix
+        ../processes/pgdog.nix
         ../processes/postgrest.nix
         ../services/redis.nix
         ../services/silo.nix

@@ -15,9 +15,9 @@
       [ -e ${config.env.TEST_DATABASE_READY} ] || { echo "database bootstrap failed" >&2; exit 1; }
       exec ${pkgs.postgrest}/bin/postgrest
     '';
-    after = [ "devenv:processes:after-postgres@completed" ];
+    after = [ "devenv:processes:pgdog" ];
     env = {
-      PGRST_DB_URI = "postgres://test:test@127.0.0.1:${config.env.TEST_POSTGRES_PORT}/test";
+      PGRST_DB_URI = "postgres://test:test@127.0.0.1:${config.env.TEST_PGDOG_PORT}/test";
       PGRST_DB_SCHEMAS = "pushdown,admin";
       PGRST_DB_ANON_ROLE = "anon";
       PGRST_JWT_SECRET = config.env.TEST_POSTGREST_AUTH;
