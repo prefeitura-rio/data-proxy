@@ -1,0 +1,34 @@
+{{- $name := include "data-proxy.fullname" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-pgdog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgdog
+data:
+  pgdog.toml: |
+    [general]
+    host = "0.0.0.0"
+    port = 6432
+    pooler_mode = "transaction"
+    read_write_split = "include_primary_if_replica_banned"
+    default_pool_size = {{ .Values.pgdog.poolSize }}
+    connect_timeout = 1000
+    healthcheck_timeout = 1000
+    idle_healthcheck_interval = 5000
+    ban_timeout = 10000
+    lsn_check_delay = 0
+    lsn_check_interval = 1000
+    ban_replica_lag = {{ .Values.pgdog.maxReplicaLagMs }}
+
+    [[databases]]
+    name = {{ .Values.cnpg.db.name | quote }}
+    host = {{ printf "%s-rw" $name | quote }}
+    role = "primary"
+
+    [[databases]]
+    name = {{ .Values.cnpg.db.name | quote }}
+    host = {{ printf "%s-ro" $name | quote }}
+    role = "replica"

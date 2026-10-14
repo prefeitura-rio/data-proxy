@@ -122,7 +122,6 @@ releases:
     values:
       - values/data-proxy.yaml
       - values/images.yaml.gotmpl
-      - values/ha.yaml.gotmpl
     hooks:
       - events:
           - postsync

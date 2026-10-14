@@ -91,9 +91,9 @@ sequenceDiagram
 
 ## Kubernetes topology
 
-The chart deploys one CNPG cluster, one session-mode Pooler, one PostgREST read workload, and one proxy workload. With `ha.enabled`, the chart adds standbys, a read Pooler, and a read PostgREST. See [Helm Chart](helm_chart.md#single-and-ha-mode). KEDA scales the DBOS sync workers. PostgreSQL replicas transfer metadata, including the catalogs, through normal CNPG WAL; they don't receive application table rows.
+The chart deploys one CNPG cluster with a primary and at least one standby, one PgDog workload, one PostgREST workload, and one proxy workload. See [Helm Chart](helm_chart.md#topology). KEDA scales the DBOS sync workers. PostgreSQL replicas transfer metadata, including the catalogs, through normal CNPG WAL; they don't receive application table rows.
 
-The sync ServiceAccount can restart the PostgREST Deployments and nothing else.
+The sync ServiceAccount can restart the PostgREST Deployment and nothing else.
 
 ## Request sequence
 

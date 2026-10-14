@@ -16,26 +16,24 @@ spec:
       port: 3000
       targetPort: http
 ---
-{{- if .Values.ha.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
+  name: {{ include "data-proxy.fullname" . }}-pgdog
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest-ro
+    app.kubernetes.io/component: pgdog
 spec:
   type: ClusterIP
   selector:
     {{- include "data-proxy.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest-ro
+    app.kubernetes.io/component: pgdog
   ports:
-    - name: http
-      port: 3000
-      targetPort: http
+    - name: pgdog
+      port: 6432
+      targetPort: pgdog
 ---
-{{- end }}
 apiVersion: v1
 kind: Service
 metadata:

@@ -181,16 +181,16 @@ curl \
   "${BASE_URL}/participants?limit=20"
 ```
 
-In single mode, the proxy sends every request to PostgREST. In HA mode, it sends `GET` and `HEAD` to PostgREST-ro and other methods to PostgREST. The diagram shows HA mode. BigQuery rows follow the same authentication and RLS rules as DuckLake rows:
+The proxy sends every request to PostgREST, and PgDog sends a `GET` to a standby. BigQuery rows follow the same authentication and RLS rules as DuckLake rows:
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant N as Proxy
     participant R as Redis
-    participant P as PostgREST-ro
-    participant RP as CNPG Pooler RO
-    participant DB as PostgreSQL
+    participant P as PostgREST
+    participant RP as PgDog
+    participant DB as PostgreSQL standby
     participant BQ as BigQuery
 
     C->>N: GET with Bearer JWT and Accept-Profile
@@ -200,7 +200,7 @@ sequenceDiagram
         N-->>C: Response from cache
     else cache miss
         N->>P: Forward JWT and schema profile
-        P->>RP: Query through read Pooler
+        P->>RP: Query in a read-only transaction
         RP->>DB: Run JWT role, pre_request, and the table function
         alt no access policy matches
             DB-->>P: Empty result, no sources queried

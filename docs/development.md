@@ -24,7 +24,7 @@ Apply the current immutable local image tag without rebuilding images:
 cluster sync
 ```
 
-Use `cluster sync --build` to build and push fresh local images under a new immutable tag before applying them. Use `cluster sync --ha` to apply high-availability mode. Both flags work together.
+Use `cluster sync --build` to build and push fresh local images under a new immutable tag before applying them.
 
 Installed services include KEDA, k6, Istio, SeaweedFS, OIDC, PostgreSQL with the pg_duckdb extension, Valkey, PostgREST, and Data Proxy.
 
@@ -192,7 +192,7 @@ A normal load run gates `checks`, HTTP failure rate, dropped iterations, cache l
 
 ### Capacity runs need a separate generator
 
-A single-node cluster can't measure its own capacity above a few hundred requests per second. The generator, PostgREST, PostgreSQL, the pooler, and the proxy share the node's cores, so the generator steals CPU from the system under test and the run reports a number that belongs to neither.
+A single-node cluster can't measure its own capacity above a few hundred requests per second. The generator, PostgREST, PostgreSQL, PgDog, and the proxy share the node's cores, so the generator steals CPU from the system under test and the run reports a number that belongs to neither.
 
 Measure capacity with the generator outside the cluster host. The `default` devenv profile provides `k6`, and every address the suite needs comes from the environment:
 

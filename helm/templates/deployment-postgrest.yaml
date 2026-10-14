@@ -1,25 +1,17 @@
-{{- $root := . }}
-{{- $variants := list (dict "suffix" "" "component" "postgrest" "pooler" "pooler") }}
-{{- if $root.Values.ha.enabled }}
-{{- $variants = append $variants (dict "suffix" "-ro" "component" "postgrest-ro" "pooler" "pooler-ro") }}
-{{- end }}
-{{- range $variant := $variants }}
-{{- with $root }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest{{ $variant.suffix }}
+  name: {{ include "data-proxy.fullname" . }}-postgrest
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: {{ $variant.component }}
+    app.kubernetes.io/component: postgrest
     data-proxy.io/serving: postgrest
 spec:
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: {{ $variant.component }}
+      app.kubernetes.io/component: postgrest
   template:
     metadata:
       annotations:
@@ -31,7 +23,7 @@ spec:
         {{- end }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: {{ $variant.component }}
+        app.kubernetes.io/component: postgrest
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       automountServiceAccountToken: false
@@ -105,7 +97,7 @@ spec:
                   name: {{ include "data-proxy.authenticatorSecretName" . }}
                   key: password
             - name: PGRST_DB_URI
-              value: {{ include "data-proxy.postgresPoolerDsn" (dict "root" . "pooler" $variant.pooler) | quote }}
+              value: {{ include "data-proxy.postgrestDsn" . | quote }}
             - name: PGRST_DB_POOL
               value: {{ .Values.postgrest.dbPool | quote }}
             - name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
@@ -115,7 +107,7 @@ spec:
             - name: PGRST_DB_PREPARED_STATEMENTS
               value: "false"
             - name: PGRST_DB_CHANNEL_ENABLED
-              value: "false"
+              value: "true"
             - name: PGRST_DB_SCHEMAS
               value: admin
             - name: PGRST_DB_ANON_ROLE
@@ -161,5 +153,3 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-{{- end }}
-{{- end }}

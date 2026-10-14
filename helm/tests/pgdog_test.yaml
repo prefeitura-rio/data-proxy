@@ -1,0 +1,189 @@
+suite: PgDog
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - configmap-pgdog.yaml
+  - deployment-pgdog.yaml
+  - deployment-postgrest.yaml
+  - deployment-proxy.yaml
+  - secrets.yaml
+  - services.yaml
+  - pdbs.yaml
+  - scaledobjects.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: pools transactions, so one backend serves many PostgREST connections
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^pooler_mode = "transaction"$'
+        template: configmap-pgdog.yaml
+
+  - it: sends read-only transactions to the standby Service and the others to the primary Service
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?s)name = "data-proxy"\s+host = "data-proxy-rw"\s+role = "primary"'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?s)name = "data-proxy"\s+host = "data-proxy-ro"\s+role = "replica"'
+        template: configmap-pgdog.yaml
+
+  - it: reads from the primary while no standby can serve
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^read_write_split = "include_primary_if_replica_banned"$'
+        template: configmap-pgdog.yaml
+
+  - it: checks the replication lag and bans a standby that falls behind
+    set:
+      pgdog.maxReplicaLagMs: 3000
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^lsn_check_delay = 0$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^ban_replica_lag = 3000$'
+        template: configmap-pgdog.yaml
+
+  - it: gives up on a dead standby within seconds
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^connect_timeout = 1000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^ban_timeout = 10000$'
+        template: configmap-pgdog.yaml
+
+  - it: sizes the server pool from pgdog.poolSize
+    set:
+      pgdog.poolSize: 20
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^default_pool_size = 20$'
+        template: configmap-pgdog.yaml
+
+  - it: stores the authenticator login in a Secret, not in the ConfigMap
+    asserts:
+      - matchRegex:
+          path: stringData["users.toml"]
+          pattern: '(?s)name = "postgrest"\s+database = "data-proxy"\s+password = "[A-Za-z0-9]+"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog-users
+        template: secrets.yaml
+      - notMatchRegex:
+          path: data["pgdog.toml"]
+          pattern: 'password'
+        template: configmap-pgdog.yaml
+
+  - it: uses the password of the PostgREST role in the PgDog login
+    set:
+      cnpg.authenticatorPassword: fixed-password
+    asserts:
+      - matchRegex:
+          path: stringData["users.toml"]
+          pattern: 'password = "fixed-password"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog-users
+        template: secrets.yaml
+
+  - it: renders a PgDog Deployment whose count a scaler owns
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/pgdogdev/pgdog:0.1.61
+        template: deployment-pgdog.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
+        template: deployment-pgdog.yaml
+      - notExists:
+          path: spec.replicas
+        template: deployment-pgdog.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: pgdog
+        template: deployment-pgdog.yaml
+
+  - it: rolls PgDog when its configuration or the S3 keys change
+    set:
+      s3.accessKey: key1
+      s3.secretKey: secret1
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: "^[0-9a-f]{64}$"
+        template: deployment-pgdog.yaml
+      - equal:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
+        template: deployment-pgdog.yaml
+
+  - it: renders a Service, a disruption budget and a scaler for PgDog
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 6432
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog
+        template: services.yaml
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog
+        template: pdbs.yaml
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-pgdog
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog
+        template: scaledobjects.yaml
+
+  - it: renders one PostgREST Deployment, and no read-only copy
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: deployment-postgrest.yaml
+
+  - it: connects PostgREST to PgDog, and its listener to the primary
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_URI
+            value: "postgres://postgrest:$(PGRST_PASSWORD)@data-proxy-pgdog:6432,data-proxy-rw:5432/data-proxy"
+        template: deployment-postgrest.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_CHANNEL_ENABLED
+            value: "true"
+        template: deployment-postgrest.yaml
+
+  - it: sends every proxy request to the one PostgREST
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_POSTGREST
+            value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
+        template: deployment-proxy.yaml

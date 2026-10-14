@@ -1,7 +1,6 @@
 suite: DuckLake PostgreSQL catalog
 templates:
   - cluster-cnpg.yaml
-  - pooler-cnpg.yaml
   - deployment-proxy.yaml
   - deployment-postgrest.yaml
   - deployment-sync.yaml
@@ -79,13 +78,6 @@ tests:
           path: spec.template.metadata.annotations["checksum/s3-credentials"]
           pattern: "^[0-9a-f]{64}$"
         template: deployment-sync.yaml
-
-  - it: uses session pooling for DuckLake attachments
-    asserts:
-      - equal:
-          path: spec.pgbouncer.poolMode
-          value: session
-        template: pooler-cnpg.yaml
 
   - it: gives DBOS sync workers no shared volume
     set:

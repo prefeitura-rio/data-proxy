@@ -1,9 +1,3 @@
-## High availability. false: one PostgreSQL instance serves reads and writes.
-## true: one CloudNativePG Cluster with standbys that serve reads and take over on failure.
-## Nothing else to set: the autoscaling blocks of cnpg and postgrest then scale the
-## read side, and the proxy sends reads and writes to different PostgREST deployments.
-ha:
-  enabled: false
 ## DBOS sync service: runs the scheduled sync workflow, BigQuery extraction,
 ## and DuckLake publication. Scaled by KEDA on the DBOS workflow queue.
 sync:
@@ -119,7 +113,6 @@ postgrest:
   dbPoolMaxIdleTime: 300
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
   aggregatesEnabled: true
-  replicas: 1
   resources:
     requests:
       cpu: 500m
@@ -131,6 +124,27 @@ postgrest:
   autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 6
+    pollingInterval: 30
+    cooldownPeriod: 300
+    triggers: []
+## PgDog sits between PostgREST and PostgreSQL. It sends read-only transactions to a standby and every other
+## transaction to the primary. It pools transactions, so many PostgREST connections share a few backends.
+pgdog:
+  image: ghcr.io/pgdogdev/pgdog:0.1.61
+  ## Server connections that each PgDog pod opens to the primary, and to the standbys together.
+  poolSize: 50
+  ## A standby that replays more than this many milliseconds behind the primary gets no reads until it catches up.
+  maxReplicaLagMs: 5000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    minReplicaCount: 1
+    maxReplicaCount: 4
     pollingInterval: 30
     cooldownPeriod: 300
     triggers: []
@@ -290,27 +304,15 @@ cnpg:
   postgresql:
     parameters: {}
     ## Optional CNPG synchronous replication, for example {method: any, number: 1, dataDurability: preferred}.
-    ## CNPG rejects it while the cluster has one instance, so set it after the HA cluster has scaled up.
+    ## CNPG rejects it while the cluster has one instance, so set it after the cluster has scaled up.
     ## With it, access_policy writes wait for a standby to apply them and other commits do not wait.
     synchronous: {}
-  ## CNPG Poolers have no scale selector, so KEDA cannot scale them. Each Pooler runs one pod.
-  pooler:
-    poolSize: 50
-    maxClientConns: 200
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 500m
-        memory: 256Mi
   db:
     name: data-proxy
     user: admin
   existingSecret: ""
-  ## PostgreSQL instances in single mode. In HA mode cnpg.autoscaling owns the count.
-  instances: 1
-  ## HA mode only. The floor is at least 2 (a primary and one standby).
+  ## The cluster always has a primary and at least one standby, and KEDA adds standbys under load.
+  ## The floor is at least 2.
   ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
   autoscaling:
     minReplicaCount: 2

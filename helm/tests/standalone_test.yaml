@@ -3,7 +3,6 @@ templates:
   - cluster-cnpg.yaml
   - rbac.yaml
   - scaledobjects.yaml
-  - pooler-cnpg.yaml
 tests:
   - it: manages anon, user, and postgrest roles through CNPG
     asserts:
@@ -108,7 +107,6 @@ tests:
 
   - it: renders one CNPG Cluster
     set:
-      cnpg.instances: 3
       cnpg.storage.size: 100Gi
     asserts:
       - hasDocuments:
@@ -120,13 +118,6 @@ tests:
       - notExists:
           path: spec.instances
         template: cluster-cnpg.yaml
-      - equal:
-          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
-          value: "3"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-cluster-autoscaler
-        template: scaledobjects.yaml
       - equal:
           path: spec.storage.size
           value: 100Gi
@@ -191,29 +182,6 @@ tests:
       - hasDocuments:
           count: 2
         template: rbac.yaml
-
-  - it: leaves Pooler authentication to CNPG
-    asserts:
-      - notExists:
-          path: spec.pgbouncer.authQuerySecret
-        template: pooler-cnpg.yaml
-      - notExists:
-          path: spec.pgbouncer.authQuery
-        template: pooler-cnpg.yaml
-
-  - it: creates one read-write Pooler
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: pooler-cnpg.yaml
-      - equal:
-          path: metadata.name
-          value: data-proxy-pooler
-        template: pooler-cnpg.yaml
-      - equal:
-          path: spec.type
-          value: rw
-        template: pooler-cnpg.yaml
 
   - it: defaults duckdb threads to two
     asserts:

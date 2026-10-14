@@ -25,14 +25,14 @@ tests:
           value: data-proxy-postgrest
         template: pdbs.yaml
 
-  - it: renders the pooler disruption budget
+  - it: renders the PgDog disruption budget
     asserts:
       - equal:
           path: spec.minAvailable
           value: 1
         documentSelector:
           path: metadata.name
-          value: data-proxy-pooler
+          value: data-proxy-pgdog
         template: pdbs.yaml
 
   - it: renders PostgREST KEDA scaler

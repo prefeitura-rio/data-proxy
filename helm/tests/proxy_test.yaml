@@ -133,7 +133,7 @@ tests:
   - it: renders a headless service that names every proxy pod, so the engine can reload each one
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
         template: services.yaml
       - equal:
           path: spec.clusterIP

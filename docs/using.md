@@ -11,11 +11,9 @@ curl \
 
 ## Request routing
 
-In single mode, the proxy sends every request to the `postgrest` Deployment, which connects through the CNPG session-mode `rw` Pooler.
+The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Helm Chart](helm_chart.md#topology).
 
-In HA mode, the proxy sends `GET` and `HEAD` to `postgrest-ro`, which connects through the `ro` Pooler to the standbys. It sends all other methods to `postgrest`, which connects through the `rw` Pooler to the primary. When `postgrest-ro` is unreachable or answers 502, 503, or 504, the proxy retries the read once on `postgrest`. It never retries a write. See [Helm Chart](helm_chart.md#single-and-ha-mode).
-
-Sync restarts the PostgREST deployments once when generated serving PostgreSQL objects change. A PostgREST pod isn't Ready until its HTTP readiness probe serves `/`. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
+Sync restarts the PostgREST Deployment once when generated serving PostgreSQL objects change. A PostgREST pod isn't Ready until its HTTP readiness probe serves `/`. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
 
 ## OpenAPI
 

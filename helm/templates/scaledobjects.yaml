@@ -23,7 +23,6 @@ spec:
         targetQueryValue: {{ .Values.sync.autoscaling.targetQueryValue | quote }}
         activationTargetQueryValue: {{ .Values.sync.autoscaling.activationTargetQueryValue | quote }}
 {{- $root := . }}
-{{- $ha := .Values.ha.enabled }}
 {{- $name := include "data-proxy.fullname" . }}
 {{- $deployment := dict "kind" "Deployment" "apiVersion" "apps/v1" }}
 {{- $cnpg := dict "apiVersion" "postgresql.cnpg.io/v1" }}
@@ -31,13 +30,9 @@ spec:
 {{- $postgrest := .Values.postgrest.autoscaling }}
 {{- $postgrestTriggers := include "data-proxy.triggers" (dict "triggers" $postgrest.triggers "default" (include "data-proxy.defaultResourceTriggers" .)) }}
 {{- $postgrestScaler := dict "root" $root "name" (printf "%s-postgrest" $name) "component" "postgrest" "target" (merge (dict "name" (printf "%s-postgrest" $name)) $deployment) "min" $postgrest.minReplicaCount "max" $postgrest.maxReplicaCount "block" $postgrest "triggers" $postgrestTriggers }}
-{{- if $ha }}
-{{- $_ := set $postgrestScaler "pinned" (.Values.postgrest.replicas | default 1 | int) }}
-{{- end }}
 {{ include "data-proxy.scaledObject" $postgrestScaler }}
-{{- if $ha }}
-{{ include "data-proxy.scaledObject" (dict "root" $root "name" (printf "%s-postgrest-ro" $name) "component" "postgrest-ro" "target" (merge (dict "name" (printf "%s-postgrest-ro" $name)) $deployment) "min" $postgrest.minReplicaCount "max" $postgrest.maxReplicaCount "block" $postgrest "triggers" $postgrestTriggers) }}
-{{- end }}
+{{- $pgdog := .Values.pgdog.autoscaling }}
+{{ include "data-proxy.scaledObject" (dict "root" $root "name" (printf "%s-pgdog" $name) "component" "pgdog" "target" (merge (dict "name" (printf "%s-pgdog" $name)) $deployment) "min" $pgdog.minReplicaCount "max" $pgdog.maxReplicaCount "block" $pgdog "triggers" (include "data-proxy.triggers" (dict "triggers" $pgdog.triggers "default" (include "data-proxy.defaultResourceTriggers" .)))) }}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -65,9 +60,6 @@ spec:
 
 {{- $cluster := .Values.cnpg.autoscaling }}
 {{- $clusterScaler := dict "root" $root "name" (printf "%s-cluster-autoscaler" $name) "component" "postgres" "target" (merge (dict "name" $name "kind" "Cluster") $cnpg) "min" (include "data-proxy.cnpgMinInstances" . | int) "max" (include "data-proxy.cnpgMaxInstances" . | int) "block" $cluster "triggers" (include "data-proxy.triggers" (dict "triggers" $cluster.triggers "default" (include "data-proxy.cnpgDefaultTriggers" .))) }}
-{{- if not $ha }}
-{{- $_ := set $clusterScaler "pinned" (.Values.cnpg.instances | int) }}
-{{- end }}
 {{ include "data-proxy.scaledObject" $clusterScaler }}
 ---
 apiVersion: keda.sh/v1alpha1

@@ -1,17 +1,17 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-pooler
+  name: {{ include "data-proxy.fullname" . }}-pgdog
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: pgbouncer
+    app.kubernetes.io/component: pgdog
 spec:
   minAvailable: 1
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: pgbouncer
+      app.kubernetes.io/component: pgdog
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -42,20 +42,3 @@ spec:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: proxy
-{{- if .Values.ha.enabled }}
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-postgrest-ro
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgrest-ro
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: postgrest-ro
-{{- end }}

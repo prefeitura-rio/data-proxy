@@ -82,7 +82,7 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-One PostgREST and one PgBouncer serve both DuckLake and configured fallback reads. The proxy logs separate cache hits, DuckLake reads, and configured fallback reads. A rising `duration_ms` p95 for DuckLake reads with low PostgreSQL execution time indicates pool wait or request queueing. A rising fallback trend indicates external-source latency. Keep the local k3d result as a comparison only: the load generator and services share one host.
+One PostgREST and one PgDog serve both DuckLake and configured fallback reads. The proxy logs separate cache hits, DuckLake reads, and configured fallback reads. A rising `duration_ms` p95 for DuckLake reads with low PostgreSQL execution time indicates pool wait or request queueing. A rising fallback trend indicates external-source latency. Keep the local k3d result as a comparison only: the load generator and services share one host.
 
 ## Scraping
 

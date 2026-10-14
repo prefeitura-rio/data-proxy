@@ -21,7 +21,7 @@ See [`helm/values.yaml`](../helm/values.yaml) for all values.
 devenv --profile default tasks run test:chart
 ```
 
-The task runs Helm lint, Helm unit tests, and Kubeconform for standalone and HA values.
+The task runs Helm lint, Helm unit tests, and Kubeconform.
 
 ## Images
 
@@ -44,7 +44,7 @@ Three Jobs prepare the database, and each one waits for what it needs.
 
 [Development](development.md#database-migrations) explains what belongs to the chart and what belongs to the migrations.
 
-Each PostgREST Deployment (`postgrest`, and `postgrest-ro` in HA mode) uses an HTTP readiness probe on `/`. A Deployment isn't Ready until PostgREST is serving its configured schema.
+The PostgREST Deployment uses an HTTP readiness probe on `/`. It isn't Ready until PostgREST is serving its configured schema.
 
 ## Istio ingress
 
@@ -52,48 +52,47 @@ Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` t
 
 ## Proxy
 
-Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `postgrestRetries`, `postgrestBackoffMs`, `maxInflight`, `configUrl`, and `configRefreshSeconds`. The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly; Webdis isn't deployed. See [Proxy](proxy.md) for request flow and cache behavior.
+Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `maxInflight`, `configUrl`, and `configRefreshSeconds`. The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly; Webdis isn't deployed. See [Proxy](proxy.md) for request flow and cache behavior.
 
-## Single and HA mode
+## Topology
 
-`ha.enabled` is the only HA setting. It's `false` by default. The autoscaling blocks and the resources in the values file decide everything else.
+The chart always deploys the same pieces:
 
-| Part       | Single mode                                                                     | HA mode                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| PostgreSQL | One instance. `cnpg.instances` sets the count.                                  | One CNPG Cluster. `cnpg.autoscaling` scales it from 2 instances up. CNPG promotes a standby on failure.    |
-| Pooler     | One `rw` Pooler with one pod.                                                   | One `rw` Pooler and one `ro` Pooler, each with one pod.                                                    |
-| PostgREST  | One Deployment for reads and writes. `postgrest.autoscaling` scales it.         | A fixed `rw` Deployment (`postgrest.replicas`) for writes and `postgrest-ro` for reads, scaled by `postgrest.autoscaling`. |
-| Proxy      | Sends every request to PostgREST.                                               | Sends `GET` and `HEAD` to `postgrest-ro` and all other methods to `postgrest`.                             |
+| Part       | Role                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | One CNPG Cluster with a primary and at least one standby. `cnpg.autoscaling` adds standbys under load. CNPG promotes a standby on failure. |
+| PgDog      | A pooler in front of PostgreSQL. It sends read-only transactions to the standbys and every other transaction to the primary. `pgdog.autoscaling` scales it. |
+| PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
+| Proxy      | Sends every request to PostgREST.                                                                                                |
 
-The chart sets `PROXY_HA_MODE` in the proxy Deployment from `ha.enabled`. The proxy routes by method only when `PROXY_HA_MODE` is `true`. In HA mode, a read that finds `postgrest-ro` unreachable, or answered with 502, 503, or 504, is retried on `postgrest`, which the primary backs, with a backoff between retries. `proxy.postgrestRetries` sets the number of retries; `proxy.postgrestBackoffMs` sets the delay before the first one. A write is never retried. This keeps reads working while the standbys start after a switch to HA mode, and during a failover.
+PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary. PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `cnpg-authenticator` login. The chart renders it into the `<release>-pgdog-users` Secret.
 
-To change the mode, run one upgrade in either direction:
+PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host. New connections spread across the standbys, and a new standby takes load as connections close. PgDog checks the replication lag every second and gives no reads to a standby that's more than `pgdog.maxReplicaLagMs` behind. A standby that stops answering gets no requests for 10 seconds, and the next read goes to the primary.
 
-```sh
-helmfile --file k3d/helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=true
-helmfile --file k3d/helmfile.yaml sync --selector name=data-proxy --state-values-set ha.enabled=false
-```
+The PostgREST connection address lists PgDog first and the `-rw` Service second. PostgREST asks for a read/write session for its `LISTEN` connection. PgDog never gives one, so the listener connects to the primary. A `NOTIFY` on the primary then reaches PostgREST.
 
-Only the primary database holds state, so nothing else needs a migration. A scaled-down standby loses its volume. The primary keeps its data.
+A read that follows a write can reach a standby that hasn't replayed the write. The lag stays below `pgdog.maxReplicaLagMs`, and normally it's a few milliseconds. A caller that needs the new row at once reads it from the answer of the write (`Prefer: return=representation`).
 
-KEDA owns every workload count except the Poolers. Helm never sets `replicas` or `instances` on a workload, so an upgrade can't conflict with a scaler. A CNPG Pooler has no scale selector, so KEDA can't scale it, and CNPG runs its default of one pod. A fixed workload gets a ScaledObject that KEDA pauses at the configured count. This is also how the single mode holds the Cluster at `cnpg.instances`.
+Only the primary database holds state. A scaled-down standby loses its volume. The primary keeps its data.
+
+KEDA owns every workload count. Helm never sets `replicas` or `instances` on a workload, so an upgrade can't conflict with a scaler.
 
 Default triggers:
 
 | Workload                  | Default trigger                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Cluster (HA mode)         | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads.          |
-| PostgREST and nginx       | CPU and memory.                                                                                              |
+| Cluster                   | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads.          |
+| PostgREST, PgDog and nginx | CPU and memory.                                                                                             |
 
 Set `triggers` in an `autoscaling` block to replace a default. KEDA can't scale a CNPG resource on CPU, because the resource has no pod selector.
 
-Notes for HA mode:
+Notes for the cluster:
 
 - Every instance has the same `cnpg.resources`.
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
 - Replication is asynchronous, so a changed policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then raises `synchronous_commit` to `remote_apply` for policy writes only, and other commits use `local`.
 - The DuckDB secrets (the S3 secret, and the two catalog reader secrets) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
-- DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls the poolers and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.
+- DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.
 
 ```yaml
 redis:

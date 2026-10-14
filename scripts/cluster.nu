@@ -103,12 +103,11 @@ def "main up" [
     wrap-helmfile $kubecfg deps
 
     log info 'Syncing local manifests, platform charts, and Data Proxy with Helmfile...'
-    wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set ha.enabled=false
+    wrap-helmfile $kubecfg --image-tag $tag sync
 }
 
 # Synchronize the local stack with the latest built images.
 def "main sync" [
-    --ha # Synchronize high-availability mode.
     --build # Build and push fresh local images before synchronizing.
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
@@ -118,7 +117,7 @@ def "main sync" [
     let tag = if $build { build-local-images } else { local-image-tag }
 
     log info $'Synchronizing Helmfile with local image tag ($tag)...'
-    wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set $'ha.enabled=($ha)'
+    wrap-helmfile $kubecfg --image-tag $tag sync
 }
 
 # Remove the local k3d cluster.

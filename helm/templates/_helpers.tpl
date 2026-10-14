@@ -56,8 +56,7 @@
 {{- end }}
 
 {{- /*
-One ScaledObject per workload whose count a scaler owns. A fixed workload sets "pinned": KEDA holds it
-at that count, so Helm never sets a count that KEDA also writes and a mode switch is one server-side apply.
+One ScaledObject per workload whose count a scaler owns, so Helm never sets a count that KEDA also writes.
 */ -}}
 {{- define "data-proxy.scaledObject" -}}
 {{- $root := .root -}}
@@ -70,15 +69,11 @@ metadata:
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .component }}
-  {{- if hasKey . "pinned" }}
-  annotations:
-    autoscaling.keda.sh/paused-replicas: {{ .pinned | quote }}
-  {{- end }}
 spec:
   scaleTargetRef:
     {{- toYaml .target | nindent 4 }}
-  minReplicaCount: {{ ternary .pinned .min (hasKey . "pinned") }}
-  maxReplicaCount: {{ ternary .pinned .max (hasKey . "pinned") }}
+  minReplicaCount: {{ .min }}
+  maxReplicaCount: {{ .max }}
   pollingInterval: {{ .block.pollingInterval }}
   cooldownPeriod: {{ .block.cooldownPeriod }}
   triggers:
@@ -274,12 +269,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "data-proxy.fullname" $root -}}
 {{- end }}
 
-{{- define "data-proxy.postgresPoolerDsn" -}}
-{{- $root := .root -}}
-{{- $role := $root.Values.auth.authenticatorRole -}}
-{{- $db := $root.Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" $root -}}
-postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-{{ .pooler }}:5432/{{ $db }}
+{{- /*
+PostgREST sends its queries to PgDog. Its listener needs a read-write session, which PgDog does not give,
+so libpq moves on to the second host, the primary.
+*/ -}}
+{{- define "data-proxy.postgrestDsn" -}}
+{{- $role := .Values.auth.authenticatorRole -}}
+{{- $db := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.postgresWriteDsn" -}}

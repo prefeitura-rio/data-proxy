@@ -11,7 +11,7 @@ local config = {}
 --- Turn the environment into the settings: the text of each variable, by setting name.
 ---
 --- ```lua
---- local variables = { PROXY_CACHE_TTL = "60", PROXY_HA_MODE = "" }
+--- local variables = { PROXY_CACHE_TTL = "60", PROXY_CONFIG_URL = "" }
 --- convert_to_setting(function(name) return variables[name] end)  --> { cache_ttl = "60" }
 --- ```
 ---@param getenv fun(name: string): string|nil Gives the text of a variable.
