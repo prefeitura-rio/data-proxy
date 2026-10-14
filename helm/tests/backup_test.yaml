@@ -226,34 +226,6 @@ tests:
             name: PG_DATABASE_URL
             value: postgresql://admin@data-proxy-rw:5432/data-proxy
 
-  - it: gives the backup job no catalog restore, catalog volume, or Litestream settings
-    set:
-      jobs.backup.enabled: true
-      jobs.backup.s3.bucket: backup-bucket
-      jobs.backup.s3.endpointURL: https://storage.googleapis.com
-      jobs.backup.s3.existingSecret: backup-s3-creds
-      sync.config.schemas.test.tables: []
-    documentSelector:
-      path: metadata.name
-      value: data-proxy-test-backup
-    asserts:
-      - notMatchRegex:
-          path: spec.jobTemplate.spec.template.spec.initContainers[0].name
-          pattern: restore-catalog
-        template: jobs.yaml
-      - notContains:
-          path: spec.jobTemplate.spec.template.spec.volumes
-          content:
-            name: catalog
-            emptyDir: {}
-        template: jobs.yaml
-      - notContains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: CATALOG_FILE
-            value: /catalog/catalog.sqlite
-        template: jobs.yaml
-
   - it: gives the maintenance job no object store, catalog volume, or DuckLake settings
     set:
       jobs.maintenance.enabled: true

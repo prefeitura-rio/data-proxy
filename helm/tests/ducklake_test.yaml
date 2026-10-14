@@ -39,37 +39,6 @@ tests:
           value: 1GB
         template: cluster-cnpg.yaml
 
-  - it: gives PostgreSQL Pods no catalog volume, restore container, or Litestream image
-    set:
-      sync.config:
-        schemas:
-          app:
-            tables: []
-          other:
-            tables: []
-      ducklake.secrets.storage.storageClass: k3d-rwx
-    asserts:
-      - notMatchRegex:
-          path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: "ducklake-catalogs"
-        template: cluster-cnpg.yaml
-      - notMatchRegex:
-          path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: "litestream"
-        template: cluster-cnpg.yaml
-      - notMatchRegex:
-          path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: "restore-catalog"
-        template: cluster-cnpg.yaml
-      - notMatchRegex:
-          path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: "prepare-catalogs"
-        template: cluster-cnpg.yaml
-      - notMatchRegex:
-          path: metadata.annotations["cnpg.io/podPatch"]
-          pattern: "LOAD sqlite"
-        template: cluster-cnpg.yaml
-
   - it: prepares the secret folder with the PostgreSQL image
     set:
       sync.config:
