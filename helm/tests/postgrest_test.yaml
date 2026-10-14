@@ -186,3 +186,38 @@ tests:
       - notExists:
           path: spec.template.metadata.labels["data-proxy.io/serving"]
         template: deployment-postgrest.yaml
+  - it: serves Prometheus metrics on an admin port that the scrape annotations name
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_ADMIN_SERVER_PORT
+            value: "3001"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: admin
+            containerPort: 3001
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/port"]
+          value: "3001"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/path"]
+          value: /metrics
+  - it: leaves the admin port and the scrape annotations out when metrics are off
+    set:
+      postgrest.metrics.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_ADMIN_SERVER_PORT
+            value: "3001"
+      - notExists:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1

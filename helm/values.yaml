@@ -110,6 +110,10 @@ postgrest:
   dbPool: 24
   ## Seconds that a stopping PostgREST pod waits before it closes its port. The mesh needs this time to stop sending it requests.
   preStopSleepSeconds: 5
+  ## Prometheus metrics of PostgREST, from its admin server: pool size, waiting requests, and pool timeouts.
+  metrics:
+    enabled: true
+    port: 3001
   ## Seconds to wait for a backend connection before returning an error.
   dbPoolAcquisitionTimeout: 3
   ## Seconds to keep an idle backend connection before closing it.

@@ -25,6 +25,11 @@ spec:
       annotations:
         checksum/sync-config: {{ .Values.sync.config | toJson | sha256sum }}
         checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
+        {{- if .Values.postgrest.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.postgrest.metrics.port | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: {{ $variant.component }}
@@ -86,7 +91,15 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+            {{- if .Values.postgrest.metrics.enabled }}
+            - name: admin
+              containerPort: {{ .Values.postgrest.metrics.port }}
+            {{- end }}
           env:
+            {{- if .Values.postgrest.metrics.enabled }}
+            - name: PGRST_ADMIN_SERVER_PORT
+              value: {{ .Values.postgrest.metrics.port | quote }}
+            {{- end }}
             - name: PGRST_PASSWORD
               valueFrom:
                 secretKeyRef:
