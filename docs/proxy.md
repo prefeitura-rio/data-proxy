@@ -67,6 +67,14 @@ The parser reads the query parameters that hold comparisons, and the `and`, `or`
 
 See [Using the API](using.md#response-source-and-cache) for the response headers.
 
+## Load limit
+
+The proxy counts the requests that wait for PostgREST, in one number for all the nginx workers of a pod. When `PROXY_MAX_INFLIGHT` requests already wait, a new request gets `503` with `{"error":"Proxy overloaded"}` and `Retry-After: 1` at once. A cached answer never waits for PostgREST, so a full database doesn't slow it down.
+
+Measure the limit against the database, not the proxy: one PostgreSQL pod with 8 CPU cores answered about 120 selective lookups a second, and more waiting requests only made each of them slower. Set the limit near the number of requests that the database can run at once (16 to 24), times a small factor for the time that a request spends outside the database. Each proxy pod counts its own requests, so the total is the limit times the number of proxy pods.
+
+The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postgrest.dbPoolAcquisitionTimeout` seconds (3 by default) for a free database connection before it answers with an error.
+
 ## Settings
 
 The Helm Deployment sets the proxy settings as `PROXY_*` environment variables. See [Environment Variables](environment_variables.md#openresty-proxy) for each variable, its default, and its meaning. `helm/files/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables. Lua code reads settings only through the table that `config.load` returns. `main` loads it once at start-up, in `init_by_lua`, and passes it down. The load collects the text of every variable in one table, and converts and checks the table once with the `config` schema. The schema also gives the defaults. A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting, with an error that names the setting. The variable is `PROXY_` and the upper-case name of the setting. `sync.json` sets only the cache time of each table and the paths that are never cached, and the proxy checks it with a schema when it starts. The proxy checks the other data that it doesn't create in the same way: the entries that it reads from Redis, and the claims of a bearer token. The `Schema` class is in `proxy/src/proxy/schemas/schema.lua`, and the registry is `proxy/src/proxy/schemas/main.lua` (`schemas:register(name, fields)`). When the registry module loads at start-up, it registers every file `proxy/src/proxy/schemas/definitions/<name>.lua` as the schema `<name>`. A definition file gives only the fields. Code checks data with `schemas.<name>:validate(value)`.

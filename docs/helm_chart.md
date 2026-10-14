@@ -45,7 +45,7 @@ Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` t
 
 ## Proxy
 
-Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `postgrestRetries`, and `postgrestBackoffMs`. The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly; Webdis isn't deployed. See [Proxy](proxy.md) for request flow and cache behavior.
+Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `postgrestRetries`, `postgrestBackoffMs`, and `maxInflight`. The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly; Webdis isn't deployed. See [Proxy](proxy.md) for request flow and cache behavior.
 
 ## Single and HA mode
 
