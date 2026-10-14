@@ -6,6 +6,20 @@ local constants = require("proxy.constants")
 local resty_redis = require("resty.redis")
 local schemas = require("proxy.schemas.main")
 
+local last_warning = -math.huge
+
+--- Log a warning about a failed cache operation, at most once in each warning interval of a worker.
+--- The cache is optional, so a failure does not fail the request. The warning is the only sign of it.
+---@param operation string What failed: connection, read, or write.
+---@param reason any The error from the Redis client.
+local function warn(operation, reason)
+	local now = ngx.now()
+	if now - last_warning < constants.redis.warning_interval_s then return end
+
+	last_warning = now
+	ngx.log(ngx.WARN, "Redis cache ", operation, " failed: ", tostring(reason))
+end
+
 --- The Redis cache store, with one connection for each call.
 ---@class Redis
 local Redis = class() --[[@as Redis]]
@@ -17,7 +31,7 @@ function Redis:_init(config) self.config = config end
 --- Open a connection to the Redis node, log in, and select the database.
 --- A connection from the keepalive pool is already logged in and on the database, so it skips both.
 --- The host, the port, the password and the database are in the config (redis_*).
----@return table|nil connection The connection. nil if the connection or the login failed.
+---@return table|nil connection The connection. nil if the connection, the login, or the database selection failed.
 ---@return string|nil error Reason for the failure.
 function Redis:open()
 	local connection = resty_redis:new() --[[@as table]]
@@ -32,7 +46,8 @@ function Redis:open()
 		local authenticated, auth_error = connection:auth(password)
 		if not authenticated then return nil, auth_error end
 	end
-	connection:select(self.config.redis_database)
+	local selected, select_error = connection:select(self.config.redis_database)
+	if not selected then return nil, select_error end
 	return connection
 end
 
@@ -46,11 +61,18 @@ end
 ---@param key string Cache key.
 ---@return CachedEntry|nil entry nil if the key is missing, the connection failed, or the entry is not valid.
 function Redis:read(key)
-	local connection = self:open()
-	if not connection then return nil end
+	local connection, open_error = self:open()
+	if not connection then
+		warn("connection", open_error)
+		return nil
+	end
 
-	local raw = connection:get(key)
+	local raw, read_error = connection:get(key)
 	self:release(connection)
+	if read_error then
+		warn("read", read_error)
+		return nil
+	end
 	if not raw or raw == ngx.null then return nil end
 
 	return (schemas.cached_entry:validate(cjson.decode(raw)))
@@ -62,13 +84,20 @@ end
 ---@param value CachedEntry The body and headers to store.
 ---@return boolean stored false if the connection failed or Redis rejected the write.
 function Redis:write(key, ttl, value)
-	local connection = self:open()
-	if not connection then return false end
+	local connection, open_error = self:open()
+	if not connection then
+		warn("connection", open_error)
+		return false
+	end
 
 	local encoded = cjson.encode(value)
-	local reply = connection:setex(key, ttl, encoded)
+	local reply, write_error = connection:setex(key, ttl, encoded)
 	self:release(connection)
-	return reply == "OK" or reply == true
+	if reply ~= "OK" and reply ~= true then
+		warn("write", write_error or reply)
+		return false
+	end
+	return true
 end
 
 return Redis

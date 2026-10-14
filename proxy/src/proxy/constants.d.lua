@@ -42,6 +42,7 @@
 ---@field connect_timeout_ms integer
 ---@field keepalive_idle_ms integer
 ---@field keepalive_pool_size integer
+---@field warning_interval_s integer Seconds between two warnings about a failed cache operation.
 
 --- Limits for the calls to PostgREST.
 ---@class PostgrestConstants

@@ -52,6 +52,7 @@ return {
 		connect_timeout_ms = 1000,
 		keepalive_idle_ms = 60000,
 		keepalive_pool_size = 32,
+		warning_interval_s = 30,
 	},
 	postgrest = {
 		timeout_ms = 120000,

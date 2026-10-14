@@ -15,14 +15,20 @@ Workers push the current metric registry to Pushgateway after running. Push fail
 
 ## Proxy logs
 
-The proxy writes one JSON request log per request.
+The proxy writes one text log line per request, for example `Proxy request completed: method=GET path=/people status=200 source=cache duration_ms=3 bytes=120`.
 
-| Field     | Meaning                                      |
-| --------- | -------------------------------------------- |
-| `source`  | `cache`, the `X-Source` value from PostgREST (`ducklake`, or `ducklake+<configured-fallback>`), `postgrest` when PostgREST sent none, or `none` when it was unreachable. |
-| `status`  | HTTP status.                                 |
-| `wait_ms` | Request duration in milliseconds.            |
-| `bytes`   | Response size.                               |
+| Field         | Meaning                                      |
+| ------------- | -------------------------------------------- |
+| `method`      | HTTP method.                                 |
+| `path`        | Request path.                                |
+| `status`      | HTTP status.                                 |
+| `source`      | `cache`, the `X-Source` value from PostgREST (`ducklake`, or `ducklake+<configured-fallback>`), `postgrest` when PostgREST sent none, or `none` when it was unreachable. |
+| `duration_ms` | Request duration in milliseconds.            |
+| `bytes`       | Response size.                               |
+
+A request with `source=cache` was a cache hit. A repeated request that always shows another source means that the cache doesn't store the answer.
+
+The cache is optional, so a Redis failure doesn't fail a request. The proxy writes the warning `Redis cache <connection|read|write> failed: <reason>` at most once every 30 seconds in each worker. Alert on this warning: without it, every request goes to PostgREST.
 
 Use API response headers for client troubleshooting. Use logs for request analysis. See [Using the API](using.md#response-source-and-cache).
 
@@ -64,7 +70,7 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-One PostgREST and one PgBouncer serve both DuckLake and configured fallback reads. The proxy JSON logs separate cache hits, DuckLake reads, and configured fallback reads. A rising `ducklake_duration_ms` p95 with low PostgreSQL execution time indicates pool wait or request queueing. A rising fallback trend indicates external-source latency. Keep the local k3d result as a comparison only: the load generator and services share one host.
+One PostgREST and one PgBouncer serve both DuckLake and configured fallback reads. The proxy logs separate cache hits, DuckLake reads, and configured fallback reads. A rising `duration_ms` p95 for DuckLake reads with low PostgreSQL execution time indicates pool wait or request queueing. A rising fallback trend indicates external-source latency. Keep the local k3d result as a comparison only: the load generator and services share one host.
 
 ## Scraping
 
