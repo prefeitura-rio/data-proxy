@@ -666,3 +666,8 @@ async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]
     """Return every row of one inline query."""
     cursor = await connection.execute(sql.encode())
     return await cursor.fetchall()
+
+
+async def become(connection: AsyncConnection, role: str) -> None:
+    """Switch the session to one role, as PostgREST does for a JWT."""
+    await connection.execute(SQL("SET ROLE {}").format(Identifier(role)))

@@ -68,8 +68,8 @@ async def revision(
 ) -> None:
     """Insert one configuration revision."""
     await connection.execute(
-        b"INSERT INTO data_proxy.revisions (author, comment, document, active) VALUES ('ana', 'note', %s, %s)",
-        (Jsonb(document), active),
+        b"INSERT INTO data_proxy.revisions (author, comment, document, active, valid) VALUES ('ana', 'note', %s, %s, %s)",
+        (Jsonb(document), active, True),
     )
 
 

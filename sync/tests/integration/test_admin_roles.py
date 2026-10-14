@@ -3,14 +3,9 @@ import pytest
 from psycopg.errors import InsufficientPrivilege
 from psycopg.sql import SQL, Identifier
 
-from tests.helpers import rows
+from tests.helpers import become, rows
 
 LEVELS = ["console_viewer", "console_operator", "console_editor", "console_admin"]
-
-
-async def become(connection: psycopg.AsyncConnection, role: str) -> None:
-    """Switch the session to one role, as PostgREST does for a JWT."""
-    await connection.execute(SQL("SET ROLE {}").format(Identifier(role)))
 
 
 @pytest.mark.postgres

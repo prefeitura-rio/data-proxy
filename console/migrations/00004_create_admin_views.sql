@@ -111,6 +111,10 @@ SELECT
     r.comment,
     r.active,
     r.document,
+    r.valid,
+    r.errors,
+    r.validated_at,
+    r.activated_at,
     count(s.key)::int AS schema_count,
     coalesce(sum(jsonb_array_length(s.value -> 'tables')), 0)::int AS table_count
 FROM data_proxy.revisions AS r

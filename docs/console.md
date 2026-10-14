@@ -14,7 +14,8 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 | `logs` | The log lines of a run and its tasks, read from the portable DBOS log stream. |
 | `queues` | The queue settings and the number of enqueued, pending, and delayed workflows. |
 | `schedules` | The schedules with their cron expression and status. |
-| `revisions` | Every configuration revision with its schema and table counts. |
+| `revisions` | Every configuration revision with its schema and table counts, and its validation. |
+| `drafts` | The revisions that were never active. Editors write them. |
 | `config` | The active configuration document. |
 | `schemas` | The configured and provisioned schemas with their status, and which objects exist: the schema, `access_policy`, the `policy_writer_<schema>` role, and the views. |
 | `tables` | The configured tables with their strategy and the committed sync state. |
@@ -31,7 +32,7 @@ The JWT of a user carries the level in its `role` claim, and PostgREST switches 
 | `console_editor` | Viewer, plus create and edit draft configurations. |
 | `console_admin` | Operator and editor, plus activate a revision and provision schemas. |
 
-Today only the viewer grants exist. A viewer can't read the tables behind the views, and it can't change anything. The other levels get their grants together with the functions they call.
+A viewer can't read the tables behind the views, and it can't change anything. Editors write drafts through the `drafts` view. They can set the comment and the document, and the author always comes from the token: the `preferred_username` claim, then `sub`. A change to the document clears the validation of the draft. The other levels get their grants together with the functions they call.
 
 ## Direction
 
