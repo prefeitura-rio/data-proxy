@@ -67,7 +67,7 @@ extend-ignore = [
 "tests/**" = [
   "ARG001",  # pytest fixtures must be requested by parameter even when unused
   "ARG002",  # test doubles keep the signature of the real method
-  "D104",    # test packages have no package docstring by project rule
+  "D104",     # test packages have no package docstring by project rule
   "D105",    # test doubles skip dunder docstrings
   "D107",    # test doubles skip __init__ docstrings
   "FBT002",  # boolean default positional argument — flags are part of public signatures

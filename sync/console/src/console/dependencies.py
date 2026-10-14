@@ -14,12 +14,10 @@ def get_client(request: AppRequest) -> DBOSClient:
     return request.state["client"]
 
 
-Client = Annotated[DBOSClient, Depends(get_client)]
-
-
 def get_pool(request: AppRequest) -> AsyncConnectionPool:
     """Return the connection pool that the lifespan opened at startup."""
     return request.state["pool"]
 
 
+Client = Annotated[DBOSClient, Depends(get_client)]
 Pool = Annotated[AsyncConnectionPool, Depends(get_pool)]

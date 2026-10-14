@@ -8,11 +8,13 @@ from whenever import Instant
 
 def parse_time(value: object) -> Instant:
     """Read an ISO 8601 timestamp that has an offset, or pass an instant through."""
-    if isinstance(value, Instant):
-        return value
-    if isinstance(value, str):
-        return Instant.parse_iso(value)
-    raise ValueError("expected an ISO 8601 timestamp")
+    match value:
+        case Instant():
+            return value
+        case str():
+            return Instant.parse_iso(value)
+        case _:
+            raise ValueError("expected an ISO 8601 timestamp")
 
 
 Time = Annotated[

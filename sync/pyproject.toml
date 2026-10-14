@@ -84,7 +84,7 @@ reportUnusedCallResult = false # calls such as execute and set are made for thei
 
 [tool.pyrefly]
 project-includes = ["*/src", "*/tests"]
-search-path = ["engine/src", "engine", "console/src"]
+search-path = ["engine/src", "engine", "console/src", "console/tests"]
 python-version = "3.14"
 python-interpreter-path = ".venv/bin/python"
 preset = "all"

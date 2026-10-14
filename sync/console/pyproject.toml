@@ -23,10 +23,11 @@ asyncio_mode = "auto"
 strict = true
 addopts = ["--import-mode=importlib"]
 env_files = ["../.env.test"]
+pythonpath = ["tests"]
 
 [tool.ruff]
 extend = "../pyproject.toml"
-src = ["src"]
+src = ["src", "tests"]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "src/console/dependencies.py" = [
@@ -39,7 +40,7 @@ src = ["src"]
 
 [tool.basedpyright]
 extends = "../pyproject.toml"
-extraPaths = ["src"]
+extraPaths = ["src", "tests"]
 
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
