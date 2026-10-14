@@ -110,7 +110,7 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
   "S607",     # the fixtures find psql on PATH
 ]
 "src/api/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
-"src/api/routes/*.py" = ["TC001"]               # FastAPI reads the annotations of a route at runtime
+"src/api/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
 "src/sync/dbos/steps.py" = ["RUF029"]            # DBOS steps are async by contract
 "src/sync/dbos/workflows.py" = [
   "BLE001",   # workflows catch every failure to record it and continue the run
@@ -134,6 +134,7 @@ root = "tests"
 extraPaths = ["src", "."]
 reportPrivateUsage = false
 reportAny = false
+reportExplicitAny = false # the API tests read decoded JSON bodies
 
 
 [tool.pyrefly]
@@ -147,12 +148,23 @@ preset = "all"
 implicit-bool = false # truthiness checks are the code style
 unused-call-result = false # calls such as execute and set are made for their effect
 
+[[tool.pyrefly.sub-config]]
+matches = "tests/**"
+
+[tool.pyrefly.sub-config.errors]
+explicit-any = false # the API tests read decoded JSON bodies
+
 [tool.complexipy]
 max-complexity-allowed = 10
 
 [tool.vulture]
 min_confidence = 60
+exclude = [
+  "src/api/client.py", # a protocol: it declares parameters that the DBOS client uses
+  "src/api/models.py", # response models: FastAPI reads their fields
+]
 ignore_decorators = [
+  "@router.*",
   "@pytest.fixture",
   "@given",
   "@when",

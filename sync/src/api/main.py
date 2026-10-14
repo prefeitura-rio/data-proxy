@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from dbos import DBOSClient
 from fastapi import FastAPI
 
-from api.routes import health
+from api.routes import health, runs
 from sync.settings import settings
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     """Build the application with its routes."""
     app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
     app.include_router(health.router)
+    app.include_router(runs.router)
     return app
 
 
