@@ -26,6 +26,7 @@
 ---@class HttpConstants
 ---@field read_methods table<string, boolean>
 ---@field body_methods table<string, boolean> Methods that must send a body, because resty.http refuses nil.
+---@field retry_statuses table<integer, boolean> Statuses (502, 503, 504) after which a read is sent again.
 ---@field default_media_type string Media type assumed if the client sends no usable Accept.
 ---@field json_type string Content-Type written if PostgREST sent none.
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
@@ -59,6 +60,8 @@
 --- Limits for the calls to PostgREST.
 ---@class PostgrestConstants
 ---@field timeout_ms integer Time limit for one PostgREST request, in milliseconds. Queries can run long.
+---@field retries integer How many times a read that failed is sent again.
+---@field backoff_ms integer Wait before the first retry, in milliseconds. It doubles for each retry.
 
 --- Values for reading the bearer token.
 ---@class JwtConstants

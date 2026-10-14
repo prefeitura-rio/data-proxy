@@ -1,9 +1,25 @@
-# PostgREST answers 503. The proxy returns that answer and asks PostgREST only once.
+# A read that PostgREST fails once is sent again, and the client gets the second answer.
+GET http://{{host}}/flaky
+
+HTTP 200
+[Asserts]
+jsonpath "$.n" == 2
+
+# PostgREST answers 503 every time. The proxy sends the read three times, then returns the last answer.
 GET http://{{host}}/always-down
 
 HTTP 503
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
+jsonpath "$.n" == 3
+
+# A write is sent once, because a second write could change the data twice.
+POST http://{{host}}/always-down
+Content-Type: application/json
+{"a":1}
+
+HTTP 503
+[Asserts]
 jsonpath "$.n" == 1
 
 # PostgREST closes the connection, so the proxy answers with its own 502.

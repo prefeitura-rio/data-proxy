@@ -67,6 +67,10 @@ The parser reads the query parameters that hold comparisons, and the `and`, `or`
 
 See [Using the API](using.md#response-source-and-cache) for the response headers.
 
+## Retries
+
+PostgREST fails for a few seconds when PgDog loses a standby. The proxy sends a `GET` or `HEAD` again, up to two times, when PostgREST answers `502`, `503`, or `504`, or doesn't answer. The first retry waits 500 ms and the second waits 1 second. The client gets the last answer. A write is never sent again, because a second write could change the data twice.
+
 ## Load limit
 
 The proxy counts the requests that wait for PostgREST, in one number for all the nginx workers of a pod. When `PROXY_MAX_INFLIGHT` requests already wait, a new request gets `503` with `{"error":"Proxy overloaded"}` and `Retry-After: 1` at once. A cached answer never waits for PostgREST, so a full database doesn't slow it down.

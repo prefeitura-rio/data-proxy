@@ -28,6 +28,7 @@ return {
 	http = {
 		read_methods = { GET = true, HEAD = true },
 		body_methods = { POST = true, PUT = true, PATCH = true },
+		retry_statuses = { [502] = true, [503] = true, [504] = true },
 		default_media_type = "application/json",
 		json_type = "application/json; charset=utf-8",
 		unavailable_body = '{"error":"PostgREST unavailable"}',
@@ -48,6 +49,7 @@ return {
 	log = {
 		messages = {
 			request = "Proxy request completed",
+			["postgrest-retried"] = "Proxy PostgREST request retry started",
 		},
 		fallback_message = "Proxy request state changed",
 		leading_fields = { "status", "source" },
@@ -62,6 +64,8 @@ return {
 	},
 	postgrest = {
 		timeout_ms = 30000,
+		retries = 2,
+		backoff_ms = 500,
 	},
 	jwt = {
 		anonymous_sub = "anon",

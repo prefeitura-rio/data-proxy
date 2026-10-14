@@ -1,7 +1,8 @@
--- Send requests to PostgREST.
+-- Send requests to PostgREST. A read that fails is sent again, with a backoff between the attempts.
 
 local constants = require("proxy.constants")
 local http = require("resty.http")
+local log = require("proxy.log")
 local utils = require("proxy.utils")
 
 --- Functions that send requests to PostgREST.
@@ -59,11 +60,43 @@ end
 ---@return HeaderMap headers
 function postgrest.forwarded_headers(headers) return utils.pick(headers, constants.headers.response) end
 
---- Send the request to PostgREST.
+--- Decide if the last attempt must be tried again.
+--- The answer is yes only for a read that failed, or that returned a status in constants.http.retry_statuses
+--- (502, 503, 504). A write is never sent twice, because it could change the data twice.
+---
+--- ```lua
+--- postgrest.should_retry({ method = "GET" }, { status = 503 })   --> true
+--- postgrest.should_retry({ method = "GET" }, { status = 200 })   --> false
+--- postgrest.should_retry({ method = "POST" }, { status = 503 })  --> false
+--- ```
+---@param context RequestContext
+---@param response Response|nil The result of the last attempt. nil if the attempt failed.
+---@return boolean retry
+function postgrest.should_retry(context, response)
+	if not constants.http.read_methods[context.method] then return false end
+	return response == nil or constants.http.retry_statuses[response.status] == true
+end
+
+--- Send the request to PostgREST, and send a read again while the answer is retryable.
+--- PostgREST fails for a moment when PgDog loses a standby. Each retry waits twice as long as the one before.
 ---@param context RequestContext
 ---@param sender Sender|nil The function that sends one request. The default makes an HTTP call. Tests use a fake.
----@return Response|nil response nil if PostgREST is not reachable.
----@return string|nil error The reason for the failure.
-function postgrest.query(context, sender) return (sender or send)(context, context.postgrest) end
+---@param sleeper Sleeper|nil The function that waits a number of milliseconds. The default is ngx.sleep.
+---@return Response|nil response nil if all attempts fail.
+---@return string|nil error The reason for the last failure.
+function postgrest.query(context, sender, sleeper)
+	sender = sender or send
+	sleeper = sleeper or function(ms) return ngx.sleep(ms / 1000) end
+
+	local response, response_error = sender(context, context.postgrest)
+	for attempt = 1, constants.postgrest.retries do
+		if not postgrest.should_retry(context, response) then break end
+		log.write(ngx.WARN, "postgrest-retried", context, { status = response and response.status })
+		sleeper(constants.postgrest.backoff_ms * 2 ^ (attempt - 1))
+		response, response_error = sender(context, context.postgrest)
+	end
+
+	return response, response_error
+end
 
 return postgrest
