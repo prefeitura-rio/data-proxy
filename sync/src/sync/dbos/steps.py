@@ -36,8 +36,10 @@ from sync.state import (
     build_table_states,
     emit_error,
     ensure_app_schema,
+    read_sync_config,
     write_table_states,
 )
+from sync.utils import sha256_hex
 from sync.views.reconcile import reconcile_views
 
 from . import logs
@@ -59,15 +61,21 @@ def schema_config(document: str, schema: str) -> SyncConfig:
     should_retry=retry_transient,
 )
 async def load_sync_config() -> LoadedConfig:
-    """Load the sync.json that one run uses, from the file.
+    """Load the sync.json that one run uses, from the admin tables or from the file.
 
     The run keeps this document from start to end, so a change never reaches a run
-    that already started.
+    that already started. The file serves a database that has no schemas yet.
     """
-    loaded = LoadedConfig(
-        revision="file",
-        document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
-    )
+    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+        document = await read_sync_config(pg_conn)
+
+    if document is None:
+        loaded = LoadedConfig(
+            revision="file",
+            document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
+        )
+    else:
+        loaded = LoadedConfig(revision=sha256_hex(document)[:12], document=document)
 
     config = SyncConfig.model_validate_json(loaded.document)
     await logs.info(

@@ -38,6 +38,15 @@ async def emit_error(pg_conn: Postgres, reason: str, **fields: str) -> None:
     await pg_conn.commit()
 
 
+async def read_sync_config(pg_conn: Postgres) -> str | None:
+    """Read the sync configuration from the admin tables, or nothing while they are empty."""
+    found = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
+        "postgres/read_sync_config", expect=tuple[str]
+    )
+
+    return found[0][0] if found else None
+
+
 async def read_table_state(pg_conn: Postgres, table: str) -> TableState | None:
     """Read committed state for one table."""
     rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(

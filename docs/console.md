@@ -69,19 +69,20 @@ The console talks to PostgREST only. `sync/tests/integration/test_console_http.p
 
 - Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas`, and the other views. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`. The function is `POST /rpc/start_sync`.
+- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`. The functions are `POST /rpc/start_sync` and `POST /rpc/import_config`.
 
 | Status | Meaning |
 | --- | --- |
 | 200, 201 | Done, with the row or the value in the body. |
-| 204 | Done, and there is nothing to return. |
+| 204 | Done, and there is nothing to return. `import_config` answers this way. |
 | 400 | The value is wrong: a rule that the configuration tables enforce, a bad queue limit, a bad cron expression, or an unknown time zone. The body has the reason. |
 | 401 | No token, or an anonymous one. |
+| 409 | The row clashes with another row: a duplicate key, a table in two schemas, or a schema that doesn't exist. |
 | 403 | The level of the token isn't enough. |
 
 ## Direction
 
-The database is the API. The console reads these views, and it writes through the read/write PostgREST with the same pattern as `access_policy`: a database role per capability and grants. The sync configuration is moving into proper tables, and one endpoint will serve it to the engine and the proxy. A SQL function starts a run with `dbos.enqueue_workflow`, so the console needs no DBOS client.
+The database is the API. The console reads these views, and it writes through the read/write PostgREST with the same pattern as `access_policy`: a database role per capability and grants. The sync configuration is data in proper tables, and one endpoint serves it to the engine and the proxy. A SQL function starts a run with `dbos.enqueue_workflow`, so the console needs no DBOS client.
 
 ## Develop
 

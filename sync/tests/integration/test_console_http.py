@@ -62,6 +62,9 @@ async def committed() -> AsyncIterator[psycopg.AsyncConnection]:
         yield connection
     finally:
         await connection.execute(b"DELETE FROM dbos.workflow_status")
+        await connection.execute(b"DELETE FROM admin.rls")
+        await connection.execute(b"DELETE FROM admin.tables")
+        await connection.execute(b"DELETE FROM admin.schemas")
         await connection.execute(b"DELETE FROM dbos.queues WHERE name = 'q-http'")
         await connection.execute(
             b"DELETE FROM dbos.workflow_schedules WHERE schedule_name = 's-http'"
@@ -135,3 +138,125 @@ class TestConsoleOverHttp:
         assert [(run["id"], run["started_by"]) for run in runs[1]] == [
             (started[1], "ana")
         ]
+
+
+@pytest.mark.postgrest
+@pytest.mark.usefixtures("committed")
+class TestConfigurationOverHttp:
+    """Editors build the configuration with plain requests, and consumers read it from one endpoint."""
+
+    def test_an_editor_builds_a_configuration_and_the_endpoint_serves_it(
+        self, postgrest: Postgrest
+    ) -> None:
+        """Schema, table, and rule go in as rows, and sync.json comes out."""
+        editor = "console_editor"
+        statuses = [
+            call(
+                postgrest, "POST", "/schemas", editor, {"name": "alpha", "claim": "sub"}
+            )[0],
+            call(
+                postgrest,
+                "POST",
+                "/tables",
+                editor,
+                {
+                    "name": "p.d.one",
+                    "schema": "alpha",
+                    "strategy": "partitioned",
+                    "n": 4,
+                },
+            )[0],
+            call(
+                postgrest,
+                "POST",
+                "/rls",
+                editor,
+                {
+                    "table_name": "p.d.one",
+                    "column_name": "unit_id",
+                    "unit_type": "unit",
+                },
+            )[0],
+        ]
+
+        document = call(postgrest, "GET", "/rpc/sync_config", "console_viewer")
+
+        assert statuses == [201, 201, 201]
+        assert document == (
+            200,
+            {
+                "schemas": {
+                    "alpha": {
+                        "source": {"type": "bigquery"},
+                        "claim": "sub",
+                        "tables": [
+                            {
+                                "name": "p.d.one",
+                                "strategy": "partitioned",
+                                "n": 4,
+                                "rls": [{"column": "unit_id", "unit_type": "unit"}],
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+
+    def test_constraint_failures_map_to_statuses(self, postgrest: Postgrest) -> None:
+        """A bad value is 400, and a clash with other rows is 409."""
+        editor = "console_editor"
+        call(postgrest, "POST", "/schemas", editor, {"name": "alpha"})
+
+        bad_name = call(postgrest, "POST", "/schemas", editor, {"name": "Bad-Name"})
+        duplicate = call(postgrest, "POST", "/schemas", editor, {"name": "alpha"})
+        bad_strategy = call(
+            postgrest,
+            "POST",
+            "/tables",
+            editor,
+            {"name": "p.d.one", "schema": "alpha", "strategy": "nope"},
+        )
+        unknown_schema = call(
+            postgrest, "POST", "/tables", editor, {"name": "p.d.two", "schema": "none"}
+        )
+
+        assert (bad_name[0], duplicate[0], bad_strategy[0], unknown_schema[0]) == (
+            400,
+            409,
+            400,
+            409,
+        )
+
+    def test_only_admins_delete(self, postgrest: Postgrest) -> None:
+        """An editor gets 403, and an admin removes the row."""
+        call(postgrest, "POST", "/schemas", "console_editor", {"name": "alpha"})
+
+        editor = call(postgrest, "DELETE", "/schemas?name=eq.alpha", "console_editor")
+        admin = call(postgrest, "DELETE", "/schemas?name=eq.alpha", "console_admin")
+        left = call(postgrest, "GET", "/schemas", "console_viewer")
+
+        assert (editor[0], admin[0], left) == (403, 200, (200, []))
+
+    def test_an_admin_imports_a_document(self, postgrest: Postgrest) -> None:
+        """The import takes a document and the endpoint returns the same document."""
+        document: dict[str, object] = {
+            "schemas": {"alpha": {"source": {"type": "bigquery"}, "tables": []}}
+        }
+
+        imported = call(
+            postgrest,
+            "POST",
+            "/rpc/import_config",
+            "console_admin",
+            {"document": document},
+        )
+        editor = call(
+            postgrest,
+            "POST",
+            "/rpc/import_config",
+            "console_editor",
+            {"document": document},
+        )
+        served = call(postgrest, "GET", "/rpc/sync_config", "console_viewer")
+
+        assert (imported[0], editor[0], served) == (204, 403, (200, document))

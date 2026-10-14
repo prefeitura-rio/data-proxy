@@ -1,6 +1,6 @@
 # Sync
 
-The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The engine reads the file at `SYNC_CONFIG_PATH`.
+The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The tables of the `admin` schema hold the configuration ([Console](console.md#configuration-tables)), and the engine reads it with `admin.sync_config()`. While those tables have no schema, the engine reads the file at `SYNC_CONFIG_PATH`.
 
 ```json
 {
