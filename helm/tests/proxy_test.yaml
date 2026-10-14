@@ -95,8 +95,32 @@ tests:
           value: data-proxy-proxy
         template: scaledobjects.yaml
 
-  - it: tells OpenResty how often to check its sync.json file
+  - it: leaves the console address out of OpenResty by default
     asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_URL
+            value: ""
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_REFRESH_SECONDS
+            value: "60"
+        template: deployment-proxy.yaml
+
+  - it: passes the console address and the refresh time to OpenResty
+    set:
+      proxy.configUrl: http://console:8000/config/sync.json
+      proxy.configRefreshSeconds: 30
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_URL
+            value: http://console:8000/config/sync.json
+        template: deployment-proxy.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -104,36 +128,46 @@ tests:
             value: "30"
         template: deployment-proxy.yaml
 
-  - it: takes the refresh time from the values
-    set:
-      proxy.configRefreshSeconds: 10
+  - it: exposes the admin port that reloads the settings
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_CONFIG_REFRESH_SECONDS
-            value: "10"
-        template: deployment-proxy.yaml
-
-  - it: takes its sync.json from the ConfigMap that the provision job writes, even before it exists
-    asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: sync-config
-            configMap:
-              name: data-proxy-proxy-config
-              optional: true
-        template: deployment-proxy.yaml
-
-  - it: exposes no admin port and renders no admin service
-    asserts:
-      - notContains:
           path: spec.template.spec.containers[0].ports
           content:
             name: admin
             containerPort: 8081
         template: deployment-proxy.yaml
+
+  - it: renders a headless service for the admin port only when a console address is set
+    set:
+      proxy.configUrl: http://console:8000/config/sync.json
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: services.yaml
+      - equal:
+          path: spec.clusterIP
+          value: None
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8081
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml
+
+  - it: renders no admin service without a console address
+    asserts:
       - hasDocuments:
           count: 2
         template: services.yaml

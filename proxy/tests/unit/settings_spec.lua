@@ -3,7 +3,7 @@ local settings = require("proxy.settings")
 
 local check = helpers.check(describe, it)
 
-local PATH = "/config/sync.json"
+local URL = "http://console/config/sync.json"
 local PEOPLE_JSON = '{"schemas":{"test":{"tables":[{"name":"project.test.people","cache_ttl":42}]}}}'
 
 --- A shared dictionary that works like ngx.shared: get, set and incr, with the values kept in a table.
@@ -25,66 +25,67 @@ local function dict_with(values)
 	}
 end
 
---- Reload the settings with a file reader that gives one answer, and report what happened.
+--- Reload the settings with a console that gives one answer, and report what happened.
 ---@param case table
 ---@return table outcome
 local function reload_with(case)
 	local dict = dict_with(case.stored)
-	local result, reason = settings.reload(dict, PATH, function(path)
-		assert.same(PATH, path)
-		return case.text, case.failure
+	local result, reason = settings.reload(dict, URL, function(url)
+		assert.same(URL, url)
+		return case.response, case.failure
 	end)
 	return { result = result, reason = reason, stored = dict.data }
 end
 
 check("settings.reload", reload_with, {
 	{
-		name = "stores the document and moves the version",
-		text = PEOPLE_JSON,
+		name = "stores the document and the revision and moves the version",
+		response = { status = 200, body = PEOPLE_JSON, etag = '"3"' },
 		expected = {
-			result = { changed = true },
-			stored = { document = PEOPLE_JSON, version = 1 },
+			result = { changed = true, revision = '"3"' },
+			stored = { document = PEOPLE_JSON, revision = '"3"', version = 1 },
 		},
 	},
 	{
-		name = "moves the version again for a new document",
-		stored = { document = "{}", version = 4 },
-		text = PEOPLE_JSON,
+		name = "moves the version again for a new revision",
+		stored = { document = "{}", revision = '"3"', version = 4 },
+		response = { status = 200, body = PEOPLE_JSON, etag = '"4"' },
 		expected = {
-			result = { changed = true },
-			stored = { document = PEOPLE_JSON, version = 5 },
+			result = { changed = true, revision = '"4"' },
+			stored = { document = PEOPLE_JSON, revision = '"4"', version = 5 },
 		},
 	},
 	{
-		name = "changes nothing when the file holds the document that the proxy already has",
-		stored = { document = PEOPLE_JSON, version = 4 },
-		text = PEOPLE_JSON,
+		name = "changes nothing when the console gives the revision that the proxy already has",
+		stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
+		response = { status = 200, body = PEOPLE_JSON, etag = '"3"' },
 		expected = {
-			result = { changed = false },
-			stored = { document = PEOPLE_JSON, version = 4 },
+			result = { changed = false, revision = '"3"' },
+			stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
 		},
 	},
 	{
-		name = "changes nothing while the file does not exist yet",
-		stored = { document = PEOPLE_JSON, version = 4 },
-		expected = {
-			result = { changed = false },
-			stored = { document = PEOPLE_JSON, version = 4 },
-		},
+		name = "keeps the settings when the console cannot be reached",
+		stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
+		failure = "connection refused",
+		expected = { reason = "connection refused", stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 } },
 	},
 	{
-		name = "keeps the settings when the file cannot be read",
-		stored = { document = PEOPLE_JSON, version = 4 },
-		failure = "permission denied",
-		expected = { reason = "permission denied", stored = { document = PEOPLE_JSON, version = 4 } },
+		name = "keeps the settings when the console answers with an error",
+		stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
+		response = { status = 503, body = "", etag = nil },
+		expected = {
+			reason = "The console answered 503",
+			stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
+		},
 	},
 	{
 		name = "keeps the settings when the document does not match",
-		stored = { document = PEOPLE_JSON, version = 4 },
-		text = '{"noCachePaths":[1]}',
+		stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
+		response = { status = 200, body = '{"noCachePaths":[1]}', etag = '"9"' },
 		expected = {
 			reason = 'Invalid sync.json: field "noCachePaths": array item 1: expected type "string", got "number"',
-			stored = { document = PEOPLE_JSON, version = 4 },
+			stored = { document = PEOPLE_JSON, revision = '"3"', version = 4 },
 		},
 	},
 })

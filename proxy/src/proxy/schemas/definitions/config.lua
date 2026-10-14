@@ -45,5 +45,6 @@ return {
 	postgrest_retries = with_default(whole_number(0, 10), 1),
 	postgrest_backoff_ms = with_default(whole_number(0, 60000), 0),
 	max_inflight = with_default(whole_number(0, math.huge), 0),
+	config_url = filled_text:is_optional(),
 	config_refresh_seconds = with_default(whole_number(1, math.huge), 60),
 }
