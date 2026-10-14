@@ -60,6 +60,15 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
+            name: AUTH_ANON_ROLE
+            value: anon
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: AUTH_AUTHENTICATOR_ROLE
             value: postgrest
         documentSelector:

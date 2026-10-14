@@ -114,7 +114,8 @@ def record-db-schemas [schemas: string]: nothing -> nothing {
 # Serve every configured schema and restart PostgREST only when the list changed.
 # A failed restart takes the new list back, so that the next run tries again.
 def publish-schemas [...names: string]: nothing -> nothing {
-    let desired = ['admin'] ++ ($names | sort) | str join ','
+    # The first schema is the default profile of PostgREST, so admin comes last.
+    let desired = ($names | sort) ++ ['admin'] | str join ','
     let current = current-db-schemas
 
     if $current == $desired {
@@ -147,6 +148,12 @@ def main []: nothing -> nothing {
     let pending = if $env.PROVISION_ALL? == 'true' { $names } else { unprovisioned-schemas }
 
     create-schemas ...$pending
+
+    # The anonymous role reads the one document that the proxy needs, and nothing else of the admin schema.
+    execute-sql postgres/grant_proxy_config.sql {
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier)
+    }
+
     publish-schemas ...$names
 
     log info 'Schema provisioning completed'

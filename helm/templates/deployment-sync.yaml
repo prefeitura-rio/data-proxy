@@ -51,6 +51,8 @@ spec:
                   key: password
             - name: DUCKLAKE_CATALOG_URL
               value: {{ printf "postgresql://ducklake_writer:$(DUCKLAKE_WRITER_PASSWORD)@%s-rw:5432/ducklake" (include "data-proxy.fullname" .) | quote }}
+            - name: PROXY_ADMIN_URL
+              value: {{ printf "http://%s-proxy-admin:8081/reload" (include "data-proxy.fullname" .) | quote }}
             - name: DBOS__VMID
               valueFrom:
                 fieldRef:

@@ -174,7 +174,7 @@ tests:
   - it: renders no read Service and no read disruption budgets
     asserts:
       - hasDocuments:
-          count: 2
+          count: 3
         template: services.yaml
       - hasDocuments:
           count: 3

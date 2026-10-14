@@ -104,6 +104,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
+            name: PROXY_ADMIN_URL
+            value: http://data-proxy-proxy-admin:8081/reload
+        template: deployment-sync.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: DBOS__VMID
             valueFrom:
               fieldRef:

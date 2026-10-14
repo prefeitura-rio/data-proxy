@@ -471,7 +471,7 @@ tests:
   - it: renders a Service for the read PostgREST
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
         template: services.yaml
       - equal:
           path: spec.selector["app.kubernetes.io/component"]

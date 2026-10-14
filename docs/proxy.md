@@ -75,22 +75,27 @@ Measure the limit against the database, not the proxy: one PostgreSQL pod with 8
 
 The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postgrest.dbPoolAcquisitionTimeout` seconds (3 by default) for a free database connection before it answers with an error.
 
-## Table settings from the console
+## Table settings from the configuration
 
-The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cache_ttl`) and the paths that it never caches (`noCachePaths`). With `PROXY_CONFIG_URL` set, it takes both from the console endpoint `GET /config/sync.json`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
+The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cache_ttl`) and the paths that it never caches (`noCachePaths`). With `PROXY_CONFIG_URL` set, it takes both from PostgREST: `GET /rpc/config` with the header `Accept-Profile: admin`. The function `admin.config()` builds the document from the configuration tables of the console. It holds only the table names and their `cache_ttl`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
 
-The first `sync.json` comes from the file `/config/sync.json` when the file exists. Without a file and before the first answer of the console, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+The proxy needs no credentials for this call. The chart grants the anonymous role the `EXECUTE` right on that one function, and nothing else in the `admin` schema. To keep the endpoint inside the cluster, the proxy refuses every request that has the profile `admin` in `Accept-Profile` or `Content-Profile`. It answers 403. The proxy calls PostgREST for the configuration on its own, so this block doesn't touch the call.
 
-The proxy takes a new `sync.json` in two ways:
+The first `sync.json` comes from the file `/config/sync.json` when the file exists. The chart doesn't mount one. Before the first answer of PostgREST, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+
+The proxy takes a new document in three ways:
 
 | Way | When |
 | --- | --- |
-| `POST /reload` on the admin port 8081 | The console calls it right after a change. The answer is `{"changed":true,"revision":"\"7\""}`, or `changed` is `false` when the proxy already has that revision. |
-| A check every `PROXY_CONFIG_REFRESH_SECONDS` | Worker 0 asks the console, so a proxy that missed a call still catches up. |
+| At start | Worker 0 asks PostgREST as soon as nginx starts. |
+| `POST /reload` on the admin port 8081 | The sync workers call it after every change of a configuration table. The answer is `{"changed":true}`, or `changed` is `false` when the proxy already has that document. |
+| A check every `PROXY_CONFIG_REFRESH_SECONDS` | Worker 0 asks again, so a proxy that missed a call still catches up. |
 
-A console that fails, or a document that doesn't match the schema, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
+A trigger on the three configuration tables queues a `reload_proxy` workflow. A burst of edits shares one reload. The worker resolves the headless Service `<release>-proxy-admin` to the address of every proxy pod and sends the request to each one. If a pod fails, DBOS repeats the step.
 
-The admin port has no authentication, so no ingress may route it. The chart renders a headless Service, `<release>-proxy-admin`, only when `proxy.configUrl` is set. Its DNS name resolves to the address of every proxy pod, so the console can call each one.
+A document that doesn't match the schema, or an unreachable PostgREST, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
+
+The admin port has no authentication, so no ingress may route it.
 
 ## Settings
 

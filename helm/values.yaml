@@ -366,11 +366,8 @@ ingress:
 ## Caching proxy in front of PostgREST.
 proxy:
   cacheTtl: 300
-  ## Address where the console serves sync.json, for example http://console:8000/config/sync.json.
-  ## When it is set, the proxy takes its table settings from the console, checks for a new
-  ## sync.json every configRefreshSeconds, and reloads at once when the console calls its admin port.
-  ## Empty: the proxy reads /config/sync.json only.
-  configUrl: ""
+  ## The proxy asks PostgREST for its table settings at start, and again when the sync workers send
+  ## a reload request after a change. It also asks every configRefreshSeconds, in case a request got lost.
   configRefreshSeconds: 60
   largeClientHeaderBuffers: 4 64k
   cacheRedisDb: 1

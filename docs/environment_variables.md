@@ -69,6 +69,7 @@ The engine creates the queues and the schedule when they don't exist, and never 
 | `AUTH_USER_ROLE` | `user` | Authenticated PostgreSQL role. |
 | `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | PostgREST login role. |
 | `PROXY_CACHE_REDIS_DB` | `1` | Redis database for cached proxy responses. |
+| `PROXY_ADMIN_URL` | unset | Address of the reload endpoint of the proxy, for example `http://data-proxy-proxy-admin:8081/reload`. The sync workers resolve its host to every proxy pod and send each one a reload request. Unset: nobody is notified. The chart sets it. |
 
 ## OpenResty proxy
 
@@ -88,8 +89,8 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | `PROXY_POSTGREST_RETRIES` | `1` | Retry attempts on the retry service after the first attempt, from `0` to `10`. |
 | `PROXY_POSTGREST_BACKOFF_MS` | `0` | Delay before the first retry, in milliseconds, from `0` to `60000`. Each retry doubles it. |
 | `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
-| `PROXY_CONFIG_URL` | unset | Address where the console serves `sync.json`, for example `http://console:8000/config/sync.json`. When it's set, the proxy takes its table settings from the console. |
-| `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of the console for a new `sync.json`. The check is a safety net: the console also calls the reload endpoint at once after a change. |
+| `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `admin` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
+| `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of PostgREST for a new document. The check is a safety net: the sync workers also call the reload endpoint at once after a change. |
 
 ## PostgREST rollout
 

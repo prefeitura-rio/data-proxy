@@ -48,6 +48,8 @@ A new setup can load an existing file. Admins call `POST /rpc/import_config` wit
 
 One limit: the export drops a `null` value inside the `settings` of a source, because the export removes every `null` of the document.
 
+The proxy reads a smaller document, `admin.config()`: the table names and their `cache_ttl`. The chart grants it to the anonymous role, and the proxy refuses the `admin` profile from outside, so only the cluster can call it. A trigger on `schemas`, `tables`, and `rls` queues a `reload_proxy` workflow after every statement. The queue deduplicates the workflow, so a burst of edits shares one reload, and an editor never sees an error from it. The sync worker then sends a reload request to every proxy pod ([Proxy](proxy.md#table-settings-from-the-configuration)).
+
 ## Permission levels
 
 The JWT of a user carries the level in its `role` claim, and PostgREST switches to that database role. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.

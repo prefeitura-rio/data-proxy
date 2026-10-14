@@ -18,7 +18,7 @@ tests:
           value: proxy
         template: deployment-proxy.yaml
 
-  - it: mounts the OpenResty configuration and sync config
+  - it: mounts the OpenResty configuration
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
@@ -26,13 +26,6 @@ tests:
             name: config
             mountPath: /usr/local/openresty/nginx/conf/nginx.conf
             subPath: nginx.conf
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: sync-config
-            mountPath: /config
-            readOnly: true
         template: deployment-proxy.yaml
 
   - it: passes the Redis password to OpenResty
@@ -95,13 +88,13 @@ tests:
           value: data-proxy-proxy
         template: scaledobjects.yaml
 
-  - it: leaves the console address out of OpenResty by default
+  - it: tells OpenResty where to ask for the config and how often to check it
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: PROXY_CONFIG_URL
-            value: ""
+            value: http://data-proxy-postgrest.NAMESPACE.svc.cluster.local:3000/rpc/config
         template: deployment-proxy.yaml
       - contains:
           path: spec.template.spec.containers[0].env
@@ -110,22 +103,22 @@ tests:
             value: "60"
         template: deployment-proxy.yaml
 
-  - it: passes the console address and the refresh time to OpenResty
+  - it: takes the refresh time from the values
     set:
-      proxy.configUrl: http://console:8000/config/sync.json
       proxy.configRefreshSeconds: 30
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: PROXY_CONFIG_URL
-            value: http://console:8000/config/sync.json
-        template: deployment-proxy.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
             name: PROXY_CONFIG_REFRESH_SECONDS
             value: "30"
+        template: deployment-proxy.yaml
+
+  - it: starts without a sync.json file, because it fetches the config at start
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 1
         template: deployment-proxy.yaml
 
   - it: exposes the admin port that reloads the settings
@@ -137,9 +130,7 @@ tests:
             containerPort: 8081
         template: deployment-proxy.yaml
 
-  - it: renders a headless service for the admin port only when a console address is set
-    set:
-      proxy.configUrl: http://console:8000/config/sync.json
+  - it: renders a headless service that names every proxy pod, so the engine can reload each one
     asserts:
       - hasDocuments:
           count: 3
@@ -164,10 +155,4 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy-admin
-        template: services.yaml
-
-  - it: renders no admin service without a console address
-    asserts:
-      - hasDocuments:
-          count: 2
         template: services.yaml

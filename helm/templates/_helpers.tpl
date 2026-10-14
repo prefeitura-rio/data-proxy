@@ -347,10 +347,8 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
   value: {{ toString .Values.proxy.postgrestBackoffMs | quote }}
 - name: PROXY_MAX_INFLIGHT
   value: {{ toString .Values.proxy.maxInflight | quote }}
-{{- with .Values.proxy.configUrl }}
 - name: PROXY_CONFIG_URL
-  value: {{ . | quote }}
-{{- end }}
+  value: {{ printf "%s/rpc/config" $read | quote }}
 - name: PROXY_CONFIG_REFRESH_SECONDS
   value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
 {{- end }}
@@ -623,6 +621,8 @@ containers:
         value: {{ $root.Values.auth.authenticatorRole | quote }}
       - name: DBOS_APP_SCHEMA
         value: {{ $root.Values.sync.dbos.appSchema | quote }}
+      - name: AUTH_ANON_ROLE
+        value: {{ $root.Values.auth.anonRole | quote }}
       - name: SYNC_CONFIG_PATH
         value: /config/sync.json
       {{- if .all }}
