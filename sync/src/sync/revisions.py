@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from psycopg.rows import TupleRow
 
 from .executor import Executor
+from .models import LoadedConfig
 from .schema import schema
 from .types import PostgresParams
 
@@ -24,6 +25,17 @@ async def read_revision(pg_conn: Postgres, revision_id: int) -> str | None:
     )
 
     return found[0][0] if found else None
+
+
+async def read_active_config(pg_conn: Postgres) -> LoadedConfig | None:
+    """Read the active revision, or nothing while no revision is active."""
+    found = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
+        "postgres/read_active_revision",
+        mapping={"schema": schema()},
+        expect=tuple[str, str],
+    )
+
+    return LoadedConfig(revision=found[0][0], document=found[0][1]) if found else None
 
 
 async def write_validation(

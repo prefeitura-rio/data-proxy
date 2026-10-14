@@ -3,7 +3,6 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-import httpx2
 from dbos import DBOS
 from lightkube import AsyncClient
 from whenever import Instant
@@ -31,7 +30,7 @@ from sync.models import (
 )
 from sync.planning import run_planning
 from sync.postgres import Postgres
-from sync.revisions import read_revision, write_validation
+from sync.revisions import read_active_config, read_revision, write_validation
 from sync.s3 import clear_s3_prefix
 from sync.settings import settings
 from sync.state import (
@@ -62,23 +61,19 @@ def schema_config(document: str, schema: str) -> SyncConfig:
     should_retry=retry_transient,
 )
 async def load_sync_config() -> LoadedConfig:
-    """Load the sync.json that one run uses, from the console or from the file.
+    """Load the sync.json that one run uses, from the active revision or from the file.
 
-    The run keeps this document from start to end, so a change in the console
-    never reaches a run that already started.
+    The run keeps this document from start to end, so a revision that someone activates
+    afterward never reaches a run that already started. The file serves a database
+    that has no active revision yet.
     """
-    if settings.SYNC_CONFIG_URL is None:
+    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+        loaded = await read_active_config(pg_conn)
+
+    if loaded is None:
         loaded = LoadedConfig(
             revision="file",
             document=await asyncio.to_thread(settings.SYNC_CONFIG_PATH.read_text),
-        )
-    else:
-        async with httpx2.AsyncClient(timeout=10) as http:
-            response = await http.get(settings.SYNC_CONFIG_URL)
-        response.raise_for_status()
-        loaded = LoadedConfig(
-            revision=response.headers.get("ETag", "").strip('"'),
-            document=response.text,
         )
 
     config = SyncConfig.model_validate_json(loaded.document)

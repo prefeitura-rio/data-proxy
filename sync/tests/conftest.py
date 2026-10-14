@@ -26,7 +26,6 @@ pytest_plugins = [
     "tests.fixtures.db",
     "tests.fixtures.postgrest",
     "tests.fixtures.dbos",
-    "tests.fixtures.console",
     "tests.fixtures.routing",
     "tests.integration.steps.state",
     "tests.integration.steps.schema",

@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import ClassVar, final
 from unittest.mock import AsyncMock
 
-import httpx2
 import pytest
+from psycopg import OperationalError
 from pydantic import ValidationError
 
 from sync.constants import POSTGREST_SELECTOR, PUBLISH_QUEUE
@@ -21,9 +21,9 @@ from sync.models import (
     SyncScope,
     SyncWork,
 )
+from sync.postgres import Postgres
 from sync.settings import settings
 from sync.types import KubernetesClient
-from tests.fixtures.console import Console
 from tests.fixtures.types import Calls, FakeKubernetes
 from tests.helpers import (
     DOCUMENT,
@@ -163,24 +163,36 @@ class TestRunSyncRestartsPostgrest:
 class TestLoadSyncConfig:
     """load_sync_config step behavior tests."""
 
-    async def test_fetches_the_document_and_its_revision_from_the_console(
-        self, console: Console, monkeypatch: pytest.MonkeyPatch
+    @pytest.fixture
+    def active(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        """Stand in for the database and return the reader of the active revision."""
+
+        @asynccontextmanager
+        async def connect(dsn: str) -> AsyncGenerator[None]:
+            yield
+
+        read = AsyncMock(return_value=None)
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "read_active_config", read)
+        return read
+
+    async def test_takes_the_active_revision_from_the_database(
+        self, active: AsyncMock
     ) -> None:
-        """Take the body as the document and the ETag as the revision."""
-        console.etag = '"7"'
-        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+        """Use the document and the id of the active revision."""
+        active.return_value = LoadedConfig(revision="7", document=DOCUMENT)
 
         loaded = await workflow_body(steps.load_sync_config)()
 
-        assert loaded == LoadedConfig(revision="7", document=console.body)
+        assert loaded == LoadedConfig(revision="7", document=DOCUMENT)
 
-    async def test_reads_the_file_when_no_console_is_set(
+    @pytest.mark.usefixtures("active")
+    async def test_reads_the_file_while_no_revision_is_active(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Fall back to the file, which has no revision."""
         path = tmp_path / "sync.json"
         path.write_text(DOCUMENT)
-        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", None)
         monkeypatch.setattr(settings, "SYNC_CONFIG_PATH", path)
 
         loaded = await workflow_body(steps.load_sync_config)()
@@ -188,23 +200,21 @@ class TestLoadSyncConfig:
         assert loaded == LoadedConfig(revision="file", document=DOCUMENT)
 
     async def test_rejects_a_document_that_the_engine_cannot_use(
-        self, console: Console, monkeypatch: pytest.MonkeyPatch
+        self, active: AsyncMock
     ) -> None:
         """Fail the run at its start, before any work."""
-        console.body = '{"schemas": {"app": 1}}'
-        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+        active.return_value = LoadedConfig(
+            revision="8", document='{"schemas": {"app": 1}}'
+        )
 
         with pytest.raises(ValidationError):
             await workflow_body(steps.load_sync_config)()
 
-    async def test_fails_when_the_console_answers_with_an_error(
-        self, console: Console, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_fails_when_the_database_fails(self, active: AsyncMock) -> None:
         """Raise, so that DBOS retries the step."""
-        console.status = 503
-        monkeypatch.setattr(settings, "SYNC_CONFIG_URL", console.url)
+        active.side_effect = OperationalError("down")
 
-        with pytest.raises(httpx2.HTTPStatusError):
+        with pytest.raises(OperationalError):
             await workflow_body(steps.load_sync_config)()
 
 

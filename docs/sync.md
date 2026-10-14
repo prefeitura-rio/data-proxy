@@ -1,6 +1,6 @@
 # Sync
 
-The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Set `SYNC_CONFIG_URL` to the address where the console serves it ([Console API](console.md)). Each sync run loads the document once, at its start, so a change never reaches a run that already started. Without `SYNC_CONFIG_URL`, the engine reads the file at `SYNC_CONFIG_PATH`.
+The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. The active revision in the database holds the current document ([Console](console.md)). Each sync run loads the document once, at its start, so a change never reaches a run that already started. While no revision is active, the engine reads the file at `SYNC_CONFIG_PATH`.
 
 ```json
 {

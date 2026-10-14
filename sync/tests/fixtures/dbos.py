@@ -14,6 +14,7 @@ from sync.models import (
     SyncWork,
 )
 from sync.settings import settings
+from tests.constants import POSTGRES_URL
 from tests.fixtures.types import Calls
 
 
@@ -71,11 +72,12 @@ async def sync_worker(
         AsyncMock(return_value=LoadedConfig(revision="1", document="{}")),
     )
     monkeypatch.setattr(workflows, "build_sync_work", build_sync_work)
+    monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", f"{POSTGRES_URL}/test")
     DBOS(
         config={
             "name": settings.DBOS_APPLICATION_NAME,
             "application_version": "test",
-            "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
+            "system_database_url": f"{POSTGRES_URL}/test",
         }
     )
     DBOS.listen_queues([SYNC_QUEUE, VALIDATE_QUEUE])
