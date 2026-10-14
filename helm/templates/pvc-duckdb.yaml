@@ -1,6 +1,6 @@
 {{- $schemas := .Values.sync.config.schemas -}}
 {{- if gt (len $schemas) 0 }}
-{{- $storageClass := required "ducklake.litestream.storage.storageClass is required when sync schemas are configured" .Values.ducklake.litestream.storage.storageClass -}}
+{{- $storageClass := required "ducklake.secrets.storage.storageClass is required when sync schemas are configured" .Values.ducklake.secrets.storage.storageClass -}}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -12,9 +12,9 @@ metadata:
     app.kubernetes.io/component: duckdb-storage
 spec:
   accessModes:
-    - {{ $.Values.ducklake.litestream.storage.accessMode | quote }}
+    - {{ $.Values.ducklake.secrets.storage.accessMode | quote }}
   storageClassName: {{ $storageClass | quote }}
   resources:
     requests:
-      storage: {{ $.Values.ducklake.litestream.storage.size | quote }}
+      storage: {{ $.Values.ducklake.secrets.storage.size | quote }}
 {{- end }}

@@ -12,9 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin --strip-components=1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY --from=docker.io/duckdb/duckdb:1.5.4 /duckdb /usr/local/bin/duckdb
 COPY --from=registry.k8s.io/kubectl:v1.34.7 /bin/kubectl /usr/local/bin/kubectl
 
 RUN useradd --create-home --uid 1000 nushell
 USER nushell
-RUN duckdb -c "INSTALL httpfs; INSTALL ducklake; INSTALL sqlite;"

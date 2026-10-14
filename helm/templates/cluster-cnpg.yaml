@@ -11,7 +11,7 @@ metadata:
   {{- $schemas := $root.Values.sync.config.schemas }}
   {{- if gt (len $schemas) 0 }}
   annotations:
-    cnpg.io/podPatch: {{ include "data-proxy.cnpgCatalogPodPatch" $root | quote }}
+    cnpg.io/podPatch: {{ include "data-proxy.cnpgPodPatch" $root | quote }}
   {{- end }}
 spec:
   imageName: {{ $root.Values.cnpg.image | quote }}

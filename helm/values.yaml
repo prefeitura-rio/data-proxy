@@ -162,12 +162,10 @@ s3:
     createIfMissing: false
     timeout: 30min
     retry: 5sec
-## DuckLake catalog, data, and Litestream configuration.
+## DuckLake data and maintenance configuration. The catalogs live in the
+## `ducklake` database of the CloudNativePG cluster, one metadata schema per sync schema.
 ducklake:
-  ## Local path of the catalog files in sync workers, Litestream, and PostgreSQL.
-  catalogLocalPath: /var/lib/ducklake/catalogs
-  ## Single S3 prefix for all DuckLake data: catalogs and Parquet.
-  ## Layout: <prefix>/<schema>/catalog.sqlite and <prefix>/<schema>/<table>/*.parquet
+  ## Single S3 prefix for all DuckLake data: <prefix>/<schema>/<table>/*.parquet
   catalogPath: ducklake
   ## Target output file size for DuckLake writes.
   targetFileSize: 512MB
@@ -177,26 +175,11 @@ ducklake:
   maxCompactedFiles: 10
   ## Rewrite files when this fraction of rows is deleted.
   rewriteDeleteThreshold: 0.95
-  ## Litestream configuration for catalog replication and restore.
-  litestream:
-    ## Official Litestream image tag for the writer, restore init containers, and refresh Jobs.
-    version: 0.5.12
-    ## Writer catalog volume shared by DBOS sync workers and Litestream.
+  ## Small volume that holds the persistent DuckDB secrets (S3 credentials), shared by every PostgreSQL Pod.
+  secrets:
     storage:
       size: 1Gi
       ## Required RWX StorageClass. Use k3d-rwx locally, filestore-rwx in GKE.
-      storageClass: ""
-      accessMode: ReadWriteMany
-  ## Instance-local catalog copies mounted by every PostgreSQL Pod.
-  readerCatalog:
-    ## Maximum refresh Jobs the sync workflow runs at once.
-    refreshConcurrency: 4
-    ## Deadline for one refresh Job.
-    refreshTimeoutSeconds: 300
-    ## Generic ephemeral volume created for each PostgreSQL Pod.
-    storage:
-      size: 1Gi
-      ## Required StorageClass that dynamically provisions volumes that Jobs can mount beside the Pod.
       storageClass: ""
       accessMode: ReadWriteMany
 ## SeaweedFS object store, deployed as a subchart.

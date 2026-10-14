@@ -106,13 +106,9 @@ gcp:
 swaggerUi:
   enabled: true
 ducklake:
-  litestream:
+  secrets:
     storage:
       storageClass: k3d-rwx
-  readerCatalog:
-    storage:
-      storageClass: local-path
-      accessMode: ReadWriteOnce
 proxy:
   cacheTtl: 5
   image: registry.localhost:5001/data-proxy-proxy:local

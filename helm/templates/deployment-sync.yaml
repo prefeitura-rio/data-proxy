@@ -56,9 +56,6 @@ spec:
               mountPath: /scripts
               readOnly: true
             {{ end }}
-            - name: duckdb
-              mountPath: {{ .Values.ducklake.catalogLocalPath }}
-              subPath: ducklake
       volumes:
         {{- include "data-proxy.syncConfigVolume" . | nindent 8 }}
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
@@ -69,6 +66,3 @@ spec:
             name: {{ .Values.sync.trigger.configMap }}
             defaultMode: 0555
         {{ end }}
-        - name: duckdb
-          persistentVolumeClaim:
-            claimName: {{ include "data-proxy.fullname" . }}-duckdb

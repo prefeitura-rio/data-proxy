@@ -515,11 +515,3 @@ tests:
             name: PROXY_POSTGREST_WRITE
             value: "http://data-proxy-postgrest.default.svc.cluster.local:3000"
         template: deployment-proxy.yaml
-  - it: configures bounded catalog refresh for sync restarts
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: READER_REFRESH_CONCURRENCY
-            value: "4"
-        template: deployment-sync.yaml

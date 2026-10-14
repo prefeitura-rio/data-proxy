@@ -145,8 +145,6 @@ const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
 const POLICY_REPLICATION_POLL_INTERVAL_SECONDS = Number(
     __ENV.POLICY_REPLICATION_POLL_INTERVAL_SECONDS || "2",
 );
-const DUCKLAKE_CATALOG_LOCAL_PATH =
-    __ENV.DUCKLAKE_CATALOG_LOCAL_PATH || "/var/lib/ducklake/catalogs";
 
 const ACCESS_POLICY_ROWS = [
     {
@@ -1070,18 +1068,16 @@ function verifyDuckLakePublication(token: string): void {
     });
 }
 
-/** Verifies the writer catalog exists beside the sync workers and Litestream. */
+/** Verifies the sync workers run and the schema has its metadata schema in the catalog database. */
 function verifyCatalogSync(k8s: Kubernetes): void {
     const syncPods = podsForComponent(k8s, "sync");
-    const litestreamPods = podsForComponent(k8s, "litestream");
 
     expect("at least one sync pod is running", syncPods.length > 0);
-    expect("at least one litestream pod is running", litestreamPods.length > 0);
 
     runCommandJob(
         k8s,
         "check-writer-catalog",
-        `test -s ${DUCKLAKE_CATALOG_LOCAL_PATH}/${SCHEMA}/catalog.sqlite`,
+        `test "$(psql "$DUCKLAKE_CATALOG_URL" -tAc "SELECT count(*) FROM information_schema.schemata WHERE schema_name = '${SCHEMA}'")" = 1`,
     );
 }
 
@@ -1121,12 +1117,9 @@ function verifyInstanceCatalogs(k8s: Kubernetes, token: string): void {
     }
 }
 
-/** Verifies every discovered Pooler restarted before every PostgREST Deployment, and all recovered. */
+/** Verifies every PostgREST Deployment restarted after the views changed, and all recovered. */
 function verifyServingRestart(k8s: Kubernetes): void {
     const deployments = k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[];
-    const poolers = deployments.filter(
-        (item) => item.metadata.labels?.["cnpg.io/poolerName"] !== undefined,
-    );
     const postgrests = deployments.filter((item) =>
         ["postgrest", "postgrest-ro"].includes(
             item.metadata.labels?.["app.kubernetes.io/component"] ?? "",
@@ -1141,24 +1134,19 @@ function verifyServingRestart(k8s: Kubernetes): void {
     const expected = EXPECT_HA ? 2 : 1;
 
     expect(
-        "every Pooler and PostgREST Deployment is discoverable by label",
-        poolers.length >= expected && postgrests.length >= expected,
+        "every PostgREST Deployment is discoverable by label",
+        postgrests.length >= expected,
     );
     expect(
-        "every Pooler and PostgREST Deployment restarted after publication",
-        [...poolers, ...postgrests].every((item) => !Number.isNaN(restartedAt(item))),
-    );
-    expect(
-        "every Pooler restarted before every PostgREST Deployment",
-        Math.max(...poolers.map(restartedAt)) <=
-            Math.min(...postgrests.map(restartedAt)),
+        "every PostgREST Deployment restarted after the views changed",
+        postgrests.every((item) => !Number.isNaN(restartedAt(item))),
     );
     expect(
         "every restarted Deployment has all replicas available",
         waitUntil(MODE_TIMEOUT_SECONDS, () =>
             (k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[])
                 .filter((item) =>
-                    [...poolers, ...postgrests].some(
+                    postgrests.some(
                         (known) => known.metadata.name === item.metadata.name,
                     ),
                 )
@@ -1327,7 +1315,7 @@ function verifyBackupJob(k8s: Kubernetes): void {
     runCommandJob(
         k8s,
         "check-backup-objects",
-        `${BACKUP_STORE}; ${base}; latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"; test "$(rclone lsf "$base/$latest" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump catalog.sqlite "`,
+        `${BACKUP_STORE}; ${base}; latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"; test "$(rclone lsf "$base/$latest" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump "`,
         { podSpec, image },
     );
 

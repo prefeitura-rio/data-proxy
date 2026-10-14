@@ -98,7 +98,7 @@ tests:
             value: "ducklake"
         template: deployment-sync.yaml
       - matchRegex:
-          path: spec.template.spec.containers[0].env[25].value
+          path: spec.template.spec.containers[0].env[24].value
           pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy
         template: deployment-sync.yaml
       - contains:
@@ -143,16 +143,6 @@ tests:
             path: wait-for-postgres.nu
         template: deployment-recovery.yaml
 
-
-  - it: sync mounts the ducklake folder of the shared PVC
-    asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: duckdb
-            persistentVolumeClaim:
-              claimName: data-proxy-duckdb
-        template: deployment-sync.yaml
 
   - it: renders a KEDA ScaledObject targeting the sync Deployment
     asserts:
@@ -314,113 +304,3 @@ tests:
           value: data-proxy-maintenance
         template: jobs.yaml
 
-  - it: renders one refresh Job template per schema, named with a spec hash
-    set:
-      sync.config:
-        schemas:
-          app:
-            tables: []
-          other_schema:
-            tables: []
-    asserts:
-      - matchRegex:
-          path: metadata.name
-          pattern: '^data-proxy-refresh-catalog-app-[0-9a-f]{8}$'
-        documentSelector:
-          path: metadata.labels["data-proxy.io/schema"]
-          value: app
-        template: jobs.yaml
-      - matchRegex:
-          path: metadata.name
-          pattern: '^data-proxy-refresh-catalog-other-schema-[0-9a-f]{8}$'
-        documentSelector:
-          path: metadata.labels["data-proxy.io/schema"]
-          value: other_schema
-        template: jobs.yaml
-      - equal:
-          path: metadata.labels["data-proxy.io/template"]
-          value: "true"
-        documentSelector:
-          path: metadata.labels["data-proxy.io/schema"]
-          value: app
-        template: jobs.yaml
-
-  - it: keeps the refresh Job template finished at once and never expiring
-    set:
-      sync.config:
-        schemas:
-          app:
-            tables: []
-    documentSelector:
-      path: metadata.labels["data-proxy.io/schema"]
-      value: app
-    asserts:
-      - equal:
-          path: spec.completions
-          value: 0
-        template: jobs.yaml
-      - equal:
-          path: spec.backoffLimit
-          value: 0
-        template: jobs.yaml
-      - equal:
-          path: spec.activeDeadlineSeconds
-          value: 300
-        template: jobs.yaml
-      - notExists:
-          path: spec.ttlSecondsAfterFinished
-        template: jobs.yaml
-      - notExists:
-          path: spec.suspend
-        template: jobs.yaml
-
-  - it: restores one schema catalog as the PostgreSQL user, replacing the file in one step
-    set:
-      sync.config:
-        schemas:
-          app:
-            tables: []
-    documentSelector:
-      path: metadata.labels["data-proxy.io/schema"]
-      value: app
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].image
-          value: docker.io/litestream/litestream:0.5.12
-        template: jobs.yaml
-      - equal:
-          path: spec.template.spec.containers[0].command
-          value: [/bin/sh, -ec]
-        template: jobs.yaml
-      - matchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: 'restore -config /config/litestream.yaml -o "\$target.new" "\$target"'
-        template: jobs.yaml
-      - matchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: 'mv -f "\$target.new" "\$target"'
-        template: jobs.yaml
-      - notMatchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: '-force'
-        template: jobs.yaml
-      - equal:
-          path: spec.template.spec.containers[0].args[2]
-          value: /var/lib/ducklake/catalogs/app/catalog.sqlite
-        template: jobs.yaml
-      - notExists:
-          path: spec.template.metadata
-        template: jobs.yaml
-      - equal:
-          path: spec.template.spec.securityContext
-          value:
-            runAsUser: 26
-            runAsGroup: 26
-            fsGroup: 26
-        template: jobs.yaml
-      - equal:
-          path: spec.template.spec.volumes[0]
-          value:
-            name: ducklake-catalogs
-            emptyDir: {}
-        template: jobs.yaml

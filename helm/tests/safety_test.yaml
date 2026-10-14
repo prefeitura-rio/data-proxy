@@ -55,7 +55,7 @@ tests:
           value: data-proxy-proxy
         template: scaledobjects.yaml
 
-  - it: limits the sync ServiceAccount to catalog refresh and serving restarts
+  - it: limits the sync ServiceAccount to PostgREST restarts
     documentSelector:
       path: kind
       value: Role
@@ -67,7 +67,7 @@ tests:
             resources: ["cronjobs"]
             verbs: ["get"]
         template: rbac.yaml
-      - contains:
+      - notContains:
           path: rules
           content:
             apiGroups: ["batch"]
@@ -81,10 +81,7 @@ tests:
             resources: ["deployments"]
             verbs: ["get", "list", "watch", "patch"]
         template: rbac.yaml
-      - contains:
+      - lengthEqual:
           path: rules
-          content:
-            apiGroups: [""]
-            resources: ["pods"]
-            verbs: ["get", "list", "watch"]
+          count: 1
         template: rbac.yaml

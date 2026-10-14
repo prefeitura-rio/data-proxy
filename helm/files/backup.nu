@@ -78,21 +78,6 @@ def main []: nothing -> nothing {
         backup-table {schema: $schema, remote_prefix: $remote_prefix} $dump
     }
 
-    log info $'DuckLake catalog backup started: schema=($schema)'
-    let catalog_path = $env.CATALOG_FILE
-    if ($catalog_path | path exists) {
-        try {
-            rclone copyto $catalog_path $'($remote_prefix)/catalog.sqlite'
-        } catch {|err|
-            fail $'Catalog upload failed for ($schema): ($err.msg)' {
-                command: rclone
-                span: (metadata $schema).span
-            }
-        }
-    } else {
-        log warning $'DuckLake catalog backup skipped: catalog=($catalog_path) reason=not-found'
-    }
-
     log info $'Access log retention pruning started: schema=($schema)'
     let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
 

@@ -226,7 +226,7 @@ tests:
             name: PG_DATABASE_URL
             value: postgresql://admin@data-proxy-rw:5432/data-proxy
 
-  - it: restores the catalog from the Litestream replica into an emptyDir for the backup
+  - it: gives the backup job no catalog restore, catalog volume, or Litestream settings
     set:
       jobs.backup.enabled: true
       jobs.backup.s3.bucket: backup-bucket
@@ -237,67 +237,21 @@ tests:
       path: metadata.name
       value: data-proxy-test-backup
     asserts:
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.initContainers
-          content:
-            name: restore-catalog
-            image: docker.io/litestream/litestream:0.5.12
-            imagePullPolicy: IfNotPresent
-            securityContext:
-              runAsUser: 1000
-              runAsGroup: 1000
-            args:
-              - restore
-              - -if-replica-exists
-              - -config
-              - /config/litestream.yaml
-              - -o
-              - /catalog/catalog.sqlite
-              - /var/lib/ducklake/catalogs/test/catalog.sqlite
-            env:
-              - name: S3_ACCESS_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: data-proxy-s3
-                    key: S3_ACCESS_KEY
-              - name: S3_SECRET_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: data-proxy-s3
-                    key: S3_SECRET_KEY
-            volumeMounts:
-              - name: catalog
-                mountPath: /catalog
-              - name: litestream-config
-                mountPath: /config
-                readOnly: true
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.initContainers[0].name
+          pattern: restore-catalog
         template: jobs.yaml
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
-          content:
-            name: catalog
-            mountPath: /catalog
-            readOnly: true
-        template: jobs.yaml
-      - contains:
-          path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content:
-            name: CATALOG_FILE
-            value: /catalog/catalog.sqlite
-        template: jobs.yaml
-      - contains:
+      - notContains:
           path: spec.jobTemplate.spec.template.spec.volumes
           content:
             name: catalog
             emptyDir: {}
         template: jobs.yaml
       - notContains:
-          path: spec.jobTemplate.spec.template.spec.volumes
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
-            name: duckdb
-            persistentVolumeClaim:
-              claimName: data-proxy-duckdb
-              readOnly: true
+            name: CATALOG_FILE
+            value: /catalog/catalog.sqlite
         template: jobs.yaml
 
   - it: gives the maintenance job no object store, catalog volume, or DuckLake settings

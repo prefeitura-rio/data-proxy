@@ -14,10 +14,7 @@ sync:
                 unit_type: unit
 
 ducklake:
-  litestream:
-    storage:
-      storageClass: standard
-  readerCatalog:
+  secrets:
     storage:
       storageClass: standard
 
