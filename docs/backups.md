@@ -62,7 +62,7 @@ Don't load an unreviewed backup into a live policy table.
 
 ## Catalog recovery
 
-The writer-only Litestream container replicates every DuckLake catalog to SeaweedFS. PostgreSQL Pods keep disposable catalog copies in ephemeral volumes. When a Pod starts, one Litestream init container per schema restores the catalog with `restore -if-replica-exists`. An empty replica doesn't block a new cluster. After each publication, `refresh-catalog` Jobs restore the changed catalogs into every ready instance volume. Each backup CronJob restores its schema catalog from the Litestream replica into an `emptyDir` with an init container, then uploads that file, so the backup never reads the live writer file.
+CNPG backs up the DuckLake catalogs with the rest of the cluster, because they live in the `ducklake` database. This chart doesn't back them up, and the backup CronJob dumps only `access_policy` and `access_log`. Restore the catalogs with the CNPG recovery of the whole cluster.
 
 ---
 

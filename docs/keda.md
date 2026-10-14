@@ -12,7 +12,7 @@ triggers:
       activationTargetQueryValue: "5"
 ```
 
-`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed, and running DBOS workflows for the sync application. The separate `data-proxy-litestream` Deployment is fixed at one replica.
+`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed, and running DBOS workflows for the sync application.
 
 ## Orchestrator and dump workers
 
@@ -25,19 +25,16 @@ triggers:
 | `autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
 | `autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
-| `ducklake.litestream.storage` | see values | Writer PVC configuration. |
-| `ducklake.readerCatalog.storage` | see values | Ephemeral catalog volume of each PostgreSQL Pod. |
-| `ducklake.readerCatalog.refreshConcurrency` | `4` | Maximum refresh Jobs that run at once. |
-| `ducklake.readerCatalog.refreshTimeoutSeconds` | `300` | Deadline of one refresh Job. |
+| `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
 | `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 | `dumper.batchMegaBytes` | `600` | Uncompressed batch target in MiB. |
 | `dumper.batchMaxPartitions` | `256` | Maximum partitions in one batch. |
 
-## Catalog replication
+## Catalogs
 
-The DBOS sync workers write the `ducklake` folder of the `data-proxy-duckdb` PVC. The single `data-proxy-litestream` Deployment replicates all catalogs. Each PostgreSQL Pod restores the latest catalogs into its own ephemeral volume in init containers.
+The DBOS sync workers write the catalogs in the `ducklake` database, through the primary. PostgreSQL replication copies them to every standby.
 
-Publishing remains parallel across schemas because each schema has a separate SQLite catalog. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
+Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
 
 ## Configuration
 

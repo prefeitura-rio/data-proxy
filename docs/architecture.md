@@ -2,7 +2,7 @@
 
 ## Serving layer
 
-Each PostgreSQL schema has one configured ingestion source. BigQuery is the default and current source. The sync service extracts source data to Parquet in SeaweedFS. DuckLake stores the table metadata in one SQLite catalog per PostgreSQL schema and stores table data as Parquet in SeaweedFS.
+Each PostgreSQL schema has one configured ingestion source. BigQuery is the default and current source. The sync service extracts source data to Parquet in SeaweedFS. DuckLake stores the table metadata in one catalog per PostgreSQL schema, in the `ducklake` database of the CNPG cluster, and stores table data as Parquet in SeaweedFS.
 
 PostgreSQL stores metadata only:
 
@@ -23,35 +23,27 @@ Redis cache
 
 See [Proxy](proxy.md) for the routing rules and the cache.
 
-## Catalog replication
+## Catalog database
 
-The DBOS sync workers update the catalogs in `/ducklake/<schema>/catalog.sqlite` on the shared `data-proxy-duckdb` volume. The same volume holds the DuckDB secrets in `/duckdb/secrets`, which only PostgreSQL pods mount. One writer-only Litestream container replicates all SQLite catalogs to SeaweedFS:
+The catalogs live in the `ducklake` database of the CNPG cluster. Each schema has a metadata schema with the same name, so one database holds every catalog. Two roles use it:
 
-```text
-DuckLake writer
-→ local /var/lib/ducklake/catalogs/<schema>/catalog.sqlite
-→ Litestream replicate
-→ SeaweedFS LTX replica
-```
-
-Every PostgreSQL Pod has its own generic ephemeral catalog volume. The Pod starts one official Litestream init container per schema. Each container runs `litestream restore -if-replica-exists`, so a new cluster with an empty replica starts normally, and a new or replaced Pod restores the latest catalogs:
+| Role | Used by | Access |
+| --- | --- | --- |
+| `ducklake_writer` | DBOS sync workers, through the `-rw` Service | Owns the database and creates the metadata schemas. |
+| `ducklake_reader` | `pg_duckdb` in every PostgreSQL instance | Reads every metadata schema. Can't write. |
 
 ```text
-SeaweedFS LTX replica
-→ init container: litestream restore -if-replica-exists
-→ instance-local catalog volume
-→ pg_duckdb
+DuckLake writer (sync worker)
+→ primary: database ducklake, metadata schema <schema>
+→ CNPG streaming replication
+→ every standby: its own copy of the catalog
 ```
 
-A PostgreSQL backend keeps its DuckLake attachment, so it can keep an old catalog view. After all schema publishers finish, checkpointed workflow steps refresh the running instances without restarting PostgreSQL:
+Each `pg_duckdb` backend attaches the catalog of its own instance through `localhost`. The DuckDB secrets `ducklake_reader_pg` and `ducklake_reader` hold the address and the credentials. The `configure-db` Job creates them once as persistent secrets in the shared folder `/duckdb/secrets`. A standby reads its own replicated copy, so a read doesn't depend on the primary. A backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers and nothing restarts the Poolers.
 
-1. `run_sync` keeps only the schemas that published a snapshot.
-2. `list_serving_deployments` and `list_instance_claims` list the Pooler and PostgREST Deployments by label and the volume claim of every ready PostgreSQL instance.
-3. The `refresh_catalog` child workflow runs once for every published schema and instance, on a queue that limits how many run at once. Each run copies the chart's `data-proxy-refresh-catalog-<schema>` Job, sets the claim of one instance, and waits for it with a Kubernetes watch. The Job runs `litestream restore -force` and replaces `catalog.sqlite` in place. The workflow deletes the Job when it ends, because a finished Job pod keeps the instance volume claim in use and blocks the replacement of the PostgreSQL Pod.
-4. `find_lagging_snapshots` reads the snapshot that the primary reports for each published schema. Litestream replicates a few seconds after a commit, so a Job that starts too early restores an older catalog. The workflow then waits `READER_REFRESH_RETRY_SECONDS` and runs the Jobs again for the lagging schemas, up to `READER_REFRESH_ATTEMPTS` times.
-5. Restart all Pooler Deployments together and wait until all are ready, then restart all PostgREST Deployments together and wait.
+The same Job sets default privileges in the `ducklake` database. The reader role can read every metadata schema that the writer creates later.
 
-New Pooler connections open new backends, which attach the refreshed catalog.
+The writer writes the Parquet files to SeaweedFS before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary, and snapshot expiration (`DUCKLAKE_SNAPSHOT_EXPIRATION`, 7 days by default) keeps the files that an older snapshot uses. The CNPG backups cover the catalogs.
 
 There is one active writer per schema catalog. Publishing is parallel across schemas and sequential within each schema. One `publish` queue serves all schemas, and the schema name is its partition key, so a new schema needs no new queue.
 
@@ -62,12 +54,11 @@ There is one active writer per schema catalog. Publishing is parallel across sch
 | `run_sync` | Plans changed tables and partitions. | Enqueues dump and publish workflows. |
 | `dump_task` | Extracts ingestion-source data. | Writes independent scratch Parquet files. |
 | `seed_schemas` | Reconciles PostgreSQL functions and views. | Returns whether the view set changed. |
-| `publish_schema` | Inserts scratch Parquet into the local DuckLake catalog. | Litestream replicates the catalog changes. |
+| `publish_schema` | Inserts scratch Parquet into the schema catalog. | The commit creates a snapshot that every instance sees after replication. |
 | `apply_ducklake_maintenance` | Runs inside `publish_schema` on the schema writer after a publication. | Expires old snapshots, compacts files, and removes old and orphaned Parquet files. |
-| `refresh_catalogs` | Runs one refresh Job per published schema and instance. | Every instance catalog has the new snapshot. |
 | `finalize_run` | Clears scratch objects and Redis. | Keeps the DuckLake data prefix intact. |
 
-Seed and publish run concurrently. After a published snapshot, the workflow refreshes catalogs and restarts all Pooler Deployments and then all PostgREST Deployments. PostgREST also restarts when a view is added or removed.
+Seed and publish run concurrently. When a view is added or removed, the workflow restarts all PostgREST Deployments together after every publisher finishes, because PostgREST caches the schema. A new snapshot alone restarts nothing.
 
 ## Sync sequence
 
@@ -77,9 +68,7 @@ sequenceDiagram
     participant O as DBOS orchestrator
     participant D as dump workers
     participant P as DBOS sync workers
-    participant L as writer Litestream
     participant S3 as SeaweedFS
-    participant R as refresh Jobs
     participant PG as pg_duckdb
     participant API as PostgREST
 
@@ -92,22 +81,19 @@ sequenceDiagram
         O->>P: enqueue publish workflow per schema
     end
     P->>S3: read scratch Parquet
-    P->>P: update local schema SQLite catalog
-    P->>L: commit schema catalog WAL
-    L->>S3: replicate LTX files
-    O->>R: run refresh Job per published schema and instance
-    S3->>R: restore catalog changes
-    R->>PG: instance-local catalog
-    O->>PG: restart all Pooler Deployments, then all PostgREST
+    P->>S3: write Parquet data files
+    P->>PG: commit snapshot to the schema catalog
+    PG->>PG: replicate the catalog to every standby
+    O->>API: restart all PostgREST when the views changed
     O->>S3: remove scratch objects
     O->>O: flush Redis
 ```
 
 ## Kubernetes topology
 
-The chart deploys one CNPG cluster, one session-mode Pooler, one PostgREST read workload, one proxy workload, and one writer-only `data-proxy-litestream` Deployment. With `ha.enabled`, the chart adds standbys, a read Pooler, and a read PostgREST. See [Helm Chart](helm_chart.md#single-and-ha-mode). KEDA scales the DBOS sync workers, which share the catalog volume. PostgreSQL replicas transfer metadata through normal CNPG WAL; they don't receive application table rows.
+The chart deploys one CNPG cluster, one session-mode Pooler, one PostgREST read workload, and one proxy workload. With `ha.enabled`, the chart adds standbys, a read Pooler, and a read PostgREST. See [Helm Chart](helm_chart.md#single-and-ha-mode). KEDA scales the DBOS sync workers. PostgreSQL replicas transfer metadata, including the catalogs, through normal CNPG WAL; they don't receive application table rows.
 
-The `data-proxy-litestream` Deployment has one writer-only Litestream container. It uses a Recreate strategy so only one Litestream process replicates each catalog. PostgreSQL Pods restore catalogs in init containers, and the sync ServiceAccount can create and delete refresh Jobs and restart Deployments.
+The sync ServiceAccount can restart the PostgREST Deployments and nothing else.
 
 ## Request sequence
 

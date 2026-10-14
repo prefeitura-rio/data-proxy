@@ -19,7 +19,7 @@ These rules apply to all first-party code that logs from a deployment.
 - Use `debug` for probe detail, `info` for normal lifecycle changes, `warning` for retries or skipped optional work, and `error` only before a terminal error.
 - Never log credentials, tokens, connection strings, request bodies, cache values, SQL values, or query strings.
 - Don't use `print` for production logs. A documented machine-output protocol may write directly to stdout when callers parse it.
-- Keep external tool output native. Don't parse or reformat output from `litestream`, `rclone`, `psql`, `pg_dump`, `duckdb`, or `kubectl`.
+- Keep external tool output native. Don't parse or reformat output from `rclone`, `psql`, `pg_dump`, `duckdb`, or `kubectl`.
 
 ```text
 S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused

@@ -146,7 +146,6 @@ GIN
 kid
 KID
 errored
-Litestream
 njs
 dataclass
 dataclasses

@@ -56,17 +56,15 @@ The scheduled `run_sync` workflow performs these steps:
 3. Write independent scratch Parquet files to the S3 scratch path. Extraction doesn't merge files.
 4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
 5. Enqueue one `publish_schema` workflow per schema.
-6. DBOS sync workers insert scratch Parquet into DuckLake and commit the `ducklake` folder of the shared volume.
-7. Litestream replicates writer catalog WAL changes to SeaweedFS.
-8. After all publishers finish, run one `refresh-catalog` Job for every published schema and ready PostgreSQL instance, and wait for all Jobs. If the primary still reports an older snapshot, because Litestream had not replicated it yet, wait and run the Jobs again for those schemas.
-9. Restart all Pooler Deployments together, then all PostgREST Deployments together.
-10. Flush scratch objects and Redis.
+6. DBOS sync workers insert scratch Parquet into DuckLake and commit a snapshot to the schema catalog in the `ducklake` database. Streaming replication copies the catalog to every standby.
+7. After all publishers finish, restart all PostgREST Deployments together, only when seed added or removed views.
+8. Flush scratch objects and Redis.
 
 Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
 
 ### DuckLake maintenance
 
-After a publication commits, the same `publish_schema` workflow runs `apply_ducklake_maintenance` on the schema writer, before the refresh Jobs copy the catalog. It does the following in order:
+After a publication commits, the same `publish_schema` workflow runs `apply_ducklake_maintenance` on the schema writer on the schema writer. It does the following in order:
 
 1. Expire snapshots older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
 2. Merge up to `DUCKLAKE_MAX_COMPACTED_FILES` adjacent files per table.
@@ -101,14 +99,12 @@ Before publication, the writer compares each incoming Parquet schema with the ex
 Each schema uses these locations:
 
 ```text
-shared volume:   data-proxy-duckdb:/ducklake/<schema>/catalog.sqlite (sync pods and Litestream, mounted at /var/lib/ducklake/catalogs)
-                 data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at ~/.duckdb/stored_secrets)
-instance volume: /var/lib/ducklake/catalogs/<schema>/catalog.sqlite (init restore and refresh Jobs, PostgreSQL)
-Litestream S3:   s3://<bucket>/ducklake/<schema>/catalog.sqlite/ (LTX replica prefix)
+catalog:         database ducklake, schema <schema> (DuckLake metadata, written by the sync workers)
+secrets:         data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at ~/.duckdb/stored_secrets)
 DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 ```
 
-The DBOS sync writes the `/ducklake` folder of the shared `data-proxy-duckdb` volume. Litestream replicates it. PostgreSQL pods mount `/duckdb/secrets` from the same volume. Every CNPG PostgreSQL Pod has its own ephemeral catalog volume, which init containers restore with `-if-replica-exists` so an empty replica never blocks a new cluster. A PostgreSQL backend keeps its DuckLake attachment. After a publication, refresh Jobs restore the changed catalogs into every ready instance volume. Then all Pooler Deployments restart together and become ready, and all PostgREST Deployments restart together, so new backends attach the current catalog.
+The DBOS sync workers write the catalog as the `ducklake_writer` role, through the primary. PostgreSQL pods read it as the `ducklake_reader` role, from their own instance, so a standby never reads from the primary. A PostgreSQL backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers. See [Architecture](architecture.md#catalog-database).
 
 ## Partition fallback
 

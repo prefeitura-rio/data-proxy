@@ -41,8 +41,8 @@ Each pooled connection holds one server connection for its whole life. One conso
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs` | S3 secret key. |
 | `S3_SCRATCH_PREFIX` | `tmp` | Temporary extraction Parquet prefix. |
-| `DUCKLAKE_CATALOG_LOCAL_PATH` | `/var/lib/ducklake/catalogs` | Local root for schema SQLite catalogs. |
-| `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for per-schema SQLite catalogs and Litestream replicas. |
+| `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ducklake_writer` role. The chart builds it from the writer password Secret. Each schema writes to its own metadata schema. |
+| `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for the per-schema Parquet data. |
 | `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
 | `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired and files become eligible for cleanup. |
 | `DUCKLAKE_MAX_COMPACTED_FILES` | `10` | Maximum compacted files per table in one maintenance call. |
@@ -66,9 +66,6 @@ Each pooled connection holds one server connection for its whole life. One conso
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Sync workflow concurrency. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
-| `READER_REFRESH_CONCURRENCY` | `4` | Maximum catalog refresh Jobs that run at once (the size of the `refresh` queue). |
-| `READER_REFRESH_ATTEMPTS` | `5` | How many times the refresh Jobs run for the schemas whose snapshot the primary doesn't report yet. |
-| `READER_REFRESH_RETRY_SECONDS` | `5` | Seconds to wait before the refresh Jobs run again. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Dump worker concurrency. |
 | `DUMP_QUEUE_RATE_LIMIT` | `50` | Dump tasks per minute. |
 
@@ -116,9 +113,9 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `KUBERNETES_NAMESPACE` | `data-proxy` | Kubernetes namespace for conditional rollout. |
-| `DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS` | `300` | Pooler and PostgREST rollout timeout. |
+| `DEPLOYMENT_ROLLOUT_TIMEOUT_SECONDS` | `300` | PostgREST rollout timeout. |
 
-The workflow discovers Pooler and PostgREST Deployments by label. After a published snapshot, all Pooler Deployments restart together, then all PostgREST Deployments restart together. PostgREST also rolls out when seed adds or removes views.
+The workflow discovers the PostgREST Deployments by label. When seed adds or removes views, all PostgREST Deployments restart together after every publisher finishes. A new snapshot alone restarts nothing.
 
 ## Observability
 

@@ -36,19 +36,19 @@ Each configured schema contains metadata and views:
 
 Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers, and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy.md).
 
-PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the local restored SQLite catalog and scans Parquet in SeaweedFS.
+PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the catalog of its own PostgreSQL instance and scans Parquet in SeaweedFS.
 
 
 ## DuckLake storage
 
-DuckLake uses one SQLite catalog per configured schema:
+DuckLake uses one catalog per configured schema, in the `ducklake` database of the CNPG cluster:
 
 ```text
-s3://<bucket>/ducklake/<schema>/catalog.sqlite/  # Litestream LTX replica prefix
-s3://<bucket>/ducklake-data/<schema>/      # DuckLake Parquet data
+database ducklake, schema <schema>   # DuckLake catalog metadata
+s3://<bucket>/ducklake/<schema>/     # DuckLake Parquet data
 ```
 
-DBOS sync workers update the `/ducklake` folder of the shared `data-proxy-duckdb` volume. The writer-only `data-proxy-litestream` Deployment replicates committed WAL changes to SeaweedFS. Every CNPG instance has an ephemeral catalog volume that init containers restore at startup and refresh Jobs update after each publication. pg_duckdb opens those local catalogs read-only.
+DBOS sync workers write the catalogs as the `ducklake_writer` role, through the primary. Streaming replication copies them to every standby. pg_duckdb opens the catalog of its own instance read-only, as the `ducklake_reader` role. See [Architecture](architecture.md#catalog-database).
 
 The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLake table configuration uses `SET PARTITIONED BY` and `SET SORTED BY` for partition and RLS-related columns.
 
@@ -60,7 +60,7 @@ The table function builds the policy predicate once and passes it to each source
 
 ## S3 access
 
-The chart creates an S3 secret from `S3_ACCESS_KEY` and `S3_SECRET_KEY`. The `data-proxy-litestream` containers use these credentials for catalog replication and restore. pg_duckdb uses the configured DuckDB S3 secret to read DuckLake Parquet.
+The chart creates an S3 secret from `S3_ACCESS_KEY` and `S3_SECRET_KEY`. pg_duckdb uses the configured DuckDB S3 secret to read DuckLake Parquet.
 
 Production GCP credentials are projected into every CNPG instance through `gcp.existingSecret` because BigQuery fallback queries can run on read replicas.
 

@@ -14,7 +14,7 @@ cluster up
 
 The local synchronization configuration uses BigQuery. `cluster up` stops before Helmfile when application-default credentials are absent.
 
-The k3d configuration mounts `k3d/.tmp/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume. Each PostgreSQL Pod gets an ephemeral catalog volume from the k3s `local-path` StorageClass.
+The k3d configuration mounts `k3d/.tmp/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume, which holds the DuckDB secrets.
 
 The script writes the k3d credentials to the ignored `k3d/.kubeconfig`. It doesn't change the user kubeconfig.
 
@@ -61,7 +61,7 @@ The `default` profile runs both suites in one `devenv test`. Both suites then sh
 
 If the database setup in `scripts/db.nu` fails, PostgREST stops at once with the message `database bootstrap failed`, and the run ends in seconds. A marker file, `database-ready` in `.devenv/test`, tells PostgREST that the setup finished.
 
-The PostgreSQL image installs the `ducklake` extension while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/engine/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
+The PostgreSQL image installs the `ducklake` and `postgres` extensions while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/engine/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
 
 On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s, and a cold `devenv --profile sync test` run takes about 60 s, so CI keeps no layer cache.
 
@@ -235,7 +235,7 @@ The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `
 ### Nushell tests
 
 The Helm suite tests pure helpers from `helm/files/lib.nu` without Kubernetes,
-PostgreSQL, Litestream, rclone, or network access:
+PostgreSQL, rclone, or network access:
 
 ```bash
 nu helm/files/tests/run.nu
