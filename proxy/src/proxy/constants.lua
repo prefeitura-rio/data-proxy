@@ -61,7 +61,7 @@ return {
 		generation_key = "policy:generation",
 	},
 	postgrest = {
-		timeout_ms = 120000,
+		timeout_ms = 30000,
 	},
 	jwt = {
 		anonymous_sub = "anon",
