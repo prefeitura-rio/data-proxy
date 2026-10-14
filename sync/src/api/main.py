@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     from api.state import AppState
 
+ROUTERS = [health.router, runs.router]
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
@@ -31,5 +33,5 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
 
 app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
 
-for router in (health.router, runs.router):
+for router in ROUTERS:
     app.include_router(router)
