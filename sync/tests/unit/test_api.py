@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 from dbos import StepInfo, WorkflowStatus
 from fastapi import APIRouter
-from fastapi.routing import APIRoute
+from fastapi.routing import iter_route_contexts
 from httpx2 import ASGITransport, AsyncClient
 
 from api import routes
@@ -367,12 +367,12 @@ class TestRun:
 
 
 def paths_of(routers: list[APIRouter]) -> list[str]:
-    """List the paths that the routers declare, in order."""
+    """List the effective paths that the routers declare, in order."""
     return [
-        route.path
+        path
         for router in routers
-        for route in router.routes
-        if isinstance(route, APIRoute)
+        for context in iter_route_contexts(router.routes)
+        if (path := context.path) is not None
     ]
 
 
