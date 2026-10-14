@@ -40,6 +40,14 @@ The engine still checks the rules that belong to a source, such as the form of a
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy`, its `policy_writer_<schema>` role, and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
+## The configuration endpoint
+
+`GET /rpc/sync_config` returns the whole configuration in the shape of `sync.json`. Every level can call it. The engine and the proxy read this one document. `admin.sync_config()` builds it from the tables, and it leaves out every default value: no `claim` without a claim, no `rls` without rules, and no `fallback` unless it's true. The tables come out sorted by name, and the rules keep their order.
+
+A new setup can load an existing file. Admins call `POST /rpc/import_config` with `{"document": <sync.json>}`. The function inserts or updates the schemas and tables of the document, and it replaces the rules of each table in the document. It never deletes a schema or a table, and it never moves a table to another schema. The call is one transaction, so a row the constraints refuse leaves nothing behind. `sync/tests/integration/test_admin_sync_config.py` proves that a document comes back unchanged after an import and an export, and that the engine accepts the result.
+
+One limit: the export drops a `null` value inside the `settings` of a source, because the export removes every `null` of the document.
+
 ## Permission levels
 
 The JWT of a user carries the level in its `role` claim, and PostgREST switches to that database role. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.
