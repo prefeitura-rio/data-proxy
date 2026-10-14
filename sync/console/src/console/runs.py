@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 
 from whenever import Instant
 
-from console.models import ChildRun, Run, RunDetail, RunPage, Step
+from console.models import ChildRun, RunDetail, Step
 
 if TYPE_CHECKING:
     from dbos import DBOSClient, StepInfo, WorkflowStatus
 
-    from console.models import RunFields, RunStatus
+    from console.models import RunFields
 
 SYNC_WORKFLOW = "run_sync"
 INTERNAL_STEP_PREFIX = "DBOS."
@@ -90,36 +90,6 @@ def count_children(children: list[ChildRun]) -> dict[str, dict[str, int]]:
     for child in children:
         counts.setdefault(child.name, Counter())[child.status] += 1
     return {name: dict(counter) for name, counter in counts.items()}
-
-
-async def list_runs(
-    client: DBOSClient,
-    *,
-    status: RunStatus | None,
-    since: Instant | None,
-    limit: int,
-    offset: int,
-) -> RunPage:
-    """List one page of sync runs, newest first.
-
-    DBOS gives no total, so the query asks for one row more than the page.
-    """
-    workflows = await client.list_workflows_async(
-        name=SYNC_WORKFLOW,
-        status=status,
-        start_time=None if since is None else since.format_iso(),
-        limit=limit + 1,
-        offset=offset,
-        sort_desc=True,
-        load_input=False,
-        load_output=False,
-    )
-    return RunPage(
-        items=[Run(**run_fields(workflow)) for workflow in workflows[:limit]],
-        limit=limit,
-        offset=offset,
-        has_more=len(workflows) > limit,
-    )
 
 
 async def get_run(

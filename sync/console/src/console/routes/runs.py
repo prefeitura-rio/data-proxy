@@ -8,8 +8,16 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from console import streaming
 from console.dependencies import Client, require_workflow
-from console.models import End, RunDetail, RunPage, RunProgress, RunStatus, Time
-from console.runs import get_run, list_runs
+from console.models import (
+    End,
+    Run,
+    RunDetail,
+    RunPage,
+    RunProgress,
+    RunStatus,
+    Time,
+)
+from console.runs import SYNC_WORKFLOW, get_run, run_fields
 from console.settings import settings
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -23,9 +31,25 @@ async def get_runs(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> RunPage:
-    """List the sync runs, newest first."""
-    return await list_runs(
-        client, status=status, since=since, limit=limit, offset=offset
+    """List one page of sync runs, newest first.
+
+    DBOS gives no total, so the query asks for one row more than the page.
+    """
+    workflows = await client.list_workflows_async(
+        name=SYNC_WORKFLOW,
+        status=status,
+        start_time=None if since is None else since.format_iso(),
+        limit=limit + 1,
+        offset=offset,
+        sort_desc=True,
+        load_input=False,
+        load_output=False,
+    )
+    return RunPage(
+        items=[Run(**run_fields(workflow)) for workflow in workflows[:limit]],
+        limit=limit,
+        offset=offset,
+        has_more=len(workflows) > limit,
     )
 
 
