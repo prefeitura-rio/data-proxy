@@ -105,6 +105,10 @@ tests:
           value: ghcr.io/pgdogdev/pgdog:0.1.61
         template: deployment-pgdog.yaml
       - equal:
+          path: spec.template.spec.containers[0].command
+          value: [/usr/local/bin/pgdog]
+        template: deployment-pgdog.yaml
+      - equal:
           path: spec.template.spec.containers[0].args
           value: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
         template: deployment-pgdog.yaml

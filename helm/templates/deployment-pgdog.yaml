@@ -26,6 +26,7 @@ spec:
       containers:
         - name: pgdog
           image: {{ .Values.pgdog.image }}
+          command: [/usr/local/bin/pgdog]
           args: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
           ports:
             - name: pgdog
