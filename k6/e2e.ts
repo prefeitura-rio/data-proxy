@@ -675,7 +675,7 @@ function snapshotValue(token: string): string {
     requirePrecondition(
         "the current DuckLake snapshot is readable",
         response.status === 200 && body !== null,
-        { status: response.status },
+        { status: response.status, body: String(response.body).slice(0, 300) },
     );
     return JSON.stringify(body);
 }
