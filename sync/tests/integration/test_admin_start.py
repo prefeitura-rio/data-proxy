@@ -31,6 +31,7 @@ class TestStartSync:
         self, admin_db: psycopg.AsyncConnection, role: str
     ) -> None:
         """The run is enqueued with portable arguments and the name from the token."""
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
         await admin_db.execute(CLAIMS.encode())
         await become(admin_db, role)
 
@@ -52,6 +53,27 @@ class TestStartSync:
         with pytest.raises(InsufficientPrivilege):
             await start(admin_db, "")
 
+    async def test_an_unknown_schema_is_refused(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A typo in a schema name fails at once instead of syncing nothing."""
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await become(admin_db, "console_operator")
+
+        with pytest.raises(psycopg.Error) as error:
+            await start(admin_db, "ARRAY['alpha', 'typo']")
+
+        assert error.value.sqlstate == "PT400"
+
+    async def test_a_known_schema_is_accepted(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A configured schema starts a run."""
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await become(admin_db, "console_operator")
+
+        assert await start(admin_db, "ARRAY['alpha']")
+
 
 @pytest.mark.postgres
 class TestWorkerRunsStartedSync:
@@ -63,6 +85,7 @@ class TestWorkerRunsStartedSync:
         sync_worker: list[SyncScope],
     ) -> None:
         """The run succeeds, and its arguments reach the workflow as a time and a scope."""
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
         identifier = await start(admin_db, "ARRAY['alpha'], ARRAY['p.d.one']")
         await admin_db.commit()
 
@@ -88,4 +111,5 @@ class TestWorkerRunsStartedSync:
                 b"DELETE FROM dbos.workflow_status WHERE workflow_uuid = %s",
                 (identifier,),
             )
+            await admin_db.execute(b"DELETE FROM admin.schemas")
             await admin_db.commit()

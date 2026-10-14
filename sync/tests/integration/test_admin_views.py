@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from tests.helpers import rows
 
@@ -231,3 +232,62 @@ class TestErrors:
         result = await rows(admin_db, "SELECT reason, fields FROM admin.errors")
 
         assert result == [("new", {"table": "t"}), ("old", {})]
+
+
+@pytest.mark.postgres
+class TestStatus:
+    """The status views compare the configuration with what exists and what a sync committed."""
+
+    async def test_health_reports_which_objects_exist_for_each_schema(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A schema shows whether it exists with its access policy, its writer role, and its views."""
+        await admin_db.execute(
+            b"INSERT INTO admin.schemas (name) VALUES ('alpha'), ('beta')"
+        )
+        await admin_db.execute(b"CREATE SCHEMA alpha")
+        await admin_db.execute(b"CREATE TABLE alpha.access_policy (subject text)")
+        await admin_db.execute(b"CREATE VIEW alpha.people AS SELECT 1 AS id")
+        await admin_db.execute(b"CREATE ROLE policy_writer_alpha")
+
+        result = await rows(
+            admin_db,
+            "SELECT name, schema_exists, access_policy, policy_writer, view_count FROM admin.health ORDER BY name",
+        )
+
+        assert result == [
+            ("alpha", True, True, True, 1),
+            ("beta", False, False, False, 0),
+        ]
+
+    async def test_synced_joins_each_table_with_its_committed_state(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A table shows whether a sync committed its state, with the signature and partition count."""
+        await admin_db.execute(b"DELETE FROM data_proxy.state")
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await admin_db.execute(
+            b"INSERT INTO admin.tables (schema, name, strategy) VALUES ('alpha', 'p.d.one', 'full'), ('alpha', 'p.d.two', 'partitioned')"
+        )
+        await admin_db.execute(
+            b"INSERT INTO data_proxy.state (table_name, state) VALUES ('p.d.two', %s)",
+            (
+                Jsonb(
+                    {
+                        "strategy": "partitioned",
+                        "signature": "abc",
+                        "partitions": {"0": {}, "1": {}},
+                    }
+                ),
+            ),
+        )
+
+        result = await rows(
+            admin_db,
+            "SELECT schema, name, synced, signature, partition_count FROM admin.synced ORDER BY name",
+        )
+
+        assert result == [
+            ("alpha", "p.d.one", False, None, 0),
+            ("alpha", "p.d.two", True, "abc", 2),
+        ]
