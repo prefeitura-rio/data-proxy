@@ -61,7 +61,7 @@ The `default` profile runs both suites in one `devenv test`. Both suites then sh
 
 If the database setup in `scripts/db.nu` fails, PostgREST stops at once with the message `database bootstrap failed`, and the run ends in seconds. A marker file, `database-ready` in `.devenv/test`, tells PostgREST that the setup finished.
 
-The PostgreSQL image installs the `ducklake` extension while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
+The PostgreSQL image installs the `ducklake` extension while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/engine/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
 
 On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s, and a cold `devenv --profile sync test` run takes about 60 s, so CI keeps no layer cache.
 
@@ -71,16 +71,16 @@ To add another test container, declare `processes.<name> = mkPodmanProcess { ...
 
 ## Python workspace
 
-`sync/` is a uv workspace. The root project is the sync worker (`sync/src/sync`). Each directory in `sync/packages/` is a member with its own `pyproject.toml`, source and tests. All members share one lock file, `sync/uv.lock`, and one environment, `sync/.venv`.
+`sync/` is a uv workspace. The root holds no code. It holds the lock file `sync/uv.lock`, the environment `sync/.venv`, and the lint settings that all members share. Each directory in `sync/` that has a `pyproject.toml` is a member with its own source and tests.
 
 | Member | Path | Purpose |
 | --- | --- | --- |
-| `sync` (root) | `sync/src/sync` | The sync worker: DBOS workflows, DuckLake and PostgreSQL views |
-| `console` | `sync/packages/console` | The operator console: a FastAPI service that reads the DBOS runs and the data state |
+| `engine` | `sync/engine` | The sync worker: DBOS workflows, DuckLake and PostgreSQL views |
+| `console` | `sync/console` | The operator console: a FastAPI service that reads the DBOS runs and the data state |
 
-The `dev` group of the root project installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev`, so it doesn't install the members. Run the console with `uvicorn console.main:app`, and one member's tests with `uv run pytest packages/console/tests`.
+The `dev` group of the root installs every member, so `uv sync` prepares one environment for all tests and linters. The sync image runs `uv sync --frozen --no-dev --no-install-workspace --package engine`. It installs only the dependencies of `engine`, and `PYTHONPATH` points at its source. Each member owns its pytest settings, so run its tests from its own directory: `cd sync/engine && uv run pytest` or `cd sync/console && uv run pytest`. One pytest run over two members would name the console tests `console.tests.*` and hide the `console` package.
 
-To add a member, create `sync/packages/<name>/pyproject.toml` with the `uv_build` backend, add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`, and run `uv lock`.
+To add a member, create `sync/<name>/pyproject.toml` with the `uv_build` backend. Add the name to the `dev` group and to `[tool.uv.sources]` with `workspace = true`. Add its source path to the `extraPaths` and `search-path` settings of the type checkers. Then run `uv lock`.
 
 ## Chart releases
 

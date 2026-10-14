@@ -1,6 +1,6 @@
 # SQL Templates
 
-SQL templates live under `sync/src/sync/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`.
+SQL templates live under `sync/engine/src/engine/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`.
 
 ## Template headers
 

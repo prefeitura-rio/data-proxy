@@ -1,42 +1,42 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
-sync/src/sync/templates/postgres/insert_error.sql
-sync/src/sync/templates/postgres/read_state.sql
-sync/src/sync/templates/postgres/upsert_state.sql
+sync/engine/src/engine/templates/postgres/insert_error.sql
+sync/engine/src/engine/templates/postgres/read_state.sql
+sync/engine/src/engine/templates/postgres/upsert_state.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
-sync/src/sync/templates/postgres/macros.sql
+sync/engine/src/engine/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
-sync/src/sync/templates/duckdb/describe_source.sql
-sync/src/sync/templates/duckdb/setup.sql
+sync/engine/src/engine/templates/duckdb/describe_source.sql
+sync/engine/src/engine/templates/duckdb/setup.sql
 
 # Jinja macro source and imports are validated through rendering.
-sync/src/sync/templates/duckdb/macros.sql
+sync/engine/src/engine/templates/duckdb/macros.sql
 helm/files/templates/postgres/grant_app_usage.sql
-sync/src/sync/templates/postgres/drop_view_objects.sql
-sync/src/sync/templates/postgres/write_view_signature.sql
+sync/engine/src/engine/templates/postgres/drop_view_objects.sql
+sync/engine/src/engine/templates/postgres/write_view_signature.sql
 
 # Test templates with prepared parameters; validated through execution tests.
-sync/tests/templates/bigquery/partitions.sql
-sync/tests/templates/bigquery/table_metadata.sql
-sync/tests/templates/duckdb/write_evolved_parquet.sql
-sync/tests/templates/postgres/call_cleanup_stale_objects.sql
-sync/tests/templates/postgres/delete_access_policy.sql
-sync/tests/templates/postgres/delete_workflows.sql
-sync/tests/templates/postgres/function_exists.sql
-sync/tests/templates/postgres/has_schema_usage.sql
-sync/tests/templates/postgres/has_table_select.sql
-sync/tests/templates/postgres/insert_access_log.sql
-sync/tests/templates/postgres/insert_access_policy.sql
-sync/tests/templates/postgres/insert_workflow.sql
-sync/tests/templates/postgres/log_trigger_is_security_definer.sql
-sync/tests/templates/postgres/policy_names.sql
-sync/tests/templates/postgres/relation_exists.sql
-sync/tests/templates/postgres/role_memberships.sql
-sync/tests/templates/postgres/schema_names.sql
-sync/tests/templates/postgres/select_changes.sql
-sync/tests/templates/postgres/select_grants.sql
-sync/tests/templates/postgres/select_plan_sources.sql
-sync/tests/templates/postgres/select_workflows.sql
-sync/tests/templates/postgres/update_access_policy.sql
-sync/tests/templates/postgres/view_columns.sql
+sync/engine/tests/templates/bigquery/partitions.sql
+sync/engine/tests/templates/bigquery/table_metadata.sql
+sync/engine/tests/templates/duckdb/write_evolved_parquet.sql
+sync/engine/tests/templates/postgres/call_cleanup_stale_objects.sql
+sync/engine/tests/templates/postgres/delete_access_policy.sql
+sync/engine/tests/templates/postgres/delete_workflows.sql
+sync/engine/tests/templates/postgres/function_exists.sql
+sync/engine/tests/templates/postgres/has_schema_usage.sql
+sync/engine/tests/templates/postgres/has_table_select.sql
+sync/engine/tests/templates/postgres/insert_access_log.sql
+sync/engine/tests/templates/postgres/insert_access_policy.sql
+sync/engine/tests/templates/postgres/insert_workflow.sql
+sync/engine/tests/templates/postgres/log_trigger_is_security_definer.sql
+sync/engine/tests/templates/postgres/policy_names.sql
+sync/engine/tests/templates/postgres/relation_exists.sql
+sync/engine/tests/templates/postgres/role_memberships.sql
+sync/engine/tests/templates/postgres/schema_names.sql
+sync/engine/tests/templates/postgres/select_changes.sql
+sync/engine/tests/templates/postgres/select_grants.sql
+sync/engine/tests/templates/postgres/select_plan_sources.sql
+sync/engine/tests/templates/postgres/select_workflows.sql
+sync/engine/tests/templates/postgres/update_access_policy.sql
+sync/engine/tests/templates/postgres/view_columns.sql

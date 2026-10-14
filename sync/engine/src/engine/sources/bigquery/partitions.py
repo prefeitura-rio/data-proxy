@@ -1,0 +1,244 @@
+"""BigQuery physical partition query and normalization helpers."""
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, ClassVar, assert_never
+
+from google.cloud.bigquery import QueryJobConfig, ScalarQueryParameter
+from google.cloud.bigquery.table import Row, Table
+from pydantic import BaseModel, ConfigDict
+from whenever import PlainDateTime
+
+from engine.executor import Executor
+from engine.sources.partitions import (
+    PartitionKindConfig,
+    PhysicalPartition,
+    RangeConfig,
+    RangeSelection,
+    RemainderSelection,
+    TimeConfig,
+    TimeGranularity,
+    TimeRangeSelection,
+)
+from engine.utils import sha256_hex
+
+from .config import partition_kind_config, partitioned_table_signature
+
+if TYPE_CHECKING:
+    from .clients import BigQuery
+
+
+class PartitionMetadata(BaseModel):
+    """Validated fields returned by the BigQuery partition metadata query."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict({"strict": True, "extra": "forbid"})
+
+    partition_id: str
+    last_modified_time: datetime | None
+    logical_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class TableReference:
+    """Validated project, dataset, and table from a BigQuery reference."""
+
+    project: str
+    dataset: str
+    table: str
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionNormalizer:
+    """Normalize BigQuery partition metadata rows into PhysicalPartition models."""
+
+    kind_config: PartitionKindConfig
+    table: str
+    signature: str
+
+    def normalize(self, row: PartitionMetadata) -> PhysicalPartition | None:
+        """Normalize one validated BigQuery metadata row into partition state."""
+        partition_id = row.partition_id
+        if partition_id == "__UNPARTITIONED__":
+            msg = f"Unsupported BigQuery partition {partition_id}: {self.table}"
+            raise ValueError(msg)
+
+        modified = row.last_modified_time
+        if modified is None:
+            msg = f"Missing partition modification time {partition_id}: {self.table}"
+            raise TypeError(msg)
+
+        partition_signature = sha256_hex(
+            f"{partition_id}:{modified.isoformat()}:{self.signature}"
+        )
+        logical_bytes = row.logical_bytes or 0
+
+        match self.kind_config:
+            case TimeConfig() as config:
+                return self.normalize_time(
+                    partition_id, partition_signature, config, logical_bytes
+                )
+            case RangeConfig() as config:
+                return self.normalize_range(
+                    partition_id, partition_signature, config, logical_bytes
+                )
+            case _:
+                assert_never(self.kind_config)
+
+    def normalize_time(
+        self,
+        partition_id: str,
+        partition_signature: str,
+        config: TimeConfig,
+        logical_bytes: int,
+    ) -> PhysicalPartition | None:
+        """Normalize one time partition."""
+        if partition_id == "__NULL__":
+            return None
+
+        lower, upper = self.time_bounds(partition_id, config.granularity)
+
+        return PhysicalPartition(
+            partition_id=partition_id,
+            signature=partition_signature,
+            selection=TimeRangeSelection(column=config.field, lower=lower, upper=upper),
+            logical_bytes=logical_bytes,
+        )
+
+    def normalize_range(
+        self,
+        partition_id: str,
+        partition_signature: str,
+        config: RangeConfig,
+        logical_bytes: int,
+    ) -> PhysicalPartition:
+        """Normalize one integer range partition."""
+        if partition_id == "__NULL__":
+            return PhysicalPartition(
+                partition_id=partition_id,
+                signature=partition_signature,
+                selection=RemainderSelection(
+                    column=config.field, start=config.start, end=config.end
+                ),
+                logical_bytes=logical_bytes,
+            )
+
+        try:
+            lower = int(partition_id)
+        except ValueError:
+            lower = -1
+
+        in_bounds = config.start <= lower < config.end
+        aligned = (lower - config.start) % config.interval == 0
+
+        if not in_bounds or not aligned:
+            raise ValueError(f"Invalid range partition ID {partition_id}: {self.table}")
+
+        upper = min(lower + config.interval, config.end)
+
+        return PhysicalPartition(
+            partition_id=partition_id,
+            signature=partition_signature,
+            selection=RangeSelection(
+                partition_id=partition_id,
+                column=config.field,
+                lower=lower,
+                upper=upper,
+            ),
+            logical_bytes=logical_bytes,
+        )
+
+    def time_bounds(
+        self,
+        partition_id: str,
+        granularity: TimeGranularity,
+    ) -> tuple[str, str]:
+        """Return the [start, end) date/timestamp bounds one compact partition id covers."""
+        spec = granularity.spec()
+
+        try:
+            parsed = datetime.strptime(partition_id, spec.strptime_format).replace(
+                tzinfo=UTC
+            )
+        except ValueError as error:
+            msg = f"Invalid time partition ID {partition_id}: {self.table}"
+            raise ValueError(msg) from error
+
+        start = PlainDateTime(parsed.year, parsed.month, parsed.day, parsed.hour)
+        end = spec.step(start)
+
+        return start.format(spec.output_pattern), end.format(spec.output_pattern)
+
+
+async def table_modified(bq_conn: BigQuery, table: str) -> str:
+    """Return the table modification time in epoch milliseconds."""
+    metadata = await bq_conn.get_table(table)
+
+    if metadata.modified is None:
+        raise ValueError(f"Missing BigQuery modification time: {table}")
+
+    return str(int(metadata.modified.timestamp() * 1000))
+
+
+def parse_table_reference(table: str) -> TableReference:
+    """Split a model-validated BigQuery table reference into its components."""
+    project, dataset, table_name = table.split(".")
+    return TableReference(project=project, dataset=dataset, table=table_name)
+
+
+async def partition_rows(
+    bq_conn: BigQuery,
+    project: str,
+    dataset: str,
+    table_name: str,
+) -> list[PartitionMetadata]:
+    """Return validated physical partition metadata rows."""
+    rows = await Executor[QueryJobConfig, Sequence[Row]](conn=bq_conn).query(
+        "bigquery/partitions",
+        {"project": project, "dataset": dataset},
+        params=QueryJobConfig(
+            query_parameters=[ScalarQueryParameter("table_name", "STRING", table_name)]
+        ),
+        expect=Row,
+    )
+    return [PartitionMetadata.model_validate(dict(row.items())) for row in rows]
+
+
+async def physical_partitions(
+    bq_conn: BigQuery,
+    table: str,
+    config_json: str,
+    n: int | None = None,
+) -> tuple[str, dict[str, PhysicalPartition]]:
+    """Return the table signature and current physical partitions."""
+    reference = parse_table_reference(table)
+    metadata: Table = await bq_conn.get_table(table)
+    config = partition_kind_config(metadata, table)
+
+    match config:
+        case config if config.kind == "range" and n is not None:
+            msg = f"n is only supported for time-partitioned tables: {table}"
+            raise ValueError(msg)
+        case _:
+            pass
+
+    signature = partitioned_table_signature(metadata, config_json, config)
+    normalizer = PartitionNormalizer(
+        kind_config=config, table=table, signature=signature
+    )
+
+    partitions: dict[str, PhysicalPartition] = {}
+
+    for row in await partition_rows(
+        bq_conn, reference.project, reference.dataset, reference.table
+    ):
+        partition = normalizer.normalize(row)
+
+        if partition:
+            partitions[partition.partition_id] = partition
+
+    if n is not None:
+        kept = sorted(partitions, reverse=True)[:n]
+        partitions = {partition_id: partitions[partition_id] for partition_id in kept}
+
+    return signature, partitions

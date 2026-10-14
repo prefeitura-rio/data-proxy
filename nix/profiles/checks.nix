@@ -62,13 +62,13 @@
         "lint:docs" = {
           exec = ''
             vale sync --no-exit
-            vale docs/ README.md STYLEGUIDE.md sync/src/sync/ scripts/
+            vale docs/ README.md STYLEGUIDE.md sync/engine/src/engine/ scripts/
           '';
           execIfModified = [
             "docs"
             "README.md"
             "STYLEGUIDE.md"
-            "sync/src/**/*.py"
+            "sync/*/src/**/*.py"
             "scripts"
             ".vale.ini"
             ".vale/styles"

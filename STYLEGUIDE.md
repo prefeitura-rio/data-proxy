@@ -48,18 +48,18 @@ Put each test at the lowest level that can prove the behavior. Don't repeat a ch
 
 | Level       | Location                                               | Runs against                                                 | Covers                                                                  |
 | ----------- | ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB            | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
-| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
+| Unit        | `sync/engine/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB            | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
+| Integration | `sync/engine/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
 | Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST        | Proxy request path: routing, retry, cache, filter pushdown              |
 | E2E         | `k6/e2e.ts`, `k6/load.ts`                              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)    | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
 
 - Unit tests don't start containers or open network connections.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
-- Test modules hold only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
+- Test modules hold only tests. Fixtures go in `sync/engine/tests/fixtures/`, test-double dataclasses in `sync/engine/tests/fixtures/types.py`, and builders in `sync/engine/tests/helpers.py`.
 - Merge small test files that cover one module.
 - Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants across generated inputs.
-- Use `pytest-bdd` for integration behavior that crosses database, cache, or storage boundaries. Put feature files in `sync/tests/integration/features/` and step definitions in `sync/tests/integration/steps/`.
+- Use `pytest-bdd` for integration behavior that crosses database, cache, or storage boundaries. Put feature files in `sync/engine/tests/integration/features/` and step definitions in `sync/engine/tests/integration/steps/`.
 - Assert exact values. Don't use substring checks, except a regex assertion against generated text when an exact whole-document assertion would be brittle.
 - Don't assert the full contents of a registry that grows.
 - Don't test field storage, defaults, or "no exception was raised."
@@ -196,7 +196,7 @@ end
 - Write table-driven Busted specs. Use one `describe` for each function and `it(case.name)` for each case.
 - Give each case a name that states the behavior, for example `retries a 503 on the retry service`.
 - Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, for example the 32 raw bytes that `resty.sha256` gives.
-- Test pure functions only. A function that has an effect, such as a request, a socket, or an nginx phase, belongs to `sync/tests/integration/proxy/` or to k6, not to the unit specs.
+- Test pure functions only. A function that has an effect, such as a request, a socket, or an nginx phase, belongs to `sync/engine/tests/integration/proxy/` or to k6, not to the unit specs.
 - Compare a rewrite with the old code on random inputs before you delete the old code.
 
 ### Checks
@@ -247,7 +247,7 @@ for schema in $schemas {
 
 ## SQL
 
-Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live in `helm/files/templates/postgres/`. See [SQL Templates](docs/sql-templates.md).
+Templates live in `sync/engine/src/engine/templates/<backend>/`. Helm job templates live in `helm/files/templates/postgres/`. See [SQL Templates](docs/sql-templates.md).
 
 ### Code
 
@@ -276,7 +276,7 @@ mapping = {"table": Identifier(schema, name), "limit": Literal(n)}
 
 ### Tests
 
-- Put test SQL in `sync/tests/templates/<backend>/`, with the same headers and names as `src/` templates. Inline only one short statement, such as `SELECT set_config(...)` or `SET ROLE`.
+- Put test SQL in `sync/engine/tests/templates/<backend>/`, with the same headers and names as `src/` templates. Inline only one short statement, such as `SELECT set_config(...)` or `SET ROLE`.
 
 ## Documentation
 

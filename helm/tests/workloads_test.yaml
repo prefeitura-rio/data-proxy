@@ -74,7 +74,7 @@ tests:
         template: deployment-sync.yaml
       - equal:
           path: spec.template.spec.containers[0].command
-          value: [python, -m, sync.dbos.main]
+          value: [python, -m, engine.dbos.main]
         template: deployment-sync.yaml
 
   - it: sync carries the DBOS and DuckLake environment

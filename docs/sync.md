@@ -126,7 +126,7 @@ Set `fallback: true` on a partitioned table to let its configured schema source 
 
 ## Adding a source
 
-A source owns synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions. Register the source in `sync/src/sync/sources/registry.py`.
+A source owns synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions. Register the source in `sync/engine/src/engine/sources/registry.py`.
 
 Each PostgreSQL schema has exactly one source. Add `source.settings` only when a source requires non-secret settings. Put credentials in environment variables or Kubernetes Secrets, not in `sync.json`.
 

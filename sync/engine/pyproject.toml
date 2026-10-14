@@ -1,0 +1,51 @@
+[project]
+name = "engine"
+version = "1.0.0"
+description = "Sync service: copies BigQuery tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
+
+requires-python = ">=3.14"
+dependencies = [
+  "duckdb==1.5.4",
+  "dbos>=3.0.0",
+  "google-cloud-bigquery>=3.42.3",
+  "psycopg[binary]>=3.3.4",
+  "pydantic-settings>=2.14.2",
+  "pydantic>=2.13.4",
+  "redis>=5.0",
+  "asyncer>=0.0.18",
+  "whenever>=0.10.5",
+  "aiobotocore>=3.9.0",
+  "jinja2>=3.1",
+  "more-itertools>=10.0.0",
+  "opentelemetry-sdk>=1.44.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+  "lightkube==1.0.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+strict = true
+addopts = ["--import-mode=importlib"]
+env_files = ["../.env.test"]
+pythonpath = ["."]
+bdd_features_base_dir = "tests/integration/features"
+markers = [
+  "postgres: scenarios that require the PostgreSQL test service",
+  "s3: scenarios that require S3-compatible object storage",
+  "redis: scenarios that require the Valkey test service",
+  "postgrest: tests that require the PostgREST test service",
+]
+filterwarnings = [
+  "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
+  "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
+  "ignore::DeprecationWarning:gherkin.gherkin_line",
+]
+
+[tool.pytest-gremlins]
+paths = ["src"]
+exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]

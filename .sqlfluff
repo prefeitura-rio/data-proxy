@@ -8,7 +8,7 @@ exclude_rules = LT02,RF04
 
 [sqlfluff:templater:jinja]
 apply_dbt_builtins = False
-loader_search_path = sync/src/sync/templates,helm/files/templates
+loader_search_path = sync/engine/src/engine/templates,helm/files/templates
 
 [sqlfluff:templater:jinja:context]
 schema = pic

@@ -1,30 +1,7 @@
-[project]
-name = "sync"
-version = "1.0.0"
-description = "Sync service: copies BigQuery tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
-
-requires-python = ">=3.14"
-dependencies = [
-  "duckdb==1.5.4",
-  "dbos>=3.0.0",
-  "google-cloud-bigquery>=3.42.3",
-  "psycopg[binary]>=3.3.4",
-  "pydantic-settings>=2.14.2",
-  "pydantic>=2.13.4",
-  "redis>=5.0",
-  "asyncer>=0.0.18",
-  "whenever>=0.10.5",
-  "aiobotocore>=3.9.0",
-  "jinja2>=3.1",
-  "more-itertools>=10.0.0",
-  "opentelemetry-sdk>=1.44.0",
-  "opentelemetry-exporter-otlp-proto-http>=1.44.0",
-  "lightkube==1.0.1",
-]
-
 [dependency-groups]
 dev = [
   "console",
+  "engine",
   "complexipy>=7.0.1",
   "google-auth-stubs>=0.3.0",
   "hypothesis>=6.165.10",
@@ -42,18 +19,21 @@ dev = [
 ]
 
 [tool.uv]
-package = false
 exclude-newer = "7 days"
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["*"]
 
 [tool.uv.sources]
 console = { workspace = true }
+engine = { workspace = true }
 
 [tool.ruff]
 line-length = 88
-src = [".", "src", "packages/*/src"] # first-party roots: the root project and every workspace member
+src = [
+  "*/src",
+  "engine",
+] # first-party roots: the source of every member and the sync tests package
 target-version = "py314"
 
 [tool.ruff.lint]
@@ -88,7 +68,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-type-checking]
-runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+  "pydantic_settings.BaseSettings",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = [
@@ -115,50 +98,67 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
   "S603",     # the fixtures run the psql client and the container engine
   "S607",     # the fixtures find psql on PATH
 ]
-"packages/console/src/console/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
-"packages/console/src/console/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
-"src/sync/dbos/steps.py" = ["RUF029"]            # DBOS steps are async by contract
-"src/sync/dbos/workflows.py" = [
-  "BLE001",   # workflows catch every failure to record it and continue the run
-  "ARG001",   # DBOS passes the context argument to scheduled workflows
+"console/src/console/dependencies.py" = [
+  "TC001",
+] # FastAPI reads the annotations of a dependency at runtime
+"console/src/console/routes/*.py" = [
+  "TC001",
+  "TC003",
+] # FastAPI reads the annotations of a route at runtime
+"engine/src/engine/dbos/steps.py" = [
+  "RUF029",
+] # DBOS steps are async by contract
+"engine/src/engine/dbos/workflows.py" = [
+  "BLE001", # workflows catch every failure to record it and continue the run
+  "ARG001", # DBOS passes the context argument to scheduled workflows
 ]
-"packages/console/src/console/routes/health.py" = ["BLE001"]          # readiness reports every failure of the check as 503
-"src/sync/executor.py" = ["ARG002"]              # expect only types the result
-"src/sync/kubernetes.py" = ["ASYNC109"]          # the timeout argument bounds the rollout watch
-"src/sync/sources/bigquery/source.py" = ["PLR6301"] # validate implements the Source protocol
+"console/src/console/routes/health.py" = [
+  "BLE001",
+] # readiness reports every failure of the check as 503
+"engine/src/engine/executor.py" = ["ARG002"] # expect only types the result
+"engine/src/engine/kubernetes.py" = [
+  "ASYNC109",
+] # the timeout argument bounds the rollout watch
+"engine/src/engine/sources/bigquery/source.py" = [
+  "PLR6301",
+] # validate implements the Source protocol
 
 [tool.basedpyright]
 typeCheckingMode = "all"
 venvPath = "."
 venv = ".venv"
-extraPaths = ["src", "tests", "packages/console/src"] # workspace members resolve as local source, not as installed packages
+extraPaths = [
+  "engine/src",
+  "engine",
+  "console/src",
+] # workspace members resolve as local source, not as installed packages
 reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
 reportUnusedCallResult = false # calls such as execute and set are made for their effect
 
 [[tool.basedpyright.executionEnvironments]]
-root = "packages/console/tests"
-extraPaths = ["packages/console/src"]
+root = "console/tests"
+extraPaths = ["console/src"]
 reportPrivateUsage = false
 reportAny = false
-reportExplicitAny = false # the console tests read decoded JSON bodies
+reportExplicitAny = false    # the console tests read decoded JSON bodies
 
 [[tool.basedpyright.executionEnvironments]]
-root = "tests"
-extraPaths = ["src", ".", "packages/console/src"]
+root = "engine/tests"
+extraPaths = ["engine/src", "engine", "console/src"]
 reportPrivateUsage = false
 reportAny = false
-reportExplicitAny = false # the API tests read decoded JSON bodies
+reportExplicitAny = false                            # the API tests read decoded JSON bodies
 
 
 [tool.pyrefly]
-project-includes = ["src", "tests", "packages"]
-search-path = ["src", "."]
+project-includes = ["*/src", "*/tests"]
+search-path = ["engine/src", "engine", "console/src"]
 python-version = "3.14"
 python-interpreter-path = ".venv/bin/python"
 preset = "all"
 
 [tool.pyrefly.errors]
-implicit-bool = false # truthiness checks are the code style
+implicit-bool = false      # truthiness checks are the code style
 unused-call-result = false # calls such as execute and set are made for their effect
 
 [[tool.pyrefly.sub-config]]
@@ -173,7 +173,7 @@ max-complexity-allowed = 10
 [tool.vulture]
 min_confidence = 60
 exclude = [
-  "packages/console/src/console/models.py", # response models: FastAPI reads their fields
+  "console/src/console/models.py", # response models: FastAPI reads their fields
 ]
 ignore_decorators = [
   "@router.*",
@@ -222,27 +222,3 @@ ignore_names = [
   "for_conditions",
   "raise_for_conditions",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests", "packages/*/tests"]
-asyncio_mode = "auto"
-strict = true
-addopts = ["--import-mode=importlib"]
-env_files = [".env.test"]
-pythonpath = ["src"]
-bdd_features_base_dir = "tests/integration/features"
-markers = [
-  "postgres: scenarios that require the PostgreSQL test service",
-  "s3: scenarios that require S3-compatible object storage",
-  "redis: scenarios that require the Valkey test service",
-  "postgrest: tests that require the PostgREST test service",
-]
-filterwarnings = [
-  "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
-  "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
-  "ignore::DeprecationWarning:gherkin.gherkin_line",
-]
-
-[tool.pytest-gremlins]
-paths = ["src"]
-exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]
