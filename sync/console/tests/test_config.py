@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import pytest
+from engine.models import SyncConfig
 from httpx2 import AsyncClient
 
 from helpers import document, first_events, table
@@ -238,3 +239,54 @@ class TestConfig:
         assert [event["event"] for event in events] == ["revision", "revision"]
         revisions = [json.loads(event["data"])["revision"] for event in events]
         assert [item and item["id"] for item in revisions] == [None, 1]
+
+    async def test_serves_the_exact_sync_json_that_the_engine_parses(
+        self, api: AsyncClient
+    ) -> None:
+        """Serve the stored document, with a list of tables, and the revision as the ETag."""
+        two = document({"a": table("proj.ds.a"), "b": table("proj.ds.b")})
+        assert await put(api, two) == 200
+
+        response = await api.get("/config/sync.json")
+
+        assert response.status_code == 200
+        assert response.headers["etag"] == '"1"'
+        assert response.json() == {
+            "schemas": {
+                "test": {
+                    "source": {"type": "bigquery"},
+                    "claim": "preferred_username",
+                    "ducklake": {"encrypted": False},
+                    "tables": [
+                        {"name": "proj.ds.a", "strategy": "full"},
+                        {"name": "proj.ds.b", "strategy": "full"},
+                    ],
+                }
+            }
+        }
+        assert list(SyncConfig.model_validate_json(response.text).schemas) == ["test"]
+
+    async def test_serves_an_empty_sync_json_before_the_first_write(
+        self, api: AsyncClient
+    ) -> None:
+        """Serve a document with no schemas, so a consumer has nothing to sync."""
+        response = await api.get("/config/sync.json")
+
+        assert response.status_code == 200
+        assert response.json() == {"schemas": {}}
+        assert response.headers["etag"] == '"0"'
+
+    async def test_answers_304_to_a_consumer_that_holds_the_current_etag(
+        self, api: AsyncClient
+    ) -> None:
+        """Send no body while nothing changed, and the new document after a change."""
+        assert await put(api, document()) == 200
+
+        unchanged = await api.get("/config/sync.json", headers={"If-None-Match": '"1"'})
+        assert unchanged.status_code == 304
+        assert unchanged.content == b""
+
+        assert await put(api, document({"x": table("proj.ds.x")}), etag='"1"') == 200
+        changed = await api.get("/config/sync.json", headers={"If-None-Match": '"1"'})
+        assert changed.status_code == 200
+        assert changed.headers["etag"] == '"2"'

@@ -3,7 +3,8 @@
 from collections.abc import AsyncIterable
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Header, Query, Response
+from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import select, update
 
@@ -32,6 +33,26 @@ async def get_config(engine: Engine, response: Response) -> Config:
     return Config(
         revision=current,
         document=config.to_api(current.document) if current else {"schemas": {}},
+    )
+
+
+@router.get("/sync.json")
+async def get_sync_json(
+    engine: Engine,
+    if_none_match: Annotated[str | None, Header()] = None,
+) -> Response:
+    """Serve the active config exactly as the engine reads sync.json.
+
+    The ETag is the id of the active revision. A consumer that sends the ETag it
+    holds gets 304 with no body while nothing changed.
+    """
+    async with engine.connect() as connection:
+        current = await revisions.active(connection)
+    etag = f'"{current.id if current else 0}"'
+    if if_none_match is not None and if_none_match.removeprefix("W/") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(
+        current.document if current else {"schemas": {}}, headers={"ETag": etag}
     )
 
 
