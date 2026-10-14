@@ -9,6 +9,13 @@ DOCUMENT: dict[str, object] = {
     "schemas": {"alpha": {"source": {"type": "bigquery"}, "tables": []}}
 }
 OTHER: dict[str, object] = {"schemas": {}}
+QUEUED = """
+SELECT w.queue_name, i.inputs::jsonb -> 'positionalArgs'
+FROM dbos.workflow_status AS w
+INNER JOIN dbos.workflow_input AS i ON w.workflow_uuid = i.workflow_uuid
+WHERE w.name = 'validate_revision'
+ORDER BY w.created_at
+"""
 CLAIMS = "SELECT set_config('request.jwt.claims', %s, true)"
 
 
@@ -160,3 +167,44 @@ class TestDrafts:
         deleted = await admin_db.execute(b"DELETE FROM admin.drafts")
 
         assert (updated.rowcount, deleted.rowcount) == (0, 0)
+
+
+@pytest.mark.postgres
+class TestValidationQueue:
+    """A draft that needs validation is queued for the worker, and nothing else is."""
+
+    async def test_a_new_draft_and_a_new_document_are_queued(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """Each document that nobody validated yet gets one validation job with its revision id."""
+        await become(admin_db, "console_editor")
+        cursor = await admin_db.execute(
+            b"INSERT INTO admin.drafts (comment, document) VALUES ('new', %s) RETURNING id",
+            (Jsonb(DOCUMENT),),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        identifier = row[0]
+
+        await admin_db.execute(b"UPDATE admin.drafts SET comment = 'renamed'")
+        await admin_db.execute(
+            b"UPDATE admin.drafts SET document = %s", (Jsonb(OTHER),)
+        )
+
+        await admin_db.execute(b"RESET ROLE")
+        assert await rows(admin_db, QUEUED) == [
+            ("validate", [identifier]),
+            ("validate", [identifier]),
+        ]
+
+    async def test_validated_and_activated_revisions_are_not_queued(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A revision that already has a result, or that was active, needs no job."""
+        await draft(admin_db, "checked")
+        await admin_db.execute(
+            b"INSERT INTO data_proxy.revisions (author, document, valid, active, activated_at) VALUES ('ana', %s, TRUE, FALSE, now())",
+            (Jsonb(DOCUMENT),),
+        )
+
+        assert await rows(admin_db, QUEUED) == []

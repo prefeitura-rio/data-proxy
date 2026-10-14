@@ -31,6 +31,7 @@ from sync.models import (
 )
 from sync.planning import run_planning
 from sync.postgres import Postgres
+from sync.revisions import read_revision, write_validation
 from sync.s3 import clear_s3_prefix
 from sync.settings import settings
 from sync.state import (
@@ -39,6 +40,7 @@ from sync.state import (
     ensure_app_schema,
     write_table_states,
 )
+from sync.validation import check_config
 from sync.views.reconcile import reconcile_views
 
 from . import logs
@@ -345,3 +347,21 @@ async def finalize_run() -> None:
 
     await clear_cache()
     await logs.info("Sync finalization completed")
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def check_revision(revision_id: int) -> None:
+    """Validate one draft configuration and record the result."""
+    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+        document = await read_revision(pg_conn, revision_id)
+        if document is None:
+            return
+
+        async with pg_conn.atomic():
+            await write_validation(
+                pg_conn, revision_id, document, check_config(document)
+            )

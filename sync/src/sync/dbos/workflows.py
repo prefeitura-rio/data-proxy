@@ -14,6 +14,7 @@ from . import logs
 from .steps import (
     apply_ducklake_maintenance,
     build_sync_work,
+    check_revision,
     commit_ducklake_snapshot,
     commit_table_state,
     extract_task,
@@ -146,3 +147,9 @@ async def run_sync(
         await finalize_run()
 
         await logs.info("Sync workflow completed")
+
+
+@DBOS.workflow()
+async def validate_revision(revision_id: int) -> None:
+    """Validate one draft configuration that an editor saved."""
+    await check_revision(revision_id)

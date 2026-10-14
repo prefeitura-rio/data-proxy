@@ -26,6 +26,7 @@ TIME_GRANULARITY_SPECS = MappingProxyType(
 
 DUMP_QUEUE = "dump"
 SYNC_QUEUE = "sync"
+VALIDATE_QUEUE = "validate"
 
 RESTARTED_AT_ANNOTATION: Final = "kubectl.kubernetes.io/restartedAt"
 PROJECT_PATH: Final = "/data_proxy/"

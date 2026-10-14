@@ -1,7 +1,9 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
 sync/src/sync/templates/postgres/insert_error.sql
+sync/src/sync/templates/postgres/read_revision.sql
 sync/src/sync/templates/postgres/read_state.sql
 sync/src/sync/templates/postgres/upsert_state.sql
+sync/src/sync/templates/postgres/write_validation.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
 sync/src/sync/templates/postgres/macros.sql

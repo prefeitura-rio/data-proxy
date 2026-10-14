@@ -475,6 +475,7 @@ class TestServe:
             ("sync", "never_update"),
             ("dump", "never_update"),
             ("publish", "never_update"),
+            ("validate", "never_update"),
         ]
 
     @pytest.mark.asyncio
