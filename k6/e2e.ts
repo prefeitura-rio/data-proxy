@@ -84,9 +84,6 @@ const HOST = __ENV.API_HOST || "data-proxy.local";
 const POSTGREST_URL =
     __ENV.POSTGREST_URL ||
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
-const POSTGREST_READ_URL =
-    __ENV.POSTGREST_READ_URL ||
-    "http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000";
 const PG_IMAGE = __ENV.PG_IMAGE || "registry.localhost:5001/data-proxy-postgres:17.0.0-local";
 const PARTITIONED_SOURCE =
     __ENV.PARTITIONED_SOURCE ||
@@ -107,18 +104,13 @@ const STATE_DATABASE = "DBOS_SYSTEM_DATABASE_URL";
 const POLL_INTERVAL = 2;
 const TOKEN_REFRESH_SECONDS = 60;
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
-const MODE = __ENV.MODE || "single";
-if (["single", "ha"].indexOf(MODE) === -1) {
-    throw new Error(`MODE must be single or ha: ${MODE}`);
-}
-const EXPECT_HA = MODE === "ha";
-const MODE_TIMEOUT_SECONDS = Number(__ENV.MODE_TIMEOUT_SECONDS || "900");
+const TOPOLOGY_TIMEOUT_SECONDS = Number(__ENV.TOPOLOGY_TIMEOUT_SECONDS || "900");
 const CLUSTER_NAME = __ENV.CLUSTER_NAME || "data-proxy";
-const HA_MIN_INSTANCES = 2;
+const MIN_INSTANCES = 2;
 const SECRETS_MOUNT = "/var/lib/postgresql/data/.duckdb/stored_secrets";
 const SECRETS_SUBPATH = "duckdb/secrets";
-const READ_POSTGREST = "data-proxy-postgrest-ro";
-const READ_POOLER = "data-proxy-pooler-ro";
+const PGDOG = "data-proxy-pgdog";
+const AUTHENTICATOR = "postgrest";
 const CLUSTER_SCALER = "data-proxy-cluster-autoscaler";
 const PROXY_DEPLOYMENT = "data-proxy-proxy";
 const PAUSED_REPLICAS = "autoscaling.keda.sh/paused-replicas";
@@ -1099,11 +1091,10 @@ function readyInstances(k8s: Kubernetes): PodObject[] {
 function verifyInstanceCatalogs(k8s: Kubernetes, token: string): void {
     const snapshot = snapshotValue(token);
     const instances = readyInstances(k8s);
-    const minimum = EXPECT_HA ? HA_MIN_INSTANCES : 1;
 
     expect(
-        "the ready PostgreSQL instances match the mode",
-        instances.length >= minimum,
+        "the cluster has a primary and a standby, and both are ready",
+        instances.length >= MIN_INSTANCES,
     );
 
     for (const instance of instances) {
@@ -1117,33 +1108,30 @@ function verifyInstanceCatalogs(k8s: Kubernetes, token: string): void {
     }
 }
 
-/** Verifies every PostgREST Deployment restarted after the views changed, and all recovered. */
-function verifyServingRestart(k8s: Kubernetes): void {
+/** Verifies that PostgREST reloaded its schema after the views changed, without a restart, and is available. */
+function verifyServingReload(k8s: Kubernetes): void {
     const deployments = k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[];
-    const postgrests = deployments.filter((item) =>
-        ["postgrest", "postgrest-ro"].includes(
-            item.metadata.labels?.["app.kubernetes.io/component"] ?? "",
-        ),
+    const postgrests = deployments.filter(
+        (item) =>
+            item.metadata.labels?.["app.kubernetes.io/component"] === "postgrest",
     );
-    const restartedAt = (item: ServingDeployment): number =>
-        Date.parse(
-            item.spec.template.metadata?.annotations?.[
-                "kubectl.kubernetes.io/restartedAt"
-            ] ?? "",
-        );
-    const expected = EXPECT_HA ? 2 : 1;
 
     expect(
-        "every PostgREST Deployment is discoverable by label",
-        postgrests.length >= expected,
+        "the PostgREST Deployment is discoverable by label",
+        postgrests.length === 1,
     );
     expect(
-        "every PostgREST Deployment restarted after the views changed",
-        postgrests.every((item) => !Number.isNaN(restartedAt(item))),
+        "PostgREST reloaded without a restart",
+        postgrests.every(
+            (item) =>
+                item.spec.template.metadata?.annotations?.[
+                    "kubectl.kubernetes.io/restartedAt"
+                ] === undefined,
+        ),
     );
     expect(
-        "every restarted Deployment has all replicas available",
-        waitUntil(MODE_TIMEOUT_SECONDS, () =>
+        "the PostgREST Deployment has all replicas available",
+        waitUntil(TOPOLOGY_TIMEOUT_SECONDS, () =>
             (k8s.list("Deployment.apps", NAMESPACE) as ServingDeployment[])
                 .filter((item) =>
                     postgrests.some(
@@ -1548,18 +1536,17 @@ function verifyIstioJwtValidation(): void {
 function verifyFilterPushdown(token: string): void {
     clearProxyCache();
 
-    const postgrestUrl = MODE === "ha" ? POSTGREST_READ_URL : POSTGREST_URL;
     const baseline = directPostgrest(
         `/${FULL_TABLE}?select=id&order=id.asc&limit=3`,
         token,
         {},
-        postgrestUrl,
+        POSTGREST_URL,
     );
     const baselineRows = rowsOf(baseline) as Array<Record<string, unknown>>;
     const snapshot = snapshotHeader(baseline);
-    const snapshotHeaders: Record<string, string> = MODE === "ha"
-        ? { "X-DuckLake-Snapshot": snapshot }
-        : {};
+    const snapshotHeaders: Record<string, string> = {
+        "X-DuckLake-Snapshot": snapshot,
+    };
     const ids = baselineRows
         .map((row) => row.id)
         .filter(
@@ -1571,7 +1558,7 @@ function verifyFilterPushdown(token: string): void {
         "filter pushdown has three authorized IDs",
         baseline.status === 200 &&
         ids.length === 3 &&
-        (MODE !== "ha" || /^[0-9]+$/.test(snapshot)),
+        /^[0-9]+$/.test(snapshot),
         { status: baseline.status, ids, snapshot },
     );
 
@@ -1684,48 +1671,37 @@ function clusterObject(k8s: Kubernetes): ClusterObject {
     ) as ClusterObject;
 }
 
-/** Reports whether the Cluster has the instance count of the mode and all are ready. */
-function clusterSettled(k8s: Kubernetes, ha: boolean): boolean {
+/** Reports whether the Cluster has a primary and a standby, and all instances are ready. */
+function clusterSettled(k8s: Kubernetes): boolean {
     const cluster = clusterObject(k8s);
     const instances = cluster.spec.instances;
-    const sized = ha ? instances >= HA_MIN_INSTANCES : instances === 1;
     return (
-        sized &&
+        instances >= MIN_INSTANCES &&
         cluster.status?.readyInstances === instances &&
         cluster.status?.phase === "Cluster in healthy state"
     );
 }
 
-/** Reports whether the read PostgREST and the read pooler exist exactly in HA mode. */
-function readSideMatches(k8s: Kubernetes, ha: boolean): boolean {
-    const postgrest = findObject(k8s, "Deployment.apps", READ_POSTGREST);
-    const poolerDeployment = findObject(k8s, "Deployment.apps", READ_POOLER);
-    const pooler = findObject(k8s, "Pooler.postgresql.cnpg.io", READ_POOLER);
-    const present = [postgrest, poolerDeployment, pooler].every(Boolean);
-    const absent = [postgrest, poolerDeployment, pooler].every((item) => !item);
-    return ha ? present : absent;
-}
-
-function readSideAvailable(k8s: Kubernetes): boolean {
-    return [READ_POSTGREST, READ_POOLER].every(
-        (name) =>
-            (findObject(k8s, "Deployment.apps", name)?.status
-                ?.availableReplicas ?? 0) >= 1,
+/** Reports whether PgDog is available and no read-only PostgREST or CNPG Pooler is left. */
+function servingSideMatches(k8s: Kubernetes): boolean {
+    const leftovers = [
+        findObject(k8s, "Deployment.apps", "data-proxy-postgrest-ro"),
+        findObject(k8s, "Pooler.postgresql.cnpg.io", "data-proxy-pooler"),
+        findObject(k8s, "Pooler.postgresql.cnpg.io", "data-proxy-pooler-ro"),
+    ];
+    return (
+        (findObject(k8s, "Deployment.apps", PGDOG)?.status?.availableReplicas ?? 0) >= 1 &&
+        leftovers.every((item) => !item)
     );
 }
 
-/** Reports whether the cluster scaler autoscales in HA mode and pins the count in single mode. */
-function clusterScalerMatches(k8s: Kubernetes, ha: boolean): boolean {
+/** Reports whether the cluster scaler owns the instance count. */
+function clusterScalerAutoscales(k8s: Kubernetes): boolean {
     const scaler = findObject(k8s, "ScaledObject.keda.sh", CLUSTER_SCALER);
-    const pinned = scaler?.metadata.annotations?.[PAUSED_REPLICAS];
-    return scaler !== undefined && (ha ? pinned === undefined : pinned === "1");
-}
-
-function proxyHaMode(k8s: Kubernetes): string {
-    const env = deploymentPodSpec(k8s, PROXY_DEPLOYMENT).containers.flatMap(
-        (container) => container.env ?? [],
+    return (
+        scaler !== undefined &&
+        scaler.metadata.annotations?.[PAUSED_REPLICAS] === undefined
     );
-    return env.find((entry) => entry.name === "PROXY_HA_MODE")?.value ?? "";
 }
 
 /** Reports whether every PostgreSQL pod mounts the shared S3 secret folder. */
@@ -1749,9 +1725,9 @@ function postgresPodsMountSecret(k8s: Kubernetes, expected: number): boolean {
     );
 }
 
-/** Shell test that succeeds when one SQL query on the read pooler prints the expected value. */
-function readPoolerSqlEquals(query: string, expected: string): string {
-    const dsn = `$(echo "$PG_DATABASE_URL" | sed 's/-rw:/-pooler-ro:/')`;
+/** Shell test that succeeds when one SQL query on a standby prints the expected value. */
+function standbySqlEquals(query: string, expected: string): string {
+    const dsn = `$(echo "$PG_DATABASE_URL" | sed 's/-rw:/-ro:/')`;
     return `test "$(psql "${dsn}" -tAc ${JSON.stringify(query)})" = ${JSON.stringify(expected)}`;
 }
 
@@ -1770,99 +1746,80 @@ function uncachedReads(
     ) as K6Response[];
 }
 
-/** Verifies the PostgreSQL side that only HA mode has: standbys, streaming, and read routing. */
+/** Verifies the standbys, and that PgDog sends PostgREST reads to them and its listener to the primary. */
 function verifyStandbys(k8s: Kubernetes): void {
     checkSql(
         k8s,
-        "ha-streaming-replicas",
-        `SELECT count(*) >= ${HA_MIN_INSTANCES - 1} FROM pg_stat_replication WHERE state = 'streaming'`,
+        "streaming-standbys",
+        `SELECT count(*) >= ${MIN_INSTANCES - 1} FROM pg_stat_replication WHERE state = 'streaming'`,
         "t",
     );
-    runCommandJob(
+    checkSql(
         k8s,
-        "ha-read-pooler-on-standby",
-        readPoolerSqlEquals("SELECT pg_is_in_recovery()", "t"),
+        "postgrest-listener-on-primary",
+        `SELECT count(*) > 0 FROM pg_stat_activity WHERE usename = '${AUTHENTICATOR}' AND query LIKE 'LISTEN%'`,
+        "t",
     );
-    checkSql(k8s, "ha-write-pooler-on-primary", "SELECT pg_is_in_recovery()", "f");
 }
 
-/** Verifies that reads reach the standbys and that only the write side takes writes. */
-function verifyReadWriteSplit(): void {
-    const reads = uncachedReads(POSTGREST_READ_URL, {
+/** Verifies that parallel reads succeed and that PgDog opened backends on a standby for them. */
+function verifyReadsReachStandby(k8s: Kubernetes): void {
+    const reads = uncachedReads(POSTGREST_URL, {
         Authorization: `Bearer ${userToken()}`,
         "Accept-Profile": SCHEMA,
     });
     expect(
-        "HA: every parallel read on the read PostgREST succeeds from a standby",
+        "every parallel read on PostgREST succeeds",
         reads.every(
             (response) =>
                 response.status === 200 &&
                 sourceHeader(response).indexOf("ducklake") !== -1,
         ),
     );
-
-    const write = http.post(
-        `${POSTGREST_READ_URL}/access_policy`,
-        JSON.stringify(ACCESS_POLICY_ROWS),
-        {
-            headers: {
-                Authorization: `Bearer ${fetchToken("policy_writer")}`,
-                "Accept-Profile": SCHEMA,
-                "Content-Profile": SCHEMA,
-                "Content-Type": "application/json",
-                Prefer: "resolution=merge-duplicates",
-            },
-            tags: { name: "mode_write_on_read_postgrest" },
-        },
-    ) as K6Response;
-    expect("HA: the read PostgREST refuses a write", write.status >= 400);
+    runCommandJob(
+        k8s,
+        "reads-reach-the-standby",
+        standbySqlEquals(
+            `SELECT count(*) > 0 FROM pg_stat_activity WHERE usename = '${AUTHENTICATOR}' AND backend_type = 'client backend'`,
+            "t",
+        ),
+    );
 }
 
-/** Verifies the deployed topology and the read and write paths of one mode. */
-function verifyMode(k8s: Kubernetes, ha: boolean): void {
-    const mode = ha ? "HA" : "single";
-    const timeout = MODE_TIMEOUT_SECONDS;
+/** Verifies the deployed topology and the read and write paths. */
+function verifyTopology(k8s: Kubernetes): void {
+    const timeout = TOPOLOGY_TIMEOUT_SECONDS;
 
     expect(
-        `${mode}: the cluster settles on the instances of the mode`,
-        waitUntil(timeout, () => clusterSettled(k8s, ha)),
+        "the cluster settles on a primary and a standby",
+        waitUntil(timeout, () => clusterSettled(k8s)),
     );
     expect(
-        `${mode}: the read PostgREST and read pooler ${ha ? "exist" : "are gone"}`,
-        waitUntil(timeout, () => readSideMatches(k8s, ha)),
-    );
-    if (ha) {
-        expect(
-            "HA: the read PostgREST and read pooler are available",
-            waitUntil(timeout, () => readSideAvailable(k8s)),
-        );
-    }
-    expect(
-        `${mode}: the cluster scaler ${ha ? "autoscales" : "pins the count"}`,
-        waitUntil(timeout, () => clusterScalerMatches(k8s, ha)),
+        "PgDog is available, and no read-only PostgREST or CNPG Pooler is left",
+        waitUntil(timeout, () => servingSideMatches(k8s)),
     );
     expect(
-        `${mode}: the proxy knows the mode`,
-        proxyHaMode(k8s) === String(ha),
+        "the cluster scaler autoscales the instances",
+        waitUntil(timeout, () => clusterScalerAutoscales(k8s)),
     );
     expect(
-        `${mode}: every PostgreSQL pod mounts the shared S3 secret`,
+        "every PostgreSQL pod mounts the shared S3 secret",
         postgresPodsMountSecret(k8s, clusterObject(k8s).spec.instances),
     );
     checkSql(
         k8s,
-        "mode-state-intact",
+        "topology-state-intact",
         "SELECT count(*) FROM data_proxy.state",
         String([...TABLES, BIG_TABLE].length),
         "DBOS_SYSTEM_DATABASE_URL",
     );
-    if (ha) verifyStandbys(k8s);
+    verifyStandbys(k8s);
 
     seedAccessPolicy();
     waitForAccessPolicyReplication(userToken());
     const read = uncachedReads(API_URL, authHeaders(userToken()));
     expect(
-        `${mode}: reads through the proxy return rows from DuckLake`,
+        "reads through the proxy return rows from DuckLake",
         read.every(
             (response) =>
                 response.status === 200 &&
@@ -1870,7 +1827,7 @@ function verifyMode(k8s: Kubernetes, ha: boolean): void {
                 sourceHeader(response).indexOf("ducklake") !== -1,
         ),
     );
-    if (ha) verifyReadWriteSplit();
+    verifyReadsReachStandby(k8s);
 }
 
 function verifyEndToEnd(k8s: Kubernetes): void {
@@ -1903,7 +1860,7 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyChangeFeed(userToken());
     verifyCatalogSync(k8s);
     verifyInstanceCatalogs(k8s, userToken());
-    verifyServingRestart(k8s);
+    verifyServingReload(k8s);
     verifyMaintenanceJob(k8s);
     verifyBackupJob(k8s);
     verifyCnpgReaderMount(userToken());
@@ -1978,7 +1935,7 @@ export default function(): void {
     activeKubernetes = k8s;
     try {
         verifyEndToEnd(k8s);
-        verifyMode(k8s, EXPECT_HA);
+        verifyTopology(k8s);
     } catch (error) {
         expect("the suite ends without an exception", false);
         throw error;

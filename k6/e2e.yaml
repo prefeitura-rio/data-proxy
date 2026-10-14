@@ -22,8 +22,6 @@ spec:
         cpu: "3"
         memory: 4Gi
     env:
-      - name: MODE
-        value: single
       - name: BASE_URL
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
@@ -36,8 +34,6 @@ spec:
         value: data-proxy-e2e
       - name: POSTGREST_URL
         value: http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000
-      - name: POSTGREST_READ_URL
-        value: http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000
       - name: OIDC_TOKEN_URL
         value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
       - name: OIDC_USER_CLIENT_ID
@@ -52,7 +48,7 @@ spec:
         value: "120"
       - name: POLICY_REPLICATION_POLL_INTERVAL_SECONDS
         value: "2"
-      - name: MODE_TIMEOUT_SECONDS
+      - name: TOPOLOGY_TIMEOUT_SECONDS
         value: "900"
       - name: MAX_DURATION
         value: 40m

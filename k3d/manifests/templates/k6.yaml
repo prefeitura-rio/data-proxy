@@ -60,7 +60,7 @@ rules:
     resources: [scaledobjects, scaledjobs]
     verbs: [get, list]
   - apiGroups: [postgresql.cnpg.io]
-    resources: [clusters, poolers]
+    resources: [clusters]
     verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

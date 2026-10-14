@@ -13,38 +13,15 @@ use lib.nu [
     wrap-kubectl
 ]
 
-# Switch between single and HA mode and wait for required workloads.
-def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
-    let image_tag = local-image-tag
-    let mode = if $ha { 'HA' } else { 'single' }
-
-    let cluster = try {
-        wrap-kubectl $kubecfg -n $NAMESPACE get cluster data-proxy -o json | from json
-    } catch {
-        null
-    }
-
-    let matches = (
-        $cluster != null and (
-            if $ha { $cluster.spec.instances >= 2 } else { $cluster.spec.instances == 1 }
-        )
-    )
-
-    if not $matches {
-        log info $'Switching to ($mode) mode...'
-        wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)'
-    } else {
-        log info $'Cluster already targets ($mode) mode; skipping Helm upgrade'
-    }
-
-    log info $'Waiting for the ($mode) instances...'
+# Wait until the cluster has settled on its standbys and the serving workloads are available.
+def wait-for-topology [kubecfg: path]: nothing -> nothing {
+    log info 'Waiting for the PostgreSQL instances...'
     if not (poll {||
         try {
             let cluster = wrap-kubectl $kubecfg -n $NAMESPACE get cluster data-proxy -o json | from json
             let instances = $cluster.spec.instances
-            let mode_matches = if $ha { $instances >= 2 } else { $instances == 1 }
 
-            $mode_matches and ($cluster.status.readyInstances? == $instances) and ($cluster.status.phase? == 'Cluster in healthy state')
+            ($instances >= 2) and ($cluster.status.readyInstances? == $instances) and ($cluster.status.phase? == 'Cluster in healthy state')
         } catch {
             false
         }
@@ -52,19 +29,15 @@ def switch-mode [kubecfg: path, ha: bool]: nothing -> nothing {
         interval: 10sec
         max_attempts: 90
     }) {
-        fail $'The cluster did not settle in ($mode) mode within 15 minutes' {
-            command: switch-mode
-            span: (metadata $ha).span
+        fail 'The cluster did not settle on a primary and a standby within 15 minutes' {
+            command: wait-for-topology
+            span: (metadata $kubecfg).span
         }
     }
 
-    if not $ha {
-        return
-    }
-
     [
-        'data-proxy/data-proxy-postgrest-ro'
-        'data-proxy/data-proxy-pooler-ro'
+        'data-proxy/data-proxy-pgdog'
+        'data-proxy/data-proxy-postgrest'
     ] | wait-for deployment $kubecfg
 }
 
@@ -255,20 +228,19 @@ def parse-shares [...shares: string]: nothing -> record {
     $result
 }
 
-# Run one k6 profile in the requested mode.
+# Run one k6 profile.
 def run-profile [
     kubecfg: path
     profile: string
-    ha: bool
     settings: record = {}
     --cache-ttl: int = 0
 ]: nothing -> nothing {
-    switch-mode $kubecfg $ha
+    wait-for-topology $kubecfg
 
     if $cache_ttl > 0 {
         let image_tag = local-image-tag
         log info $'Applying proxy cache TTL ($cache_ttl)s...'
-        wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'ha.enabled=($ha)' --state-values-set $'proxy.cacheTtl=($cache_ttl)'
+        wrap-helmfile $kubecfg --image-tag $image_tag sync --selector name=data-proxy --state-values-set $'proxy.cacheTtl=($cache_ttl)'
         [
             'data-proxy/data-proxy-proxy'
             'data-proxy/data-proxy-postgrest'
@@ -282,22 +254,18 @@ def run-profile [
 
     let run_settings = {
         K6_PROFILE: $profile
-        HA_MODE: (if $ha { 'true' } else { 'false' })
     } | merge $settings
 
     k6-run $kubecfg data-proxy-k6 load.ts k6/load.ts data-proxy-load k6/load.yaml --image-tag $image_tag --set $run_settings
 }
 
 # Run the k6 smoke profile: one virtual user for 40 seconds.
-export def "main k6 smoke" [
-    --ha # Run in HA mode.
-]: nothing -> nothing {
-    run-profile (local-kubeconfig) smoke $ha
+export def "main k6 smoke" []: nothing -> nothing {
+    run-profile (local-kubeconfig) smoke
 }
 
 # Run the standard k6 load profile.
 export def "main k6 load" [
-    --ha # Run in HA mode.
     --capacity # Use capacity thresholds and extra VU headroom.
     --report-only # Do not gate fallback and heavy-route thresholds.
     --peak-rate: int = 25 # Peak iterations per second.
@@ -317,16 +285,14 @@ export def "main k6 load" [
             K6_MAX_VUS_MULTIPLIER: $max_vus_multiplier
             K6_GATE_CLIENT_RISK: (if $report_only { 'false' } else { 'true' })
         }
-    run-profile (local-kubeconfig) load $ha $settings --cache-ttl $cache_ttl
+    run-profile (local-kubeconfig) load $settings --cache-ttl $cache_ttl
 }
 
-# Run the full E2E suite against the requested deployment mode.
+# Run the full E2E suite against the deployed release.
 export def "main k6 e2e" [
-    --ha # Deploy and verify HA mode.
     --build # Build and deploy fresh local images before the E2E run.
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
-    let mode = if $ha { 'ha' } else { 'single' }
     let repo = git-root
 
     try {
@@ -358,16 +324,15 @@ export def "main k6 e2e" [
         }
 
         log info 'Syncing local Helmfile releases with fresh images...'
-        wrap-helmfile $kubecfg --image-tag $tag sync --state-values-set $'ha.enabled=($ha)'
+        wrap-helmfile $kubecfg --image-tag $tag sync
         $tag
     } else {
-        switch-mode $kubecfg $ha
+        wait-for-topology $kubecfg
         local-image-tag
     }
 
-    log info $'Running the full E2E suite against ($mode) mode: build=($build)'
-    k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts $'data-proxy-e2e-($mode)' k6/e2e.yaml --image-tag $image_tag --set {
-        MODE: $mode
+    log info $'Running the full E2E suite: build=($build)'
+    k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts data-proxy-e2e k6/e2e.yaml --image-tag $image_tag --set {
         PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'
     } --with-trigger
 }

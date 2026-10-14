@@ -60,7 +60,6 @@ const POSTGREST_URL =
     "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
 const K6_PROFILE = __ENV.K6_PROFILE || "smoke";
 const THRESHOLD_MODE = __ENV.K6_THRESHOLD_MODE || "strict";
-const HA_MODE = (__ENV.HA_MODE || "false") === "true";
 const TOKEN_REFRESH_SECONDS = 30;
 const FALLBACK_LIMIT_MAX = 20;
 const HEAVY_LIMIT_MIN = 1000;
@@ -184,7 +183,7 @@ if (THRESHOLD_MODE === "capacity") {
     sourceThresholds.http_req_failed = ["rate<0.05"];
 }
 
-const runsScalingObserver = profile.executor !== "ramping-vus" && HA_MODE;
+const runsScalingObserver = profile.executor !== "ramping-vus";
 
 const isArrivalRate = profile.executor !== "ramping-vus";
 const gatesAutoscaling = THRESHOLD_MODE === "capacity";
@@ -821,7 +820,7 @@ function scalingReplicaCounts(k8s: Kubernetes): Record<string, number> {
     const baseline: Record<string, number> = {};
     for (const deployment of deployments) {
         const component = deployment.metadata.labels?.["app.kubernetes.io/component"];
-        if (component === "proxy" || component === "postgrest" || component === "postgrest-ro") {
+        if (component === "proxy" || component === "postgrest" || component === "pgdog") {
             baseline[deployment.metadata.name] = deployment.spec.replicas || 0;
         }
     }

@@ -48,5 +48,3 @@ spec:
         value: strict
       - name: K6_MAX_VUS_MULTIPLIER
         value: "3"
-      - name: HA_MODE
-        value: "false"

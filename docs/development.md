@@ -166,10 +166,10 @@ See [Using the API](using.md).
 
 | Command             | Purpose                                                    |
 | ------------------- | ---------------------------------------------------------- |
-| `cluster k6 e2e`    | Validates the deployed release: sync, RLS, routing, cache, snapshots, and mode. |
+| `cluster k6 e2e`    | Validates the deployed release: sync, RLS, routing, cache, snapshots, and topology. |
 | `cluster k6 e2e --build` | Builds and deploys fresh local images before validation. |
 | `cluster k6 smoke`  | Runs one virtual user for 40 seconds to check the setup.  |
-| `cluster k6 load`   | Ramps to a configurable peak and holds it in single or HA mode. |
+| `cluster k6 load`   | Ramps to a configurable peak and holds it. |
 
 The load profile derives its rate from `K6_PEAK_RATE`, which defaults to 25 iterations per second. It ramps through 25%, 50%, 75%, and 100% of the peak, then holds the peak before ramping down. Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally.
 
@@ -184,7 +184,7 @@ devenv shell -- nu scripts/cluster.nu k6 load \
 
 Use `--cache-ttl 5 --report-only` for the non-gating cold-cache stress run. Use `--capacity` with a higher peak and wider thresholds. The `bottleneck` share selects heavy DuckLake bottleneck cases; the `fallback` share selects configured-source fallback pairs. Staging capacity runs can use a higher peak from a generator outside the cluster host.
 
-`cluster k6 smoke` and `cluster k6 load` set the requested mode before the test: Helmfile applies `ha.enabled=true` with `--ha`, and `ha.enabled=false` without it. If the Cluster already targets that mode, the command skips the Helmfile sync and waits for readiness. Before k6 starts, the command creates a one-off Job from the Helmfile-managed `manifests-sync-trigger` CronJob. This runs one normal DBOS sync to restore data that an earlier E2E run removed. Tests leave the requested mode enabled when they finish. Compare a run with and without `--ha` to see what the read side adds.
+`cluster k6 smoke` and `cluster k6 load` wait until the Cluster has a primary and a standby, and PgDog and PostgREST are available. Before k6 starts, the command creates a one-off Job from the Helmfile-managed `manifests-sync-trigger` CronJob. This runs one normal DBOS sync to restore data that an earlier E2E run removed.
 
 ### Performance thresholds
 
@@ -211,9 +211,9 @@ The suite reads the same `K6_PROFILE`, `K6_PEAK_RATE`, `K6_FALLBACK_SHARE`, and 
 
 Run `cluster k6 e2e` after changing local images, sync configuration, fallback, SeaweedFS, or pg_duckdb behavior.
 
-`cluster k6 e2e` verifies the existing release is ready, clears persisted test state, selects the requested mode with the current immutable image tag, then runs the full E2E suite. It doesn't rebuild images or force a CNPG image rollout. Use `cluster k6 e2e --build` after an image, sync configuration, fallback, SeaweedFS, or pg_duckdb change. The build form creates a new immutable image tag, applies Helmfile, and then runs the suite. `--ha` selects HA mode in either form.
+`cluster k6 e2e` verifies the existing release is ready, clears persisted test state, waits for the primary, the standby, PgDog, and PostgREST, then runs the full E2E suite. It doesn't rebuild images or force a CNPG image rollout. Use `cluster k6 e2e --build` after an image, sync configuration, fallback, SeaweedFS, or pg_duckdb change. The build form creates a new immutable image tag, applies Helmfile, and then runs the suite.
 
-`MODE` in `k6/e2e.yaml` is `single` or `ha` and identifies the topology that the mode checks verify.
+The suite also checks the topology: a primary and a standby stream, PgDog is available, no read-only PostgREST or CNPG Pooler is left, PostgREST reloaded without a restart, reads reach a standby, and the PostgREST listener sits on the primary.
 
 ## Development checks
 
