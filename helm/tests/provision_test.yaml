@@ -29,11 +29,11 @@ tests:
           value: provision
         template: jobs.yaml
 
-  - it: restarts PostgREST with the service account that may patch deployments
+  - it: restarts PostgREST and writes the proxy configuration with its own service account
     asserts:
       - equal:
           path: spec.template.spec.serviceAccountName
-          value: data-proxy
+          value: data-proxy-provision
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision
@@ -53,6 +53,15 @@ tests:
           content:
             name: SYNC_CONFIG_PATH
             value: /config/sync.json
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_MAP
+            value: data-proxy-proxy-config
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision

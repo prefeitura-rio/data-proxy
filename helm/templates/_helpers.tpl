@@ -347,10 +347,6 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
   value: {{ toString .Values.proxy.postgrestBackoffMs | quote }}
 - name: PROXY_MAX_INFLIGHT
   value: {{ toString .Values.proxy.maxInflight | quote }}
-{{- with .Values.proxy.configUrl }}
-- name: PROXY_CONFIG_URL
-  value: {{ . | quote }}
-{{- end }}
 - name: PROXY_CONFIG_REFRESH_SECONDS
   value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
 {{- end }}
@@ -534,6 +530,13 @@ jwtRules:
     name: {{ include "data-proxy.fullname" . }}-sync
 {{- end }}
 
+{{- define "data-proxy.proxyConfigVolume" -}}
+- name: sync-config
+  configMap:
+    name: {{ include "data-proxy.fullname" . }}-proxy-config
+    optional: true
+{{- end }}
+
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
@@ -575,7 +578,7 @@ jwtRules:
 {{- define "data-proxy.provisionPodSpec" -}}
 {{- $root := .root -}}
 restartPolicy: OnFailure
-serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
+serviceAccountName: {{ printf "%s-provision" (include "data-proxy.fullname" $root) }}
 automountServiceAccountToken: true
 initContainers:
   - name: wait-for-config
@@ -625,6 +628,8 @@ containers:
         value: {{ $root.Values.sync.dbos.appSchema | quote }}
       - name: SYNC_CONFIG_PATH
         value: /config/sync.json
+      - name: PROXY_CONFIG_MAP
+        value: {{ printf "%s-proxy-config" (include "data-proxy.fullname" $root) | quote }}
       {{- if .all }}
       - name: PROVISION_ALL
         value: "true"

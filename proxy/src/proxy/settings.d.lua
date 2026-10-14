@@ -11,13 +11,6 @@
 ---@field version integer|nil The version of the settings that the worker parsed last.
 ---@field value SyncConfig|nil The settings that the worker parsed last.
 
---- The answer of the console to a request for sync.json.
----@class SettingsResponse
----@field status integer HTTP status.
----@field body string The text of the answer.
----@field etag string|nil The ETag header, which is the revision of the config.
-
 --- The result of a reload that worked.
 ---@class SettingsReload
 ---@field changed boolean True if the proxy took a new document.
----@field revision string The revision of the document that the console gave.

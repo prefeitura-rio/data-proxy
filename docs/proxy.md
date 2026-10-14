@@ -75,22 +75,13 @@ Measure the limit against the database, not the proxy: one PostgreSQL pod with 8
 
 The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postgrest.dbPoolAcquisitionTimeout` seconds (3 by default) for a free database connection before it answers with an error.
 
-## Table settings from the console
+## Table settings from the configuration
 
-The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cache_ttl`) and the paths that it never caches (`noCachePaths`). With `PROXY_CONFIG_URL` set, it takes both from the console endpoint `GET /config/sync.json`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
+The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cache_ttl`) and the paths that it never caches (`noCachePaths`). It reads them from the file `/config/sync.json`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
 
-The first `sync.json` comes from the file `/config/sync.json` when the file exists. Without a file and before the first answer of the console, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+The provision job of the chart keeps the file current. Every minute it reads `admin.sync_config()`, and it writes the document into the ConfigMap `<release>-proxy-config` when the document changed. Kubernetes updates the mounted file, and worker 0 of each proxy pod checks the file every `PROXY_CONFIG_REFRESH_SECONDS`. A change in the console reaches the proxy within about two or three minutes. The proxy needs no credentials and no network call for this.
 
-The proxy takes a new `sync.json` in two ways:
-
-| Way | When |
-| --- | --- |
-| `POST /reload` on the admin port 8081 | The console calls it right after a change. The answer is `{"changed":true,"revision":"\"7\""}`, or `changed` is `false` when the proxy already has that revision. |
-| A check every `PROXY_CONFIG_REFRESH_SECONDS` | Worker 0 asks the console, so a proxy that missed a call still catches up. |
-
-A console that fails, or a document that doesn't match the schema, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
-
-The admin port has no authentication, so no ingress may route it. The chart renders a headless Service, `<release>-proxy-admin`, only when `proxy.configUrl` is set. Its DNS name resolves to the address of every proxy pod, so the console can call each one.
+Without a file, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`. It takes the file when the file appears. A document that doesn't match the schema changes nothing. The proxy keeps the last good settings and logs the reason on every check. A pod that starts with a file that isn't valid doesn't start.
 
 ## Settings
 

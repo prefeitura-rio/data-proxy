@@ -136,6 +136,30 @@ def publish-schemas [...names: string]: nothing -> nothing {
     log info $'PostgREST serves: ($desired)'
 }
 
+# Give the proxy the table settings in a ConfigMap that it mounts. Kubernetes then updates its file.
+def publish-proxy-config []: nothing -> nothing {
+    let document = sync-config
+    let name = $env.PROXY_CONFIG_MAP
+    let current = kubectl get configmap $name --output 'jsonpath={.data.sync\.json}' | complete
+
+    if $current.exit_code == 0 and (try { $current.stdout | from json } catch { null }) == $document {
+        return
+    }
+
+    let applied = kubectl create configmap $name --from-literal $'sync.json=($document | to json --raw)' --dry-run=client --output yaml
+    | kubectl apply --filename -
+    | complete
+
+    if $applied.exit_code != 0 {
+        fail $'Failed to write the proxy configuration: ($applied.stderr | str trim)' {
+            command: publish-proxy-config
+            span: (metadata $applied).span
+        }
+    }
+
+    log info $'The proxy configuration is in ConfigMap ($name)'
+}
+
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 
@@ -148,6 +172,7 @@ def main []: nothing -> nothing {
 
     create-schemas ...$pending
     publish-schemas ...$names
+    publish-proxy-config
 
     log info 'Schema provisioning completed'
 }

@@ -1,4 +1,4 @@
--- The table settings of the proxy: shared by every worker, and replaced when the console changes them.
+-- The table settings of the proxy: shared by every worker, and replaced when sync.json changes.
 
 local sync = require("proxy.sync")
 
@@ -6,38 +6,36 @@ local sync = require("proxy.sync")
 ---@class SettingsModule
 local settings = {}
 
---- Take a new sync.json for every worker: store its text and revision, and move the version.
+--- Take a new sync.json for every worker: store its text and move the version.
 ---@param store SettingsStore The shared dictionary.
 ---@param document string The text of a valid sync.json.
----@param revision string The revision that the text came from.
 ---@return nil
-function settings.replace(store, document, revision)
+function settings.replace(store, document)
 	store:set("document", document)
-	store:set("revision", revision)
 	store:incr("version", 1, 0)
 end
 
---- Fetch sync.json from the console and replace the shared settings when the document is new.
---- The shared settings stay as they are if the console fails or gives a document that is not valid.
+--- Read sync.json again and replace the shared settings when the document is new.
+--- The shared settings stay as they are if the file does not exist yet, cannot be read, or holds
+--- a document that is not valid.
 ---@param store SettingsStore The shared dictionary.
----@param url string Where the console serves sync.json.
----@param fetch fun(url: string): SettingsResponse|nil, string|nil Gives the answer of the console, or nil and a reason.
+---@param path string Path of sync.json.
+---@param read fun(path: string): string|nil, string|nil Gives the text, nil for no file, or nil and a reason.
 ---@return SettingsReload|nil result nil if the reload failed.
 ---@return string|nil reason Why the reload failed.
-function settings.reload(store, url, fetch)
-	local response, failure = fetch(url)
-	if response == nil then return nil, failure end
-	if response.status ~= 200 then return nil, "The console answered " .. response.status end
+function settings.reload(store, path, read)
+	local text, failure = read(path)
+	if text == nil then
+		if failure then return nil, failure end
+		return { changed = false }
+	end
+	if text == store:get("document") then return { changed = false } end
 
-	local revision = response.etag or ""
-	local same_revision = revision ~= "" and revision == store:get("revision")
-	if same_revision or response.body == store:get("document") then return { changed = false, revision = revision } end
-
-	local config, reason = sync.parse(response.body)
+	local config, reason = sync.parse(text)
 	if config == nil then return nil, reason end
 
-	settings.replace(store, response.body, revision)
-	return { changed = true, revision = revision }
+	settings.replace(store, text)
+	return { changed = true }
 end
 
 --- Give the settings that one worker uses now. The worker parses the shared document again only
@@ -52,19 +50,6 @@ function settings.current(store, cache)
 		cache.version = version
 	end
 	return cache.value --[[@as SyncConfig]]
-end
-
---- Ask the console for sync.json over HTTP. Call it where nginx allows sockets: a timer or a request.
----@param url string Where the console serves sync.json.
----@return SettingsResponse|nil response nil if the console cannot be reached.
----@return string|nil reason Why the console cannot be reached.
-function settings.fetch(url)
-	local client, client_error = require("resty.http").new()
-	if client == nil then return nil, client_error end
-	client:set_timeouts(2000, 5000, 5000)
-	local response, reason = client:request_uri(url, { headers = { Accept = "application/json" } })
-	if response == nil then return nil, reason end
-	return { status = response.status, body = response.body, etag = response.headers["ETag"] }
 end
 
 return settings
