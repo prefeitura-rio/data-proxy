@@ -111,7 +111,7 @@ postgrest:
   ## Seconds that a stopping PostgREST pod waits before it closes its port. The mesh needs this time to stop sending it requests.
   preStopSleepSeconds: 5
   ## Seconds to wait for a backend connection before returning an error.
-  dbPoolAcquisitionTimeout: 10
+  dbPoolAcquisitionTimeout: 3
   ## Seconds to keep an idle backend connection before closing it.
   dbPoolMaxIdleTime: 300
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
@@ -375,10 +375,13 @@ proxy:
   maxCacheBodyBytes: 262144
   postgrestRetries: 1
   postgrestBackoffMs: 0
+  ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
+  maxInflight: 64
   image: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
   resources:
     requests:
-      cpu: 100m
+      ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.
+      cpu: 500m
       memory: 64Mi
   autoscaling:
     minReplicaCount: 1

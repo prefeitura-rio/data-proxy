@@ -16,9 +16,15 @@ tests:
       proxy.maxCacheBodyBytes: 1000
       proxy.postgrestRetries: 2
       proxy.postgrestBackoffMs: 100
+      proxy.maxInflight: 10
     templates:
       - deployment-proxy.yaml
     asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_INFLIGHT
+            value: "10"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -142,3 +148,32 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "redis.host is required: the proxy stores its answers in this Redis"
+
+  - it: limits the requests that wait for PostgREST by default
+    template: deployment-proxy.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_INFLIGHT
+            value: "64"
+
+  - it: lets nginx pass the limit to the proxy and keeps a counter for it
+    template: configmap-proxy.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-proxy
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_MAX_INFLIGHT;$'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_shared_dict proxy_inflight 1m;'
+
+  - it: gives the proxy enough CPU to keep serving cached answers next to PostgreSQL
+    template: deployment-proxy.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 500m

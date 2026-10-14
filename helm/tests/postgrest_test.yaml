@@ -106,7 +106,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
-            value: "10"
+            value: "3"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
