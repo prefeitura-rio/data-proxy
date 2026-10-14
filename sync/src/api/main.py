@@ -29,12 +29,6 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
         client.destroy()
 
 
-def create_app() -> FastAPI:
-    """Build the application with its routes."""
-    app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
-    app.include_router(health.router)
-    app.include_router(runs.router)
-    return app
-
-
-app = create_app()
+app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
+app.include_router(health.router)
+app.include_router(runs.router)

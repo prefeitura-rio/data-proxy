@@ -6,7 +6,7 @@ from dbos import StepInfo, WorkflowStatus
 from httpx2 import ASGITransport, AsyncClient
 
 from api.dependencies import get_client
-from api.main import create_app
+from api.main import app
 
 NOW_MS = 1_800_000_000_000
 
@@ -87,13 +87,15 @@ class FakeClient:
 
 
 async def request_to(fake: FakeClient, path: str) -> tuple[int, Any]:
-    """Send one GET request to an app that uses the fake client."""
-    app = create_app()
+    """Send one GET request to the app, with the fake client in place of DBOS."""
     app.dependency_overrides[get_client] = lambda: fake
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as http:
-        response = await http.get(path)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as http:
+            response = await http.get(path)
+    finally:
+        app.dependency_overrides.clear()
     return response.status_code, response.json()
 
 
