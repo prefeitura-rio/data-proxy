@@ -1,4 +1,4 @@
-"""HTTP routes of the dashboard API.
+"""HTTP routes of the console.
 
 Each public module of this package declares a ``router``. The application registers
 them all, so a new module needs no change anywhere else.

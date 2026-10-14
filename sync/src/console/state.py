@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, TypedDict
 from fastapi import Request
 
 if TYPE_CHECKING:
-    from api.client import WorkflowClient
+    from console.client import WorkflowClient
 
 
 class AppState(TypedDict):

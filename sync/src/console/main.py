@@ -1,4 +1,4 @@
-"""Create the dashboard API application."""
+"""Create the console application."""
 
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING
 from dbos import DBOSClient
 from fastapi import FastAPI
 
-from api import routes
-from api.registry import discover_routers
+from console import routes
+from console.registry import discover_routers
 from sync.settings import settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from api.state import AppState
+    from console.state import AppState
 
 
 @asynccontextmanager
@@ -30,7 +30,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[AppState]:
         client.destroy()
 
 
-app = FastAPI(title="Data Proxy sync API", lifespan=lifespan)
+app = FastAPI(title="Data Proxy sync console", lifespan=lifespan)
 
 for router in discover_routers(routes):
     app.include_router(router)

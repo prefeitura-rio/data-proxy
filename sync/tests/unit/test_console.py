@@ -11,10 +11,10 @@ from fastapi import APIRouter
 from fastapi.routing import iter_route_contexts
 from httpx2 import ASGITransport, AsyncClient
 
-from api import routes
-from api.dependencies import get_client
-from api.main import app
-from api.registry import discover_routers
+from console import routes
+from console.dependencies import get_client
+from console.main import app
+from console.registry import discover_routers
 
 NOW_MS = 1_800_000_000_000
 

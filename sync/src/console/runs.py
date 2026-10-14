@@ -4,13 +4,13 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from api.models import ChildRun, Run, RunDetail, RunPage, Step
+from console.models import ChildRun, Run, RunDetail, RunPage, Step
 
 if TYPE_CHECKING:
     from dbos import StepInfo, WorkflowStatus
 
-    from api.client import WorkflowClient
-    from api.models import RunFields, RunStatus
+    from console.client import WorkflowClient
+    from console.models import RunFields, RunStatus
 
 SYNC_WORKFLOW = "run_sync"
 

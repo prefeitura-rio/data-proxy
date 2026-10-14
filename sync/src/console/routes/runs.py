@@ -5,9 +5,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.dependencies import Client
-from api.models import RunDetail, RunPage, RunStatus
-from api.runs import get_run, list_runs
+from console.dependencies import Client
+from console.models import RunDetail, RunPage, RunStatus
+from console.runs import get_run, list_runs
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 

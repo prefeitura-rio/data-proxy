@@ -1,4 +1,4 @@
-"""The response models of the dashboard API."""
+"""The response models of the console."""
 
 from datetime import datetime
 from typing import Literal, TypedDict

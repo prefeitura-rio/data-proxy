@@ -1,11 +1,11 @@
-"""Dependencies that the routes of the dashboard API share."""
+"""Dependencies that the routes of the console share."""
 
 from typing import Annotated
 
 from fastapi import Depends
 
-from api.client import WorkflowClient
-from api.state import AppRequest
+from console.client import WorkflowClient
+from console.state import AppRequest
 
 
 def get_client(request: AppRequest) -> WorkflowClient:

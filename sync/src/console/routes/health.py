@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from api.dependencies import Client
+from console.dependencies import Client
 
 logger = getLogger(__name__)
 

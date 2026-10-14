@@ -109,14 +109,14 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseS
   "S603",     # the fixtures run the psql client and the container engine
   "S607",     # the fixtures find psql on PATH
 ]
-"src/api/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
-"src/api/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
+"src/console/dependencies.py" = ["TC001"]           # FastAPI reads the annotations of a dependency at runtime
+"src/console/routes/*.py" = ["TC001", "TC003"]     # FastAPI reads the annotations of a route at runtime
 "src/sync/dbos/steps.py" = ["RUF029"]            # DBOS steps are async by contract
 "src/sync/dbos/workflows.py" = [
   "BLE001",   # workflows catch every failure to record it and continue the run
   "ARG001",   # DBOS passes the context argument to scheduled workflows
 ]
-"src/api/routes/health.py" = ["BLE001"]          # readiness reports every failure of the check as 503
+"src/console/routes/health.py" = ["BLE001"]          # readiness reports every failure of the check as 503
 "src/sync/executor.py" = ["ARG002"]              # expect only types the result
 "src/sync/kubernetes.py" = ["ASYNC109"]          # the timeout argument bounds the rollout watch
 "src/sync/sources/bigquery/source.py" = ["PLR6301"] # validate implements the Source protocol
@@ -160,8 +160,8 @@ max-complexity-allowed = 10
 [tool.vulture]
 min_confidence = 60
 exclude = [
-  "src/api/client.py", # a protocol: it declares parameters that the DBOS client uses
-  "src/api/models.py", # response models: FastAPI reads their fields
+  "src/console/client.py", # a protocol: it declares parameters that the DBOS client uses
+  "src/console/models.py", # response models: FastAPI reads their fields
 ]
 ignore_decorators = [
   "@router.*",
