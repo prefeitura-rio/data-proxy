@@ -2,15 +2,14 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
 from typing import final
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
 from pydantic import ValidationError
 
-from engine.constants import POOLER_SELECTOR, POSTGREST_SELECTOR, PUBLISH_QUEUE
+from engine.constants import POSTGREST_SELECTOR, PUBLISH_QUEUE
 from engine.dbos import main as dbos_main
 from engine.dbos import steps, utils, workflows
 from engine.duckdb import DuckDB
@@ -18,11 +17,9 @@ from engine.ducklake import DuckLakePaths
 from engine.models import (
     FullTable,
     LoadedConfig,
-    ServingDeployments,
     SyncPlan,
     SyncWork,
 )
-from engine.postgres import Postgres
 from engine.settings import settings
 from engine.types import KubernetesClient
 from tests.fixtures.console import Console
@@ -84,41 +81,29 @@ class TestCatalogLockRetryClassification:
         assert utils.retry_catalog_locked(error) is expected
 
 
-SERVING_REFRESH = [
-    "refresh:[('app', 7)]",
-    "restart:PgBouncer:['pooler']",
-    "restart:PostgREST:['postgrest']",
-]
-
-
-class TestRunSyncRefreshesServing:
-    """run_sync refreshes serving once, after every schema publisher returns."""
+class TestRunSyncRestartsPostgrest:
+    """run_sync restarts PostgREST once, only when the view set changed."""
 
     @pytest.mark.parametrize(
         ("postgrest_restart_required", "snapshot_id", "expected"),
         [
             pytest.param(False, None, [], id="nothing-changed"),
+            pytest.param(False, 7, [], id="snapshot-published-without-view-change"),
             pytest.param(
-                False, 7, SERVING_REFRESH, id="snapshot-published-without-view-change"
+                True, None, ["restart_postgrest"], id="view-change-without-snapshot"
             ),
-            pytest.param(
-                True,
-                None,
-                ["restart:PostgREST:['postgrest']"],
-                id="view-change-without-published-snapshot",
-            ),
-            pytest.param(True, 7, SERVING_REFRESH, id="snapshot-and-view-change"),
+            pytest.param(True, 7, ["restart_postgrest"], id="snapshot-and-view-change"),
         ],
     )
     @pytest.mark.asyncio
-    async def test_refreshes_and_restarts_only_what_changed(
+    async def test_restarts_postgrest_only_after_a_view_change(
         self,
         monkeypatch: pytest.MonkeyPatch,
         postgrest_restart_required: bool,
         snapshot_id: int | None,
         expected: list[str],
     ) -> None:
-        """Refreshes and restarts only what changed."""
+        """Restarts postgrest only after a view change."""
         calls, events = stub_sync_run(
             monkeypatch,
             postgrest_restart_required=postgrest_restart_required,
@@ -131,20 +116,20 @@ class TestRunSyncRefreshesServing:
         assert events == ["enqueue:app", "wait:app"]
 
     @pytest.mark.asyncio
-    async def test_refreshes_only_the_schemas_that_published(
+    async def test_waits_for_every_schema_publisher_before_it_restarts(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Skip the schema without a snapshot and refresh the other once."""
+        """Wait for both publishers, then restart once."""
         calls, events = stub_sync_run(
             monkeypatch,
-            postgrest_restart_required=False,
+            postgrest_restart_required=True,
             snapshot_ids={"one": 3, "two": None},
             plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
         )
 
         await run_sync()
 
-        assert calls[0] == "refresh:[('one', 3)]"
+        assert calls == ["restart_postgrest"]
         assert events == ["enqueue:one", "enqueue:two", "wait:one", "wait:two"]
 
     @pytest.mark.asyncio
@@ -270,97 +255,6 @@ class TestRunSyncUsesOneConfig:
         assert publishes == [(PUBLISH_QUEUE, "one"), (PUBLISH_QUEUE, "two")]
 
 
-class TestRefreshCatalogsWorkflow:
-    """The refresh workflow runs one child per schema and instance until the primary catches up."""
-
-    @staticmethod
-    def stub(
-        monkeypatch: pytest.MonkeyPatch, lagging: list[dict[str, int]]
-    ) -> list[str]:
-        """Stub the workflow steps and return the events they record."""
-        events: list[str] = []
-        remaining = iter(lagging)
-
-        async def enqueue(queue: str, _workflow: object, *args: object) -> object:
-            events.append(f"enqueue:{queue}:{args[0]}:{args[1]}")
-
-            async def get_result() -> str:
-                events.append(f"wait:{args[0]}:{args[1]}")
-                return "job"
-
-            return SimpleNamespace(get_result=get_result)
-
-        async def sleep(seconds: float) -> None:
-            events.append(f"sleep:{seconds:g}")
-
-        async def check(snapshots: dict[str, int]) -> dict[str, int]:
-            events.append(f"check:{sorted(snapshots)}")
-            return next(remaining)
-
-        monkeypatch.setattr(
-            workflows,
-            "DBOS",
-            SimpleNamespace(enqueue_workflow_async=enqueue, sleep_async=sleep),
-        )
-        monkeypatch.setattr(
-            workflows,
-            "list_instance_claims",
-            AsyncMock(return_value={"pg-1": "claim-1", "pg-2": "claim-2"}),
-        )
-        monkeypatch.setattr(workflows, "find_lagging_snapshots", check)
-        monkeypatch.setattr(settings, "READER_REFRESH_ATTEMPTS", 3)
-        monkeypatch.setattr(settings, "READER_REFRESH_RETRY_SECONDS", 5.0)
-
-        return events
-
-    @pytest.mark.asyncio
-    async def test_enqueues_every_schema_instance_pair_before_the_check(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Enqueues every schema instance pair before the check."""
-        events = self.stub(monkeypatch, [{}])
-
-        await workflow_body(workflows.refresh_catalogs)({"one": 1, "two": 2})
-
-        assert events[:4] == [
-            "enqueue:refresh:one:pg-1",
-            "enqueue:refresh:one:pg-2",
-            "enqueue:refresh:two:pg-1",
-            "enqueue:refresh:two:pg-2",
-        ]
-        assert events[-1] == "check:['one', 'two']"
-        assert len([event for event in events if event.startswith("wait:")]) == 4
-        assert not [event for event in events if event.startswith("sleep:")]
-
-    @pytest.mark.asyncio
-    async def test_runs_again_only_for_the_schemas_that_still_lag(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Runs again only for the schemas that still lag."""
-        events = self.stub(monkeypatch, [{"two": 2}, {}])
-
-        await workflow_body(workflows.refresh_catalogs)({"one": 1, "two": 2})
-
-        second_round = events[events.index("sleep:5") + 1 :]
-        assert [e for e in second_round if e.startswith("enqueue:")] == [
-            "enqueue:refresh:two:pg-1",
-            "enqueue:refresh:two:pg-2",
-        ]
-        assert second_round[-1] == "check:['two']"
-
-    @pytest.mark.asyncio
-    async def test_fails_when_the_primary_never_reports_the_snapshot(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Fails when the primary never reports the snapshot."""
-        events = self.stub(monkeypatch, [{"one": 1}] * 3)
-
-        with pytest.raises(RuntimeError, match=r"after 3 attempts: \['one'\]"):
-            await workflow_body(workflows.refresh_catalogs)({"one": 1})
-
-        assert events.count("sleep:5") == 2
-
-
 @final
 class FakeConnection:
     """Async context manager that yields a fixed client, like `AsyncClient(namespace=...)`."""
@@ -387,156 +281,42 @@ def open_client(monkeypatch: pytest.MonkeyPatch, client: FakeKubernetes) -> list
     return namespaces
 
 
-class TestServingSteps:
-    """The serving steps open one client each and pass the right labels and names."""
+class TestRestartPostgrestStep:
+    """The step restarts every PostgREST Deployment together with one client."""
 
     @pytest.mark.asyncio
-    async def test_lists_poolers_and_postgrest_by_their_selectors(
+    async def test_restarts_the_deployments_that_the_selector_finds(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Lists poolers and postgrest by their selectors."""
-        client = FakeKubernetes()
-        namespaces = open_client(monkeypatch, client)
-        clients: list[KubernetesClient] = []
-
-        async def list_by_selector(
-            received: KubernetesClient, _namespace: str, labels: dict[str, str]
-        ) -> list[str]:
-            clients.append(received)
-            if labels == POOLER_SELECTOR:
-                return ["pooler", "pooler-ro"]
-            if labels == POSTGREST_SELECTOR:
-                return ["postgrest", "postgrest-ro"]
-            return []
-
-        monkeypatch.setattr(steps, "list_deployments", list_by_selector)
-
-        deployments = await workflow_body(steps.list_serving_deployments)()
-
-        assert deployments == ServingDeployments(
-            poolers=["pooler", "pooler-ro"], postgrest=["postgrest", "postgrest-ro"]
-        )
-        assert namespaces == [settings.KUBERNETES_NAMESPACE]
-        assert clients == [client, client]
-
-    @pytest.mark.asyncio
-    async def test_starts_both_lookups_before_either_finishes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Starts both lookups before either finishes."""
-        open_client(monkeypatch, FakeKubernetes())
-        events: list[str] = []
-
-        async def list_by_selector(
-            _client: KubernetesClient, _namespace: str, labels: dict[str, str]
-        ) -> list[str]:
-            kind = "pooler" if labels == POOLER_SELECTOR else "postgrest"
-            events.append(f"start:{kind}")
-            await asyncio.sleep(0)
-            events.append(f"end:{kind}")
-            return [kind]
-
-        monkeypatch.setattr(steps, "list_deployments", list_by_selector)
-
-        await workflow_body(steps.list_serving_deployments)()
-
-        assert events == [
-            "start:pooler",
-            "start:postgrest",
-            "end:pooler",
-            "end:postgrest",
-        ]
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("poolers", "postgrest", "kind"),
-        [
-            pytest.param([], ["postgrest"], "PgBouncer", id="no-pooler"),
-            pytest.param(["pooler"], [], "PostgREST", id="no-postgrest"),
-        ],
-    )
-    async def test_fails_when_a_selector_matches_no_deployment(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        poolers: list[str],
-        postgrest: list[str],
-        kind: str,
-    ) -> None:
-        """Fails when a selector matches no deployment."""
-        open_client(monkeypatch, FakeKubernetes())
-
-        async def list_by_selector(
-            _client: KubernetesClient, _namespace: str, labels: dict[str, str]
-        ) -> list[str]:
-            return poolers if labels == POOLER_SELECTOR else postgrest
-
-        monkeypatch.setattr(steps, "list_deployments", list_by_selector)
-
-        with pytest.raises(RuntimeError, match=kind):
-            await workflow_body(steps.list_serving_deployments)()
-
-    @pytest.mark.asyncio
-    async def test_opens_a_client_for_the_namespace_and_passes_it_down(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Opens a client for the namespace and passes it down."""
+        """Restarts the deployments that the selector finds."""
         client = FakeKubernetes()
         namespaces = open_client(monkeypatch, client)
         namespace = settings.KUBERNETES_NAMESPACE
-        list_claims = AsyncMock(return_value={"pg-1": "claim-1"})
-        run = AsyncMock(return_value="job")
+        found = AsyncMock(return_value=["postgrest", "postgrest-ro"])
         restart = AsyncMock()
-        monkeypatch.setattr(steps, "list_catalog_claims", list_claims)
-        monkeypatch.setattr(steps, "run_job", run)
+        monkeypatch.setattr(steps, "list_deployments", found)
         monkeypatch.setattr(steps, "restart_deployment", restart)
 
-        claims = await workflow_body(steps.list_instance_claims)()
-        job = await workflow_body(steps.run_refresh_job)("test", "pg-1", "claim-1")
-        await workflow_body(steps.restart_serving)("PgBouncer", ["a", "b"])
+        await workflow_body(steps.restart_postgrest)()
 
-        assert claims == {"pg-1": "claim-1"}
-        assert job == "job"
-        assert namespaces == [namespace] * 3
-        list_claims.assert_awaited_once_with(client, namespace)
-        run.assert_awaited_once_with(client, namespace, "test", "pg-1", "claim-1")
+        assert namespaces == [namespace]
+        found.assert_awaited_once_with(client, namespace, POSTGREST_SELECTOR)
         assert [call.args[:3] for call in restart.await_args_list] == [
-            (client, namespace, "a"),
-            (client, namespace, "b"),
+            (client, namespace, "postgrest"),
+            (client, namespace, "postgrest-ro"),
         ]
         assert len({call.args[3] for call in restart.await_args_list}) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("reported", "expected"),
-        [
-            pytest.param({"one": 4, "two": 5}, {}, id="primary-at-the-snapshots"),
-            pytest.param({"one": 9, "two": 6}, {}, id="primary-ahead"),
-            pytest.param({"one": 3, "two": 5}, {"one": 4}, id="one-behind"),
-            pytest.param({"one": None, "two": 5}, {"one": 4}, id="catalog-missing"),
-        ],
-    )
-    async def test_returns_the_snapshots_that_the_primary_does_not_report(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        reported: dict[str, int | None],
-        expected: dict[str, int],
+    async def test_fails_when_the_selector_matches_no_deployment(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Returns the snapshots that the primary does not report."""
+        """Fails when the selector matches no deployment."""
+        open_client(monkeypatch, FakeKubernetes())
+        monkeypatch.setattr(steps, "list_deployments", AsyncMock(return_value=[]))
 
-        async def reader_snapshot(_conn: object, schema_name: str) -> int | None:
-            return reported[schema_name]
-
-        monkeypatch.setattr(steps, "reader_snapshot", reader_snapshot)
-        monkeypatch.setattr(Postgres, "connect", MagicMock())
-
-        lagging = await workflow_body(steps.find_lagging_snapshots)(
-            {
-                "two": 5,
-                "one": 4,
-            }
-        )
-
-        assert lagging == expected
+        with pytest.raises(RuntimeError, match="No PostgREST Deployment found"):
+            await workflow_body(steps.restart_postgrest)()
 
 
 class TestApplyDucklakeMaintenanceStep:

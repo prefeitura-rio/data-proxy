@@ -1,7 +1,6 @@
 import psycopg
 import pytest
 
-from engine.ducklake import reader_snapshot
 from tests.fixtures.types import Postgres
 from tests.helpers import fetch_all, response_headers, scalar, set_request_headers
 
@@ -120,11 +119,3 @@ class TestLatestSnapshot:
         assert (
             await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()') == 2
         )
-
-    async def test_reader_snapshot_reads_the_latest_snapshot(
-        self, ducklake_view: Postgres
-    ) -> None:
-        """Reader snapshot reads the latest snapshot."""
-        schema = ducklake_view.namespace.schema
-
-        assert await reader_snapshot(ducklake_view.backend, schema) == 2

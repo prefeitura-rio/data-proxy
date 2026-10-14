@@ -1,7 +1,7 @@
 """Durable DBOS steps used by the synchronization workflows."""
 
 import asyncio
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import httpx2
 from dbos import DBOS
@@ -9,28 +9,21 @@ from lightkube import AsyncClient
 from whenever import Instant
 
 from engine.cache import clear_cache
-from engine.constants import POOLER_SELECTOR, POSTGREST_SELECTOR
+from engine.constants import POSTGREST_SELECTOR
 from engine.duckdb import DuckDB
 from engine.ducklake import (
     DuckLakePaths,
     apply_maintenance,
     publish_schema,
-    reader_snapshot,
 )
 from engine.extraction import run_extraction
-from engine.kubernetes import (
-    list_catalog_claims,
-    list_deployments,
-    restart_deployment,
-    run_job,
-)
+from engine.kubernetes import list_deployments, restart_deployment
 from engine.log import schemaname
 from engine.metrics import metrics
 from engine.models import (
     DumpTask,
     LoadedConfig,
     PublicationResult,
-    ServingDeployments,
     SyncConfig,
     SyncPlan,
     SyncWork,
@@ -292,96 +285,19 @@ async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
-async def list_serving_deployments() -> ServingDeployments:
-    """List the Pooler and PostgREST Deployments to restart."""
+async def restart_postgrest() -> None:
+    """Restart the PostgREST Deployments together and wait for their rollouts."""
     namespace = settings.KUBERNETES_NAMESPACE
 
     async with AsyncClient(namespace=namespace) as client:
-        poolers, postgrest = await asyncio.gather(
-            list_deployments(client, namespace, POOLER_SELECTOR),
-            list_deployments(client, namespace, POSTGREST_SELECTOR),
-        )
+        names = await list_deployments(client, namespace, POSTGREST_SELECTOR)
 
-    deployments = ServingDeployments(poolers=poolers, postgrest=postgrest)
-
-    for kind, names in (
-        ("PgBouncer", deployments.poolers),
-        ("PostgREST", deployments.postgrest),
-    ):
         if not names:
-            raise RuntimeError(f"No {kind} Deployment found")
+            raise RuntimeError("No PostgREST Deployment found")
 
-    return deployments
+        await logs.info("PostgREST restart started", deployments=len(names))
+        restarted_at = Instant.now().format_iso()
 
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def list_instance_claims() -> dict[str, str]:
-    """List the catalog volume claim of every ready PostgreSQL instance."""
-    namespace = settings.KUBERNETES_NAMESPACE
-
-    async with AsyncClient(namespace=namespace) as client:
-        claims = await list_catalog_claims(client, namespace)
-
-    await logs.info("Catalog claims listed", instances=len(claims))
-
-    return claims
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def run_refresh_job(schema: str, pod: str, claim: str) -> str:
-    """Run the refresh Job of one schema on one instance volume."""
-    namespace = settings.KUBERNETES_NAMESPACE
-
-    async with AsyncClient(namespace=namespace) as client:
-        return await run_job(client, namespace, schema, pod, claim)
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def find_lagging_snapshots(snapshots: dict[str, int]) -> dict[str, int]:
-    """Return the published snapshots that the primary does not report yet."""
-    lagging: dict[str, int] = {}
-
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
-        for schema_name, snapshot_id in sorted(snapshots.items()):
-            current = await reader_snapshot(pg_conn, schema_name)
-
-            if current is None or current < snapshot_id:
-                lagging[schema_name] = snapshot_id
-
-    await logs.info(
-        "Reader snapshots checked", schemas=len(snapshots), lagging=len(lagging)
-    )
-
-    return lagging
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def restart_serving(
-    kind: Literal["PgBouncer", "PostgREST"], names: list[str]
-) -> None:
-    """Restart the Deployments together and wait for their rollouts."""
-    namespace = settings.KUBERNETES_NAMESPACE
-    await logs.info("Serving restart started", kind=kind, deployments=len(names))
-
-    restarted_at = Instant.now().format_iso()
-
-    async with AsyncClient(namespace=namespace) as client:
         await asyncio.gather(
             *(
                 restart_deployment(
@@ -395,7 +311,7 @@ async def restart_serving(
             )
         )
 
-    await logs.info("Serving restart completed", kind=kind, deployments=len(names))
+    await logs.info("PostgREST restart completed", deployments=len(names))
 
 
 @DBOS.step(

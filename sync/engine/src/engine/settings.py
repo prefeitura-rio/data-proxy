@@ -48,9 +48,6 @@ class Settings(BaseSettings):
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: str = "postgresql://test:test@localhost:5432/test"
     PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
-    READER_REFRESH_ATTEMPTS: int = Field(default=5, gt=0)
-    READER_REFRESH_CONCURRENCY: int = Field(default=4, gt=0)
-    READER_REFRESH_RETRY_SECONDS: float = Field(default=5.0, gt=0)
     REDIS_READ: RedisDsn = RedisDsn("redis://localhost:6379/1")
     REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
     S3_ACCESS_KEY: str = "seaweedfs"

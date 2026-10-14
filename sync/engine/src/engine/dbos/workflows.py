@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
 
-from engine.constants import DUMP_QUEUE, PUBLISH_QUEUE, REFRESH_QUEUE
+from engine.constants import DUMP_QUEUE, PUBLISH_QUEUE
 from engine.log import schemaname, tablename
 from engine.metrics import observe
 from engine.models import DumpResult, DumpStatus, DumpTask, SyncPlan
@@ -18,17 +18,13 @@ from .steps import (
     commit_table_state,
     extract_task,
     finalize_run,
-    find_lagging_snapshots,
-    list_instance_claims,
-    list_serving_deployments,
     load_sync_config,
     record_dump_failure,
     record_dump_metrics,
     record_publish_metrics,
     record_run_status,
     record_seed_metrics,
-    restart_serving,
-    run_refresh_job,
+    restart_postgrest,
     seed_schemas,
 )
 
@@ -92,53 +88,6 @@ async def publish_schema(
 
 
 @DBOS.workflow()
-async def refresh_catalog(schema: str, pod: str, claim: str) -> str:
-    """Refresh one schema catalog on one PostgreSQL instance volume."""
-    schemaname.set(schema)
-
-    return await run_refresh_job(schema, pod, claim)
-
-
-@DBOS.workflow()
-async def refresh_catalogs(snapshots: dict[str, int]) -> None:
-    """Refresh the published schemas on every instance until the primary reports them.
-
-    Litestream replicates a few seconds after a commit, so a refresh that starts
-    too early restores an older catalog. Only the schemas that still lag run again.
-    """
-    claims = await list_instance_claims()
-    pending = snapshots
-
-    for attempt in range(settings.READER_REFRESH_ATTEMPTS):
-        if attempt:
-            await DBOS.sleep_async(settings.READER_REFRESH_RETRY_SECONDS)
-
-        handles = [
-            await DBOS.enqueue_workflow_async(
-                REFRESH_QUEUE, refresh_catalog, schema_name, pod, claim
-            )
-            for schema_name in pending
-            for pod, claim in claims.items()
-        ]
-
-        for handle in handles:
-            await handle.get_result()
-
-        pending = await find_lagging_snapshots(pending)
-
-        if not pending:
-            return
-
-        await logs.warning(
-            "Reader catalogs lag behind", attempt=attempt + 1, schemas=len(pending)
-        )
-
-    raise RuntimeError(
-        f"Reader catalogs missed snapshots after {settings.READER_REFRESH_ATTEMPTS} attempts: {sorted(pending)}"
-    )
-
-
-@DBOS.workflow()
 @observe(record_run_status)
 async def run_sync(scheduled_at: datetime, context: None) -> None:
     """Build work, fan out queued children, fan in results, and finalize."""
@@ -169,7 +118,7 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
 
         await record_seed_metrics(work.plans)
 
-        publish_handles: list[tuple[str, WorkflowHandleAsync[int | None]]] = []
+        publish_handles: list[WorkflowHandleAsync[int | None]] = []
         for plan in work.plans:
             with SetEnqueueOptions(queue_partition_key=plan.schema_name):
                 handle = await DBOS.enqueue_workflow_async(
@@ -180,26 +129,13 @@ async def run_sync(scheduled_at: datetime, context: None) -> None:
                     failed_paths,
                     loaded.document,
                 )
-            publish_handles.append((plan.schema_name, handle))
+            publish_handles.append(handle)
 
-        results = {
-            schema_name: await handle.get_result()
-            for schema_name, handle in publish_handles
-        }
-        snapshots = {
-            schema_name: snapshot_id
-            for schema_name, snapshot_id in sorted(results.items())
-            if snapshot_id is not None
-        }
+        for handle in publish_handles:
+            await handle.get_result()
 
-        if snapshots or postgrest_restart_required:
-            deployments = await list_serving_deployments()
-
-            if snapshots:
-                await refresh_catalogs(snapshots)
-                await restart_serving("PgBouncer", deployments.poolers)
-
-            await restart_serving("PostgREST", deployments.postgrest)
+        if postgrest_restart_required:
+            await restart_postgrest()
 
         await logs.info("Sync finalization started")
 

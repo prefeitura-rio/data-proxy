@@ -1,6 +1,6 @@
 """Write run log lines to the logger and to a DBOS stream that the console follows."""
 
-from logging import ERROR, INFO, WARNING, LogRecord, getLevelName
+from logging import ERROR, INFO, LogRecord, getLevelName
 
 from dbos import DBOS, WorkflowSerializationFormat
 from whenever import Instant
@@ -73,11 +73,6 @@ async def write(level: int, message: str, /, **fields: LogField) -> None:
 async def info(message: str, /, **fields: LogField) -> None:
     """Log an informational line."""
     await write(INFO, message, **fields)
-
-
-async def warning(message: str, /, **fields: LogField) -> None:
-    """Log a warning line."""
-    await write(WARNING, message, **fields)
 
 
 async def error(message: str, /, **fields: LogField) -> None:

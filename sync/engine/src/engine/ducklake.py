@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 from urllib.parse import quote
 
-import psycopg
-from psycopg.rows import TupleRow
 from psycopg.sql import Composable, Identifier, Literal
 
 from .conditions import partition_condition
@@ -27,7 +25,7 @@ from .sources.partitions import (
     TimeRangeSelection,
 )
 from .state import emit_error
-from .types import DatabaseRow, DuckDBParams, PostgresParams
+from .types import DatabaseRow, DuckDBParams
 
 if TYPE_CHECKING:
     from .duckdb import DuckDB
@@ -500,22 +498,6 @@ async def current_snapshot_id(duckdb_conn: DuckDB) -> int:
         "duckdb/current_snapshot",
         expect=tuple[int],
     )
-    return rows[0][0]
-
-
-async def reader_snapshot(pg_conn: Postgres, schema_name: str) -> int | None:
-    """Return the snapshot the reader catalog has applied, or None when unavailable."""
-    try:
-        rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
-            "postgres/reader_snapshot",
-            mapping={"schema": Identifier(schema_name)},
-            expect=tuple[int | None],
-        )
-    except psycopg.Error:
-        await pg_conn.rollback()
-        return None
-
-    await pg_conn.commit()
     return rows[0][0]
 
 

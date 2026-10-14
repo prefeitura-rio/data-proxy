@@ -437,13 +437,6 @@ class LoadedConfig(BaseModel):
     document: str
 
 
-class ServingDeployments(BaseModel):
-    """Names of the Deployments that serve reads and must restart after a publication."""
-
-    poolers: list[str]
-    postgrest: list[str]
-
-
 class PublicationResult(BaseModel):
     """Exact plan and table set published by the publisher."""
 

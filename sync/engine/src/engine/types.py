@@ -19,8 +19,7 @@ from whenever import Instant
 if TYPE_CHECKING:
     from lightkube.operators import BinaryOperator, Operator, SequenceOperator
     from lightkube.resources.apps_v1 import Deployment
-    from lightkube.resources.batch_v1 import Job
-    from lightkube.types import CascadeType, PatchType
+    from lightkube.types import PatchType
 
 type DatabaseValue = bool | int | float | str | datetime | Instant | None
 type DatabaseRow = tuple[object, ...]
@@ -81,31 +80,4 @@ class KubernetesClient(Protocol):
         patch_type: PatchType,
     ) -> Deployment:
         """Patch one deployment and return the result."""
-        ...
-
-    async def create(self, obj: Job) -> Job:
-        """Create one job."""
-        ...
-
-    async def wait(
-        self,
-        res: type[Job],
-        name: str,
-        *,
-        namespace: str,
-        for_conditions: Iterable[str],
-        raise_for_conditions: Iterable[str],
-    ) -> Job:
-        """Wait for a job to reach one of the given conditions."""
-        ...
-
-    async def delete(
-        self,
-        res: type[Job],
-        name: str,
-        *,
-        namespace: str,
-        cascade: CascadeType,
-    ) -> None:
-        """Delete one job with the given cascade."""
         ...

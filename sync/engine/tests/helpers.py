@@ -29,7 +29,6 @@ from engine.models import (
     PartitionChange,
     PartitionedTablePlan,
     SchemaConfig,
-    ServingDeployments,
     Strategy,
     SyncConfig,
     SyncPlan,
@@ -266,11 +265,8 @@ def stub_sync_run(
     calls: list[str] = []
     events: list[str] = []
 
-    async def refresh(snapshots: dict[str, int]) -> None:
-        calls.append(f"refresh:{sorted(snapshots.items())}")
-
-    async def restart(kind: str, names: list[str]) -> None:
-        calls.append(f"restart:{kind}:{names}")
+    async def restart() -> None:
+        calls.append("restart_postgrest")
 
     async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
         label = enqueue_label(workflow, args)
@@ -319,15 +315,7 @@ def stub_sync_run(
         AsyncMock(return_value=postgrest_restart_required),
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
-    monkeypatch.setattr(
-        workflows,
-        "list_serving_deployments",
-        AsyncMock(
-            return_value=ServingDeployments(poolers=["pooler"], postgrest=["postgrest"])
-        ),
-    )
-    monkeypatch.setattr(workflows, "refresh_catalogs", refresh)
-    monkeypatch.setattr(workflows, "restart_serving", restart)
+    monkeypatch.setattr(workflows, "restart_postgrest", restart)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
     return calls, events
 

@@ -1,19 +1,5 @@
 [
   {
-    "path": "engine/src/engine/dbos/workflows.py",
-    "file_name": "workflows.py",
-    "functions": [
-      {
-        "name": "refresh_catalogs",
-        "complexity": 11
-      },
-      {
-        "name": "run_sync",
-        "complexity": 12
-      }
-    ]
-  },
-  {
     "path": "engine/src/engine/ducklake.py",
     "file_name": "ducklake.py",
     "functions": [

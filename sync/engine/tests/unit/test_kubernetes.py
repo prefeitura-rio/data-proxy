@@ -1,34 +1,13 @@
-from copy import deepcopy
-from datetime import UTC, datetime
-
 import pytest
-from lightkube.core.exceptions import ApiError, ConditionError
 from lightkube.models.apps_v1 import DeploymentStatus
-from lightkube.models.batch_v1 import JobSpec
-from lightkube.models.core_v1 import (
-    Container,
-    EmptyDirVolumeSource,
-    PodCondition,
-    PodSpec,
-    PodStatus,
-    PodTemplateSpec,
-    Volume,
-)
-from lightkube.models.meta_v1 import LabelSelector, ObjectMeta, Status
-from lightkube.resources.batch_v1 import Job
-from lightkube.resources.core_v1 import Pod
-from lightkube.types import CascadeType
+from lightkube.models.meta_v1 import ObjectMeta
 
 from engine import kubernetes
-from engine.constants import POOLER_SELECTOR
+from engine.constants import POSTGREST_SELECTOR
 from engine.kubernetes import (
-    build_refresh_job,
-    is_pod_ready,
     is_rollout_complete,
-    list_catalog_claims,
     list_deployments,
     restart_deployment,
-    run_job,
 )
 from engine.types import KubernetesClient
 from tests.fixtures.types import FakeKubernetes
@@ -100,14 +79,14 @@ class TestListDeployments:
         client = FakeKubernetes(
             [
                 deployment(status=None, metadata=ObjectMeta(name=name), replicas=1)
-                for name in ("pooler-ro", "pooler")
+                for name in ("postgrest-ro", "postgrest")
             ]
         )
 
-        names = await list_deployments(client, "app", POOLER_SELECTOR)
+        names = await list_deployments(client, "app", POSTGREST_SELECTOR)
 
-        assert names == ["pooler", "pooler-ro"]
-        assert client.list_labels == [POOLER_SELECTOR]
+        assert names == ["postgrest", "postgrest-ro"]
+        assert client.list_labels == [POSTGREST_SELECTOR]
 
 
 class TestRestartDeployment:
@@ -189,268 +168,3 @@ class TestRestartDeployment:
         await restart_deployment(client, "app", "pgrst", "2026-01-01T00:00:00Z", 5)
 
         assert client.patched == ["pgrst"]
-
-
-def pod(name: str, *, ready: bool = True, terminating: bool = False) -> Pod:
-    """Return a PostgreSQL Pod with the given readiness."""
-    return Pod(
-        metadata=ObjectMeta(
-            name=name,
-            deletionTimestamp=datetime(2026, 1, 1, tzinfo=UTC) if terminating else None,
-        ),
-        status=PodStatus(
-            conditions=[PodCondition(type="Ready", status="True" if ready else "False")]
-        ),
-    )
-
-
-class TestPodReady:
-    """A Pod is ready when it is not terminating and reports the Ready condition."""
-
-    @pytest.mark.parametrize(
-        ("candidate", "expected"),
-        [
-            pytest.param(pod("pg-1"), True, id="ready"),
-            pytest.param(pod("pg-1", ready=False), False, id="not-ready"),
-            pytest.param(pod("pg-1", terminating=True), False, id="terminating"),
-            pytest.param(Pod(metadata=ObjectMeta(name="pg-1")), False, id="no-status"),
-            pytest.param(
-                Pod(metadata=ObjectMeta(name="pg-1"), status=PodStatus()),
-                False,
-                id="no-conditions",
-            ),
-            pytest.param(Pod(status=PodStatus()), False, id="no-metadata"),
-        ],
-    )
-    def test_reads_the_ready_condition(self, candidate: Pod, expected: bool) -> None:
-        """Reads the ready condition."""
-        assert is_pod_ready(candidate) is expected
-
-
-class TestListCatalogClaims:
-    """Only ready, live PostgreSQL Pods have a claim to refresh."""
-
-    @pytest.mark.asyncio
-    async def test_maps_ready_pods_to_their_ephemeral_claims(self) -> None:
-        """Maps ready pods to their ephemeral claims."""
-        client = FakeKubernetes(
-            [
-                pod("data-proxy-2"),
-                pod("data-proxy-1"),
-                pod("data-proxy-3", ready=False),
-                pod("data-proxy-4", terminating=True),
-            ]
-        )
-
-        claims = await list_catalog_claims(client, "app")
-
-        assert list(claims.items()) == [
-            ("data-proxy-1", "data-proxy-1-ducklake-catalogs"),
-            ("data-proxy-2", "data-proxy-2-ducklake-catalogs"),
-        ]
-
-
-def template_job() -> Job:
-    """Return a refresh Job template as Kubernetes stores it, with generated fields."""
-    generated = {
-        "controller-uid": "uid-1",
-        "job-name": "template",
-        "batch.kubernetes.io/controller-uid": "uid-1",
-        "batch.kubernetes.io/job-name": "template",
-    }
-    return Job(
-        metadata=ObjectMeta(name="template", namespace="app"),
-        spec=JobSpec(
-            completions=0,
-            selector=LabelSelector(matchLabels={"controller-uid": "uid-1"}),
-            template=PodTemplateSpec(
-                metadata=ObjectMeta(
-                    labels={"app.kubernetes.io/name": "data-proxy", **generated}
-                ),
-                spec=PodSpec(
-                    containers=[Container(name="refresh", image="litestream:test")],
-                    volumes=[
-                        Volume(
-                            name="ducklake-catalogs", emptyDir=EmptyDirVolumeSource()
-                        ),
-                        Volume(name="litestream-config"),
-                    ],
-                ),
-            ),
-        ),
-    )
-
-
-class TestBuildRefreshJob:
-    """A refresh Job is a copy of the template that the cluster can run for one instance."""
-
-    @staticmethod
-    def build(template: Job) -> Job:
-        """Build one refresh job from the template."""
-        assert template.spec is not None
-        return build_refresh_job(
-            template.spec, "app", "test", "pg-1", "pg-1-claim", "refresh-test-pg-1-ab"
-        )
-
-    def test_names_and_labels_the_job_and_its_pod(self) -> None:
-        """Names and labels the job and its pod."""
-        job = self.build(template_job())
-
-        labels = {
-            "app.kubernetes.io/component": "refresh-catalog",
-            "data-proxy.io/schema": "test",
-            "data-proxy.io/instance": "pg-1",
-        }
-        assert job.metadata == ObjectMeta(
-            name="refresh-test-pg-1-ab", namespace="app", labels=labels
-        )
-        assert job.spec is not None
-        assert job.spec.template.metadata == ObjectMeta(labels=labels)
-
-    def test_clears_the_generated_selector_and_runs_once(self) -> None:
-        """Clears the generated selector and runs once."""
-        job = self.build(template_job())
-
-        assert job.spec is not None
-        assert job.spec.selector is None
-        assert job.spec.completions == 1
-        assert job.spec.ttlSecondsAfterFinished == 300
-
-    def test_swaps_only_the_catalog_volume_for_the_claim(self) -> None:
-        """Swaps only the catalog volume for the claim."""
-        job = self.build(template_job())
-
-        assert job.spec is not None
-        assert job.spec.template.spec is not None
-        volumes = {v.name: v for v in job.spec.template.spec.volumes or []}
-        assert volumes["ducklake-catalogs"].emptyDir is None
-        assert volumes["ducklake-catalogs"].persistentVolumeClaim is not None
-        assert (
-            volumes["ducklake-catalogs"].persistentVolumeClaim.claimName == "pg-1-claim"
-        )
-        assert volumes["litestream-config"] == Volume(name="litestream-config")
-
-    def test_leaves_the_template_unchanged(self) -> None:
-        """Leaves the template unchanged."""
-        template = template_job()
-        original = deepcopy(template)
-
-        self.build(template)
-
-        assert template == original
-
-
-class TestRunJob:
-    """A refresh Job is a copy of the chart template for one instance volume."""
-
-    @pytest.mark.asyncio
-    async def test_creates_a_runnable_copy_for_the_instance_claim(self) -> None:
-        """Creates a runnable copy for the instance claim."""
-        template = template_job()
-        original = deepcopy(template)
-        client = FakeKubernetes([template])
-
-        name = await run_job(
-            client, "app", "test", "data-proxy-1", "data-proxy-1-ducklake-catalogs"
-        )
-
-        job_labels = {
-            "app.kubernetes.io/component": "refresh-catalog",
-            "data-proxy.io/schema": "test",
-            "data-proxy.io/instance": "data-proxy-1",
-        }
-        job = client.created[0]
-        assert name.startswith("refresh-catalog-test-data-proxy-1-")
-        assert job.metadata == ObjectMeta(name=name, namespace="app", labels=job_labels)
-        assert job.spec is not None
-        assert job.spec.selector is None
-        assert job.spec.completions == 1
-        assert job.spec.ttlSecondsAfterFinished == 300
-        assert job.spec.template.spec is not None
-        assert job.spec.template.metadata == ObjectMeta(labels=job_labels)
-        catalogs = next(
-            v
-            for v in job.spec.template.spec.volumes or []
-            if v.name == "ducklake-catalogs"
-        )
-        assert catalogs.emptyDir is None
-        assert catalogs.persistentVolumeClaim is not None
-        assert (
-            catalogs.persistentVolumeClaim.claimName == "data-proxy-1-ducklake-catalogs"
-        )
-        assert template == original
-
-    @pytest.mark.asyncio
-    async def test_waits_for_completion_and_fails_on_job_failure(self) -> None:
-        """Waits for completion and fails on job failure."""
-        client = FakeKubernetes(
-            [template_job()], wait_error=ConditionError("jobs/refresh", ["Job failed"])
-        )
-
-        with pytest.raises(ConditionError):
-            await run_job(client, "app", "test", "pg-1", "claim-1")
-
-        assert len(client.waited) == 1
-        assert client.waited[0][1:] == (["Complete"], ["Failed"])
-        assert [name for name, _ in client.deleted] == [client.waited[0][0]]
-
-    @pytest.mark.asyncio
-    async def test_deletes_the_finished_job_so_its_pod_releases_the_claim(self) -> None:
-        """Deletes the finished job so its pod releases the claim."""
-        client = FakeKubernetes([template_job()])
-
-        name = await run_job(client, "app", "test", "pg-1", "claim-1")
-
-        assert client.deleted == [(name, CascadeType.BACKGROUND)]
-
-    @pytest.mark.asyncio
-    async def test_ignores_a_job_that_is_already_gone(self) -> None:
-        """Ignores a job that is already gone."""
-        client = FakeKubernetes(
-            [template_job()],
-            delete_error=ApiError(status=Status(code=404, message="not found")),
-        )
-
-        name = await run_job(client, "app", "test", "pg-1", "claim-1")
-
-        assert client.deleted[0][0] == name
-
-    @pytest.mark.asyncio
-    async def test_shows_a_delete_error_that_is_not_a_missing_job(self) -> None:
-        """Shows a delete error that is not a missing job."""
-        client = FakeKubernetes(
-            [template_job()],
-            delete_error=ApiError(status=Status(code=403, message="forbidden")),
-        )
-
-        with pytest.raises(ApiError, match="forbidden"):
-            await run_job(client, "app", "test", "pg-1", "claim-1")
-
-    @pytest.mark.asyncio
-    async def test_gives_every_run_a_different_name(self) -> None:
-        """Gives every run a different name."""
-        client = FakeKubernetes([template_job()])
-
-        names = {
-            await run_job(client, "app", "test", "pg-1", "claim-1") for _ in range(20)
-        }
-
-        assert len(names) == 20
-
-    @pytest.mark.asyncio
-    async def test_keeps_names_within_the_kubernetes_limit(self) -> None:
-        """Keeps names within the kubernetes limit."""
-        name = await run_job(
-            FakeKubernetes([template_job()]), "app", "s" * 80, "pg-1", "claim-1"
-        )
-
-        assert len(name) <= 63
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("templates", [0, 2])
-    async def test_requires_exactly_one_template(self, templates: int) -> None:
-        """Requires exactly one template."""
-        client = FakeKubernetes([template_job() for _ in range(templates)])
-
-        with pytest.raises(RuntimeError, match="Expected one refresh Job template"):
-            await run_job(client, "app", "test", "pg-1", "claim-1")

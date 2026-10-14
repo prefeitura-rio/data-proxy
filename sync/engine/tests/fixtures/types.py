@@ -5,16 +5,13 @@ from dataclasses import dataclass, field
 from os import environ
 from typing import final, override
 
-from lightkube.core.exceptions import ApiError, ConditionError
 from lightkube.core.resource import NamespacedResource
 from lightkube.models.apps_v1 import DeploymentSpec
 from lightkube.models.core_v1 import PodTemplateSpec
 from lightkube.models.meta_v1 import LabelSelector, ObjectMeta
 from lightkube.operators import BinaryOperator, Operator, SequenceOperator
 from lightkube.resources.apps_v1 import Deployment
-from lightkube.resources.batch_v1 import Job
-from lightkube.resources.core_v1 import Pod
-from lightkube.types import CascadeType, PatchType
+from lightkube.types import PatchType
 from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
@@ -190,26 +187,19 @@ class FakeKubernetes(KubernetesClient):
 
     def __init__(
         self,
-        objects: Iterable[Pod | Deployment | Job] = (),
+        objects: Iterable[Deployment] = (),
         *,
         watched: Iterable[Deployment] = (),
         hang_watch: bool = False,
-        wait_error: ConditionError | None = None,
-        delete_error: ApiError | None = None,
     ) -> None:
         self.objects = list(objects)
         self.watched = list(watched)
         self.hang_watch = hang_watch
         self.watch_timeouts: list[int | None] = []
-        self.wait_error = wait_error
-        self.delete_error = delete_error
         self.list_labels: list[
             dict[str, str | Operator[str] | Iterable[str] | None]
         ] = []
         self.patched: list[str] = []
-        self.created: list[Job] = []
-        self.waited: list[tuple[str, list[str], list[str]]] = []
-        self.deleted: list[tuple[str, CascadeType]] = []
 
     @override
     def list[R: NamespacedResource](
@@ -268,42 +258,3 @@ class FakeKubernetes(KubernetesClient):
                 selector=LabelSelector(), template=PodTemplateSpec(), replicas=1
             ),
         )
-
-    @override
-    async def create(self, obj: Job) -> Job:
-        """Record the job and return it."""
-        self.created.append(obj)
-        return obj
-
-    @override
-    async def wait(
-        self,
-        res: type[Job],
-        name: str,
-        *,
-        namespace: str,
-        for_conditions: Iterable[str],
-        raise_for_conditions: Iterable[str],
-    ) -> Job:
-        """Record the wait conditions and return a minimal job."""
-        self.waited.append((name, list(for_conditions), list(raise_for_conditions)))
-
-        if self.wait_error is not None:
-            raise self.wait_error
-
-        return Job(metadata=ObjectMeta(name=name))
-
-    @override
-    async def delete(
-        self,
-        res: type[Job],
-        name: str,
-        *,
-        namespace: str,
-        cascade: CascadeType,
-    ) -> None:
-        """Record the deletion and honour the configured error."""
-        self.deleted.append((name, cascade))
-
-        if self.delete_error is not None:
-            raise self.delete_error
