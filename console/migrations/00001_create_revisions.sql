@@ -1,7 +1,7 @@
 -- +goose Up
 CREATE SCHEMA IF NOT EXISTS data_proxy;
 
-CREATE TABLE data_proxy.config_revisions (
+CREATE TABLE data_proxy.revisions (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     created_at timestamptz NOT NULL DEFAULT now(),
     author text NOT NULL,
@@ -10,9 +10,9 @@ CREATE TABLE data_proxy.config_revisions (
     active boolean NOT NULL DEFAULT false
 );
 
-CREATE UNIQUE INDEX config_revisions_one_active
-ON data_proxy.config_revisions (active)
+CREATE UNIQUE INDEX revisions_one_active
+ON data_proxy.revisions (active)
 WHERE active;
 
 -- +goose Down
-DROP TABLE data_proxy.config_revisions;
+DROP TABLE data_proxy.revisions;

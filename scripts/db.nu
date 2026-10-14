@@ -58,7 +58,12 @@ def main []: nothing -> nothing {
 
     'CREATE EXTENSION IF NOT EXISTS pg_duckdb; CREATE SCHEMA IF NOT EXISTS data_proxy;' | run-sql test $port
 
-    with-env {PG_DATABASE_URL: $'postgresql://test:test@127.0.0.1:($port)/test'} {
+    let url = $'postgresql://test:test@127.0.0.1:($port)/test'
+
+    # The admin views read the DBOS tables, so DBOS creates them before goose runs.
+    uv run --frozen --project ($env.DEVENV_ROOT | path join sync) dbos migrate --sys-db-url $url
+
+    with-env {PG_DATABASE_URL: $url} {
         nu ($env.DEVENV_ROOT | path join scripts migrate.nu) up
     }
     render $filter 'schema="data_proxy"' | run-sql test $port

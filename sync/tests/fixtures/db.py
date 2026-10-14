@@ -248,6 +248,18 @@ def dbos_schema() -> str:
 
 
 @pytest.fixture
+async def admin_db() -> AsyncIterator[psycopg.AsyncConnection]:
+    """Provide a UTC connection to the migrated test database and roll it back afterward."""
+    connection = await psycopg.AsyncConnection.connect(f"{POSTGRES_URL}/test")
+    await connection.execute("SET TIME ZONE 'UTC'")
+    try:
+        yield connection
+    finally:
+        await connection.rollback()
+        await connection.close()
+
+
+@pytest.fixture
 async def policy_writer(postgres: Postgres, psql: Psql) -> AsyncIterator[str]:
     """Install the access policy in two schemas and a policy writer for the first."""
     schema = postgres.namespace.schema
