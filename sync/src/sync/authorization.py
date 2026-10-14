@@ -16,19 +16,6 @@ if TYPE_CHECKING:
     from .types import PostgresParams
 
 
-async def ensure_schema_policy_writer(pg_conn: Postgres, schema: str) -> None:
-    """Create one schema policy-writer role when it's missing."""
-    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
-    await executor.execute(
-        "postgres/access_policy_writer",
-        mapping={
-            "schema": Identifier(schema),
-            "policy_writer_role": Identifier(f"policy_writer_{schema}"),
-            "policy_name": Identifier(f"policy_writer_{schema}"),
-        },
-    )
-
-
 async def apply_table_authorization(
     pg_conn: Postgres,
     schema: str,

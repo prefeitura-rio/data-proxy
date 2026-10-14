@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create access_policy and access_log tables with a change trigger and a scoped RLS read policy.",
+  "description": "Create access_policy and access_log tables with a change trigger, a scoped RLS read policy, and a commit that waits for the standbys.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Application database role.",
@@ -67,4 +67,19 @@ FOR EACH ROW EXECUTE FUNCTION {{ app_schema }}.log_access_policy_change();
 DROP POLICY IF EXISTS user_read ON {{ schema }}.access_policy;
 CREATE POLICY user_read ON {{ schema }}.access_policy
 FOR SELECT TO {{ user_role }}
-USING ({{ scope }})
+USING ({{ scope }});
+
+CREATE OR REPLACE FUNCTION {{ app_schema }}.wait_for_standbys()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    PERFORM set_config('synchronous_commit', 'remote_apply', true);
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS access_policy_commit_trigger ON {{ schema }}.access_policy;
+CREATE TRIGGER access_policy_commit_trigger
+AFTER INSERT OR UPDATE OR DELETE ON {{ schema }}.access_policy
+FOR EACH STATEMENT EXECUTE FUNCTION {{ app_schema }}.wait_for_standbys()

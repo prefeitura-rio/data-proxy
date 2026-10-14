@@ -1,9 +1,9 @@
 {#
 {
   "kind": "template",
-  "description": "Create the application state schema and its state and errors tables.",
+  "description": "Create the application schema and the tables where the engine keeps the state of each synced table and its errors.",
   "inputs": {
-    "schema": "PostgreSQL schema that holds application state (set by DBOS_APP_SCHEMA)."
+    "schema": "SQL-safe PostgreSQL schema that holds application state."
   }
 }
 #}
@@ -19,4 +19,4 @@ CREATE TABLE IF NOT EXISTS {{ schema }}.errors (
     reason text NOT NULL,
     fields jsonb NOT NULL,
     recorded_at timestamptz NOT NULL DEFAULT now()
-);
+)

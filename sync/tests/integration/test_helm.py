@@ -446,7 +446,7 @@ class TestCleanupStaleObjects:
         target = postgres.namespace.identifier
         psql.run(
             psql_script(
-                render_template("postgres/cleanup_stale_objects", {"schema": target}),
+                helm_sql("cleanup_stale_objects", {"schema": target}),
                 render_template(
                     "postgres/create_view",
                     {"schema": target, "view": Identifier("kept")},
@@ -499,7 +499,7 @@ class TestPruneAccessLog:
                         "scope": schema_scope_condition(schema),
                     },
                 ),
-                render_template("postgres/prune_access_log", {"schema": target}),
+                helm_sql("prune_access_log", {"schema": target}),
             )
         )
         for subject, age in (("stale", "100 days"), ("recent", "1 day")):

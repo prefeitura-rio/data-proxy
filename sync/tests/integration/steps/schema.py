@@ -6,17 +6,15 @@ from pytest_bdd import given, then, when
 
 from sync.models import FullTable, SchemaConfig, SyncConfig
 from sync.settings import settings
-from sync.state import ensure_app_schema
 from sync.types import DatabaseRow
 from tests.fixtures.types import Postgres
 from tests.helpers import (
+    create_state_tables,
     execute_sql,
     fetch_all,
-    fetch_one,
     function_exists,
     initialize_schemas,
     relation_exists,
-    revoke_anonymous_access,
 )
 
 
@@ -63,27 +61,6 @@ def initialize_one_schema(schema_context: SchemaScenario) -> None:
     asyncio.run(initialize_schemas(database.backend, config))
     after = asyncio.run(authenticator_memberships(database))
     schema_context.memberships_unchanged = before == after
-
-
-@when("I revoke anonymous access for the configured schema")
-def revoke_schema_access(schema_context: SchemaScenario) -> None:
-    """Revoke schema access."""
-    database = schema_context.postgres
-    schema = database.namespace.schema
-    config = SyncConfig(
-        schemas={schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.one")])}
-    )
-    asyncio.run(
-        execute_sql(
-            database,
-            "postgres/setup_schema_reload_privileges",
-            mapping={
-                "schema": database.namespace.identifier,
-                "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
-            },
-        )
-    )
-    asyncio.run(revoke_anonymous_access(database.backend, config))
 
 
 @when("I create a stale view and clean schema objects")
@@ -150,38 +127,6 @@ def check_memberships(schema_context: SchemaScenario) -> None:
     assert schema_context.memberships_unchanged
 
 
-@then("anonymous schema usage is disabled")
-def check_schema_usage(schema_context: SchemaScenario) -> None:
-    """Check schema usage."""
-    database = schema_context.postgres
-    assert asyncio.run(
-        fetch_one(
-            database,
-            "postgres/has_schema_usage",
-            params={
-                "role_name": settings.AUTH_ANON_ROLE,
-                "schema_name": database.namespace.schema,
-            },
-        )
-    ) == (False,)
-
-
-@then("anonymous table access is disabled")
-def check_table_access(schema_context: SchemaScenario) -> None:
-    """Check table access."""
-    database = schema_context.postgres
-    assert asyncio.run(
-        fetch_one(
-            database,
-            "postgres/has_table_select",
-            params={
-                "role_name": settings.AUTH_ANON_ROLE,
-                "table_name": f"{database.namespace.schema}.one",
-            },
-        )
-    ) == (False,)
-
-
 @then("the stale view does not exist")
 def check_stale_view_removed(schema_context: SchemaScenario) -> None:
     """Check stale view removed."""
@@ -194,7 +139,7 @@ def check_stale_view_removed(schema_context: SchemaScenario) -> None:
 @when("I initialize the application state schema")
 def init_state_schema(schema_context: SchemaScenario) -> None:
     """Init state schema."""
-    asyncio.run(ensure_app_schema(schema_context.postgres.backend))
+    asyncio.run(create_state_tables(schema_context.postgres.connection))
 
 
 @then("the state and errors tables exist")

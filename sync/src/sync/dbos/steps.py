@@ -35,7 +35,6 @@ from sync.settings import settings
 from sync.state import (
     build_table_states,
     emit_error,
-    ensure_app_schema,
     read_sync_config,
     write_table_states,
 )
@@ -97,7 +96,6 @@ async def build_sync_work(run_id: str, document: str, scope: SyncScope) -> SyncW
         DuckDB.connect() as duckdb_conn,
         Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
     ):
-        await ensure_app_schema(pg_conn)
         work = await run_planning(
             pg_conn,
             duckdb_conn,

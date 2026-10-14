@@ -30,7 +30,7 @@ from sync.models import (
 from sync.postgres import Postgres as Pg
 from sync.settings import settings
 from sync.sources.partitions import PartitionKindConfig, TaskSelection
-from sync.state import ensure_app_schema, write_table_state
+from sync.state import write_table_state
 from sync.templates import render_template
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
@@ -42,6 +42,7 @@ from tests.fixtures.types import (
     Silo,
 )
 from tests.helpers import (
+    create_state_tables,
     helm_sql,
     initialize_schemas,
     psql_script,
@@ -102,7 +103,7 @@ async def postgres(silo: Silo) -> AsyncIterator[Postgres]:
         ).encode()
     )
     settings.DBOS_SYSTEM_DATABASE_URL = dsn
-    await ensure_app_schema(Pg(connection=connection))
+    await create_state_tables(connection)
     await connection.set_autocommit(False)
     try:
         yield Postgres(connection=connection, dsn=dsn, namespace=namespace)
@@ -284,7 +285,6 @@ async def policy_writer(postgres: Postgres, psql: Psql) -> AsyncIterator[str]:
             {
                 "schema": Identifier(schema),
                 "policy_writer_role": Identifier(role),
-                "policy_writer_literal": Literal(role),
                 "policy_name": Identifier(role),
             },
         )

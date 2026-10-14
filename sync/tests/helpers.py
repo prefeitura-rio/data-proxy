@@ -20,7 +20,6 @@ from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Identifier, Literal
 
-from sync.authorization import ensure_schema_policy_writer
 from sync.conditions import schema_scope_condition
 from sync.dbos import workflows
 from sync.duckdb import DuckDB
@@ -463,15 +462,16 @@ async def function_exists(pg: Postgres, schema: str, signature: str) -> bool:
 
 async def create_access_policy(pg: Postgres) -> None:
     """Create the production access_policy and access_log tables in the test schema."""
-    schema = pg.namespace.schema
-    await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
-        "postgres/init_access_policy",
-        mapping={
-            "schema": pg.namespace.identifier,
-            "user_role": Identifier(settings.AUTH_USER_ROLE),
-            "scope": schema_scope_condition(schema),
-            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-        },
+    await pg.connection.execute(
+        helm_sql(
+            "setup_access_policy",
+            {
+                "schema": pg.namespace.identifier,
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+                "scope": schema_scope_condition(pg.namespace.schema),
+                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
+            },
+        ).encode()
     )
 
 
@@ -589,59 +589,47 @@ def catalog_commit_error(reason: str) -> duckdb.TransactionException:
     )
 
 
+async def create_state_tables(connection: AsyncConnection) -> None:
+    """Create the application schema with the state and errors tables, as the configure job does."""
+    await connection.execute(
+        helm_sql(
+            "create_state", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
+        ).encode()
+    )
+
+
 async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
-    """Create roles and application schemas before publication."""
-    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
+    """Create the shared objects and each application schema, as the configure job does."""
+    app_schema = Identifier(settings.DBOS_APP_SCHEMA)
+    await create_state_tables(pg_conn.connection)
     for procedure in ("cleanup_stale_objects", "prune_access_log"):
-        await executor.execute(
-            f"postgres/{procedure}",
-            mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
+        await pg_conn.connection.execute(
+            helm_sql(procedure, {"schema": app_schema}).encode()
         )
 
     for schema_name in config.schemas:
-        await executor.execute(
-            "postgres/init_schema",
-            mapping={
-                "schema": Identifier(schema_name),
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "scope": schema_scope_condition(schema_name),
-            },
-        )
-        await executor.execute(
-            "postgres/init_access_policy",
-            mapping={
-                "schema": Identifier(schema_name),
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "scope": schema_scope_condition(schema_name),
-                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-            },
-        )
-        await executor.execute(
-            "postgres/access_policy_commit",
-            mapping={
-                "schema": Identifier(schema_name),
-                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-            },
-        )
-        await ensure_schema_policy_writer(pg_conn, schema_name)
+        schema = Identifier(schema_name)
+        role = Identifier(f"policy_writer_{schema_name}")
+        for statement in (
+            helm_sql("create_schema", {"schema": schema}),
+            helm_sql(
+                "setup_access_policy",
+                {
+                    "schema": schema,
+                    "user_role": Identifier(settings.AUTH_USER_ROLE),
+                    "scope": schema_scope_condition(schema_name),
+                    "app_schema": app_schema,
+                },
+            ),
+            helm_sql(
+                "setup_policy_writer",
+                {"schema": schema, "policy_writer_role": role, "policy_name": role},
+            ),
+        ):
+            await pg_conn.connection.execute(statement.encode())
 
     await pg_conn.commit()
     return True
-
-
-async def revoke_anonymous_access(pg_conn: PgConnection, config: SyncConfig) -> None:
-    """Revoke anonymous access before the PostgREST rollout refresh."""
-    executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
-    for schema_name in config.schemas:
-        await executor.execute(
-            "postgres/revoke_anon",
-            mapping={
-                "schema": Identifier(schema_name),
-                "anonymous_role": Identifier(settings.AUTH_ANON_ROLE),
-            },
-        )
-
-    await pg_conn.commit()
 
 
 def publish_people_catalog(metadata_schema: str, data_path: str) -> None:

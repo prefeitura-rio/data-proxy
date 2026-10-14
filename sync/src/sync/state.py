@@ -19,15 +19,6 @@ if TYPE_CHECKING:
     from .postgres import Postgres
 
 
-async def ensure_app_schema(pg_conn: Postgres) -> None:
-    """Create the application state schema and tables when absent."""
-    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
-        "postgres/init_schema",
-        mapping={"schema": schema()},
-    )
-    await pg_conn.commit()
-
-
 async def emit_error(pg_conn: Postgres, reason: str, **fields: str) -> None:
     """Persist one structured error event in the data_proxy.errors table."""
     await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(

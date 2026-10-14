@@ -4,7 +4,7 @@ The console is the admin web app of the data proxy. It lives in `console/`. It's
 
 ## Views
 
-The `admin` schema holds the views that the console reads through PostgREST. `console/migrations/00002_create_admin_views.sql` creates them, and `sync/tests/integration/test_admin_views.py` tests them.
+The `admin` schema holds the views that the console reads through PostgREST. `console/migrations/00001_create_admin_views.sql` creates them, and `sync/tests/integration/test_admin_views.py` tests them.
 
 | View | Content |
 | --- | --- |
@@ -18,7 +18,7 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 
 ## Configuration tables
 
-The sync configuration is data in three tables of the `admin` schema. `console/migrations/00007_create_config.sql` creates them, and `sync/tests/integration/test_admin_config.py` tests the rules.
+The sync configuration is data in three tables of the `admin` schema. `console/migrations/00006_create_config.sql` creates them, and `sync/tests/integration/test_admin_config.py` tests the rules.
 
 | Table | Holds |
 | --- | --- |

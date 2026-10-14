@@ -203,11 +203,7 @@ class TestTemplateOwnership:
         def names(root: Path) -> set[str]:
             return {path.relative_to(root).as_posix() for path in root.rglob("*.sql")}
 
-        assert names(SOURCE_SQL) & names(HELM_SQL) == {
-            "macros.sql",
-            "cleanup_stale_objects.sql",
-            "prune_access_log.sql",
-        }
+        assert names(SOURCE_SQL) & names(HELM_SQL) == {"macros.sql"}
 
 
 class TestDuckdbCreateAndInsert:

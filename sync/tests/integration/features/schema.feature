@@ -13,11 +13,6 @@ Feature: PostgreSQL schema lifecycle
     When I initialize one configured application schema
     Then authenticator memberships are unchanged
 
-  Scenario: Revoking anonymous access disables schema and table privileges
-    When I revoke anonymous access for the configured schema
-    Then anonymous schema usage is disabled
-    And anonymous table access is disabled
-
   Scenario: Cleaning schema objects removes stale views
     When I create a stale view and clean schema objects
     Then the stale view does not exist

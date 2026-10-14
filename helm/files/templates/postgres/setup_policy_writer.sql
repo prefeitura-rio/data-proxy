@@ -1,25 +1,24 @@
 {#
 {
   "kind": "template",
-  "description": "Create a per-schema policy-writer role and allow full access on the access_policy table. CNPG grants the role to the authenticator.",
+  "description": "Create a per-schema policy-writer role and allow full access on the access_policy table.",
   "inputs": {
     "policy_writer_role": "SQL-safe policy-writer role identifier.",
-    "policy_writer_literal": "SQL-safe policy-writer role literal.",
     "schema": "PostgreSQL schema that owns the target objects.",
     "policy_name": "SQL-safe access policy identifier."
   }
 }
 #}
--- noqa: disable=LT02,LT14,LT01,LT05
-SELECT format('CREATE ROLE %I NOLOGIN NOBYPASSRLS', {{ policy_writer_literal }})
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM pg_roles
-    WHERE rolname = {{ policy_writer_literal }}
-)
-\gexec
+DO $$
+BEGIN
+    CREATE ROLE {{ policy_writer_role }} NOLOGIN NOBYPASSRLS;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END
+$$;
 GRANT USAGE ON SCHEMA {{ schema }} TO {{ policy_writer_role }};
-GRANT SELECT, INSERT, UPDATE, DELETE ON {{ schema }}.access_policy TO {{ policy_writer_role }};
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON {{ schema }}.access_policy TO {{ policy_writer_role }};
 DROP POLICY IF EXISTS {{ policy_name }} ON {{ schema }}.access_policy;
 CREATE POLICY {{ policy_name }} ON {{ schema }}.access_policy
 FOR ALL TO {{ policy_writer_role }}

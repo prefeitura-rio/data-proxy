@@ -23,6 +23,33 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
+  - it: creates the state and error tables of the engine
+    asserts:
+      - matchRegex:
+          path: data["postgres_create_state.sql"]
+          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.state"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - matchRegex:
+          path: data["postgres_create_state.sql"]
+          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.errors"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: makes every access policy write wait for the standbys
+    asserts:
+      - matchRegex:
+          path: data["postgres_setup_access_policy.sql"]
+          pattern: "synchronous_commit', 'remote_apply'"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
   - it: renders script and SQL ConfigMaps
     asserts:
       - isKind:

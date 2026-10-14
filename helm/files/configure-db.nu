@@ -32,6 +32,14 @@ def configure-catalog []: nothing -> nothing {
     log info 'DuckLake catalog privilege setup completed'
 }
 
+# Create the schema and the tables where the engine keeps its state and its errors
+def create-state []: nothing -> nothing {
+    execute-sql postgres/create_state.sql {
+        schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
+    }
+    log info 'Application state tables setup completed'
+}
+
 # Create application schemas with access policy and policy-writer roles
 def create-schemas []: nothing -> nothing {
     for schema in ($config | schema-list) {
@@ -49,7 +57,6 @@ def create-schemas []: nothing -> nothing {
         execute-sql postgres/setup_policy_writer.sql {
             schema: (quote-pg $schema identifier),
             policy_writer_role: (quote-pg $'policy_writer_($schema)' identifier)
-            policy_writer_literal: (quote-pg $'policy_writer_($schema)' literal)
             policy_name: (quote-pg $'policy_writer_($schema)' identifier)
         }
     }
@@ -103,6 +110,7 @@ def main []: nothing -> nothing {
         wait-for-postgres $env.PG_DATABASE_URL
         configure-ducklake
         configure-catalog
+        create-state
         create-schemas
         create-pre-request
         install-maintenance

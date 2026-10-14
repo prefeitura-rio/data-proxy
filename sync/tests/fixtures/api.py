@@ -20,6 +20,7 @@ from tests.constants import (
     VALKEY_PORT,
 )
 from tests.fixtures.types import BigQueryQueryResult, Silo
+from tests.helpers import create_state_tables
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -57,13 +58,10 @@ async def dbos_conn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[psycopg.AsyncConnection]:
     """Provide an async connection to the DBOS system database with the data_proxy schema initialized."""
-    from sync.postgres import Postgres
-    from sync.state import ensure_app_schema
-
     url = f"{POSTGRES_URL}/dbos_system"
     monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", url)
     conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
-    await ensure_app_schema(Postgres(connection=conn))
+    await create_state_tables(conn)
     await conn.execute(
         SQL("TRUNCATE {}.state, {}.errors").format(
             Identifier(settings.DBOS_APP_SCHEMA), Identifier(settings.DBOS_APP_SCHEMA)
