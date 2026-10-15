@@ -15,7 +15,7 @@
 ---@field response Response|nil The response to send. nil if PostgREST failed.
 ---@field source string Where the response came from: cache, postgrest or none.
 ---@field error string|nil Why PostgREST failed. Present only if response is nil.
----@field leading boolean Always true today. Reserved for single-flight (only the first caller fetches).
+---@field leading boolean Always true today. Reserved for sharing the answer of the leader with the requests that wait.
 
 --- The schema of the entry that the cache stores in Redis.
 ---@class SchemasModule

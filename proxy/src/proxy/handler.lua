@@ -71,7 +71,7 @@ function handler.handle(loaded_config, config)
 	local function ask_postgrest()
 		return limiter.run(inflight, config.max_inflight, function() return postgrest.query(context) end)
 	end
-	local result = cache.fetch(context, cache_key, ask_postgrest, store, Flight.new(inflight))
+	local result = cache.fetch(context, cache_key, ask_postgrest, store, Flight.new())
 	if cache.changes_policy(context, result.response) then store:bump_generation() end
 
 	response.send(ngx_request, context, result)

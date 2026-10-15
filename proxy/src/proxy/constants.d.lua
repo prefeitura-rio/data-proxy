@@ -4,7 +4,7 @@
 ---@class Constants
 ---@field headers HeaderConstants Names of HTTP headers.
 ---@field limiter LimiterConstants Counter of the requests that wait for PostgREST.
----@field flight FlightConstants The lock that lets one request ask PostgREST for a cache key.
+---@field locks LockConstants The lock that lets one request ask PostgREST for a cache key.
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
 ---@field internal_profile string The schema profile that only the cluster may use. The proxy refuses it.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
@@ -39,11 +39,17 @@
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
 
 --- The lock that lets one request ask PostgREST for a cache key, while the other requests for it wait.
----@class FlightConstants
----@field prefix string Prefix of the lock names in the shared dictionary of the limiter.
----@field ttl_seconds number Seconds after which a lock expires.
----@field poll_seconds number Seconds between two looks at a lock.
----@field max_wait_seconds number Most seconds that a request waits for the leader.
+---@class LockConstants
+---@field dict string Name of the shared dictionary that holds the locks.
+---@field options LockOptions The options of resty.lock.
+
+--- The options that resty.lock takes.
+---@class LockOptions
+---@field exptime number Seconds after which a lock expires.
+---@field timeout number Most seconds that a request waits for the lock.
+---@field step number Seconds of the first wait between two tries.
+---@field ratio number The factor that grows the wait.
+---@field max_step number The longest wait between two tries.
 
 --- The shared counter of the requests that wait for PostgREST.
 ---@class LimiterConstants

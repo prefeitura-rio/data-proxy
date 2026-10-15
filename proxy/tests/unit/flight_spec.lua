@@ -1,132 +1,109 @@
+local constants = require("proxy.constants")
 local flight = require("proxy.flight")
 local helpers = require("tests.unit.helpers")
 
 local check = helpers.check(describe, it)
 
---- A shared dictionary that holds keys like ngx.shared: add refuses a key that exists.
----@return table dict
-local function dict_with()
-	local dict = { values = {}, ttls = {} }
-	function dict:add(key, value, ttl)
-		if self.values[key] ~= nil then return false, "exists" end
-		self.values[key] = value
-		self.ttls[key] = ttl
-		return true
+--- A module that works like resty.lock: new makes a lock, lock gives the waited seconds, and unlock frees it.
+---@param case table
+---@return table module
+---@return table calls
+local function lock_module_with(case)
+	local calls = { new = 0, lock = 0, unlock = 0 }
+	local lock = {}
+	function lock.lock(_, key)
+		calls.lock = calls.lock + 1
+		calls.key = key
+		return case.waited, case.lock_error
 	end
-	function dict:get(key) return self.values[key] end
-	function dict:delete(key) self.values[key] = nil end
-	return dict
+	function lock.unlock()
+		calls.unlock = calls.unlock + 1
+		return 1
+	end
+	local module = {}
+	function module.new(_, dict, options)
+		calls.new = calls.new + 1
+		calls.dict = dict
+		calls.options = options
+		if case.new_fails then return nil, "dictionary not found" end
+		return lock
+	end
+	return module, calls
 end
 
---- A clock that moves when a request sleeps, and a hook that runs at each sleep.
----@param on_sleep fun(count: integer)|nil
----@return table options
-local function clock_with(on_sleep)
-	local state = { now = 0, sleeps = 0 }
-	return {
-		state = state,
-		ttl = 60,
-		poll = 0.5,
-		max_wait = 5,
-		now = function() return state.now end,
-		sleep = function(seconds)
-			state.now = state.now + seconds
-			state.sleeps = state.sleeps + 1
-			if on_sleep then on_sleep(state.sleeps) end
-		end,
-	}
-end
-
-check("flight.lead", function(case)
-	local dict = nil
-	if not case.no_dict then dict = dict_with() end
-	local options = clock_with()
-	local group = flight.new(dict, options)
-	local answers = {}
-	for _, step in ipairs(case.steps) do
-		if step.release then
-			group:release(step.release)
-		else
-			answers[#answers + 1] = group:lead(step.lead)
-		end
-	end
-	return answers
+check("flight.enter", function(case)
+	local module, calls = lock_module_with(case)
+	local group = flight.new(module)
+	return { role = group:enter("k"), locks = calls.lock, unlocks = calls.unlock }
 end, {
 	{
-		name = "lets the first request for a key lead and the next ones follow",
-		steps = { { lead = "k" }, { lead = "k" }, { lead = "k" } },
-		expected = { true, false, false },
+		name = "makes the first request the leader, and keeps the lock while it asks PostgREST",
+		waited = 0,
+		expected = { role = "leader", locks = 1, unlocks = 0 },
 	},
 	{
-		name = "gives each key its own leader",
-		steps = { { lead = "a" }, { lead = "b" } },
-		expected = { true, true },
+		name = "makes a request that waited a follower, and frees the lock at once for the others",
+		waited = 0.25,
+		expected = { role = "follower", locks = 1, unlocks = 1 },
 	},
 	{
-		name = "lets the next request lead after the leader releases the key",
-		steps = { { lead = "k" }, { release = "k" }, { lead = "k" } },
-		expected = { true, true },
+		name = "lets a request that timed out ask PostgREST itself",
+		lock_error = "timeout",
+		expected = { role = "alone", locks = 1, unlocks = 0 },
 	},
 	{
-		name = "lets every request lead when there is no shared dictionary",
-		no_dict = true,
-		steps = { { lead = "k" }, { lead = "k" } },
-		expected = { true, true },
+		name = "lets a request that got a lock error ask PostgREST itself",
+		lock_error = "no memory",
+		expected = { role = "alone", locks = 1, unlocks = 0 },
+	},
+	{
+		name = "lets every request ask PostgREST when the dictionary is missing",
+		new_fails = true,
+		expected = { role = "alone", locks = 0, unlocks = 0 },
 	},
 })
 
-describe("flight.lead", function()
-	it("makes the lock expire, so a leader that dies doesn't block the key", function()
-		local dict = dict_with()
-		local group = flight.new(dict, clock_with())
+describe("flight.enter", function()
+	it("locks the cache key in the dictionary and with the limits of the constants", function()
+		local module, calls = lock_module_with({ waited = 0 })
 
-		group:lead("k")
+		flight.new(module):enter("the-key")
 
-		assert.equal(60, dict.ttls["flight:k"])
+		assert.equal("the-key", calls.key)
+		assert.equal(constants.locks.dict, calls.dict)
+		assert.same(constants.locks.options, calls.options)
 	end)
 end)
 
-describe("flight.wait", function()
-	it("returns as soon as the leader releases the key", function()
-		local dict = dict_with()
-		local options
-		options = clock_with(function(count)
-			if count == 3 then dict:delete("flight:k") end
-		end)
-		local group = flight.new(dict, options)
-		group:lead("k")
+describe("flight.leave", function()
+	it("frees the lock of the leader, once", function()
+		local module, calls = lock_module_with({ waited = 0 })
+		local group = flight.new(module)
+		group:enter("k")
 
-		group:wait("k")
+		group:leave()
+		group:leave()
 
-		assert.equal(3, options.state.sleeps)
+		assert.equal(1, calls.unlock)
 	end)
 
-	it("returns at once when nobody leads the key", function()
-		local options = clock_with()
-		local group = flight.new(dict_with(), options)
+	it("frees nothing for a follower, because it freed the lock at once", function()
+		local module, calls = lock_module_with({ waited = 0.1 })
+		local group = flight.new(module)
+		group:enter("k")
 
-		group:wait("k")
+		group:leave()
 
-		assert.equal(0, options.state.sleeps)
+		assert.equal(1, calls.unlock)
 	end)
 
-	it("stops at the longest wait when the leader never releases", function()
-		local dict = dict_with()
-		local options = clock_with()
-		local group = flight.new(dict, options)
-		group:lead("k")
+	it("frees nothing for a request that holds no lock", function()
+		local module, calls = lock_module_with({ lock_error = "timeout" })
+		local group = flight.new(module)
+		group:enter("k")
 
-		group:wait("k")
+		group:leave()
 
-		assert.equal(10, options.state.sleeps)
-	end)
-
-	it("returns at once when there is no shared dictionary", function()
-		local options = clock_with()
-		local group = flight.new(nil, options)
-
-		group:wait("k")
-
-		assert.equal(0, options.state.sleeps)
+		assert.equal(0, calls.unlock)
 	end)
 end)

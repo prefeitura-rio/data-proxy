@@ -261,29 +261,26 @@ check("cache.changes_policy", function(case) return cache.changes_policy(case.co
 	},
 })
 
---- A flight like proxy.flight gives. Lead says if this request leads. Wait runs a hook, like a leader that finishes.
----@param leads boolean
----@param on_wait fun()|nil
+--- A flight like proxy.flight gives: enter says what this request is, and leave frees the lock of a leader.
+---@param role string leader, follower or alone.
+---@param on_enter fun()|nil Runs when the request enters, like a leader that finished while this one waited.
 ---@return table flight
 ---@return table calls
-local function flight_with(leads, on_wait)
-	local calls = { leads = 0, waits = 0, releases = 0 }
+local function flight_with(role, on_enter)
+	local calls = { enters = 0, leaves = 0 }
 	return {
-		lead = function()
-			calls.leads = calls.leads + 1
-			return leads
+		enter = function()
+			calls.enters = calls.enters + 1
+			if on_enter then on_enter() end
+			return role
 		end,
-		wait = function()
-			calls.waits = calls.waits + 1
-			if on_wait then on_wait() end
-		end,
-		release = function() calls.releases = calls.releases + 1 end,
+		leave = function() calls.leaves = calls.leaves + 1 end,
 	},
 		calls
 end
 
 check("cache.fetch with concurrent requests", function(case)
-	local entry = case.stored
+	local entry = nil
 	local counts = { reads = 0, writes = 0, loads = 0 }
 	local store = {
 		read = function()
@@ -295,7 +292,8 @@ check("cache.fetch with concurrent requests", function(case)
 			return true
 		end,
 	}
-	local group, calls = flight_with(case.leads, function() entry = case.stored_by_leader end)
+	local group, calls = flight_with(case.role, function() entry = case.stored_when_entering end)
+	entry = case.stored
 	local ok, result = pcall(cache.fetch, case.context, "key", function()
 		counts.loads = counts.loads + 1
 		if case.raises then error("broken", 0) end
@@ -304,62 +302,77 @@ check("cache.fetch with concurrent requests", function(case)
 	return {
 		ok = ok,
 		source = ok and result.source or nil,
+		reads = counts.reads,
 		loads = counts.loads,
 		writes = counts.writes,
-		leads = calls.leads,
-		waits = calls.waits,
-		releases = calls.releases,
+		enters = calls.enters,
+		leaves = calls.leaves,
 	}
 end, {
 	{
-		name = "lets the leader ask PostgREST once, store the answer, and release the key",
+		name = "lets the leader ask PostgREST once, store the answer, and free the lock",
 		context = context_with(),
-		leads = true,
+		role = "leader",
 		response = response_with(),
-		expected = { ok = true, source = "postgrest", loads = 1, writes = 1, leads = 1, waits = 0, releases = 1 },
+		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 1, enters = 1, leaves = 1 },
+	},
+	{
+		name = "answers a leader from the entry that appeared while it took the lock, and frees the lock",
+		context = context_with(),
+		role = "leader",
+		stored_when_entering = { body = '[{"id":1}]', headers = {} },
+		response = response_with(),
+		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, enters = 1, leaves = 1 },
 	},
 	{
 		name = "answers a follower from the entry that the leader stored, without asking PostgREST",
 		context = context_with(),
-		leads = false,
-		stored_by_leader = { body = '[{"id":1}]', headers = {} },
+		role = "follower",
+		stored_when_entering = { body = '[{"id":1}]', headers = {} },
 		response = response_with(),
-		expected = { ok = true, source = "cache", loads = 0, writes = 0, leads = 1, waits = 1, releases = 0 },
+		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, enters = 1, leaves = 0 },
 	},
 	{
 		name = "lets a follower ask PostgREST itself when the leader stored nothing",
 		context = context_with(),
-		leads = false,
+		role = "follower",
 		response = response_with({ status = 404 }),
-		expected = { ok = true, source = "postgrest", loads = 1, writes = 0, leads = 1, waits = 1, releases = 0 },
+		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 0, enters = 1, leaves = 0 },
 	},
 	{
-		name = "releases the key when PostgREST does not answer",
+		name = "lets a request that holds no lock ask PostgREST itself",
 		context = context_with(),
-		leads = true,
+		role = "alone",
+		response = response_with(),
+		expected = { ok = true, source = "postgrest", reads = 1, loads = 1, writes = 1, enters = 1, leaves = 0 },
+	},
+	{
+		name = "frees the lock when PostgREST does not answer",
+		context = context_with(),
+		role = "leader",
 		response = nil,
-		expected = { ok = true, source = "none", loads = 1, writes = 0, leads = 1, waits = 0, releases = 1 },
+		expected = { ok = true, source = "none", reads = 2, loads = 1, writes = 0, enters = 1, leaves = 1 },
 	},
 	{
-		name = "releases the key and raises the error when the request fails",
+		name = "frees the lock and raises the error when the request fails",
 		context = context_with(),
-		leads = true,
+		role = "leader",
 		raises = true,
-		expected = { ok = false, loads = 1, writes = 0, leads = 1, waits = 0, releases = 1 },
+		expected = { ok = false, reads = 2, loads = 1, writes = 0, enters = 1, leaves = 1 },
 	},
 	{
 		name = "answers a hit without asking for the lock",
 		context = context_with(),
-		leads = true,
+		role = "leader",
 		stored = { body = '[{"id":1}]', headers = {} },
 		response = response_with(),
-		expected = { ok = true, source = "cache", loads = 0, writes = 0, leads = 0, waits = 0, releases = 0 },
+		expected = { ok = true, source = "cache", reads = 1, loads = 0, writes = 0, enters = 0, leaves = 0 },
 	},
 	{
 		name = "never makes a write wait for another request",
 		context = context_with({ method = "POST" }),
-		leads = false,
+		role = "follower",
 		response = response_with({ status = 201 }),
-		expected = { ok = true, source = "postgrest", loads = 1, writes = 0, leads = 0, waits = 0, releases = 0 },
+		expected = { ok = true, source = "postgrest", reads = 0, loads = 1, writes = 0, enters = 0, leaves = 0 },
 	},
 })

@@ -1,68 +1,60 @@
--- Let one request ask PostgREST for a cache key, while the other requests for the same key wait for its answer.
+-- Let one request ask PostgREST for a cache key, while the other requests for the same key wait for it.
+-- The lock is resty.lock, which OpenResty ships. It lives in the shared dictionary of the nginx config.
 
 local constants = require("proxy.constants")
 
---- The functions that decide which request leads for a cache key.
+--- One flight for each request. It says what the request is for a cache key, and frees the lock of a leader.
 ---@class Flight
----@field dict table|nil The shared dictionary with add, get and delete. nil means that every request leads.
----@field ttl number Seconds after which a lock expires, so a leader that dies doesn't block the key.
----@field poll number Seconds between two looks at the lock.
----@field max_wait number Most seconds that a follower waits for the leader.
----@field now fun(): number
----@field sleep fun(seconds: number)
+---@field lock_module table Works like resty.lock: new gives a lock, and a lock has lock and unlock.
+---@field held table|nil The lock that this request holds as the leader.
 local flight = {}
 flight.__index = flight
 
---- Make a flight over a shared dictionary.
----@param dict table|nil The shared dictionary. nil gives no coalescing.
----@param options table|nil Replace the constants, the clock or the sleep. The specs use it.
+--- Make the flight of one request.
+---@param lock_module table|nil Replaces resty.lock. The specs use it.
 ---@return Flight
-function flight.new(dict, options)
-	local settings = constants.flight
-	options = options or {}
-	return setmetatable({
-		dict = dict,
-		ttl = options.ttl or settings.ttl_seconds,
-		poll = options.poll or settings.poll_seconds,
-		max_wait = options.max_wait or settings.max_wait_seconds,
-		now = options.now or ngx.now,
-		sleep = options.sleep or ngx.sleep,
-	}, flight)
-end
+function flight.new(lock_module) return setmetatable({ lock_module = lock_module or require("resty.lock") }, flight) end
 
---- The name of the lock of a key.
----@param key string
----@return string
-local function lock_name(key) return constants.flight.prefix .. key end
-
---- Take the lock of a key, if no other request holds it.
+--- Take part in the flight for a cache key.
 ---
 --- ```lua
---- flight:lead("k")  --> true    (this request asks PostgREST)
---- flight:lead("k")  --> false   (another request leads, so this one waits)
+--- flight:enter("k")  --> "leader"    (first: ask PostgREST, store the answer, then call leave)
+--- flight:enter("k")  --> "follower"  (waited for the leader: read the cache again)
+--- flight:enter("k")  --> "alone"     (no lock: the wait timed out, or there is no dictionary. Ask PostgREST.)
 --- ```
+--- A follower takes the lock only to know that the leader finished. It frees the lock at once, so the
+--- followers don't wait for each other.
 ---@param key string Cache key.
----@return boolean leading
-function flight:lead(key)
-	if self.dict == nil then return true end
-	return self.dict:add(lock_name(key), true, self.ttl) == true
+---@return "leader"|"follower"|"alone" role
+function flight:enter(key)
+	local settings = constants.locks
+	local lock, new_error = self.lock_module:new(settings.dict, settings.options)
+	if not lock then
+		ngx.log(ngx.ERR, "Proxy lock is not available: ", new_error)
+		return "alone"
+	end
+
+	local waited, lock_error = lock:lock(key)
+	if not waited then
+		if lock_error ~= "timeout" then ngx.log(ngx.ERR, "Proxy lock failed: ", lock_error) end
+		return "alone"
+	end
+
+	if waited == 0 then
+		self.held = lock
+		return "leader"
+	end
+
+	lock:unlock()
+	return "follower"
 end
 
---- Free the lock of a key.
----@param key string Cache key.
+--- Free the lock of the leader. It does nothing for any other request.
 ---@return nil
-function flight:release(key)
-	if self.dict ~= nil then self.dict:delete(lock_name(key)) end
-end
-
---- Wait until the leader frees the lock of a key, or until the longest wait passes.
----@param key string Cache key.
----@return nil
-function flight:wait(key)
-	if self.dict == nil then return end
-	local deadline = self.now() + self.max_wait
-	while self.dict:get(lock_name(key)) ~= nil and self.now() < deadline do
-		self.sleep(self.poll)
+function flight:leave()
+	if self.held then
+		self.held:unlock()
+		self.held = nil
 	end
 end
 

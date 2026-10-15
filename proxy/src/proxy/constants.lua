@@ -43,11 +43,15 @@ return {
 		dict = "proxy_inflight",
 		key = "inflight",
 	},
-	flight = {
-		prefix = "flight:",
-		ttl_seconds = 60,
-		poll_seconds = 0.05,
-		max_wait_seconds = 30,
+	locks = {
+		dict = "proxy_locks",
+		options = {
+			exptime = 60, -- A leader that dies frees the key after this many seconds.
+			timeout = 30, -- A follower waits this long for the leader, and then asks PostgREST itself.
+			step = 0.001,
+			ratio = 2,
+			max_step = 0.05, -- A follower looks at the lock at least every 50 ms, so it wakes up soon after the leader.
+		},
 	},
 	internal_profile = "admin",
 	disabled_endpoints = { "/access_policy" },

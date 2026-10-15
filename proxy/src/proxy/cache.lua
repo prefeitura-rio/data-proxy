@@ -88,8 +88,9 @@ function cache.changes_policy(context, response)
 	return utils.matches_path_prefix(context.uri, constants.policy_endpoints)
 end
 
---- Look for an answer in the store. With a flight, a request that doesn't lead waits for the leader
---- of the key and then looks again.
+--- Look for an answer in the store. With a flight, the first request for a missing key leads, and the others
+--- wait for it and then look again. A leader looks once more after it takes the lock, because the previous
+--- leader can finish between its first look and its lock.
 ---@param context RequestContext
 ---@param key string
 ---@param store CacheStore|Redis
@@ -101,13 +102,15 @@ local function look_up(context, key, store, flight)
 
 	local hit = store:read(key)
 	if hit or not flight then return hit, false end
-	if flight:lead(key) then return nil, true end
 
-	flight:wait(key)
-	return store:read(key), false
+	local role = flight:enter(key)
+	if role == "alone" then return nil, false end
+	hit = store:read(key)
+	if hit and role == "leader" then flight:leave() end
+	return hit, role == "leader" and hit == nil
 end
 
---- Ask PostgREST, store an answer that is cacheable, and free the key of a leader, also if the call fails.
+--- Ask PostgREST, store an answer that is cacheable, and free the lock of a leader, also if the call fails.
 ---@param context RequestContext
 ---@param key string
 ---@param load fun(): Response|nil, string|nil
@@ -120,7 +123,7 @@ local function ask_and_store(context, key, load, store, leader)
 	if asked and postgrest_response and cache.is_cacheable(postgrest_response, context) then
 		store:write(key, context.cache_ttl, cache.to_entry(postgrest_response))
 	end
-	if leader then leader:release(key) end
+	if leader then leader:leave() end
 
 	if not asked then error(postgrest_response, 0) end
 	return postgrest_response, load_error
