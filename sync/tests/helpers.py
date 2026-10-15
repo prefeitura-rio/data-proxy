@@ -14,9 +14,8 @@ import duckdb
 import pytest
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
-from sync.conditions import schema_scope_condition
 from sync.dbos import workflows
 from sync.duckdb import DuckDB
 from sync.executor import Executor
@@ -69,6 +68,13 @@ type Selection = RangeSelection | TimeRangeSelection | RemainderSelection
 type SqlParams = Mapping[str, DatabaseValue | list[str]]
 
 DEFAULT_MODIFIED: Final = datetime(2025, 1, 1, tzinfo=UTC)
+
+
+def schema_scope_condition(schema: str) -> Composable:
+    """Return the schema-claim condition that the test policies use."""
+    return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
+        Literal(schema), Literal("app.claim_schemas")
+    )
 
 
 def sync_config(

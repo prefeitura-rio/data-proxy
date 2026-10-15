@@ -11,7 +11,6 @@ from dbos._migration import ensure_dbos_schema, run_dbos_migrations
 from psycopg.sql import SQL, Identifier, Literal
 from sqlalchemy import create_engine
 
-from sync.conditions import schema_scope_condition
 from sync.duckdb import DuckDB
 from sync.ducklake import DuckLakePaths
 from sync.models import (
@@ -47,6 +46,7 @@ from tests.helpers import (
     initialize_schemas,
     psql_script,
     publish_people_catalog,
+    schema_scope_condition,
 )
 
 

@@ -1,4 +1,4 @@
-"""SQL predicate builders for partition, scan, and authorization filters."""
+"""SQL predicate builders for partition and scan filters."""
 
 from typing import assert_never
 
@@ -42,10 +42,3 @@ def selection_condition(
 def partition_condition(partition: PhysicalPartition) -> Composable:
     """Return the SQL predicate that matches one partition."""
     return selection_condition(partition.selection)
-
-
-def schema_scope_condition(schema: str) -> Composable:
-    """Return the schema-claim condition."""
-    return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
-        Literal(schema), Literal("app.claim_schemas")
-    )

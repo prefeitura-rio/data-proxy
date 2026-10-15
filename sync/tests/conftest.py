@@ -29,7 +29,6 @@ pytest_plugins = [
     "tests.fixtures.routing",
     "tests.integration.steps.state",
     "tests.integration.steps.schema",
-    "tests.integration.steps.authorization",
     "tests.integration.steps.cache",
     "tests.integration.steps.templates",
 ]

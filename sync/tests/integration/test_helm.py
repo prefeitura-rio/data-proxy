@@ -7,7 +7,6 @@ import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier, Literal
 
-from sync.conditions import schema_scope_condition
 from sync.settings import settings
 from sync.templates import render_template
 from tests.constants import PROXY_FILTER_CASES, TEST_SQL_DIR
@@ -21,6 +20,7 @@ from tests.helpers import (
     psql_script,
     relation_exists,
     scalar,
+    schema_scope_condition,
     set_setting,
 )
 

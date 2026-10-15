@@ -1,6 +1,6 @@
 import pytest
 
-from sync.conditions import partition_condition, schema_scope_condition
+from sync.conditions import partition_condition
 from sync.sources.partitions import (
     RangeSelection,
     RemainderSelection,
@@ -40,10 +40,4 @@ class TestSelectionConditions:
         """Render the exact predicate for each selection type."""
         assert (
             partition_condition(partition("10", selection)).as_string(None) == expected
-        )
-
-    def test_renders_schema_scope_claim(self) -> None:
-        """Match the schema against the comma-separated schema claim."""
-        assert schema_scope_condition("app").as_string(None) == (
-            "'app' = ANY(string_to_array(current_setting('app.claim_schemas', true), ','))"
         )

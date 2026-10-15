@@ -475,8 +475,7 @@ class TestDucklakeEvolveSchema:
             params=[str(evolved)],
         )
 
-        async with duckdb.transaction():
-            await evolve_table_schema(duckdb, "people", str(evolved))
+        await evolve_table_schema(duckdb, "people", str(evolved))
         rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
             "duckdb/describe_table",
             mapping={"table": Identifier("people")},

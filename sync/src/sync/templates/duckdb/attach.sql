@@ -5,7 +5,7 @@
   "inputs": {
     "catalog": "SQL literal full DuckLake attach URI, e.g. ducklake:postgres:<URI>.",
     "data_path": "SQL literal DuckLake data path.",
-    "metadata_schema": "Optional SQL literal schema that holds the catalog tables. SQLite catalogs have no schemas.",
+    "metadata_schema": "Optional SQL literal schema that holds the catalog tables.",
     "encrypted": "Whether the catalog uses encrypted Parquet files."
   }
 }

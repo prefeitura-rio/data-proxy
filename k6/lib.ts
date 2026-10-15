@@ -10,12 +10,12 @@ import type {
 declare const __ENV: Record<string, string | undefined>;
 
 export const NAMESPACE = __ENV.NAMESPACE || "data-proxy";
-export const PIPELINE = __ENV.PIPELINE || "data-proxy-sync";
-export const E2E_SCRIPT_CONFIGMAP =
+const PIPELINE = __ENV.PIPELINE || "data-proxy-sync";
+const E2E_SCRIPT_CONFIGMAP =
   __ENV.E2E_SCRIPT_CONFIGMAP || "data-proxy-e2e";
 
 /** Returns the sync pod spec, used as a template for one-off Jobs. */
-export function deploymentPodSpec(
+function deploymentPodSpec(
   k8s: Kubernetes,
   deploymentName: string,
 ): KubernetesPodSpec {
