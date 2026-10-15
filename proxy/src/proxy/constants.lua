@@ -43,6 +43,12 @@ return {
 		dict = "proxy_inflight",
 		key = "inflight",
 	},
+	flight = {
+		prefix = "flight:",
+		ttl_seconds = 60,
+		poll_seconds = 0.05,
+		max_wait_seconds = 30,
+	},
 	internal_profile = "admin",
 	disabled_endpoints = { "/access_policy" },
 	policy_endpoints = { "/access_policy" },

@@ -1,5 +1,6 @@
 -- Handle one request: read it, route it, answer from the cache or PostgREST, and send the answer.
 
+local Flight = require("proxy.flight")
 local Redis = require("proxy.redis")
 local cache = require("proxy.cache")
 local constants = require("proxy.constants")
@@ -70,7 +71,7 @@ function handler.handle(loaded_config, config)
 	local function ask_postgrest()
 		return limiter.run(inflight, config.max_inflight, function() return postgrest.query(context) end)
 	end
-	local result = cache.fetch(context, cache_key, ask_postgrest, store)
+	local result = cache.fetch(context, cache_key, ask_postgrest, store, Flight.new(inflight))
 	if cache.changes_policy(context, result.response) then store:bump_generation() end
 
 	response.send(ngx_request, context, result)

@@ -63,6 +63,7 @@ The parser reads the query parameters that hold comparisons, and the `and`, `or`
 - OpenResty doesn't cache ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never cached.
 - Cache reads use the Redis reader endpoint. Cache writes use the Redis writer endpoint. Webdis isn't part of the request path.
 - The sync flushes the cache after each run.
+- When an entry is missing, one request for that key asks PostgREST. The other requests for the same key wait for it, up to 30 seconds, and read the entry that it stored. Without this, a slow entry that expires, for example a table that reads BigQuery, sends every request for it to PostgREST at once. They fill PostgREST's connections and the limit of `proxy.maxInflight`, and the proxy then answers 503 for every route. The wait is per proxy pod. A follower asks PostgREST itself if the leader stored nothing, for example after an error. A request that waits doesn't count against `proxy.maxInflight`.
 - A successful write to `/access_policy` through the proxy raises the policy generation, a counter in Redis. Every key includes it, so answers from before the change are never served again. A change made directly in the database doesn't raise it. Those answers stay until their lifetime ends or the next sync flushes the cache.
 
 See [Using the API](using.md#response-source-and-cache) for the response headers.

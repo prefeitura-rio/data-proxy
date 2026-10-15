@@ -260,3 +260,106 @@ check("cache.changes_policy", function(case) return cache.changes_policy(case.co
 		expected = false,
 	},
 })
+
+--- A flight like proxy.flight gives. Lead says if this request leads. Wait runs a hook, like a leader that finishes.
+---@param leads boolean
+---@param on_wait fun()|nil
+---@return table flight
+---@return table calls
+local function flight_with(leads, on_wait)
+	local calls = { leads = 0, waits = 0, releases = 0 }
+	return {
+		lead = function()
+			calls.leads = calls.leads + 1
+			return leads
+		end,
+		wait = function()
+			calls.waits = calls.waits + 1
+			if on_wait then on_wait() end
+		end,
+		release = function() calls.releases = calls.releases + 1 end,
+	},
+		calls
+end
+
+check("cache.fetch with concurrent requests", function(case)
+	local entry = case.stored
+	local counts = { reads = 0, writes = 0, loads = 0 }
+	local store = {
+		read = function()
+			counts.reads = counts.reads + 1
+			return entry
+		end,
+		write = function()
+			counts.writes = counts.writes + 1
+			return true
+		end,
+	}
+	local group, calls = flight_with(case.leads, function() entry = case.stored_by_leader end)
+	local ok, result = pcall(cache.fetch, case.context, "key", function()
+		counts.loads = counts.loads + 1
+		if case.raises then error("broken", 0) end
+		return case.response
+	end, store, group)
+	return {
+		ok = ok,
+		source = ok and result.source or nil,
+		loads = counts.loads,
+		writes = counts.writes,
+		leads = calls.leads,
+		waits = calls.waits,
+		releases = calls.releases,
+	}
+end, {
+	{
+		name = "lets the leader ask PostgREST once, store the answer, and release the key",
+		context = context_with(),
+		leads = true,
+		response = response_with(),
+		expected = { ok = true, source = "postgrest", loads = 1, writes = 1, leads = 1, waits = 0, releases = 1 },
+	},
+	{
+		name = "answers a follower from the entry that the leader stored, without asking PostgREST",
+		context = context_with(),
+		leads = false,
+		stored_by_leader = { body = '[{"id":1}]', headers = {} },
+		response = response_with(),
+		expected = { ok = true, source = "cache", loads = 0, writes = 0, leads = 1, waits = 1, releases = 0 },
+	},
+	{
+		name = "lets a follower ask PostgREST itself when the leader stored nothing",
+		context = context_with(),
+		leads = false,
+		response = response_with({ status = 404 }),
+		expected = { ok = true, source = "postgrest", loads = 1, writes = 0, leads = 1, waits = 1, releases = 0 },
+	},
+	{
+		name = "releases the key when PostgREST does not answer",
+		context = context_with(),
+		leads = true,
+		response = nil,
+		expected = { ok = true, source = "none", loads = 1, writes = 0, leads = 1, waits = 0, releases = 1 },
+	},
+	{
+		name = "releases the key and raises the error when the request fails",
+		context = context_with(),
+		leads = true,
+		raises = true,
+		expected = { ok = false, loads = 1, writes = 0, leads = 1, waits = 0, releases = 1 },
+	},
+	{
+		name = "answers a hit without asking for the lock",
+		context = context_with(),
+		leads = true,
+		stored = { body = '[{"id":1}]', headers = {} },
+		response = response_with(),
+		expected = { ok = true, source = "cache", loads = 0, writes = 0, leads = 0, waits = 0, releases = 0 },
+	},
+	{
+		name = "never makes a write wait for another request",
+		context = context_with({ method = "POST" }),
+		leads = false,
+		response = response_with({ status = 201 }),
+		expected = { ok = true, source = "postgrest", loads = 1, writes = 0, leads = 0, waits = 0, releases = 0 },
+	},
+})

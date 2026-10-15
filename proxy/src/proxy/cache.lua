@@ -35,6 +35,11 @@ local function outcome(response, source, failure)
 	return { response = response, source = source, error = failure, leading = true }
 end
 
+--- Make the response of a cache hit.
+---@param hit CachedEntry
+---@return Response
+local function cached_response(hit) return { status = 200, body = hit.body, headers = hit.headers } end
+
 --- One check for each condition of a cacheable response. All checks must pass.
 --- A check reads its arguments only, so each one could live in utils.
 ---@type (fun(response: Response, context: RequestContext): boolean)[]
@@ -83,8 +88,51 @@ function cache.changes_policy(context, response)
 	return utils.matches_path_prefix(context.uri, constants.policy_endpoints)
 end
 
+--- Look for an answer in the store. With a flight, a request that doesn't lead waits for the leader
+--- of the key and then looks again.
+---@param context RequestContext
+---@param key string
+---@param store CacheStore|Redis
+---@param flight Flight|nil
+---@return CachedEntry|nil hit
+---@return boolean leading True if this request has to ask PostgREST and then free the key.
+local function look_up(context, key, store, flight)
+	if not may_read(context) then return nil, false end
+
+	local hit = store:read(key)
+	if hit or not flight then return hit, false end
+	if flight:lead(key) then return nil, true end
+
+	flight:wait(key)
+	return store:read(key), false
+end
+
+--- Ask PostgREST, store an answer that is cacheable, and free the key of a leader, also if the call fails.
+---@param context RequestContext
+---@param key string
+---@param load fun(): Response|nil, string|nil
+---@param store CacheStore|Redis
+---@param leader Flight|nil The flight, if this request leads the key.
+---@return Response|nil response
+---@return string|nil failure
+local function ask_and_store(context, key, load, store, leader)
+	local asked, postgrest_response, load_error = pcall(load)
+	if asked and postgrest_response and cache.is_cacheable(postgrest_response, context) then
+		store:write(key, context.cache_ttl, cache.to_entry(postgrest_response))
+	end
+	if leader then leader:release(key) end
+
+	if not asked then error(postgrest_response, 0) end
+	return postgrest_response, load_error
+end
+
 --- Fetch the answer of a request: from the cache, or from PostgREST, which the proxy then stores.
 --- The load function runs only if the cache has no answer.
+---
+--- With a flight, one request leads for a key and asks PostgREST. The other requests for the same key
+--- wait for it and read the entry that it stored. Many requests for an entry that just expired then
+--- cause one slow query, not one for each request. A follower asks PostgREST itself if the leader
+--- stored nothing, for example because the answer was an error.
 ---
 --- ```lua
 --- local load = function() return postgrest.query(context) end
@@ -97,23 +145,14 @@ end
 ---@param key string Cache key from request.cache_key.
 ---@param load fun(): Response|nil, string|nil Asks PostgREST. The function calls it only on a cache miss.
 ---@param store CacheStore|Redis The cache store.
+---@param flight Flight|nil Makes the requests for one key wait for one request. nil means no waiting.
 ---@return CacheResult
-function cache.fetch(context, key, load, store)
-	if may_read(context) then
-		local hit = store:read(key)
-		if hit then
-			local cached_response = { status = 200, body = hit.body, headers = hit.headers }
-			return outcome(cached_response, "cache", nil)
-		end
-	end
+function cache.fetch(context, key, load, store, flight)
+	local hit, leading = look_up(context, key, store, flight)
+	if hit then return outcome(cached_response(hit), "cache", nil) end
 
-	local postgrest_response, load_error = load()
+	local postgrest_response, load_error = ask_and_store(context, key, load, store, leading and flight or nil)
 	if not postgrest_response then return outcome(nil, "none", load_error) end
-
-	if cache.is_cacheable(postgrest_response, context) then
-		store:write(key, context.cache_ttl, cache.to_entry(postgrest_response))
-	end
-
 	return outcome(postgrest_response, "postgrest", nil)
 end
 
