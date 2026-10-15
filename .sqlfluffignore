@@ -13,6 +13,7 @@ sync/src/sync/templates/duckdb/setup.sql
 # Jinja macro source and imports are validated through rendering.
 sync/src/sync/templates/duckdb/macros.sql
 helm/files/templates/postgres/grant_app_usage.sql
+helm/files/templates/postgres/grant_console_usage.sql
 helm/files/templates/postgres/grant_policy_writer.sql
 helm/files/templates/postgres/set_db_schemas.sql
 helm/files/templates/postgres/reset_db_schemas.sql

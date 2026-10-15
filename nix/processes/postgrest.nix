@@ -20,6 +20,7 @@
       PGRST_DB_URI = "postgres://test:test@127.0.0.1:${config.env.TEST_PGDOG_PORT}/test";
       PGRST_DB_SCHEMAS = "pushdown,admin";
       PGRST_DB_ANON_ROLE = "anon";
+      PGRST_DB_PRE_REQUEST = "data_proxy.pre_request";
       PGRST_JWT_SECRET = config.env.TEST_POSTGREST_AUTH;
       PGRST_DB_PREPARED_STATEMENTS = "false";
       PGRST_DB_CHANNEL_ENABLED = "false";

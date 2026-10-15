@@ -30,7 +30,7 @@ async def ops(admin_db: psycopg.AsyncConnection) -> psycopg.AsyncConnection:
 class TestQueueSettings:
     """Operators change the limits of a queue with a PATCH, and bad values are refused."""
 
-    @pytest.mark.parametrize("role", ["console_operator", "console_admin"])
+    @pytest.mark.parametrize("role", ["console_admin"])
     async def test_a_patch_changes_only_the_given_settings(
         self, ops: psycopg.AsyncConnection, role: str
     ) -> None:
@@ -48,7 +48,7 @@ class TestQueueSettings:
     ) -> None:
         """The change moves updated_at forward."""
         await ops.execute(b"UPDATE dbos.queues SET updated_at = 0 WHERE name = 'q-ops'")
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         await ops.execute(
             b"UPDATE admin.queues SET concurrency = 3 WHERE name = 'q-ops'"
@@ -73,14 +73,16 @@ class TestQueueSettings:
         self, ops: psycopg.AsyncConnection, change: str
     ) -> None:
         """A value that DBOS would reject never reaches the queue."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         with pytest.raises(CheckViolation):
             await ops.execute(
                 f"UPDATE admin.queues SET {change} WHERE name = 'q-ops'".encode()
             )
 
-    @pytest.mark.parametrize("role", ["console_viewer", "console_editor"])
+    @pytest.mark.parametrize(
+        "role", ["console_viewer", "console_operator", "console_editor"]
+    )
     async def test_lower_levels_cannot_change_a_queue(
         self, ops: psycopg.AsyncConnection, role: str
     ) -> None:
@@ -94,7 +96,7 @@ class TestQueueSettings:
         self, ops: psycopg.AsyncConnection
     ) -> None:
         """An operator can't rename a queue."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         with pytest.raises(InsufficientPrivilege):
             await ops.execute(b"UPDATE admin.queues SET name = 'other'")
@@ -108,7 +110,7 @@ class TestScheduleSettings:
         self, ops: psycopg.AsyncConnection
     ) -> None:
         """Status, cron expression, and time zone change together."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         await ops.execute(
             b"UPDATE admin.schedules SET status = 'PAUSED', schedule = '*/5 * * * *', timezone = 'America/Sao_Paulo' WHERE name = 's-ops'"
@@ -126,7 +128,7 @@ class TestScheduleSettings:
         self, ops: psycopg.AsyncConnection, schedule: str
     ) -> None:
         """Five and six field expressions with lists, ranges, steps, and names pass."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         await ops.execute(
             b"UPDATE admin.schedules SET schedule = %s WHERE name = 's-ops'",
@@ -150,14 +152,16 @@ class TestScheduleSettings:
         self, ops: psycopg.AsyncConnection, change: str
     ) -> None:
         """A value that could stop the scheduler never reaches the table."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         with pytest.raises(CheckViolation):
             await ops.execute(
                 f"UPDATE admin.schedules SET {change} WHERE name = 's-ops'".encode()
             )
 
-    @pytest.mark.parametrize("role", ["console_viewer", "console_editor"])
+    @pytest.mark.parametrize(
+        "role", ["console_viewer", "console_operator", "console_editor"]
+    )
     async def test_lower_levels_cannot_change_a_schedule(
         self, ops: psycopg.AsyncConnection, role: str
     ) -> None:
@@ -171,7 +175,7 @@ class TestScheduleSettings:
         self, ops: psycopg.AsyncConnection
     ) -> None:
         """An operator can't point a schedule at another workflow."""
-        await become(ops, "console_operator")
+        await become(ops, "console_admin")
 
         with pytest.raises(InsufficientPrivilege):
             await ops.execute(b"UPDATE admin.schedules SET workflow_name = 'other'")

@@ -63,6 +63,7 @@ def main []: nothing -> nothing {
     # The admin views read the state tables, which the configure job creates before goose runs.
     render ($env.DEVENV_ROOT | path join helm files templates postgres create_state.sql) 'schema="data_proxy"' | run-sql test $port
     render ($env.DEVENV_ROOT | path join helm files templates postgres create_reload.sql) 'schema="data_proxy"' | run-sql test $port
+    render ($env.DEVENV_ROOT | path join helm files templates postgres create_pre_request.sql) 'schema="data_proxy"' | run-sql test $port
 
     # The chart declares the console permission levels as CNPG managed roles. The test server creates them here.
     [
@@ -89,4 +90,8 @@ def main []: nothing -> nothing {
             span: (metadata $pushdown).span
         } }
     $pushdown_sql | run-sql test $port
+
+    # PostgREST runs the pre-request function as the role of the token. The console roles exist above and anon exists now.
+    render ($env.DEVENV_ROOT | path join helm files templates postgres grant_console_usage.sql) 'app_schema="data_proxy"' 'console_role="console_viewer"' | run-sql test $port
+    'GRANT EXECUTE ON FUNCTION data_proxy.pre_request() TO anon' | run-sql test $port
 }

@@ -11,6 +11,9 @@ from tests.helpers import become, rows
 
 CLAIMS = "SELECT set_config('request.jwt.claims', %s, true)"
 
+# The schemas that the token of the editor names in these tests.
+NAMES = "alpha,beta,missing,x,other,Bad-Name"
+
 
 async def seed(connection: psycopg.AsyncConnection) -> None:
     """Add one schema with a claim, one schema without, and one table with a rule."""
@@ -44,7 +47,7 @@ class TestConfigWrites:
     ) -> None:
         """The name comes from the token, and an editor can't choose it."""
         await admin_db.execute(CLAIMS.encode(), (jwt,))
-        await become(admin_db, "console_editor")
+        await become(admin_db, "console_editor", NAMES)
 
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
         await admin_db.execute(
@@ -66,7 +69,7 @@ class TestConfigWrites:
         await admin_db.execute(
             b"UPDATE admin.tables SET updated_at = '2020-01-01' WHERE name = 'p.d.one'"
         )
-        await become(admin_db, "console_editor")
+        await become(admin_db, "console_editor", NAMES)
 
         await admin_db.execute(b"UPDATE admin.tables SET cache_ttl = 5")
 
@@ -179,7 +182,7 @@ class TestConfigWrites:
     ) -> None:
         """Each rule of the sync model that SQL can enforce has a constraint."""
         await seed(admin_db)
-        await become(admin_db, "console_editor")
+        await become(admin_db, "console_editor", NAMES)
 
         with pytest.raises(error):
             await admin_db.execute(statement.encode())
@@ -214,7 +217,7 @@ class TestConfigPrivileges:
     ) -> None:
         """Identity columns, the stamp, and deletes stay out of reach for editors."""
         await seed(admin_db)
-        await become(admin_db, "console_editor")
+        await become(admin_db, "console_editor", NAMES)
 
         with pytest.raises(InsufficientPrivilege):
             await admin_db.execute(statement.encode())

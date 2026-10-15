@@ -40,6 +40,16 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
+  - it: lets the console levels run the pre-request function, which copies the schemas of the token
+    asserts:
+      - matchRegex:
+          path: data["postgres_grant_console_usage.sql"]
+          pattern: "GRANT EXECUTE ON FUNCTION \\{\\{ app_schema \\}\\}.pre_request\\(\\) TO \\{\\{ console_role \\}\\}"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
   - it: ships the functions that reload PostgREST after the standbys replayed the change
     asserts:
       - matchRegex:

@@ -52,26 +52,36 @@ The proxy reads a smaller document, `admin.config()`: the table names and their 
 
 ## Permission levels
 
-The JWT of a user carries the level in its `role` claim, and PostgREST switches to that database role. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.
+The JWT of a user carries two claims. The `role` claim holds the level, and PostgREST switches to that database role. The `schemas` claim lists the schemas that the user manages. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.
 
 | Role | Can do |
 | --- | --- |
-| `console_viewer` | Read the views. |
-| `console_operator` | Viewer, plus start a sync run and change queues and schedules. |
-| `console_editor` | Viewer, plus insert and update the configuration. Names and keys never change. |
-| `console_admin` | Operator and editor, plus delete configuration. A schema with tables can't be deleted, and a deleted table takes its rules along. |
+| `console_viewer` | Read the views and the configuration of its schemas. |
+| `console_operator` | Viewer, plus start a sync run for its schemas. |
+| `console_editor` | Viewer, plus insert and update the configuration of its schemas. Names and keys never change. |
+| `console_admin` | Operator and editor, plus delete configuration, start any run, and change queues and schedules. |
 
-A viewer can't read the tables behind the views, and it can't change anything. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every table. The function refuses an unknown schema with a 400 error. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against it.
+The admin has full powers. It ignores the `schemas` claim and sees and changes everything. Every other level sees only the schemas in its claim, and a token without the claim sees nothing. The database enforces this, not the console:
 
-Operators change a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. They can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
+- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. An editor can write a row only for a schema in its claim. A claim can name a schema that doesn't exist yet, so an editor can create it.
+- The views `tasks`, `logs`, `errors`, `health`, and `synced` show the rows of the schemas in the claim. A task or a log line without a schema is for the admin only.
+- `runs` and `steps` don't name a schema yet, so only the admin reads them.
+- `GET /rpc/sync_config` returns the schemas of the claim, and the admin gets the whole document.
+- Queues and schedules serve every schema, so only the admin changes them. Every level reads them.
+
+PostgREST copies the claims into session settings with the pre-request function. The chart grants that function to `console_viewer`, which every level inherits. `admin.is_admin()` and `admin.mine(schema)` read the role setting and the `app.claim_schemas` setting. They work inside `SECURITY DEFINER` functions too, where `current_user` is the owner.
+
+A viewer can read the configuration tables, but only the rows of its schemas, and it can't change anything. It can't read the DBOS tables or the state tables behind the views. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token, and for the admin every schema. `admin.start_scope(schemas, tables)` shows which schemas a run would cover. A schema or a table outside the claim gets a 403, and so does a table that doesn't exist, so a name tells nothing. An unknown schema in the claim gets a 400 error. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_scope.py` tests the scope, and `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against `start_sync`.
+
+The admin changes a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. It can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
 
 ## HTTP interface
 
 The console talks to PostgREST only. `sync/tests/integration/test_console_http.py` tests this contract against the PostgREST process of `devenv test`.
 
-- Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
+- Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim and the schemas of the user in the `schemas` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`. The functions are `POST /rpc/start_sync` and `POST /rpc/import_config`.
+- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`, for the admin. The functions are `POST /rpc/start_sync` and `POST /rpc/import_config`.
 
 | Status | Meaning |
 | --- | --- |

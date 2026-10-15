@@ -640,12 +640,18 @@ async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]
     return await cursor.fetchall()
 
 
-async def become(connection: AsyncConnection, role: str) -> None:
-    """Switch the session to one role, as PostgREST does for a JWT."""
+async def become(
+    connection: AsyncConnection, role: str, schemas: str | None = None
+) -> None:
+    """Switch the session to one role, as PostgREST does for a JWT, with the schemas of its token."""
+    if schemas is not None:
+        await connection.execute(
+            b"SELECT set_config('app.claim_schemas', %s, false)", (schemas,)
+        )
     await connection.execute(SQL("SET ROLE {}").format(Identifier(role)))
 
 
-def sign_token(claims: dict[str, str]) -> str:
+def sign_token(claims: dict[str, str | list[str]]) -> str:
     """Sign an HS256 token with the secret of the test PostgREST instance."""
     header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
     payload = base64.urlsafe_b64encode(

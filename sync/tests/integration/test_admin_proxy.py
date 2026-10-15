@@ -114,7 +114,7 @@ class TestReloadQueue:
         self, admin_db: AsyncConnection, role: str
     ) -> None:
         """Edits that arrive before the reload runs share it, and the editor sees no error."""
-        await become(admin_db, role)
+        await become(admin_db, role, "alpha")
 
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
         await admin_db.execute(

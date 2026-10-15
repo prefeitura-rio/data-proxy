@@ -12,6 +12,8 @@ from tests.helpers import sign_token
 
 Response = tuple[int, dict[str, object] | list[dict[str, object]] | str | None]
 
+ALPHA = ("alpha",)
+
 
 def call(
     service: Postgrest,
@@ -19,9 +21,17 @@ def call(
     path: str,
     role: str,
     body: object = None,
+    schemas: tuple[str, ...] = (),
 ) -> Response:
-    """Send one request to the admin schema as a user with one role and return status and body."""
-    token = sign_token({"role": role, "preferred_username": "ana", "sub": "u1"})
+    """Send one request to the admin schema as a user with one role and the schemas of its token."""
+    token = sign_token(
+        {
+            "role": role,
+            "preferred_username": "ana",
+            "sub": "u1",
+            "schemas": list(schemas),
+        }
+    )
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept-Profile": "admin",
@@ -86,7 +96,7 @@ class TestConsoleOverHttp:
 
         assert (viewer, anonymous[0]) == ((200, []), 401)
 
-    async def test_an_operator_patches_a_queue_and_a_bad_value_is_a_bad_request(
+    async def test_an_admin_patches_a_queue_and_a_bad_value_is_a_bad_request(
         self, postgrest: Postgrest, committed: psycopg.AsyncConnection
     ) -> None:
         """A PATCH changes the given setting only, and a value that DBOS rejects is 400."""
@@ -98,21 +108,21 @@ class TestConsoleOverHttp:
             postgrest,
             "PATCH",
             "/queues?name=eq.q-http",
-            "console_operator",
+            "console_admin",
             {"concurrency": 6},
         )
         refused = call(
             postgrest,
             "PATCH",
             "/queues?name=eq.q-http",
-            "console_operator",
+            "console_admin",
             {"concurrency": 0},
         )
-        viewer = call(
+        operator = call(
             postgrest,
             "PATCH",
             "/queues?name=eq.q-http",
-            "console_viewer",
+            "console_operator",
             {"concurrency": 6},
         )
 
@@ -122,14 +132,23 @@ class TestConsoleOverHttp:
             6,
             2,
         )
-        assert (refused[0], viewer[0]) == (400, 403)
+        assert (refused[0], operator[0]) == (400, 403)
 
     async def test_an_operator_starts_a_run_under_the_name_of_the_token(
-        self, postgrest: Postgrest
+        self, postgrest: Postgrest, committed: psycopg.AsyncConnection
     ) -> None:
         """start_sync answers with the run id, and the run records who started it."""
-        started = call(postgrest, "POST", "/rpc/start_sync", "console_operator", {})
-        runs = call(postgrest, "GET", "/runs", "console_viewer")
+        await committed.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+
+        started = call(
+            postgrest,
+            "POST",
+            "/rpc/start_sync",
+            "console_operator",
+            {},
+            schemas=("alpha",),
+        )
+        runs = call(postgrest, "GET", "/runs", "console_admin")
         viewer = call(postgrest, "POST", "/rpc/start_sync", "console_viewer", {})
 
         assert (started[0], viewer[0]) == (200, 403)
@@ -152,7 +171,12 @@ class TestConfigurationOverHttp:
         editor = "console_editor"
         statuses = [
             call(
-                postgrest, "POST", "/schemas", editor, {"name": "alpha", "claim": "sub"}
+                postgrest,
+                "POST",
+                "/schemas",
+                editor,
+                {"name": "alpha", "claim": "sub"},
+                ALPHA,
             )[0],
             call(
                 postgrest,
@@ -165,6 +189,7 @@ class TestConfigurationOverHttp:
                     "strategy": "partitioned",
                     "n": 4,
                 },
+                ALPHA,
             )[0],
             call(
                 postgrest,
@@ -176,10 +201,13 @@ class TestConfigurationOverHttp:
                     "column_name": "unit_id",
                     "unit_type": "unit",
                 },
+                ALPHA,
             )[0],
         ]
 
-        document = call(postgrest, "GET", "/rpc/sync_config", "console_viewer")
+        document = call(
+            postgrest, "GET", "/rpc/sync_config", "console_viewer", None, ALPHA
+        )
 
         assert statuses == [201, 201, 201]
         assert document == (
@@ -205,19 +233,30 @@ class TestConfigurationOverHttp:
     def test_constraint_failures_map_to_statuses(self, postgrest: Postgrest) -> None:
         """A bad value is 400, and a clash with other rows is 409."""
         editor = "console_editor"
-        call(postgrest, "POST", "/schemas", editor, {"name": "alpha"})
+        names = ("alpha", "Bad-Name", "none")
+        call(postgrest, "POST", "/schemas", editor, {"name": "alpha"}, names)
 
-        bad_name = call(postgrest, "POST", "/schemas", editor, {"name": "Bad-Name"})
-        duplicate = call(postgrest, "POST", "/schemas", editor, {"name": "alpha"})
+        bad_name = call(
+            postgrest, "POST", "/schemas", editor, {"name": "Bad-Name"}, names
+        )
+        duplicate = call(
+            postgrest, "POST", "/schemas", editor, {"name": "alpha"}, names
+        )
         bad_strategy = call(
             postgrest,
             "POST",
             "/tables",
             editor,
             {"name": "p.d.one", "schema": "alpha", "strategy": "nope"},
+            names,
         )
         unknown_schema = call(
-            postgrest, "POST", "/tables", editor, {"name": "p.d.two", "schema": "none"}
+            postgrest,
+            "POST",
+            "/tables",
+            editor,
+            {"name": "p.d.two", "schema": "none"},
+            names,
         )
 
         assert (bad_name[0], duplicate[0], bad_strategy[0], unknown_schema[0]) == (
@@ -229,11 +268,13 @@ class TestConfigurationOverHttp:
 
     def test_only_admins_delete(self, postgrest: Postgrest) -> None:
         """An editor gets 403, and an admin removes the row."""
-        call(postgrest, "POST", "/schemas", "console_editor", {"name": "alpha"})
+        call(postgrest, "POST", "/schemas", "console_editor", {"name": "alpha"}, ALPHA)
 
-        editor = call(postgrest, "DELETE", "/schemas?name=eq.alpha", "console_editor")
+        editor = call(
+            postgrest, "DELETE", "/schemas?name=eq.alpha", "console_editor", None, ALPHA
+        )
         admin = call(postgrest, "DELETE", "/schemas?name=eq.alpha", "console_admin")
-        left = call(postgrest, "GET", "/schemas", "console_viewer")
+        left = call(postgrest, "GET", "/schemas", "console_viewer", None, ALPHA)
 
         assert (editor[0], admin[0], left) == (403, 200, (200, []))
 
@@ -256,7 +297,10 @@ class TestConfigurationOverHttp:
             "/rpc/import_config",
             "console_editor",
             {"document": document},
+            ALPHA,
         )
-        served = call(postgrest, "GET", "/rpc/sync_config", "console_viewer")
+        served = call(
+            postgrest, "GET", "/rpc/sync_config", "console_viewer", None, ALPHA
+        )
 
         assert (imported[0], editor[0], served) == (204, 403, (200, document))

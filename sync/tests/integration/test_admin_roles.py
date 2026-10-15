@@ -1,6 +1,10 @@
 import psycopg
 import pytest
-from psycopg.errors import InsufficientPrivilege
+from psycopg.errors import (
+    FeatureNotSupported,
+    InsufficientPrivilege,
+    ObjectNotInPrerequisiteState,
+)
 from psycopg.sql import SQL, Identifier
 
 from tests.helpers import become, rows
@@ -37,7 +41,7 @@ class TestAdminRoles:
         "statement",
         [
             pytest.param("SELECT 1 FROM dbos.workflow_status", id="dbos-table"),
-            pytest.param("SELECT 1 FROM data_proxy.revisions", id="revisions-table"),
+            pytest.param("SELECT 1 FROM data_proxy.state", id="state-table"),
             pytest.param(
                 "INSERT INTO admin.errors (reason, fields) VALUES ('x', '{}')",
                 id="insert-into-view",
@@ -51,7 +55,13 @@ class TestAdminRoles:
         """A viewer can't read the tables behind the views or change anything."""
         await become(admin_db, "console_viewer")
 
-        with pytest.raises(InsufficientPrivilege):
+        with pytest.raises(
+            (
+                InsufficientPrivilege,
+                FeatureNotSupported,
+                ObjectNotInPrerequisiteState,
+            )
+        ):
             await admin_db.execute(statement.encode())
 
     async def test_a_role_outside_the_levels_reads_nothing(

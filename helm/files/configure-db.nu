@@ -55,6 +55,12 @@ def create-pre-request []: nothing -> nothing {
         user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
     }
 
+    # Every console level inherits the viewer, so one grant covers them all.
+    execute-sql postgres/grant_console_usage.sql {
+        app_schema: $schema
+        console_role: console_viewer
+    }
+
     log info 'PostgREST pre-request function setup completed'
 }
 

@@ -32,11 +32,15 @@ class TestStartSync:
     ) -> None:
         """The run is enqueued with portable arguments and the name from the token."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await admin_db.execute(
+            b"INSERT INTO admin.tables (name, schema) VALUES ('p.d.one', 'alpha')"
+        )
         await admin_db.execute(CLAIMS.encode())
-        await become(admin_db, role)
+        await become(admin_db, role, "alpha")
 
         identifier = await start(admin_db, "ARRAY['alpha'], ARRAY['p.d.one']")
 
+        await admin_db.execute(b"RESET ROLE")
         runs = await rows(
             admin_db,
             f"SELECT status, queue_name, started_by FROM admin.runs WHERE id = '{identifier}'",
@@ -58,7 +62,7 @@ class TestStartSync:
     ) -> None:
         """A typo in a schema name fails at once instead of syncing nothing."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
-        await become(admin_db, "console_operator")
+        await become(admin_db, "console_operator", "alpha,typo")
 
         with pytest.raises(psycopg.Error) as error:
             await start(admin_db, "ARRAY['alpha', 'typo']")
@@ -70,7 +74,7 @@ class TestStartSync:
     ) -> None:
         """A configured schema starts a run."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
-        await become(admin_db, "console_operator")
+        await become(admin_db, "console_operator", "alpha")
 
         assert await start(admin_db, "ARRAY['alpha']")
 
