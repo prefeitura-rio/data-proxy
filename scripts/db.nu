@@ -79,7 +79,7 @@ def main []: nothing -> nothing {
     uv run --frozen --project ($env.DEVENV_ROOT | path join sync) dbos migrate --sys-db-url $url
 
     with-env {PG_DATABASE_URL: $url} {
-        nu ($env.DEVENV_ROOT | path join scripts migrate.nu) up
+        ^$nu.current-exe ($env.DEVENV_ROOT | path join scripts migrate.nu) up
     }
     render $filter 'schema="data_proxy"' | run-sql test $port
 

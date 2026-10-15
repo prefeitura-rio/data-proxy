@@ -16,7 +16,7 @@
 
       languages.typescript.enable = true;
 
-      scripts.migrate.exec = ''nu ${config.devenv.root}/scripts/migrate.nu "$@"'';
+      scripts.migrate.exec = ''${pkgs.nushell}/bin/nu ${config.devenv.root}/scripts/migrate.nu "$@"'';
 
       tasks."lint:console" = {
         cwd = "console";
