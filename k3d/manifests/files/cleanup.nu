@@ -41,21 +41,10 @@ def main []: nothing -> nothing {
         }
 
         let dsn = $'postgresql://admin:($DB_PASSWORD)@($cluster)-rw:5432/data-proxy'
-        if $cluster == 'data-proxy-dbos' {
-            kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c 'DELETE FROM data_proxy.state; DELETE FROM data_proxy.errors;'
-            continue
-        }
-
-        let schema = if $cluster == 'data-proxy' {
-            $TEST_SCHEMA
-        } else {
-            $cluster | str replace 'data-proxy-' ''
-        }
-
         let context = '/tmp/cleanup.json'
 
         let query = try {
-            {schema: $schema}
+            {schema: $TEST_SCHEMA}
             | to json
             | save --force $context
             minijinja-cli --strict --autoescape none --format json /scripts/cleanup.sql $context
@@ -63,9 +52,7 @@ def main []: nothing -> nothing {
 
         kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c $query
 
-        if $cluster == 'data-proxy' {
-            kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('data_proxy.state') IS NOT NULL THEN DELETE FROM data_proxy.state; END IF; IF to_regclass('data_proxy.errors') IS NOT NULL THEN DELETE FROM data_proxy.errors; END IF; IF to_regclass('dbos.workflow_status') IS NOT NULL THEN UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED'); END IF; END \$\$;"
-        }
+        kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('data_proxy.state') IS NOT NULL THEN DELETE FROM data_proxy.state; END IF; IF to_regclass('data_proxy.errors') IS NOT NULL THEN DELETE FROM data_proxy.errors; END IF; IF to_regclass('data_proxy.scope') IS NOT NULL THEN DELETE FROM data_proxy.scope; END IF; IF to_regclass('dbos.workflow_status') IS NOT NULL THEN UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED'); END IF; END \$\$;"
     }
 
     log info 'Test cleanup completed'

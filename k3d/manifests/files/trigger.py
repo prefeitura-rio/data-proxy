@@ -8,8 +8,8 @@ from time import monotonic, sleep
 from typing import Protocol, cast
 
 from dbos import DBOSClient, EnqueueOptions, WorkflowHandle
-from engine.constants import SYNC_QUEUE
-from engine.log import logger
+from sync.constants import SYNC_QUEUE
+from sync.log import logger
 
 RUNNING_STATUSES = {"DELAYED", "ENQUEUED", "PENDING"}
 

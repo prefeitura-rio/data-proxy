@@ -58,5 +58,3 @@ spec:
         value: rj-ia-desenvolvimento.dev.partitioned_table
       - name: SNAPSHOT_SOURCE
         value: rj-ia-desenvolvimento.dev.snapshot_table
-      - name: DUCKLAKE_CATALOG_LOCAL_PATH
-        value: /var/lib/ducklake/catalogs

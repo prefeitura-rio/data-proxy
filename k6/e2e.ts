@@ -39,10 +39,6 @@ type ServingDeployment = {
     status?: { availableReplicas?: number };
 };
 
-interface SyncConfigMap {
-    data?: Record<string, string>;
-}
-
 interface SyncFixtureTable {
     name: string;
     strategy: "full" | "partitioned";
@@ -129,6 +125,7 @@ const TABLES = [
 const BIG_TABLE = "big_table";
 const FAILING_TABLE = "failing_table";
 const FAILING_SOURCE = "rj-ia-desenvolvimento.dev.failing_table";
+const FULL_SOURCE = `rj-ia-desenvolvimento.dev.${FULL_TABLE}`;
 
 const PHASE_TIMEOUT_SECONDS = Number(__ENV.PHASE_TIMEOUT_SECONDS || "420");
 const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(
@@ -1830,8 +1827,155 @@ function verifyTopology(k8s: Kubernetes): void {
     verifyReadsReachStandby(k8s);
 }
 
+let consoleSessions: Record<string, { token: string; expiresAt: number }> = {};
+
+/** Returns a token for one console client, refreshed before it expires. */
+function consoleToken(clientId: string): string {
+    const session = consoleSessions[clientId];
+    if (session !== undefined && Date.now() < session.expiresAt) {
+        return session.token;
+    }
+    const { token, lifetime } = requestToken(clientId);
+    consoleSessions[clientId] = {
+        token,
+        expiresAt: Date.now() + (lifetime - TOKEN_REFRESH_SECONDS) * 1000,
+    };
+    return token;
+}
+
+/** Sends one request to the admin schema of PostgREST, as the console does with the token of a user. */
+function consoleCall(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    clientId: string,
+    body?: unknown,
+): K6Response {
+    return http.request(
+        method,
+        `${POSTGREST_URL}${path}`,
+        body === undefined ? null : JSON.stringify(body),
+        {
+            headers: {
+                Authorization: `Bearer ${consoleToken(clientId)}`,
+                "Accept-Profile": "admin",
+                "Content-Profile": "admin",
+                "Content-Type": "application/json",
+                Prefer: "return=representation",
+            },
+            tags: { name: `console:${method}:${path.split("?")[0]}` },
+        },
+    ) as K6Response;
+}
+
+/** Counts the rows of a console read, or -1 when the read failed. */
+function consoleRows(path: string, clientId: string): number {
+    const response = consoleCall("GET", path, clientId);
+    return response.status === 200 ? rowsOf(response).length : -1;
+}
+
+/**
+ * Verifies the API of the console after the sync: reads are scoped to the schemas of the token,
+ * each level changes only what it may, a run starts for the schemas of the token, and the files
+ * of a table are listed for the query tab. The clients are in the k3d Keycloak realm.
+ */
+function verifyConsole(): void {
+    const overview = rowsOf(consoleCall("GET", "/overview", "console_viewer")) as Array<
+        Record<string, unknown>
+    >;
+    expect(
+        "console: a viewer reads the overview of its schema",
+        overview.length === 1 &&
+        overview[0].name === SCHEMA &&
+        Number(overview[0].tables) >= TABLES.length,
+    );
+    expect(
+        "console: a viewer sees the runs and the tasks that covered its schema",
+        consoleRows("/runs", "console_viewer") > 0 &&
+        consoleRows("/tasks", "console_viewer") > 0,
+    );
+    expect(
+        "console: a token for another schema reads nothing",
+        ["/schemas", "/tables", "/overview", "/runs", "/tasks", "/logs?limit=5"].every(
+            (path) => consoleRows(path, "console_outsider") === 0,
+        ),
+    );
+    expect(
+        "console: the admin sees the schema whatever its token lists",
+        consoleRows("/schemas", "console_admin") >= 1,
+    );
+    expect(
+        "console: only the admin is an admin",
+        safeJson(consoleCall("GET", "/rpc/is_admin", "console_admin")) === true &&
+        safeJson(consoleCall("GET", "/rpc/is_admin", "console_viewer")) === false,
+    );
+
+    expect(
+        "console: only the admin changes a queue",
+        ["console_viewer", "console_operator", "console_editor"].every(
+            (client) =>
+                consoleCall("PATCH", "/queues?name=eq.sync", client, {
+                    polling_interval_sec: 1,
+                }).status === 403,
+        ),
+    );
+
+    const start = consoleCall("POST", "/rpc/start_sync", "console_operator", {
+        schemas: [SCHEMA],
+        tables: [FULL_SOURCE],
+    });
+    expect(
+        "console: an operator starts a run for a schema of its token",
+        start.status === 200 && typeof safeJson(start) === "string",
+    );
+    expect(
+        "console: a run for another schema, and a run by a viewer, are refused",
+        consoleCall("POST", "/rpc/start_sync", "console_operator", {
+            schemas: ["other"],
+        }).status === 403 &&
+        consoleCall("POST", "/rpc/start_sync", "console_viewer", {}).status === 403,
+    );
+
+    const table = `/tables?name=eq.${FULL_SOURCE}`;
+    expect(
+        "console: an editor changes the cache lifetime of its table, a viewer and an editor of another schema can't",
+        consoleCall("PATCH", table, "console_viewer", { cache_ttl: 7 }).status === 403 &&
+        rowsOf(consoleCall("PATCH", table, "console_outsider", { cache_ttl: 7 })).length === 0 &&
+        rowsOf(consoleCall("PATCH", table, "console_editor", { cache_ttl: 7 })).length === 1,
+    );
+    expect(
+        "console: the editor puts the cache lifetime back",
+        rowsOf(consoleCall("PATCH", table, "console_editor", { cache_ttl: null })).length === 1,
+    );
+
+    const files = consoleCall(
+        "GET",
+        `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`,
+        "console_editor",
+    );
+    const listed = rowsOf(files) as Array<Record<string, unknown>>;
+    expect(
+        "console: an editor lists the Parquet files of a table of its schema",
+        files.status === 200 &&
+        listed.length > 0 &&
+        listed.every((file) => String(file.path).endsWith(".parquet")),
+    );
+    expect(
+        "console: a viewer and an editor of another schema can't list the files",
+        consoleCall(
+            "GET",
+            `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`,
+            "console_viewer",
+        ).status === 403 &&
+        consoleCall(
+            "GET",
+            `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`,
+            "console_outsider",
+        ).status === 403,
+    );
+}
+
 function verifyEndToEnd(k8s: Kubernetes): void {
-    verifyFixtureContract(k8s);
+    verifyFixtureContract();
     seedAccessPolicy();
 
     const completed = waitForPipeline(600);
@@ -1871,24 +2015,18 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyPartitionChanges(k8s);
     verifyIstioJwtValidation();
     verifyProxy();
+    verifyConsole();
 }
 
-/** Verifies that the deployed sync ConfigMap matches the k6 fixture contract. */
-function verifyFixtureContract(k8s: Kubernetes): void {
-    const configMap = k8s.get(
-        "ConfigMap",
-        "data-proxy-sync",
-        NAMESPACE,
-    ) as SyncConfigMap;
-    const raw = configMap.data?.["sync.json"];
-    requirePrecondition("the sync ConfigMap contains sync.json", raw !== undefined, {});
-
-    let fixture: SyncFixture;
-    try {
-        fixture = JSON.parse(raw || "{}") as SyncFixture;
-    } catch {
-        throw new Error("sync ConfigMap contains invalid JSON");
-    }
+/** Verifies that the configuration of the console matches the k6 fixture contract. */
+function verifyFixtureContract(): void {
+    const response = consoleCall("GET", "/rpc/sync_config", "console_admin");
+    requirePrecondition(
+        "the console serves the sync configuration",
+        response.status === 200,
+        { status: response.status, body: String(response.body).slice(0, 300) },
+    );
+    const fixture = (safeJson(response) ?? {}) as SyncFixture;
 
     const schema = fixture.schemas?.[SCHEMA];
     const tables = schema?.tables || [];

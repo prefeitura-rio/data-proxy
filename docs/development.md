@@ -215,6 +215,8 @@ Run `cluster k6 e2e` after changing local images, sync configuration, fallback, 
 
 The suite also checks the topology: a primary and a standby stream, PgDog is available, no read-only PostgREST or CNPG Pooler is left, PostgREST reloaded without a restart, reads reach a standby, and the PostgREST listener sits on the primary.
 
+The suite also checks the API of the console with the Keycloak clients `console_viewer`, `console_operator`, `console_editor`, `console_admin`, and `console_outsider`, an editor of another schema. It reads the overview, the runs, and the tasks of the schema; proves that a token for another schema reads nothing and changes nothing; checks that only the admin changes a queue; starts a run as an operator; changes and restores the cache lifetime of a table as an editor; and lists the Parquet files of a table. Keycloak imports its realm only at the first start, so after a change to `k3d/values/keycloak.yaml` run `cluster down` and `cluster up` again.
+
 ## Development checks
 
 Run the static and focused checks with devenv tasks:
