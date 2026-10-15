@@ -2072,7 +2072,7 @@ function verifyConsoleSurface(): void {
         consoleCall("POST", "/schemas", "console_admin", probe).status === 201 &&
         consoleRows("/schemas?name=eq.console_probe", "console_admin") === 1 &&
         consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_editor").status === 403 &&
-        consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_admin").status === 204 &&
+        consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_admin").status === 200 &&
         consoleRows("/schemas?name=eq.console_probe", "console_admin") === 0,
     );
     expect(
