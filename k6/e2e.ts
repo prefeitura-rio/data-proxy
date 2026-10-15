@@ -523,6 +523,14 @@ function verifyBlockedTable(k8s: Kubernetes): void {
             "DBOS_SYSTEM_DATABASE_URL",
         );
     }
+    const blocked = rowsOf(
+        consoleCall("GET", "/errors?reason=eq.table_blocked", "console_viewer"),
+    ) as Array<{ fields?: { table?: string } }>;
+    expect(
+        "console: a viewer sees why a table is blocked, and a token for another schema doesn't",
+        blocked.some((error) => error.fields?.table === FAILING_SOURCE) &&
+        consoleRows("/errors", "console_outsider") === 0,
+    );
     checkSql(
         k8s,
         "check-blocked-state",
@@ -1845,7 +1853,7 @@ function consoleToken(clientId: string): string {
 
 /** Sends one request to the admin schema of PostgREST, as the console does with the token of a user. */
 function consoleCall(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     clientId: string,
     body?: unknown,
@@ -1974,6 +1982,126 @@ function verifyConsole(): void {
     );
 }
 
+const CONSOLE_VIEWS = [
+    "schemas", "tables", "rls", "queues", "schedules", "runs", "tasks", "steps",
+    "logs", "errors", "health", "synced", "overview",
+];
+const CONSOLE_FUNCTIONS = ["config", "sync_config", "username"];
+const CONSOLE_LEVELS = ["console_viewer", "console_operator", "console_editor", "console_admin"];
+
+/**
+ * Verifies the rest of the console API: every view and helper answers at every level, the
+ * status views describe the synced schema, the admin writes the configuration and the queues,
+ * the levels below refuse the same writes, and a request without the right token is refused.
+ */
+function verifyConsoleSurface(): void {
+    expect(
+        "console: every level reads every view and helper function",
+        CONSOLE_LEVELS.every(
+            (client) =>
+                CONSOLE_VIEWS.every(
+                    (view) => consoleCall("GET", `/${view}?limit=1`, client).status === 200,
+                ) &&
+                CONSOLE_FUNCTIONS.every(
+                    (name) => consoleCall("GET", `/rpc/${name}`, client).status === 200,
+                ),
+        ),
+    );
+    expect(
+        "console: the helper function returns the user name of the token",
+        safeJson(consoleCall("GET", "/rpc/username", "console_viewer")) === "test_console_viewer",
+    );
+
+    const health = rowsOf(
+        consoleCall("GET", `/health?name=eq.${SCHEMA}`, "console_viewer"),
+    ) as Array<Record<string, unknown>>;
+    expect(
+        "console: health shows a provisioned schema",
+        health.length === 1 &&
+        health[0].schema_exists === true &&
+        health[0].access_policy === true &&
+        health[0].policy_writer === true &&
+        Number(health[0].view_count) > 0,
+    );
+
+    const synced = rowsOf(
+        consoleCall("GET", `/synced?schema=eq.${SCHEMA}`, "console_viewer"),
+    ) as Array<Record<string, unknown>>;
+    const row = (name: string) => synced.find((item) => String(item.name).endsWith(`.${name}`));
+    expect(
+        "console: synced lists the synced tables, their partitions, and the blocked table",
+        TABLES.every((name) => row(name)?.synced === true) &&
+        Number(row(PARTITIONED_TABLE)?.partition_count) >= SYNCED_PARTITIONS &&
+        row(FAILING_TABLE)?.synced === false,
+    );
+    expect(
+        "console: a viewer reads the logs and the steps of its runs",
+        consoleRows(`/logs?schema_name=eq.${SCHEMA}&limit=1`, "console_viewer") > 0 &&
+        consoleRows("/steps?limit=1", "console_viewer") > 0,
+    );
+
+    const queue = (rowsOf(consoleCall("GET", "/queues?name=eq.sync", "console_admin")) as Array<
+        Record<string, unknown>
+    >)[0];
+    expect(
+        "console: the admin updates a queue",
+        queue !== undefined &&
+        rowsOf(
+            consoleCall("PATCH", "/queues?name=eq.sync", "console_admin", {
+                polling_interval_sec: queue.polling_interval_sec,
+            }),
+        ).length === 1,
+    );
+    const schedule = (rowsOf(consoleCall("GET", "/schedules?limit=1", "console_admin")) as Array<
+        Record<string, unknown>
+    >)[0];
+    if (schedule !== undefined) {
+        const path = `/schedules?name=eq.${schedule.name}`;
+        expect(
+            "console: only the admin updates a schedule",
+            rowsOf(
+                consoleCall("PATCH", path, "console_admin", { timezone: schedule.timezone }),
+            ).length === 1 &&
+            ["console_viewer", "console_operator", "console_editor"].every(
+                (client) =>
+                    consoleCall("PATCH", path, client, { timezone: schedule.timezone })
+                        .status === 403,
+            ),
+        );
+    }
+
+    const probe = { name: "console_probe", source: "bigquery", settings: {} };
+    expect(
+        "console: an editor can't add a schema outside its token, and the admin can add and remove one",
+        consoleCall("POST", "/schemas", "console_editor", probe).status === 403 &&
+        consoleCall("POST", "/schemas", "console_admin", probe).status === 201 &&
+        consoleRows("/schemas?name=eq.console_probe", "console_admin") === 1 &&
+        consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_editor").status === 403 &&
+        consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_admin").status === 204 &&
+        consoleRows("/schemas?name=eq.console_probe", "console_admin") === 0,
+    );
+    expect(
+        "console: only the admin imports a configuration or deletes a table",
+        ["console_viewer", "console_operator", "console_editor"].every(
+            (client) =>
+                consoleCall("POST", "/rpc/import_config", client, {
+                    document: { schemas: {} },
+                }).status === 403 &&
+                consoleCall("DELETE", `/tables?name=eq.${FULL_SOURCE}`, client).status === 403,
+        ),
+    );
+
+    const anonymous = http.get(`${POSTGREST_URL}/overview`, {
+        headers: { "Accept-Profile": "admin" },
+        tags: { name: "console:anonymous" },
+    }) as K6Response;
+    expect(
+        "console: a request without a token, and a token of a data user, are refused",
+        [401, 403].includes(anonymous.status) &&
+        [401, 403].includes(consoleCall("GET", "/overview", OIDC_USER_CLIENT_ID).status),
+    );
+}
+
 function verifyEndToEnd(k8s: Kubernetes): void {
     verifyFixtureContract();
     seedAccessPolicy();
@@ -2016,6 +2144,7 @@ function verifyEndToEnd(k8s: Kubernetes): void {
     verifyIstioJwtValidation();
     verifyProxy();
     verifyConsole();
+    verifyConsoleSurface();
 }
 
 /** Verifies that the configuration of the console matches the k6 fixture contract. */
