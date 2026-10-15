@@ -51,7 +51,7 @@ jobs:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
-        run: devenv shell -- ci changes
+        run: devenv --profile checks shell -- ci changes
   checks:
     defaults:
       run:
@@ -169,14 +169,14 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
-        run: devenv shell -- ci git update
+        run: devenv --profile checks shell -- ci git update
       - name: Resolve latest image SHAs from registry
         id: shas
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: devenv shell -- ci images resolve
+        run: devenv --profile checks shell -- ci images resolve
       - name: Pin image SHAs in values.yaml
-        run: devenv shell -- ci images pin
+        run: devenv --profile checks shell -- ci images pin
         env:
           PIPELINE_SHA: ${{ steps.shas.outputs.pipeline }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
@@ -184,35 +184,35 @@ jobs:
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
       - name: Read current version
         id: version
-        run: devenv shell -- ci version
+        run: devenv --profile checks shell -- ci version
       - name: Skip if no release-level commit or chart changes exist
         id: guard
-        run: devenv shell -- ci guard
+        run: devenv --profile checks shell -- ci guard
         env:
           RELEASE: ${{ steps.version.outputs.release }}
       - name: Login to registry
         if: steps.guard.outputs.skip != 'true'
-        run: devenv shell -- ci chart login
+        run: devenv --profile checks shell -- ci chart login
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI_REGISTRY_USER: ${{ github.actor }}
       - name: Bump chart version
         if: steps.guard.outputs.skip != 'true'
-        run: devenv shell -- ci chart bump
+        run: devenv --profile checks shell -- ci chart bump
         env:
           NEXT: ${{ steps.version.outputs.next }}
       - name: Package chart
         if: steps.guard.outputs.skip != 'true'
-        run: devenv shell -- ci chart package
+        run: devenv --profile checks shell -- ci chart package
       - name: Commit and tag chart release
         if: steps.guard.outputs.skip != 'true'
-        run: devenv shell -- ci chart commit
+        run: devenv --profile checks shell -- ci chart commit
         env:
           NEXT: ${{ steps.version.outputs.next }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
       - name: Publish chart and release
         if: steps.guard.outputs.skip != 'true'
-        run: devenv shell -- ci chart publish
+        run: devenv --profile checks shell -- ci chart publish
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
