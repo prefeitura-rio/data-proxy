@@ -92,6 +92,8 @@ def main []: nothing -> nothing {
     $pushdown_sql | run-sql test $port
 
     # PostgREST runs the pre-request function as the role of the token. The console roles exist above and anon exists now.
-    render ($env.DEVENV_ROOT | path join helm files templates postgres grant_console_usage.sql) 'app_schema="data_proxy"' 'console_role="console_viewer"' | run-sql test $port
+    for role in [console_viewer console_operator console_editor console_admin] {
+        render ($env.DEVENV_ROOT | path join helm files templates postgres grant_console_usage.sql) 'app_schema="data_proxy"' $'console_role="($role)"' | run-sql test $port
+    }
     'GRANT EXECUTE ON FUNCTION data_proxy.pre_request() TO anon' | run-sql test $port
 }

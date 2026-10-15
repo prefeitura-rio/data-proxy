@@ -5,7 +5,7 @@ from psycopg.errors import (
     InsufficientPrivilege,
     ObjectNotInPrerequisiteState,
 )
-from psycopg.sql import SQL, Identifier
+from psycopg.sql import SQL, Identifier, Literal
 
 from tests.helpers import become, rows
 
@@ -73,3 +73,43 @@ class TestAdminRoles:
 
         with pytest.raises(InsufficientPrivilege):
             await admin_db.execute(b"SELECT * FROM admin.runs")
+
+
+@pytest.mark.postgres
+class TestRoleSettings:
+    """The roles that PostgREST switches to have the same safeguards as the data API roles."""
+
+    @pytest.mark.parametrize("role", LEVELS)
+    async def test_every_level_has_a_statement_timeout(
+        self, admin_db: psycopg.AsyncConnection, role: str
+    ) -> None:
+        """PostgREST applies the settings of the role of the request, and the levels don't inherit them."""
+        result = await rows(
+            admin_db,
+            SQL("SELECT setconfig FROM pg_db_role_setting WHERE setrole = {}::regrole")
+            .format(Literal(role))
+            .as_string(),
+        )
+
+        assert any("statement_timeout=30s" in str(row[0]) for row in result)
+
+    @pytest.mark.parametrize("role", ["anon", *LEVELS])
+    @pytest.mark.parametrize(
+        "function",
+        [
+            pytest.param("data_proxy.reload_postgrest()", id="reload"),
+            pytest.param("data_proxy.wait_for_standbys(interval)", id="wait"),
+        ],
+    )
+    async def test_request_roles_cannot_run_the_reload_functions(
+        self, admin_db: psycopg.AsyncConnection, role: str, function: str
+    ) -> None:
+        """The roles of the API have usage on the schema, and the functions must not be open to them."""
+        result = await rows(
+            admin_db,
+            SQL("SELECT has_function_privilege({}, {}, 'EXECUTE')")
+            .format(Literal(role), Literal(function))
+            .as_string(),
+        )
+
+        assert result == [(False,)]

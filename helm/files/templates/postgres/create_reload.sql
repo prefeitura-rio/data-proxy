@@ -37,4 +37,7 @@ BEGIN
     PERFORM {{ schema }}.wait_for_standbys();
     PERFORM pg_notify('pgrst', 'reload schema');
 END;
-$$
+$$;
+
+REVOKE ALL ON FUNCTION {{ schema }}.wait_for_standbys(interval) FROM public;
+REVOKE ALL ON FUNCTION {{ schema }}.reload_postgrest() FROM public;

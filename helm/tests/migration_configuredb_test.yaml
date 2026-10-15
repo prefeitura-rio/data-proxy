@@ -50,6 +50,50 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
+  - it: gives each console level its own statement timeout, because PostgREST applies the settings of the request role only
+    asserts:
+      - matchRegex:
+          path: data["postgres_grant_console_usage.sql"]
+          pattern: "ALTER ROLE \\{\\{ console_role \\}\\} SET statement_timeout"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: keeps the reload functions from the public role, like the other maintenance procedures
+    asserts:
+      - matchRegex:
+          path: data["postgres_create_reload.sql"]
+          pattern: "REVOKE ALL ON FUNCTION \\{\\{ schema \\}\\}.reload_postgrest\\(\\) FROM public"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - matchRegex:
+          path: data["postgres_create_reload.sql"]
+          pattern: "REVOKE ALL ON FUNCTION \\{\\{ schema \\}\\}.wait_for_standbys\\(interval\\) FROM public"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: grants maintenance procedures to no role that nothing creates
+    asserts:
+      - notMatchRegex:
+          path: data["postgres_cleanup_stale_objects.sql"]
+          pattern: "jobs"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notMatchRegex:
+          path: data["postgres_prune_access_log.sql"]
+          pattern: "jobs"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
   - it: ships the functions that reload PostgREST after the standbys replayed the change
     asserts:
       - matchRegex:
