@@ -2066,14 +2066,21 @@ function verifyConsoleSurface(): void {
     }
 
     const probe = { name: "console_probe", source: "bigquery", settings: { project: "probe" } };
+    const probeCount = () => consoleRows("/schemas?name=eq.console_probe", "console_admin");
     expect(
-        "console: an editor can't add a schema outside its token, and the admin can add and remove one",
-        consoleCall("POST", "/schemas", "console_editor", probe).status === 403 &&
+        "console: an editor can't add a schema outside its token",
+        consoleCall("POST", "/schemas", "console_editor", probe).status === 403,
+    );
+    expect(
+        "console: the admin adds a schema, and a standby shows it",
         consoleCall("POST", "/schemas", "console_admin", probe).status === 201 &&
-        consoleRows("/schemas?name=eq.console_probe", "console_admin") === 1 &&
+        waitUntil(10, () => probeCount() === 1),
+    );
+    expect(
+        "console: an editor can't delete a schema, and the admin can",
         consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_editor").status === 403 &&
         consoleCall("DELETE", "/schemas?name=eq.console_probe", "console_admin").status === 200 &&
-        consoleRows("/schemas?name=eq.console_probe", "console_admin") === 0,
+        waitUntil(10, () => probeCount() === 0),
     );
     expect(
         "console: only the admin imports a configuration or deletes a table",
