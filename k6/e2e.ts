@@ -11,7 +11,6 @@ import {
     cronJobPodSpec,
     waitForWorkflow,
     workerPodSpec,
-    deploymentPodSpec,
     runCronJob,
     NAMESPACE,
 } from "./lib.ts";
@@ -108,7 +107,6 @@ const SECRETS_SUBPATH = "duckdb/secrets";
 const PGDOG = "data-proxy-pgdog";
 const AUTHENTICATOR = "postgrest";
 const CLUSTER_SCALER = "data-proxy-cluster-autoscaler";
-const PROXY_DEPLOYMENT = "data-proxy-proxy";
 const PAUSED_REPLICAS = "autoscaling.keda.sh/paused-replicas";
 const PARALLEL_READS = 10;
 
@@ -624,9 +622,8 @@ function directPostgrest(
     path: string,
     token: string,
     extra: Record<string, string> = {},
-    baseUrl: string = POSTGREST_URL,
 ): K6Response {
-    return http.get(`${baseUrl}${path}`, {
+    return http.get(`${POSTGREST_URL}${path}`, {
         headers: {
             Authorization: `Bearer ${token}`,
             "Accept-Profile": SCHEMA,
@@ -1544,8 +1541,6 @@ function verifyFilterPushdown(token: string): void {
     const baseline = directPostgrest(
         `/${FULL_TABLE}?select=id&order=id.asc&limit=3`,
         token,
-        {},
-        POSTGREST_URL,
     );
     const baselineRows = rowsOf(baseline) as Array<Record<string, unknown>>;
     const snapshot = snapshotHeader(baseline);
@@ -1591,7 +1586,6 @@ function verifyFilterPushdown(token: string): void {
             `/${FULL_TABLE}?${query}`,
             token,
             snapshotHeaders,
-            postgrestUrl,
         );
         const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, snapshotHeaders);
         expect(`${name}: direct request succeeds`, direct.status === 200);

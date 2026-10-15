@@ -25,6 +25,12 @@ declare module "k6/http" {
   }
 
   const http: {
+    request(
+      method: string,
+      url: string,
+      body?: unknown,
+      params?: RequestParams,
+    ): Response;
     get(url: string, params?: RequestParams): Response;
     post(url: string, body?: unknown, params?: RequestParams): Response;
     del(url: string, body?: unknown, params?: RequestParams): Response;
