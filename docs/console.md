@@ -15,6 +15,7 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 | `queues` | The queue settings and the number of enqueued, pending, and delayed workflows. |
 | `schedules` | The schedules with their cron expression and status. |
 | `errors` | The errors that the sync recorded, newest first. |
+| `overview` | One row for each schema: its tables, how many have committed state, its last run, and the runs, failed runs, and errors of the last 24 hours. The dashboard reads it in one request. |
 
 ## Configuration tables
 
@@ -64,14 +65,14 @@ The JWT of a user carries two claims. The `role` claim holds the level, and Post
 The admin has full powers. It ignores the `schemas` claim and sees and changes everything. Every other level sees only the schemas in its claim, and a token without the claim sees nothing. The database enforces this, not the console:
 
 - Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. An editor can write a row only for a schema in its claim. A claim can name a schema that doesn't exist yet, so an editor can create it.
-- The views `tasks`, `logs`, `errors`, `health`, and `synced` show the rows of the schemas in the claim. A task or a log line without a schema is for the admin only.
-- `runs` and `steps` don't name a schema yet, so only the admin reads them.
+- The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is for the admin only.
+- When a run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `runs`, `tasks`, and `steps` show a user the runs and tasks that cover one of its schemas. The counts of tasks in a run count only the tasks that the user sees. A task that has no row yet, such as a task that was just enqueued, is for the admin only until the row arrives.
 - `GET /rpc/sync_config` returns the schemas of the claim, and the admin gets the whole document.
 - Queues and schedules serve every schema, so only the admin changes them. Every level reads them.
 
 PostgREST copies the claims into session settings with the pre-request function. The chart grants that function to `console_viewer`, which every level inherits. `admin.is_admin()` and `admin.mine(schema)` read the role setting and the `app.claim_schemas` setting. They work inside `SECURITY DEFINER` functions too, where `current_user` is the owner.
 
-A viewer can read the configuration tables, but only the rows of its schemas, and it can't change anything. It can't read the DBOS tables or the state tables behind the views. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token, and for the admin every schema. `admin.start_scope(schemas, tables)` shows which schemas a run would cover. A schema or a table outside the claim gets a 403, and so does a table that doesn't exist, so a name tells nothing. An unknown schema in the claim gets a 400 error. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_scope.py` tests the scope, and `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against `start_sync`.
+A viewer can read the configuration tables, but only the rows of its schemas, and it can't change anything. It can't read the DBOS tables or the state tables behind the views. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token, and for the admin every schema. `admin.start_scope(schemas, tables)` shows which schemas a run would cover. A schema or a table outside the claim gets a 403, and so does a table that doesn't exist, so a name tells nothing. An unknown schema in the claim gets a 400 error. A schema that the provision job hasn't created yet, with its access policy, gets a 409 with the reason. A schema that an editor adds is ready within a minute or two. An admin run with no schemas covers every schema and skips this check. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_scope.py` tests the scope, and `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against `start_sync`.
 
 The admin changes a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. It can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
 
@@ -89,7 +90,7 @@ The console talks to PostgREST only. `sync/tests/integration/test_console_http.p
 | 204 | Done, and there is nothing to return. `import_config` answers this way. |
 | 400 | The value is wrong: a rule that the configuration tables enforce, a bad queue limit, a bad cron expression, or an unknown time zone. The body has the reason. |
 | 401 | No token, or an anonymous one. |
-| 409 | The row clashes with another row: a duplicate key, a table in two schemas, or a schema that doesn't exist. |
+| 409 | The row clashes with another row: a duplicate key, a table in two schemas, or a schema that doesn't exist. `start_sync` also answers 409 for a schema that isn't provisioned yet. |
 | 403 | The level of the token isn't enough. |
 
 ## Direction

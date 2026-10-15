@@ -267,7 +267,7 @@ def stub_sync_run(
             events.append(f"wait:{label}")
             return result
 
-        return SimpleNamespace(get_result=get_result)
+        return SimpleNamespace(get_result=get_result, workflow_id=f"workflow:{label}")
 
     monkeypatch.setattr(
         workflows,
@@ -298,6 +298,7 @@ def stub_sync_run(
         AsyncMock(return_value=postgrest_reload_required),
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
+    monkeypatch.setattr(workflows, "record_scope", AsyncMock())
     monkeypatch.setattr(workflows, "reload_postgrest", restart)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
     return calls, events
@@ -638,6 +639,18 @@ async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]
     """Return every row of one inline query."""
     cursor = await connection.execute(sql.encode())
     return await cursor.fetchall()
+
+
+async def provision(connection: AsyncConnection, name: str) -> None:
+    """Create a schema and its access policy, as the provision job does for a configured schema."""
+    await connection.execute(
+        SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(name))
+    )
+    await connection.execute(
+        SQL("CREATE TABLE IF NOT EXISTS {}.access_policy (id integer)").format(
+            Identifier(name)
+        )
+    )
 
 
 async def become(

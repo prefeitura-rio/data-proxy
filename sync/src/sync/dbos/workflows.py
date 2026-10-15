@@ -24,6 +24,7 @@ from .steps import (
     record_dump_metrics,
     record_publish_metrics,
     record_run_status,
+    record_scope,
     record_seed_metrics,
     reload_postgrest,
     seed_schemas,
@@ -114,6 +115,15 @@ async def run_sync(
         for task in work.tasks:
             handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
             dump_handles.append(handle)
+
+        await record_scope(
+            run_id,
+            [plan.schema_name for plan in work.plans],
+            [
+                (handle.workflow_id, task.target_schema, task.table)
+                for handle, task in zip(dump_handles, work.tasks, strict=True)
+            ],
+        )
 
         failed_paths: set[str] = set()
         for handle in dump_handles:

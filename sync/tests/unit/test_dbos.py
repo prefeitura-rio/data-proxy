@@ -22,6 +22,7 @@ from sync.models import (
 )
 from sync.postgres import Postgres
 from sync.settings import settings
+from sync.state import ScopeRow
 from sync.utils import sha256_hex
 from tests.fixtures.types import Calls
 from tests.helpers import (
@@ -157,6 +158,67 @@ class TestRunSyncReloadsPostgrest:
             "enqueue:app",
             "wait:app",
         ]
+
+
+class TestRunSyncRecordsItsScope:
+    """The run tells the database which schemas it covers, so the console can scope it."""
+
+    @pytest.mark.asyncio
+    async def test_records_the_schemas_of_the_plans_and_each_dump_task(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One row for each schema of the run, and one for each dump task with its table."""
+        stub_sync_run(
+            monkeypatch,
+            postgrest_reload_required=False,
+            snapshot_id=None,
+            plans=[SyncPlan(schema_name="app"), SyncPlan(schema_name="other")],
+            tasks=[dump_task(table="p.d.first"), dump_task(table="p.d.second")],
+        )
+        record = AsyncMock()
+        monkeypatch.setattr(workflows, "record_scope", record)
+
+        await run_sync()
+
+        record.assert_awaited_once_with(
+            "run",
+            ["app", "other"],
+            [
+                ("workflow:p.d.first", "app", "p.d.first"),
+                ("workflow:p.d.second", "app", "p.d.second"),
+            ],
+        )
+
+
+class TestRecordScopeStep:
+    """The step stores the scope rows through the application connection."""
+
+    @pytest.mark.asyncio
+    async def test_inserts_the_rows_of_the_run_and_its_tasks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The run rows have an empty table, and the task rows name theirs."""
+        connection = object()
+        stored = AsyncMock()
+
+        @asynccontextmanager
+        async def connect(dsn: str) -> AsyncGenerator[object]:
+            yield connection
+
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "write_scope", stored)
+
+        await workflow_body(steps.record_scope)(
+            "run", ["app"], [("task-1", "app", "p.d.first")]
+        )
+
+        stored.assert_awaited_once_with(
+            connection,
+            [
+                ScopeRow("run", "run", "app", ""),
+                ScopeRow("task-1", "run", "app", "p.d.first"),
+            ],
+        )
 
 
 class TestLoadSyncConfig:

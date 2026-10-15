@@ -74,6 +74,16 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
+  - it: creates the table that tells which schemas each run and task covers
+    asserts:
+      - matchRegex:
+          path: data["postgres_create_state.sql"]
+          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.scope"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
   - it: makes every access policy write wait for the standbys
     asserts:
       - matchRegex:

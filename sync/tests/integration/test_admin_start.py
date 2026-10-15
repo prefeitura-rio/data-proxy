@@ -5,7 +5,7 @@ import pytest
 from psycopg.errors import InsufficientPrivilege
 
 from sync.models import SyncScope
-from tests.helpers import become, rows
+from tests.helpers import become, provision, rows
 
 CLAIMS = (
     "SELECT set_config('request.jwt.claims', '{\"preferred_username\": \"ana\"}', true)"
@@ -32,6 +32,7 @@ class TestStartSync:
     ) -> None:
         """The run is enqueued with portable arguments and the name from the token."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await provision(admin_db, "alpha")
         await admin_db.execute(
             b"INSERT INTO admin.tables (name, schema) VALUES ('p.d.one', 'alpha')"
         )
@@ -74,6 +75,7 @@ class TestStartSync:
     ) -> None:
         """A configured schema starts a run."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await provision(admin_db, "alpha")
         await become(admin_db, "console_operator", "alpha")
 
         assert await start(admin_db, "ARRAY['alpha']")
@@ -90,6 +92,7 @@ class TestWorkerRunsStartedSync:
     ) -> None:
         """The run succeeds, and its arguments reach the workflow as a time and a scope."""
         await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await provision(admin_db, "alpha")
         identifier = await start(admin_db, "ARRAY['alpha'], ARRAY['p.d.one']")
         await admin_db.commit()
 
@@ -115,5 +118,9 @@ class TestWorkerRunsStartedSync:
                 b"DELETE FROM dbos.workflow_status WHERE workflow_uuid = %s",
                 (identifier,),
             )
+            await admin_db.execute(
+                b"DELETE FROM data_proxy.scope WHERE run_id = %s", (identifier,)
+            )
             await admin_db.execute(b"DELETE FROM admin.schemas")
+            await admin_db.execute(b"DROP SCHEMA IF EXISTS alpha CASCADE")
             await admin_db.commit()

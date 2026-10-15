@@ -11,11 +11,29 @@ INSERT INTO admin.tables (name, schema) VALUES ('p.d.a1', 'alpha'), ('p.d.b1', '
 INSERT INTO admin.rls (table_name, column_name, unit_type)
 VALUES ('p.d.a1', 'c', 'u'), ('p.d.b1', 'c', 'u');
 INSERT INTO dbos.workflow_status (
-    workflow_uuid, status, name, queue_name, queue_partition_key, created_at
+    workflow_uuid, status, name, queue_name, queue_partition_key,
+    parent_workflow_id, created_at
 ) VALUES
-    ('publish-alpha', 'SUCCESS', 'publish_schema', 'publish', 'alpha', 0),
-    ('publish-beta', 'SUCCESS', 'publish_schema', 'publish', 'beta', 0),
-    ('dump-loose', 'SUCCESS', 'dump_task', 'dump', NULL, 0);
+    ('run-1', 'SUCCESS', 'run_sync', 'sync', NULL, NULL, (extract(epoch FROM now()) * 1000)::bigint),
+    ('run-2', 'ERROR', 'run_sync', 'sync', NULL, NULL, (extract(epoch FROM now()) * 1000)::bigint + 1000),
+    ('publish-alpha', 'SUCCESS', 'publish_schema', 'publish', 'alpha', 'run-1', 0),
+    ('publish-beta', 'SUCCESS', 'publish_schema', 'publish', 'beta', 'run-1', 0),
+    ('dump-a', 'SUCCESS', 'dump_task', 'dump', NULL, 'run-1', 0),
+    ('dump-b', 'SUCCESS', 'dump_task', 'dump', NULL, 'run-1', 0),
+    ('dump-loose', 'SUCCESS', 'dump_task', 'dump', NULL, NULL, 0);
+INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name, table_name) VALUES
+    ('run-1', 'run-1', 'alpha', ''),
+    ('run-1', 'run-1', 'beta', ''),
+    ('run-2', 'run-2', 'beta', ''),
+    ('dump-a', 'run-1', 'alpha', 'p.d.a1'),
+    ('dump-b', 'run-1', 'beta', 'p.d.b1');
+INSERT INTO dbos.operation_outputs (workflow_uuid, function_id, function_name) VALUES
+    ('run-1', 0, 'seed_schemas'),
+    ('run-2', 0, 'seed_schemas'),
+    ('dump-a', 0, 'extract'),
+    ('dump-b', 0, 'extract'),
+    ('publish-alpha', 0, 'publish'),
+    ('publish-beta', 0, 'publish');
 INSERT INTO dbos.streams (workflow_uuid, key, value, "offset", serialization) VALUES
     ('publish-alpha', 'logs', '{"time": "2023-11-14T22:13:20+00:00", "level": "INFO", "message": "a", "fields": {}, "schema": "alpha", "table": null}', 0, 'portable_json'),
     ('publish-beta', 'logs', '{"time": "2023-11-14T22:13:20+00:00", "level": "INFO", "message": "b", "fields": {}, "schema": "beta", "table": null}', 0, 'portable_json'),
@@ -27,7 +45,7 @@ VALUES ('p.d.a1', '{"signature": "s"}'), ('p.d.b1', '{"signature": "s"}');
 """
 
 # For each query: the rows of a user of alpha, of a user of alpha and beta, and of the admin.
-# A task or a log line without a schema is for the admin only.
+# A task without a scope row or a schema, and a log line without a schema, are for the admin only.
 QUERIES = [
     pytest.param(
         "SELECT name FROM admin.schemas",
@@ -66,9 +84,9 @@ QUERIES = [
     ),
     pytest.param(
         "SELECT id FROM admin.tasks WHERE id LIKE 'publish-%' OR id LIKE 'dump-%'",
-        ["publish-alpha"],
-        ["publish-alpha", "publish-beta"],
-        ["dump-loose", "publish-alpha", "publish-beta"],
+        ["dump-a", "publish-alpha"],
+        ["dump-a", "dump-b", "publish-alpha", "publish-beta"],
+        ["dump-a", "dump-b", "dump-loose", "publish-alpha", "publish-beta"],
         id="tasks",
     ),
     pytest.param(
@@ -84,6 +102,34 @@ QUERIES = [
         ["p.d.a1", "p.d.b1"],
         ["p.d.a1", "p.d.b1"],
         id="errors",
+    ),
+    pytest.param(
+        "SELECT id FROM admin.runs WHERE id LIKE 'run-%'",
+        ["run-1"],
+        ["run-1", "run-2"],
+        ["run-1", "run-2"],
+        id="runs",
+    ),
+    pytest.param(
+        "SELECT id || ':' || task_count || ':' || failed_task_count FROM admin.runs WHERE id LIKE 'run-%'",
+        ["run-1:2:0"],
+        ["run-1:4:0", "run-2:0:0"],
+        ["run-1:4:0", "run-2:0:0"],
+        id="run-task-counts",
+    ),
+    pytest.param(
+        "SELECT DISTINCT workflow_id FROM admin.steps WHERE workflow_id LIKE 'run-%' OR workflow_id LIKE 'dump-%' OR workflow_id LIKE 'publish-%'",
+        ["dump-a", "publish-alpha", "run-1"],
+        ["dump-a", "dump-b", "publish-alpha", "publish-beta", "run-1", "run-2"],
+        ["dump-a", "dump-b", "publish-alpha", "publish-beta", "run-1", "run-2"],
+        id="steps",
+    ),
+    pytest.param(
+        "SELECT concat_ws(':', name, tables, synced_tables, last_run_id, runs_24h, failed_runs_24h, errors_24h) FROM admin.overview",
+        ["alpha:1:1:run-1:1:0:1"],
+        ["alpha:1:1:run-1:1:0:1", "beta:1:1:run-2:2:1:1"],
+        ["alpha:1:1:run-1:1:0:1", "beta:1:1:run-2:2:1:1"],
+        id="overview",
     ),
     pytest.param(
         "SELECT jsonb_object_keys(admin.sync_config() -> 'schemas')",
@@ -362,3 +408,35 @@ class TestScopedStart:
         await as_user(seeded, "console_admin", "alpha")
 
         assert await self.scope(seeded, call) == wanted
+
+
+@pytest.mark.postgres
+class TestStartNeedsAProvisionedSchema:
+    """A run can't start for a schema that the provision job hasn't created yet."""
+
+    async def test_an_unprovisioned_schema_is_a_conflict(
+        self, seeded: psycopg.AsyncConnection
+    ) -> None:
+        """The editor sees a 409 with the reason, instead of a run that fails."""
+        await as_user(seeded, "console_operator", "alpha")
+
+        with pytest.raises(psycopg.Error) as error:
+            await seeded.execute(
+                b"SELECT admin.start_sync(ARRAY['alpha'], ARRAY[]::text[])"
+            )
+
+        assert error.value.sqlstate == "PT409"
+
+    async def test_a_provisioned_schema_starts(
+        self, seeded: psycopg.AsyncConnection
+    ) -> None:
+        """The schema and its access policy exist, so the run starts."""
+        await seeded.execute(b"CREATE SCHEMA alpha")
+        await seeded.execute(b"CREATE TABLE alpha.access_policy (id integer)")
+        await as_user(seeded, "console_operator", "alpha")
+
+        cursor = await seeded.execute(
+            b"SELECT admin.start_sync(ARRAY['alpha'], ARRAY[]::text[])"
+        )
+
+        assert await cursor.fetchone() is not None

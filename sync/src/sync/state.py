@@ -6,7 +6,7 @@ counts) is owned by DBOS workflows and isn't stored here.
 """
 
 from json import dumps
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from psycopg.rows import TupleRow
 
@@ -17,6 +17,25 @@ from .types import PostgresParams
 
 if TYPE_CHECKING:
     from .postgres import Postgres
+
+
+class ScopeRow(NamedTuple):
+    """One schema that a run, or one of its dump tasks, covers."""
+
+    workflow_id: str
+    run_id: str
+    schema_name: str
+    table_name: str
+
+
+async def write_scope(pg_conn: Postgres, rows: list[ScopeRow]) -> None:
+    """Record the schemas of a run and its dump tasks, so the console can scope them."""
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
+        "postgres/insert_scope",
+        mapping={"schema": schema()},
+        params={"rows": dumps([row._asdict() for row in rows])},
+    )
+    await pg_conn.commit()
 
 
 async def emit_error(pg_conn: Postgres, reason: str, **fields: str) -> None:

@@ -8,7 +8,7 @@ import pytest
 
 from tests.constants import POSTGRES_URL
 from tests.fixtures.types import Postgrest
-from tests.helpers import sign_token
+from tests.helpers import provision, sign_token
 
 Response = tuple[int, dict[str, object] | list[dict[str, object]] | str | None]
 
@@ -75,6 +75,7 @@ async def committed() -> AsyncIterator[psycopg.AsyncConnection]:
         await connection.execute(b"DELETE FROM admin.rls")
         await connection.execute(b"DELETE FROM admin.tables")
         await connection.execute(b"DELETE FROM admin.schemas")
+        await connection.execute(b"DROP SCHEMA IF EXISTS alpha CASCADE")
         await connection.execute(b"DELETE FROM dbos.queues WHERE name = 'q-http'")
         await connection.execute(
             b"DELETE FROM dbos.workflow_schedules WHERE schedule_name = 's-http'"
@@ -139,6 +140,7 @@ class TestConsoleOverHttp:
     ) -> None:
         """start_sync answers with the run id, and the run records who started it."""
         await committed.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await provision(committed, "alpha")
 
         started = call(
             postgrest,

@@ -31,9 +31,11 @@ from sync.s3 import clear_s3_prefix
 from sync.schema import notify_postgrest, wait_for_standbys
 from sync.settings import settings
 from sync.state import (
+    ScopeRow,
     build_table_states,
     emit_error,
     read_sync_config,
+    write_scope,
     write_table_states,
 )
 from sync.utils import sha256_hex
@@ -163,6 +165,22 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
         postgrest_reload_required=postgrest_reload_required,
     )
     return postgrest_reload_required
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def record_scope(
+    run_id: str, schemas: list[str], dumps: list[tuple[str, str, str]]
+) -> None:
+    """Record the schemas of the run and of each dump task, so the console can scope them."""
+    rows = [ScopeRow(run_id, run_id, name, "") for name in schemas]
+    rows += [ScopeRow(task, run_id, name, table) for task, name, table in dumps]
+
+    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+        await write_scope(pg_conn, rows)
 
 
 @DBOS.step()
