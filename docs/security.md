@@ -91,6 +91,7 @@ CNPG manages the core roles:
 | `user`                   | Authenticated read role, subject to schema and row policies.                   |
 | `postgrest`              | PostgREST login role (`auth.authenticatorRole`). It's `NOINHERIT` and can switch to `anon`, `user`, `policy_writer_<schema>`, and the console roles. |
 | `policy_writer_<schema>` | Per-schema policy service role. The provision job creates it.                  |
+| `policy_writer`          | Static parent role. CNPG makes `postgrest` a member, and the provision job makes each `policy_writer_<schema>` a member of it. CNPG removes every membership of `postgrest` that isn't in its list, so the schema roles can't join `postgrest` directly. |
 
 Init-db creates the `data_proxy` schema and its internal functions, procedures, and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
 

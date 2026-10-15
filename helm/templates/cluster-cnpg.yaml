@@ -32,6 +32,7 @@ spec:
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+        - CREATE ROLE policy_writer NOLOGIN;
   resources:
     requests:
       cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}
@@ -93,6 +94,7 @@ spec:
           - console_operator
           - console_editor
           - console_admin
+          - policy_writer
       {{- range $role := list "writer" "reader" }}
       - name: {{ printf "ducklake_%s" $role | quote }}
         ensure: present

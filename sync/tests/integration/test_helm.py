@@ -121,7 +121,6 @@ class TestGrantAppUsage:
                 {
                     "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                     "policy_writer_role": Identifier(policy_writer),
-                    "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
                 },
             ).encode()
         )
@@ -144,7 +143,7 @@ class TestGrantAppUsage:
     async def test_lets_the_authenticator_switch_to_the_policy_writer(
         self, postgres: Postgres, policy_writer: str
     ) -> None:
-        """The provision job grants the writer role to the authenticator, as CNPG did before."""
+        """The writer role joins the static policy_writer role, which CNPG gives to the authenticator."""
         await postgres.connection.execute(
             helm_sql(
                 "create_pre_request",
@@ -157,14 +156,13 @@ class TestGrantAppUsage:
                 {
                     "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                     "policy_writer_role": Identifier(policy_writer),
-                    "authenticator_role": Identifier(settings.AUTH_AUTHENTICATOR_ROLE),
                 },
             ).encode()
         )
 
         assert await scalar(
             postgres,
-            "SELECT pg_has_role(%s, %s, 'MEMBER')",
+            "SELECT pg_has_role(%s, %s, 'SET')",
             settings.AUTH_AUTHENTICATOR_ROLE,
             policy_writer,
         )

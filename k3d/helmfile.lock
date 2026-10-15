@@ -21,5 +21,5 @@ dependencies:
   - name: keycloak
     repository: https://cloudpirates-io.github.io/helm-charts/
     version: 0.21.41
-digest: sha256:8d5d73e629cc0abc40c8deeac8c7975ee180a336379be8305422233c884f9f01
-generated: "2026-10-14T22:01:47.366065267-03:00"
+digest: sha256:b7a8274ab39ef525b490cd3a9b098624f6140876999e3dad1d76f8cd2f8f13c6
+generated: "2026-10-14T22:29:52.031954762-03:00"

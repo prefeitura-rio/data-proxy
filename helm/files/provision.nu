@@ -58,7 +58,6 @@ def create-schemas [...names: string]: nothing -> nothing {
         execute-sql postgres/grant_policy_writer.sql {
             app_schema: $app_schema
             policy_writer_role: $policy_writer_role
-            authenticator_role: (quote-pg $env.AUTH_AUTHENTICATOR_ROLE identifier)
         }
     }
 
