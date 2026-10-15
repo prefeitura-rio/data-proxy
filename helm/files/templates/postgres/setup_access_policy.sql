@@ -69,7 +69,7 @@ CREATE POLICY user_read ON {{ schema }}.access_policy
 FOR SELECT TO {{ user_role }}
 USING ({{ scope }});
 
-CREATE OR REPLACE FUNCTION {{ app_schema }}.wait_for_standbys()
+CREATE OR REPLACE FUNCTION {{ app_schema }}.require_remote_apply()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -82,4 +82,4 @@ $$;
 DROP TRIGGER IF EXISTS access_policy_commit_trigger ON {{ schema }}.access_policy;
 CREATE TRIGGER access_policy_commit_trigger
 AFTER INSERT OR UPDATE OR DELETE ON {{ schema }}.access_policy
-FOR EACH STATEMENT EXECUTE FUNCTION {{ app_schema }}.wait_for_standbys()
+FOR EACH STATEMENT EXECUTE FUNCTION {{ app_schema }}.require_remote_apply()

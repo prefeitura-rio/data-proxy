@@ -137,6 +137,13 @@ tests:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
+      - notMatchRegex:
+          path: data["postgres_setup_access_policy.sql"]
+          pattern: "wait_for_standbys"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
 
   - it: renders script and SQL ConfigMaps
     asserts:

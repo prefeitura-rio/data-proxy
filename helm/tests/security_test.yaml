@@ -104,6 +104,24 @@ tests:
           value: AuthorizationPolicy
         template: istio.yaml
 
+  - it: AuthorizationPolicy lets the cluster ask the proxy to reload on the admin port
+    set:
+      ingress.enabled: true
+      ingress.auth.enabled: true
+      ingress.auth.issuer: https://issuer.example.com
+      ingress.auth.jwksUri: https://jwks.example.com
+    asserts:
+      - equal:
+          path: spec.rules[2].to[0].operation
+          value:
+            methods: [POST]
+            paths: [/reload]
+            ports: ["8081"]
+        documentSelector:
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
+
   - it: AuthorizationPolicy allows unauthenticated Swagger UI when enabled
     set:
       ingress.enabled: true

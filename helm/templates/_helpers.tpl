@@ -557,6 +557,18 @@ jwtRules:
 {{- toYaml $params -}}
 {{- end }}
 
+{{- /* The keys of the SQL ConfigMap are flat (dir_file.sql); items give them back their directory. */ -}}
+{{- define "data-proxy.sqlTemplateItems" -}}
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+- key: {{ base $path }}
+  path: {{ base $path }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+- key: {{ base (dir $path) }}_{{ base $path }}
+  path: {{ base (dir $path) }}/{{ base $path }}
+{{- end }}
+{{- end }}
+
 {{- define "data-proxy.provisionPodSpec" -}}
 {{- $root := .root -}}
 restartPolicy: OnFailure
@@ -633,5 +645,7 @@ volumes:
   - name: templates
     configMap:
       name: {{ include "data-proxy.fullname" $root }}-configure-db-sql
+      items:
+        {{- include "data-proxy.sqlTemplateItems" $root | nindent 8 }}
   {{- include "data-proxy.syncConfigVolume" $root | nindent 2 }}
 {{- end }}

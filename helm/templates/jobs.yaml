@@ -134,14 +134,7 @@ spec:
             name: {{ include "data-proxy.fullname" . }}-configure-db-sql
             defaultMode: 0444
             items:
-{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
-              - key: {{ base $path }}
-                path: {{ base $path }}
-{{- end }}
-{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
-              - key: {{ base (dir $path) }}_{{ base $path }}
-                path: {{ base (dir $path) }}/{{ base $path }}
-{{- end }}
+              {{- include "data-proxy.sqlTemplateItems" . | nindent 14 }}
 
 ---
 apiVersion: batch/v1

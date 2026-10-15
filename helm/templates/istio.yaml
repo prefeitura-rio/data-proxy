@@ -85,6 +85,15 @@ spec:
               - GET
             paths:
               - /health
+    {{- /* The sync workers have no sidecar, so no identity. The gateway never routes to the admin port, so only the cluster reaches it. */}}
+    - to:
+        - operation:
+            methods:
+              - POST
+            paths:
+              - /reload
+            ports:
+              - "8081"
 {{- end }}
 ---
 {{- if .Values.ingress.auth.enabled }}

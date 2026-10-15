@@ -95,6 +95,8 @@ The proxy takes a new document in three ways:
 | `POST /reload` on the admin port 8081 | The sync workers call it after every change of a configuration table. The answer is `{"changed":true}`, or `changed` is `false` when the proxy already has that document. |
 | A check every `PROXY_CONFIG_REFRESH_SECONDS` | Worker 0 asks again, so a proxy that missed a call still catches up. |
 
+The Istio policy of the proxy allows `POST /reload` on port 8081 and nothing else there. The sync workers have no sidecar, so the rule can't name them. The gateway never routes to that port, so only the cluster reaches it.
+
 A trigger on the three configuration tables queues a `reload_proxy` workflow. A burst of edits shares one reload. The worker resolves the headless Service `<release>-proxy-admin` to the address of every proxy pod and sends the request to each one. If a pod fails, DBOS repeats the step.
 
 A document that doesn't match the schema, or an unreachable PostgREST, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.

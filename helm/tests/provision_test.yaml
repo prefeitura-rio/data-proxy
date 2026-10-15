@@ -96,6 +96,27 @@ tests:
           value: data-proxy-provision
         template: jobs.yaml
 
+  - it: mounts the SQL templates in their directories
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[1].configMap.items
+          content:
+            key: postgres_create_schema.sql
+            path: postgres/create_schema.sql
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[1].configMap.items
+          content:
+            key: postgres_create_schema.sql
+            path: postgres/create_schema.sql
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+
   - it: provisions again every minute for the schemas that editors add
     asserts:
       - equal:
