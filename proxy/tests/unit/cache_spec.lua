@@ -1,6 +1,7 @@
 ---@diagnostic disable: missing-fields
 
 local cache = require("proxy.cache")
+local constants = require("proxy.constants")
 local helpers = require("tests.unit.helpers")
 
 local check = helpers.check(describe, it)
@@ -261,26 +262,40 @@ check("cache.changes_policy", function(case) return cache.changes_policy(case.co
 	},
 })
 
---- A flight like proxy.flight gives: enter says what this request is, and leave frees the lock of a leader.
----@param role string leader, follower or alone.
----@param on_enter fun()|nil Runs when the request enters, like a leader that finished while this one waited.
----@return table flight
+--- A module that works like resty.lock: new makes a lock, lock gives the seconds it waited, and unlock frees it.
+---@param case table
+---@param on_lock fun()|nil Runs when a request takes the lock, like a leader that stored the entry meanwhile.
+---@return table module
 ---@return table calls
-local function flight_with(role, on_enter)
-	local calls = { enters = 0, leaves = 0 }
-	return {
-		enter = function()
-			calls.enters = calls.enters + 1
-			if on_enter then on_enter() end
-			return role
-		end,
-		leave = function() calls.leaves = calls.leaves + 1 end,
-	},
-		calls
+local function lock_module_with(case, on_lock)
+	local calls = { new = 0, lock = 0, unlock = 0 }
+	local lock = {}
+	function lock.lock(_, key)
+		calls.lock = calls.lock + 1
+		calls.key = key
+		if on_lock then on_lock() end
+		return case.waited, case.lock_error
+	end
+	function lock.unlock()
+		calls.unlock = calls.unlock + 1
+		return 1
+	end
+	local module = {}
+	function module.new(_, dict, options)
+		calls.new = calls.new + 1
+		calls.dict = dict
+		calls.options = options
+		if case.new_fails then return nil, "dictionary not found" end
+		return lock
+	end
+	return module, calls
 end
 
-check("cache.fetch with concurrent requests", function(case)
-	local entry = nil
+--- Run cache.fetch with a lock module and a store that counts its calls.
+---@param case table
+---@return table outcome
+local function fetch_with_locks(case)
+	local entry = case.stored
 	local counts = { reads = 0, writes = 0, loads = 0 }
 	local store = {
 		read = function()
@@ -292,87 +307,115 @@ check("cache.fetch with concurrent requests", function(case)
 			return true
 		end,
 	}
-	local group, calls = flight_with(case.role, function() entry = case.stored_when_entering end)
-	entry = case.stored
+	local locks, calls = lock_module_with(case, function() entry = case.stored_when_locking end)
 	local ok, result = pcall(cache.fetch, case.context, "key", function()
 		counts.loads = counts.loads + 1
 		if case.raises then error("broken", 0) end
 		return case.response
-	end, store, group)
+	end, store, locks)
+	return { ok = ok, result = result, counts = counts, calls = calls }
+end
+
+check("cache.fetch with concurrent requests", function(case)
+	local outcome = fetch_with_locks(case)
 	return {
-		ok = ok,
-		source = ok and result.source or nil,
-		reads = counts.reads,
-		loads = counts.loads,
-		writes = counts.writes,
-		enters = calls.enters,
-		leaves = calls.leaves,
+		ok = outcome.ok,
+		source = outcome.ok and outcome.result.source or nil,
+		reads = outcome.counts.reads,
+		loads = outcome.counts.loads,
+		writes = outcome.counts.writes,
+		locks = outcome.calls.lock,
+		unlocks = outcome.calls.unlock,
 	}
 end, {
 	{
 		name = "lets the leader ask PostgREST once, store the answer, and free the lock",
 		context = context_with(),
-		role = "leader",
+		waited = 0,
 		response = response_with(),
-		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 1, enters = 1, leaves = 1 },
+		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 1, locks = 1, unlocks = 1 },
 	},
 	{
 		name = "answers a leader from the entry that appeared while it took the lock, and frees the lock",
 		context = context_with(),
-		role = "leader",
-		stored_when_entering = { body = '[{"id":1}]', headers = {} },
+		waited = 0,
+		stored_when_locking = { body = '[{"id":1}]', headers = {} },
 		response = response_with(),
-		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, enters = 1, leaves = 1 },
+		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, locks = 1, unlocks = 1 },
 	},
 	{
-		name = "answers a follower from the entry that the leader stored, without asking PostgREST",
+		name = "answers a follower from the entry that the leader stored, and frees the lock at once for the others",
 		context = context_with(),
-		role = "follower",
-		stored_when_entering = { body = '[{"id":1}]', headers = {} },
+		waited = 0.25,
+		stored_when_locking = { body = '[{"id":1}]', headers = {} },
 		response = response_with(),
-		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, enters = 1, leaves = 0 },
+		expected = { ok = true, source = "cache", reads = 2, loads = 0, writes = 0, locks = 1, unlocks = 1 },
 	},
 	{
 		name = "lets a follower ask PostgREST itself when the leader stored nothing",
 		context = context_with(),
-		role = "follower",
+		waited = 0.25,
 		response = response_with({ status = 404 }),
-		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 0, enters = 1, leaves = 0 },
+		expected = { ok = true, source = "postgrest", reads = 2, loads = 1, writes = 0, locks = 1, unlocks = 1 },
 	},
 	{
-		name = "lets a request that holds no lock ask PostgREST itself",
+		name = "lets a request ask PostgREST itself when the wait for the lock timed out",
 		context = context_with(),
-		role = "alone",
+		lock_error = "timeout",
 		response = response_with(),
-		expected = { ok = true, source = "postgrest", reads = 1, loads = 1, writes = 1, enters = 1, leaves = 0 },
+		expected = { ok = true, source = "postgrest", reads = 1, loads = 1, writes = 1, locks = 1, unlocks = 0 },
+	},
+	{
+		name = "lets a request ask PostgREST itself when the lock fails",
+		context = context_with(),
+		lock_error = "no memory",
+		response = response_with(),
+		expected = { ok = true, source = "postgrest", reads = 1, loads = 1, writes = 1, locks = 1, unlocks = 0 },
+	},
+	{
+		name = "lets every request ask PostgREST when the lock dictionary is missing",
+		context = context_with(),
+		new_fails = true,
+		response = response_with(),
+		expected = { ok = true, source = "postgrest", reads = 1, loads = 1, writes = 1, locks = 0, unlocks = 0 },
 	},
 	{
 		name = "frees the lock when PostgREST does not answer",
 		context = context_with(),
-		role = "leader",
+		waited = 0,
 		response = nil,
-		expected = { ok = true, source = "none", reads = 2, loads = 1, writes = 0, enters = 1, leaves = 1 },
+		expected = { ok = true, source = "none", reads = 2, loads = 1, writes = 0, locks = 1, unlocks = 1 },
 	},
 	{
 		name = "frees the lock and raises the error when the request fails",
 		context = context_with(),
-		role = "leader",
+		waited = 0,
 		raises = true,
-		expected = { ok = false, reads = 2, loads = 1, writes = 0, enters = 1, leaves = 1 },
+		expected = { ok = false, reads = 2, loads = 1, writes = 0, locks = 1, unlocks = 1 },
 	},
 	{
 		name = "answers a hit without asking for the lock",
 		context = context_with(),
-		role = "leader",
+		waited = 0,
 		stored = { body = '[{"id":1}]', headers = {} },
 		response = response_with(),
-		expected = { ok = true, source = "cache", reads = 1, loads = 0, writes = 0, enters = 0, leaves = 0 },
+		expected = { ok = true, source = "cache", reads = 1, loads = 0, writes = 0, locks = 0, unlocks = 0 },
 	},
 	{
 		name = "never makes a write wait for another request",
 		context = context_with({ method = "POST" }),
-		role = "follower",
+		waited = 0.25,
 		response = response_with({ status = 201 }),
-		expected = { ok = true, source = "postgrest", reads = 0, loads = 1, writes = 0, enters = 0, leaves = 0 },
+		expected = { ok = true, source = "postgrest", reads = 0, loads = 1, writes = 0, locks = 0, unlocks = 0 },
 	},
 })
+
+describe("cache.fetch with concurrent requests", function()
+	it("locks the cache key in the dictionary of the constants, with its limits", function()
+		local outcome = fetch_with_locks({ context = context_with(), waited = 0, response = response_with() })
+
+		assert.equal("key", outcome.calls.key)
+		assert.equal(constants.locks.dict, outcome.calls.dict)
+		assert.same(constants.locks.options, outcome.calls.options)
+	end)
+end)

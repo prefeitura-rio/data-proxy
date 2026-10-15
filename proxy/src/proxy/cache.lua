@@ -88,26 +88,58 @@ function cache.changes_policy(context, response)
 	return utils.matches_path_prefix(context.uri, constants.policy_endpoints)
 end
 
---- Look for an answer in the store. With a flight, the first request for a missing key leads, and the others
---- wait for it and then look again. A leader looks once more after it takes the lock, because the previous
---- leader can finish between its first look and its lock.
+--- Take the lock of a cache key. Other requests for the key wait for it, so one request asks PostgREST.
+---
+--- A request that took the lock at once is the leader. It keeps the lock while it asks PostgREST. A request that
+--- waited is a follower. It takes the lock only to know that the leader finished, and frees it at once, so the
+--- followers don't wait for each other. A request that couldn't get the lock is alone and asks PostgREST itself.
+---@param key string Cache key.
+---@param locks table The lock module, resty.lock.
+---@return "leader"|"follower"|"alone" role
+---@return table|nil lock The lock that the leader holds.
+local function take_lock(key, locks)
+	local settings = constants.locks
+	local lock, new_error = locks:new(settings.dict, settings.options)
+	if not lock then
+		ngx.log(ngx.ERR, "Proxy lock is not available: ", new_error)
+		return "alone", nil
+	end
+
+	local waited, lock_error = lock:lock(key)
+	if not waited then
+		if lock_error ~= "timeout" then ngx.log(ngx.ERR, "Proxy lock failed: ", lock_error) end
+		return "alone", nil
+	end
+	if waited == 0 then return "leader", lock end
+
+	lock:unlock()
+	return "follower", nil
+end
+
+--- Look for an answer in the store. With locks, the first request for a missing key leads and the others wait
+--- for it and then look again. A leader looks once more after it takes the lock, because the previous leader
+--- can finish between its first look and its lock.
 ---@param context RequestContext
 ---@param key string
 ---@param store CacheStore|Redis
----@param flight Flight|nil
+---@param locks table|nil The lock module, resty.lock. nil means no waiting.
 ---@return CachedEntry|nil hit
----@return boolean leading True if this request has to ask PostgREST and then free the key.
-local function look_up(context, key, store, flight)
-	if not may_read(context) then return nil, false end
+---@return table|nil lock The lock of a leader that has to ask PostgREST and then free it.
+local function look_up(context, key, store, locks)
+	if not may_read(context) then return nil, nil end
 
 	local hit = store:read(key)
-	if hit or not flight then return hit, false end
+	if hit or not locks then return hit, nil end
 
-	local role = flight:enter(key)
-	if role == "alone" then return nil, false end
+	local role, lock = take_lock(key, locks)
+	if role == "alone" then return nil, nil end
+
 	hit = store:read(key)
-	if hit and role == "leader" then flight:leave() end
-	return hit, role == "leader" and hit == nil
+	if hit and lock then
+		lock:unlock()
+		return hit, nil
+	end
+	return hit, lock
 end
 
 --- Ask PostgREST, store an answer that is cacheable, and free the lock of a leader, also if the call fails.
@@ -115,15 +147,15 @@ end
 ---@param key string
 ---@param load fun(): Response|nil, string|nil
 ---@param store CacheStore|Redis
----@param leader Flight|nil The flight, if this request leads the key.
+---@param lock table|nil The lock that this request holds as the leader.
 ---@return Response|nil response
 ---@return string|nil failure
-local function ask_and_store(context, key, load, store, leader)
+local function ask_and_store(context, key, load, store, lock)
 	local asked, postgrest_response, load_error = pcall(load)
 	if asked and postgrest_response and cache.is_cacheable(postgrest_response, context) then
 		store:write(key, context.cache_ttl, cache.to_entry(postgrest_response))
 	end
-	if leader then leader:leave() end
+	if lock then lock:unlock() end
 
 	if not asked then error(postgrest_response, 0) end
 	return postgrest_response, load_error
@@ -132,7 +164,7 @@ end
 --- Fetch the answer of a request: from the cache, or from PostgREST, which the proxy then stores.
 --- The load function runs only if the cache has no answer.
 ---
---- With a flight, one request leads for a key and asks PostgREST. The other requests for the same key
+--- With locks, one request leads for a key and asks PostgREST. The other requests for the same key
 --- wait for it and read the entry that it stored. Many requests for an entry that just expired then
 --- cause one slow query, not one for each request. A follower asks PostgREST itself if the leader
 --- stored nothing, for example because the answer was an error.
@@ -148,13 +180,13 @@ end
 ---@param key string Cache key from request.cache_key.
 ---@param load fun(): Response|nil, string|nil Asks PostgREST. The function calls it only on a cache miss.
 ---@param store CacheStore|Redis The cache store.
----@param flight Flight|nil Makes the requests for one key wait for one request. nil means no waiting.
+---@param locks table|nil The lock module, resty.lock. It makes the requests for a key wait for one. nil: no waiting.
 ---@return CacheResult
-function cache.fetch(context, key, load, store, flight)
-	local hit, leading = look_up(context, key, store, flight)
+function cache.fetch(context, key, load, store, locks)
+	local hit, lock = look_up(context, key, store, locks)
 	if hit then return outcome(cached_response(hit), "cache", nil) end
 
-	local postgrest_response, load_error = ask_and_store(context, key, load, store, leading and flight or nil)
+	local postgrest_response, load_error = ask_and_store(context, key, load, store, lock)
 	if not postgrest_response then return outcome(nil, "none", load_error) end
 	return outcome(postgrest_response, "postgrest", nil)
 end
