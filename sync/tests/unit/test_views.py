@@ -187,6 +187,7 @@ CONFIGURED_VIEWS: Final = frozenset({("app", "people")})
 CONFIGURED_FUNCTIONS: Final = frozenset(
     {
         ("app", "dl_latest_snapshot"),
+        ("app", "dl_table_files"),
         ("app", "dl_changes_people"),
     }
 )

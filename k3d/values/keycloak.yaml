@@ -258,6 +258,230 @@ realm:
               }
             }
           ]
+        },
+        {
+          "clientId": "console_viewer",
+          "name": "console_viewer",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "console_viewer",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_console_viewer",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "console_operator",
+          "name": "console_operator",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "console_operator",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_console_operator",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "console_editor",
+          "name": "console_editor",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "console_editor",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_console_editor",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "console_admin",
+          "name": "console_admin",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "console_admin",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_console_admin",
+                "jsonType.label": "String",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
         }
       ]
     }

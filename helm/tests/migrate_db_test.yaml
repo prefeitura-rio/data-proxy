@@ -48,7 +48,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: RELATION
-            value: data_proxy.state
+            value: data_proxy.scope
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: migrate-db

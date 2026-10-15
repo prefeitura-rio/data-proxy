@@ -76,13 +76,38 @@ A viewer can read the configuration tables, but only the rows of its schemas, an
 
 The admin changes a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. It can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
 
+## Tokens from the identity provider
+
+The console sends the access token of the user to PostgREST. PostgREST checks it against the keys of the identity provider, like it does for the data API. The token needs two claims besides the standard ones:
+
+| Claim | Holds |
+| --- | --- |
+| `role` | One of `console_viewer`, `console_operator`, `console_editor`, `console_admin`. Map it from the groups of the user, and give the highest level that the user has. |
+| `schemas` | The list of schemas that the user manages, such as `["sales", "hr"]`. An admin can have an empty list, because the admin ignores it. |
+
+The `preferred_username` claim names the user in `updated_by` and `started_by`. The k3d Keycloak realm has one client for each level, `console_viewer` to `console_admin`, with fixed claims. They give tokens to the tests and to the console in development. The secret is `test-secret`, and each client uses the `client_credentials` grant.
+
+## Reading logs and runs
+
+The console polls. A page reads `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&order=logged_at.asc` every few seconds, and it drops the lines that it already has, using the pair of `workflow_id` and `position`. It reads `GET /runs?id=eq.<id>` and `GET /tasks?run_id=eq.<id>` for the status. `GET /overview` gives the dashboard in one request.
+
+## The query tab
+
+Admins and schema admins query the synced data in the browser, with DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly.
+
+1. The console server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `admin.table_files` is for `console_editor` and `console_admin`. It checks the schemas of the token, and it answers 403 for a schema or a table outside them, and for a name that doesn't exist. The engine generates `dl_table_files` in every schema, and the function calls it. It lists the Parquet files of the table at its latest snapshot, with the size of each and its delete file, if any.
+2. The console server signs a short-lived `GET` link for each file with its own read-only storage credentials, and it sends the links to the browser. PostgREST can't sign links, so the database never holds storage credentials.
+3. The browser reads the files with `read_parquet`. A delete file means that some rows are gone, and the browser can't apply it, so the page must say so and not show wrong rows. A schema with encrypted files answers 409, because the browser has no key.
+
+The files hold every row, and row-level security doesn't apply to them. That's the reason why only editors and admins can list them. The bucket needs a CORS rule for the origin of the console, or the browser can't read the files. The rule allows `GET` and `HEAD`, allows the `Range` header, and exposes `Content-Length`, `Content-Range`, `ETag`, and `Accept-Ranges`. The chart doesn't set it, because the storage differs between deployments: SeaweedFS, S3, and GCS each use their own command.
+
 ## HTTP interface
 
 The console talks to PostgREST only. `sync/tests/integration/test_console_http.py` tests this contract against the PostgREST process of `devenv test`.
 
 - Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim and the schemas of the user in the `schemas` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`, for the admin. The functions are `POST /rpc/start_sync` and `POST /rpc/import_config`.
+- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`, for the admin. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, and `GET /rpc/table_files`. `GET /rpc/is_admin` tells the console whether to show the admin actions.
 
 | Status | Meaning |
 | --- | --- |

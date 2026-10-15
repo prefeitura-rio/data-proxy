@@ -40,6 +40,7 @@ sync/tests/templates/postgres/relation_exists.sql
 sync/tests/templates/postgres/role_memberships.sql
 sync/tests/templates/postgres/schema_names.sql
 sync/tests/templates/postgres/select_changes.sql
+sync/tests/templates/postgres/select_table_files.sql
 sync/tests/templates/postgres/select_grants.sql
 sync/tests/templates/postgres/select_plan_sources.sql
 sync/tests/templates/postgres/select_workflows.sql

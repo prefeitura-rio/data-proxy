@@ -94,7 +94,7 @@ pnpm build        # build the Node server in console/build
 
 The migrations are plain SQL files in `console/migrations/`, and `goose` applies them. `goose` keeps its own version table, `public.goose_db_version`. They hold only what the console owns, in the `admin` schema: the sync configuration tables, the views that the console reads, and the functions that it calls, with the grants on them.
 
-Everything else is a system function, and it belongs to the chart, in `helm/files/templates/postgres/`: the state and error tables of the engine, the schemas of the synced data, their access policies and policy-writer roles, the pre-request function, the maintenance procedures, the DuckLake secrets, and the roles. The chart creates the state tables and DBOS creates its tables before `goose` runs, because some views read them.
+Everything else is a system function, and it belongs to the chart, in `helm/files/templates/postgres/`: the state, error and scope tables of the engine, the schemas of the synced data, their access policies and policy-writer roles, the pre-request function and its grants, the functions that reload PostgREST, the maintenance procedures, the DuckLake secrets, and the roles. The chart creates the state tables and DBOS creates its tables before `goose` runs, because some views read them.
 
 The order is: the chart SQL for the state tables, then `dbos migrate`, then `goose up`. `scripts/db.nu` does this for the test database.
 

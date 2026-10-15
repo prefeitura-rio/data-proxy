@@ -107,6 +107,43 @@ class TestChangeFeed:
         assert rows == expected
 
 
+class TestTableFiles:
+    """The reader lists the Parquet files that a table has at its latest snapshot."""
+
+    async def test_lists_the_data_files_of_a_table(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """Each file has a path in the data location of the schema, and a size."""
+        schema = ducklake_view.namespace.schema
+
+        files = await fetch_all(
+            ducklake_view,
+            "postgres/select_table_files",
+            mapping={"schema": ducklake_view.namespace.identifier},
+            params={"table_name": "people"},
+        )
+
+        assert files
+        assert all(
+            str(path).endswith(".parquet") and "/" + schema + "/" in str(path)
+            for path, _, _ in files
+        )
+        assert all(isinstance(size, int) and size > 0 for _, size, _ in files)
+
+    async def test_lists_nothing_for_an_unknown_table(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """A table name that the catalog doesn't know gives no file."""
+        files = await fetch_all(
+            ducklake_view,
+            "postgres/select_table_files",
+            mapping={"schema": ducklake_view.namespace.identifier},
+            params={"table_name": "nothing"},
+        )
+
+        assert files == []
+
+
 class TestLatestSnapshot:
     """The reader reports the latest DuckLake snapshot."""
 

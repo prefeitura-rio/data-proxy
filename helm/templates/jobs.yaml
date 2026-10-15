@@ -170,7 +170,7 @@ spec:
           workingDir: /scripts
           env:
             - name: RELATION
-              value: data_proxy.state
+              value: data_proxy.scope
             - name: PGHOST
               value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
             - name: PGPORT

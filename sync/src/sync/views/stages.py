@@ -37,6 +37,7 @@ def desired_functions(
     """Return managed change-feed and snapshot functions for selected schemas."""
     selected = set(config.schemas) if schema_names is None else schema_names
     functions = {(schema_name, "dl_latest_snapshot") for schema_name in selected}
+    functions.update((schema_name, "dl_table_files") for schema_name in selected)
     functions.update(
         (schema_name, changes_function_name(table))
         for schema_name, schema_config in config.schemas.items()
@@ -71,7 +72,8 @@ async def existing_functions(
     return {
         (schema, name)
         for schema, name in rows
-        if name.startswith("dl_changes_") or name == "dl_latest_snapshot"
+        if name.startswith("dl_changes_")
+        or name in {"dl_latest_snapshot", "dl_table_files"}
     }
 
 
@@ -170,6 +172,19 @@ async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> No
             "metadata_schema": schema,
             "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
             "user_role": Identifier(settings.AUTH_USER_ROLE),
+        },
+    )
+
+
+async def create_table_files_function(pg_conn: Postgres, schema: str) -> None:
+    """Create the schema-scoped function that lists the Parquet files of a table."""
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
+        "postgres/create_table_files_function",
+        mapping={
+            "schema": Identifier(schema),
+            "function": Identifier("dl_table_files"),
+            "metadata_schema": schema,
+            "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
         },
     )
 
@@ -305,8 +320,12 @@ async def reconcile_schema(
         )
         changed = True
 
-    snapshot_function = (schema_name, "dl_latest_snapshot")
-    if changed or snapshot_function not in functions:
+    schema_functions = {
+        (schema_name, "dl_latest_snapshot"),
+        (schema_name, "dl_table_files"),
+    }
+    if changed or not schema_functions <= functions:
         await create_current_snapshot_function(pg_conn, schema_name)
+        await create_table_files_function(pg_conn, schema_name)
 
     return changed
