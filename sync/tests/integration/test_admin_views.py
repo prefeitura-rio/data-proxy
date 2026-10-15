@@ -291,3 +291,24 @@ class TestStatus:
             ("alpha", "p.d.one", False, None, 0),
             ("alpha", "p.d.two", True, "abc", 2),
         ]
+
+    async def test_synced_counts_no_partitions_for_a_table_that_is_not_partitioned(
+        self, admin_db: psycopg.AsyncConnection
+    ) -> None:
+        """A full table keeps null partitions in its state, and the view still answers."""
+        await admin_db.execute(b"DELETE FROM data_proxy.state")
+        await admin_db.execute(b"INSERT INTO admin.schemas (name) VALUES ('alpha')")
+        await admin_db.execute(
+            b"INSERT INTO admin.tables (schema, name, strategy) VALUES ('alpha', 'p.d.one', 'full')"
+        )
+        await admin_db.execute(
+            b"INSERT INTO data_proxy.state (table_name, state) VALUES ('p.d.one', %s)",
+            (Jsonb({"strategy": "full", "signature": "abc", "partitions": None}),),
+        )
+
+        result = await rows(
+            admin_db,
+            "SELECT name, synced, signature, partition_count FROM admin.synced",
+        )
+
+        assert result == [("p.d.one", True, "abc", 0)]

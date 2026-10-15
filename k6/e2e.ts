@@ -1981,21 +1981,24 @@ const CONSOLE_LEVELS = ["console_viewer", "console_operator", "console_editor", 
  * the levels below refuse the same writes, and a request without the right token is refused.
  */
 function verifyConsoleSurface(): void {
-    expect(
-        "console: every level reads every view and helper function",
-        CONSOLE_LEVELS.every(
-            (client) =>
-                CONSOLE_VIEWS.every(
-                    (view) => consoleCall("GET", `/${view}?limit=1`, client).status === 200,
-                ) &&
-                CONSOLE_FUNCTIONS.every(
-                    (name) => consoleCall("GET", `/rpc/${name}`, client).status === 200,
-                ),
-        ),
-    );
+    CONSOLE_LEVELS.forEach((client) => {
+        CONSOLE_VIEWS.forEach((view) =>
+            expect(
+                `console: ${client} reads ${view}`,
+                consoleCall("GET", `/${view}?limit=1`, client).status === 200,
+            ),
+        );
+        CONSOLE_FUNCTIONS.forEach((name) =>
+            expect(
+                `console: ${client} calls ${name}`,
+                consoleCall("GET", `/rpc/${name}`, client).status === 200,
+            ),
+        );
+    });
     expect(
         "console: the helper function returns the user name of the token",
-        safeJson(consoleCall("GET", "/rpc/username", "console_viewer")) === "test_console_viewer",
+        safeJson(consoleCall("GET", "/rpc/username", "console_viewer")) ===
+        "service-account-console_viewer",
     );
 
     const health = rowsOf(
@@ -2015,9 +2018,15 @@ function verifyConsoleSurface(): void {
     ) as Array<Record<string, unknown>>;
     const row = (name: string) => synced.find((item) => String(item.name).endsWith(`.${name}`));
     expect(
-        "console: synced lists the synced tables, their partitions, and the blocked table",
-        TABLES.every((name) => row(name)?.synced === true) &&
-        Number(row(PARTITIONED_TABLE)?.partition_count) >= SYNCED_PARTITIONS &&
+        "console: synced lists every synced table",
+        TABLES.every((name) => row(name)?.synced === true),
+    );
+    expect(
+        "console: synced counts the partitions of the partitioned table",
+        Number(row(PARTITIONED_TABLE)?.partition_count) >= SYNCED_PARTITIONS,
+    );
+    expect(
+        "console: synced shows the blocked table as not synced",
         row(FAILING_TABLE)?.synced === false,
     );
     expect(
@@ -2056,7 +2065,7 @@ function verifyConsoleSurface(): void {
         );
     }
 
-    const probe = { name: "console_probe", source: "bigquery", settings: {} };
+    const probe = { name: "console_probe", source: "bigquery", settings: { project: "probe" } };
     expect(
         "console: an editor can't add a schema outside its token, and the admin can add and remove one",
         consoleCall("POST", "/schemas", "console_editor", probe).status === 403 &&
