@@ -672,11 +672,24 @@ function recordSourceDuration(response: K6Response, ducklakeTrend?: Trend): void
     }
 }
 
+/** How many failed checks one virtual user prints, so a bad run doesn't flood the log. */
+const FAILURE_LOG_LIMIT = 25;
+let failuresLogged = 0;
+
 function recordLoadCheckFailure(
     route: string,
     reason: string,
     response: K6Response,
 ): void {
+    if (failuresLogged < FAILURE_LOG_LIMIT) {
+        failuresLogged += 1;
+        console.warn(
+            `load check failed: route=${route} reason=${reason} status=${response.status} ` +
+            `source=${header(response, "X-Source") || "none"} ` +
+            `duration_ms=${Math.round(response.timings.duration)} ` +
+            `body=${String(response.body).slice(0, 160)}`,
+        );
+    }
     loadCheckFailed.add(1, {
         route,
         reason,
