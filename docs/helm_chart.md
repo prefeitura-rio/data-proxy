@@ -61,28 +61,28 @@ The chart always deploys the same pieces:
 | Part       | Role                                                                                                                             |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | PostgreSQL | One CNPG Cluster with a primary and at least one standby. `cnpg.autoscaling` adds standbys under load. CNPG promotes a standby on failure. |
-| PgDog      | A pooler in front of PostgreSQL. It sends read-only transactions to the standbys and every other transaction to the primary. `pgdog.autoscaling` scales it. |
+| PgDog      | A pooler in front of PostgreSQL. It sends read-only transactions to the standbys and every other transaction to the primary. It runs `pgdog.replicas` pods (two by default), and no scaler. |
 | PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
 PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary. PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `cnpg-authenticator` login. The chart renders it into the `<release>-pgdog-users` Secret.
 
-PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host. New connections spread across the standbys, and a new standby takes load as connections close. PgDog checks the replication lag every second and gives no reads to a standby that's more than `pgdog.maxReplicaLagMs` behind. A standby that stops answering gets no requests for 10 seconds, and the next read goes to the primary.
+PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host, and Kubernetes picks the standby for each new connection. PgDog closes a server connection after about five minutes, so a new standby takes its share within that time. In a measured run the standbys served 50% and 50% of the reads, and in one of four runs 31% and 69%. CNPG takes a standby that's more than `cnpg.maxReplicaLag` behind out of the `-ro` Service until it catches up, and a standby that stops answering leaves it within about six seconds. PgDog doesn't measure the lag. Its time-based lag limit counts an idle primary as lag. A pool that can't connect gets no requests for 10 seconds, and the next read goes to the primary.
 
 The PostgREST connection address lists PgDog first and the `-rw` Service second. PostgREST asks for a read/write session for its `LISTEN` connection. PgDog never gives one, so the listener connects to the primary. A `NOTIFY` on the primary then reaches PostgREST.
 
-A read that follows a write can reach a standby that hasn't replayed the write. The lag stays below `pgdog.maxReplicaLagMs`, and normally it's a few milliseconds. A caller that needs the new row at once reads it from the answer of the write (`Prefer: return=representation`).
+A read that follows a write can reach a standby that hasn't replayed the write. The lag stays below `cnpg.maxReplicaLag`, and normally it's a few milliseconds. A caller that needs the new row at once reads it from the answer of the write (`Prefer: return=representation`).
 
 Only the primary database holds state. A scaled-down standby loses its volume. The primary keeps its data.
 
-KEDA owns every workload count. Helm never sets `replicas` or `instances` on a workload, so an upgrade can't conflict with a scaler.
+KEDA owns the count of every workload except PgDog. Helm sets only `pgdog.replicas`, because each extra PgDog pod opens its own pools and adds connections to PostgreSQL. Helm never sets `replicas` or `instances` on any other workload, so an upgrade can't conflict with a scaler.
 
 Default triggers:
 
 | Workload                  | Default trigger                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Cluster                   | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads.          |
-| PostgREST, PgDog and nginx | CPU and memory.                                                                                             |
+| PostgREST and nginx       | CPU and memory.                                                                                              |
 
 Set `triggers` in an `autoscaling` block to replace a default. KEDA can't scale a CNPG resource on CPU, because the resource has no pod selector.
 

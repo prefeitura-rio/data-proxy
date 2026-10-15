@@ -10,7 +10,6 @@ templates:
   - secrets.yaml
   - services.yaml
   - pdbs.yaml
-  - scaledobjects.yaml
 set:
   redis.host: redis-writer
 tests:
@@ -39,28 +38,92 @@ tests:
           pattern: '(?m)^read_write_split = "include_primary_if_replica_banned"$'
         template: configmap-pgdog.yaml
 
-  - it: checks the replication lag and bans a standby that falls behind
-    set:
-      pgdog.maxReplicaLagMs: 3000
+  - it: leaves the standby lag to the CNPG readiness probe, so PgDog keeps no lag rules
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data["pgdog.toml"]
-          pattern: '(?m)^lsn_check_delay = 0$'
+          pattern: 'lsn_check'
         template: configmap-pgdog.yaml
-      - matchRegex:
+      - notMatchRegex:
           path: data["pgdog.toml"]
-          pattern: '(?m)^ban_replica_lag = 3000$'
+          pattern: 'ban_replica_lag'
         template: configmap-pgdog.yaml
 
-  - it: gives up on a dead standby within seconds
+  - it: gives up on a dead standby within seconds, and tries a connection twice
     asserts:
       - matchRegex:
           path: data["pgdog.toml"]
-          pattern: '(?m)^connect_timeout = 1000$'
+          pattern: '(?m)^connect_timeout = 2000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^connect_attempts = 2$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^connect_attempt_delay = 250$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^healthcheck_timeout = 3000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^idle_healthcheck_interval = 5000$'
         template: configmap-pgdog.yaml
       - matchRegex:
           path: data["pgdog.toml"]
           pattern: '(?m)^ban_timeout = 10000$'
+        template: configmap-pgdog.yaml
+
+  - it: detects a dead server through TCP keepalives
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?s)\[tcp\]\s+keepalive = true\s+time = 10000\s+interval = 5000\s+retries = 2\s+user_timeout = 10000'
+        template: configmap-pgdog.yaml
+
+  - it: recycles server connections, so a new standby gets its share
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^server_lifetime = 300000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^server_lifetime_jitter = 60000$'
+        template: configmap-pgdog.yaml
+
+  - it: bounds the prepared statements on each server connection
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^prepared_statements_limit = 500$'
+        template: configmap-pgdog.yaml
+
+  - it: stops before Kubernetes kills the pod
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^shutdown_timeout = 25000$'
+        template: configmap-pgdog.yaml
+
+  - it: serves a health check and the metrics on their own ports
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^healthcheck_port = 8080$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^openmetrics_port = 9090$'
+        template: configmap-pgdog.yaml
+
+  - it: gives each pool as many server connections as one PostgREST pod opens
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^default_pool_size = 24$'
         template: configmap-pgdog.yaml
 
   - it: sizes the server pool from pgdog.poolSize
@@ -98,7 +161,7 @@ tests:
           value: data-proxy-pgdog-users
         template: secrets.yaml
 
-  - it: renders a PgDog Deployment whose count a scaler owns
+  - it: renders a PgDog Deployment
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -112,12 +175,62 @@ tests:
           path: spec.template.spec.containers[0].args
           value: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
         template: deployment-pgdog.yaml
-      - notExists:
-          path: spec.replicas
-        template: deployment-pgdog.yaml
+
+  - it: runs two PgDog pods and no scaler, so no pod pool grows the connections to PostgreSQL
+    asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
-          value: pgdog
+          path: spec.replicas
+          value: 2
+        template: deployment-pgdog.yaml
+
+  - it: takes the number of PgDog pods from pgdog.replicas
+    set:
+      pgdog.replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+        template: deployment-pgdog.yaml
+
+  - it: keeps the Istio sidecar out of the database path
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["sidecar.istio.io/inject"]
+          value: "false"
+        template: deployment-pgdog.yaml
+
+  - it: is ready only while a pool can serve
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /
+            port: health
+        template: deployment-pgdog.yaml
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: health
+            containerPort: 8080
+        template: deployment-pgdog.yaml
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9090
+        template: deployment-pgdog.yaml
+
+  - it: requests the CPU that PgDog uses, and limits the memory it can grow to
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 500m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
         template: deployment-pgdog.yaml
 
   - it: rolls PgDog when its configuration or the S3 keys change
@@ -134,7 +247,7 @@ tests:
           value: 4fe6295c0612b91572a31a237c4e4fbfeed93ee4330d410836a54aa0efa3de7a
         template: deployment-pgdog.yaml
 
-  - it: renders a Service, a disruption budget and a scaler for PgDog
+  - it: renders a Service and a disruption budget for PgDog
     asserts:
       - equal:
           path: spec.ports[0].port
@@ -150,13 +263,6 @@ tests:
           path: metadata.name
           value: data-proxy-pgdog
         template: pdbs.yaml
-      - equal:
-          path: spec.scaleTargetRef.name
-          value: data-proxy-pgdog
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-pgdog
-        template: scaledobjects.yaml
 
   - it: renders one PostgREST Deployment, and no read-only copy
     asserts:

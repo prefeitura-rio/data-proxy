@@ -15,13 +15,26 @@ data:
     pooler_mode = "transaction"
     read_write_split = "include_primary_if_replica_banned"
     default_pool_size = {{ .Values.pgdog.poolSize }}
-    connect_timeout = 1000
-    healthcheck_timeout = 1000
+    min_pool_size = 1
+    connect_timeout = 2000
+    connect_attempts = 2
+    connect_attempt_delay = 250
+    healthcheck_timeout = 3000
     idle_healthcheck_interval = 5000
     ban_timeout = 10000
-    lsn_check_delay = 0
-    lsn_check_interval = 1000
-    ban_replica_lag = {{ .Values.pgdog.maxReplicaLagMs }}
+    server_lifetime = 300000
+    server_lifetime_jitter = 60000
+    prepared_statements_limit = 500
+    shutdown_timeout = 25000
+    healthcheck_port = 8080
+    openmetrics_port = 9090
+
+    [tcp]
+    keepalive = true
+    time = 10000
+    interval = 5000
+    retries = 2
+    user_timeout = 10000
 
     [[databases]]
     name = {{ .Values.cnpg.db.name | quote }}

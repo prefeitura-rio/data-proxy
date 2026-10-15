@@ -33,6 +33,12 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
         - CREATE ROLE policy_writer NOLOGIN;
+  probes:
+    readiness:
+      type: streaming
+      maximumLag: {{ $root.Values.cnpg.maxReplicaLag | quote }}
+      periodSeconds: 3
+      failureThreshold: 2
   resources:
     requests:
       cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}

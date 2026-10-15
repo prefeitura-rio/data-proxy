@@ -8,6 +8,7 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: pgdog
 spec:
+  replicas: {{ .Values.pgdog.replicas }}
   selector:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
@@ -20,7 +21,7 @@ spec:
       labels:
         {{- include "data-proxy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: pgdog
-        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
+        sidecar.istio.io/inject: "false"
     spec:
       automountServiceAccountToken: false
       containers:
@@ -31,9 +32,14 @@ spec:
           ports:
             - name: pgdog
               containerPort: 6432
+            - name: health
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
           readinessProbe:
-            tcpSocket:
-              port: pgdog
+            httpGet:
+              path: /
+              port: health
             initialDelaySeconds: 2
             periodSeconds: 5
           volumeMounts:

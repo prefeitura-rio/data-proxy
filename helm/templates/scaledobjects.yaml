@@ -31,8 +31,6 @@ spec:
 {{- $postgrestTriggers := include "data-proxy.triggers" (dict "triggers" $postgrest.triggers "default" (include "data-proxy.defaultResourceTriggers" .)) }}
 {{- $postgrestScaler := dict "root" $root "name" (printf "%s-postgrest" $name) "component" "postgrest" "target" (merge (dict "name" (printf "%s-postgrest" $name)) $deployment) "min" $postgrest.minReplicaCount "max" $postgrest.maxReplicaCount "block" $postgrest "triggers" $postgrestTriggers }}
 {{ include "data-proxy.scaledObject" $postgrestScaler }}
-{{- $pgdog := .Values.pgdog.autoscaling }}
-{{ include "data-proxy.scaledObject" (dict "root" $root "name" (printf "%s-pgdog" $name) "component" "pgdog" "target" (merge (dict "name" (printf "%s-pgdog" $name)) $deployment) "min" $pgdog.minReplicaCount "max" $pgdog.maxReplicaCount "block" $pgdog "triggers" (include "data-proxy.triggers" (dict "triggers" $pgdog.triggers "default" (include "data-proxy.defaultResourceTriggers" .)))) }}
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject

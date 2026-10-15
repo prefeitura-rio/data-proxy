@@ -131,23 +131,20 @@ postgrest:
 ## transaction to the primary. It pools transactions, so many PostgREST connections share a few backends.
 pgdog:
   image: ghcr.io/pgdogdev/pgdog:0.1.61
-  ## Server connections that each PgDog pod opens to the primary, and to the standbys together.
-  poolSize: 50
-  ## A standby that replays more than this many milliseconds behind the primary gets no reads until it catches up.
-  maxReplicaLagMs: 5000
+  ## A fixed number of pods, for availability. One pod serves far more than PostgREST sends (about 20000
+  ## queries a second against 1200 for one PostgREST pod), and each extra pod opens its own pools.
+  replicas: 2
+  ## Server connections that one pod opens to the primary, and as many to the standbys.
+  ## One PostgREST pod opens postgrest.dbPool connections, so more would sit idle. replicas x poolSize
+  ## must stay well below max_connections of PostgreSQL, because the primary also serves the sync workers.
+  poolSize: 24
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 500m
+      memory: 96Mi
     limits:
       cpu: "1"
-      memory: 512Mi
-  autoscaling:
-    minReplicaCount: 1
-    maxReplicaCount: 4
-    pollingInterval: 30
-    cooldownPeriod: 300
-    triggers: []
+      memory: 256Mi
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 swaggerUi:
   enabled: false
@@ -311,6 +308,8 @@ cnpg:
     name: data-proxy
     user: admin
   existingSecret: ""
+  ## A standby that replays more bytes behind the primary than this leaves the read Service until it catches up.
+  maxReplicaLag: 16Mi
   ## The cluster always has a primary and at least one standby, and KEDA adds standbys under load.
   ## The floor is at least 2.
   ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
