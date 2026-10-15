@@ -24,6 +24,12 @@ in
       POSTGRES_PASSWORD = "test";
       POSTGRES_DB = "test";
     };
+    # The image entrypoint creates the data directory and gives it to the postgres user, then drops root. It needs
+    # root for this. Without it, the data directory can belong to root in older rootless podman, and initdb fails.
+    args = [
+      "--user"
+      "root"
+    ];
     command = [
       "postgres"
       "-p"
