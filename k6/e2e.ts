@@ -523,12 +523,12 @@ function verifyBlockedTable(k8s: Kubernetes): void {
             "DBOS_SYSTEM_DATABASE_URL",
         );
     }
-    const blocked = rowsOf(
+    const blockedErrors = rowsOf(
         consoleCall("GET", "/errors?reason=eq.table_blocked", "console_viewer"),
     ) as Array<{ fields?: { table?: string } }>;
     expect(
         "console: a viewer sees why a table is blocked, and a token for another schema doesn't",
-        blocked.some((error) => error.fields?.table === FAILING_SOURCE) &&
+        blockedErrors.some((error) => error.fields?.table === FAILING_SOURCE) &&
         consoleRows("/errors", "console_outsider") === 0,
     );
     checkSql(
