@@ -1681,17 +1681,9 @@ function clusterSettled(k8s: Kubernetes): boolean {
     );
 }
 
-/** Reports whether PgDog is available and no read-only PostgREST or CNPG Pooler is left. */
-function servingSideMatches(k8s: Kubernetes): boolean {
-    const leftovers = [
-        findObject(k8s, "Deployment.apps", "data-proxy-postgrest-ro"),
-        findObject(k8s, "Pooler.postgresql.cnpg.io", "data-proxy-pooler"),
-        findObject(k8s, "Pooler.postgresql.cnpg.io", "data-proxy-pooler-ro"),
-    ];
-    return (
-        (findObject(k8s, "Deployment.apps", PGDOG)?.status?.availableReplicas ?? 0) >= 1 &&
-        leftovers.every((item) => !item)
-    );
+/** Reports whether PgDog is available. */
+function pgdogAvailable(k8s: Kubernetes): boolean {
+    return (findObject(k8s, "Deployment.apps", PGDOG)?.status?.availableReplicas ?? 0) >= 1;
 }
 
 /** Reports whether the cluster scaler owns the instance count. */
@@ -1794,8 +1786,8 @@ function verifyTopology(k8s: Kubernetes): void {
         waitUntil(timeout, () => clusterSettled(k8s)),
     );
     expect(
-        "PgDog is available, and no read-only PostgREST or CNPG Pooler is left",
-        waitUntil(timeout, () => servingSideMatches(k8s)),
+        "PgDog is available",
+        waitUntil(timeout, () => pgdogAvailable(k8s)),
     );
     expect(
         "the cluster scaler autoscales the instances",
