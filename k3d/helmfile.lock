@@ -22,4 +22,4 @@ dependencies:
     repository: https://cloudpirates-io.github.io/helm-charts/
     version: 0.21.41
 digest: sha256:b7a8274ab39ef525b490cd3a9b098624f6140876999e3dad1d76f8cd2f8f13c6
-generated: "2026-10-14T22:29:52.031954762-03:00"
+generated: "2026-10-16T22:29:29.821583949-03:00"

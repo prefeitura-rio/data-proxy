@@ -115,9 +115,9 @@ proxy:
 cnpg:
   db:
     name: data-proxy
-    user: admin
+    user: ops
   password: test-pg-pass
-  authenticatorPassword: test-auth-pass
+  servingPassword: test-auth-pass
   init:
     image: registry.localhost:5001/data-proxy-jobs:local
   mode: shared
