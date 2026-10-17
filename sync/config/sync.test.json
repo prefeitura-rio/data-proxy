@@ -72,6 +72,16 @@
               "unit_type": "group"
             }
           ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.new_schema_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
         }
       ]
     }

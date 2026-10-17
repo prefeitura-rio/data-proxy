@@ -70,6 +70,7 @@ class TableSeeds(SeedModel):
     partitioned_table: PartitionedTableSeed
     multi_rls_table: TableSeed
     big_table: PartitionedTableSeed
+    new_schema_table: TableSeed
 
 
 class SeedSettings(SeedModel):
@@ -131,6 +132,19 @@ def build_full_table_rows(n: int) -> list[Row]:
                 "status": choice(STATUSES),
                 "tags": choice([None, "alpha", "beta", "gamma"]),
             },
+        }
+        for i in range(n)
+    ]
+
+
+def build_new_schema_table_rows(n: int) -> list[Row]:
+    """Build rows that don't change between seeds, so that a test can assert their exact content."""
+    return [
+        {
+            "id": str(i + 1),
+            "name": f"Row {i + 1}",
+            "unit_id": UNIT_IDS[i % len(UNIT_IDS)],
+            "metadata": {"status": STATUSES[i % len(STATUSES)], "tags": None},
         }
         for i in range(n)
     ]
@@ -204,6 +218,7 @@ def main() -> None:
         "rj-ia-desenvolvimento.dev.multi_rls_table",
         "rj-ia-desenvolvimento.dev.failing_table",
         "rj-ia-desenvolvimento.dev.big_table",
+        "rj-ia-desenvolvimento.dev.new_schema_table",
     }
     missing_tables = required_tables - table_refs
     if missing_tables:
@@ -227,6 +242,14 @@ def main() -> None:
         client,
         table_ref("full_table"),
         full_rows,
+        schema=FULL_SCHEMA,
+    )
+
+    new_schema_rows = build_new_schema_table_rows(tables.new_schema_table.rows)
+    load_table(
+        client,
+        table_ref("new_schema_table"),
+        new_schema_rows,
         schema=FULL_SCHEMA,
     )
 
@@ -317,8 +340,9 @@ def main() -> None:
     ).result()
 
     logger.info(
-        "Seed completed full=%d snapshot=%d partitioned=%d multi_rls=%d big=%d",
+        "Seed completed full=%d new_schema=%d snapshot=%d partitioned=%d multi_rls=%d big=%d",
         len(full_rows),
+        len(new_schema_rows),
         len(snapshot_rows),
         len(partitioned_rows),
         len(multi_rls_rows),
