@@ -25,7 +25,7 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs` | S3 secret key. |
 | `S3_SCRATCH_PREFIX` | `tmp` | Temporary extraction Parquet prefix. |
-| `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ducklake_writer` role. The chart builds it from the writer password Secret. Each schema writes to its own metadata schema. |
+| `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ops` role. The chart builds it from the password Secret of `ops`. Each schema writes to its own metadata schema. |
 | `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for the per-schema Parquet data. |
 | `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
 | `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired and files become eligible for cleanup. |
@@ -66,14 +66,16 @@ The engine creates the queues and the schedule when they don't exist, and never 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AUTH_ANON_ROLE` | `anon` | Unauthenticated PostgreSQL role. |
-| `AUTH_USER_ROLE` | `user` | Authenticated PostgreSQL role. |
-| `AUTH_AUTHENTICATOR_ROLE` | `authenticator` | PostgREST login role. |
+| `AUTH_USER_ROLE` | `dp_api` | The baseline PostgreSQL role. Every role of `rbac.toml` is a member of it. |
+| `AUTH_SERVING_ROLE` | `serving` | The login of the serving path: PostgREST, PgDog and the recovery Deployment. |
 | `PROXY_CACHE_REDIS_DB` | `1` | Redis database for cached proxy responses. |
 | `PROXY_ADMIN_URL` | unset | Address of the reload endpoint of the proxy, for example `http://data-proxy-proxy-admin:8081/reload`. The sync workers resolve its host to every proxy pod and send each one a reload request. Unset: nobody is notified. The chart sets it. |
+| `PROVISION_CRONJOB` | unset | Name of the suspended `provision` CronJob. A sync worker makes a Job from it when a schema changes and at the start of every sync run. The chart sets it. Unset, the worker skips the step. |
+| `PROVISION_TIMEOUT_SECONDS` | `600` | How long the worker waits for the provision Job. |
 
 ## OpenResty proxy
 
-The Helm chart sets these variables on the proxy Deployment. The Lua code reads them through `config.load` in `proxy/src/proxy/config.lua`. The proxy loads all settings once at start-up. It collects the text of the variables in one table, and converts and checks the table once with the `config` schema (`proxy/src/proxy/schemas/config.lua`). A variable that isn't set gives the default of its setting. A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting, with an error that names the setting. The variable is `PROXY_` and the upper-case name of the setting. `helm/files/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
+The Helm chart sets these variables on the proxy Deployment. The Lua code reads them through `config.load` in `proxy/src/proxy/config.lua`. The proxy loads all settings once at start-up. It collects the text of the variables in one table, and converts and checks the table once with the `config` schema (`proxy/src/proxy/schemas/config.lua`). A variable that isn't set gives the default of its setting. A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting, with an error that names the setting. The variable is `PROXY_` and the upper-case name of the setting. `helm/files/config/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -85,7 +87,7 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 | `PROXY_REDIS_PASSWORD` | unset | Redis password. Omit it for no login. |
 | `PROXY_POSTGREST` | required | Base address of the PostgREST service. |
 | `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
-| `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `admin` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
+| `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `console` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
 | `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of PostgREST for a new document. The check is a safety net: the sync workers also call the reload endpoint at once after a change. |
 
 ## Observability

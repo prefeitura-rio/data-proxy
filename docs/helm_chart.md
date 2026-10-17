@@ -37,12 +37,32 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 Three Jobs prepare the database, and each one waits for what it needs.
 
-1. **`configure-db`** waits for its CNPG writer and runs idempotent SQL with `ON_ERROR_STOP=1`. It owns the system objects: extensions, the state, error and scope tables of the engine, the pre-request function and its grant to the console levels, the functions that reload PostgREST, the maintenance procedures, and the DuckLake secrets. CNPG owns core database roles and memberships.
-2. **`migrate-db`** runs in the sync image. It waits for the last of the state tables, then runs `dbos migrate` and `goose up`. It owns the `admin` schema of the console. The image holds `goose` and the files of `console/migrations`.
+1. **`configure-db`** waits for its CNPG writer and runs idempotent SQL with `ON_ERROR_STOP=1`. It runs as `ops`. It owns the system objects: the request roles (`anon`, the `dp_*` roles of `rbac.toml`, and the `serving` login), the `rbac` schema, the state, error and scope tables of the engine, the pre-request function and its grants, the functions that reload PostgREST, and the maintenance procedures. It also writes the persistent DuckDB secrets, which only a superuser may write. CNPG owns two roles, `ops` and `duckdb`.
+2. **`migrate-db`** runs in the sync image. It waits for the last of the state tables, then runs `dbos migrate` and `goose up`. It owns the `console` schema of the console. The image holds `goose` and the files of `console/migrations`.
 
-3. **`provision`** waits for the `admin` tables. It runs as a Job on every install and upgrade, and as a CronJob every minute (`jobs.provision.schedule`). It fills an empty configuration once from `sync.config`, and afterward the console owns the configuration. For each schema in `admin.schemas` it creates the PostgreSQL schema, its access policy, and its `policy_writer_<schema>` role, and it lets the PostgREST authenticator switch to that role. It grants the anonymous role the right to call `admin.config()`, the one function that the proxy reads. It sets `pgrst.db_schemas` on the authenticator role to the schemas plus `admin`, in that order, because the first schema is the default profile of PostgREST. It tells PostgREST to reload only when that list changes: the database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. A schema that an editor adds is served within a minute or two.
+3. **`provision`** waits for the `console` tables. It runs as a Job on every install and upgrade. It also exists as a suspended CronJob, `<release>-provision`, that a Job comes from when a schema changes (see [Run a Job on demand](#run-a-job-on-demand)). On install and upgrade it first installs the functions and triggers of the console, which need the tables and views of the migrations. It fills an empty configuration once from `sync.config`, and afterward the console owns the configuration. It grants the baseline role (`auth.userRole`, which every `dp_*` role is a member of) its rights on the `console` schema: the rights are wide, and each view, policy, and function asks for the permission of the token. For each schema in `console.schemas` it creates the PostgreSQL schema and its access policy, with row policies that ask for `read_policy` and `edit_policy`. It grants the anonymous role the right to call `console.config()`, the one function that the proxy reads. It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST. It tells PostgREST to reload only when that list changes: the database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. A schema that an editor adds is served within seconds, and a schema that an editor removes is dropped: the files first, then the catalog, then the schema of the database. See [Console](console.md#add-and-remove-a-schema).
 
 [Development](development.md#database-migrations) explains what belongs to the chart and what belongs to the migrations.
+
+## Run a Job on demand
+
+`configure-db` and `provision` each exist twice: as a Job named by the release revision, which Helm runs on every install and upgrade, and as a suspended CronJob, `<release>-configure-db` and `<release>-provision`. A suspended CronJob never runs on a clock. It holds the pod definition, and both objects get it from one helper, so they can't differ. Something that needs the work creates a Job from the CronJob:
+
+| Context | Who creates the Job | What runs |
+| --- | --- | --- |
+| Install and upgrade | Helm | The per-revision Jobs, with every schema (`PROVISION_ALL=true`). |
+| An editor adds or removes a schema in the console | The sync worker. A trigger on `console.schemas` queues the workflow `provision_schemas`. | `provision`: what's pending and what's removed. |
+| The start of every sync run | The sync worker, with the same call | `provision`. A lost event or a drift heals here. |
+| An operator, after a change of `rbac.toml` or a failed run | A person | `configure-db` or `provision`. |
+
+The one-line command for a person:
+
+```bash
+kubectl -n data-proxy create job --from=cronjob/<release>-provision provision-by-hand
+kubectl -n data-proxy create job --from=cronjob/<release>-configure-db configure-db-by-hand
+```
+
+The sync ServiceAccount may read the CronJobs and create Jobs in its namespace, and nothing more.
 
 The PostgREST Deployment uses an HTTP readiness probe on `/`. It isn't Ready until PostgREST is serving its configured schema.
 
@@ -65,7 +85,7 @@ The chart always deploys the same pieces:
 | PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
-PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary. PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `cnpg-authenticator` login. The chart renders it into the `<release>-pgdog-users` Secret.
+PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary. PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `serving` login. The chart renders it into the `<release>-pgdog-users` Secret.
 
 PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host, and Kubernetes picks the standby for each new connection. PgDog closes a server connection after about five minutes, so a new standby takes its share within that time. In a measured run the standbys served 50% and 50% of the reads, and in one of four runs 31% and 69%. CNPG takes a standby that's more than `cnpg.maxReplicaLag` behind out of the `-ro` Service until it catches up, and a standby that stops answering leaves it within about six seconds. PgDog doesn't measure the lag. Its time-based lag limit counts an idle primary as lag. A pool that can't connect gets no requests for 10 seconds, and the next read goes to the primary.
 
@@ -91,7 +111,7 @@ Notes for the cluster:
 - Every instance has the same `cnpg.resources`.
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
 - Replication is asynchronous, so a changed policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then raises `synchronous_commit` to `remote_apply` for policy writes only, and other commits use `local`.
-- The DuckDB secrets (the S3 secret, and the two catalog reader secrets) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
+- The DuckDB secrets (the S3 secret `s3`, and the catalog secrets `ducklake_catalog_pg` and `ducklake_catalog`) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.
 
 ```yaml

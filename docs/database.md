@@ -2,6 +2,25 @@
 
 CNPG creates and maintains the core roles. Init-db installs extensions, creates the internal `data_proxy` schema, creates configured application schemas, and creates access policy metadata.
 
+## Schemas
+
+A schema is an API that PostgREST serves, a rule that the APIs share, or private. The application database `data-proxy` holds:
+
+| Schema | Kind | Holds |
+| --- | --- | --- |
+| `rbac` | Shared rule | The table `roles` that the `configure-db` job fills from `rbac.toml`, and the functions `load()`, `can()` and `mine()`. Every other schema calls it. PostgREST doesn't serve it. |
+| `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
+| `data_proxy` | Private | The `state`, `errors`, and `scope` tables of the engine, the routing and reload functions, `sees()` (which workflows a token sees), and the maintenance procedures. |
+| `dbos` | Private, owned by DBOS | The workflow tables. |
+| One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
+| `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
+
+A source schema can't be called `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb`, or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+
+The `ducklake` database holds one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
+
+DBOS stays in the application database. The console views join `dbos.workflow_status` with `data_proxy.scope` and `data_proxy.state`, and PostgreSQL can't join across databases. `console.start_sync()` and the `reload_proxy` trigger enqueue a workflow with `dbos.enqueue_workflow()`, and the trigger does it in the same transaction as the edit. A second database in the same cluster would share the write-ahead log and the disks, so it would isolate nothing. If the workflow load ever hurts the serving path, move DBOS to its own CNPG cluster, and let the console read workflow state through a second API.
+
 ## Shared objects
 
 | Object | Purpose |
@@ -15,11 +34,15 @@ CNPG creates and maintains the core roles. Init-db installs extensions, creates 
 
 | Role | Purpose |
 | --- | --- |
-| `anon` | Unauthenticated PostgREST role with no application data access. |
-| `user` | Authenticated read role subject to schema and row conditions. |
-| `authenticator` | PostgREST login role. CNPG keeps it `NOINHERIT` and grants membership in `anon` and `user`. |
-| `policy_writer_<schema>` | Reads and writes one schema's `access_policy` table. |
-| `jobs` | Maintenance role for backup, cleanup, and retention jobs. |
+| `anon` | The role of a request without a token. It has no access to application data. |
+| `dp_api`, `dp_policy`, `dp_console`, `dp_admin` | One role for each role of `rbac.toml`, which is the source of the list. A token switches to the role of its `role` claim. The three roles after `dp_api` are members of `dp_api`, so its grants serve all of them, and `rbac.can()` and `rbac.mine()` decide what each one may do. |
+| `serving` | The login of the serving path (`auth.servingRole`): PostgREST, the PgDog pool and the `recovery` Deployment, which all connect with it. It's `NOINHERIT` and a member of `anon` and of every `dp_*` role, so it holds no rights of its own and only switches into the request role of the token. `configure-db` creates it with the password of its Secret. No token can switch to it. |
+| `ops` | The owner of both databases (`cnpg.db.user`) and the login of every internal workload: the sync workers, the recovery deployment, the chart jobs, the backup, and the autoscaler. It's a superuser, because pg_duckdb turns the local file system off for every other role, and DuckDB loads its extensions and writes its persistent secrets there. The `SECURITY DEFINER` functions that run DuckDB are owned by it. No token can switch to it. |
+| `duckdb` | The read-only login of the catalog database. pg_duckdb uses it to read the metadata schemas. |
+
+`configure-db` creates `anon`, the `dp_*` roles and `serving` as `ops`, so a new role in `rbac.toml` needs no chart change.
+
+The Secret of a login is named `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-serving`, and `-cnpg-duckdb`. After an upgrade of an install that used the old names (the Secrets `-cnpg-authenticator` and `-duckdb`, and the login `postgrest`), the chart creates the new Secrets with new generated passwords. `configure-db` creates the `serving` login and sets its password, `provision` records `pgrst.db_schemas` on it, and the PgDog users Secret carries it. The old login, the old Secrets and the old DuckDB secret files `ducklake_reader_pg` and `ducklake_reader` stay until someone deletes them.
 
 ## Application schema
 
@@ -48,7 +71,7 @@ database ducklake, schema <schema>   # DuckLake catalog metadata
 s3://<bucket>/ducklake/<schema>/     # DuckLake Parquet data
 ```
 
-DBOS sync workers write the catalogs as the `ducklake_writer` role, through the primary. Streaming replication copies them to every standby. pg_duckdb opens the catalog of its own instance read-only, as the `ducklake_reader` role. See [Architecture](architecture.md#catalog-database).
+DBOS sync workers write the catalogs as the `ops` role, through the primary. Streaming replication copies them to every standby. pg_duckdb opens the catalog of its own instance read-only, as the `duckdb` role. See [Architecture](architecture.md#catalog-database).
 
 The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLake table configuration uses `SET PARTITIONED BY` and `SET SORTED BY` for partition and RLS-related columns.
 

@@ -4,7 +4,7 @@ A sync rebuilds application tables from BigQuery. It doesn't rebuild access gran
 
 ## Operation
 
-Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `admin.schemas` table, so a schema that an editor adds in the console is backed up from its first night. For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
+Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so a schema that an editor adds in the console is backed up from its first night. For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
 
 ```text
 <backup.prefix>/<schema>/<date>/access_policy.dump
@@ -35,7 +35,7 @@ backup:
     bucket: access-policy-backups
 ```
 
-The shared `jobs` Secret supplies the PostgreSQL maintenance-role password. The backup CronJob and the cleanup CronJob both connect as the `jobs` role, so neither runs as the database owner.
+The database Secret supplies the password of the `ops` role. The backup CronJob and the cleanup CronJob both connect as that role, like every other internal workload.
 
 The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart doesn't delete backup objects.
 

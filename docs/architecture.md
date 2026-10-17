@@ -29,8 +29,8 @@ The catalogs live in the `ducklake` database of the CNPG cluster. Each schema ha
 
 | Role | Used by | Access |
 | --- | --- | --- |
-| `ducklake_writer` | DBOS sync workers, through the `-rw` Service | Owns the database and creates the metadata schemas. |
-| `ducklake_reader` | `pg_duckdb` in every PostgreSQL instance | Reads every metadata schema. Can't write. |
+| `ops` | DBOS sync workers, through the `-rw` Service | Owns the database and creates the metadata schemas. |
+| `duckdb` | `pg_duckdb` in every PostgreSQL instance | Reads every metadata schema. Can't write. |
 
 ```text
 DuckLake writer (sync worker)
@@ -39,9 +39,9 @@ DuckLake writer (sync worker)
 → every standby: its own copy of the catalog
 ```
 
-Each `pg_duckdb` backend attaches the catalog of its own instance through `localhost`. The DuckDB secrets `ducklake_reader_pg` and `ducklake_reader` hold the address and the credentials. The `configure-db` Job creates them once as persistent secrets in the shared folder `/duckdb/secrets`. A standby reads its own replicated copy, so a read doesn't depend on the primary. A backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers and nothing restarts the Poolers.
+Each `pg_duckdb` backend attaches the catalog of its own instance through `localhost`. The DuckDB secrets `ducklake_catalog_pg` (the PostgreSQL login of the catalog) and `ducklake_catalog` (the catalog itself) hold the address and the credentials. The `configure-db` Job creates them as persistent secrets in the shared folder `/duckdb/secrets`. A standby reads its own replicated copy, so a read doesn't depend on the primary. A backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers and nothing restarts the Poolers.
 
-The same Job sets default privileges in the `ducklake` database. The reader role can read every metadata schema that the writer creates later.
+The same Job sets default privileges in the `ducklake` database. The `duckdb` role can read every metadata schema that `ops` creates later.
 
 The writer writes the Parquet files to SeaweedFS before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary, and snapshot expiration (`DUCKLAKE_SNAPSHOT_EXPIRATION`, 7 days by default) keeps the files that an older snapshot uses. The CNPG backups cover the catalogs.
 

@@ -4,7 +4,7 @@ The console is the admin web app of the data proxy. It lives in `console/`. It's
 
 ## Views
 
-The `admin` schema holds the views that the console reads through PostgREST. `console/migrations/00001_create_admin_views.sql` creates them, and `sync/tests/integration/test_admin_views.py` tests them.
+The `console` schema holds the views that the console reads through PostgREST. `console/migrations/00002_create_console_views.sql` creates them, and the `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
 
 | View | Content |
 | --- | --- |
@@ -19,7 +19,7 @@ The `admin` schema holds the views that the console reads through PostgREST. `co
 
 ## Configuration tables
 
-The sync configuration is data in three tables of the `admin` schema. `console/migrations/00006_create_config.sql` creates them, and `sync/tests/integration/test_admin_config.py` tests the rules.
+The sync configuration is data in three tables of the `console` schema. `console/migrations/00004_create_config.sql` creates them, and the end-to-end suite tests the rules.
 
 | Table | Holds |
 | --- | --- |
@@ -39,53 +39,89 @@ Constraints replace a validation step:
 
 The engine still checks the rules that belong to a source, such as the form of a table name, when a run starts.
 
-Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy`, its `policy_writer_<schema>` role, and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
+Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy`, and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
+
+## Add and remove a schema
+
+A trigger on `schemas` queues the workflow `provision_schemas` when none waits (the queue runs one at a time, so a change during a run gets the next run), and the sync worker creates a Job from the suspended `provision` CronJob ([Helm chart](helm_chart.md#run-a-job-on-demand)). The Job reads the configuration and makes the database match it. Every sync run does the same at its start, which heals a lost event.
+
+- **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds the schema to `pgrst.db_schemas`, and tells PostgREST to reload. It takes seconds.
+- **Remove:** the Job stops serving the schema first. Then it purges the data files in S3, drops the metadata schema in the catalog database, deletes the state, the errors and the scope of the tables, and drops the schema of the database. The schema of the database goes last, because the next run finds an unfinished removal through it. Every step can run again.
+
+Deleting a row in `schemas` therefore destroys the data of the schema, and `delete_config` is a destructive permission. The database asks for no confirmation: the console asks the user before it deletes. A run for a schema that an editor removes during the run fails.
 
 ## The configuration endpoint
 
-`GET /rpc/sync_config` returns the whole configuration in the shape of `sync.json`. Every level can call it. The engine and the proxy read this one document. `admin.sync_config()` builds it from the tables, and it leaves out every default value: no `claim` without a claim, no `rls` without rules, and no `fallback` unless it's true. The tables come out sorted by name, and the rules keep their order.
+`GET /rpc/sync_config` returns the whole configuration in the shape of `sync.json`. A token with `read_config` gets the schemas of its claim. The engine and the proxy read this one document. `console.sync_config()` builds it from the tables, and it leaves out every default value: no `claim` without a claim, no `rls` without rules, and no `fallback` unless it's true. The tables come out sorted by name, and the rules keep their order.
 
-A new setup can load an existing file. Admins call `POST /rpc/import_config` with `{"document": <sync.json>}`. The function inserts or updates the schemas and tables of the document, and it replaces the rules of each table in the document. It never deletes a schema or a table, and it never moves a table to another schema. The call is one transaction, so a row the constraints refuse leaves nothing behind. `sync/tests/integration/test_admin_sync_config.py` proves that a document comes back unchanged after an import and an export, and that the engine accepts the result.
+A new setup can load an existing file. A token with `import_config`, `edit_config`, and `delete_config` calls `POST /rpc/import_config` with `{"document": <sync.json>}`. The function inserts or updates the schemas and tables of the document, and it replaces the rules of each table in the document. It never deletes a schema or a table, and it never moves a table to another schema. The call is one transaction, so a row the constraints refuse leaves nothing behind. `sync/tests/integration/test_console_sync_config.py` proves that a document comes back unchanged after an import and an export, and that the engine accepts the result.
 
 One limit: the export drops a `null` value inside the `settings` of a source, because the export removes every `null` of the document.
 
-The proxy reads a smaller document, `admin.config()`: the table names and their `cache_ttl`. The chart grants it to the anonymous role, and the proxy refuses the `admin` profile from outside, so only the cluster can call it. A trigger on `schemas`, `tables`, and `rls` queues a `reload_proxy` workflow after every statement. The queue deduplicates the workflow, so a burst of edits shares one reload, and an editor never sees an error from it. The sync worker then sends a reload request to every proxy pod ([Proxy](proxy.md#table-settings-from-the-configuration)).
+The proxy reads a smaller document, `console.config()`: the table names and their `cache_ttl`. The chart grants it to the anonymous role, and the proxy refuses the `console` profile from outside, so only the cluster can call it. A trigger on `schemas`, `tables`, and `rls` queues a `reload_proxy` workflow after every statement. A change queues a reload only when none waits, so a burst of edits shares one reload, a change during a run queues the next one, and an editor never sees an error from it. The sync worker then sends a reload request to every proxy pod ([Proxy](proxy.md#table-settings-from-the-configuration)).
 
-## Permission levels
+## Permissions
 
-The JWT of a user carries two claims. The `role` claim holds the level, and PostgREST switches to that database role. The `schemas` claim lists the schemas that the user manages. The chart declares the roles as CNPG managed roles, and it makes the PostgREST authenticator a member of every level. The migrations only grant privileges on the objects that they create. `scripts/db.nu` creates the same roles on the test server. Each level inherits the levels below it.
+A token carries one `role` claim and a `schemas` claim. The rules live in `helm/files/config/rbac.toml`: it lists the permissions, grouped by object, and the roles with the roles that each one inherits. The `configure-db` job loads the file into the `rbac` schema. The pre-request function copies the claims into session settings and calls `rbac.load()`, which sets the permissions of the role for the request. `rbac.can('<permission>')` answers whether the role holds a permission, and `rbac.mine('<schema>')` answers whether a schema is in the `schemas` claim. Both read settings, so they work inside `SECURITY DEFINER` functions too. A name that the file doesn't list raises an error, so a typo in the code fails loudly.
 
-| Role | Can do |
-| --- | --- |
-| `console_viewer` | Read the views and the configuration of its schemas. |
-| `console_operator` | Viewer, plus start a sync run for its schemas. |
-| `console_editor` | Viewer, plus insert and update the configuration of its schemas. Names and keys never change. |
-| `console_admin` | Operator and editor, plus delete configuration, start any run, and change queues and schedules. |
+| Permission | What it opens | How the database checks it |
+| --- | --- | --- |
+| `read_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `queues`, `schedules`, `health`, `synced`, and `overview`. | Each view filters on `rbac.can('read_sync')`. |
+| `read_config` | The tables `schemas`, `tables`, and `rls`, and `sync_config()`. | The select policy of each table. |
+| `create_config` | Insert on the three tables. | The insert policies. |
+| `edit_config` | Update on the three tables. | The update policies. |
+| `delete_config` | Delete on the three tables. | The delete policies. |
+| `import_config` | `import_config()`. The import also inserts, updates, and deletes rows, so the role needs the other configuration permissions too. | A check at the start of the function. |
+| `start_sync` | `start_sync()` and `start_scope()`. | A check at the start of `start_scope()`. |
+| `read_files` | `table_files()`, the Parquet files for the query tab. | A check at the start of the function. |
+| `read_api` | The synced views of the data API. | A check at the start of the function behind each view. |
+| `read_ducklake` | The change feed of the catalog. | A check at the start of the function. |
+| `read_policy` | Read `<schema>.access_policy`. | The select policy of each table. |
+| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. | The write policies of each table. |
 
-The admin has full powers. It ignores the `schemas` claim and sees and changes everything. Every other level sees only the schemas in its claim, and a token without the claim sees nothing. The database enforces this, not the console:
+A role that edits needs the matching read permission too, because an update reads the row first. The roles in `rbac.toml` already include it.
 
-- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. An editor can write a row only for a schema in its claim. A claim can name a schema that doesn't exist yet, so an editor can create it.
-- The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is for the admin only.
-- When a run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `runs`, `tasks`, and `steps` show a user the runs and tasks that cover one of its schemas. The counts of tasks in a run count only the tasks that the user sees. A task that has no row yet, such as a task that was just enqueued, is for the admin only until the row arrives.
-- `GET /rpc/sync_config` returns the schemas of the claim, and the admin gets the whole document.
-- Queues and schedules serve every schema, so only the admin changes them. Every level reads them.
+A role without a permission gets an empty list from a view or a table, a 403 from a write that a row policy refuses, and a 403 from a function. A delete that the policy hides removes nothing and answers 200 with an empty list.
 
-Each level has a statement timeout of 30 seconds, set on the level itself, because PostgREST applies the settings of the request role only and a level doesn't inherit them. PostgREST copies the claims into session settings with the pre-request function. The chart grants that function to `console_viewer`, which every level inherits. `admin.is_admin()` and `admin.mine(schema)` read the role setting and the `app.claim_schemas` setting. They work inside `SECURITY DEFINER` functions too, where `current_user` is the owner.
+Every role sees only the schemas in the `schemas` claim, and a token without the claim sees nothing. No role and no token reaches every schema. The database enforces this, not the console:
 
-A viewer can read the configuration tables, but only the rows of its schemas, and it can't change anything. It can't read the DBOS tables or the state tables behind the views. Operators call `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token, and for the admin every schema. `admin.start_scope(schemas, tables)` shows which schemas a run would cover. A schema or a table outside the claim gets a 403, and so does a table that doesn't exist, so a name tells nothing. An unknown schema in the claim gets a 400 error. A schema that the provision job hasn't created yet, with its access policy, gets a 409 with the reason. A schema that an editor adds is ready within a minute or two. An admin run with no schemas covers every schema and skips this check. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there. `sync/tests/integration/test_admin_scope.py` tests the scope, and `sync/tests/integration/test_admin_start.py` runs a real DBOS worker against `start_sync`.
+- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. A role with `create_config` can write a row only for a schema in its claim. A claim can name a schema that doesn't exist yet, so the token can create it.
+- The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
+- When a run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. `runs`, `tasks`, and `steps` show a user the runs and tasks that cover one of its schemas. The counts of tasks in a run count only the tasks that the user sees.
+- `GET /rpc/sync_config` returns the schemas of the claim.
+- Queues and schedules serve every schema. Any role with `read_sync` reads them, and no token changes them: change them in the deployment.
 
-The admin changes a queue with `PATCH /queues?name=eq.<name>` and a schedule with `PATCH /schedules?name=eq.<name>`. It can edit the limits and the polling interval of a queue, and the status, the cron expression, the time zone, and the backfill flag of a schedule. A worker reads queue settings on every poll and checks schedules every 30 seconds, so a change needs no restart. The database refuses values that DBOS would reject: a limit that isn't positive, a worker limit above the total, a status other than `ACTIVE` or `PAUSED`, an unknown time zone, and a cron expression that doesn't have five or six fields. It can't check the meaning of each field, so a value such as `99 * * * *` passes.
+`GET /rpc/permissions` returns the permissions of the role of the token, so the console can show only the controls that work. The pre-request function gives a request to the `console` profile a statement timeout of 30 seconds, and the data API has 15 seconds. `rbac` holds the rules that the data schemas share, and `console` holds what the web app calls: [Database](database.md#schemas) lists the schemas.
+
+No token can read the DBOS tables or the state tables behind the views. A token with `start_sync` calls `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token. `console.start_scope(schemas, tables)` shows which schemas a run would cover. A schema or a table outside the claim gets a 403, and so does a table that doesn't exist, so a name tells nothing. An unknown schema in the claim gets a 400 error. A schema that the provision job hasn't created yet, with its access policy, gets a 409 with the reason. A schema that a token adds is ready within a minute or two. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there.
+
+## Roles
+
+`rbac.toml` defines four roles, and each inherits the permissions of the roles that it lists. The identity provider and the database use the same names. A token carries one role.
+
+| Role | Inherits | Adds |
+| --- | --- | --- |
+| `dp_api` | | `read_api` |
+| `dp_policy` | | `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
+| `dp_console` | `dp_api` | `read_sync`, `read_config` |
+| `dp_admin` | `dp_console`, `dp_policy` | `start_sync`, `create_config`, `edit_config`, `delete_config`, `import_config`, `read_files`, `read_ducklake` |
+
+`dp_policy` is for an API that registers its own access policies. `dp_admin` runs schemas, and every role is limited to the schemas in its claim. A user holds one role. A person who needs both console and policy rights takes `dp_admin`.
+
+## How the rules are tested
+
+The Python tests in `sync/tests/unit/test_templates.py` run the `create_rbac` template on the real test server with the real `rbac.toml`. They compare `rbac.can()` for every role and permission with a reference that the test computes itself, and Hypothesis tests do the same for random rules files and random names. The end-to-end suite in `k6/scenarios/` tests the console with real tokens (`console.js` and `roles.js`) on the k3d cluster. It doesn't run in CI, because it needs the cluster: run it before you merge a change to a permission, a role, a policy, a view, or the console schema (`devenv shell -- nu scripts/cluster.nu k6 e2e`).
 
 ## Tokens from the identity provider
 
-The console sends the access token of the user to PostgREST. PostgREST checks it against the keys of the identity provider, like it does for the data API. The token needs two claims besides the standard ones:
+The console sends the access token of the user to PostgREST. PostgREST checks it against the keys of the identity provider, like it does for the data API. The token needs these claims besides the standard ones:
 
 | Claim | Holds |
 | --- | --- |
-| `role` | One of `console_viewer`, `console_operator`, `console_editor`, `console_admin`. Map it from the groups of the user, and give the highest level that the user has. |
-| `schemas` | The list of schemas that the user manages, such as `["sales", "hr"]`. An admin can have an empty list, because the admin ignores it. |
+| `role` | One role of `rbac.toml`, such as `dp_console`. It's the database role that PostgREST switches to. |
+| `schemas` | The list of schemas that the user manages, such as `["sales", "hr"]`. |
 
-The `preferred_username` claim names the user in `updated_by` and `started_by`. The k3d Keycloak realm has one client for each level, `console_viewer` to `console_admin`, with fixed claims. They give tokens to the tests and to the console in development. The secret is `test-secret`, and each client uses the `client_credentials` grant.
+The `preferred_username` claim names the user in `updated_by` and `started_by`.
 
 ## Reading logs and runs
 
@@ -93,21 +129,21 @@ The console polls. A page reads `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&o
 
 ## The query tab
 
-Admins and schema admins query the synced data in the browser, with DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly.
+A role with `read_files` queries the synced data in the browser, with DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly.
 
-1. The console server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `admin.table_files` is for `console_editor` and `console_admin`. It checks the schemas of the token, and it answers 403 for a schema or a table outside them, and for a name that doesn't exist. The engine generates `dl_table_files` in every schema, and the function calls it. It lists the Parquet files of the table at its latest snapshot, with the size of each and its delete file, if any.
+1. The console server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files`. It checks the schemas of the token, and it answers 403 for a schema or a table outside them, for a name that doesn't exist, and for a token without the permission. The engine generates `dl_table_files` in every schema, and the function calls it. It lists the Parquet files of the table at its latest snapshot, with the size of each and its delete file, if any.
 2. The console server signs a short-lived `GET` link for each file with its own read-only storage credentials, and it sends the links to the browser. PostgREST can't sign links, so the database never holds storage credentials.
 3. The browser reads the files with `read_parquet`. A delete file means that some rows are gone, and the browser can't apply it, so the page must say so and not show wrong rows. A schema with encrypted files answers 409, because the browser has no key.
 
-The files hold every row, and row-level security doesn't apply to them. That's the reason why only editors and admins can list them. The bucket needs a CORS rule for the origin of the console, or the browser can't read the files. The rule allows `GET` and `HEAD`, allows the `Range` header, and exposes `Content-Length`, `Content-Range`, `ETag`, and `Accept-Ranges`. The chart doesn't set it, because the storage differs between deployments: SeaweedFS, S3, and GCS each use their own command.
+The files hold every row, and row-level security doesn't apply to them. That's the reason why only roles with `read_files` can list them. The bucket needs a CORS rule for the origin of the console, or the browser can't read the files. The rule allows `GET` and `HEAD`, allows the `Range` header, and exposes `Content-Length`, `Content-Range`, `ETag`, and `Accept-Ranges`. The chart doesn't set it, because the storage differs between deployments: SeaweedFS, S3, and GCS each use their own command.
 
 ## HTTP interface
 
-The console talks to PostgREST only. `sync/tests/integration/test_console_http.py` tests this contract against the PostgREST process of `devenv test`.
+The console talks to PostgREST only. The `console` scenario in `k6/scenarios/console.js` tests this contract against the cluster.
 
-- Send `Authorization: Bearer <JWT>` with the permission level in the `role` claim and the schemas of the user in the `schemas` claim. Send `Accept-Profile: admin` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
+- Send `Authorization: Bearer <JWT>` with the `role` claim of the user (one role of `rbac.toml`) and the schemas of the user in the `schemas` claim. Send `Accept-Profile: console` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are `PATCH /queues?name=eq.<name>` and `PATCH /schedules?name=eq.<name>`, for the admin. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, and `GET /rpc/table_files`. `GET /rpc/is_admin` tells the console whether to show the admin actions.
+- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
 | Status | Meaning |
 | --- | --- |
@@ -116,7 +152,7 @@ The console talks to PostgREST only. `sync/tests/integration/test_console_http.p
 | 400 | The value is wrong: a rule that the configuration tables enforce, a bad queue limit, a bad cron expression, or an unknown time zone. The body has the reason. |
 | 401 | No token, or an anonymous one. |
 | 409 | The row clashes with another row: a duplicate key, a table in two schemas, or a schema that doesn't exist. `start_sync` also answers 409 for a schema that isn't provisioned yet. |
-| 403 | The level of the token isn't enough. |
+| 403 | The token lacks the permission, or a row policy refuses the row. |
 
 ## Direction
 

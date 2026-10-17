@@ -68,7 +68,7 @@ Check these signals during a load run. Compare pool waits with DuckLake and conf
 ```sql
 SELECT state, wait_event_type, wait_event, count(*)
 FROM pg_stat_activity
-WHERE usename = 'postgrest'
+WHERE usename = 'serving'
 GROUP BY state, wait_event_type, wait_event
 ORDER BY count(*) DESC;
 ```

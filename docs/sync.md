@@ -1,6 +1,6 @@
 # Sync
 
-The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The tables of the `admin` schema hold the configuration ([Console](console.md#configuration-tables)), and the engine reads it with `admin.sync_config()`. An empty configuration means there is nothing to sync.
+The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. Each sync run loads the document once, at its start, so a change never reaches a run that already started. The tables of the `console` schema hold the configuration ([Console](console.md#configuration-tables)), and the engine reads it with `console.sync_config()`. An empty configuration means there is nothing to sync.
 
 ```json
 {
@@ -104,7 +104,7 @@ secrets:         data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at 
 DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 ```
 
-The DBOS sync workers write the catalog as the `ducklake_writer` role, through the primary. PostgreSQL pods read it as the `ducklake_reader` role, from their own instance, so a standby never reads from the primary. A PostgreSQL backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers. See [Architecture](architecture.md#catalog-database).
+The DBOS sync workers write the catalog as the `ops` role, through the primary. PostgreSQL pods read it as the `duckdb` role, from their own instance, so a standby never reads from the primary. A PostgreSQL backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers. See [Architecture](architecture.md#catalog-database).
 
 ## Partition fallback
 
@@ -141,7 +141,7 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ## Schema initialization
 
-The provision job creates configured schemas, `access_policy`, `access_log`, policies, triggers, and `policy_writer_<schema>` roles. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views. Application table names are PostgreSQL views over DuckLake functions.
+The provision job creates configured schemas, `access_policy`, `access_log`, policies, and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views. Application table names are PostgreSQL views over DuckLake functions.
 
 ---
 
