@@ -46,16 +46,19 @@ devenv --profile proxy test
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
-| Level       | Location                                               | Runs against                                                 | Covers                                                                  |
-| ----------- | ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | One process: mocks, local files, in-memory DuckDB            | Pure logic, DuckDB templates, workflow order, proxy, Helm manifests     |
-| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | PostgreSQL and Helm job SQL, DuckLake reads, routing, RLS, state, cache |
-| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST        | Proxy request path: routing, retry, cache, filter pushdown              |
-| E2E         | `k6/e2e.ts`, `k6/load.ts`                              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)    | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources  |
+A unit test checks one unit exhaustively: a function, a class, a method, or an SQL template. It covers every input, every branch, and the edge cases. An integration test checks a behavior: a scenario that crosses units or services, such as a state commit, a catalog read, or a request through the proxy. The infrastructure doesn't decide the level. A template belongs to the unit level even when it runs on the real PostgreSQL server, because the test checks that template alone.
 
-- Unit tests don't start containers or open network connections.
+| Level       | Location                                               | Runs against                                                                                              | Covers                                                                                           |
+| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
+| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage |
+| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST                                                     | Proxy request path: routing, retry, cache, filter pushdown                                       |
+| E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`             | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                 | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                           |
+
+- A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
+- In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file holds only its steps, and `load.js` holds only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. Write a new type as a `@typedef` in `k6/lib/types.js`, and give every function parameter a `@param` type. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON, and a declaration in `k6/types/` for the Kubernetes calls. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
 - Test modules hold only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
 - Merge small test files that cover one module.
 - Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants across generated inputs.
@@ -125,7 +128,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 - Write a module in this order: imports, local variables, local functions, classes, and the returned object (the module table, the functions on it, and `return`). Put a local variable that needs a local function right after that function. Declare the module table with the other local variables when nothing else needs it later.
 - Name modules `proxy.<name>`. `nginx.conf` loads only `proxy.main`.
 - Return the module table directly. Don't add re-export modules.
-- Read the settings only through the table that `config.load` (`proxy/src/proxy/config.lua`) returns. Only `main` loads it, once at start-up in `main.init`, and passes it down as a parameter named `config`. Don't call `os.getenv` or read `ngx.var` for a setting in another module. Declare each setting, with its type, default and limits, in the fields of `proxy/src/proxy/schemas/definitions/config.lua`, and list its `PROXY_` variable in `helm/files/nginx.conf` with an `env` directive. `config` has no test file. The handler and main tests cover it.
+- Read the settings only through the table that `config.load` (`proxy/src/proxy/config.lua`) returns. Only `main` loads it, once at start-up in `main.init`, and passes it down as a parameter named `config`. Don't call `os.getenv` or read `ngx.var` for a setting in another module. Declare each setting, with its type, default and limits, in the fields of `proxy/src/proxy/schemas/definitions/config.lua`, and list its `PROXY_` variable in `helm/files/config/nginx.conf` with an `env` directive. `config` has no test file. The handler and main tests cover it.
 - Define every named constant in `constants.lua`, in a group: `constants.redis.connect_timeout_ms`. Write group names and constant names in lower case. Describe each group with a small type in `constants.d.lua`, and compose the `Constants` type from them. Other modules define no constants.
 - Define every Lua pattern that matches text in `regex.lua`, named after what it matches: `regex.parameter`, with a `---@field` line in `regex.d.lua`. Don't write such a pattern at the point of use. A single character stays in its `gsub` call, and a filter grammar stays in `parser/patterns.lua` as LPeg.
 - Write grammars for query parameters with LPeg, in `parser/patterns.lua`. Don't split strings by hand.
@@ -134,7 +137,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 - Don't list `busted` in `lux.toml`. Lux installs it, and `stylua` and `luacheck`, on its own.
 - Add a rock only for a module that OpenResty lacks. OpenResty already has `resty.redis`, `resty.string`, `resty.lock`, `resty.sha256`, and `cjson`.
 - Don't add LuaRocks steps to `Containerfile.proxy`. The image runs the locked `lx build --only-deps` and fails if `lux.lock` changes.
-- Keep the rocks path in `Containerfile.proxy`, `helm/files/nginx.conf`, and `helm/tests/proxy_config_test.yaml` the same.
+- Keep the rocks path in `Containerfile.proxy`, `helm/files/config/nginx.conf`, and `helm/tests/proxy_config_test.yaml` the same.
 - Preserve the request-header allowlist and the cache-key isolation by identity, schema, representation, range, and DuckLake snapshot.
 - Don't change the cache key or the cached value format without a migration plan. Old and new proxy versions share Redis during a rolling upgrade.
 
@@ -218,11 +221,11 @@ Nushell scripts run the Helm jobs and the local commands.
 - Use `where` to filter, `match` to dispatch, and `get --optional` for optional fields.
 - Start continuation lines with the pipe. Put one step on each line.
 - Read optional variables with `$env.NAME? | default value`.
-- Run SQL only through `execute-sql` from `helm/files/lib.nu`: one template, one context record. Quote values with `quote-pg`.
+- Run SQL only through `execute-sql` from `helm/files/scripts/lib.nu`: one template, one context record. Quote values with `quote-pg`.
 - Give each script one `main` command, and each CronJob its own script.
 - Use pipelines for data transforms and `for` for ordered external side effects.
 - Add input/output types and `@example` blocks to exported reusable helpers.
-- `helm/files/` and `scripts/` are separate codebases. Don't import modules across them.
+- `helm/files/scripts/` and `scripts/` are separate codebases. Don't import modules across them.
 - Run `nu --ide-check` on changed files.
 
 ### Logs
@@ -234,7 +237,7 @@ Nushell scripts run the Helm jobs and the local commands.
 Run the Helm Nushell suite after Helm script changes:
 
 ```bash
-nu helm/files/tests/run.nu
+nu helm/files/scripts/tests/run.nu
 ```
 
 ```nu
@@ -258,7 +261,7 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - Use one transaction per logical operation, with the `atomic()` helper.
 - Use `SECURITY DEFINER` only on purpose. Grant `EXECUTE` to the required role only.
 - Mark read-only functions `STABLE`.
-- Restart the configured PostgREST Deployments after serving definitions change. Don't use `NOTIFY pgrst`.
+- Reload PostgREST with `NOTIFY pgrst, 'reload schema'` through `reload_postgrest()` after serving definitions change. Don't restart the Deployments.
 - Load and delete in sets, not row by row.
 
 ```python
