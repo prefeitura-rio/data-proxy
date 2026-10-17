@@ -224,13 +224,11 @@ Two checks keep `rbac.toml` and the database in step:
 
 A permission that the SQL asks for and the file lacks ends as an HTTP 500 at run time. The `roles` scenario of the end-to-end suite checks this.
 
-### Token lifetime and revocation
+### Token lifetime
 
-A token is valid until it expires, and nothing on the request path can refuse it before. If you disable a user, or change a role in the identity provider, the token that the user already holds keeps its rights. A new token has the new role. The cache key includes the role, so a token with another role never reads an answer that was cached for the old one. The window of a revocation is the lifetime of the token.
+A token is valid until it expires. If you disable a user or change a role in the identity provider, the token that the user already holds keeps its rights until it expires. The next token has the new role. The cache key includes the role, so a token with another role never reads an answer that was cached for the old one.
 
-Set the access token lifetime to **5 minutes or less**. In Keycloak, open *Realm settings*, *Tokens*, and set *Access Token Lifespan*. A client can override it under *Clients*, *Advanced*, *Advanced settings*. Other providers have the same setting under another name. A shorter lifetime means more calls to the provider, so keep the window as short as your clients can take.
-
-Revoking a token at once isn't built. It needs a revocation record that the proxy and `rbac.load()` check, and it's in `backlog.txt`.
+Set the access token lifetime to **5 minutes**. This is the default of Keycloak, and the `k3d` realm sets it in `accessTokenLifespan`. In Keycloak, open *Realm settings*, *Tokens*, and set *Access Token Lifespan*. A client can override it under *Clients*, *Advanced*, *Advanced settings*. Other providers have the same setting under another name.
 
 ### Revoke access
 

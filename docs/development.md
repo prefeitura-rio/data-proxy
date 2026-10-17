@@ -280,7 +280,7 @@ Run these before a release. The e2e suite and the checks of the other suites are
 | `cluster k6 load` | The latency gates hold, and KEDA scales the proxy, PostgREST and PgDog under load. |
 | `cluster upgrade --from <previous chart version>` | The chart upgrades from the previous release: the migrations apply, the rules and the logins exist, and the access scenarios pass. It needs a published chart, so it can run only after the first release. |
 
-The suites don't cover token revocation (not built yet), traces, the metrics that the sync workers send through OpenTelemetry (k3d has no collector), and the in-flight limit of the proxy under load (the Hurl suite covers it with a mock).
+The suites don't cover traces, the metrics that the sync workers send through OpenTelemetry (k3d has no collector), and the in-flight limit of the proxy under load (the Hurl suite covers it with a mock).
 
 ## Development checks
 
