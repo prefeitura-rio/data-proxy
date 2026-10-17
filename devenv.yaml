@@ -12,3 +12,5 @@ inputs:
   penlight-types:
     url: github:goldenstein64/pl-definitions
     flake: false
+  import-tree:
+    url: github:vic/import-tree

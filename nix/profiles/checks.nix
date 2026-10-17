@@ -17,6 +17,7 @@
         nu-lint
         nushell
         shellcheck
+        taplo
         vale
       ];
 
@@ -45,12 +46,24 @@
             ".nu-lint.toml"
           ];
         };
+        "lint:toml" = {
+          exec = ''
+            taplo lint helm/files/config/rbac.toml
+            taplo fmt --check helm/files/config/rbac.toml
+          '';
+          execIfModified = [
+            "helm/files/config/rbac.toml"
+            "helm/files/config/rbac.schema.json"
+            ".taplo.toml"
+          ];
+        };
         "lint:containers" = {
           exec = ''
             hadolint Containerfile.sync
             hadolint Containerfile.postgres
             hadolint Containerfile.jobs
             hadolint Containerfile.proxy
+            hadolint Containerfile.k6
           '';
           execIfModified = [
             ".hadolint.yaml"
@@ -58,6 +71,7 @@
             "Containerfile.postgres"
             "Containerfile.jobs"
             "Containerfile.proxy"
+            "Containerfile.k6"
           ];
         };
         "lint:docs" = {
@@ -85,6 +99,7 @@
         "lint:chart"
         "lint:proxy"
         "lint:nu"
+        "lint:toml"
         "lint:containers"
         "lint:docs"
       ];
