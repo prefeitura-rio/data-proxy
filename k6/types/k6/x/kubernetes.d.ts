@@ -13,6 +13,7 @@ declare module "k6/x/kubernetes" {
   export type KubernetesVolumeMount = {
     name: string;
     mountPath: string;
+    subPath?: string;
     readOnly?: boolean;
   };
 
@@ -39,12 +40,39 @@ declare module "k6/x/kubernetes" {
     [key: string]: unknown;
   };
 
+  export type KubernetesMetadata = {
+    name: string;
+    uid?: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  };
+
+  export type KubernetesCondition = { type: string; status: string };
+
+  export type KubernetesPod = {
+    metadata: KubernetesMetadata;
+    spec: { containers: KubernetesContainer[] };
+    status?: {
+      podIP?: string;
+      conditions?: KubernetesCondition[];
+      containerStatuses?: { name: string; restartCount: number }[];
+    };
+  };
+
   export type KubernetesDeployment = {
-    metadata?: { name?: string; labels?: Record<string, string> };
-    spec: { replicas?: number; template: { spec: KubernetesPodSpec } };
+    metadata: KubernetesMetadata;
+    spec: {
+      replicas?: number;
+      template: {
+        metadata?: { annotations?: Record<string, string> };
+        spec: KubernetesPodSpec;
+      };
+    };
+    status?: { availableReplicas?: number; observedGeneration?: number };
   };
 
   export type KubernetesCronJob = {
+    metadata: KubernetesMetadata;
     spec: {
       jobTemplate: {
         spec: {
@@ -55,17 +83,31 @@ declare module "k6/x/kubernetes" {
     };
   };
 
-  export type KubernetesPod = {
-    metadata: {
-      name: string;
-      uid: string;
-      labels?: Record<string, string>;
-    };
+  export type KubernetesJob = {
+    status?: { succeeded?: number; failed?: number };
   };
 
+  export type KubernetesCluster = {
+    metadata: KubernetesMetadata;
+    spec: { instances: number };
+    status?: { readyInstances?: number; phase?: string; currentPrimary?: string };
+  };
+
+  export type KubernetesScaledObject = { metadata: KubernetesMetadata };
+
+  /** The kinds that the scripts read, with the object that the API returns for each. */
+  export interface KubernetesKinds {
+    Pod: KubernetesPod;
+    "Deployment.apps": KubernetesDeployment;
+    "CronJob.batch": KubernetesCronJob;
+    "Job.batch": KubernetesJob;
+    "Cluster.postgresql.cnpg.io": KubernetesCluster;
+    "ScaledObject.keda.sh": KubernetesScaledObject;
+  }
+
   export class Kubernetes {
-    get(kind: string, name: string, namespace: string): unknown;
-    list(kind: string, namespace: string): unknown[];
+    get<K extends keyof KubernetesKinds>(kind: K, name: string, namespace: string): KubernetesKinds[K];
+    list<K extends keyof KubernetesKinds>(kind: K, namespace: string): KubernetesKinds[K][];
     create(resource: unknown): void;
     delete(kind: string, name: string, namespace: string): void;
   }

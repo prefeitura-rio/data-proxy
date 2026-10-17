@@ -1,4 +1,6 @@
 declare const __VU: number;
+declare const __ENV: Record<string, string | undefined>;
+declare function open(path: string): string;
 
 declare module "k6" {
   export function check<T>(
@@ -15,6 +17,7 @@ declare module "k6/http" {
     body: string;
     headers: Record<string, string>;
     timings: { duration: number };
+    request: { method: string; url: string };
     json(path?: string): unknown;
   }
 
@@ -60,4 +63,11 @@ declare module "k6/metrics" {
     constructor(name: string);
     add(value: number, tags?: Record<string, string>): void;
   }
+}
+
+declare module "k6/encoding" {
+    const encoding: {
+        b64decode(input: string, encoding: "std" | "rawstd" | "url" | "rawurl", format: "s"): string;
+    };
+    export default encoding;
 }
