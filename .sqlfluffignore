@@ -15,7 +15,7 @@ sync/src/sync/templates/duckdb/setup.sql
 sync/src/sync/templates/duckdb/macros.sql
 helm/files/templates/postgres/grant_app_usage.sql
 helm/files/templates/postgres/grant_console_usage.sql
-helm/files/templates/postgres/grant_policy_writer.sql
+helm/files/templates/postgres/create_rbac.sql
 helm/files/templates/postgres/set_db_schemas.sql
 helm/files/templates/postgres/reset_db_schemas.sql
 sync/src/sync/templates/postgres/drop_view_objects.sql
@@ -26,7 +26,6 @@ sync/tests/templates/bigquery/partitions.sql
 sync/tests/templates/bigquery/table_metadata.sql
 sync/tests/templates/duckdb/write_evolved_parquet.sql
 sync/tests/templates/postgres/call_cleanup_stale_objects.sql
-sync/tests/templates/postgres/delete_access_policy.sql
 sync/tests/templates/postgres/delete_workflows.sql
 sync/tests/templates/postgres/function_exists.sql
 sync/tests/templates/postgres/has_schema_usage.sql
@@ -34,15 +33,12 @@ sync/tests/templates/postgres/has_table_select.sql
 sync/tests/templates/postgres/insert_access_log.sql
 sync/tests/templates/postgres/insert_access_policy.sql
 sync/tests/templates/postgres/insert_workflow.sql
-sync/tests/templates/postgres/log_trigger_is_security_definer.sql
-sync/tests/templates/postgres/policy_names.sql
 sync/tests/templates/postgres/relation_exists.sql
 sync/tests/templates/postgres/role_memberships.sql
 sync/tests/templates/postgres/schema_names.sql
 sync/tests/templates/postgres/select_changes.sql
 sync/tests/templates/postgres/select_table_files.sql
-sync/tests/templates/postgres/select_grants.sql
 sync/tests/templates/postgres/select_plan_sources.sql
 sync/tests/templates/postgres/select_workflows.sql
-sync/tests/templates/postgres/update_access_policy.sql
 sync/tests/templates/postgres/view_columns.sql
+helm/files/templates/postgres/create_roles.sql

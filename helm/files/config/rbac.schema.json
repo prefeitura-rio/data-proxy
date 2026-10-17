@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Permissions, roles and logins",
+  "description": "What a token may do and the roles of the identity provider. Every other place that names a permission or a role must match this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "permissions",
+    "roles"
+  ],
+  "properties": {
+    "permissions": {
+      "description": "The closed list of permissions, grouped by object. The full name of a permission is the action, an underscore and the object, so the action read of the object data is read_data. Every name has exactly two words.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z]+$"
+      },
+      "additionalProperties": {
+        "description": "One object. It has a description and one key for each action that a token can do to it. The action can be any lowercase word except description.",
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "minProperties": 2,
+        "properties": {
+          "description": {
+            "description": "What the object is.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "patternProperties": {
+          "^[a-z]+$": {
+            "description": "What the action does to the object.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "roles": {
+      "description": "The roles of the identity provider. A role has the permissions that it inherits plus its own. A token carries one role: a user or a client holds the role that covers what it needs. Roles that don't inherit each other, such as console and policy, are never combined in one token, and admin covers both. The schemas claim of the token limits every role to its own schemas, and no role and no token can reach all schemas. The whole system is administered through Terraform and the owner login, not through a role.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "description",
+          "permissions"
+        ],
+        "properties": {
+          "name": {
+            "description": "The name of the role in the identity provider.",
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*$"
+          },
+          "description": {
+            "description": "Who the role is for.",
+            "type": "string",
+            "minLength": 1
+          },
+          "inherits": {
+            "description": "The roles that this role inherits directly. Inheritance is transitive, so list only the direct parents.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*$"
+            }
+          },
+          "permissions": {
+            "description": "The permissions that this role adds to the ones that it inherits.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]+_[a-z]+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}
