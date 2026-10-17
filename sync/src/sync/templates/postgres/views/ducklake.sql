@@ -7,7 +7,7 @@
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
     "duckdb_view": "DuckDB intermediate view name.",
-    "source": "FROM clause body, e.g. dl.table.",
+    "source": "FROM clause body, e.g. \"dl_<schema>\".table.",
     "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment."
   }
@@ -25,7 +25,7 @@ BEGIN
   v_snapshot := p_arg::bigint;
 
   IF p_validate_snapshot THEN
-    PERFORM {{ app_schema }}.assert_snapshot_exists(v_snapshot);
+    PERFORM {{ app_schema }}.assert_snapshot_exists(v_snapshot, '{{ metadata_schema }}');
   END IF;
 
   PERFORM duckdb.raw_query(

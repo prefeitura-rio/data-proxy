@@ -1,8 +1,8 @@
 {#
 {
   "kind": "template",
-  "description": "Read the sync configuration that the admin tables describe.",
+  "description": "Read the sync configuration that the console tables describe.",
   "inputs": {}
 }
 #}
-SELECT admin.sync_config()::text;
+SELECT console.sync_config()::text;

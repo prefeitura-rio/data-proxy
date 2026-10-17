@@ -1,6 +1,41 @@
 {#
 {
   "kind": "macro",
+  "name": "postgres.require_permission",
+  "description": "Render the PL/pgSQL check that refuses a token without one permission.",
+  "inputs": {
+    "permission": "Name of a permission of rbac.toml."
+  },
+  "returns": "A PL/pgSQL block that raises insufficient_privilege."
+}
+#}
+{% macro require_permission(permission) -%}
+  IF NOT rbac.can('{{ permission }}') THEN
+    RAISE EXCEPTION 'The token lacks the {{ permission }} permission'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+{%- endmacro %}
+
+{#
+{
+  "kind": "macro",
+  "name": "postgres.require_scope",
+  "description": "Render the PL/pgSQL check that returns no row for a schema outside the schemas claim of the token.",
+  "inputs": {
+    "schema_literal": "SQL literal of the schema name."
+  },
+  "returns": "A PL/pgSQL block that leaves the function with an empty result."
+}
+#}
+{% macro require_scope(schema_literal) -%}
+  IF NOT rbac.mine({{ schema_literal }}) THEN
+    RETURN;
+  END IF;
+{%- endmacro %}
+
+{#
+{
+  "kind": "macro",
   "name": "postgres.rls_mapping_values",
   "description": "Render RLS unit mappings as SQL VALUES rows.",
   "inputs": {
@@ -76,7 +111,7 @@
 {
   "kind": "macro",
   "name": "postgres.ducklake_attach",
-  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog of one schema. The DuckDB secret ducklake_reader holds the catalog address and credentials.",
+  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog of one schema, under the alias dl_<schema>. A PostgreSQL backend keeps one DuckDB connection for all of its requests, so each schema needs an alias of its own. With one shared alias, a backend that attached the catalog of one schema would read that catalog for every other schema. The DuckDB secret ducklake_catalog holds the catalog address and credentials.",
   "inputs": {
     "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment."
@@ -86,7 +121,7 @@
 #}
 {% macro ducklake_attach(metadata_schema, data_path) -%}
   PERFORM duckdb.raw_query(
-    'ATTACH IF NOT EXISTS ''ducklake:ducklake_reader'' AS dl '
+    'ATTACH IF NOT EXISTS ''ducklake:ducklake_catalog'' AS "dl_{{ metadata_schema }}" '
     || '(DATA_PATH ''{{ data_path }}'', METADATA_SCHEMA ''{{ metadata_schema }}'', READ_ONLY)'
   );
 {%- endmacro %}

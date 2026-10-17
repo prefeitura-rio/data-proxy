@@ -4,6 +4,7 @@
   "description": "Render the function behind a table view: check RLS, plan the sources, and read them.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
+    "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
     "dl_function": "Private DuckLake helper function.",
@@ -19,7 +20,7 @@
 }
 #}
 -- noqa: disable=PRS,LT05
-{% from "postgres/macros.sql" import rls_where_clause, return_query_select, duckdb_query_select %}
+{% from "postgres/macros.sql" import rls_where_clause, return_query_select, duckdb_query_select, require_permission, require_scope %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS TABLE(
 {% for column in columns %}
@@ -35,6 +36,9 @@ DECLARE
   v_plan record;
   v_sources text[] := ARRAY[]::text[];
 BEGIN
+{{ require_permission('read_api') }}
+{{ require_scope(schema_literal) }}
+
   v_subject := current_setting('{{ claim_setting }}', true);
 
 {{ rls_where_clause(schema, has_rls, rls_mappings) }}

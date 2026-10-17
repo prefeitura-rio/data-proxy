@@ -19,7 +19,7 @@ BEGIN
 
   PERFORM duckdb.raw_query(
     format(
-      'CREATE OR REPLACE VIEW dl_known_table AS SELECT table_name FROM duckdb_tables() WHERE database_name = ''dl'' AND table_name = %L',
+      'CREATE OR REPLACE VIEW dl_known_table AS SELECT table_name FROM duckdb_tables() WHERE database_name = ''dl_{{ metadata_schema }}'' AND table_name = %L',
       p_table
     )
   );
@@ -32,7 +32,7 @@ BEGIN
 
   PERFORM duckdb.raw_query(
     format(
-      'CREATE OR REPLACE VIEW dl_table_listing AS SELECT data_file, data_file_size_bytes, delete_file FROM ducklake_list_files(''dl'', %L)',
+      'CREATE OR REPLACE VIEW dl_table_listing AS SELECT data_file, data_file_size_bytes, delete_file FROM ducklake_list_files(''dl_{{ metadata_schema }}'', %L)',
       p_table
     )
   );

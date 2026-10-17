@@ -29,14 +29,14 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.assert_snapshot_exists(p_snapshot bigint) RETURNS void
+CREATE OR REPLACE FUNCTION {{ schema }}.assert_snapshot_exists(p_snapshot bigint, p_metadata_schema text) RETURNS void
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_found bigint;
 BEGIN
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW dl_snapshot_check AS '
-    || 'SELECT count(*) AS n FROM dl.snapshots() WHERE snapshot_id = ' || p_snapshot
+    || format('SELECT count(*) AS n FROM %I.snapshots() WHERE snapshot_id = ', 'dl_' || p_metadata_schema) || p_snapshot
   );
 
   SELECT r['n']::bigint INTO v_found FROM duckdb.query('SELECT n FROM dl_snapshot_check') r;

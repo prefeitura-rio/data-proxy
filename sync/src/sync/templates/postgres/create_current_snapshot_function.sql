@@ -19,7 +19,7 @@ BEGIN
 
   RETURN (
     SELECT r['id']::bigint
-    FROM duckdb.query('SELECT id FROM dl.current_snapshot()') r
+    FROM duckdb.query('SELECT id FROM "dl_{{ metadata_schema }}".current_snapshot()') r
   );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER

@@ -4,6 +4,7 @@
   "description": "Render a read-only DuckLake table change-feed function.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the function.",
+    "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
     "function": "PostgreSQL function being created or called.",
     "table_name": "SQL literal table name passed to dl.table_changes.",
     "duckdb_view": "DuckDB intermediate view name.",
@@ -19,7 +20,8 @@
 #}
 -- noqa: disable=PRS
 {% from "postgres/macros.sql" import
-  rls_where_clause, column_projection, ducklake_attach %}
+  rls_where_clause, column_projection, ducklake_attach, require_permission,
+  require_scope %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(
   start_snapshot bigint,
   end_snapshot bigint DEFAULT NULL
@@ -37,6 +39,9 @@ DECLARE
   v_where text;
   v_end_snapshot bigint;
 BEGIN
+{{ require_permission('read_ducklake') }}
+{{ require_scope(schema_literal) }}
+
 {{ ducklake_attach(metadata_schema, data_path) }}
 
   v_subject := current_setting('{{ claim_setting }}', true);
@@ -45,7 +50,7 @@ BEGIN
 
   IF end_snapshot IS NULL THEN
     SELECT r['id']::bigint INTO v_end_snapshot
-    FROM duckdb.query('SELECT id FROM dl.current_snapshot()') r;
+    FROM duckdb.query('SELECT id FROM "dl_{{ metadata_schema }}".current_snapshot()') r;
   ELSE
     v_end_snapshot := end_snapshot;
   END IF;
@@ -55,7 +60,7 @@ BEGIN
     || 'SELECT snapshot_id AS change_snapshot_id, '
     || 'rowid AS change_row_id, change_type, '
     || '{{ column_projection(columns) }} '
-    || 'FROM dl.table_changes({{ table_name }}, '
+    || 'FROM "dl_{{ metadata_schema }}".table_changes({{ table_name }}, '
     || start_snapshot::text || ', ' || v_end_snapshot::text || ') ' || v_where
   );
 

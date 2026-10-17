@@ -102,7 +102,7 @@ def ducklake_function_mapping(
         "function": Identifier(f"{table_name}_dl_fn"),
         "columns": function_columns(columns, raw_json=True),
         "duckdb_view": f"dl_{schema}_{table_name}",
-        "source": f"dl.{quoted_identifier(table_name)}",
+        "source": f'"dl_{schema}".{quoted_identifier(table_name)}',
         "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
     }
@@ -219,6 +219,7 @@ def table_function_mapping(
         ]
     return {
         "schema": Identifier(schema),
+        "schema_literal": Literal(schema),
         "app_schema": app_schema(),
         "function": Identifier(f"{table_name}_fn"),
         "dl_function": Identifier(f"{table_name}_dl_fn"),
@@ -246,6 +247,7 @@ def table_changes_function_mapping(
     claim_name = claim or "sub"
     return {
         "schema": Identifier(schema),
+        "schema_literal": Literal(schema),
         "function": Identifier(f"dl_changes_{table.table_name}"),
         "table_name": table.table_name,
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
