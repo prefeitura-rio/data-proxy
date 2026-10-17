@@ -1,0 +1,54 @@
+# SQL Templates
+
+SQL templates live under `sync/src/sync/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`.
+
+## Template headers
+
+Every Jinja or minijinja SQL template starts with one metadata header:
+
+```jinja
+{#
+{
+  "kind": "template",
+  "description": "Create a table from Parquet.",
+  "inputs": {
+    "schema": "Destination PostgreSQL schema.",
+    "table": "Destination PostgreSQL table.",
+    "path": "Parquet file path."
+  }
+}
+#}
+```
+
+Use `kind: template` and `description`. Add `inputs` when the template accepts values. Keep descriptions short. Keep metadata inside the source comment.
+
+Document each Jinja or minijinja macro with one metadata header. Document each Helm `define` in `_helpers.tpl` with the same structure and `kind: macro`.
+
+Put one blank line before a header. Put no blank line between the header and its definition. Put one blank line after the definition. Add `name`, `description`, and `returns`. Add `inputs` when needed.
+
+Use `{# ... #}` for Jinja and minijinja. Use `{{/* ... */}}` for Go templates. Metadata must not appear in rendered output.
+
+## Names
+
+Use one name for each semantic role:
+
+- PostgreSQL objects: `schema`, `table`, `view`, `function`, `policy`, and `index`.
+- Columns: `column` for one column and `columns` for a collection.
+- Paths: `path` for one path. Use `source` and `target` for two endpoints. Use `scratch_path` for temporary storage.
+- SQL roles: `user_role`, `anonymous_role`, and `serving_role`.
+- Predicates: `scope` for a schema predicate, `predicate` for a row or partition predicate, and `claim_setting` for a session-setting name.
+
+Match the SQL semantic to the name shape: use `table` for a SQL-safe identifier, `table_name` for a SQL literal or a prepared-statement parameter. Never use bare `name` when the object type is known.
+
+Don't merge values with different meanings. Don't use `name` when the object type is known. Don't use shortened aliases such as `cols` or `select_cols`.
+
+## Runtime mappings
+
+Use the same names in Python mappings and template variables. Keep identifier, literal, type, and prepared-parameter semantics in Python helpers. Use Jinja only for presentation loops and conditionals.
+
+Keep SQLFluff context values close to the template family that uses them. Each value must be a valid example for that family.
+
+## Macros and helpers
+
+Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata.
+''

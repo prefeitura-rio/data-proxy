@@ -1,0 +1,211 @@
+suite: CNPG cluster
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - cluster-cnpg.yaml
+  - scaledobjects.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: leaves the number of instances to the cluster autoscaler
+    asserts:
+      - notExists:
+          path: spec.instances
+        template: cluster-cnpg.yaml
+
+  - it: leaves replication asynchronous by default, because CNPG rejects a synchronous standby on one instance
+    asserts:
+      - notExists:
+          path: spec.postgresql.synchronous
+        template: cluster-cnpg.yaml
+      - notExists:
+          path: spec.postgresql.parameters.synchronous_commit
+        template: cluster-cnpg.yaml
+
+  - it: renders cnpg.postgresql.synchronous and waits for the standby only when a transaction asks
+    set:
+      cnpg.postgresql.synchronous:
+        method: any
+        number: 1
+        dataDurability: preferred
+    asserts:
+      - equal:
+          path: spec.postgresql.synchronous
+          value:
+            method: any
+            number: 1
+            dataDurability: preferred
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters.synchronous_commit
+          value: local
+        template: cluster-cnpg.yaml
+
+  - it: lets cnpg.postgresql.parameters override the commit mode
+    set:
+      cnpg.postgresql.synchronous:
+        method: any
+        number: 1
+      cnpg.postgresql.parameters.synchronous_commit: "off"
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.synchronous_commit
+          value: "off"
+        template: cluster-cnpg.yaml
+
+  - it: autoscales the cluster between two and six instances by default
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef
+          value:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: data-proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.minReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 6
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - notExists:
+          path: metadata.annotations["autoscaling.keda.sh/paused-replicas"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: raises the instance floor with cnpg.autoscaling.minReplicaCount
+    set:
+      cnpg.autoscaling.minReplicaCount: 5
+    asserts:
+      - equal:
+          path: spec.minReplicaCount
+          value: 5
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: never lets the maximum fall below the floor
+    set:
+      cnpg.autoscaling.maxReplicaCount: 2
+    asserts:
+      - equal:
+          path: spec.minReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: scales the cluster on the PostgREST active sessions per instance
+    asserts:
+      - equal:
+          path: spec.triggers
+          value:
+            - type: postgresql
+              metricType: Value
+              authenticationRef:
+                name: data-proxy-cluster-autoscaler-auth
+              metadata:
+                host: data-proxy-r.default.svc.cluster.local
+                port: "5432"
+                userName: ops
+                dbName: data-proxy
+                sslmode: require
+                query: SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = 'serving'
+                targetQueryValue: "4"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: derives the sessions per instance from the CPU limit and the DuckDB threads
+    set:
+      cnpg.resources.limits.cpu: 4000m
+      cnpg.resources.limits.memory: 8Gi
+      cnpg.duckdb.threads: 4
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata.targetQueryValue
+          value: "1"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: reads the autoscaler password from the ops secret
+    asserts:
+      - isKind:
+          of: TriggerAuthentication
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler-auth
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.secretTargetRef
+          value:
+            - parameter: password
+              name: data-proxy-cnpg-ops
+              key: password
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler-auth
+        template: scaledobjects.yaml
+
+  - it: replaces the cluster trigger with cnpg.autoscaling.triggers
+    set:
+      cnpg.autoscaling.triggers:
+        - type: prometheus
+          metadata:
+            serverAddress: http://prometheus:9090
+            query: sum(rate(container_cpu_usage_seconds_total[2m]))
+            threshold: "2"
+    asserts:
+      - equal:
+          path: spec.triggers[0].type
+          value: prometheus
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: takes a standby that falls too far behind out of the read Service
+    asserts:
+      - equal:
+          path: spec.probes.readiness
+          value:
+            type: streaming
+            maximumLag: 16Mi
+            periodSeconds: 3
+            failureThreshold: 2
+        template: cluster-cnpg.yaml
+
+  - it: takes the lag limit from cnpg.maxReplicaLag
+    set:
+      cnpg.maxReplicaLag: 32Mi
+    asserts:
+      - equal:
+          path: spec.probes.readiness.maximumLag
+          value: 32Mi
+        template: cluster-cnpg.yaml

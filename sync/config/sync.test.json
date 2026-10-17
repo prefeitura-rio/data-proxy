@@ -1,0 +1,89 @@
+{
+  "schemas": {
+    "test": {
+      "source": {
+        "type": "bigquery"
+      },
+      "claim": "preferred_username",
+      "tables": [
+        {
+          "name": "rj-ia-desenvolvimento.dev.full_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.snapshot_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.failing_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.partitioned_table",
+          "strategy": "partitioned",
+          "fallback": true,
+          "n": 4,
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.big_table",
+          "strategy": "partitioned",
+          "n": 30,
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.multi_rls_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "region_id",
+              "unit_type": "region"
+            },
+            {
+              "column": "group_id",
+              "unit_type": "group"
+            }
+          ]
+        },
+        {
+          "name": "rj-ia-desenvolvimento.dev.new_schema_table",
+          "strategy": "full",
+          "rls": [
+            {
+              "column": "unit_id",
+              "unit_type": "unit"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

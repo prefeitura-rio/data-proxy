@@ -1,0 +1,26 @@
+extends: substitution
+message: "Use '%s' instead of '%s'."
+link: https://vale.sh
+level: error
+ignorecase: false
+action:
+  name: replace
+swap:
+  Bigquery: BigQuery
+  bigquery: BigQuery
+  Duckdb: DuckDB
+  duckdb: DuckDB
+  Postgres: PostgreSQL
+  postgres: PostgreSQL
+  PostgreSql: PostgreSQL
+  Postgresql: PostgreSQL
+  Postgrest: PostgREST
+  postgrest: PostgREST
+  POSTGREST: PostgREST
+  Seaweedfs: SeaweedFS
+  seaweedfs: SeaweedFS
+  Minio: MinIO
+  minio: MinIO
+  Nginx: nginx
+  NGINX: nginx
+  webdis: Webdis

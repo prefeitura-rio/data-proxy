@@ -1,195 +1,206 @@
-## Container image for the producer, Dumper, Seeder, and Publisher services.
+## DBOS sync service: runs the scheduled sync workflow, BigQuery extraction,
+## and DuckLake publication. Scaled by KEDA on the DBOS workflow queue.
 sync:
-  image: ghcr.io/prefeitura-rio/data-proxy:caa0da9
+  ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
+  replicas: 1
+  ## Container image for the DBOS sync workers.
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:caa0da9
   imagePullPolicy: IfNotPresent
-  producer:
-    ## Cron expression that controls when the producer runs.
-    ## Default: daily at 02:00 UTC.
-    schedule: 0 2 * * *
-    ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
-    startingDeadlineSeconds: 600
-    ## Maximum wall-clock time the producer Job may run before Kubernetes terminates it.
-    activeDeadlineSeconds: 3600
-    ## Time in seconds between checks for the prior pipeline to complete.
-    pollIntervalSeconds: 60
-    ## Time in seconds after a finished Job before Kubernetes deletes the Job object.
-    ttlSecondsAfterFinished: 300
-  dumper:
-    ## Spread concurrent Dumper pods across nodes when possible.
-    topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
-        labelSelector:
-          matchLabels:
-            app.kubernetes.io/component: dumper
-            app.kubernetes.io/instance: data-proxy
-            app.kubernetes.io/name: data-proxy
-    ## Time in milliseconds before a Dumper can reclaim a pending task. One task
-    ## extracts a whole batch, so this must exceed the duration of a batch.
-    visibilityTimeoutMs: 3600000
-    ## Size in megabytes of uncompressed source data that one extraction batch collects before it
-    ## closes. A batch becomes one Parquet file in the bucket.
-    batchMegaBytes: 600
-    ## Maximum number of partitions in one batch, which bounds a partition set
-    ## that never reaches batchMegaBytes (in MB).
-    batchMaxPartitions: 256
-    ## Local scratch space that a Dumper uses to merge the partitions of a batch.
-    scratch:
-      ## Directory inside the container that holds the scratch files.
-      mountPath: /scratch
-      ## Size limit of the emptyDir volume that backs the scratch directory.
-      sizeLimit: 4Gi
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 900
-    keda:
-      ## Number of unread stream messages that triggers one additional Dumper pod.
-      lagCount: "1"
-      ## Number of delivered-but-unacknowledged messages that keeps a Dumper pod
-      ## alive. lagCount alone reaches 0 as soon as the last message is
-      ## delivered, before it is actually processed, so this second trigger
-      ## prevents KEDA from terminating a pod still finishing its last task.
-      pendingEntriesCount: "1"
-      ## Maximum number of concurrent Dumper pods.
-      maxReplicaCount: 15
-      ## Interval in seconds between KEDA metric checks.
-      pollingInterval: 30
-      ## Cooldown in seconds before scaling down to zero.
-      cooldownPeriod: 60
-  publisher:
-    ## Time in milliseconds before a publisher can reclaim a pending message.
-    visibilityTimeoutMs: 7200000
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 1800
-    keda:
-      ## Maximum publisher Jobs. Leave unset for one Job for each configured schema.
-      ## maxReplicaCount: 2
-      ## Number of delivered-but-unacknowledged messages that asks KEDA for a Job,
-      ## which then reclaims the message after the visibility timeout.
-      pendingEntriesCount: "1"
-      ## Interval in seconds between KEDA metric checks.
-      pollingInterval: 30
-      ## Number of completed publisher Jobs that KEDA keeps. Zero removes them.
-      successfulJobsHistoryLimit: 0
-      ## Number of failed publisher Jobs that KEDA keeps for inspection.
-      failedJobsHistoryLimit: 1
-  seeder:
-    visibilityTimeoutMs: 900000
-    ## Grace period in seconds for SIGTERM before Kubernetes force-kills the pod.
-    terminationGracePeriodSeconds: 900
-    keda:
-      pendingEntriesCount: "1"
-      pollingInterval: 30
-      successfulJobsHistoryLimit: 0
-      failedJobsHistoryLimit: 1
-migration:
-  ## Image used by the HA mode migration Job.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
-## Kubernetes ServiceAccount for the pipeline pods.
+  ## Mount the local manifests sync-trigger ConfigMap in sync workers.
+  trigger:
+    enabled: false
+    configMap: manifests-sync-trigger-script
+  ## Cron expression for the DBOS sync schedule. Only the first value: the console API changes it later.
+  ## Default: daily at 02:00 UTC.
+  schedule: 0 2 * * *
+  ## Maximum wall-clock time for one DBOS sync workflow.
+  workflowTimeoutSeconds: 3600
+  ## Maximum concurrent run_sync workflows across all workers.
+  ## One at a time prevents overlapping sync runs.
+  queueConcurrency: 1
+  ## Maximum DBOS step retry attempts for one dump task.
+  dumpStepMaxAttempts: 3
+  ## Maximum attempts for safe transient DBOS steps.
+  stepMaxAttempts: 3
+  ## Maximum dump tasks enqueued per 60 seconds.
+  dumpQueueRateLimit: 0
+  ## Per-process concurrency for the DBOS dump queue.
+  dumpQueueWorkerConcurrency: 4
+  ## Recovery of DBOS workflows owned by terminated sync pods.
+  recovery:
+    enabled: true
+    intervalSeconds: 30
+    graceSeconds: 120
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  ## Resource requests and limits for each sync worker pod.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "4"
+      memory: 6Gi
+  ## KEDA autoscaling for the sync Deployment.
+  autoscaling:
+    ## Interval in seconds between KEDA metric checks.
+    pollingInterval: 30
+    ## Cooldown in seconds before scaling down to idle.
+    cooldownPeriod: 60
+    ## Minimum replicas. KEDA never scales below this, so one orchestrator always runs.
+    ## Do not set idleReplicaCount: KEDA supports only 0, and other values fight the HPA.
+    minReplicaCount: 3
+    ## Maximum number of concurrent sync pods.
+    maxReplicaCount: 15
+    ## Postgres trigger query counting DBOS queued/running workflows.
+    query: SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');
+    ## Target value for the query result.
+    targetQueryValue: "1.1"
+    ## Query value above which KEDA scales above the minimum replicas.
+    activationTargetQueryValue: "5"
+  ## DBOS application and system database configuration.
+  dbos:
+    applicationName: data-proxy-sync
+    applicationVersion: 0.1.0
+    systemSchema: dbos
+    appSchema: data_proxy
+  ## The first sync configuration. The provision job imports it once, when the configuration
+  ## tables of the console are empty. Editors own the configuration afterward, so a change here
+  ## has no effect on a database that already has schemas. See docs/sync.md for the field reference.
+  config:
+    ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
+    ## schema's identity claim and its list of tables.
+    schemas: {}
+## Kubernetes ServiceAccount for the sync pods.
 ## Attach a Workload Identity annotation here to allow BigQuery access without
 ## a service account key file.
 serviceAccount:
   ## Set to true to create a ServiceAccount. Set to false to use an existing one.
   create: true
-  ## Name of the ServiceAccount. The chart uses this name for all pipeline pods.
+  ## Name of the ServiceAccount. The chart uses this name for all sync pods.
   name: data-proxy
   ## Annotations to add to the ServiceAccount. Use this field for Workload Identity.
   ## Example: iam.gke.io/gcp-service-account: dataproxy@project.iam.gserviceaccount.com
   annotations: {}
-## Configuration for the PostgreSQL database with pg_duckdb, PostGIS, and pg_partman.
-## CNPG manages the PostgreSQL clusters. This section configures the database
-## name, credentials, and init image used by the chart.
+## PostgREST read API. One workload serves all schemas.
 postgrest:
   ## PostgREST container image.
   image: postgrest/postgrest:v16.1
   ## External URL that PostgREST uses in the OpenAPI specification.
-  ## Set this to the public URL of the API gateway in front of PostgREST.
   proxyUri: ""
   ## JWKS URI for JWT validation. PostgREST fetches and caches the public keys at startup.
   jwksUri: ""
   ## Symmetric JWT secret (HS256). When set, overrides JWKS validation.
   jwtSecret: ""
   ## Maximum number of rows PostgREST will return per request.
-  ## Requests without an explicit limit are capped at this value.
   maxRows: 1000
+  ## Maximum backend connections held by each PostgREST replica.
+  dbPool: 24
+  ## Seconds that a stopping PostgREST pod waits before it closes its port. The mesh needs this time to stop sending it requests.
+  preStopSleepSeconds: 5
+  ## Prometheus metrics of PostgREST, from its admin server: pool size, waiting requests, and pool timeouts.
+  metrics:
+    enabled: true
+    port: 3001
+  ## Seconds to wait for a backend connection before returning an error.
+  dbPoolAcquisitionTimeout: 3
+  ## Seconds to keep an idle backend connection before closing it.
+  dbPoolMaxIdleTime: 300
   ## Enable avg(), count(), max(), min(), and sum() in PostgREST select queries.
-  ## Aggregates can be expensive. Limit access with row-level security and indexes.
   aggregatesEnabled: true
-  ## Init container that fetches and validates the JWKS before PostgREST starts.
-  jwksFetch:
-    ## Alpine image used by the JWKS init container.
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
-  ro:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 100m
-        memory: 64Mi
-        ephemeral-storage: 128Mi
-      limits:
-        memory: 256Mi
-        ephemeral-storage: 512Mi
-    keda:
-      minReplicaCount: 1
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 300
-      triggers: []
-  rw:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 100m
-        memory: 64Mi
-        ephemeral-storage: 128Mi
-      limits:
-        memory: 256Mi
-        ephemeral-storage: 512Mi
-    hpa:
-      enabled: true
-      minReplicas: 1
-      maxReplicas: 3
-      targetCPUUtilizationPercentage: 90
-## CNPG Pooler configuration for PgBouncer connection pooling.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 256Mi
+      ephemeral-storage: 128Mi
+    limits:
+      memory: 512Mi
+      ephemeral-storage: 512Mi
+  autoscaling:
+    minReplicaCount: 1
+    maxReplicaCount: 6
+    pollingInterval: 30
+    cooldownPeriod: 300
+    triggers: []
+## PgDog sits between PostgREST and PostgreSQL. It sends read-only transactions to a standby and every other
+## transaction to the primary. It pools transactions, so many PostgREST connections share a few backends.
+pgdog:
+  image: ghcr.io/pgdogdev/pgdog:0.1.61
+  ## A fixed number of pods, for availability. One pod serves far more than PostgREST sends (about 20000
+  ## queries a second against 1200 for one PostgREST pod), and each extra pod opens its own pools.
+  replicas: 2
+  ## Server connections that one pod opens to the primary, and as many to the standbys.
+  ## One PostgREST pod opens postgrest.dbPool connections, so more would sit idle. replicas x poolSize
+  ## must stay well below max_connections of PostgreSQL, because the primary also serves the sync workers.
+  poolSize: 24
+  resources:
+    requests:
+      cpu: 500m
+      memory: 96Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
-## Requires ingress.enabled to be true. Follows ingress.auth: when ingress.auth.enabled
-## is also true, the page needs the same valid JWT and audience as PostgREST itself.
 swaggerUi:
-  ## Set to true to deploy the Swagger UI page.
   enabled: false
-  ## Swagger UI container image.
   image: swaggerapi/swagger-ui:v5.18.2
-## Google Cloud Platform credentials for BigQuery access.
-## In GKE, use Workload Identity via serviceAccount.annotations instead.
-## In minikube, set existingSecret to a Secret containing key.json.
+## OpenTelemetry configuration for worker logs.
+observability:
+  otlpLogsEndpoint: ""
+  otlpTracesEndpoint: ""
+  otlpMetricsEndpoint: ""
+## GCP credentials for BigQuery access.
+## In GKE, use Workload Identity via serviceAccount.annotations.
+## Locally, mount a Secret or ConfigMap containing key.json.
 gcp:
-  ## Name of an existing Secret with a key.json file for BigQuery access.
-  ## Leave empty to use Workload Identity (no key file mounted).
+  ## Existing Secret with a key.json file. When set, it is mounted at mountPath in sync and PostgreSQL pods.
   existingSecret: ""
-## S3-compatible object store that holds the Parquet files of one sync run.
-## The default configuration points at the SeaweedFS S3 gateway deployed by this
-## chart. Set endpoint, bucket and credentials to use an external server instead.
+  ## Path where the key file is mounted inside sync and PostgreSQL pods.
+  mountPath: /gcp/key.json
+## S3-compatible object store that holds the Parquet files and DuckLake data.
 s3:
-  ## Name of the bucket that stores Parquet files.
   bucket: data-proxy
-  ## S3 endpoint host and port. Leave empty to use the in-chart SeaweedFS gateway.
   endpoint: ""
-  ## Set to true when the endpoint answers over HTTPS.
   useSsl: "false"
-  ## Name of an existing Secret to use instead of creating one.
-  ## The Secret must contain S3_ACCESS_KEY and S3_SECRET_KEY. When SeaweedFS
-  ## authentication is enabled, it must also contain seaweedfs_s3_config.
   existingSecret: ""
+  bootstrap:
+    createIfMissing: false
+    timeout: 30min
+    retry: 5sec
+## DuckLake data and maintenance configuration. The catalogs live in the
+## `ducklake` database of the CloudNativePG cluster, one metadata schema per sync schema.
+ducklake:
+  ## Single S3 prefix for all DuckLake data: <prefix>/<schema>/<table>/*.parquet
+  catalogPath: ducklake
+  ## Target output file size for DuckLake writes.
+  targetFileSize: 512MB
+  ## Expire snapshots older than this duration after each publication.
+  snapshotExpiration: 7d
+  ## Maximum compacted files produced by one maintenance call per table.
+  maxCompactedFiles: 10
+  ## Rewrite files when this fraction of rows is deleted.
+  rewriteDeleteThreshold: 0.95
+  ## Password of the duckdb role, the read-only login that pg_duckdb uses for the catalog.
+  ## Empty: generated once and kept on upgrades.
+  duckdbPassword: ""
+  ## Small volume that holds the persistent DuckDB secrets (S3 credentials), shared by every PostgreSQL Pod.
+  secrets:
+    storage:
+      size: 1Gi
+      ## RWX StorageClass for the DuckDB secrets. Set it to serve data, because the console adds
+      ## schemas after the install. Use k3d-rwx locally, filestore-rwx in GKE.
+      storageClass: ""
+      accessMode: ReadWriteMany
 ## SeaweedFS object store, deployed as a subchart.
-## Master, volume, filer and the S3 gateway run as separate workloads. The
-## all-in-one process is not used, so each part can be sized and restarted alone.
 seaweedfs:
-  ## Set to true to deploy SeaweedFS inside the cluster.
   enabled: true
-  ## Run every component in a single process. Kept off on purpose.
   allInOne:
     enabled: false
-  ## Metadata and topology service.
   master:
     enabled: true
     replicas: 1
@@ -200,7 +211,6 @@ seaweedfs:
       requests:
         cpu: 50m
         memory: 128Mi
-  ## Stores the Parquet file data.
   volume:
     enabled: true
     replicas: 1
@@ -213,7 +223,6 @@ seaweedfs:
       requests:
         cpu: 100m
         memory: 256Mi
-  ## Directory tree and metadata for the S3 API.
   filer:
     enabled: true
     replicas: 1
@@ -223,199 +232,105 @@ seaweedfs:
       requests:
         cpu: 50m
         memory: 128Mi
-  ## S3 gateway that speaks the S3 API to the pipeline.
   s3:
     enabled: true
     replicas: 1
-    ## Require credentials on every request.
     enableAuth: true
     existingConfigSecret: data-proxy-s3
-    ## Buckets the subchart creates after installation. The name must match s3.bucket.
-    createBuckets:
-      - name: data-proxy
     resources:
       requests:
         cpu: 50m
         memory: 128Mi
-## External Redis-compatible broker and cache.
+## External Redis-compatible cache.
 redis:
-  ## Existing Secret containing REDIS and REDIS_PASSWORD.
   existingSecret: data-proxy-redis
-  configKey: REDIS
+  ## Required. The one Redis endpoint that the proxy uses for its cache.
+  host: ""
+  port: 6379
+  readKey: REDIS_READ
+  writeKey: REDIS_WRITE
   passwordKey: REDIS_PASSWORD
-  ## Host and port used by KEDA Redis Streams triggers.
   writerAddress: redis-writer:6379
-  ## Webdis write endpoint (Redis primary).
-  webdisHost: redis-writer
-  webdisPort: 6379
-  ## Webdis read endpoint (Redis replica). Defaults to webdisHost when unset.
-  webdisReadHost: redis-reader
-  webdisReadPort: 6379
-## Shared PostgreSQL role used by the maintenance CronJobs (backup and cleanup).
-## The role reads the governance tables and prunes expired rows. It cannot run
-## DDL: stale table drops go through a SECURITY DEFINER function owned by the
-## schema owner.
+  writerHost: redis-writer
+  writerPort: 6379
+  readerHost: redis-reader
+  readerPort: 6379
+## Maintenance jobs: backup and maintenance.
 jobs:
-  ## Existing Secret with username, password, and JOBS_PASSWORD. Leave empty to
-  ## let the chart generate one.
-  existingSecret: ""
-## Backup CronJob — exports each <schema>.access_policy table with pg_dump
-## and uploads it to the dedicated backup S3-compatible service.
-## Every other table is rebuildable by rerunning a sync; access_policy is not.
-backup:
-  ## Set to true to deploy the table-level backup CronJob.
-  enabled: false
-  ## Nushell image with PostgreSQL client, Redis, AWS CLI, and kubectl.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
-  schedule: 0 3 * * *
-  startingDeadlineSeconds: 600
-  activeDeadlineSeconds: 1800
-  ttlSecondsAfterFinished: 300
-  ## S3 object key prefix for access_policy dumps.
-  prefix: backups/access_policy
-  ## Separate S3/GCS-compatible backup service.
-  s3:
-    endpointURL: ""
-    bucket: ""
-    existingSecret: ""
-  ## Access log retention: rows in access_log are pruned after this many days.
-  accessLog:
-    retentionDays: 90
-## Stale table cleanup CronJob — drops PostgreSQL tables that are no longer
-## listed in the sync config. System tables (freshness, access_policy, access_log)
-## are preserved.
-cleanup:
-  ## Set to true to deploy the cleanup CronJob.
-  enabled: true
-  ## Image used by the cleanup CronJob.
-  image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
-  ## Cron expression that controls when the cleanup runs.
-  ## Default: daily at 04:00 UTC, after the backup.
-  schedule: 0 4 * * *
-  ## Maximum delay in seconds allowed for a missed schedule before Kubernetes skips it.
-  startingDeadlineSeconds: 600
-## Dumper — KEDA-scaled Deployment that loops on the dp:extract stream.
-## Scales to zero when the stream is empty.
-## Publisher — KEDA ScaledJob with one Job for each schema plan.
-## Seeder — KEDA ScaledJob with one Job for each seed task.
-## Sync configuration rendered as sync.json and mounted into each pipeline container.
-## See docs/sync.md for the full field reference.
-schemaWriters:
-  ## Existing Secret containing writers.json. Required when cnpg.existingSecret is set.
-  existingSecret: ""
-syncConfig:
-  ## Map of PostgreSQL schemas. Each key is a schema name. Each value holds the
-  ## schema's identity claim and its list of tables. See docs/sync.md.
-  schemas: {}
+  ## Shared image for maintenance jobs.
+  image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
+  ## Provision template: a suspended CronJob that never runs on a clock. A Job is made from it when an
+  ## editor adds or removes a schema, and at the start of every sync run. It creates each schema and its
+  ## access policy, serves the list, and removes what the console dropped.
+  provision:
+    activeDeadlineSeconds: 300
+  ## Backup CronJob: exports access_policy, access_log, and restored catalogs.
+  backup:
+    enabled: false
+    schedule: 0 3 * * *
+    startingDeadlineSeconds: 600
+    activeDeadlineSeconds: 1800
+    ttlSecondsAfterFinished: 300
+    prefix: backups
+    s3:
+      endpointURL: ""
+      bucket: ""
+      existingSecret: ""
+    accessLog:
+      retentionDays: 90
+  ## Stale PostgreSQL object cleanup CronJob.
+  maintenance:
+    enabled: true
+    schedule: 0 4 * * *
+    startingDeadlineSeconds: 600
 ## Role names, JWT claim, and schema configuration for row-level security.
-## These values are rendered into the init-db ConfigMap and the PostgREST Deployment.
 auth:
-  ## PostgreSQL role used for unauthenticated requests. This role has no application table access.
-  ## PostgREST uses this role as PGRST_DB_ANON_ROLE.
   anonRole: anon
-  ## PostgreSQL role used for authenticated requests. This role receives application table access.
-  userRole: user
-  ## PostgreSQL login role that PostgREST uses to connect.
-  ## PostgREST uses this role in PGRST_DB_URI.
-  authenticatorRole: authenticator
-  ## Existing Basic Auth Secret for the authenticator role (username and password).
+  ## The baseline role: every dp_* role of rbac.toml is a member of it, so one set of grants serves them all.
+  userRole: dp_api
+  ## The login of the serving path: PostgREST, the PgDog pool and the recovery Deployment. It has no rights of its own and only switches into the request roles.
+  servingRole: serving
   existingSecret: ""
-  ## PostgREST JSPath expression that selects the database role from JWT claims. A
-  ## token may also resolve to policy_writer_<schema>, created per configured
-  ## schema, to write that schema's access_policy table only.
   jwtRoleClaim: $.role
-  ## PostgreSQL schema that contains the shared pre_request function and sync status type.
-  rlsSchema: rls
-## High availability configuration.
-## In HA mode, workload resources are created for every schema in syncConfig.schemas.
-## Entries in schemas are optional per-schema overrides.
-ha:
-  enabled: false
-  schemas: []
-## CloudNativePG manages PostgreSQL clusters with native streaming replication,
-## automatic failover, and Barman backups. No Patroni or HAProxy needed.
-##
-## mode: shared   — one Cluster for all schemas (staging)
-## mode: per-schema — one Cluster per schema (prod, publication isolation)
+## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
-  pooler:
-    ## Number of PgBouncer instances in the CNPG Pooler. Single mode starts with 1, HA with 2.
-    instances: 1
-    ## Transaction pooling mode: each client transaction gets a server connection.
-    poolSize: 20
-    maxClientConns: 100
-    ## Resource requests and limits for PgBouncer pods.
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 500m
-        memory: 256Mi
-    ## Autoscaling for the CNPG Pooler via KEDA. The Pooler CRD exposes a scale subresource.
-    autoscaling:
-      ## Minimum PgBouncer instances. Single mode: 1, HA: 2.
-      minReplicaCount: 1
-      ## Maximum PgBouncer instances.
-      maxReplicaCount: 3
-      ## How often KEDA checks triggers, in seconds.
-      pollingInterval: 30
-      ## How long KEDA waits before scaling down, in seconds.
-      cooldownPeriod: 300
-      ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
-      triggers: []
+  duckdb:
+    ## Keep per-backend DuckDB memory bounded because several PostgREST backends can run at once.
+    maxMemory: 1GB
+    ## DuckDB threads per PostgreSQL backend. Two threads leave room for concurrent backends.
+    threads: 2
+  postgresql:
+    parameters: {}
+    ## Optional CNPG synchronous replication, for example {method: any, number: 1, dataDurability: preferred}.
+    ## CNPG rejects it while the cluster has one instance, so set it after the cluster has scaled up.
+    ## With it, access_policy writes wait for a standby to apply them and other commits do not wait.
+    synchronous: {}
   db:
     name: data-proxy
-    user: dataproxy
-  init:
-    image: ghcr.io/prefeitura-rio/data-proxy-nushell:0da190f
+    user: ops
   existingSecret: ""
-  ## Deployment mode: "shared" or "per-schema".
-  mode: shared
-  ## Number of PostgreSQL instances per Cluster (1 primary + N-1 replicas).
-  instances: 1
-  ## Autoscaling for the shared cluster (single mode only).
+  ## A standby that replays more bytes behind the primary than this leaves the read Service until it catches up.
+  maxReplicaLag: 16Mi
+  ## The cluster always has a primary and at least one standby, and KEDA adds standbys under load.
+  ## The floor is at least 2.
+  ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
   autoscaling:
-    ## Minimum instances — KEDA never scales below this. Set to 1 for single mode.
-    minReplicaCount: 1
-    ## Maximum instances — KEDA never scales above this.
-    maxReplicaCount: 1
-    ## How often KEDA checks triggers, in seconds.
+    minReplicaCount: 2
+    maxReplicaCount: 6
     pollingInterval: 30
-    ## How long KEDA waits before scaling down, in seconds.
     cooldownPeriod: 300
-    ## Custom KEDA triggers. Empty list defaults to a CPU trigger.
     triggers: []
-  ## Resource requests and limits for each PostgreSQL instance pod.
-  ## Required for KEDA CPU-based autoscaling.
   resources:
     requests:
-      cpu: 500m
-      memory: 2Gi
+      cpu: 4
+      memory: 1Gi
     limits:
-      cpu: "4"
-      memory: 4Gi
-  ## Container image with pg_duckdb, PostGIS, and pg_partman.
-  ## Must be based on the official postgres image for CNPG compatibility.
+      cpu: "8"
+      memory: 8Gi
   image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-ff86fc4
   storage:
-    ## Size of the PersistentVolumeClaim for each PostgreSQL instance.
-    size: 100Gi
-    ## StorageClass for the PVCs. Leave empty to use the cluster default.
+    size: 20Gi
     storageClass: ""
-  ## PostgREST read replica count for each schema (per-schema mode only).
-  readReplicas: 1
-  ## PostgREST write replica count for each schema (per-schema mode only).
-  writeReplicas: 1
-  ## Per-schema overrides. Only used when mode is per-schema.
-  ## Each key must also exist in syncConfig.schemas.
-  ## Example:
-  ##   bcadastro:
-  ##     instances: 3
-  ##     storage:
-  ##       size: 200Gi
-  ##     readReplicas: 2
-  schemas: {}
   ## Barman backup configuration. Backups go to a separate S3-compatible service.
   backup:
     ## Set to true to enable continuous WAL archiving and scheduled backups.
@@ -434,97 +349,39 @@ cnpg:
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.
     backupRetention: 7
-  partman:
-    schedule: 0 6 * * *
-    retention: 365 days
-## pg_partman configuration for native PostgreSQL partition management.
-## Creates future partitions and drops expired ones automatically.
-## The Publisher INSERTs into the partitioned parent instead of delete+reload.
-## Pushgateway for metrics push from short-lived worker pods.
-## When enabled, deploys prometheus-pushgateway as a subchart.
-## When disabled, set pushgateway.url to point to an external service.
-pushgateway:
-  enabled: true
-  url: ""
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
-## No VirtualService is created when enabled is false.
 ingress:
-  ## Inject Istio sidecars into application pods. Disable when the local VM kernel does not provide iptables IPv6 support.
   sidecarInject: true
-  ## Set to true to create an Istio VirtualService for PostgREST.
   enabled: false
-  ## Gateway reference in namespace/name format.
   gateway: istio-system/istio-gateway
-  ## External hostname the VirtualService matches. Required when enabled is true.
   host: ""
-  ## Request timeout for the PostgREST route. Leave empty for no timeout.
-  ## Example: "60s"
   timeout: ""
-  ## Retry policy for the PostgREST route. Set attempts to 0 to disable.
   retries:
-    ## Number of retry attempts. Set to 0 to disable.
     attempts: 0
-    ## Timeout per retry attempt. Leave empty to inherit the route timeout.
     perTryTimeout: ""
-    ## Comma-separated Istio retry conditions.
-    ## Example: "503,reset,connect-failure"
     retryOn: ""
-  ## Istio JWT authentication and authorization for the PostgREST workload.
   auth:
-    ## Set to true to deploy RequestAuthentication and AuthorizationPolicy.
-    ## Requires ingress.enabled to be true.
     enabled: false
-    ## JWT issuer identifier (the iss claim value). Required when auth.enabled is true.
     issuer: ""
-    ## JWKS URI for JWT validation. Required when auth.enabled is true.
     jwksUri: ""
-    ## Required JWT audience (aud claim). Every client that should reach the API must carry this
-    ## audience, typically via a shared identity-provider client scope — see docs/security.md.
-    ## Leave empty to accept any valid JWT principal regardless of audience.
     audience: ""
-## BigQuery fallback with nginx proxy caching and pg_duckdb views.
-## The Publisher creates _bq views per table that has fallback: true in the
-## sync config. An nginx proxy with webdis sidecar caches responses in
-## Valkey and falls back to _bq views when the local table returns empty.
-## nginx receives a fallback.json map of which tables have BigQuery fallback.
-fallback:
-  ## Cache TTL in seconds for non-empty responses.
+## Caching proxy in front of PostgREST.
+proxy:
   cacheTtl: 300
-  ## Maximum size of a response fetched with ngx.fetch, which is the fallback
-  ## answer, held in memory per request.
-  fetchBufferSize: 32m
-  ## Timeout of a fetch. Keep it below the ingress timeout, so that this proxy
-  ## logs the failure instead of the route timing out first.
-  fetchTimeout: 120s
-  ## Nginx large_client_header_buffers for long query-string filters.
+  ## The proxy asks PostgREST for its table settings at start, and again when the sync workers send
+  ## a reload request after a change. It also asks every configRefreshSeconds, in case a request got lost.
+  configRefreshSeconds: 60
   largeClientHeaderBuffers: 4 64k
-  ## Connections that ngx.fetch holds open for reuse. Zero opens and closes one
-  ## connection for each fetch, which makes webdis free its client while a
-  ## command is still in flight and corrupts the reply path.
-  fetchKeepalive: 32
-  ## Idle lifetime of a connection held open by ngx.fetch.
-  fetchKeepaliveTimeout: 60s
-  ## Valkey database number for the response cache (0 is for sync streams).
   cacheRedisDb: 1
-  ## Largest response body that is stored in the cache, in bytes. A larger one is
-  ## served but not stored. Zero stores any size.
   maxCacheBodyBytes: 262144
-  ## nginx proxy image (built from Dockerfile.proxy).
-  nginxImage: ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:556f3ba
-  ## webdis image for the Redis HTTP proxy sidecar. Keep the tag pinned, because
-  ## every webdis release up to this one still frees an in-flight command.
-  webdisImage: docker.io/nicolas/webdis:0.1.25
-  ## Resource requests and limits for the nginx proxy deployment.
+  ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
+  maxInflight: 32
+  image: ghcr.io/prefeitura-rio/data-proxy-proxy:556f3ba
   resources:
     requests:
-      cpu: 100m
+      ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.
+      cpu: 500m
       memory: 64Mi
-  ## Resource requests and limits for the webdis sidecar.
-  webdisResources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-  ## Autoscaling for nginx in single and HA modes.
   autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 3

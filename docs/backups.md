@@ -1,10 +1,10 @@
 # Backups
 
-A sync rebuilds application tables from BigQuery. It does not rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
+A sync rebuilds application tables from BigQuery. It doesn't rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
 
 ## Operation
 
-Set `backup.enabled` to create one CronJob per configured schema. Each job exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`:
+Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so a schema that an editor adds in the console is backed up from its first night. For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
 
 ```text
 <backup.prefix>/<schema>/<date>/access_policy.dump
@@ -17,7 +17,7 @@ The chart default prefix is:
 backups/access_policy
 ```
 
-Backups contain only access-policy and audit-log data. They do not contain PostgreSQL tables, Parquet files, or the full database.
+Backups contain only access-policy and audit-log data. They don't contain PostgreSQL tables, Parquet files, or the full database.
 
 ## Configuration
 
@@ -35,9 +35,9 @@ backup:
     bucket: access-policy-backups
 ```
 
-The shared `jobs` Secret supplies the PostgreSQL maintenance-role password. The backup CronJob and the cleanup CronJob both connect as the `jobs` role, so neither runs as the database owner.
+The database Secret supplies the password of the `ops` role. The backup CronJob and the cleanup CronJob both connect as that role, like every other internal workload.
 
-The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart does not delete backup objects.
+The default schedule is daily at 03:00 UTC. Configure bucket lifecycle rules for retention; the chart doesn't delete backup objects.
 
 ## Verify a backup
 
@@ -58,7 +58,11 @@ pg_restore --list access_policy.dump
 3. Compare it with `<schema>.access_policy`.
 4. Apply reviewed rows only.
 
-Do not load an unreviewed backup into a live policy table.
+Don't load an unreviewed backup into a live policy table.
+
+## Catalog recovery
+
+CNPG backs up the DuckLake catalogs with the rest of the cluster, because they live in the `ducklake` database. This chart doesn't back them up, and the backup CronJob dumps only `access_policy` and `access_log`. Restore the catalogs with the CNPG recovery of the whole cluster.
 
 ---
 

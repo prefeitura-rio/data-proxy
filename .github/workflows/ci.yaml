@@ -6,17 +6,17 @@ on:
     paths: &ci_paths
       - .github/workflows/**
       - .github/actions/**
-      - src/**
-      - tests/**
-      - nginx/**
+      - sync/**
+      - console/**
+      - k3d/**
+      - nix/**
+      - proxy/**
       - helm/**
+      - k6/**
       - scripts/**
-      - pyproject.toml
-      - uv.lock
-      - Dockerfile
-      - Dockerfile.postgres
-      - Dockerfile.nushell
-      - Dockerfile.proxy
+      - Containerfile.sync
+      - Containerfile.postgres
+      - Containerfile.proxy
       - devenv.nix
       - devenv.lock
       - devenv.yaml
@@ -46,50 +46,17 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      - uses: ./.github/actions/setup-devenv
       - id: filter
         env:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
-        run: |
-          matrix='{"include":['
-          first=true
-          build_images=false
-          add_image() {
-            if [ "$first" = false ]; then matrix+=','; fi
-            first=false
-            matrix+="{\"name\":\"$1\",\"dockerfile\":\"$2\",\"image\":\"ghcr.io/$GITHUB_REPOSITORY$3\",\"tag_prefix\":\"$4\"}"
-            build_images=true
-          }
-          if [ "$FORCE_FULL" = "true" ]; then
-            build_helm=true
-            add_image "Sync pipeline" "Dockerfile" "" ""
-            add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"
-            add_image "Nushell" "Dockerfile.nushell" "-nushell" ""
-            add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy" ""
-          else
-            BASE="$BEFORE"
-            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE="HEAD~1"; fi
-            CHANGED=$(git diff --name-only "$BASE" "$GITHUB_SHA")
-            changed() { echo "$CHANGED" | grep -Eq "$1"; }
-            build_helm=false
-            if changed '^helm/'; then build_helm=true; fi
-            if changed '^(Dockerfile$|src/|pyproject\.toml$|uv\.lock$)'; then add_image "Sync pipeline" "Dockerfile" "" ""; fi
-            if changed '^(nginx/|Dockerfile\.proxy$)'; then add_image "Nginx proxy" "Dockerfile.proxy" "-nginx-proxy" ""; fi
-            if changed '^Dockerfile\.nushell$'; then add_image "Nushell" "Dockerfile.nushell" "-nushell" ""; fi
-            if changed '^Dockerfile\.postgres$'; then add_image "PostgreSQL" "Dockerfile.postgres" "-postgres" "17-"; fi
-          fi
-          matrix+=']}'
-          {
-            echo "build_helm=$build_helm"
-            echo "build_images=$build_images"
-            echo "build_matrix<<EOF"
-            echo "$matrix"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-  quality:
+          CI_REPOSITORY: ${{ github.repository }}
+        run: devenv --profile checks shell -- ci changes
+  checks:
     defaults:
       run:
-        shell: devenv --profile quality shell -- bash -e {0}
+        shell: devenv --profile checks shell -- bash -e {0}
     name: Lint and test
     needs: changes
     runs-on: ubuntu-latest
@@ -97,46 +64,67 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-devenv
-      - name: Restore quality virtual environment
-        id: quality-venv-cache
+      - name: Restore checks virtual environment
+        id: checks-venv-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: .venv
-          key: quality-venv-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
-      - name: Restore quality task state
-        id: quality-tasks-cache
+          path: sync/.venv
+          key: checks-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
+      - name: Restore checks task state
+        id: checks-tasks-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            .devenv/profiles/quality/state/tasks.db*
-            .devenv/profiles/quality/state/files.json
-          key: quality-tasks-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-${{ github.sha }}
+            .devenv/profiles/checks/state/tasks.db*
+            .devenv/profiles/checks/state/files.json
+          key: checks-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-${{ github.sha }}
           restore-keys: |
-            quality-tasks-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-
-      - run: devenv --profile quality tasks run dp:lint dp:test
-      - name: Save quality virtual environment
-        if: steps.quality-venv-cache.outputs.cache-hit != 'true'
+            checks-tasks-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}-
+      - run: devenv --profile checks tasks run lint:all test:all
+      - name: Save checks virtual environment
+        if: steps.checks-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: .venv
-          key: ${{ steps.quality-venv-cache.outputs.cache-primary-key }}
-      - name: Save quality task state
-        if: steps.quality-tasks-cache.outputs.cache-hit != 'true'
+          path: sync/.venv
+          key: ${{ steps.checks-venv-cache.outputs.cache-primary-key }}
+      - name: Save checks task state
+        if: steps.checks-tasks-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            .devenv/profiles/quality/state/tasks.db*
-            .devenv/profiles/quality/state/files.json
-          key: ${{ steps.quality-tasks-cache.outputs.cache-primary-key }}
+            .devenv/profiles/checks/state/tasks.db*
+            .devenv/profiles/checks/state/files.json
+          key: ${{ steps.checks-tasks-cache.outputs.cache-primary-key }}
+  test-sync:
+    name: Sync integration tests
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup-devenv
+      - run: podman --version
+      - run: devenv --profile sync test
+  test-proxy:
+    name: Proxy integration tests
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup-devenv
+      - run: devenv --profile proxy test
   build-images:
     name: Build ${{ matrix.name }} image
     needs:
       - changes
-      - quality
+      - checks
+      - test-sync
+      - test-proxy
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
-    if: always() && github.ref == 'refs/heads/main' && needs.quality.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -156,7 +144,7 @@ jobs:
             type=raw,value=latest
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          file: ${{ matrix.dockerfile }}
+          file: ${{ matrix.containerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -165,14 +153,16 @@ jobs:
   helm:
     defaults:
       run:
-        shell: devenv --profile helm shell -- bash -e {0}
+        shell: devenv --profile chart shell -- bash -e {0}
     name: Release Helm chart
     timeout-minutes: 15
     needs:
       - changes
-      - quality
+      - checks
+      - test-sync
+      - test-proxy
       - build-images
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.quality.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -180,111 +170,50 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
-        run: git pull --rebase origin main
-      - name: Resolve latest image SHAs from GHCR
+        run: devenv --profile checks shell -- ci git update
+      - name: Resolve latest image SHAs from registry
         id: shas
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          resolve_tag() {
-            local name="$1"
-            local filter="$2"
-            local fallback="${3:-}"
-            local tag
-
-            tag=$(gh api "orgs/prefeitura-rio/packages/container/${name}/versions" --jq ".[0].metadata.container.tags | map(select(${filter})) | .[0]" 2>/dev/null || true)
-
-            if [ -n "$tag" ] && ! echo "$tag" | grep -q '{'; then
-              echo "$tag"
-            elif [ -n "$fallback" ]; then
-              echo "$fallback"
-            else
-              echo "No matching image tag is available for ${name}" >&2
-              return 1
-            fi
-          }
-
-          app=$(resolve_tag data-proxy '. != "latest"' latest)
-          postgres=$(resolve_tag data-proxy-postgres 'test("^17-[0-9a-f]+$")')
-          nushell=$(resolve_tag data-proxy-nushell '. != "latest"' latest)
-          nginx=$(resolve_tag data-proxy-nginx-proxy '. != "latest"' latest)
-
-          {
-            echo "app=$app"
-            echo "postgres=$postgres"
-            echo "nushell=$nushell"
-            echo "nginx=$nginx"
-          } >> "$GITHUB_OUTPUT"
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: devenv --profile checks shell -- ci images resolve
       - name: Pin image SHAs in values.yaml
-        run: |
-          yq e ".sync.image = \"ghcr.io/prefeitura-rio/data-proxy:\" + strenv(APP_SHA)" -i helm/values.yaml
-          yq e ".cnpg.image = \"ghcr.io/prefeitura-rio/data-proxy-postgres:\" + strenv(PG_SHA)" -i helm/values.yaml
-          yq e ".migration.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".cnpg.init.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".postgrest.jwksFetch.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".backup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".cleanup.image = \"ghcr.io/prefeitura-rio/data-proxy-nushell:\" + strenv(NU_SHA)" -i helm/values.yaml
-          yq e ".fallback.nginxImage = \"ghcr.io/prefeitura-rio/data-proxy-nginx-proxy:\" + strenv(NGINX_SHA)" -i helm/values.yaml
+        run: devenv --profile checks shell -- ci images pin
         env:
-          APP_SHA: ${{ steps.shas.outputs.app }}
+          PIPELINE_SHA: ${{ steps.shas.outputs.pipeline }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
-          NGINX_SHA: ${{ steps.shas.outputs.nginx }}
+          PROXY_SHA: ${{ steps.shas.outputs.proxy }}
       - name: Read current version
         id: version
-        run: |
-          CHART_VERSION=$(yq eval '.version' helm/Chart.yaml)
-          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
-          LAST_VERSION=${LAST_TAG#helm-v}
-          BASE_VERSION="$CHART_VERSION"
-          if [ -n "$LAST_VERSION" ] && [ "$(printf '%s\n' "$BASE_VERSION" "$LAST_VERSION" | sort -V | tail -1)" = "$LAST_VERSION" ]; then
-            BASE_VERSION="$LAST_VERSION"
-          fi
-          MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
-          MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
-          NEXT="$MAJOR.$((MINOR + 1)).0"
-          {
-            echo "current=$CHART_VERSION"
-            echo "next=$NEXT"
-            echo "tag=helm-v$NEXT"
-          } >> "$GITHUB_OUTPUT"
-      - name: Skip if no chart or image changes since release
+        run: devenv --profile checks shell -- ci version
+      - name: Skip if no release-level commit or chart changes exist
         id: guard
-        run: |
-          LAST_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | head -1 || true)
-          if [ -n "$LAST_TAG" ] && ! git diff --name-only "$LAST_TAG" HEAD -- helm/ | grep -v '^helm/tests/' | grep -q . && ! git diff --name-only -- helm/values.yaml | grep -q .; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Login to GHCR
+        run: devenv --profile checks shell -- ci guard
+        env:
+          RELEASE: ${{ steps.version.outputs.release }}
+      - name: Login to registry
         if: steps.guard.outputs.skip != 'true'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: devenv --profile checks shell -- ci chart login
+        env:
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_REGISTRY_USER: ${{ github.actor }}
       - name: Bump chart version
         if: steps.guard.outputs.skip != 'true'
-        run: yq e '.version = strenv(NEXT)' -i helm/Chart.yaml
+        run: devenv --profile checks shell -- ci chart bump
         env:
           NEXT: ${{ steps.version.outputs.next }}
       - name: Package chart
         if: steps.guard.outputs.skip != 'true'
-        run: helm package helm/ --destination ./packaged/
+        run: devenv --profile checks shell -- ci chart package
       - name: Commit and tag chart release
         if: steps.guard.outputs.skip != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add helm/Chart.yaml helm/values.yaml
-          git commit -m "chore: release helm chart ${{ steps.version.outputs.next }} [skip ci]"
-          git tag helm-v${{ steps.version.outputs.next }}
-          git push origin HEAD:main
-          git push origin helm-v${{ steps.version.outputs.next }}
-      - name: Push chart
-        if: steps.guard.outputs.skip != 'true'
-        run: helm push ./packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
-      - name: Create GitHub release
-        if: steps.guard.outputs.skip != 'true'
+        run: devenv --profile checks shell -- ci chart commit
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^helm-v' | sed -n '2p' || true)
-          gh release create "$TAG" --title "Helm chart $TAG" ${PREV_TAG:+--notes-start-tag "$PREV_TAG"} --generate-notes
-          gh release upload "$TAG" ./packaged/*.tgz
+          NEXT: ${{ steps.version.outputs.next }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+      - name: Publish chart and release
+        if: steps.guard.outputs.skip != 'true'
+        run: devenv --profile checks shell -- ci chart publish
+        env:
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}

@@ -1,0 +1,1271 @@
+fullnameOverride: keycloak
+keycloak:
+  adminUser: admin
+  adminPassword: admin
+  httpEnabled: true
+  httpsEnabled: false
+  production: false
+database:
+  type: ""
+postgres:
+  enabled: false
+realm:
+  import: true
+  configFile: |
+    {
+      "realm": "dev",
+      "enabled": true,
+      "displayName": "Data Proxy",
+      "sslRequired": "none",
+      "accessTokenLifespan": 300,
+      "registrationAllowed": false,
+      "clients": [
+        {
+          "clientId": "data-proxy",
+          "name": "data-proxy",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "bearerOnly": true
+        },
+        {
+          "clientId": "api",
+          "name": "api",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_user_1",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "api_no_policy",
+          "name": "api_no_policy",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_user_2",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "policy",
+          "name": "policy",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_policy",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_policy",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "console",
+          "name": "console",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_console",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_console",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "admin",
+          "name": "admin",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_admin",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_admin",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\", \"console_probe\", \"console_alpha\", \"console_beta\", \"console_import\", \"console_bad\", \"e2e_probe\", \"e2e_new\", \"none_such\", \"Bad-Name\", \"rbac\", \"console\", \"data_proxy\", \"dbos\", \"public\", \"pg_custom\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "admin_other",
+          "name": "admin_other",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_admin",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_admin_other",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"other\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "anon",
+          "name": "anon",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "anon",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "anonymous",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "expired",
+          "name": "expired",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_expired",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ],
+          "attributes": {
+            "access.token.lifespan": "5"
+          }
+        },
+        {
+          "clientId": "wrong_audience",
+          "name": "wrong_audience",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_wrong_audience",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "other-audience",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "role_ops",
+          "name": "role_ops",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "ops",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_role_ops",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "role_serving",
+          "name": "role_serving",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "serving",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_role_serving",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "role_postgres",
+          "name": "role_postgres",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "postgres",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_role_postgres",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "role_ghost",
+          "name": "role_ghost",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_ghost",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_role_ghost",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "role_none",
+          "name": "role_none",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_role_none",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[\"test\"]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "schemas_text",
+          "name": "schemas_text",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_user_1",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "test",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "schemas_empty",
+          "name": "schemas_empty",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "roles",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "role",
+                "claim.value": "dp_api",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred_username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "test_user_1",
+                "jsonType.label": "String",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "config": {
+                "claim.name": "schemas",
+                "claim.value": "[]",
+                "jsonType.label": "JSON",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "idp",
+          "name": "idp",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": false,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "defaultClientScopes": [
+            "basic",
+            "web-origins",
+            "acr",
+            "roles",
+            "profile",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-client-role-mapper",
+              "config": {
+                "usermodel.clientRoleMapping.clientId": "idp",
+                "claim.name": "role",
+                "jsonType.label": "String",
+                "multivalued": "false",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "user.attribute": "schemas",
+                "claim.name": "schemas",
+                "jsonType.label": "String",
+                "multivalued": "true",
+                "aggregate.attrs": "false",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
+        }
+      ],
+      "roles": {
+        "client": {
+          "idp": [
+            {
+              "name": "dp_api",
+              "description": "Clients that read the synced data"
+            },
+            {
+              "name": "dp_console",
+              "description": "People who watch the system"
+            }
+          ]
+        }
+      },
+      "users": [
+        {
+          "username": "idp_viewer",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "idp_viewer@example.test",
+          "firstName": "idp_viewer",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "idp-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "idp": [
+              "dp_api"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "idp_console",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "idp_console@example.test",
+          "firstName": "idp_console",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test",
+              "console_probe"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "idp-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "idp": [
+              "dp_console"
+            ]
+          },
+          "requiredActions": []
+        }
+      ],
+      "components": {
+        "org.keycloak.userprofile.UserProfileProvider": [
+          {
+            "providerId": "declarative-user-profile",
+            "config": {
+              "kc.user.profile.config": [
+                "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"email\", \"displayName\": \"${email}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"schemas\", \"displayName\": \"schemas\", \"multivalued\": true, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}}]}"
+              ]
+            }
+          }
+        ]
+      }
+    }
+
+
+
+

@@ -1,0 +1,14 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-ducklake
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  name: ducklake
+  owner: {{ .Values.cnpg.db.user | quote }}
+  cluster:
+    name: {{ include "data-proxy.fullname" . }}
+  databaseReclaimPolicy: retain

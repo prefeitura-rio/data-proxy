@@ -1,78 +1,47 @@
-suite: CNPG shared mode
+suite: CNPG single cluster
 templates:
   - cluster-cnpg.yaml
   - rbac.yaml
-  - cronjob-partman-maintenance.yaml
-  - scaledobject-pooler.yaml
-  - pooler-cnpg.yaml
-  - secret-cnpg-roles.yaml
+  - scaledobjects.yaml
 tests:
-  - it: manages anon, user, and authenticator roles through CNPG
+  - it: manages only the ops and duckdb roles, because ops creates the request roles itself
     asserts:
+      - lengthEqual:
+          path: spec.managed.roles
+          count: 2
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[0].name
+          value: "ops"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[0].superuser
+          value: true
+        template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[1].name
-          value: "anon"
+          value: duckdb
         template: cluster-cnpg.yaml
       - equal:
-          path: spec.managed.roles[1].login
+          path: spec.managed.roles[1].superuser
           value: false
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[2].name
-          value: "user"
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].name
-          value: "authenticator"
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].inherit
-          value: false
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].inRoles
-          value: ["anon", "user"]
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.bootstrap.initdb.postInitApplicationSQL
-          value: []
-        template: cluster-cnpg.yaml
-  - it: grants policy writer membership per configured schema
-    set:
-      syncConfig:
-        schemas:
-          app_pequenos_cariocas:
-            claim: preferred_username
-            tables: []
-          bcadastro:
-            claim: preferred_username
-            tables: []
-    asserts:
-      - equal:
-          path: spec.managed.roles[3].inRoles
-          value: ["anon", "user", "policy_writer_app_pequenos_cariocas", "policy_writer_bcadastro"]
-        template: cluster-cnpg.yaml
-      - notContains:
-          path: spec.managed.roles
-          content:
-            name: cnpg_pooler_pgbouncer
-        template: cluster-cnpg.yaml
-  - it: manages the shared jobs role through CNPG
-    asserts:
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: jobs
-            ensure: present
-            login: true
-            bypassrls: false
-            passwordSecret:
-              name: data-proxy-jobs
         template: cluster-cnpg.yaml
 
-  - it: renders one CNPG Cluster in shared mode
+  - it: creates the extensions at bootstrap and lets DuckDB run for the serving login
+    asserts:
+      - equal:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+          value:
+            - CREATE EXTENSION IF NOT EXISTS postgis;
+            - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.postgres_role"]
+          value: serving
+        template: cluster-cnpg.yaml
+
+  - it: renders one CNPG Cluster
     set:
-      cnpg.instances: 3
       cnpg.storage.size: 100Gi
     asserts:
       - hasDocuments:
@@ -81,9 +50,8 @@ tests:
       - isKind:
           of: Cluster
         template: cluster-cnpg.yaml
-      - equal:
+      - notExists:
           path: spec.instances
-          value: 3
         template: cluster-cnpg.yaml
       - equal:
           path: spec.storage.size
@@ -92,17 +60,29 @@ tests:
 
   - it: mounts GCP credentials into every CNPG instance
     set:
-      gcp.existingSecret: gcp-key
+      gcp.existingSecret: gcp
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.secrets.storage.storageClass: k3d-rwx
     asserts:
-      - contains:
-          path: spec.projectedVolumeTemplate.sources[0].secret.items
-          content:
-            key: key.json
-            path: gcp-key.json
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"mountPath":"/gcp","name":"gcp","readOnly":true'
         template: cluster-cnpg.yaml
-      - equal:
-          path: spec.projectedVolumeTemplate.sources[0].secret.name
-          value: gcp-key
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"name":"gcp","secret":\{"secretName":"gcp"\}'
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+        template: cluster-cnpg.yaml
+      - notExists:
+          path: spec.projectedVolumeTemplate
         template: cluster-cnpg.yaml
 
   - it: uses the configured CNPG PostgreSQL image
@@ -114,114 +94,68 @@ tests:
           value: ghcr.io/example/data-proxy-postgres:test
         template: cluster-cnpg.yaml
 
-  - it: configures pg_duckdb and pg_partman in shared_preload_libraries
+  - it: configures pg_duckdb in shared_preload_libraries
     asserts:
       - contains:
           path: spec.postgresql.shared_preload_libraries
           content: pg_duckdb
         template: cluster-cnpg.yaml
-      - contains:
-          path: spec.postgresql.shared_preload_libraries
-          content: pg_partman_bgw
-        template: cluster-cnpg.yaml
 
-  - it: declares a pg_stat_statements parameter so CNPG manages the extension
+  - it: declares a pg_stat_statements parameter
     asserts:
       - equal:
           path: spec.postgresql.parameters["pg_stat_statements.max"]
           value: "10000"
         template: cluster-cnpg.yaml
-      - notContains:
+      - contains:
           path: spec.postgresql.shared_preload_libraries
           content: pg_stat_statements
         template: cluster-cnpg.yaml
 
-  - it: does not render Patroni RBAC resources
+  - it: renders sync RBAC resources for the workflow recovery and the provision Jobs
     asserts:
       - hasDocuments:
-          count: 5
+          count: 2
+        template: rbac.yaml
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [get, list]
+            - apiGroups: [batch]
+              resources: [cronjobs]
+              verbs: [get]
+            - apiGroups: [batch]
+              resources: [jobs]
+              verbs: [create, get, watch]
+        documentSelector:
+          path: kind
+          value: Role
         template: rbac.yaml
 
-  - it: leaves Pooler authentication to CNPG
-    asserts:
-      - notExists:
-          path: spec.pgbouncer.authQuerySecret
-        template: pooler-cnpg.yaml
-      - notExists:
-          path: spec.pgbouncer.authQuery
-        template: pooler-cnpg.yaml
-  - it: renders the partman maintenance CronJob with a daily schedule
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: cronjob-partman-maintenance.yaml
-      - isKind:
-          of: CronJob
-        template: cronjob-partman-maintenance.yaml
-      - equal:
-          path: spec.schedule
-          value: "0 6 * * *"
-        template: cronjob-partman-maintenance.yaml
-
-  - it: renders the partman CronJob even when backups are disabled
-    set:
-      backup.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: cronjob-partman-maintenance.yaml
-
-  - it: renders a Pooler ScaledObject targeting the shared Pooler
-    asserts:
-      - hasDocuments:
-          count: 1
-        template: scaledobject-pooler.yaml
-      - equal:
-          path: spec.scaleTargetRef.kind
-          value: Pooler
-        template: scaledobject-pooler.yaml
-      - equal:
-          path: spec.scaleTargetRef.name
-          value: data-proxy-pooler-ro
-        template: scaledobject-pooler.yaml
-      - equal:
-          path: spec.minReplicaCount
-          value: 1
-        template: scaledobject-pooler.yaml
-      - equal:
-          path: spec.maxReplicaCount
-          value: 3
-        template: scaledobject-pooler.yaml
-
-  - it: sizes duckdb threads proportionally to the memory limit
+  - it: defaults duckdb threads to two
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
           value: "2"
         template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 4Gi
-  - it: raises duckdb threads for large memory limits
+
+  - it: overrides duckdb threads from values
     asserts:
       - equal:
           path: spec.postgresql.parameters["duckdb.threads"]
-          value: "3"
+          value: "8"
         template: cluster-cnpg.yaml
     set:
-      cnpg.resources.limits.memory: 6Gi
-  - it: caps duckdb threads at four
+      cnpg.duckdb.threads: 8
+
+  - it: configures the DuckDB memory cap
+    set:
+      cnpg.duckdb.maxMemory: 2048MB
     asserts:
       - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "4"
+          path: spec.postgresql.parameters["duckdb.max_memory"]
+          value: 2048MB
         template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 32Gi
-  - it: floors duckdb threads at one for tiny memory limits
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "1"
-        template: cluster-cnpg.yaml
-    set:
-      cnpg.resources.limits.memory: 512Mi
+
