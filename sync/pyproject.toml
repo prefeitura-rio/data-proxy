@@ -21,6 +21,7 @@ dependencies = [
   "opentelemetry-sdk>=1.44.0",
   "opentelemetry-exporter-otlp-proto-http>=1.44.0",
   "uvloop>=0.23.0",
+  "lightkube>=1.0.1",
 ]
 
 [dependency-groups]
@@ -58,8 +59,6 @@ bdd_features_base_dir = "tests/integration/features"
 markers = [
   "postgres: scenarios that require the PostgreSQL test service",
   "s3: scenarios that require S3-compatible object storage",
-  "redis: scenarios that require the Valkey test service",
-  "postgrest: tests that require the PostgREST test service",
 ]
 filterwarnings = [
   "ignore::pytest.PytestRemovedIn10Warning:pytest_bdd.compat",
@@ -111,6 +110,7 @@ runtime-evaluated-base-classes = [
   "RUF029",   # async test doubles keep the awaitable signature
   "D100",     # test modules have no module docstring by project rule
   "INP001",   # tests run with importlib import mode, not as a package
+  "PLR0904",  # one test class holds every case of one template, so it has many methods
   "PLR2004",  # magic numbers are the expected values in assertions
   "PLR6301",  # test class methods group cases and do not use self
   "TC002",    # test annotations are cheap, runtime imports keep fixtures simple
@@ -195,4 +195,6 @@ ignore_names = [
   "patch_type",
   "do_POST",
   "log_message",
+  "annotations", # a field of ObjectMeta, which the code assigns
+  "ownerReferences", # a field of ObjectMeta, which the code assigns
 ]
