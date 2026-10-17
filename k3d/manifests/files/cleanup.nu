@@ -2,6 +2,7 @@ use std/log
 
 const NAMESPACE = 'data-proxy'
 const TEST_SCHEMA = 'test'
+const NEW_SCHEMA = 'e2e_new'
 const DB_PASSWORD = 'test-pg-pass'
 
 # Clear the E2E helper Jobs, cache, test tables, state, and pending workflows.
@@ -40,7 +41,7 @@ def main []: nothing -> nothing {
             error make $'CNPG primary is unavailable during test cleanup: ($cluster)'
         }
 
-        let dsn = $'postgresql://admin:($DB_PASSWORD)@($cluster)-rw:5432/data-proxy'
+        let dsn = $'postgresql://ops:($DB_PASSWORD)@($cluster)-rw:5432/data-proxy'
         let context = '/tmp/cleanup.json'
 
         let query = try {
@@ -52,7 +53,14 @@ def main []: nothing -> nothing {
 
         kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c $query
 
-        kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('data_proxy.state') IS NOT NULL THEN DELETE FROM data_proxy.state; END IF; IF to_regclass('data_proxy.errors') IS NOT NULL THEN DELETE FROM data_proxy.errors; END IF; IF to_regclass('data_proxy.scope') IS NOT NULL THEN DELETE FROM data_proxy.scope; END IF; IF to_regclass('dbos.workflow_status') IS NOT NULL THEN UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run' WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED'); END IF; END \$\$;"
+        let new_schema = "DO \$\$ BEGIN IF to_regclass('console.schemas') IS NOT NULL THEN DELETE FROM console.tables WHERE schema = 'SCHEMA_NAME'; DELETE FROM console.schemas WHERE name = 'SCHEMA_NAME'; END IF; END \$\$; DROP SCHEMA IF EXISTS SCHEMA_NAME CASCADE;"
+        | str replace --all 'SCHEMA_NAME' $NEW_SCHEMA
+        kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c $new_schema
+
+        let ducklake_dsn = $dsn | str replace '/data-proxy' '/ducklake'
+        kubectl -n $NAMESPACE exec $primary -- psql $ducklake_dsn -v ON_ERROR_STOP=1 -c $'DROP SCHEMA IF EXISTS ($NEW_SCHEMA) CASCADE'
+
+        kubectl -n $NAMESPACE exec $primary -- psql $dsn -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF to_regclass('data_proxy.state') IS NOT NULL THEN DELETE FROM data_proxy.state; END IF; IF to_regclass('data_proxy.errors') IS NOT NULL THEN DELETE FROM data_proxy.errors; END IF; IF to_regclass('data_proxy.scope') IS NOT NULL THEN DELETE FROM data_proxy.scope; END IF; IF to_regclass('dbos.workflow_status') IS NOT NULL THEN UPDATE dbos.workflow_status SET status = 'CANCELLED', error = 'Cancelled before test run', deduplication_id = NULL WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED'); END IF; END \$\$;"
     }
 
     log info 'Test cleanup completed'
