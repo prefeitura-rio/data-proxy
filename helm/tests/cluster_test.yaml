@@ -130,10 +130,10 @@ tests:
               metadata:
                 host: data-proxy-r.default.svc.cluster.local
                 port: "5432"
-                userName: admin
+                userName: ops
                 dbName: data-proxy
                 sslmode: require
-                query: SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = 'postgrest'
+                query: SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = 'serving'
                 targetQueryValue: "4"
         documentSelector:
           path: metadata.name
@@ -154,7 +154,7 @@ tests:
           value: data-proxy-cluster-autoscaler
         template: scaledobjects.yaml
 
-  - it: reads the autoscaler password from the superuser secret
+  - it: reads the autoscaler password from the ops secret
     asserts:
       - isKind:
           of: TriggerAuthentication
@@ -166,7 +166,7 @@ tests:
           path: spec.secretTargetRef
           value:
             - parameter: password
-              name: data-proxy-cnpg-superuser
+              name: data-proxy-cnpg-ops
               key: password
         documentSelector:
           path: metadata.name

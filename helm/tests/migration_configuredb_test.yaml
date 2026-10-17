@@ -40,21 +40,44 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
-  - it: lets the console levels run the pre-request function, which copies the schemas of the token
+  - it: gives the role of every token its rights on the console schema, and lets no token change a queue or a schedule
     asserts:
       - matchRegex:
           path: data["postgres_grant_console_usage.sql"]
-          pattern: "GRANT EXECUTE ON FUNCTION \\{\\{ app_schema \\}\\}.pre_request\\(\\) TO \\{\\{ console_role \\}\\}"
+          pattern: "GRANT USAGE ON SCHEMA console TO \\{\\{ user_role \\}\\}"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notMatchRegex:
+          path: data["postgres_grant_console_usage.sql"]
+          pattern: "console\\.(queues|schedules)|authz"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
-  - it: gives each console level its own statement timeout, because PostgREST applies the settings of the request role only
+  - it: lets the role of every token run the function that filters the workflows of the console views
     asserts:
       - matchRegex:
-          path: data["postgres_grant_console_usage.sql"]
-          pattern: "ALTER ROLE \\{\\{ console_role \\}\\} SET statement_timeout"
+          path: data["postgres_grant_app_usage.sql"]
+          pattern: "GRANT EXECUTE ON FUNCTION \\{\\{ app_schema \\}\\}\\.sees\\(text, text\\) TO \\{\\{ user_role \\}\\}"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - isNull:
+          path: data["postgres_create_console_operations.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: gives a request to the console profile a longer statement timeout, because every token has the same role
+    asserts:
+      - matchRegex:
+          path: data["postgres_create_pre_request.sql"]
+          pattern: "set_config\\('statement_timeout', '30s', true\\)"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
@@ -175,6 +198,44 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-0
+        template: jobs.yaml
+
+  - it: ships the rbac rules file with the scripts, and not its schema
+    asserts:
+      - matchRegex:
+          path: data["rbac.toml"]
+          pattern: 'name = "dp_admin"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-script
+        template: jobs.yaml
+      - notExists:
+          path: data["rbac.schema.json"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-script
+        template: jobs.yaml
+      - isNotNull:
+          path: data["postgres_create_rbac.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+
+  - it: creates the request roles before the rbac rules grant to them
+    asserts:
+      - isNotNull:
+          path: data["postgres_create_roles.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - matchRegex:
+          path: data["configure-db.nu"]
+          pattern: "create-roles\\n\\s+configure-ducklake\\n\\s+configure-catalog\\n\\s+create-rbac"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-script
         template: jobs.yaml
 
   - it: ships maintenance procedure files

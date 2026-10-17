@@ -6,7 +6,7 @@ const LOCAL_CLIENT_SECRET = 'test-secret'
 # Fetch an OIDC access token from a Keycloak realm and return it as a record.
 def main [
     --issuer: string # Keycloak realm address, for example https://sso.example.com/realms/prod
-    --client-id: string = 'user' # OAuth client ID
+    --client-id: string = 'api' # OAuth client ID
     --client-secret: string # Client secret; falls back to KEYCLOAK_CLIENT_SECRET, then to the local test secret
     --username: string # Use the password grant for this user
     --password: string # Password for the password grant

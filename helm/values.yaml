@@ -185,10 +185,9 @@ ducklake:
   maxCompactedFiles: 10
   ## Rewrite files when this fraction of rows is deleted.
   rewriteDeleteThreshold: 0.95
-  ## Passwords of the catalog roles ducklake_writer (sync workers) and ducklake_reader (PostgreSQL).
+  ## Password of the duckdb role, the read-only login that pg_duckdb uses for the catalog.
   ## Empty: generated once and kept on upgrades.
-  writerPassword: ""
-  readerPassword: ""
+  duckdbPassword: ""
   ## Small volume that holds the persistent DuckDB secrets (S3 credentials), shared by every PostgreSQL Pod.
   secrets:
     storage:
@@ -260,10 +259,10 @@ redis:
 jobs:
   ## Shared image for maintenance jobs.
   image: ghcr.io/prefeitura-rio/data-proxy-jobs:0da190f
-  ## Provision CronJob: serves the schemas that editors add in the console. It creates each schema,
-  ## its access policy, and its policy-writer role, then tells PostgREST to reload when the list changes.
+  ## Provision template: a suspended CronJob that never runs on a clock. A Job is made from it when an
+  ## editor adds or removes a schema, and at the start of every sync run. It creates each schema and its
+  ## access policy, serves the list, and removes what the console dropped.
   provision:
-    schedule: "* * * * *"
     activeDeadlineSeconds: 300
   ## Backup CronJob: exports access_policy, access_log, and restored catalogs.
   backup:
@@ -287,8 +286,10 @@ jobs:
 ## Role names, JWT claim, and schema configuration for row-level security.
 auth:
   anonRole: anon
-  userRole: user
-  authenticatorRole: postgrest
+  ## The baseline role: every dp_* role of rbac.toml is a member of it, so one set of grants serves them all.
+  userRole: dp_api
+  ## The login of the serving path: PostgREST, the PgDog pool and the recovery Deployment. It has no rights of its own and only switches into the request roles.
+  servingRole: serving
   existingSecret: ""
   jwtRoleClaim: $.role
 ## CloudNativePG manages one PostgreSQL cluster.
@@ -306,7 +307,7 @@ cnpg:
     synchronous: {}
   db:
     name: data-proxy
-    user: admin
+    user: ops
   existingSecret: ""
   ## A standby that replays more bytes behind the primary than this leaves the read Service until it catches up.
   maxReplicaLag: 16Mi

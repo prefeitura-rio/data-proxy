@@ -59,7 +59,7 @@ tests:
           path: spec.replicas
         template: deployment-postgrest.yaml
 
-  - it: starts PostgREST with the admin schema, and the provision job adds the others
+  - it: starts PostgREST with the console schema, and the provision job adds the others
     set:
       sync.config.schemas.test.tables: []
     asserts:
@@ -67,7 +67,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: PGRST_DB_SCHEMAS
-            value: admin
+            value: console
 
   - it: configures a bounded and persistent PostgREST database pool
     asserts:
@@ -127,7 +127,7 @@ tests:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
           value: "true"
 
-  - it: waits for the CNPG postgrest role before PostgREST starts
+  - it: logs PostgREST in as the serving login and waits for it
     set:
       postgrest.jwtSecret: test-secret
     asserts:
@@ -135,7 +135,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: PGUSER
-            value: postgrest
+            value: serving
       - contains:
           path: spec.template.spec.initContainers[0].env
           content:
@@ -143,7 +143,7 @@ tests:
             valueFrom:
               secretKeyRef:
                 key: password
-                name: data-proxy-cnpg-authenticator
+                name: data-proxy-cnpg-serving
 
   - it: labels the Deployment so the sync workflow can restart it
     asserts:

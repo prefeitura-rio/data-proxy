@@ -32,7 +32,6 @@ spec:
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
-        - CREATE ROLE policy_writer NOLOGIN;
   probes:
     readiness:
       type: streaming
@@ -61,7 +60,7 @@ spec:
       duckdb.allow_community_extensions: "on"
       duckdb.extension_directory: /usr/local/lib/pg_duckdb/extensions
       duckdb.unsafe_allow_execution_inside_functions: "on"
-      duckdb.postgres_role: postgrest
+      duckdb.postgres_role: {{ $root.Values.auth.servingRole }}
       duckdb.threads: {{ include "data-proxy.duckdbThreads" $root }}
       duckdb.max_memory: {{ $root.Values.cnpg.duckdb.maxMemory | quote }}
 {{- include "data-proxy.cnpgParameters" $root | nindent 6 }}
@@ -74,62 +73,14 @@ spec:
     roles:
       - name: {{ $root.Values.cnpg.db.user | quote }}
         ensure: present
-        superuser: true
         login: true
+        superuser: true
         passwordSecret:
           name: {{ include "data-proxy.dbSecretName" $root }}
-      - name: {{ $root.Values.auth.anonRole | quote }}
-        ensure: present
-        login: false
-        bypassrls: false
-      - name: {{ $root.Values.auth.userRole | quote }}
-        ensure: present
-        login: false
-        bypassrls: false
-      - name: {{ $root.Values.auth.authenticatorRole | quote }}
-        ensure: present
-        login: true
-        bypassrls: false
-        inherit: false
-        passwordSecret:
-          name: {{ include "data-proxy.authenticatorSecretName" $root }}
-        inRoles:
-          - {{ $root.Values.auth.anonRole | quote }}
-          - {{ $root.Values.auth.userRole | quote }}
-          - console_viewer
-          - console_operator
-          - console_editor
-          - console_admin
-          - policy_writer
-      {{- range $role := list "writer" "reader" }}
-      - name: {{ printf "ducklake_%s" $role | quote }}
+      - name: duckdb
         ensure: present
         login: true
         superuser: false
         bypassrls: false
         passwordSecret:
-          name: {{ include "data-proxy.ducklakeSecretName" (dict "root" $root "role" $role) }}
-      {{- end }}
-      - name: console_viewer
-        ensure: present
-        login: false
-        bypassrls: false
-      - name: console_operator
-        ensure: present
-        login: false
-        bypassrls: false
-        inRoles:
-          - console_viewer
-      - name: console_editor
-        ensure: present
-        login: false
-        bypassrls: false
-        inRoles:
-          - console_viewer
-      - name: console_admin
-        ensure: present
-        login: false
-        bypassrls: false
-        inRoles:
-          - console_operator
-          - console_editor
+          name: {{ include "data-proxy.duckdbSecretName" $root }}

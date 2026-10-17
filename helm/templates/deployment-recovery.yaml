@@ -35,11 +35,11 @@ spec:
             - name: PGDATABASE
               value: {{ .Values.cnpg.db.name | quote }}
             - name: PGUSER
-              value: {{ .Values.auth.authenticatorRole | quote }}
+              value: {{ .Values.auth.servingRole | quote }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.authenticatorSecretName" . }}
+                  name: {{ include "data-proxy.servingSecretName" . }}
                   key: password
           volumeMounts:
             - name: scripts

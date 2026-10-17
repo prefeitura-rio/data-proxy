@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Grant access to the internal pre-request schema and function.",
+  "description": "Grant access to the internal pre-request schema and function, and let the role of the tokens run the function that the console views call to filter the workflows.",
   "inputs": {
     "app_schema": "PostgreSQL schema that holds the pre-request function.",
     "anonymous_role": "Anonymous database role.",
@@ -14,6 +14,4 @@
 {{ grant_schema_usage(app_schema, user_role) }}
 GRANT EXECUTE ON FUNCTION {{ app_schema }}.pre_request() TO {{ anonymous_role }};
 GRANT EXECUTE ON FUNCTION {{ app_schema }}.pre_request() TO {{ user_role }};
-
-ALTER ROLE {{ user_role }} SET statement_timeout = '15s';
-ALTER ROLE {{ anonymous_role }} SET statement_timeout = '15s';
+GRANT EXECUTE ON FUNCTION {{ app_schema }}.sees(text, text) TO {{ user_role }};

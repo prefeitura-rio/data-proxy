@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create a function that maps JWT claims into PostgreSQL session variables.",
+  "description": "Create a function that maps JWT claims into PostgreSQL session variables, loads the rbac rules for the role and the schemas of the token, and gives a request to the console profile a longer statement timeout.",
   "inputs": {
     "schema": "PostgreSQL schema that holds the pre-request function."
   }
@@ -34,5 +34,15 @@ BEGIN
         );
     END LOOP;
 
+    PERFORM rbac.load();
+
+    -- The console reads views over the DBOS tables, so its requests may run longer than data requests.
+    -- The role of the token has the short timeout, and every token has the same role.
+    IF coalesce(
+        nullif(current_setting('request.headers', true), '')::json ->> 'accept-profile',
+        nullif(current_setting('request.headers', true), '')::json ->> 'content-profile'
+    ) = 'console' THEN
+        PERFORM set_config('statement_timeout', '30s', true);
+    END IF;
 END;
 $$ LANGUAGE plpgsql

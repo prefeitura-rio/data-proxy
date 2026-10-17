@@ -135,11 +135,11 @@ tests:
           pattern: '(?m)^default_pool_size = 20$'
         template: configmap-pgdog.yaml
 
-  - it: stores the authenticator login in a Secret, not in the ConfigMap
+  - it: stores the serving login in a Secret, not in the ConfigMap
     asserts:
       - matchRegex:
           path: stringData["users.toml"]
-          pattern: '(?s)name = "postgrest"\s+database = "data-proxy"\s+password = "[A-Za-z0-9]+"'
+          pattern: '(?s)name = "serving"\s+database = "data-proxy"\s+password = "[A-Za-z0-9]+"'
         documentSelector:
           path: metadata.name
           value: data-proxy-pgdog-users
@@ -151,7 +151,7 @@ tests:
 
   - it: uses the password of the PostgREST role in the PgDog login
     set:
-      cnpg.authenticatorPassword: fixed-password
+      cnpg.servingPassword: fixed-password
     asserts:
       - matchRegex:
           path: stringData["users.toml"]
@@ -280,7 +280,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: PGRST_DB_URI
-            value: "postgres://postgrest:$(PGRST_PASSWORD)@data-proxy-pgdog:6432,data-proxy-rw:5432/data-proxy"
+            value: "postgres://serving:$(PGRST_PASSWORD)@data-proxy-pgdog:6432,data-proxy-rw:5432/data-proxy"
         template: deployment-postgrest.yaml
       - contains:
           path: spec.template.spec.containers[0].env

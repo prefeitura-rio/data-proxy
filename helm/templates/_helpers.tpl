@@ -43,7 +43,7 @@
     userName: {{ .Values.cnpg.db.user }}
     dbName: {{ .Values.cnpg.db.name }}
     sslmode: require
-    query: {{ printf "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = '%s'" .Values.auth.authenticatorRole | quote }}
+    query: {{ printf "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = '%s'" .Values.auth.servingRole | quote }}
     targetQueryValue: {{ include "data-proxy.cnpgSessionsPerInstance" . | quote }}
 {{- end }}
 
@@ -114,15 +114,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.dbSecretName" -}}
-{{- include "data-proxy.fullname" . }}-cnpg-superuser
+{{- include "data-proxy.fullname" . }}-cnpg-ops
 {{- end }}
 
-{{- define "data-proxy.authenticatorSecretName" -}}
-{{- printf "%s-cnpg-authenticator" (include "data-proxy.fullname" .) }}
+{{- define "data-proxy.servingSecretName" -}}
+{{- printf "%s-cnpg-%s" (include "data-proxy.fullname" .) .Values.auth.servingRole }}
 {{- end }}
 
-{{- define "data-proxy.ducklakeSecretName" -}}
-{{- printf "%s-ducklake-%s" (include "data-proxy.fullname" .root) .role }}
+{{- define "data-proxy.duckdbSecretName" -}}
+{{- printf "%s-cnpg-duckdb" (include "data-proxy.fullname" .) }}
 {{- end }}
 
 {{- define "data-proxy.s3SecretName" -}}
@@ -165,7 +165,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "data-proxy.s3BootstrapEnv" -}}
+{{- define "data-proxy.pgEnv" -}}
+- name: PGHOST
+  value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+- name: PGPORT
+  value: "5432"
+- name: PGDATABASE
+  value: {{ .Values.cnpg.db.name | quote }}
+- name: PGUSER
+  value: {{ .Values.cnpg.db.user | quote }}
+- name: PGPASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.dbSecretName" . }}
+      key: password
+{{- end }}
+
+{{- define "data-proxy.s3Env" -}}
 - name: S3_BUCKET
   value: {{ .Values.s3.bucket | quote }}
 - name: S3_ENDPOINT
@@ -182,6 +198,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     secretKeyRef:
       name: {{ include "data-proxy.s3SecretName" . }}
       key: S3_SECRET_KEY
+{{- end }}
+
+{{- define "data-proxy.s3BootstrapEnv" -}}
+{{- include "data-proxy.s3Env" . }}
 - name: S3_BOOTSTRAP_TIMEOUT
   value: {{ .Values.s3.bootstrap.timeout | quote }}
 - name: S3_BOOTSTRAP_RETRY
@@ -274,14 +294,14 @@ PostgREST sends its queries to PgDog. Its listener needs a read-write session, w
 so libpq moves on to the second host, the primary.
 */ -}}
 {{- define "data-proxy.postgrestDsn" -}}
-{{- $role := .Values.auth.authenticatorRole -}}
+{{- $role := .Values.auth.servingRole -}}
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- define "data-proxy.postgresWriteDsn" -}}
-{{- $role := .Values.auth.authenticatorRole -}}
+{{- $role := .Values.auth.servingRole -}}
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
@@ -311,7 +331,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 
 {{- define "data-proxy.nginxConfigBody" -}}
 {{- $root := .root -}}
-{{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/nginx.conf") -}}
+{{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/config/nginx.conf") -}}
 {{- end }}
 
 {{- define "data-proxy.proxyEnv" -}}
@@ -423,24 +443,9 @@ jwtRules:
 - name: PG_DATABASE_URL
   value: {{ include "data-proxy.appPgDsn" . | quote }}
 {{ include "data-proxy.redisConfigEnv" . }}
-- name: S3_BUCKET
-  value: {{ .Values.s3.bucket | quote }}
-- name: S3_ENDPOINT
-  value: {{ include "data-proxy.s3Endpoint" . | quote }}
-- name: S3_USE_SSL
-  value: {{ .Values.s3.useSsl | quote }}
+{{ include "data-proxy.s3Env" . }}
 - name: S3_SCRATCH_PREFIX
   value: tmp
-- name: S3_ACCESS_KEY
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.s3SecretName" . }}
-      key: S3_ACCESS_KEY
-- name: S3_SECRET_KEY
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.s3SecretName" . }}
-      key: S3_SECRET_KEY
 - name: DUCKLAKE_CATALOG_PATH
   value: {{ .Values.ducklake.catalogPath | quote }}
 - name: DUCKLAKE_TARGET_FILE_SIZE
@@ -488,7 +493,7 @@ jwtRules:
 - name: AUTH_USER_ROLE
   value: {{ .Values.auth.userRole | quote }}
 - name: AUTH_POSTGREST_ROLE
-  value: {{ .Values.auth.authenticatorRole | quote }}
+  value: {{ .Values.auth.servingRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
 {{- if .Values.gcp.existingSecret }}
@@ -569,6 +574,70 @@ jwtRules:
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.configureDbPodSpec" -}}
+restartPolicy: OnFailure
+automountServiceAccountToken: false
+initContainers:
+  {{- include "data-proxy.s3WaitInitContainer" . | nindent 2 }}
+containers:
+  - name: configure-db
+    image: {{ .Values.jobs.image | quote }}
+    imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/configure-db.nu]
+    workingDir: /scripts
+    env:
+      - name: PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" . }}
+            key: password
+      - name: PG_DATABASE_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+      {{- include "data-proxy.pgEnv" . | nindent 6 }}
+      - name: DUCKLAKE_ADMIN_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+      - name: DUCKDB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.duckdbSecretName" . }}
+            key: password
+      - name: SERVING_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.servingSecretName" . }}
+            key: password
+      - name: AUTH_ANON_ROLE
+        value: {{ .Values.auth.anonRole | quote }}
+      - name: AUTH_USER_ROLE
+        value: {{ .Values.auth.userRole | quote }}
+      - name: AUTH_SERVING_ROLE
+        value: {{ .Values.auth.servingRole | quote }}
+      - name: DBOS_APPLICATION_NAME
+        value: {{ .Values.sync.dbos.applicationName | quote }}
+      {{- include "data-proxy.s3Env" . | nindent 6 }}
+      - name: SQL_TEMPLATE_DIR
+        value: /templates
+    volumeMounts:
+      - name: configure-db-script
+        mountPath: /scripts
+        readOnly: true
+      - name: configure-db-sql
+        mountPath: /templates
+        readOnly: true
+volumes:
+  {{- include "data-proxy.s3BootstrapVolume" . | nindent 2 }}
+  - name: configure-db-script
+    configMap:
+      name: {{ include "data-proxy.fullname" . }}-configure-db-script
+      defaultMode: 0555
+  - name: configure-db-sql
+    configMap:
+      name: {{ include "data-proxy.fullname" . }}-configure-db-sql
+      defaultMode: 0444
+      items:
+        {{- include "data-proxy.sqlTemplateItems" . | nindent 8 }}
+{{- end }}
+
 {{- define "data-proxy.provisionPodSpec" -}}
 {{- $root := .root -}}
 restartPolicy: OnFailure
@@ -581,20 +650,8 @@ initContainers:
     workingDir: /scripts
     env:
       - name: RELATION
-        value: admin.schemas
-      - name: PGHOST
-        value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
-      - name: PGPORT
-        value: "5432"
-      - name: PGDATABASE
-        value: {{ $root.Values.cnpg.db.name | quote }}
-      - name: PGUSER
-        value: {{ $root.Values.cnpg.db.user | quote }}
-      - name: PGPASSWORD
-        valueFrom:
-          secretKeyRef:
-            name: {{ include "data-proxy.dbSecretName" $root }}
-            key: password
+        value: console.schemas
+      {{- include "data-proxy.pgEnv" $root | nindent 6 }}
     volumeMounts:
       - name: scripts
         mountPath: /scripts
@@ -615,12 +672,41 @@ containers:
         value: {{ include "data-proxy.appPgDsn" $root | quote }}
       - name: AUTH_USER_ROLE
         value: {{ $root.Values.auth.userRole | quote }}
-      - name: AUTH_AUTHENTICATOR_ROLE
-        value: {{ $root.Values.auth.authenticatorRole | quote }}
+      - name: AUTH_SERVING_ROLE
+        value: {{ $root.Values.auth.servingRole | quote }}
       - name: DBOS_APP_SCHEMA
         value: {{ $root.Values.sync.dbos.appSchema | quote }}
       - name: AUTH_ANON_ROLE
         value: {{ $root.Values.auth.anonRole | quote }}
+      - name: PGPASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" $root }}
+            key: password
+      - name: DUCKLAKE_ADMIN_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) | quote }}
+      - name: DUCKLAKE_CATALOG_PATH
+        value: {{ $root.Values.ducklake.catalogPath | quote }}
+      - name: S3_BUCKET
+        value: {{ $root.Values.s3.bucket | quote }}
+      - name: S3_ENDPOINT
+        value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+      - name: S3_USE_SSL
+        value: {{ $root.Values.s3.useSsl | quote }}
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.s3SecretName" $root }}
+            key: S3_ACCESS_KEY
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.s3SecretName" $root }}
+            key: S3_SECRET_KEY
+      {{- if $root.Values.gcp.existingSecret }}
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: {{ $root.Values.gcp.mountPath | quote }}
+      {{- end }}
       - name: SYNC_CONFIG_PATH
         value: /config/sync.json
       {{- if .all }}
@@ -637,6 +723,7 @@ containers:
         mountPath: /templates
         readOnly: true
       {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 6 }}
+      {{- include "data-proxy.gcpVolumeMount" $root | nindent 6 }}
 volumes:
   - name: scripts
     configMap:
@@ -648,4 +735,54 @@ volumes:
       items:
         {{- include "data-proxy.sqlTemplateItems" $root | nindent 8 }}
   {{- include "data-proxy.syncConfigVolume" $root | nindent 2 }}
+  {{- include "data-proxy.gcpVolume" $root | nindent 2 }}
+{{- end }}
+
+{{- define "data-proxy.revisionJob" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" .root }}-{{ .name }}-{{ .root.Release.Revision }}
+  namespace: {{ .root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" .root | nindent 8 }}
+        app.kubernetes.io/component: {{ .name }}
+    spec:
+      {{- .podSpec | nindent 6 }}
+{{- end }}
+
+{{- define "data-proxy.templateCronJob" -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" .root }}-{{ .name }}
+  namespace: {{ .root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}-template
+spec:
+  suspend: true
+  schedule: "0 0 1 1 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .deadline }}
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" .root | nindent 12 }}
+            app.kubernetes.io/component: {{ .name }}-template
+        spec:
+          {{- .podSpec | nindent 10 }}
 {{- end }}

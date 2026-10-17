@@ -57,11 +57,11 @@ spec:
             - name: PGDATABASE
               value: {{ .Values.cnpg.db.name | quote }}
             - name: PGUSER
-              value: {{ .Values.auth.authenticatorRole | quote }}
+              value: {{ .Values.auth.servingRole | quote }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.authenticatorSecretName" . }}
+                  name: {{ include "data-proxy.servingSecretName" . }}
                   key: password
           volumeMounts:
             - name: configure-db-script
@@ -94,7 +94,7 @@ spec:
             - name: PGRST_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "data-proxy.authenticatorSecretName" . }}
+                  name: {{ include "data-proxy.servingSecretName" . }}
                   key: password
             - name: PGRST_DB_URI
               value: {{ include "data-proxy.postgrestDsn" . | quote }}
@@ -109,7 +109,7 @@ spec:
             - name: PGRST_DB_CHANNEL_ENABLED
               value: "true"
             - name: PGRST_DB_SCHEMAS
-              value: admin
+              value: console
             - name: PGRST_DB_ANON_ROLE
               value: {{ .Values.auth.anonRole | quote }}
             - name: PGRST_JWT_ROLE_CLAIM_KEY

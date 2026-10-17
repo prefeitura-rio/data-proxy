@@ -62,7 +62,7 @@ tests:
             name: PASSWORD
             valueFrom:
               secretKeyRef:
-                name: data-proxy-cnpg-superuser
+                name: data-proxy-cnpg-ops
                 key: password
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]

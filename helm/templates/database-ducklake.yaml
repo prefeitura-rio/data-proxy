@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: postgres
 spec:
   name: ducklake
-  owner: ducklake_writer
+  owner: {{ .Values.cnpg.db.user | quote }}
   cluster:
     name: {{ include "data-proxy.fullname" . }}
   databaseReclaimPolicy: retain

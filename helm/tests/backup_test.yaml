@@ -81,7 +81,7 @@ tests:
             name: SCHEMA
             value: alpha
 
-  - it: connects as the admin role
+  - it: connects as the ops role
     set:
       jobs.backup.enabled: true
       jobs.backup.s3.bucket: backup-bucket
@@ -95,7 +95,7 @@ tests:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: PGUSER
-            value: admin
+            value: ops
       - documentSelector:
           path: metadata.name
           value: data-proxy-backup
@@ -105,7 +105,7 @@ tests:
             name: PGPASSWORD
             valueFrom:
               secretKeyRef:
-                name: data-proxy-cnpg-superuser
+                name: data-proxy-cnpg-ops
                 key: password
 
   - it: mounts GCP credentials so rclone can reach GCS
@@ -227,7 +227,7 @@ tests:
             name: PASSWORD
             valueFrom:
               secretKeyRef:
-                name: data-proxy-cnpg-superuser
+                name: data-proxy-cnpg-ops
                 key: password
 
   - it: gives the backup job the database URL that execute-sql reads
@@ -244,7 +244,7 @@ tests:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: PG_DATABASE_URL
-            value: postgresql://admin@data-proxy-rw:5432/data-proxy
+            value: postgresql://ops@data-proxy-rw:5432/data-proxy
 
   - it: gives the maintenance job no object store, catalog volume, or DuckLake settings
     set:
