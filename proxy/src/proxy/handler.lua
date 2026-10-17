@@ -58,7 +58,7 @@ end
 ---@return nil
 function handler.handle(loaded_config, config)
 	local ngx_request = read_nginx_request(config)
-	if request.asks_for_admin(ngx_request.headers_in) then
+	if request.asks_for_console(ngx_request.headers_in) then
 		ngx.header["Content-Type"] = "application/json"
 		return ngx_request:respond(ngx.HTTP_FORBIDDEN, constants.http.forbidden_body)
 	end

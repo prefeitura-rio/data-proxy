@@ -1,14 +1,14 @@
-# The admin profile belongs to the cluster. The proxy refuses it, so that the config endpoint that the
+# The console profile belongs to the cluster. The proxy refuses it, so that the config endpoint that the
 # proxy itself calls is not reachable from outside.
 GET http://{{host}}/rpc/config
-Accept-Profile: admin
+Accept-Profile: console
 
 HTTP 403
 [Asserts]
-jsonpath "$.error" contains "admin schema"
+jsonpath "$.error" contains "console schema"
 
 POST http://{{host}}/schemas
-Content-Profile: admin
+Content-Profile: console
 Content-Type: application/json
 ```
 {"name": "alpha"}

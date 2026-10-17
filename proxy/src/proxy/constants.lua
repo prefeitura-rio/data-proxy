@@ -34,7 +34,7 @@ return {
 		unavailable_body = '{"error":"PostgREST unavailable"}',
 		unavailable_status = 502,
 		overloaded_body = '{"error":"Proxy overloaded"}',
-		forbidden_body = '{"error":"The admin schema is not available through the proxy"}',
+		forbidden_body = '{"error":"The console schema is not available through the proxy"}',
 		overloaded_status = 503,
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
@@ -53,7 +53,7 @@ return {
 			max_step = 0.05, -- A follower looks at the lock at least every 50 ms, so it wakes up soon after the leader.
 		},
 	},
-	internal_profile = "admin",
+	internal_profile = "console",
 	disabled_endpoints = { "/access_policy" },
 	policy_endpoints = { "/access_policy" },
 	log = {

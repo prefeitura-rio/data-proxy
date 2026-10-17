@@ -38,6 +38,7 @@ function sync.parse(text)
 	return {
 		tables = tables,
 		disabled_endpoints = document.noCachePaths or constants.disabled_endpoints,
+		revision = document.revision,
 	}
 end
 

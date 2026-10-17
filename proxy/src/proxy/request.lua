@@ -77,28 +77,36 @@ end
 --- Tell whether a request asks for the internal profile, which only the cluster may use.
 ---@param headers table<string, string|nil> The request headers.
 ---@return boolean
-function request.asks_for_admin(headers)
+function request.asks_for_console(headers)
 	local internal = constants.internal_profile
 	return headers["Accept-Profile"] == internal or headers["Content-Profile"] == internal
 end
 
---- Get the identity from the Authorization header: the user and the schemas.
+--- Join a claim that is a text or a list of texts, with commas.
+---@param claim string|string[]|nil
+---@return string
+local function join_claim(claim)
+	if type(claim) ~= "table" then return claim or "" end
+
+	return List(claim):join(",")
+end
+
+--- Get the identity from the Authorization header: the user, the schemas, and the role.
+--- The role decides what PostgREST answers, so two tokens that differ only in it get different keys.
 --- The anonymous identity is used if the header is not a valid token.
 ---
 --- ```lua
---- request.jwt_identity("Bearer h.eyJzdWIiOiJhbGljZSJ9.s")  --> { sub = "alice", schemas = "" }
---- request.jwt_identity(nil)                                --> { sub = "anon", schemas = "" }
+--- request.jwt_identity("Bearer h.eyJzdWIiOiJhbGljZSJ9.s")  --> { sub = "alice", schemas = "", role = "" }
+--- request.jwt_identity(nil)                                --> { sub = "anon", schemas = "", role = "" }
 --- ```
 ---@param header string|nil Value of the Authorization header.
 ---@return JwtIdentity identity The anonymous identity if there is no valid token.
 function request.jwt_identity(header)
 	local claims = decode_jwt_claims(header)
-	if not claims then return { sub = constants.jwt.anonymous_sub, schemas = "" } end
+	if not claims then return { sub = constants.jwt.anonymous_sub, schemas = "", role = "" } end
 
-	local schemas_claim = claims.schemas or ""
-	local joined_schemas = type(schemas_claim) == "table" and List(schemas_claim):join(",") or schemas_claim
 	local sub = claims.preferred_username or claims.sub or constants.jwt.anonymous_sub
-	return { sub = sub, schemas = joined_schemas }
+	return { sub = sub, schemas = join_claim(claims.schemas), role = claims.role or "" }
 end
 
 --- List the values that decide the answer, in the order of the cache key.
@@ -118,6 +126,8 @@ function request.cache_identity(parts)
 		request.normalize_accept(parts.headers.Accept or ""),
 		parts.headers["X-DuckLake-Snapshot"] or "",
 		tostring(parts.generation or 0),
+		parts.role or "",
+		tostring(parts.revision or 0),
 	}
 end
 
@@ -153,8 +163,10 @@ function request.make_context(input, deps)
 		args = input.args or "",
 		sub = identity.sub,
 		schemas = identity.schemas,
+		role = identity.role,
 		profile = input.headers_in["Accept-Profile"] or "",
 		generation = input.generation,
+		revision = deps.config.revision,
 		headers = request.make_headers(input),
 		postgrest = input.postgrest,
 		cache_ttl = tostring(ttl_seconds),

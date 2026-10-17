@@ -92,58 +92,72 @@ describe("request.make_headers", function()
 	end)
 end)
 
-check("request.asks_for_admin", function(case) return request.asks_for_admin(case.headers) end, {
+check("request.asks_for_console", function(case) return request.asks_for_console(case.headers) end, {
 	{ name = "lets a request without a profile pass", headers = {}, expected = false },
 	{ name = "lets a data schema pass", headers = { ["Accept-Profile"] = "alpha" }, expected = false },
-	{ name = "refuses the admin profile on a read", headers = { ["Accept-Profile"] = "admin" }, expected = true },
-	{ name = "refuses the admin profile on a write", headers = { ["Content-Profile"] = "admin" }, expected = true },
+	{ name = "refuses the console profile on a read", headers = { ["Accept-Profile"] = "console" }, expected = true },
+	{ name = "refuses the console profile on a write", headers = { ["Content-Profile"] = "console" }, expected = true },
 })
 
 check("request.jwt_identity", function(case) return request.jwt_identity(case.header) end, {
 	{
 		name = "uses preferred_username first",
 		header = bearer({ preferred_username = "alice", sub = "x" }),
-		expected = { sub = "alice", schemas = "" },
+		expected = { sub = "alice", schemas = "", role = "" },
 	},
 	{
 		name = "uses sub when there is no preferred_username",
 		header = bearer({ sub = "bob" }),
-		expected = { sub = "bob", schemas = "" },
+		expected = { sub = "bob", schemas = "", role = "" },
 	},
 	{
 		name = "joins a schemas array with commas",
 		header = bearer({ sub = "bob", schemas = { "a", "b" } }),
-		expected = { sub = "bob", schemas = "a,b" },
+		expected = { sub = "bob", schemas = "a,b", role = "" },
 	},
 	{
 		name = "keeps a schemas text",
 		header = bearer({ sub = "bob", schemas = "a" }),
-		expected = { sub = "bob", schemas = "a" },
+		expected = { sub = "bob", schemas = "a", role = "" },
+	},
+	{
+		name = "keeps the role claim",
+		header = bearer({ sub = "bob", role = "dp_admin" }),
+		expected = { sub = "bob", schemas = "", role = "dp_admin" },
+	},
+	{
+		name = "ignores a claim that it does not read",
+		header = bearer({ sub = "bob", role = "dp_api", permissions = { "read_api" } }),
+		expected = { sub = "bob", schemas = "", role = "dp_api" },
 	},
 	{
 		name = "is anonymous if sub is not a text",
 		header = bearer({ sub = 5 }),
-		expected = { sub = "anon", schemas = "" },
+		expected = { sub = "anon", schemas = "", role = "" },
 	},
-	{ name = "is anonymous without a header", header = nil, expected = { sub = "anon", schemas = "" } },
+	{
+		name = "is anonymous without a header",
+		header = nil,
+		expected = { sub = "anon", schemas = "", role = "" },
+	},
 	{
 		name = "is anonymous for a header that is not a bearer token",
 		header = "Basic abc",
-		expected = { sub = "anon", schemas = "" },
+		expected = { sub = "anon", schemas = "", role = "" },
 	},
 	{
 		name = "is anonymous when the payload is not JSON",
 		header = "Bearer header.not-json.signature",
-		expected = { sub = "anon", schemas = "" },
+		expected = { sub = "anon", schemas = "", role = "" },
 	},
 	{
 		name = "is anonymous when the payload is JSON but not an object",
 		header = "Bearer header.5.signature",
-		expected = { sub = "anon", schemas = "" },
+		expected = { sub = "anon", schemas = "", role = "" },
 	},
 })
 
-local cfg = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/private" } }
+local cfg = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/private" }, revision = 9 }
 --- Make the context of one request with the config and the fixed clock of the cases.
 ---@param input table
 ---@return RequestContext
@@ -173,6 +187,12 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		input = { method = "GET", uri = "/other", headers_in = {}, generation = 5 },
 		field = "generation",
 		expected = 5,
+	},
+	{
+		name = "copies the revision of the access policy and the rules from the settings",
+		input = { method = "GET", uri = "/other", headers_in = {} },
+		field = "revision",
+		expected = 9,
 	},
 	{
 		name = "uses the time that the caller gives",
@@ -215,8 +235,10 @@ local function key_parts()
 		args = "id=eq.1",
 		sub = "user",
 		schemas = "test",
+		role = "dp_api",
 		profile = "test",
 		generation = 0,
+		revision = 0,
 		headers = {},
 	}
 end
@@ -235,17 +257,28 @@ describe("request.cache_identity", function()
 		local parts = key_parts()
 		parts.headers =
 			{ Range = "items=0-1", Prefer = "count=exact", Accept = "text/csv", ["X-DuckLake-Snapshot"] = "7" }
-		assert.same(
-			{ "GET", "/t", "id=eq.1", "user", "test", "test", "items=0-1", "count=exact", "text/csv", "7", "0" },
-			request.cache_identity(parts)
-		)
+		assert.same({
+			"GET",
+			"/t",
+			"id=eq.1",
+			"user",
+			"test",
+			"test",
+			"items=0-1",
+			"count=exact",
+			"text/csv",
+			"7",
+			"0",
+			"dp_api",
+			"0",
+		}, request.cache_identity(parts))
 	end)
 
 	it(
 		"uses empty texts and the default media type for missing headers",
 		function()
 			assert.same(
-				{ "GET", "/t", "id=eq.1", "user", "test", "test", "", "", "application/json", "", "0" },
+				{ "GET", "/t", "id=eq.1", "user", "test", "test", "", "", "application/json", "", "0", "dp_api", "0" },
 				request.cache_identity(key_parts())
 			)
 		end
@@ -269,8 +302,18 @@ describe("request.cache_identity", function()
 		{ name = "the query", change = function(parts) parts.args = "id=eq.2" end, not_expected = base },
 		{ name = "the user", change = function(parts) parts.sub = "other" end, not_expected = base },
 		{ name = "the schemas", change = function(parts) parts.schemas = "other" end, not_expected = base },
+		{
+			name = "the role",
+			change = function(parts) parts.role = "dp_admin" end,
+			not_expected = base,
+		},
 		{ name = "the profile", change = function(parts) parts.profile = "other" end, not_expected = base },
 		{ name = "the policy generation", change = function(parts) parts.generation = 1 end, not_expected = base },
+		{
+			name = "the revision of the access policy and the rules",
+			change = function(parts) parts.revision = 1 end,
+			not_expected = base,
+		},
 		{
 			name = "the Range header",
 			change = function(parts) parts.headers.Range = "items=0-1" end,

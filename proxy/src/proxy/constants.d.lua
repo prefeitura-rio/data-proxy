@@ -33,7 +33,7 @@
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
 ---@field unavailable_status integer
 ---@field overloaded_body string Body of the 503 answer. The proxy sends it when too many requests wait for PostgREST.
----@field forbidden_body string Body of the 403 answer, for a request that asks for the admin profile.
+---@field forbidden_body string Body of the 403 answer, for a request that asks for the console profile.
 ---@field overloaded_status integer
 ---@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.

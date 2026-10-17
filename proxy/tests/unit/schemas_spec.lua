@@ -70,6 +70,8 @@ check("schemas.sync_document", function(case) return schemas.sync_document:valid
 		value = { other = true, schemas = { sales = { x = 1 } } },
 	},
 	{ name = "accepts a table without cache_ttl", valid = true, value = sync_json({ { name = "p.s.t" } }) },
+	{ name = "accepts a revision", valid = true, value = { revision = 3 } },
+	{ name = "rejects a revision that is not a whole number", value = { revision = "3" }, reason = 'field "revision"' },
 	{ name = "rejects a path that is not a text", value = { noCachePaths = { 1 } }, reason = 'field "noCachePaths"' },
 	{ name = "rejects a table without a name", value = sync_json({ {} }), reason = "name" },
 	{ name = "rejects an empty name", value = sync_json({ { name = "" } }), reason = "name" },

@@ -61,6 +61,11 @@ check("sync.parse", function(case) return sync.parse(case.content) end, {
 		content = '{"noCachePaths":["/private"]}',
 		expected = { tables = {}, disabled_endpoints = { "/private" } },
 	},
+	{
+		name = "reads the revision of the access policy and the rules",
+		content = '{"revision":12}',
+		expected = { tables = {}, disabled_endpoints = { "/access_policy" }, revision = 12 },
+	},
 	{ name = "gives nil and a reason for text that is not JSON", content = "not json", reason = "Expected" },
 	{
 		name = "gives nil and a reason that names sync.json for a document that does not match",

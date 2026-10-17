@@ -15,6 +15,7 @@
 
 --- The parts of sync.json that the proxy reads.
 ---@class SyncDocument
+---@field revision integer|nil The revision of the access policy and the rules, a counter of the database.
 ---@field noCachePaths string[]|nil Path prefixes that are never cached.
 ---@field schemas table<string, SyncSchema>|nil The schemas, by name.
 
@@ -22,6 +23,7 @@
 ---@class SyncConfig
 ---@field tables table<string, TableSettings> Settings by short table name.
 ---@field disabled_endpoints string[] Path prefixes that are never cached.
+---@field revision integer|nil The revision of the access policy and the rules that the document carries.
 
 --- The schema of sync.json.
 ---@class SchemasModule
