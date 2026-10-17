@@ -37,13 +37,6 @@ class Silo:
 
 
 @dataclass(frozen=True, slots=True)
-class Postgrest:
-    """HTTP endpoint for the PostgREST test service."""
-
-    url: str
-
-
-@dataclass(frozen=True, slots=True)
 class PostgresTestNamespace:
     """One per-test PostgreSQL schema and its related identifiers."""
 

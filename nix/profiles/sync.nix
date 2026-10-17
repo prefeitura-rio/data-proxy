@@ -10,9 +10,6 @@
     module = {
       imports = [
         ../processes/postgres.nix
-        ../processes/pgdog.nix
-        ../processes/postgrest.nix
-        ../services/redis.nix
         ../services/silo.nix
       ];
 
@@ -47,7 +44,7 @@
           cwd = "sync";
           exec = ''
             set -e
-            uv run --frozen pytest tests/unit
+            uv run --frozen pytest tests/unit -m "not postgres"
           '';
           execIfModified = [
             "sync/**/*.py"
@@ -94,6 +91,12 @@
 
       enterTest = ''
         set -e
+        # The tests start only after the bootstrap of the test databases has finished.
+        for _ in $(seq 1 300); do
+          [ -e "$TEST_DATABASE_READY" ] && break
+          sleep 1
+        done
+        [ -e "$TEST_DATABASE_READY" ] || { echo "database bootstrap failed" >&2; exit 1; }
         (cd ${config.devenv.root}/sync && uv run --frozen pytest)
       '';
     };

@@ -21,10 +21,6 @@ from sync.models import (
     SyncConfig,
     TableConfig,
     TableState,
-    UnitMapping,
-)
-from sync.models import (
-    Table as TableModel,
 )
 from sync.postgres import Postgres as Pg
 from sync.settings import settings
@@ -41,22 +37,11 @@ from tests.fixtures.types import (
     Silo,
 )
 from tests.helpers import (
+    act_as_token,
     create_state_tables,
-    helm_sql,
     initialize_schemas,
-    psql_script,
     publish_people_catalog,
-    schema_scope_condition,
 )
-
-
-@pytest.fixture
-def invalid_rls() -> list[UnitMapping]:
-    """Return an invalid runtime RLS value for guard tests."""
-    rls = TableModel.model_construct(rls="invalid").rls
-    if rls is None:
-        raise AssertionError("invalid RLS fixture must contain a value")
-    return rls
 
 
 @pytest.fixture
@@ -208,6 +193,7 @@ async def ducklake_view(
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
     await initialize_schemas(ducklake_catalog.backend, config)
     await reconcile_views(ducklake_catalog.backend, config)
+    await act_as_token(ducklake_catalog, "dp_api", schema)
     publisher = await psycopg.AsyncConnection.connect(
         ducklake_catalog.dsn, autocommit=True
     )
@@ -227,12 +213,6 @@ async def ducklake_view(
         await publisher.close()
 
 
-@pytest.fixture
-def psql() -> Psql:
-    """Provide psql against the test database of the PostgreSQL test server."""
-    return Psql(database="test_template")
-
-
 @pytest.fixture(scope="session")
 def dbos_schema() -> str:
     """Create the DBOS system tables in the test database once."""
@@ -249,55 +229,6 @@ def dbos_schema() -> str:
 
 
 @pytest.fixture
-async def admin_db() -> AsyncIterator[psycopg.AsyncConnection]:
-    """Provide a UTC connection to the migrated test database and roll it back afterward."""
-    connection = await psycopg.AsyncConnection.connect(f"{POSTGRES_URL}/test")
-    await connection.execute("SET TIME ZONE 'UTC'")
-    try:
-        yield connection
-    finally:
-        await connection.rollback()
-        await connection.close()
-
-
-@pytest.fixture
-async def policy_writer(postgres: Postgres, psql: Psql) -> AsyncIterator[str]:
-    """Install the access policy in two schemas and a policy writer for the first."""
-    schema = postgres.namespace.schema
-    other = f"{schema}_other"
-    role = f"policy_writer_{schema}"
-    scripts = [helm_sql("create_schema", {"schema": Identifier(other)})]
-    scripts.extend(
-        helm_sql(
-            "setup_access_policy",
-            {
-                "schema": Identifier(target),
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-                "scope": schema_scope_condition(target),
-            },
-        )
-        for target in (schema, other)
-    )
-    scripts.append(
-        helm_sql(
-            "setup_policy_writer",
-            {
-                "schema": Identifier(schema),
-                "policy_writer_role": Identifier(role),
-                "policy_name": Identifier(role),
-            },
-        )
-    )
-    psql.run(psql_script(*scripts))
-    try:
-        yield role
-    finally:
-        await postgres.connection.rollback()
-        await postgres.connection.execute("RESET ROLE")
-        await postgres.connection.commit()
-        cleanup = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
-        await cleanup.execute(SQL("DROP SCHEMA {} CASCADE").format(Identifier(other)))
-        await cleanup.execute(SQL("DROP OWNED BY {}").format(Identifier(role)))
-        await cleanup.execute(SQL("DROP ROLE {}").format(Identifier(role)))
-        await cleanup.close()
+def psql() -> Psql:
+    """Provide psql against the test database of the PostgreSQL test server."""
+    return Psql(database="test_template")

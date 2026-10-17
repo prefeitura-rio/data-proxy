@@ -437,6 +437,7 @@ class RecordingDbos:
     """Stand-in for the DBOS class that records how the application sets itself up."""
 
     queues: ClassVar[list[tuple[str, str]]] = []
+    concurrency: ClassVar[dict[str, object]] = {}
     applied: ClassVar[list[str]] = []
     existing: ClassVar[object | None] = None
 
@@ -453,10 +454,16 @@ class RecordingDbos:
 
     @classmethod
     async def register_queue_async(
-        cls, name: str, *, on_conflict: str = "always_update", **_: object
+        cls,
+        name: str,
+        *,
+        on_conflict: str = "always_update",
+        concurrency: object = None,
+        **_: object,
     ) -> None:
-        """Record the queue and how it treats an existing one."""
+        """Record the queue, how it treats an existing one, and its concurrency."""
         cls.queues.append((name, on_conflict))
+        cls.concurrency[name] = concurrency
 
     @classmethod
     async def get_schedule_async(cls, _name: str) -> object | None:
@@ -484,6 +491,7 @@ class TestServe:
     def recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Replace DBOS, and reset what it recorded."""
         RecordingDbos.queues = []
+        RecordingDbos.concurrency = {}
         RecordingDbos.applied = []
         RecordingDbos.existing = None
         monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
@@ -499,7 +507,15 @@ class TestServe:
             ("dump", "never_update"),
             ("publish", "never_update"),
             ("proxy", "never_update"),
+            ("provision", "never_update"),
         ]
+
+    @pytest.mark.asyncio
+    async def test_runs_one_provision_at_a_time(self) -> None:
+        """A change during a run queues the next run, which must wait for the running one to end."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.concurrency["provision"] == 1
 
     @pytest.mark.asyncio
     async def test_creates_the_schedule_when_it_is_missing(self) -> None:
@@ -623,3 +639,75 @@ class TestNotifyProxies:
         await workflow_body(workflows.reload_proxy)()
 
         notify.assert_awaited_once_with()
+
+
+class TestRunProvision:
+    """The provision Job, made from the CronJob template of the chart."""
+
+    @staticmethod
+    def stub_cluster(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> tuple[AsyncMock, AsyncMock]:
+        """Replace the Kubernetes calls of the step, and return both mocks."""
+
+        @asynccontextmanager
+        async def client() -> AsyncGenerator[str]:
+            yield "client"
+
+        create = AsyncMock(return_value="release-provision-ab12")
+        wait = AsyncMock()
+        monkeypatch.setattr(steps, "k8s_client", client)
+        monkeypatch.setattr(steps, "create_job", create)
+        monkeypatch.setattr(steps, "wait_for_job", wait)
+        monkeypatch.setattr(settings, "PROVISION_CRONJOB", "release-provision")
+        return create, wait
+
+    async def test_creates_the_job_from_the_cronjob_and_waits_for_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The step makes one Job from the template, and waits for that Job."""
+        create, wait = self.stub_cluster(monkeypatch)
+
+        await workflow_body(steps.run_provision)()
+
+        create.assert_awaited_once_with("client", "release-provision")
+        wait.assert_awaited_once_with(
+            "client", "release-provision-ab12", settings.PROVISION_TIMEOUT_SECONDS
+        )
+
+    async def test_does_nothing_without_the_name_of_the_cronjob(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment without the template, for example a local run, has nothing to call."""
+        create, _ = self.stub_cluster(monkeypatch)
+        monkeypatch.setattr(settings, "PROVISION_CRONJOB", None)
+
+        await workflow_body(steps.run_provision)()
+
+        create.assert_not_awaited()
+
+    async def test_the_workflow_runs_the_step(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """provision_schemas is one step."""
+        provision = AsyncMock()
+        monkeypatch.setattr(workflows, "run_provision", provision)
+
+        await workflow_body(workflows.provision_schemas)()
+
+        provision.assert_awaited_once_with()
+
+    async def test_the_sync_workflow_provisions_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sync run starts with the same call, so that a lost event or a drift heals before the run plans."""
+        _, events = stub_sync_run(monkeypatch, postgrest_reload_required=False)
+        monkeypatch.setattr(
+            workflows,
+            "run_provision",
+            AsyncMock(side_effect=lambda: events.append("provision")),
+        )
+
+        await run_sync()
+
+        assert events[0] == "provision"

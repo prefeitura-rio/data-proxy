@@ -144,7 +144,7 @@ class TestSourceMappings:
         mapping = utils.ducklake_function_mapping("app", table, [("id", "BIGINT")])
 
         assert to_sql(mapping["function"]) == '"people_dl_fn"'
-        assert mapping["source"] == 'dl."people"'
+        assert mapping["source"] == '"dl_app"."people"'
 
 
 class TestCreateTableViews:

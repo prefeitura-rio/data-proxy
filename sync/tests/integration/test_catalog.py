@@ -1,5 +1,4 @@
 from pathlib import Path
-from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import duckdb
@@ -12,19 +11,9 @@ from sync.ducklake import (
     DuckLakePaths,
     apply_maintenance,
     attach_catalog,
-    commit_table,
     current_snapshot_id,
-    publish_schema,
-)
-from sync.models import (
-    FullTable,
-    SchemaConfig,
-    SyncConfig,
-    SyncPlan,
 )
 from sync.settings import settings
-from tests.constants import PARQUET, PARQUET_20
-from tests.helpers import ducklake_row_count
 
 pytestmark = pytest.mark.postgres
 
@@ -95,77 +84,3 @@ class TestApplyMaintenance:
         assert snapshot_id == await current_snapshot_id(duckdb)
         rows = duckdb.connection.execute("SELECT id FROM dl.items ORDER BY id")
         assert rows.fetchall() == [(1,), (2,)]
-
-
-@pytest.mark.usefixtures("use_catalog_paths")
-class TestPublishSchema:
-    """publish_schema writes to the real catalog database."""
-
-    @pytest.fixture
-    def use_catalog_paths(
-        self, catalog_paths: DuckLakePaths, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Send every schema to the catalog of this test."""
-
-        def for_schema(_: str) -> DuckLakePaths:
-            return catalog_paths
-
-        monkeypatch.setattr(DuckLakePaths, "for_schema", staticmethod(for_schema))
-
-    @staticmethod
-    def one_table_plan() -> tuple[SyncConfig, SyncPlan]:
-        """Build a config and a plan that publish one full table."""
-        table = FullTable(name="p.d.people", resolved_schema="app")
-        config = SyncConfig(schemas={"app": SchemaConfig(tables=[table])})
-        plan = SyncPlan(
-            schema_name="app",
-            signatures={"p.d.people": "sig"},
-            paths={"p.d.people": [PARQUET]},
-        )
-        return config, plan
-
-    async def test_publishes_full_table_into_catalog(self, duckdb: DuckDB) -> None:
-        """Create a DuckLake table and insert rows from a full-table plan."""
-        config, plan = self.one_table_plan()
-
-        result = await publish_schema(duckdb, AsyncMock(), config, plan, set())
-
-        assert result.published_tables == {"p.d.people"}
-        assert await ducklake_row_count(duckdb, "people") == 10
-
-    async def test_returns_committed_snapshot_id(self, duckdb: DuckDB) -> None:
-        """Return the snapshot that holds the published tables."""
-        config, plan = self.one_table_plan()
-
-        result = await publish_schema(duckdb, AsyncMock(), config, plan, set())
-
-        rows = await duckdb.query("SELECT id FROM dl.current_snapshot()")
-        assert result.snapshot_id == rows[0][0]
-
-    async def test_returns_no_snapshot_when_nothing_is_published(
-        self, duckdb: DuckDB
-    ) -> None:
-        """Return no snapshot when every table is blocked by a failed path."""
-        config, plan = self.one_table_plan()
-
-        result = await publish_schema(duckdb, AsyncMock(), config, plan, {PARQUET})
-
-        assert result.published_tables == set()
-        assert result.snapshot_id is None
-
-
-class TestDucklakeCommitTable:
-    """DuckLake commit_table behavior against a real catalog."""
-
-    async def test_inserts_and_replaces_rows(
-        self, duckdb: DuckDB, catalog_paths: DuckLakePaths
-    ) -> None:
-        """Insert rows from Parquet, then replace them with a new file."""
-        await attach_catalog(duckdb, catalog_paths, encrypted=False)
-        table = FullTable(name="p.d.people", resolved_schema="app")
-
-        await commit_table(duckdb, table, [PARQUET], None)
-        assert await ducklake_row_count(duckdb, "people") == 10
-
-        await commit_table(duckdb, table, [PARQUET_20], None)
-        assert await ducklake_row_count(duckdb, "people") == 10

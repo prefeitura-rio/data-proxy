@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator, Iterator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import duckdb
 import psycopg
@@ -16,22 +16,11 @@ from tests.constants import (
     POSTGRES_URL,
     SILO_ENDPOINT,
     TEST_SQL_DIR,
-    VALKEY_PORT,
 )
 from tests.fixtures.types import BigQueryQueryResult, Silo
 from tests.helpers import create_state_tables
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
-
-
-@pytest.fixture
-def redis() -> MagicMock:
-    """Return a mock async Redis client for cache tests."""
-    client = MagicMock()
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    client.flushdb = AsyncMock()
-    return client
 
 
 @pytest.fixture
@@ -131,9 +120,3 @@ def silo() -> Silo:
         if fixture.name == "people_partition_10.parquet":
             client.fput_object("test-bucket", "app/people/data.parquet", str(fixture))
     return Silo(host, int(port), client)
-
-
-@pytest.fixture(scope="session")
-def valkey() -> tuple[str, int]:
-    """Provide the Valkey endpoint for cache integration tests."""
-    return "127.0.0.1", VALKEY_PORT

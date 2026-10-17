@@ -20,6 +20,23 @@ def render [template: path, ...variables: string]: nothing -> string {
     $result.stdout
 }
 
+# Render one SQL template with minijinja-cli and a JSON context, and return the SQL.
+def render-context [template: path, context: record]: nothing -> string {
+    let file = mktemp --tmpdir --suffix .json
+    $context | to json | save --force $file
+    let result = minijinja-cli --strict --autoescape none --format json $template $file | complete
+    rm $file
+
+    if $result.exit_code != 0 {
+        fail $'Could not render ($template): ($result.stderr)' {
+            command: render-context
+            span: (metadata $template).span
+        }
+    }
+
+    $result.stdout
+}
+
 # Run one SQL script in the PostgreSQL test server and stop at the first error.
 def run-sql [database: string, port: string]: string -> nothing {
     let result = $in
@@ -34,12 +51,10 @@ def run-sql [database: string, port: string]: string -> nothing {
     }
 }
 
-# Create the test databases, including the DuckLake catalog database, and put the PostgREST schema in `test`.
+# Create the test databases, including the DuckLake catalog database, and the rbac rules that the data schemas call.
 def main []: nothing -> nothing {
     let port = $env.TEST_POSTGRES_PORT
     let templates = $env.DEVENV_ROOT | path join sync tests templates postgres
-    let filter = $env.DEVENV_ROOT | path join sync src sync templates postgres views routing filter.sql
-    let pushdown = $templates | path join pushdown.sql
     $env.PGPASSWORD = 'test'
 
     let databases = ['test_template' 'test']
@@ -53,47 +68,19 @@ def main []: nothing -> nothing {
 
     render ($templates | path join fixture.sql) | run-sql test_template $port
 
+    # The policies and the functions of every data schema ask rbac.can(), so the data tests need the rules too.
+    let rules_text = open --raw ($env.DEVENV_ROOT | path join helm files config rbac.toml) | decode utf-8
+    let rbac_sql = render-context ($env.DEVENV_ROOT | path join helm files templates postgres create_rbac.sql) {
+        rules: ($rules_text | from toml)
+        anonymous_role: '"anon"'
+        source_hash: ($rules_text | hash sha256)
+    }
+    for database in ['test_template' 'test'] {
+        $rbac_sql | run-sql $database $port
+    }
+
     # DuckDB reads persistent secrets once per backend, so create them before any test backend starts.
-    render ($templates | path join create_ducklake_reader_secret.sql) 'host=localhost' $'port=($port)' 'database=ducklake' 'user=test' 'password=test' | run-sql test $port
+    render ($templates | path join create_ducklake_catalog_secret.sql) 'host=localhost' $'port=($port)' 'database=ducklake' 'user=test' 'password=test' | run-sql test $port
 
-    'CREATE EXTENSION IF NOT EXISTS pg_duckdb; CREATE SCHEMA IF NOT EXISTS data_proxy;' | run-sql test $port
-
-    let url = $'postgresql://test:test@127.0.0.1:($port)/test'
-
-    # The admin views read the state tables, which the configure job creates before goose runs.
-    render ($env.DEVENV_ROOT | path join helm files templates postgres create_state.sql) 'schema="data_proxy"' | run-sql test $port
-    render ($env.DEVENV_ROOT | path join helm files templates postgres create_reload.sql) 'schema="data_proxy"' | run-sql test $port
-    render ($env.DEVENV_ROOT | path join helm files templates postgres create_pre_request.sql) 'schema="data_proxy"' | run-sql test $port
-
-    # The chart declares the console permission levels as CNPG managed roles. The test server creates them here.
-    [
-        'CREATE ROLE console_viewer NOLOGIN'
-        'CREATE ROLE console_operator NOLOGIN IN ROLE console_viewer'
-        'CREATE ROLE console_editor NOLOGIN IN ROLE console_viewer'
-        'CREATE ROLE console_admin NOLOGIN IN ROLE console_operator, console_editor'
-    ]
-    | str join ";\n"
-    | run-sql test $port
-
-    # The admin views read the DBOS tables, so DBOS creates them before goose runs.
-    uv run --frozen --project ($env.DEVENV_ROOT | path join sync) dbos migrate --sys-db-url $url
-
-    with-env {PG_DATABASE_URL: $url} {
-        ^$nu.current-exe ($env.DEVENV_ROOT | path join scripts migrate.nu) up
-    }
-    render $filter 'schema="data_proxy"' | run-sql test $port
-
-    let pushdown_sql = try {
-        open --raw $pushdown
-    } catch {|err| fail $'Could not read ($pushdown): ($err.msg)' {
-            command: main
-            span: (metadata $pushdown).span
-        } }
-    $pushdown_sql | run-sql test $port
-
-    # PostgREST runs the pre-request function as the role of the token. The console roles exist above and anon exists now.
-    for role in [console_viewer console_operator console_editor console_admin] {
-        render ($env.DEVENV_ROOT | path join helm files templates postgres grant_console_usage.sql) 'app_schema="data_proxy"' $'console_role="($role)"' | run-sql test $port
-    }
-    'GRANT EXECUTE ON FUNCTION data_proxy.pre_request() TO anon' | run-sql test $port
+    'CREATE EXTENSION IF NOT EXISTS pg_duckdb;' | run-sql test $port
 }

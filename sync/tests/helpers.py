@@ -1,7 +1,6 @@
-import base64
-import hashlib
-import hmac
+import itertools
 import json
+import tomllib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from inspect import unwrap
@@ -15,6 +14,7 @@ import pytest
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Composable, Identifier, Literal
+from pydantic import BaseModel, Field
 
 from sync.dbos import workflows
 from sync.duckdb import DuckDB
@@ -57,7 +57,7 @@ from sync.types import (
 from tests.constants import (
     HELM_SQL,
     PARQUET,
-    POSTGREST_AUTH,
+    RBAC_RULES,
     ROUTED_TABLE,
     SILO_ENDPOINT,
     TEST_SQL_DIR,
@@ -71,10 +71,8 @@ DEFAULT_MODIFIED: Final = datetime(2025, 1, 1, tzinfo=UTC)
 
 
 def schema_scope_condition(schema: str) -> Composable:
-    """Return the schema-claim condition that the test policies use."""
-    return SQL("{} = ANY(string_to_array(current_setting({}, true), ','))").format(
-        Literal(schema), Literal("app.claim_schemas")
-    )
+    """Return the schema-claim condition that the test policies use, as the provision job renders it."""
+    return SQL("rbac.mine({})").format(Literal(schema))
 
 
 def sync_config(
@@ -305,6 +303,7 @@ def stub_sync_run(
     )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
     monkeypatch.setattr(workflows, "record_scope", AsyncMock())
+    monkeypatch.setattr(workflows, "run_provision", AsyncMock())
     monkeypatch.setattr(workflows, "reload_postgrest", restart)
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
     return calls, events
@@ -480,6 +479,11 @@ async def grant_unit(pg: Postgres, subject: str) -> None:
     await insert_access_policy(pg, subject, "unit", "u1")
 
 
+def psql_script(*statements: str) -> str:
+    """Join rendered statements into one psql script."""
+    return ";\n".join(statements) + ";\n"
+
+
 async def put_state(pg: Postgres, table: str, state: TableState | None) -> None:
     """Set one table state or remove its committed state for this test."""
     if state is None:
@@ -528,12 +532,36 @@ async def install_table_function(
                 for name in fallbacks
             ],
             "user_role": Identifier(settings.AUTH_USER_ROLE),
+            "schema_literal": Literal(pg.namespace.schema),
         },
     )
 
 
-async def call_table_function(pg: Postgres) -> tuple[list[DatabaseRow], dict[str, str]]:
-    """Call the per-table function and return its rows and response headers."""
+async def act_as_token(pg: Postgres, role: str, schemas: str) -> None:
+    """Give the connection the permissions of one role and the schemas claim of a token.
+
+    The settings last for the whole session, so they survive a commit. rbac.load()
+    sets them for one transaction, as the pre-request function does for a request.
+    """
+    await pg.connection.execute(
+        """
+        SELECT
+            set_config(
+                'rbac.permissions',
+                coalesce((SELECT wrapped FROM rbac.roles WHERE name = %s), ''),
+                false
+            ),
+            set_config('rbac.schemas', ',' || %s || ',', false)
+        """,
+        (role, schemas),
+    )
+
+
+async def call_table_function(
+    pg: Postgres, role: str = "dp_api", schemas: str | None = None
+) -> tuple[list[DatabaseRow], dict[str, str]]:
+    """Call the per-table function as a token with one role and, by default, the test schema in its claim."""
+    await act_as_token(pg, role, pg.namespace.schema if schemas is None else schemas)
     rows = await fetch_all(
         pg,
         "postgres/select_table_function",
@@ -542,26 +570,9 @@ async def call_table_function(pg: Postgres) -> tuple[list[DatabaseRow], dict[str
     return rows, await response_headers(pg)
 
 
-async def can_execute(pg: Postgres, signature: str) -> bool:
-    """Return whether the user role may run one function in the test schema."""
-    return bool(
-        await scalar(
-            pg,
-            "SELECT has_function_privilege(%s, %s, 'EXECUTE')",
-            settings.AUTH_USER_ROLE,
-            f"{pg.namespace.identifier.as_string(None)}.{signature}",
-        )
-    )
-
-
 def helm_sql(name: str, mapping: Mapping[str, TemplateValue] | None = None) -> str:
     """Render one Helm SQL template as the init and maintenance jobs do."""
     return render_template(name, mapping or {}, root=HELM_SQL)
-
-
-def psql_script(*statements: str) -> str:
-    """Join rendered statements into one psql script."""
-    return ";\n".join(statements) + ";\n"
 
 
 def catalog_commit_error(reason: str) -> duckdb.TransactionException:
@@ -596,7 +607,6 @@ async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
 
     for schema_name in config.schemas:
         schema = Identifier(schema_name)
-        role = Identifier(f"policy_writer_{schema_name}")
         for statement in (
             helm_sql("create_schema", {"schema": schema}),
             helm_sql(
@@ -607,10 +617,6 @@ async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
                     "scope": schema_scope_condition(schema_name),
                     "app_schema": app_schema,
                 },
-            ),
-            helm_sql(
-                "setup_policy_writer",
-                {"schema": schema, "policy_writer_role": role, "policy_name": role},
             ),
         ):
             await pg_conn.connection.execute(statement.encode())
@@ -647,35 +653,173 @@ async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]
     return await cursor.fetchall()
 
 
-async def provision(connection: AsyncConnection, name: str) -> None:
-    """Create a schema and its access policy, as the provision job does for a configured schema."""
-    await connection.execute(
-        SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(name))
-    )
-    await connection.execute(
-        SQL("CREATE TABLE IF NOT EXISTS {}.access_policy (id integer)").format(
-            Identifier(name)
+class RbacRole(BaseModel):
+    """One role of the rules file."""
+
+    name: str
+    description: str
+    inherits: list[str] = Field(default_factory=list)
+    permissions: list[str]
+
+
+class RbacRules(BaseModel):
+    """The rules file that the create_rbac template turns into SQL."""
+
+    permissions: dict[str, dict[str, str]]
+    roles: list[RbacRole]
+
+    @property
+    def features(self) -> list[str]:
+        """Return every permission name, the action and the object joined by an underscore."""
+        return sorted(
+            f"{action}_{subject}"
+            for subject, actions in self.permissions.items()
+            for action in actions
+            if action != "description"
         )
-    )
+
+    def effective(self, role: str) -> set[str]:
+        """Return the permissions of a role and of every role that it inherits."""
+        by_name = {candidate.name: candidate for candidate in self.roles}
+        pending, seen, found = [role], set[str](), set[str]()
+        while pending:
+            name = pending.pop()
+            if name in seen or name not in by_name:
+                continue
+            seen.add(name)
+            found.update(by_name[name].permissions)
+            pending.extend(by_name[name].inherits)
+
+        return found
+
+    def changed(self, role: str, **update: list[str]) -> RbacRules:
+        """Return a copy in which one role has other values."""
+        return self.model_copy(
+            update={
+                "roles": [
+                    candidate.model_copy(update=update)
+                    if candidate.name == role
+                    else candidate
+                    for candidate in self.roles
+                ]
+            }
+        )
+
+    def context(self) -> Mapping[str, TemplateValue]:
+        """Return the rules as the template context."""
+        return {
+            "permissions": {
+                subject: dict(actions) for subject, actions in self.permissions.items()
+            },
+            "roles": [
+                {
+                    "name": role.name,
+                    "description": role.description,
+                    "inherits": list(role.inherits),
+                    "permissions": list(role.permissions),
+                }
+                for role in self.roles
+            ],
+        }
 
 
-async def become(
-    connection: AsyncConnection, role: str, schemas: str | None = None
+RBAC: Final = RbacRules.model_validate(tomllib.loads(RBAC_RULES.read_text()))
+
+
+SOURCE_HASH: Final = "0f" * 32
+
+
+async def install_rbac(
+    pg: Postgres, rules: RbacRules = RBAC, source_hash: str = SOURCE_HASH
 ) -> None:
-    """Switch the session to one role, as PostgREST does for a JWT, with the schemas of its token."""
-    if schemas is not None:
-        await connection.execute(
-            b"SELECT set_config('app.claim_schemas', %s, false)", (schemas,)
+    """Render create_rbac with a rules file and run it in the test transaction."""
+    await pg.connection.execute(
+        helm_sql(
+            "create_rbac",
+            {
+                "rules": rules.context(),
+                "anonymous_role": Identifier("anon"),
+                "source_hash": source_hash,
+            },
+        ).encode()
+    )
+
+
+async def stored_roles(pg: Postgres) -> list[tuple[str, list[str]]]:
+    """Return the rows of rbac.roles."""
+    cursor = await pg.connection.execute(
+        b"SELECT name, permissions FROM rbac.roles ORDER BY name"
+    )
+    return [(name, permissions) for name, permissions in await cursor.fetchall()]
+
+
+async def install_console_triggers(pg: Postgres) -> None:
+    """Create the console tables that the triggers watch, and install the triggers, in the test transaction."""
+    await pg.connection.execute(
+        b"""
+        CREATE SCHEMA console;
+        CREATE TABLE console.schemas (name text);
+        CREATE TABLE console.tables (name text);
+        CREATE TABLE console.rls (id integer)
+        """
+    )
+    await pg.connection.execute(helm_sql("create_console_triggers").encode())
+
+
+async def queued_workflows(pg: Postgres, dbos_schema: str) -> list[str]:
+    """Return the names of the workflows that wait in the DBOS queues."""
+    cursor = await pg.connection.execute(
+        SQL(
+            """
+            SELECT name FROM {}.workflow_status
+            WHERE status = 'ENQUEUED' AND name IN ('reload_proxy', 'provision_schemas')
+            """
+        ).format(Identifier(dbos_schema))
+    )
+    return sorted(itertools.starmap(str, await cursor.fetchall()))
+
+
+async def revision(pg: Postgres) -> int:
+    """Return the revision of the rules and of the access policy."""
+    value = await scalar(pg, "SELECT value FROM rbac.revision")
+    assert isinstance(value, int)
+    return value
+
+
+async def plan_of(pg: Postgres, query: str) -> str:
+    """Return the verbose plan of a query as one text."""
+    cursor = await pg.connection.execute(
+        f"EXPLAIN (VERBOSE, COSTS OFF) {query}".encode()
+    )
+    return "\n".join(str(row[0]) for row in await cursor.fetchall())
+
+
+SERVING: Final = "auth_v"
+
+
+async def make_serving_login(pg: Postgres) -> None:
+    """Create a serving login that is a member of every role of the rules and of the anonymous role."""
+    await pg.connection.execute(
+        SQL("CREATE ROLE {} LOGIN NOINHERIT").format(Identifier(SERVING))
+    )
+    for role in (*(role.name for role in RBAC.roles), "anon"):
+        await pg.connection.execute(
+            SQL("GRANT {} TO {}").format(Identifier(role), Identifier(SERVING))
         )
-    await connection.execute(SQL("SET ROLE {}").format(Identifier(role)))
 
 
-def sign_token(claims: dict[str, str | list[str]]) -> str:
-    """Sign an HS256 token with the secret of the test PostgREST instance."""
-    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps(claims, separators=(",", ":")).encode()
-    ).rstrip(b"=")
-    message = header + b"." + payload
-    signature = hmac.new(POSTGREST_AUTH.encode(), message, hashlib.sha256).digest()
-    return f"{message.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+async def verify_rbac(pg: Postgres, extra_roles: tuple[str, ...] = ()) -> None:
+    """Render verify_rbac for the roles of the rules, and run it in the test transaction."""
+    await pg.connection.execute(
+        helm_sql(
+            "verify_rbac",
+            {
+                "roles": SQL(", ").join(
+                    Literal(role)
+                    for role in (*(role.name for role in RBAC.roles), *extra_roles)
+                ),
+                "anonymous_role": Literal("anon"),
+                "serving_role": Literal(SERVING),
+            },
+        ).encode()
+    )
