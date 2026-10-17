@@ -27,6 +27,7 @@ TIME_GRANULARITY_SPECS = MappingProxyType(
 DUMP_QUEUE = "dump"
 SYNC_QUEUE = "sync"
 PROXY_QUEUE = "proxy"
+PROVISION_QUEUE = "provision"
 
 PROJECT_PATH: Final = "/data_proxy/"
 LOCATION_FRAMES: Final = 3

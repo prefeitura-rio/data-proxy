@@ -13,6 +13,7 @@ from sync.ducklake import (
     publish_schema,
 )
 from sync.extraction import run_extraction
+from sync.kubernetes import create_job, k8s_client, wait_for_job
 from sync.log import schemaname
 from sync.metrics import metrics
 from sync.models import (
@@ -330,6 +331,27 @@ async def finalize_run() -> None:
 
     await clear_cache()
     await logs.info("Sync finalization completed")
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def run_provision() -> None:
+    """Make a Job from the provision CronJob and wait for it."""
+    cronjob = settings.PROVISION_CRONJOB
+
+    if cronjob is None:
+        await logs.warning("Provision skipped", reason="PROVISION_CRONJOB is not set")
+        return
+
+    async with k8s_client() as client:
+        job = await create_job(client, cronjob)
+        await logs.info("Provision started", job=job)
+        await wait_for_job(client, job, settings.PROVISION_TIMEOUT_SECONDS)
+
+    await logs.info("Provision completed", job=job)
 
 
 @DBOS.step(

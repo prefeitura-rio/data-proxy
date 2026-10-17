@@ -27,6 +27,7 @@ from .steps import (
     record_scope,
     record_seed_metrics,
     reload_postgrest,
+    run_provision,
     seed_schemas,
 )
 
@@ -102,6 +103,8 @@ async def run_sync(
 
     await logs.info("Sync workflow started", scheduled_at=scheduled_at.isoformat())
 
+    await run_provision()
+
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         loaded = await load_sync_config()
         work = await build_sync_work(
@@ -157,6 +160,12 @@ async def run_sync(
         await finalize_run()
 
         await logs.info("Sync workflow completed")
+
+
+@DBOS.workflow()
+async def provision_schemas() -> None:
+    """Provision the schemas after a change in the console tables."""
+    await run_provision()
 
 
 @DBOS.workflow()
