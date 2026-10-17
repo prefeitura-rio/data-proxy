@@ -1,7 +1,5 @@
 -- +goose Up
--- A table that isn't partitioned keeps "partitions": null in its state, and
--- keyvalue() fails on a null. Count the keys only when partitions is an object.
-CREATE OR REPLACE VIEW admin.synced AS
+CREATE OR REPLACE VIEW console.synced AS
 SELECT
     t.schema,
     t.name,
@@ -12,12 +10,12 @@ SELECT
             THEN (SELECT count(*) FROM jsonb_object_keys(st.state -> 'partitions'))::int
         ELSE 0
     END AS partition_count
-FROM admin.tables AS t
+FROM console.tables AS t
 LEFT JOIN data_proxy.state AS st ON t.name = st.table_name
-WHERE admin.mine(t.schema);
+WHERE rbac.can('read_sync') AND rbac.mine(t.schema);
 
 -- +goose Down
-CREATE OR REPLACE VIEW admin.synced AS
+CREATE OR REPLACE VIEW console.synced AS
 SELECT
     t.schema,
     t.name,
@@ -29,6 +27,6 @@ SELECT
         ),
         0
     ) AS partition_count
-FROM admin.tables AS t
+FROM console.tables AS t
 LEFT JOIN data_proxy.state AS st ON t.name = st.table_name
-WHERE admin.mine(t.schema);
+WHERE rbac.mine(t.schema);

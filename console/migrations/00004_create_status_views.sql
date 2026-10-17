@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE VIEW admin.health AS
+CREATE VIEW console.health AS
 WITH objects AS (
     SELECT
         n.nspname AS name,
@@ -14,13 +14,11 @@ SELECT
     s.name,
     o.name IS NOT NULL AS schema_exists,
     coalesce(o.access_policy, FALSE) AS access_policy,
-    r.rolname IS NOT NULL AS policy_writer,
     coalesce(o.view_count, 0) AS view_count
-FROM admin.schemas AS s
-LEFT JOIN objects AS o ON s.name = o.name
-LEFT JOIN pg_catalog.pg_roles AS r ON 'policy_writer_' || s.name = r.rolname;
+FROM console.schemas AS s
+LEFT JOIN objects AS o ON s.name = o.name;
 
-CREATE VIEW admin.synced AS
+CREATE VIEW console.synced AS
 SELECT
     t.schema,
     t.name,
@@ -32,9 +30,9 @@ SELECT
         ),
         0
     ) AS partition_count
-FROM admin.tables AS t
+FROM console.tables AS t
 LEFT JOIN data_proxy.state AS st ON t.name = st.table_name;
 
 -- +goose Down
-DROP VIEW admin.synced;
-DROP VIEW admin.health;
+DROP VIEW console.synced;
+DROP VIEW console.health;

@@ -1,9 +1,0 @@
--- +goose Up
-GRANT USAGE ON SCHEMA admin TO console_viewer;
-GRANT SELECT ON ALL TABLES IN SCHEMA admin TO console_viewer;
-ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT SELECT ON TABLES TO console_viewer;
-
--- +goose Down
-ALTER DEFAULT PRIVILEGES IN SCHEMA admin REVOKE SELECT ON TABLES FROM console_viewer;
-REVOKE SELECT ON ALL TABLES IN SCHEMA admin FROM console_viewer;
-REVOKE USAGE ON SCHEMA admin FROM console_viewer;

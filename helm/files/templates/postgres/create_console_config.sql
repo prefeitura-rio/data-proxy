@@ -1,7 +1,12 @@
--- +goose Up
+{#
+{
+  "kind": "template",
+  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. They read and write the configuration tables of the console.",
+  "inputs": {}
+}
+#}
 -- noqa: disable=CP02,PRS
--- +goose StatementBegin
-CREATE FUNCTION admin.sync_config() RETURNS jsonb
+CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     WITH rules AS (
         SELECT
@@ -10,7 +15,7 @@ LANGUAGE sql STABLE AS $$
                 jsonb_build_object('column', column_name, 'unit_type', unit_type)
                 ORDER BY id
             ) AS rls
-        FROM admin.rls
+        FROM console.rls
         GROUP BY table_name
     ),
 
@@ -36,7 +41,7 @@ LANGUAGE sql STABLE AS $$
                 )
                 ORDER BY t.name
             ) AS tables
-        FROM admin.tables AS t
+        FROM console.tables AS t
         LEFT JOIN rules AS r ON t.name = r.table_name
         GROUP BY t.schema
     )
@@ -63,15 +68,19 @@ LANGUAGE sql STABLE AS $$
             '{}'::jsonb
         )
     )
-    FROM admin.schemas AS s
+    FROM console.schemas AS s
     LEFT JOIN members AS m ON s.name = m.schema
 $$;
--- +goose StatementEnd
 
--- +goose StatementBegin
-CREATE FUNCTION admin.import_config(document jsonb) RETURNS void
-LANGUAGE sql AS $$
-    INSERT INTO admin.schemas (name, source, settings, claim, encrypted)
+CREATE OR REPLACE FUNCTION console.import_config(document jsonb) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT rbac.can('import_config') THEN
+        RAISE EXCEPTION 'The token lacks the import_config permission'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    INSERT INTO console.schemas (name, source, settings, claim, encrypted)
     SELECT
         s.key,
         coalesce(s.value #>> '{source,type}', 'bigquery'),
@@ -85,7 +94,7 @@ LANGUAGE sql AS $$
         claim = excluded.claim,
         encrypted = excluded.encrypted;
 
-    INSERT INTO admin.tables (
+    INSERT INTO console.tables (
         name, schema, strategy, n, fallback, cache_ttl, partitioning, sort
     )
     SELECT
@@ -109,14 +118,14 @@ LANGUAGE sql AS $$
         partitioning = excluded.partitioning,
         sort = excluded.sort;
 
-    DELETE FROM admin.rls
+    DELETE FROM console.rls
     WHERE table_name IN (
         SELECT t.name
         FROM jsonb_each(document -> 'schemas') AS s
         CROSS JOIN LATERAL jsonb_to_recordset(s.value -> 'tables') AS t (name text)
     );
 
-    INSERT INTO admin.rls (table_name, column_name, unit_type)
+    INSERT INTO console.rls (table_name, column_name, unit_type)
     SELECT
         t.name,
         r."column",
@@ -124,15 +133,38 @@ LANGUAGE sql AS $$
     FROM jsonb_each(document -> 'schemas') AS s
     CROSS JOIN LATERAL jsonb_to_recordset(s.value -> 'tables') AS t (name text, rls jsonb)
     CROSS JOIN LATERAL jsonb_to_recordset(t.rls) AS r ("column" text, unit_type text);
+END
 $$;
--- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION admin.sync_config() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION admin.sync_config() TO console_viewer;
+REVOKE ALL ON FUNCTION console.sync_config() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.import_config(jsonb) FROM PUBLIC;
 
-REVOKE ALL ON FUNCTION admin.import_config(jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION admin.import_config(jsonb) TO console_admin;
+CREATE OR REPLACE FUNCTION console.config() RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+    WITH members AS (
+        SELECT
+            schema,
+            jsonb_agg(
+                jsonb_strip_nulls(jsonb_build_object('name', name, 'cache_ttl', cache_ttl))
+                ORDER BY name
+            ) AS tables
+        FROM console.tables
+        GROUP BY schema
+    )
 
--- +goose Down
-DROP FUNCTION admin.import_config(jsonb);
-DROP FUNCTION admin.sync_config();
+    SELECT jsonb_build_object(
+        'revision', (SELECT value FROM rbac.revision),
+        'schemas',
+        coalesce(
+            jsonb_object_agg(
+                s.name, jsonb_build_object('tables', coalesce(m.tables, '[]'::jsonb))
+            ),
+            '{}'::jsonb
+        )
+    )
+    FROM console.schemas AS s
+    LEFT JOIN members AS m ON s.name = m.schema
+$$;
+
+REVOKE ALL ON FUNCTION console.config() FROM PUBLIC;

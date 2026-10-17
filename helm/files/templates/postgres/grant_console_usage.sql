@@ -1,15 +1,26 @@
 {#
 {
   "kind": "template",
-  "description": "Let a console permission level run the pre-request function, which copies the claims of the token, such as its schemas, into session settings, and bound its queries in time. PostgREST applies the settings of the request role only, so each level needs its own call.",
+  "description": "Give the role that every token switches to its rights on the console schema: read the views and tables, run the functions, and write the configuration tables. The rights are wide on purpose. A row policy or a check in each function asks for the permission of the token, and the schemas of the token limit the rows.",
   "inputs": {
-    "app_schema": "PostgreSQL schema that holds the pre-request function.",
-    "console_role": "Console database role: one of the four permission levels."
+    "user_role": "Database role that every token switches to."
   }
 }
 #}
-{% from "macros.sql" import grant_schema_usage %}
-{{ grant_schema_usage(app_schema, console_role) }}
-GRANT EXECUTE ON FUNCTION {{ app_schema }}.pre_request() TO {{ console_role }};
+GRANT USAGE ON SCHEMA console TO {{ user_role }};
+GRANT SELECT ON ALL TABLES IN SCHEMA console TO {{ user_role }};
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA console TO {{ user_role }};
 
-ALTER ROLE {{ console_role }} SET statement_timeout = '30s';
+GRANT INSERT (name, source, settings, claim, encrypted),
+UPDATE (source, settings, claim, encrypted)
+ON console.schemas TO {{ user_role }};
+
+GRANT INSERT (name, schema, strategy, n, fallback, cache_ttl, partitioning, sort),
+UPDATE (strategy, n, fallback, cache_ttl, partitioning, sort)
+ON console.tables TO {{ user_role }};
+
+GRANT INSERT (table_name, column_name, unit_type),
+UPDATE (column_name, unit_type)
+ON console.rls TO {{ user_role }};
+
+GRANT DELETE ON console.schemas, console.tables, console.rls TO {{ user_role }}

@@ -1,7 +1,8 @@
 -- +goose Up
-CREATE SCHEMA admin;
+-- noqa: disable=CP02
+CREATE SCHEMA console;
 
-CREATE VIEW admin.runs AS
+CREATE VIEW console.runs AS
 SELECT
     w.workflow_uuid AS id,
     w.status,
@@ -21,7 +22,7 @@ LEFT JOIN dbos.workflow_status AS t ON w.workflow_uuid = t.parent_workflow_id
 WHERE w.name = 'run_sync'
 GROUP BY w.workflow_uuid;
 
-CREATE VIEW admin.tasks AS
+CREATE VIEW console.tasks AS
 SELECT
     workflow_uuid AS id,
     parent_workflow_id AS run_id,
@@ -35,7 +36,7 @@ SELECT
 FROM dbos.workflow_status
 WHERE name IN ('dump_task', 'publish_schema');
 
-CREATE VIEW admin.steps AS
+CREATE VIEW console.steps AS
 SELECT
     o.workflow_uuid AS workflow_id,
     o.function_id,
@@ -49,7 +50,7 @@ FROM dbos.operation_outputs AS o
 INNER JOIN dbos.workflow_status AS w ON o.workflow_uuid = w.workflow_uuid
 WHERE w.name IN ('run_sync', 'dump_task', 'publish_schema');
 
-CREATE VIEW admin.logs AS
+CREATE VIEW console.logs AS
 SELECT
     s.workflow_uuid AS workflow_id,
     s."offset" AS position,
@@ -72,7 +73,7 @@ CROSS JOIN LATERAL jsonb_to_record(s.value::jsonb) AS e (
 )
 WHERE s.key = 'logs' AND s.serialization = 'portable_json';
 
-CREATE VIEW admin.queues AS
+CREATE VIEW console.queues AS
 SELECT
     q.name,
     q.concurrency,
@@ -89,9 +90,23 @@ SELECT
 FROM dbos.queues AS q
 LEFT JOIN dbos.workflow_status AS w
     ON q.name = w.queue_name AND w.status IN ('ENQUEUED', 'PENDING', 'DELAYED')
+WHERE rbac.can('read_sync')
 GROUP BY q.queue_id;
 
-CREATE VIEW admin.schedules AS
+-- +goose StatementBegin
+CREATE FUNCTION console.refuse_write() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION '% is read-only', TG_TABLE_NAME USING ERRCODE = '42501';
+END
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER queues_read_only
+INSTEAD OF INSERT OR UPDATE OR DELETE ON console.queues
+FOR EACH ROW EXECUTE FUNCTION console.refuse_write();
+
+CREATE VIEW console.schedules AS
 SELECT
     schedule_name AS name,
     workflow_name,
@@ -101,9 +116,10 @@ SELECT
     cron_timezone AS timezone,
     automatic_backfill,
     last_fired_at
-FROM dbos.workflow_schedules;
+FROM dbos.workflow_schedules
+WHERE rbac.can('read_sync');
 
-CREATE VIEW admin.errors AS
+CREATE VIEW console.errors AS
 SELECT
     id,
     reason,
@@ -113,4 +129,4 @@ FROM data_proxy.errors
 ORDER BY recorded_at DESC;
 
 -- +goose Down
-DROP SCHEMA admin CASCADE;
+DROP SCHEMA console CASCADE;
