@@ -17,6 +17,7 @@ realm:
       "enabled": true,
       "displayName": "Data Proxy",
       "sslRequired": "none",
+      "accessTokenLifespan": 300,
       "registrationAllowed": false,
       "clients": [
         {
