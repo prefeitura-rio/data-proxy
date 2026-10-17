@@ -44,19 +44,16 @@ spec:
           command: ["python", "-m", "sync.dbos.main"]
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
-            - name: DUCKLAKE_WRITER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.ducklakeSecretName" (dict "root" . "role" "writer") }}
-                  key: password
             - name: DUCKLAKE_CATALOG_URL
-              value: {{ printf "postgresql://ducklake_writer:$(DUCKLAKE_WRITER_PASSWORD)@%s-rw:5432/ducklake" (include "data-proxy.fullname" .) | quote }}
+              value: {{ printf "postgresql://%s:$(PASSWORD)@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
             - name: PROXY_ADMIN_URL
               value: {{ printf "http://%s-proxy-admin:8081/reload" (include "data-proxy.fullname" .) | quote }}
             - name: DBOS__VMID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+            - name: PROVISION_CRONJOB
+              value: {{ printf "%s-provision" (include "data-proxy.fullname" .) | quote }}
           volumeMounts:
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}

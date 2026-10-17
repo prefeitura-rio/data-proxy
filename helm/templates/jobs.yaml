@@ -8,17 +8,19 @@ metadata:
     app.kubernetes.io/component: configure-db
 data:
   configure-db.nu: |
-{{ .Files.Get "files/configure-db.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/configure-db.nu" | nindent 4 }}
   lib.nu: |
-{{ .Files.Get "files/lib.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/lib.nu" | nindent 4 }}
   wait-for-postgres.nu: |
-{{ .Files.Get "files/wait-for-postgres.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/wait-for-postgres.nu" | nindent 4 }}
   wait-for-relation.nu: |
-{{ .Files.Get "files/wait-for-relation.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/wait-for-relation.nu" | nindent 4 }}
   provision.nu: |
-{{ .Files.Get "files/provision.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/provision.nu" | nindent 4 }}
   fetch-jwks.nu: |
-{{ .Files.Get "files/fetch-jwks.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/fetch-jwks.nu" | nindent 4 }}
+  rbac.toml: |
+{{ .Files.Get "files/config/rbac.toml" | nindent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -38,104 +40,9 @@ data:
 {{ $.Files.Get $path | nindent 4 }}
 {{- end }}
 ---
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-configure-db-{{ .Release.Revision }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: configure-db
-spec:
-  backoffLimit: 3
-  template:
-    metadata:
-      labels:
-        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: configure-db
-    spec:
-      restartPolicy: OnFailure
-      automountServiceAccountToken: false
-      initContainers:
-        {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
-      containers:
-        - name: configure-db
-          image: {{ .Values.jobs.image | quote }}
-          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
-          command: [nu, /scripts/configure-db.nu]
-          workingDir: /scripts
-          env:
-            - name: PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" . }}
-                  key: password
-            - name: PG_DATABASE_URL
-              value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
-            - name: PGHOST
-              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
-            - name: PGPORT
-              value: "5432"
-            - name: PGDATABASE
-              value: {{ .Values.cnpg.db.name | quote }}
-            - name: PGUSER
-              value: {{ .Values.cnpg.db.user | quote }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" . }}
-                  key: password
-            - name: DUCKLAKE_ADMIN_URL
-              value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
-            - name: DUCKLAKE_READER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.ducklakeSecretName" (dict "root" . "role" "reader") }}
-                  key: password
-            - name: AUTH_ANON_ROLE
-              value: {{ .Values.auth.anonRole | quote }}
-            - name: AUTH_USER_ROLE
-              value: {{ .Values.auth.userRole | quote }}
-            - name: AUTH_AUTHENTICATOR_ROLE
-              value: {{ .Values.auth.authenticatorRole | quote }}
-            - name: DBOS_APPLICATION_NAME
-              value: {{ .Values.sync.dbos.applicationName | quote }}
-            - name: S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" . }}
-                  key: S3_ACCESS_KEY
-            - name: S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.s3SecretName" . }}
-                  key: S3_SECRET_KEY
-            - name: S3_ENDPOINT
-              value: {{ include "data-proxy.s3Endpoint" . | quote }}
-            - name: S3_USE_SSL
-              value: {{ .Values.s3.useSsl | quote }}
-            - name: SQL_TEMPLATE_DIR
-              value: /templates
-          volumeMounts:
-            - name: configure-db-script
-              mountPath: /scripts
-              readOnly: true
-            - name: configure-db-sql
-              mountPath: /templates
-              readOnly: true
-      volumes:
-        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
-        - name: configure-db-script
-          configMap:
-            name: {{ include "data-proxy.fullname" . }}-configure-db-script
-            defaultMode: 0555
-        - name: configure-db-sql
-          configMap:
-            name: {{ include "data-proxy.fullname" . }}-configure-db-sql
-            defaultMode: 0444
-            items:
-              {{- include "data-proxy.sqlTemplateItems" . | nindent 14 }}
-
+{{ include "data-proxy.revisionJob" (dict "root" . "name" "configure-db" "podSpec" (include "data-proxy.configureDbPodSpec" .)) }}
+---
+{{ include "data-proxy.templateCronJob" (dict "root" . "name" "configure-db" "deadline" 900 "podSpec" (include "data-proxy.configureDbPodSpec" .)) }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -164,19 +71,7 @@ spec:
           env:
             - name: RELATION
               value: data_proxy.scope
-            - name: PGHOST
-              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
-            - name: PGPORT
-              value: "5432"
-            - name: PGDATABASE
-              value: {{ .Values.cnpg.db.name | quote }}
-            - name: PGUSER
-              value: {{ .Values.cnpg.db.user | quote }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "data-proxy.dbSecretName" . }}
-                  key: password
+            {{- include "data-proxy.pgEnv" . | nindent 12 }}
           volumeMounts:
             - name: scripts
               mountPath: /scripts
@@ -265,21 +160,9 @@ spec:
               command: [nu, /scripts/backup.nu]
               workingDir: /scripts
               env:
-                - name: PGHOST
-                  value: {{ printf "%s-rw" (include "data-proxy.fullname" $root) | quote }}
-                - name: PGPORT
-                  value: "5432"
-                - name: PGDATABASE
-                  value: {{ $root.Values.cnpg.db.name | quote }}
-                - name: PGUSER
-                  value: {{ $root.Values.cnpg.db.user | quote }}
+                {{- include "data-proxy.pgEnv" $root | nindent 16 }}
                 - name: PG_DATABASE_URL
                   value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) $root.Values.cnpg.db.name | quote }}
-                - name: PGPASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "data-proxy.dbSecretName" $root }}
-                      key: password
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.jobs.backup.prefix | quote }}
                 - name: S3_BUCKET
@@ -401,46 +284,6 @@ spec:
 {{- end }}
 {{- end }}
 ---
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-provision-{{ .Release.Revision }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: provision
-spec:
-  backoffLimit: 3
-  template:
-    metadata:
-      labels:
-        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: provision
-    spec:
-      {{- include "data-proxy.provisionPodSpec" (dict "root" . "all" true) | nindent 6 }}
+{{ include "data-proxy.revisionJob" (dict "root" . "name" "provision" "podSpec" (include "data-proxy.provisionPodSpec" (dict "root" . "all" true))) }}
 ---
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: {{ include "data-proxy.fullname" . }}-provision
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "data-proxy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: provision-schedule
-spec:
-  schedule: {{ .Values.jobs.provision.schedule | quote }}
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 1
-  jobTemplate:
-    spec:
-      backoffLimit: 0
-      activeDeadlineSeconds: {{ .Values.jobs.provision.activeDeadlineSeconds }}
-      ttlSecondsAfterFinished: 300
-      template:
-        metadata:
-          labels:
-            {{- include "data-proxy.selectorLabels" . | nindent 12 }}
-            app.kubernetes.io/component: provision-schedule
-        spec:
-          {{- include "data-proxy.provisionPodSpec" (dict "root" . "all" false) | nindent 10 }}
+{{ include "data-proxy.templateCronJob" (dict "root" . "name" "provision" "deadline" .Values.jobs.provision.activeDeadlineSeconds "podSpec" (include "data-proxy.provisionPodSpec" (dict "root" . "all" false))) }}

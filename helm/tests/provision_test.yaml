@@ -1,6 +1,7 @@
 suite: Provision schemas
 templates:
   - jobs.yaml
+  - deployment-sync.yaml
 tests:
   - it: provisions the schemas of the console in a Job on every install and upgrade
     asserts:
@@ -23,7 +24,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: RELATION
-            value: admin.schemas
+            value: console.schemas
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision
@@ -68,14 +69,14 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: AUTH_AUTHENTICATOR_ROLE
-            value: postgrest
+            name: AUTH_SERVING_ROLE
+            value: serving
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision
         template: jobs.yaml
 
-  - it: applies every schema again on an upgrade, and only the new ones on the schedule
+  - it: applies every schema again on an upgrade, and only the new ones when a Job comes from the template
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -117,11 +118,11 @@ tests:
           value: data-proxy-provision
         template: jobs.yaml
 
-  - it: provisions again every minute for the schemas that editors add
+  - it: keeps the provision CronJob suspended, so that nothing runs it on a clock
     asserts:
       - equal:
-          path: spec.schedule
-          value: "* * * * *"
+          path: spec.suspend
+          value: true
         documentSelector:
           path: metadata.name
           value: data-proxy-provision
@@ -134,17 +135,77 @@ tests:
           value: data-proxy-provision
         template: jobs.yaml
 
-  - it: takes the schedule from the values
-    set:
-      jobs.provision.schedule: "*/5 * * * *"
+  - it: has no schedule value to change
     asserts:
-      - equal:
-          path: spec.schedule
-          value: "*/5 * * * *"
+      - notExists:
+          path: jobs.provision.schedule
+        template: jobs.yaml
+
+  - it: gives the provision pod the catalog and the S3 settings that the removal of a schema needs
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_CATALOG_PATH
+            value: ducklake
         documentSelector:
           path: metadata.name
           value: data-proxy-provision
         template: jobs.yaml
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_ADMIN_URL
+            value: postgresql://ops@data-proxy-rw:5432/ducklake
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env[?(@.name == "S3_BUCKET")]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env[?(@.name == "AWS_ACCESS_KEY_ID")]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-provision
+        template: jobs.yaml
+
+  - it: keeps the configure-db CronJob suspended too, with the pod of the Job of the release
+    asserts:
+      - equal:
+          path: spec.suspend
+          value: true
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db
+        template: jobs.yaml
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].command
+          value: [nu, /scripts/configure-db.nu]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db
+        template: jobs.yaml
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[0].name
+          value: wait-for-s3
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db
+        template: jobs.yaml
+
+  - it: tells the sync workers which CronJob to call
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROVISION_CRONJOB
+            value: data-proxy-provision
+        template: deployment-sync.yaml
 
   - it: does not mount the sync configuration into the maintenance job
     set:

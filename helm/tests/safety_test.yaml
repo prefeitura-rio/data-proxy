@@ -55,25 +55,11 @@ tests:
           value: data-proxy-proxy
         template: scaledobjects.yaml
 
-  - it: limits the sync ServiceAccount to listing pods
+  - it: limits the sync ServiceAccount to listing pods and to making Jobs from the CronJob templates
     documentSelector:
       path: kind
       value: Role
     asserts:
-      - notContains:
-          path: rules
-          content:
-            apiGroups: ["batch"]
-            resources: ["cronjobs"]
-            verbs: ["get"]
-        template: rbac.yaml
-      - notContains:
-          path: rules
-          content:
-            apiGroups: ["batch"]
-            resources: ["jobs"]
-            verbs: ["create", "delete", "get", "list", "watch"]
-        template: rbac.yaml
       - contains:
           path: rules
           content:
@@ -81,7 +67,21 @@ tests:
             resources: ["pods"]
             verbs: ["get", "list"]
         template: rbac.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["cronjobs"]
+            verbs: ["get"]
+        template: rbac.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["create", "get", "watch"]
+        template: rbac.yaml
       - lengthEqual:
           path: rules
-          count: 1
+          count: 3
         template: rbac.yaml

@@ -4,108 +4,40 @@ templates:
   - rbac.yaml
   - scaledobjects.yaml
 tests:
-  - it: manages anon, user, and postgrest roles through CNPG
+  - it: manages only the ops and duckdb roles, because ops creates the request roles itself
     asserts:
+      - lengthEqual:
+          path: spec.managed.roles
+          count: 2
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[0].name
+          value: "ops"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.managed.roles[0].superuser
+          value: true
+        template: cluster-cnpg.yaml
       - equal:
           path: spec.managed.roles[1].name
-          value: "anon"
+          value: duckdb
         template: cluster-cnpg.yaml
       - equal:
-          path: spec.managed.roles[1].login
+          path: spec.managed.roles[1].superuser
           value: false
         template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[2].name
-          value: "user"
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].name
-          value: "postgrest"
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].inherit
-          value: false
-        template: cluster-cnpg.yaml
-      - equal:
-          path: spec.managed.roles[3].inRoles
-          value:
-            - anon
-            - user
-            - console_viewer
-            - console_operator
-            - console_editor
-            - console_admin
-            - policy_writer
-        template: cluster-cnpg.yaml
+
+  - it: creates the extensions at bootstrap and lets DuckDB run for the serving login
+    asserts:
       - equal:
           path: spec.bootstrap.initdb.postInitApplicationSQL
           value:
             - CREATE EXTENSION IF NOT EXISTS postgis;
             - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
-            - CREATE ROLE policy_writer NOLOGIN;
-        template: cluster-cnpg.yaml
-
-  - it: leaves the policy writer roles of the schemas to the provision job
-    set:
-      sync.config:
-        schemas:
-          test:
-            claim: preferred_username
-            tables: []
-      ducklake.secrets.storage.storageClass: local-path
-    asserts:
-      - lengthEqual:
-          path: spec.managed.roles
-          count: 10
         template: cluster-cnpg.yaml
       - equal:
-          path: spec.managed.roles[3].inRoles
-          value:
-            - anon
-            - user
-            - console_viewer
-            - console_operator
-            - console_editor
-            - console_admin
-            - policy_writer
-        template: cluster-cnpg.yaml
-
-  - it: manages the console permission levels as roles that inherit the levels below
-    asserts:
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: console_viewer
-            ensure: present
-            login: false
-            bypassrls: false
-        template: cluster-cnpg.yaml
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: console_operator
-            ensure: present
-            login: false
-            bypassrls: false
-            inRoles: [console_viewer]
-        template: cluster-cnpg.yaml
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: console_editor
-            ensure: present
-            login: false
-            bypassrls: false
-            inRoles: [console_viewer]
-        template: cluster-cnpg.yaml
-      - contains:
-          path: spec.managed.roles
-          content:
-            name: console_admin
-            ensure: present
-            login: false
-            bypassrls: false
-            inRoles: [console_operator, console_editor]
+          path: spec.postgresql.parameters["duckdb.postgres_role"]
+          value: serving
         template: cluster-cnpg.yaml
 
   - it: renders one CNPG Cluster
@@ -180,7 +112,7 @@ tests:
           content: pg_stat_statements
         template: cluster-cnpg.yaml
 
-  - it: renders sync RBAC resources that only list pods, for the workflow recovery
+  - it: renders sync RBAC resources for the workflow recovery and the provision Jobs
     asserts:
       - hasDocuments:
           count: 2
@@ -191,6 +123,12 @@ tests:
             - apiGroups: [""]
               resources: [pods]
               verbs: [get, list]
+            - apiGroups: [batch]
+              resources: [cronjobs]
+              verbs: [get]
+            - apiGroups: [batch]
+              resources: [jobs]
+              verbs: [create, get, watch]
         documentSelector:
           path: kind
           value: Role
