@@ -3,29 +3,67 @@ use ./lib.nu [
     quote-pg
     execute-sql
     fail
+    rbac-context
     wait-for-postgres
 ]
 
+# Create the roles of the requests: the anonymous role, the roles of rbac.toml, and the PostgREST login
+def create-roles []: nothing -> nothing {
+    let context = rbac-context ($env.RBAC_FILE? | default ./rbac.toml)
+
+    execute-sql postgres/create_roles.sql {
+        roles: ($context.rules.roles | get name | each {|name| quote-pg $name literal } | str join ', ')
+        baseline_role: (quote-pg $env.AUTH_USER_ROLE literal)
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE literal)
+        serving_role: (quote-pg $env.AUTH_SERVING_ROLE literal)
+        serving_password: (quote-pg $env.SERVING_PASSWORD literal)
+    }
+    log info 'Request roles setup completed'
+}
+
+# Persist the DuckDB secrets. Only a superuser may write them, so this step relies on ops being one.
 def configure-ducklake []: nothing -> nothing {
     execute-sql postgres/configure_ducklake.sql {
         s3_key_id: $env.S3_ACCESS_KEY
         s3_secret_key: $env.S3_SECRET_KEY
         s3_endpoint: $env.S3_ENDPOINT
         s3_use_ssl: $env.S3_USE_SSL
-        reader_password: $env.DUCKLAKE_READER_PASSWORD
+        duckdb_password: $env.DUCKDB_PASSWORD
     }
     log info 'DuckLake S3 and catalog reader secret configuration completed'
 }
 
-# Let the reader role read every metadata schema that the writer role creates in the catalog database
+# Let the duckdb role read every metadata schema that the owner role creates in the catalog database
 def configure-catalog []: nothing -> nothing {
     wait-for-postgres $env.DUCKLAKE_ADMIN_URL
 
     execute-sql postgres/configure_catalog.sql --dsn $env.DUCKLAKE_ADMIN_URL {
-        writer_role: (quote-pg ducklake_writer identifier)
-        reader_role: (quote-pg ducklake_reader identifier)
+        writer_role: (quote-pg $env.PGUSER identifier)
+        reader_role: (quote-pg duckdb identifier)
     }
     log info 'DuckLake catalog privilege setup completed'
+}
+
+# Create the rbac schema and load the rules of the rbac.toml file, all in one transaction
+def create-rbac []: nothing -> nothing {
+    let context = rbac-context ($env.RBAC_FILE? | default ./rbac.toml)
+
+    execute-sql postgres/create_rbac.sql --single-transaction ($context | merge {
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier)
+    })
+    log info $'RBAC rules loaded, file hash ($context.source_hash)'
+}
+
+# Stop the job when the roles of the database differ from the roles of the rbac.toml file
+def verify-rbac []: nothing -> nothing {
+    let context = rbac-context ($env.RBAC_FILE? | default ./rbac.toml)
+
+    execute-sql postgres/verify_rbac.sql {
+        roles: ($context.rules.roles | get name | each {|name| quote-pg $name literal } | str join ', ')
+        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE literal)
+        serving_role: (quote-pg $env.AUTH_SERVING_ROLE literal)
+    }
+    log info 'Database roles match the rules file'
 }
 
 # Create the schema and the tables where the engine keeps its state and its errors
@@ -53,14 +91,6 @@ def create-pre-request []: nothing -> nothing {
         app_schema: $schema,
         anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier),
         user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
-    }
-
-    # PostgREST applies the role settings of the request role only, so each level gets its own call.
-    for role in [console_viewer console_operator console_editor console_admin] {
-        execute-sql postgres/grant_console_usage.sql {
-            app_schema: $schema
-            console_role: $role
-        }
     }
 
     log info 'PostgREST pre-request function setup completed'
@@ -91,8 +121,11 @@ def main []: nothing -> nothing {
 
     try {
         wait-for-postgres $env.PG_DATABASE_URL
+        create-roles
         configure-ducklake
         configure-catalog
+        create-rbac
+        verify-rbac
         create-state
         create-reload
         create-pre-request

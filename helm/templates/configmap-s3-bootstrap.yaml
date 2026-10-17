@@ -7,6 +7,6 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
 data:
   ensure-s3-bucket.nu: |
-{{ .Files.Get "files/ensure-s3-bucket.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/ensure-s3-bucket.nu" | nindent 4 }}
   lib.nu: |
-{{ .Files.Get "files/lib.nu" | nindent 4 }}
+{{ .Files.Get "files/scripts/lib.nu" | nindent 4 }}

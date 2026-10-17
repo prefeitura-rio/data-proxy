@@ -47,21 +47,29 @@ export def schema-list []: record -> list<string> {
     $all | where $it == $target
 }
 
-# Read the synchronization configuration from the admin tables or fail with contextual logging.
+# Run one read query on the database and return the rows as text, one line for each row and a comma between the columns.
+@example "Read the names of the schemas" {
+    query-sql 'SELECT name FROM console.schemas' | lines
+}
+export def query-sql [query: string]: nothing -> string {
+    let result = psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -F ',' -c $query | complete
+
+    if $result.exit_code != 0 {
+        fail $'SQL query failed: ($result.stderr | str trim)' {
+            command: query-sql
+            span: (metadata $query).span
+        }
+    }
+
+    $result.stdout | str trim
+}
+
+# Read the synchronization configuration from the console tables or fail with contextual logging.
 @example "Read configured schemas" {
     sync-config | get schemas | columns
 }
 export def sync-config []: nothing -> record {
-    let result = psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -c 'SELECT admin.sync_config()' | complete
-
-    if $result.exit_code != 0 {
-        fail $'Failed to read the sync configuration: ($result.stderr | str trim)' {
-            command: sync-config
-            span: (metadata $result).span
-        }
-    }
-
-    $result.stdout | from json
+    query-sql 'SELECT console.sync_config()' | from json
 }
 
 # Wait until a relation exists in PostgreSQL or fail after the configured timeout.
@@ -182,13 +190,29 @@ export def quote-pg [value: string, kind: string]: nothing -> string {
     }
 }
 
+# Read the rbac.toml file and return what the create_rbac template needs: the parsed rules and the hash of the file text.
+export def rbac-context [file: path]: nothing -> record {
+    if not ($file | path exists) {
+        fail $'The rules file does not exist: ($file)' {
+            command: rbac-context
+            span: (metadata $file).span
+        }
+    }
+
+    let text = open --raw $file | decode utf-8
+
+    {
+        rules: ($text | from toml)
+        source_hash: ($text | hash sha256)
+    }
+}
+
 # Render one Jinja SQL template with a strict JSON context.
 @example "Render one SQL template" {
     render-sql postgres/grant_app_usage.sql {
         app_schema: data_proxy
         anonymous_role: anon
-        user_role: user
-        policy_writer_roles: [policy_writer_test]
+        user_role: dp_api
     }
 }
 export def render-sql [name: path, context: record]: nothing -> string {
@@ -209,8 +233,7 @@ export def render-sql [name: path, context: record]: nothing -> string {
     execute-sql postgres/grant_app_usage.sql {
         app_schema: data_proxy
         anonymous_role: anon
-        user_role: user
-        policy_writer_roles: [policy_writer_test]
+        user_role: dp_api
     }
 }
 export def execute-sql [
@@ -218,14 +241,16 @@ export def execute-sql [
     context: record = {}
     --dsn: string
     --vars: record = {}
+    --single-transaction # Run the whole template in one transaction, so that an error changes nothing
 ]: nothing -> nothing {
     let query = render-sql $template $context
     let dsn = $dsn | default $env.PG_DATABASE_URL
     let var_args = if ($vars | is-empty) { [] } else {
         $vars | items {|k v| [--set $"($k)=($v)"] } | flatten
     }
+    let transaction_args = if $single_transaction { [--single-transaction] } else { [] }
 
-    let result = $query | psql $dsn --no-psqlrc --quiet -v ON_ERROR_STOP=1 ...$var_args | complete
+    let result = $query | psql $dsn --no-psqlrc --quiet -v ON_ERROR_STOP=1 ...$transaction_args ...$var_args | complete
 
     if $result.exit_code != 0 {
         fail $'SQL execution failed for ($template): ($result.stderr | str trim)' {
@@ -233,4 +258,77 @@ export def execute-sql [
             span: (metadata $template).span
         }
     }
+}
+
+# Return the configured object-store endpoint with an explicit scheme.
+export def endpoint-url []: nothing -> string {
+    let endpoint = $env.S3_ENDPOINT
+
+    if ($endpoint | str starts-with 'http') {
+        return $endpoint
+    }
+
+    let scheme = if ($env.S3_USE_SSL? | default 'false') == 'true' { 'https' } else { 'http' }
+
+    $'($scheme)://($endpoint)'
+}
+
+# Return the rclone remote environment for the configured object store.
+export def rclone-env []: nothing -> record {
+    let endpoint = endpoint-url
+
+    if ($endpoint | str contains 'googleapis.com') {
+        return {
+            RCLONE_CONFIG_STORE_TYPE: 'google cloud storage'
+            RCLONE_CONFIG_STORE_SERVICE_ACCOUNT_FILE: $env.GOOGLE_APPLICATION_CREDENTIALS
+            RCLONE_CONFIG_STORE_BUCKET_POLICY_ONLY: 'true'
+        }
+    }
+
+    {
+        RCLONE_CONFIG_STORE_TYPE: 's3'
+        RCLONE_CONFIG_STORE_PROVIDER: 'Other'
+        RCLONE_CONFIG_STORE_ENDPOINT: $endpoint
+        RCLONE_CONFIG_STORE_ACCESS_KEY_ID: $env.AWS_ACCESS_KEY_ID
+        RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: $env.AWS_SECRET_ACCESS_KEY
+        RCLONE_CONFIG_STORE_FORCE_PATH_STYLE: 'true'
+        RCLONE_CONFIG_STORE_REGION: 'auto'
+        RCLONE_CONFIG_STORE_NO_CHECK_BUCKET: 'true'
+    }
+}
+
+# The tables that every schema of the data has, and that no other schema has.
+const MARKER_TABLES = [access_policy access_log]
+
+# The schemas of the system, which a removal never touches.
+const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public]
+
+# Find the schemas that the console no longer lists: the schemas with both marker tables, except the system.
+@example "A schema with both tables and no row in the console" {
+    [[schema table]; [e2e_new access_policy] [e2e_new access_log] [test access_policy] [test access_log]]
+    | orphans [test]
+} --result [e2e_new]
+export def orphans [configured: list<string>]: table<schema: string, table: string> -> list<string> {
+    $in
+    | group-by schema
+    | transpose schema rows
+    | where {|group| ($MARKER_TABLES | all {|marker| $marker in ($group.rows | get table) }) }
+    | get schema
+    | where $it not-in $SYSTEM_SCHEMAS and $it not-in $configured
+    | sort
+}
+
+# The remote path of the data files of one schema. It refuses a name that could leave the catalog folder.
+@example "The folder of one schema" {
+    data-prefix bucket ducklake e2e_new
+} --result 'store:bucket/ducklake/e2e_new'
+export def data-prefix [bucket: string, catalog_path: string, schema: string]: nothing -> string {
+    if ($schema | is-empty) or ($schema | str contains '/') or ($schema | str contains '..') {
+        fail $'Refusing to purge the data of the schema "($schema)"' {
+            command: data-prefix
+            span: (metadata $schema).span
+        }
+    }
+
+    $'store:($bucket)/($catalog_path)/($schema)'
 }

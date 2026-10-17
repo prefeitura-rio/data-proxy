@@ -30,6 +30,30 @@ def main [
             name: wait-for-postgres-passes-args-to-probe
             run: { test wait-for-postgres-passes-args-to-probe }
         }
+        {
+            name: rbac-context-reads-the-rules-and-hashes-the-text
+            run: { test rbac-context-reads-the-rules-and-hashes-the-text }
+        }
+        {
+            name: rbac-context-fails-without-the-file
+            run: { test rbac-context-fails-without-the-file }
+        }
+        {
+            name: orphans-need-both-marker-tables-and-no-console-row
+            run: { test orphans-need-both-marker-tables-and-no-console-row }
+        }
+        {
+            name: orphans-never-include-system-schemas
+            run: { test orphans-never-include-system-schemas }
+        }
+        {
+            name: data-prefix-names-the-schema-folder
+            run: { test data-prefix-names-the-schema-folder }
+        }
+        {
+            name: data-prefix-refuses-a-name-that-leaves-the-folder
+            run: { test data-prefix-refuses-a-name-that-leaves-the-folder }
+        }
     ]
 
     mut passed = 0
