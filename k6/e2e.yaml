@@ -7,9 +7,7 @@ spec:
   parallelism: 1
   paused: "false"
   script:
-    configMap:
-      name: data-proxy-e2e
-      file: e2e.ts
+    localFile: /scripts/e2e.js
   runner:
     image: registry.localhost:5001/k6:local
     serviceAccountName: manifests-k6-e2e
@@ -37,9 +35,9 @@ spec:
       - name: OIDC_TOKEN_URL
         value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
       - name: OIDC_USER_CLIENT_ID
-        value: user
+        value: api
       - name: OIDC_NO_POLICY_CLIENT_ID
-        value: no_policy
+        value: api_no_policy
       - name: PG_IMAGE
         value: registry.localhost:5001/data-proxy-postgres:17.0.0-local
       - name: CACHE_TTL_SECONDS
@@ -52,6 +50,8 @@ spec:
         value: "900"
       - name: MAX_DURATION
         value: 40m
+      - name: E2E_SCENARIOS
+        value: ""
       - name: K8S_SA_TOKEN_PATH
         value: /var/run/secrets/kubernetes.io/serviceaccount/token
       - name: PARTITIONED_SOURCE

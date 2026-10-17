@@ -1,5 +1,6 @@
 use lib.nu [
     apply-gcp-secret
+    build-k6-image
     build-local-images
     fail
     git-root
@@ -89,31 +90,47 @@ def run-cronjob [kubecfg: path, cronjob: string, description: string]: nothing -
     }
 }
 
-# Create a k6 ConfigMap, run one TestRun, and print the runner output.
+# Print the log of one pod as it grows, once the container has started. Returns false when the stream failed.
+def stream-log [kubecfg: path, pod: string]: nothing -> bool {
+    mut started = false
+    for _ in 1..150 {
+        $started = try {
+            wrap-kubectl $kubecfg -n $NAMESPACE logs $pod --tail=1 | ignore
+            true
+        } catch {
+            false
+        }
+        if $started { break }
+        sleep 2sec
+    }
+    if not $started { return false }
+
+    try {
+        wrap-kubectl $kubecfg -n $NAMESPACE logs --follow $pod | lines | each {|line| print $line } | ignore
+        true
+    } catch {
+        false
+    }
+}
+
+# Build the k6 image with the scripts in it, run one TestRun from it, and print the runner output.
 def k6-run [
     kubecfg: path
-    configmap: string
-    script_key: string
-    script_path: string
     testrun: string
     yaml_path: path
-    --image-tag: string = 'local'
     --set: record = {}
-    --with-trigger # Include trigger.py for an E2E TestRun.
+    --with-trigger # Put trigger.py and mutate.py in the ConfigMap that the E2E scenarios mount into their Jobs.
 ]: nothing -> nothing {
-    let files = [
-        $'--from-file=($script_key)=($script_path)'
-        '--from-file=lib.ts=k6/lib.ts'
-    ] | if $with_trigger {
-        append [
-            '--from-file=trigger.py=k3d/manifests/files/trigger.py'
-            '--from-file=mutate.py=k3d/manifests/files/mutate.py'
-        ]
-    } else { }
+    if $with_trigger {
+        log info 'Creating configmap data-proxy-e2e...'
+        (wrap-kubectl $kubecfg -n $NAMESPACE create configmap data-proxy-e2e
+            --from-file=trigger.py=k3d/manifests/files/trigger.py
+            --from-file=mutate.py=k3d/manifests/files/mutate.py
+            --dry-run=client -o yaml)
+        | wrap-kubectl $kubecfg apply -f -
+    }
 
-    log info $'Creating configmap ($configmap)...'
-    wrap-kubectl $kubecfg -n $NAMESPACE create configmap $configmap ...$files --dry-run=client -o yaml
-    | wrap-kubectl $kubecfg apply -f -
+    let image_tag = build-k6-image
 
     log info $'Deleting previous testrun ($testrun)...'
     wrap-kubectl $kubecfg -n $NAMESPACE delete testrun $testrun --ignore-not-found
@@ -168,6 +185,10 @@ def k6-run [
         }
     }
 
+    let pod = wrap-kubectl $kubecfg -n $NAMESPACE get pods -l $label -o 'jsonpath={.items[0].metadata.name}'
+    log info $'Streaming the log of the runner ($pod)...'
+    let streamed = stream-log $kubecfg $pod
+
     log info 'Waiting for the test to complete...'
     let deadline = (date now) + 60min
     mut phase = test-phase $kubecfg $label
@@ -176,9 +197,9 @@ def k6-run [
         $phase = test-phase $kubecfg $label
     }
 
-    let pod = wrap-kubectl $kubecfg -n $NAMESPACE get pods -l $label -o 'jsonpath={.items[0].metadata.name}'
-    let runner_log = wrap-kubectl $kubecfg -n $NAMESPACE logs $pod
-    print ($runner_log | to text)
+    if not $streamed {
+        print (wrap-kubectl $kubecfg -n $NAMESPACE logs $pod | to text)
+    }
 
     if $phase.failed {
         fail 'k6 runner Job failed' {
@@ -250,13 +271,11 @@ def run-profile [
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
     run-cronjob $kubecfg manifests-sync-trigger 'normal sync Job'
 
-    let image_tag = local-image-tag
-
     let run_settings = {
         K6_PROFILE: $profile
     } | merge $settings
 
-    k6-run $kubecfg data-proxy-k6 load.ts k6/load.ts data-proxy-load k6/load.yaml --image-tag $image_tag --set $run_settings
+    k6-run $kubecfg data-proxy-load k6/load.yaml --set $run_settings
 }
 
 # Run the k6 smoke profile: one virtual user for 40 seconds.
@@ -291,6 +310,7 @@ export def "main k6 load" [
 # Run the full E2E suite against the deployed release.
 export def "main k6 e2e" [
     --build # Build and deploy fresh local images before the E2E run.
+    --scenarios: string = '' # Comma-separated scenarios to run, such as `cache,access`. Empty runs all.
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let repo = git-root
@@ -331,8 +351,10 @@ export def "main k6 e2e" [
         local-image-tag
     }
 
-    log info $'Running the full E2E suite: build=($build)'
-    k6-run $kubecfg data-proxy-e2e e2e.ts k6/e2e.ts data-proxy-e2e k6/e2e.yaml --image-tag $image_tag --set {
+    let selected = if ($scenarios | is-empty) { 'all' } else { $scenarios }
+    log info $'Running the E2E suite: build=($build), scenarios=($selected)'
+    k6-run $kubecfg data-proxy-e2e k6/e2e.yaml --set {
         PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'
+        E2E_SCENARIOS: $scenarios
     } --with-trigger
 }

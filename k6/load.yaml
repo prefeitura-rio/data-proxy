@@ -7,9 +7,7 @@ spec:
   parallelism: 1
   paused: "false"
   script:
-    configMap:
-      name: data-proxy-k6
-      file: load.ts
+    localFile: /scripts/load.js
   runner:
     image: registry.localhost:5001/k6:local
     serviceAccountName: manifests-k6-perf
@@ -29,11 +27,11 @@ spec:
       - name: OIDC_TOKEN_URL
         value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
       - name: OIDC_USER_CLIENT_ID
-        value: user
+        value: api
       - name: OIDC_NO_POLICY_CLIENT_ID
-        value: no_policy
+        value: api_no_policy
       - name: OIDC_POLICY_WRITER_CLIENT_ID
-        value: policy_writer
+        value: policy
       - name: OIDC_CLIENT_SECRET
         value: test-secret
       - name: K6_PROFILE

@@ -13,6 +13,7 @@ use lib.nu [
     wait-for
 ]
 use k6.nu *
+use upgrade.nu *
 
 const NETWORK = 'data-proxy'
 const REGISTRY = 'registry'

@@ -101,11 +101,16 @@ def local-images [tag: string]: nothing -> list<record<image: string, containerf
             image: $"($IMAGE_REGISTRY)/data-proxy-jobs:($tag)"
             containerfile: Containerfile.jobs
         }
-        {
-            image: $"($IMAGE_REGISTRY)/k6:($tag)"
-            containerfile: Containerfile.k6
-        }
     ]
+}
+
+# Build and push the k6 image, which holds the scripts, with a tag of its own. Return the tag.
+export def build-k6-image []: nothing -> string {
+    let tag = $"k6-(date now | format date '%Y%m%d%H%M%S')"
+
+    [{image: $"($IMAGE_REGISTRY)/k6:($tag)", containerfile: Containerfile.k6}] | build-images
+
+    $tag
 }
 
 # Build and push local images with one immutable tag.

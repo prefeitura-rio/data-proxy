@@ -12,6 +12,7 @@ on:
       - nix/**
       - proxy/**
       - helm/**
+      - k6/**
       - scripts/**
       - Containerfile.sync
       - Containerfile.postgres

@@ -1,16 +1,25 @@
 FROM docker.io/golang:1.27.1-alpine AS builder
 
-RUN apk add --no-cache git=2.54.0-r0 && go install go.k6.io/xk6/cmd/xk6@v1.4.14
+RUN apk add --no-cache git=2.54.0-r0 && go install go.k6.io/xk6/cmd/xk6@v1.4.14 \
+    && go install github.com/pelletier/go-toml/v2/cmd/tomljson@v2.2.4
 
 WORKDIR /build
 
 RUN xk6 build --with github.com/grafana/xk6-kubernetes@v0.12.0 -o /build/k6
+
+COPY helm/files/config/rbac.toml /build/rbac.toml
+
+RUN tomljson rbac.toml > rbac.json
 
 FROM docker.io/alpine:3.23.5
 
 RUN adduser -D -u 10001 k6
 
 COPY --from=builder /build/k6 /usr/local/bin/k6
+COPY --from=builder /build/rbac.json /scripts/rbac.json
+COPY k6/ /scripts/
+
+WORKDIR /scripts
 
 USER k6
 
