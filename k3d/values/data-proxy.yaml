@@ -72,9 +72,13 @@ s3:
   secretKey: seaweedfs
   bootstrap:
     createIfMissing: true
+    corsOrigins:
+      - http://notebooks.localhost
 seaweedfs:
   allInOne:
     enabled: true
+    extraArgs:
+      - -s3.iam.readOnly=false
     data:
       type: persistentVolumeClaim
       size: 2Gi
@@ -149,3 +153,18 @@ ingress:
     issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
     jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
     audience: dev
+console:
+  enabled: true
+  host: console.localhost
+  scheme: http
+  oidc:
+    issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
+    clientId: console-web
+    clientSecret: test-secret
+  storage:
+    endpoint: http://data-proxy-seaweedfs-all-in-one.data-proxy.svc.cluster.local:8333
+    perSchemaIdentities: true
+notebooks:
+  enabled: true
+  host: notebooks.localhost
+  scheme: http

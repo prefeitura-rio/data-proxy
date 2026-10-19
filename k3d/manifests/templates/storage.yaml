@@ -21,6 +21,6 @@ spec:
     namespace: data-proxy
     name: data-proxy-duckdb
   hostPath:
-    path: /var/lib/data-proxy/catalogs/writer
+    path: /var/lib/data-proxy/duckdb
     type: DirectoryOrCreate
 {{- end }}

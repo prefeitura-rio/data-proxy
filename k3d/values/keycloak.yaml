@@ -352,7 +352,7 @@ realm:
               "protocolMapper": "oidc-hardcoded-claim-mapper",
               "config": {
                 "claim.name": "schemas",
-                "claim.value": "[\"test\", \"console_probe\", \"console_alpha\", \"console_beta\", \"console_import\", \"console_bad\", \"e2e_probe\", \"e2e_new\", \"none_such\", \"Bad-Name\", \"rbac\", \"console\", \"data_proxy\", \"dbos\", \"public\", \"pg_custom\"]",
+                "claim.value": "[\"test\", \"console_probe\", \"console_alpha\", \"console_beta\", \"console_import\", \"console_bad\", \"e2e_probe\", \"e2e_new\", \"e2e_cleanup\", \"e2e_scope_a\", \"e2e_scope_b\", \"none_such\", \"Bad-Name\", \"rbac\", \"console\", \"data_proxy\", \"dbos\", \"public\", \"pg_custom\"]",
                 "jsonType.label": "JSON",
                 "access.token.claim": "true",
                 "id.token.claim": "true",
@@ -1181,6 +1181,76 @@ realm:
               }
             }
           ]
+        },
+        {
+          "clientId": "console-web",
+          "name": "console-web",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "test-secret",
+          "serviceAccountsEnabled": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "redirectUris": [
+            "http://console.localhost/auth/callback"
+          ],
+          "webOrigins": [
+            "http://console.localhost"
+          ],
+          "attributes": {
+            "post.logout.redirect.uris": "http://console.localhost/auth/login"
+          },
+          "defaultClientScopes": [
+            "basic",
+            "web-origins",
+            "acr",
+            "roles",
+            "profile",
+            "email"
+          ],
+          "protocolMappers": [
+            {
+              "name": "role",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-client-role-mapper",
+              "config": {
+                "usermodel.clientRoleMapping.clientId": "console-web",
+                "claim.name": "role",
+                "jsonType.label": "String",
+                "multivalued": "false",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "schemas",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "user.attribute": "schemas",
+                "claim.name": "schemas",
+                "jsonType.label": "String",
+                "multivalued": "true",
+                "aggregate.attrs": "false",
+                "access.token.claim": "true",
+                "id.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.custom.audience": "dev",
+                "access.token.claim": "true",
+                "id.token.claim": "false",
+                "userinfo.token.claim": "false"
+              }
+            }
+          ]
         }
       ],
       "roles": {
@@ -1193,6 +1263,16 @@ realm:
             {
               "name": "dp_console",
               "description": "People who watch the system"
+            }
+          ],
+          "console-web": [
+            {
+              "name": "dp_console",
+              "description": "People who watch the system"
+            },
+            {
+              "name": "dp_admin",
+              "description": "People who run schemas"
             }
           ]
         }
@@ -1247,6 +1327,84 @@ realm:
           "clientRoles": {
             "idp": [
               "dp_console"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "web_viewer",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_viewer@example.test",
+          "firstName": "web_viewer",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_console"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "web_admin",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_admin@example.test",
+          "firstName": "web_admin",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_admin"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "web_other",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_other@example.test",
+          "firstName": "web_other",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "other"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_admin"
             ]
           },
           "requiredActions": []

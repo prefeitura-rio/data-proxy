@@ -13,3 +13,5 @@ cnpg:
   init:
     image: registry.localhost:5001/data-proxy-jobs:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
   image: registry.localhost:5001/data-proxy-postgres:17.0.0-{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+console:
+  image: registry.localhost:5001/data-proxy-console:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
