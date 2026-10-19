@@ -1,5 +1,4 @@
 /** @import { Response as K6Response } from 'k6/http' */
-/** @import { RbacRules } from './types.js' */
 import { SCHEMA } from "./env.js";
 import { consoleCall, postgrestCall } from "./console.js";
 

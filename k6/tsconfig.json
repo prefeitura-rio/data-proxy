@@ -11,12 +11,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "bundler",
-    "typeRoots": [
-      "./types"
-    ],
-    "types": [
-      "k6"
-    ],
     "allowJs": true,
     "checkJs": true
   },
@@ -24,7 +18,6 @@
     "e2e.js",
     "load.js",
     "lib",
-    "scenarios",
-    "types"
+    "scenarios"
   ]
 }

@@ -1,4 +1,3 @@
-/** @import { Step } from '../lib/index.js' */
 import { fetchToken, proxyGet, scenario, FULL_TABLE, userToken } from "../lib/index.js";
 import { sleep } from "k6";
 

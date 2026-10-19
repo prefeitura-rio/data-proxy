@@ -126,7 +126,3 @@ export function heartbeat(event, fields) {
         info(event, { ...fields, elapsed: Math.round((now - started) / 1000) });
     };
 }
-/**
- * The values of one log line. A field that is undefined is left out.
- * @typedef {Record<string, string | number | boolean | undefined>} Fields
- */

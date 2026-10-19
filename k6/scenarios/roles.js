@@ -1,6 +1,4 @@
-/** @import { Step } from '../lib/index.js' */
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-/** @import { RbacRules } from '../lib/index.js' */
 import {
     cacheHeader,
     checkSql,

@@ -1,5 +1,4 @@
 /** @import { Kubernetes, KubernetesPod, KubernetesPodSpec } from 'k6/x/kubernetes' */
-/** @import { CommandJobOptions, Database } from './types.js' */
 import { sleep } from "k6";
 import {
     CONFIGURE_DB_CRONJOB,
@@ -441,15 +440,3 @@ export function logHas(k8s, label, selector, text) {
         return false;
     }
 }
-/**
- * What one container of a one-off Job runs, and in which pod.
- * @typedef {Object} PodJob
- * @property {string} container
- * @property {string[]} command
- * @property {string[]} [args]
- * @property {string} [image] A container with an image of its own doesn't inherit the container of the pod.
- * @property {CommandJobOptions["env"]} [env]
- * @property {string} [serviceAccountName]
- * @property {number} [ttlSecondsAfterFinished]
- * @property {KubernetesPodSpec} podSpec
- */

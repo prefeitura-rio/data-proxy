@@ -1,5 +1,4 @@
 /** @import { Response as K6Response } from 'k6/http' */
-/** @import { Method } from './types.js' */
 import http from "k6/http";
 import { POSTGREST_URL } from "./env.js";
 import { isRecord, memberOf, rowsOf, safeJson } from "./http.js";

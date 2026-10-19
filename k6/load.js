@@ -1,5 +1,4 @@
 /** @import { Response as K6Response } from 'k6/http' */
-/** @import { TokenData } from './lib/index.js' */
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
@@ -824,46 +823,3 @@ function policyTraffic(data) {
         "policy read returned the policy rows": () => bodyOk,
     });
 }
-/**
- * @typedef {Object} SetupData
- * @property {TokenData[]} tokens
- * @property {string[]} fallbackDates
- * @property {Record<string, string[]>} idsByClient
- * @property {string[]} snapshots
- * @property {Record<string, TokenData>} otherTokens The tokens of the clients that don't read data: the console viewer, the console admin and the policy writer.
- * @property {Record<string, number>} replicaBaseline
- */
-/**
- * @typedef {Object} Route
- * @property {string} profile
- * @property {string} path
- * @property {string} name
- * @property {"ducklake" | "fallback"} expectedSource
- * @property {boolean} [heavy]
- * @property {number} weight
- * @property {string[]} clients
- * @property {(body: unknown) => boolean} checkBody
- */
-/**
- * @typedef {Object} Stage
- * @property {number} target
- * @property {string} duration
- */
-/**
- * @typedef {Object} Profile
- * @property {"ramping-vus" | "ramping-arrival-rate"} executor
- * @property {Stage[]} [stages]
- * @property {string} [duration]
- * @property {number} [startRate]
- * @property {string} [timeUnit]
- * @property {number} [preAllocatedVUs]
- * @property {number} [maxVUs]
- */
-/**
- * @typedef {Object} ConsoleRoute
- * @property {string} name
- * @property {string} path
- * @property {string[]} clients
- * @property {boolean} nonEmpty The route must return at least one row, because the sync and the first runs filled it.
- * @property {(rows: Array<Record<string, unknown>>) => boolean} [checkRows]
- */

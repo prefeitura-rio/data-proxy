@@ -1,5 +1,4 @@
-/** @import { Step } from '../lib/index.js' */
-import { FULL_SOURCE, runOf, scenario, SCHEMA, startRun, waitForRun, waitUntil } from "../lib/index.js";
+import { FULL_SOURCE, runOf, scenario, SCHEMA, startRun, waitForRun } from "../lib/index.js";
 
 const { expect, requirePrecondition } = scenario("runs");
 
@@ -16,10 +15,8 @@ export function startSync() {
     requirePrecondition("an operator starts a run for a schema of its token", runId !== null, {});
     if (runId === null) return;
 
-    expect(
-        "the run is listed for the operator",
-        waitUntil(30, () => runOf(runId) !== undefined),
-    );
+    expect("the run is listed for the operator at once", runOf(runId) !== undefined);
+    expect("the run is hidden from a token of another schema", runOf(runId, "admin_other") === undefined);
 
     expect("the run records the name of the token that started it", runOf(runId)?.started_by === "test_admin");
     expect("the run ends with success", waitForRun(runId, RUN_TIMEOUT_SECONDS) === "SUCCESS");

@@ -1,5 +1,4 @@
 /** @import { RequestParams, Response as K6Response } from 'k6/http' */
-/** @import { TokenData } from './types.js' */
 import http from "k6/http";
 import { sleep } from "k6";
 import {
@@ -265,13 +264,15 @@ const vuTokens = {};
  * @returns {TokenData}
  */
 export function ensureToken(clientId, current) {
-    const cached = vuTokens[clientId];
+    const known = vuTokens[clientId] ?? current;
 
-    if (cached && Date.now() < cached.expiresAt - LOAD_TOKEN_REFRESH_SECONDS * 1000) {
-        return cached;
+    if (Date.now() < known.expiresAt - LOAD_TOKEN_REFRESH_SECONDS * 1000) {
+        vuTokens[clientId] = known;
+
+        return known;
     }
 
-    const next = cached ? tokenWithExpiry(clientId) : current;
+    const next = tokenWithExpiry(clientId);
     vuTokens[clientId] = next;
 
     return next;

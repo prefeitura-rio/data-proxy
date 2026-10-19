@@ -1,4 +1,3 @@
-/** @import { Step } from '../lib/index.js' */
 import http from "k6/http";
 import {
     CONSOLE_VIEWS,

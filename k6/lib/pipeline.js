@@ -1,5 +1,4 @@
 /** @import { Response as K6Response } from 'k6/http' */
-/** @import { MetricRequest } from './types.js' */
 import http from "k6/http";
 import { API_URL, PARTITION_COLUMN, PARTITIONED_TABLE, SYNCED_PARTITIONS, TABLES } from "./env.js";
 import { waitUntil } from "./wait.js";

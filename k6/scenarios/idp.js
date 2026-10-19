@@ -1,4 +1,3 @@
-/** @import { Step } from '../lib/index.js' */
 import {
     claimsOf,
     FULL_TABLE,

@@ -1,4 +1,3 @@
-/** @import { Step } from '../lib/index.js' */
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
 import {
     API_URL,

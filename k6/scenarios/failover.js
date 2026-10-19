@@ -1,5 +1,4 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-/** @import { Step } from '../lib/index.js' */
 import { sleep } from "k6";
 import {
     changeAccessPolicy,
