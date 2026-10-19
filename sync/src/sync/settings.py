@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     REDIS_WRITE: RedisDsn = RedisDsn("redis://localhost:6379/0")
     S3_ACCESS_KEY: str = "seaweedfs"
     S3_BUCKET: str = "test-bucket"
+    S3_IDENTITIES: bool = False
     S3_ENDPOINT: str = "localhost:8333"
     S3_REGION: str = "us-east-1"
     S3_SCRATCH_PREFIX: str = "tmp"

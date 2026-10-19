@@ -10,11 +10,15 @@ from sync.duckdb import DuckDB
 from sync.ducklake import (
     DuckLakePaths,
     apply_maintenance,
+    attach_catalog,
+    drop_tables_except,
     publish_schema,
+    table_prefix,
 )
 from sync.extraction import run_extraction
+from sync.identities import remove_stale_identities
 from sync.kubernetes import create_job, k8s_client, wait_for_job
-from sync.log import schemaname
+from sync.log import SCHEMA
 from sync.metrics import metrics
 from sync.models import (
     DumpTask,
@@ -34,6 +38,7 @@ from sync.settings import settings
 from sync.state import (
     ScopeRow,
     build_table_states,
+    delete_removed_state,
     emit_error,
     read_sync_config,
     write_scope,
@@ -238,7 +243,7 @@ async def commit_ducklake_snapshot(
     plan: SyncPlan, failed_paths: set[str], document: str
 ) -> PublicationResult:
     """Commit scratch Parquet files into DuckLake for one schema plan."""
-    schemaname.set(plan.schema_name)
+    SCHEMA.set(plan.schema_name)
     await logs.info("DuckLake commit started", failed_paths=len(failed_paths))
 
     config = schema_config(document, plan.schema_name)
@@ -271,7 +276,7 @@ async def commit_ducklake_snapshot(
 )
 async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     """Apply DuckLake maintenance to one schema and return its snapshot."""
-    schemaname.set(schema_name)
+    SCHEMA.set(schema_name)
     await logs.info("DuckLake maintenance started")
 
     async with DuckDB.connect() as duckdb_conn:
@@ -286,6 +291,66 @@ async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     await logs.info("DuckLake maintenance completed", snapshot_id=snapshot_id)
 
     return snapshot_id
+
+
+@DBOS.step(
+    retries_allowed=True,
+    interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
+    backoff_rate=1.0,
+    max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
+    should_retry=retry_catalog_locked,
+)
+async def remove_dropped_tables(document: str) -> list[str]:
+    """Remove the tables that the console no longer lists: the catalog entry, the data files and the state.
+
+    A run that stops after the drop leaves its files behind. The orphan cleanup of the maintenance deletes them later.
+    """
+    config = SyncConfig.model_validate_json(document)
+    removed: list[str] = []
+
+    for schema_name, schema_config_ in config.schemas.items():
+        SCHEMA.set(schema_name)
+        async with DuckDB.connect() as duckdb_conn:
+            await attach_catalog(
+                duckdb_conn,
+                DuckLakePaths.for_schema(schema_name),
+                schema_config_.ducklake.encrypted,
+            )
+            dropped = await drop_tables_except(
+                duckdb_conn, {table.table_name for table in schema_config_.tables}
+            )
+
+        for table in dropped:
+            await clear_s3_prefix(table_prefix(schema_name, table))
+            removed.append(f"{schema_name}.{table}")
+
+    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+        await delete_removed_state(pg_conn, {table.name for table in config.tables})
+
+    await logs.info("Removed tables", tables=",".join(removed))
+
+    return removed
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
+async def cleanup_s3_credentials(document: str) -> list[str]:
+    """Delete the S3 identities that the console made for schemas that the config no longer lists."""
+    if not settings.S3_IDENTITIES:
+        await logs.warning(
+            "S3 credential cleanup skipped", reason="S3_IDENTITIES is not set"
+        )
+        return []
+
+    removed = await remove_stale_identities(
+        set(SyncConfig.model_validate_json(document).schemas)
+    )
+    await logs.info("Removed S3 credentials", schemas=",".join(removed))
+
+    return removed
 
 
 @DBOS.step(

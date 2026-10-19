@@ -12,7 +12,7 @@ from sync.constants import PUBLISH_QUEUE
 from sync.dbos import main as dbos_main
 from sync.dbos import steps, utils, workflows
 from sync.duckdb import DuckDB
-from sync.ducklake import DuckLakePaths
+from sync.ducklake import DuckLakePaths, table_prefix
 from sync.models import (
     FullTable,
     LoadedConfig,
@@ -686,16 +686,31 @@ class TestRunProvision:
 
         create.assert_not_awaited()
 
-    async def test_the_workflow_runs_the_step(
+    async def test_the_workflow_provisions_and_then_removes_stale_credentials(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """provision_schemas is one step."""
-        provision = AsyncMock()
-        monkeypatch.setattr(workflows, "run_provision", provision)
+        """provision_schemas provisions, and then drops the S3 credentials of the schemas that left the console."""
+        events: list[str] = []
+        monkeypatch.setattr(
+            workflows,
+            "run_provision",
+            AsyncMock(side_effect=lambda: events.append("provision")),
+        )
+        monkeypatch.setattr(
+            workflows,
+            "load_sync_config",
+            AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
+        )
+
+        async def cleanup(document: str) -> list[str]:
+            events.append(document)
+            return []
+
+        monkeypatch.setattr(workflows, "cleanup_s3_credentials", cleanup)
 
         await workflow_body(workflows.provision_schemas)()
 
-        provision.assert_awaited_once_with()
+        assert events == ["provision", DOCUMENT]
 
     async def test_the_sync_workflow_provisions_first(
         self, monkeypatch: pytest.MonkeyPatch
@@ -711,3 +726,127 @@ class TestRunProvision:
         await run_sync()
 
         assert events[0] == "provision"
+
+
+class TestRemoveDroppedTables:
+    """The step removes what the console no longer lists, for each schema."""
+
+    @staticmethod
+    def stub(
+        monkeypatch: pytest.MonkeyPatch, dropped: list[str]
+    ) -> tuple[object, AsyncMock, AsyncMock]:
+        """Replace the catalog, the bucket and the state with mocks."""
+        connection = object()
+
+        @asynccontextmanager
+        async def duckdb_connect() -> AsyncGenerator[object]:
+            yield connection
+
+        @asynccontextmanager
+        async def pg_connect(dsn: str) -> AsyncGenerator[object]:
+            yield connection
+
+        purge = AsyncMock()
+        forget = AsyncMock()
+        monkeypatch.setattr(DuckDB, "connect", duckdb_connect)
+        monkeypatch.setattr(Postgres, "connect", pg_connect)
+        monkeypatch.setattr(steps, "attach_catalog", AsyncMock())
+        monkeypatch.setattr(
+            steps, "drop_tables_except", AsyncMock(return_value=dropped)
+        )
+        monkeypatch.setattr(steps, "clear_s3_prefix", purge)
+        monkeypatch.setattr(steps, "delete_removed_state", forget)
+        return connection, purge, forget
+
+    @pytest.mark.asyncio
+    async def test_drops_purges_and_forgets_each_removed_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The folder of a dropped table goes, and the state keeps only the listed tables."""
+        connection, purge, forget = self.stub(monkeypatch, ["old"])
+        document = sync_config([FullTable(name="p.d.t")]).model_dump_json()
+
+        removed = await workflow_body(steps.remove_dropped_tables)(document)
+
+        assert removed == ["app.old"]
+        purge.assert_awaited_once_with(table_prefix("app", "old"))
+        forget.assert_awaited_once_with(connection, {"p.d.t"})
+
+    @pytest.mark.asyncio
+    async def test_purges_nothing_when_no_table_was_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A schema without removed tables leaves its bucket alone."""
+        _, purge, _ = self.stub(monkeypatch, [])
+        document = sync_config([FullTable(name="p.d.t")]).model_dump_json()
+
+        assert await workflow_body(steps.remove_dropped_tables)(document) == []
+
+        purge.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_workflow_also_removes_the_credentials_of_removed_schemas(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cleanup_tables runs the S3 credential cleanup with the same config."""
+        monkeypatch.setattr(
+            workflows,
+            "load_sync_config",
+            AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
+        )
+        monkeypatch.setattr(workflows, "remove_dropped_tables", AsyncMock())
+        cleanup = AsyncMock(return_value=[])
+        monkeypatch.setattr(workflows, "cleanup_s3_credentials", cleanup)
+
+        await workflow_body(workflows.cleanup_tables)()
+
+        cleanup.assert_awaited_once_with(DOCUMENT)
+
+    async def test_the_workflow_runs_the_step_with_the_current_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cleanup_tables loads the config and removes the dropped tables."""
+        remove = AsyncMock(return_value=[])
+        monkeypatch.setattr(
+            workflows,
+            "load_sync_config",
+            AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
+        )
+        monkeypatch.setattr(workflows, "remove_dropped_tables", remove)
+
+        await workflow_body(workflows.cleanup_tables)()
+
+        remove.assert_awaited_once_with(DOCUMENT)
+
+
+class TestCleanupS3CredentialsStep:
+    """The step removes the S3 identities of the schemas that the config no longer lists."""
+
+    @pytest.mark.asyncio
+    async def test_removes_the_identities_of_schemas_outside_the_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The config lists app, so every other schema loses its identity."""
+        monkeypatch.setattr(settings, "S3_IDENTITIES", True)
+        remove = AsyncMock(return_value=["gone"])
+        monkeypatch.setattr(steps, "remove_stale_identities", remove)
+        document = sync_config([FullTable(name="p.d.t")]).model_dump_json()
+
+        removed = await workflow_body(steps.cleanup_s3_credentials)(document)
+
+        assert removed == ["gone"]
+        remove.assert_awaited_once_with({"app"})
+
+    @pytest.mark.asyncio
+    async def test_does_nothing_when_the_console_makes_no_identities(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment without per-schema identities has no IAM API to call."""
+        remove = AsyncMock()
+        monkeypatch.setattr(steps, "remove_stale_identities", remove)
+        monkeypatch.setattr(settings, "S3_IDENTITIES", False)
+        document = sync_config([FullTable(name="p.d.t")]).model_dump_json()
+
+        assert await workflow_body(steps.cleanup_s3_credentials)(document) == []
+
+        remove.assert_not_awaited()

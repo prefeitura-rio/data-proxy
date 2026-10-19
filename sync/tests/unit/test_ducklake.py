@@ -5,7 +5,13 @@ import pytest
 from psycopg.sql import Identifier, Literal
 
 from sync.duckdb import DuckDB
-from sync.ducklake import DuckLakePaths, commit_table, evolve_table_schema
+from sync.ducklake import (
+    DuckLakePaths,
+    commit_table,
+    drop_tables_except,
+    evolve_table_schema,
+    table_prefix,
+)
 from sync.executor import Executor
 from sync.models import FullTable, PartitionChange, PartitionedTablePlan
 from sync.settings import settings
@@ -15,6 +21,7 @@ from tests.constants import PARQUET, TEST_SQL_DIR
 from tests.helpers import (
     attach_ducklake,
     create_ducklake_table,
+    ducklake_columns,
     ducklake_row_count,
     partition,
 )
@@ -150,3 +157,41 @@ class TestDucklakeMaintenance:
         assert await snapshot_count(duckdb) < snapshots_before
         assert await ducklake_row_count(duckdb, "people") == rows
         assert len(list((tmp_path / "data").rglob("*.parquet"))) == 1
+
+
+def test_the_files_of_a_table_live_under_its_own_folder_of_the_schema_data_path() -> (
+    None
+):
+    """Address the folder that holds the data files of one table, without the bucket."""
+    assert (
+        table_prefix("app", "people")
+        == f"{settings.DUCKLAKE_CATALOG_PATH}/app/main/people"
+    )
+
+
+class TestDropTablesExcept:
+    """Drop the tables that the config no longer lists."""
+
+    @pytest.mark.asyncio
+    async def test_drops_the_unlisted_tables_and_returns_their_names(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """A listed table stays, and each other table goes."""
+        await attach_ducklake(duckdb, tmp_path)
+        for name in ("people", "orders", "items"):
+            await create_ducklake_table(duckdb, name)
+
+        dropped = await drop_tables_except(duckdb, {"people"})
+
+        assert dropped == ["items", "orders"]
+        assert await ducklake_columns(duckdb, "people")
+
+    @pytest.mark.asyncio
+    async def test_does_nothing_when_every_table_is_listed(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """A second run finds nothing to drop."""
+        await attach_ducklake(duckdb, tmp_path)
+        await create_ducklake_table(duckdb, "people")
+
+        assert await drop_tables_except(duckdb, {"people"}) == []

@@ -262,6 +262,23 @@ async def table_exists(duckdb_conn: DuckDB, table_name: str) -> bool:
     return bool(rows and rows[0][0] > 0)
 
 
+def table_prefix(schema: str, table: str) -> str:
+    """Return the key prefix of the folder that holds the data files of one table."""
+    return f"{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}/main/{table}"
+
+
+async def drop_tables_except(duckdb_conn: DuckDB, keep: set[str]) -> list[str]:
+    """Drop every table of the attached catalog that is not in keep, and return their names."""
+    executor = Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn)
+    rows = await executor.query("duckdb/list_tables", expect=tuple[str])
+    dropped = sorted(name for (name,) in rows if name not in keep)
+
+    for name in dropped:
+        await executor.execute("duckdb/drop_table", mapping={"table": Identifier(name)})
+
+    return dropped
+
+
 def validate_sort_columns(table: TableConfig, source_columns: set[str]) -> None:
     """Fail when configured sort columns are not in the source schema."""
     unknown = set(table.ducklake.sort or []) - source_columns

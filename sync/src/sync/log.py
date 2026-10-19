@@ -9,8 +9,8 @@ from typing import override
 from .constants import LOCATION_FRAMES, PROJECT_PATH
 from .settings import settings
 
-schemaname = ContextVar("schemaname", default="-")
-tablename = ContextVar("tablename", default="-")
+SCHEMA = ContextVar("schemaname", default="-")
+TABLE = ContextVar("tablename", default="-")
 
 logger = getLogger("dbos")
 
@@ -43,8 +43,8 @@ class DomainContextFilter(Filter):
     @override
     def filter(self, record: LogRecord) -> bool:
         """Attach the current schema and table context to every record."""
-        record.schema = schemaname.get()
-        record.table = tablename.get()
+        record.schema = SCHEMA.get()
+        record.table = TABLE.get()
         return True
 
 

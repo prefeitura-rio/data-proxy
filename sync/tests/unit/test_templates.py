@@ -43,7 +43,12 @@ from sync.sources.partitions import (
     RemainderSelection,
     TimeRangeSelection,
 )
-from sync.state import build_table_states, write_table_states
+from sync.state import (
+    build_table_states,
+    delete_removed_state,
+    emit_error,
+    write_table_states,
+)
 from sync.templates import render_template
 from sync.types import DatabaseRow, DuckDBParams, PostgresParams, TemplateValue
 from sync.views import stages
@@ -137,6 +142,7 @@ SKIPPED_TEMPLATES = {
     "insert_scope": "Run by the state tests of the sync code.",
     "read_state": "Run by the state tests of the sync code.",
     "upsert_state": "Run by the state tests of the sync code.",
+    "delete_removed_state": "Run by the state tests of the sync code.",
 }
 
 
@@ -293,6 +299,39 @@ class TestDuckdbTemplates:
             expect=tuple[int],
         )
         assert rows[0][0] == expected
+
+    @pytest.mark.asyncio
+    async def test_list_tables_returns_the_tables_of_the_catalog(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """Return the name of every table that the catalog holds."""
+        await attach_ducklake(duckdb, tmp_path)
+        await create_ducklake_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "orders")
+
+        rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
+            "duckdb/list_tables", expect=tuple[str]
+        )
+
+        assert sorted(rows) == [("orders",), ("people",)]
+
+    @pytest.mark.asyncio
+    async def test_drop_table_removes_only_the_named_table(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """Drop one table and keep the others."""
+        await attach_ducklake(duckdb, tmp_path)
+        await create_ducklake_table(duckdb, "people")
+        await create_ducklake_table(duckdb, "orders")
+
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
+            "duckdb/drop_table", mapping={"table": Identifier("orders")}
+        )
+
+        rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
+            "duckdb/list_tables", expect=tuple[str]
+        )
+        assert rows == [("people",)]
 
     @pytest.mark.asyncio
     async def test_metadata_get_sort_returns_configured_columns(
@@ -666,6 +705,26 @@ class TestPostgresTemplates:
 
         assert covered_by_dl == ducklake
         assert covered_by_fallback == fallback
+
+    async def test_delete_removed_state_keeps_only_the_listed_tables(
+        self, routing: Postgres
+    ) -> None:
+        """The state and the errors of an unlisted table go, and those of a listed table stay."""
+        for table in ("p.d.kept", "p.d.gone"):
+            await put_state(routing, table, FULL)
+            await emit_error(routing.backend, "table_blocked", table=table)
+
+        await delete_removed_state(routing.backend, {"p.d.kept"})
+
+        app = Identifier(settings.DBOS_APP_SCHEMA)
+        states = await routing.connection.execute(
+            SQL("SELECT table_name FROM {}.state").format(app)
+        )
+        errors = await routing.connection.execute(
+            SQL("SELECT fields ->> 'table' FROM {}.errors").format(app)
+        )
+        assert await states.fetchall() == [("p.d.kept",)]
+        assert await errors.fetchall() == [("p.d.kept",)]
 
     async def test_covered_by_reads_state_built_for_a_published_table(
         self, routing: Postgres
@@ -1752,6 +1811,11 @@ class TestPostgresTemplates:
                 id="string-and-number-claims",
             ),
             pytest.param(None, {"app.claim_sub": None}, id="no-claims"),
+            pytest.param(
+                {"sub": "u1", "allowed-origins": ["http://console.localhost"]},
+                {"app.claim_sub": "u1"},
+                id="claim-whose-name-is-not-a-setting-name",
+            ),
         ],
     )
     async def test_pre_request_maps_each_claim_to_an_app_setting(
@@ -1912,6 +1976,38 @@ class TestPostgresTemplates:
         ]
 
     @pytest.mark.parametrize(
+        ("role", "claim", "expected"),
+        [
+            pytest.param("dp_policy", "{schema}", 1, id="policy-role-of-the-schema"),
+            pytest.param("dp_policy", "other", 0, id="policy-role-of-another-schema"),
+            pytest.param("dp_api", "{schema}", 0, id="role-without-read-policy"),
+        ],
+    )
+    async def test_setup_access_policy_shows_the_log_to_a_token_that_may_read_the_policy(
+        self, rbac: Postgres, role: str, claim: str, expected: int
+    ) -> None:
+        """A token reads the access log of a schema when it holds read_policy for that schema."""
+        await create_access_policy(rbac)
+        await insert_access_policy(rbac, "ana", "unit", "u1")
+        await act_as_token(rbac, role, claim.format(schema=rbac.namespace.schema))
+        token_role = Identifier(settings.AUTH_USER_ROLE)
+        await rbac.connection.execute(
+            SQL(
+                "GRANT USAGE ON SCHEMA rbac TO {role}; GRANT EXECUTE ON FUNCTION rbac.can(text), rbac.mine(text) TO {role}; SET LOCAL ROLE {role}"
+            ).format(role=token_role)
+        )
+
+        assert (
+            await scalar(
+                rbac,
+                SQL("SELECT count(*) FROM {}.access_log")
+                .format(rbac.namespace.identifier)
+                .as_string(),
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize(
         ("statement", "expected"),
         [
             pytest.param(
@@ -1933,6 +2029,11 @@ class TestPostgresTemplates:
                 "INSERT INTO console.tables VALUES ('t')",
                 ["reload_proxy"],
                 id="table-added",
+            ),
+            pytest.param(
+                "DELETE FROM console.tables",
+                ["cleanup_tables", "reload_proxy"],
+                id="table-removed",
             ),
             pytest.param(
                 "UPDATE rbac.revision SET value = value + 1",
@@ -2175,6 +2276,8 @@ async def create_request_roles(pg: Postgres, password: str) -> None:
                 "anonymous_role": Literal("anon_t"),
                 "serving_role": Literal("auth_t"),
                 "serving_password": Literal(password),
+                "signer_role": Literal(SIGNER),
+                "signer_password": Literal(password),
             },
         ).encode()
     )
@@ -2242,6 +2345,24 @@ class TestRolesTemplate:
             "dp_t_policy",
         ]
 
+    async def test_the_signer_logs_in_and_belongs_to_no_request_role(
+        self, postgres: Postgres
+    ) -> None:
+        """The signer has a password login and no inheritance, and no membership until a schema reader grants one."""
+        await create_request_roles(postgres, "first")
+        cursor = await postgres.connection.execute(
+            SQL(
+                "SELECT rolcanlogin, rolinherit, rolpassword LIKE 'SCRAM-SHA-256$%' FROM pg_authid WHERE rolname = {}"
+            ).format(Literal(SIGNER))
+        )
+        assert await cursor.fetchone() == (True, False, True)
+        cursor = await postgres.connection.execute(
+            SQL(
+                "SELECT count(*) FROM pg_auth_members AS m INNER JOIN pg_roles AS member ON member.oid = m.member WHERE member.rolname = {}"
+            ).format(Literal(SIGNER))
+        )
+        assert await cursor.fetchone() == (0,)
+
     async def test_a_serving_login_that_exists_without_a_login_gets_one(
         self, postgres: Postgres
     ) -> None:
@@ -2290,6 +2411,197 @@ class TestRolesTemplate:
             b"SELECT count(*) FROM pg_roles WHERE rolname LIKE ANY (ARRAY['dp\\_t\\_%', 'anon\\_t', 'auth\\_t'])"
         )
         assert await cursor.fetchone() == (len(REQUEST_ROLES) + 2,)
+
+
+SIGNER: Final = "signer_t"
+
+
+async def create_schema_reader(
+    pg: Postgres, name: str, template: str = "create_schema_reader"
+) -> None:
+    """Render one reader template for a schema of the test catalog and run it in the test transaction."""
+    await pg.connection.execute(
+        helm_sql(
+            template,
+            {
+                "name": Literal(name),
+                "signer": Literal(SIGNER),
+                "writer": Literal("test"),
+            },
+        ).encode()
+    )
+
+
+@pytest.mark.postgres
+class TestSchemaReaderTemplates:
+    """The reader template gives a role the metadata of one schema and nothing else."""
+
+    async def prepare(self, pg: Postgres) -> None:
+        """Create the signer login and the metadata schemas of two schemas, each with one table."""
+        await pg.connection.execute(
+            SQL("CREATE ROLE {} LOGIN NOINHERIT").format(Identifier(SIGNER))
+        )
+        for name in ("sales", "hr"):
+            await pg.connection.execute(
+                SQL(
+                    "CREATE SCHEMA {schema}; CREATE TABLE {schema}.files (path text); INSERT INTO {schema}.files VALUES ({path})"
+                ).format(schema=Identifier(name), path=Literal(f"{name}/a.parquet"))
+            )
+            await create_schema_reader(pg, name)
+
+    async def read_as(
+        self, pg: Postgres, role: str, query: str
+    ) -> list[tuple[str]] | str:
+        """Run a query as a role, and return the rows or the message of the refusal."""
+        await pg.connection.execute(SQL("SET LOCAL ROLE {}").format(Identifier(SIGNER)))
+        await pg.connection.execute(SQL("SET LOCAL ROLE {}").format(Identifier(role)))
+        try:
+            cursor = await pg.connection.execute(query.encode())
+            return [(str(row[0]),) for row in await cursor.fetchall()]
+        except psycopg.errors.InsufficientPrivilege as error:
+            return str(error)
+
+    async def test_the_role_reads_its_own_metadata(self, postgres: Postgres) -> None:
+        """The signer switches into the role of a schema and reads that schema."""
+        await self.prepare(postgres)
+        assert await self.read_as(
+            postgres, "schema_sales", "SELECT path FROM sales.files"
+        ) == [("sales/a.parquet",)]
+
+    async def test_the_role_cannot_read_the_metadata_of_another_schema(
+        self, postgres: Postgres
+    ) -> None:
+        """The role of one schema gets a refusal on the schema of another."""
+        await self.prepare(postgres)
+        refusal = await self.read_as(
+            postgres, "schema_sales", "SELECT path FROM hr.files"
+        )
+
+        assert "permission denied for schema hr" in str(refusal)
+
+    async def test_the_role_cannot_write_the_metadata_of_its_own_schema(
+        self, postgres: Postgres
+    ) -> None:
+        """The grant is a read grant."""
+        await self.prepare(postgres)
+        refusal = await self.read_as(
+            postgres,
+            "schema_sales",
+            "INSERT INTO sales.files VALUES ('x') RETURNING path",
+        )
+
+        assert "permission denied for table files" in str(refusal)
+
+    async def test_the_role_reads_a_table_that_the_catalog_creates_later(
+        self, postgres: Postgres
+    ) -> None:
+        """DuckLake creates its tables after the role. A default privilege covers them."""
+        await self.prepare(postgres)
+        await postgres.connection.execute(SQL("CREATE TABLE sales.later (path text)"))
+        assert await self.read_as(
+            postgres, "schema_sales", "SELECT count(*)::text FROM sales.later"
+        ) == [("0",)]
+
+    async def test_a_second_run_succeeds(self, postgres: Postgres) -> None:
+        """The template creates nothing twice."""
+        await self.prepare(postgres)
+
+        await create_schema_reader(postgres, "sales")
+
+    async def test_drop_removes_the_role_and_keeps_the_schema(
+        self, postgres: Postgres
+    ) -> None:
+        """The drop template removes the role and its grants. Another run does nothing."""
+        await self.prepare(postgres)
+
+        await create_schema_reader(postgres, "sales", "drop_schema_reader")
+        await create_schema_reader(postgres, "sales", "drop_schema_reader")
+
+        cursor = await postgres.connection.execute(
+            b"SELECT rolname FROM pg_roles WHERE rolname LIKE 'schema\\_%'"
+        )
+        assert await cursor.fetchall() == [("schema_hr",)]
+
+    async def test_signer_keys_are_the_only_table_that_the_signer_writes(
+        self, postgres: Postgres
+    ) -> None:
+        """The signer stores and reads the sealed keys of its identities, and it can't delete them or read anything else."""
+        await self.prepare(postgres)
+        await postgres.connection.execute(
+            helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
+        )
+        await postgres.connection.execute(
+            SQL("SET LOCAL ROLE {}").format(Identifier(SIGNER))
+        )
+
+        await postgres.connection.execute(
+            b"INSERT INTO signer.keys (schema_name, access_key, secret_sealed) VALUES ('sales', 'AKIA', 'sealed')"
+        )
+        cursor = await postgres.connection.execute(
+            b"SELECT access_key, secret_sealed FROM signer.keys"
+        )
+        assert await cursor.fetchall() == [("AKIA", "sealed")]
+
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            await postgres.connection.execute(b"DELETE FROM signer.keys")
+
+    async def test_signer_keys_run_again_without_an_error(
+        self, postgres: Postgres
+    ) -> None:
+        """The template creates nothing twice, and it keeps the rows."""
+        await self.prepare(postgres)
+        template = helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
+        await postgres.connection.execute(template)
+        await postgres.connection.execute(
+            b"INSERT INTO signer.keys (schema_name, access_key, secret_sealed) VALUES ('sales', 'AKIA', 'sealed')"
+        )
+
+        await postgres.connection.execute(template)
+
+        assert await scalar(postgres, "SELECT count(*) FROM signer.keys") == 1
+
+    async def test_drop_forgets_the_keys_of_the_schema(
+        self, postgres: Postgres
+    ) -> None:
+        """A removed schema leaves no sealed key behind, and the other schema keeps its own."""
+        await self.prepare(postgres)
+        await postgres.connection.execute(
+            helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
+        )
+        await postgres.connection.execute(
+            b"INSERT INTO signer.keys (schema_name, access_key, secret_sealed) VALUES ('sales', 'A', 's'), ('hr', 'B', 's')"
+        )
+
+        await create_schema_reader(postgres, "sales", "drop_schema_reader")
+
+        cursor = await postgres.connection.execute(
+            b"SELECT schema_name FROM signer.keys"
+        )
+        assert await cursor.fetchall() == [("hr",)]
+
+    async def test_drop_works_before_the_keys_table_exists(
+        self, postgres: Postgres
+    ) -> None:
+        """A cluster that never made an identity has no table, and the drop still works."""
+        await self.prepare(postgres)
+
+        await create_schema_reader(postgres, "sales", "drop_schema_reader")
+
+    async def test_a_name_that_makes_the_role_too_long_fails(
+        self, postgres: Postgres
+    ) -> None:
+        """A role name over 63 characters would collide with another after the truncation."""
+        await postgres.connection.execute(
+            SQL("CREATE ROLE {} LOGIN NOINHERIT").format(Identifier(SIGNER))
+        )
+        name = "a" * 60
+
+        await postgres.connection.execute(
+            SQL("CREATE SCHEMA {}").format(Identifier(name))
+        )
+
+        with pytest.raises(psycopg.errors.RaiseException, match="too long"):
+            await create_schema_reader(postgres, name)
 
 
 @pytest.mark.postgres

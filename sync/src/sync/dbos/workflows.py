@@ -1,11 +1,11 @@
 """DBOS synchronization workflows."""
 
-from datetime import datetime  # ruff: ignore[typing-only-standard-library-import]
+from typing import TYPE_CHECKING
 
 from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
 
 from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE
-from sync.log import schemaname, tablename
+from sync.log import SCHEMA, TABLE
 from sync.metrics import observe
 from sync.models import DumpResult, DumpStatus, DumpTask, SyncPlan, SyncScope
 from sync.settings import settings
@@ -14,6 +14,7 @@ from . import logs
 from .steps import (
     apply_ducklake_maintenance,
     build_sync_work,
+    cleanup_s3_credentials,
     commit_ducklake_snapshot,
     commit_table_state,
     extract_task,
@@ -27,15 +28,19 @@ from .steps import (
     record_scope,
     record_seed_metrics,
     reload_postgrest,
+    remove_dropped_tables,
     run_provision,
     seed_schemas,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 @DBOS.workflow()
 async def dump_task(task: DumpTask) -> DumpResult:
     """Dump one task, record its result, and return it to the parent workflow."""
-    tablename.set(task.table)
+    TABLE.set(task.table)
 
     await logs.info("Dump started", task_id=task.task_id)
 
@@ -63,7 +68,7 @@ async def publish_schema(
     run_id: str, plan: SyncPlan, failed_paths: set[str], document: str
 ) -> int | None:
     """Publish and maintain one schema, then return its new snapshot, if any."""
-    schemaname.set(plan.schema_name)
+    SCHEMA.set(plan.schema_name)
 
     await logs.info("Publish started", run_id=run_id)
 
@@ -164,8 +169,18 @@ async def run_sync(
 
 @DBOS.workflow()
 async def provision_schemas() -> None:
-    """Provision the schemas after a change in the console tables."""
+    """Provision the schemas after a change in the console tables, and drop the S3 credentials of removed schemas."""
     await run_provision()
+    loaded = await load_sync_config()
+    await cleanup_s3_credentials(loaded.document)
+
+
+@DBOS.workflow()
+async def cleanup_tables() -> None:
+    """Remove the tables that an editor deleted from the console, with their files and state."""
+    loaded = await load_sync_config()
+    await remove_dropped_tables(loaded.document)
+    await cleanup_s3_credentials(loaded.document)
 
 
 @DBOS.workflow()

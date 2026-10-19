@@ -5,7 +5,7 @@ from logging import ERROR, INFO, WARNING, LogRecord, getLevelName
 from dbos import DBOS, WorkflowSerializationFormat
 from whenever import Instant
 
-from sync.log import logger, schemaname, tablename
+from sync.log import SCHEMA, TABLE, logger
 
 LOG_STREAM = "logs"
 
@@ -39,8 +39,8 @@ async def write(level: int, message: str, /, **fields: LogField) -> None:
     if clashes:
         raise ValueError(f"Reserved log field names: {clashes}")
 
-    schema = schemaname.get()
-    table = tablename.get()
+    schema = SCHEMA.get()
+    table = TABLE.get()
     context = {
         name: value
         for name, value in (("schema", schema), ("table", table))

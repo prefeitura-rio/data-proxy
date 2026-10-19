@@ -1974,7 +1974,7 @@ dev = [
     { name = "pytest-env" },
     { name = "pytest-gremlins" },
     { name = "ruff" },
-    { name = "types-aiobotocore", extra = ["s3"] },
+    { name = "types-aiobotocore", extra = ["iam", "s3"] },
     { name = "vulture" },
 ]
 
@@ -2012,7 +2012,7 @@ dev = [
     { name = "pytest-env", specifier = ">=1.1.5" },
     { name = "pytest-gremlins", specifier = ">=1.9.0" },
     { name = "ruff", specifier = ">=0.9.3" },
-    { name = "types-aiobotocore", extras = ["s3"], specifier = ">=3.9.0" },
+    { name = "types-aiobotocore", extras = ["s3", "iam"], specifier = ">=3.9.0" },
     { name = "vulture", specifier = ">=2.16" },
 ]
 
@@ -2038,8 +2038,20 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+iam = [
+    { name = "types-aiobotocore-iam" },
+]
 s3 = [
     { name = "types-aiobotocore-s3" },
+]
+
+[[package]]
+name = "types-aiobotocore-iam"
+version = "3.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/9f/21cd3227337996ee9fa5c0fb0102c9d08596cb9ec7ce44d258694244dc1e/types_aiobotocore_iam-3.9.2.tar.gz", hash = "sha256:090cec7c717eb1c98d84d5a12780865ae0f766edd6dd6a07fad003875d554891", size = 92664, upload-time = "2026-10-01T04:40:43.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/83/8e7404c76b8d85e6eb339af050bf93c4dfb38792182a16b60199997c04ae/types_aiobotocore_iam-3.9.2-py3-none-any.whl", hash = "sha256:bb15616b6e959fd8b0f305512d194fd996c7a1cbad1aec3b1172f90be88be33c", size = 98933, upload-time = "2026-10-01T04:40:41.129Z" },
 ]
 
 [[package]]

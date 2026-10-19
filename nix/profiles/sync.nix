@@ -14,8 +14,18 @@
       ];
 
       env = {
+        TEST_DATABASE_READY = "${config.devenv.state}/database-ready";
         UV_LINK_MODE = "copy";
         UV_PROJECT_ENVIRONMENT = lib.mkForce "${config.devenv.root}/sync/.venv";
+      };
+
+      processes.after-postgres = lib.mkIf config.devenv.isTesting {
+        exec = ''
+          rm -f ${config.env.TEST_DATABASE_READY}
+          ${pkgs.nushell}/bin/nu ${config.devenv.root}/scripts/db.nu && touch ${config.env.TEST_DATABASE_READY}
+        '';
+        after = [ "devenv:processes:postgres" ];
+        restart.on = "never";
       };
 
       packages = with pkgs; [

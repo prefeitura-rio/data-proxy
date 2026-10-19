@@ -48,6 +48,16 @@ async def emit_error(pg_conn: Postgres, reason: str, **fields: str) -> None:
     await pg_conn.commit()
 
 
+async def delete_removed_state(pg_conn: Postgres, kept: set[str]) -> None:
+    """Delete the state and the errors of every table that is not in kept, and commit."""
+    await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
+        "postgres/delete_removed_state",
+        mapping={"schema": schema()},
+        params={"kept": dumps(sorted(kept))},
+    )
+    await pg_conn.commit()
+
+
 async def read_sync_config(pg_conn: Postgres) -> str:
     """Read the sync configuration that the admin tables describe."""
     found = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
