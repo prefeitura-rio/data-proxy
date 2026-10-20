@@ -1,12 +1,4 @@
-{
-  pkgs,
-  config,
-  lib,
-  ...
-}:
-let
-  inherit (import ../utils.nix { inherit lib pkgs config; }) nushellCommand;
-in
+{ pkgs, ... }:
 {
   profiles.default = {
     extends = [ "checks" ];
