@@ -112,3 +112,45 @@ spec:
   {{- include "data-proxy.jwtRules" . | nindent 2 }}
 {{- end }}
 {{- end }}
+{{- if and .Values.ingress.enabled .Values.console.enabled }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-console
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ingress.gateway }}
+  hosts:
+    - {{ required "console.host is required when the console is enabled" .Values.console.host | quote }}
+  http:
+    - route:
+        - destination:
+            host: {{ include "data-proxy.fullname" . }}-console
+            port:
+              number: 3000
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.notebooks.enabled }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-notebooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ .Values.ingress.gateway }}
+  hosts:
+    - {{ required "notebooks.host is required when the notebooks are enabled" .Values.notebooks.host | quote }}
+  http:
+    - route:
+        - destination:
+            host: {{ include "data-proxy.fullname" . }}-notebooks
+            port:
+              number: 8080
+{{- end }}

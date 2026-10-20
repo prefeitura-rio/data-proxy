@@ -1,0 +1,110 @@
+{{- if .Values.console.enabled }}
+{{- $storage := .Values.console.storage }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-console
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: console
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: console
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
+    spec:
+      containers:
+        - name: console
+          image: {{ .Values.console.image | quote }}
+          imagePullPolicy: {{ .Values.console.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: ORIGIN
+              value: {{ include "data-proxy.consoleOrigin" . | quote }}
+            {{- /* adapter-node reads the scheme from this header and assumes https without it. The gateway sets it. */}}
+            - name: PROTOCOL_HEADER
+              value: x-forwarded-proto
+            - name: OIDC_ISSUER
+              value: {{ required "console.oidc.issuer is required when the console is enabled" .Values.console.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.console.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.consoleSecretName" . }}
+                  key: OIDC_CLIENT_SECRET
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.consoleSecretName" . }}
+                  key: COOKIE_SECRET
+            - name: POSTGREST_URL
+              value: {{ printf "http://%s-postgrest:3000" (include "data-proxy.fullname" .) | quote }}
+            {{- if .Values.notebooks.enabled }}
+            - name: NOTEBOOK_ORIGIN
+              value: {{ include "data-proxy.notebooksOrigin" . | quote }}
+            - name: SIGNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.signerSecretName" . }}
+                  key: password
+            - name: CATALOG_URL
+              value: {{ printf "postgresql://%s:$(SIGNER_PASSWORD)@%s-rw:5432/ducklake" .Values.auth.signerRole (include "data-proxy.fullname" .) | quote }}
+            - name: S3_ENDPOINT
+              value: {{ required "console.storage.endpoint is required when the notebooks are enabled" $storage.endpoint | quote }}
+            - name: S3_REGION
+              value: {{ $storage.region | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.s3.bucket | quote }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "data-proxy.s3SecretName" .) $storage.existingSecret }}
+                  key: {{ ternary "accessKey" "S3_READER_ACCESS_KEY" (ne $storage.existingSecret "") }}
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "data-proxy.s3SecretName" .) $storage.existingSecret }}
+                  key: {{ ternary "secretKey" "S3_READER_SECRET_KEY" (ne $storage.existingSecret "") }}
+            {{- if $storage.perSchemaIdentities }}
+            - name: S3_ADMIN_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "data-proxy.s3SecretName" .) $storage.adminSecret }}
+                  key: {{ ternary "accessKey" "S3_ACCESS_KEY" (ne $storage.adminSecret "") }}
+            - name: S3_ADMIN_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "data-proxy.s3SecretName" .) $storage.adminSecret }}
+                  key: {{ ternary "secretKey" "S3_SECRET_KEY" (ne $storage.adminSecret "") }}
+            {{- with $storage.iamEndpoint }}
+            - name: S3_IAM_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.console.resources | nindent 12 }}
+{{- end }}

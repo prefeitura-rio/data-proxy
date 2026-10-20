@@ -1,0 +1,264 @@
+suite: Console and notebooks
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - deployment-console.yaml
+  - deployment-notebooks.yaml
+  - services.yaml
+  - istio.yaml
+  - secrets.yaml
+set:
+  redis.host: redis-writer
+  ingress.enabled: true
+  console.enabled: true
+  console.host: console.example.test
+  console.scheme: https
+  console.oidc.issuer: https://idp.example.test/realms/dev
+  console.oidc.clientSecret: client-secret
+  console.storage.endpoint: https://storage.example.test
+  notebooks.enabled: true
+  notebooks.host: notebooks.example.test
+  notebooks.scheme: https
+tests:
+  - it: runs nothing of either when both are off
+    set:
+      console.enabled: false
+      notebooks.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: deployment-console.yaml
+      - hasDocuments:
+          count: 0
+        template: deployment-notebooks.yaml
+
+  - it: passes the settings of the console to its container
+    template: deployment-console.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ORIGIN
+            value: https://console.example.test
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROTOCOL_HEADER
+            value: x-forwarded-proto
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OIDC_ISSUER
+            value: https://idp.example.test/realms/dev
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGREST_URL
+            value: http://data-proxy-postgrest:3000
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NOTEBOOK_ORIGIN
+            value: https://notebooks.example.test
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CATALOG_URL
+            value: postgresql://console_signer:$(SIGNER_PASSWORD)@data-proxy-rw:5432/ducklake
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ENDPOINT
+            value: https://storage.example.test
+
+  - it: signs the links with the read-only credential of the chart
+    template: deployment-console.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-s3
+                key: S3_READER_ACCESS_KEY
+
+  - it: signs the links with the credentials of a Secret when one is set
+    template: deployment-console.yaml
+    set:
+      console.storage.existingSecret: my-signing
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-signing
+                key: secretKey
+
+  - it: makes no identity for a schema unless it is asked to
+    template: deployment-console.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ADMIN_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-s3
+                key: S3_ACCESS_KEY
+
+  - it: gives the console the admin credential and the IAM endpoint to make one identity for each schema
+    template: deployment-console.yaml
+    set:
+      console.storage.perSchemaIdentities: true
+      console.storage.iamEndpoint: http://storage.example.test:8333
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ADMIN_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-s3
+                key: S3_ACCESS_KEY
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_IAM_ENDPOINT
+            value: http://storage.example.test:8333
+
+  - it: takes the admin credential from a Secret when one is set
+    template: deployment-console.yaml
+    set:
+      console.storage.perSchemaIdentities: true
+      console.storage.adminSecret: my-admin
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ADMIN_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-admin
+                key: secretKey
+
+  - it: needs the issuer
+    template: deployment-console.yaml
+    set:
+      console.oidc.issuer: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: console.oidc.issuer is required when the console is enabled
+
+  - it: sends the policy of the notebook origin with the console as the only frame parent
+    template: deployment-notebooks.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/prefeitura-rio/data-proxy-console:dev
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [node, notebooks/server.ts]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CSP
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://storage.example.test; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors https://console.example.test"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CONSOLE_ORIGIN
+            value: https://console.example.test
+
+  - it: checks the health of the console and takes its limits from the values
+    template: deployment-console.yaml
+    set:
+      console.resources:
+        limits:
+          memory: 300Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 300Mi
+
+  - it: checks the health of the notebooks and takes their limits from the values
+    template: deployment-notebooks.yaml
+    set:
+      notebooks.resources:
+        limits:
+          memory: 100Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /config.js
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 100Mi
+
+  - it: serves the two apps on their own ports
+    template: services.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: notebooks
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: routes each host to its Service
+    template: istio.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-console
+    asserts:
+      - equal:
+          path: spec.hosts[0]
+          value: console.example.test
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-console
+      - equal:
+          path: spec.http[0].route[0].destination.port.number
+          value: 3000
+
+  - it: routes the notebook host to the notebooks Service
+    template: istio.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-notebooks
+    asserts:
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-notebooks
+
+  - it: keeps the cookie secret apart from the client secret and requires the client secret
+    template: secrets.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-console
+    asserts:
+      - equal:
+          path: stringData.OIDC_CLIENT_SECRET
+          value: client-secret
+      - matchRegex:
+          path: stringData.COOKIE_SECRET
+          pattern: "^[A-Za-z0-9]{48}$"
+
+  - it: gives the storage a read-only identity next to the admin one
+    template: secrets.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-s3
+    asserts:
+      - matchRegex:
+          path: stringData.seaweedfs_s3_config
+          pattern: '"name":"reader".*"actions":\["Read"\]'

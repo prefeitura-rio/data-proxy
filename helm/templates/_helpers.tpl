@@ -117,6 +117,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "data-proxy.fullname" . }}-cnpg-ops
 {{- end }}
 
+{{- define "data-proxy.signerSecretName" -}}
+{{- printf "%s-signer" (include "data-proxy.fullname" .) }}
+{{- end }}
+
 {{- define "data-proxy.servingSecretName" -}}
 {{- printf "%s-cnpg-%s" (include "data-proxy.fullname" .) .Values.auth.servingRole }}
 {{- end }}
@@ -446,6 +450,10 @@ jwtRules:
 {{ include "data-proxy.s3Env" . }}
 - name: S3_SCRATCH_PREFIX
   value: tmp
+{{- if and .Values.console.enabled .Values.console.storage.perSchemaIdentities }}
+- name: S3_IDENTITIES
+  value: "true"
+{{- end }}
 - name: DUCKLAKE_CATALOG_PATH
   value: {{ .Values.ducklake.catalogPath | quote }}
 - name: DUCKLAKE_TARGET_FILE_SIZE
@@ -606,6 +614,13 @@ containers:
           secretKeyRef:
             name: {{ include "data-proxy.servingSecretName" . }}
             key: password
+      - name: SIGNER_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.signerSecretName" . }}
+            key: password
+      - name: AUTH_SIGNER_ROLE
+        value: {{ .Values.auth.signerRole | quote }}
       - name: AUTH_ANON_ROLE
         value: {{ .Values.auth.anonRole | quote }}
       - name: AUTH_USER_ROLE
@@ -674,6 +689,10 @@ containers:
         value: {{ $root.Values.auth.userRole | quote }}
       - name: AUTH_SERVING_ROLE
         value: {{ $root.Values.auth.servingRole | quote }}
+      - name: AUTH_SIGNER_ROLE
+        value: {{ $root.Values.auth.signerRole | quote }}
+      - name: PGUSER
+        value: {{ $root.Values.cnpg.db.user | quote }}
       - name: DBOS_APP_SCHEMA
         value: {{ $root.Values.sync.dbos.appSchema | quote }}
       - name: AUTH_ANON_ROLE
@@ -785,4 +804,21 @@ spec:
             app.kubernetes.io/component: {{ .name }}-template
         spec:
           {{- .podSpec | nindent 10 }}
+{{- end }}
+
+{{- define "data-proxy.consoleSecretName" -}}
+{{- default (printf "%s-console" (include "data-proxy.fullname" .)) .Values.console.oidc.existingSecret }}
+{{- end }}
+
+{{- define "data-proxy.consoleOrigin" -}}
+{{- printf "%s://%s" .Values.console.scheme .Values.console.host }}
+{{- end }}
+
+{{- define "data-proxy.notebooksOrigin" -}}
+{{- printf "%s://%s" .Values.notebooks.scheme .Values.notebooks.host }}
+{{- end }}
+
+{{- /* The Content Security Policy of the notebook origin. notebooks/csp.ts builds the same string for the browser test. */ -}}
+{{- define "data-proxy.notebooksCsp" -}}
+{{- printf "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: %s; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors %s" .Values.console.storage.endpoint (include "data-proxy.consoleOrigin" .) }}
 {{- end }}

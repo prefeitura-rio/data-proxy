@@ -88,3 +88,41 @@ spec:
       port: 8080
       targetPort: http
 {{- end }}
+{{- if .Values.console.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-console
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console
+spec:
+  selector:
+    {{- include "data-proxy.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: console
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+{{- end }}
+{{- if .Values.notebooks.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-notebooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notebooks
+spec:
+  selector:
+    {{- include "data-proxy.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notebooks
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

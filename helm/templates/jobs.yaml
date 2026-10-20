@@ -114,6 +114,10 @@ spec:
           command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, {{ if .Values.s3.bootstrap.createIfMissing }}--create{{ else }}--wait{{ end }}]
           env:
             {{- include "data-proxy.s3BootstrapEnv" . | nindent 12 }}
+            {{- with .Values.s3.bootstrap.corsOrigins }}
+            - name: S3_CORS_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
           volumeMounts:
             - name: s3-bootstrap
               mountPath: /s3-bootstrap

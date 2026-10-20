@@ -23,6 +23,22 @@ tests:
           value: data-proxy-s3-bootstrap-0
         template: jobs.yaml
 
+  - it: gives the bootstrap Job the origins that the bucket must allow
+    set:
+      s3.bootstrap.corsOrigins:
+        - https://notebooks.example.test
+        - https://other.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_CORS_ORIGINS
+            value: https://notebooks.example.test,https://other.example.test
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3-bootstrap-0
+        template: jobs.yaml
+
   - it: creates configure-db as a revision-specific Job
     asserts:
       - isKind:

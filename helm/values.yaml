@@ -170,6 +170,10 @@ s3:
   existingSecret: ""
   bootstrap:
     createIfMissing: false
+    ## The origins that the CORS rule of the bucket allows, for the notebooks. The bootstrap Job sets the rule through the
+    ## S3 API with the credential of the chart. It needs the permission to change the bucket. An empty list leaves the rule alone.
+    ## GCS has its own command for this, so the Job skips it for a GCS endpoint.
+    corsOrigins: []
     timeout: 30min
     retry: 5sec
 ## DuckLake data and maintenance configuration. The catalogs live in the
@@ -290,6 +294,8 @@ auth:
   userRole: dp_api
   ## The login of the serving path: PostgREST, the PgDog pool and the recovery Deployment. It has no rights of its own and only switches into the request roles.
   servingRole: serving
+  ## The login that the console uses to read the catalog. It has no rights of its own. Each schema has a reader role that it switches into, and that role reads the metadata of that schema only.
+  signerRole: console_signer
   existingSecret: ""
   jwtRoleClaim: $.role
 ## CloudNativePG manages one PostgreSQL cluster.
@@ -349,6 +355,57 @@ cnpg:
     schedule: 0 5 * * *
     ## Number of retries for a failed backup.
     backupRetention: 7
+## The web console. It signs in people with OIDC, calls PostgREST with their token, and runs the query tab.
+console:
+  enabled: false
+  image: ghcr.io/prefeitura-rio/data-proxy-console:dev
+  imagePullPolicy: IfNotPresent
+  ## One replica is enough. The server keeps no state, so more replicas also work.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+  ## The public host of the console and its scheme. They make the origin that the browser sees.
+  host: ""
+  scheme: https
+  oidc:
+    ## The issuer of the identity provider.
+    issuer: ""
+    ## A confidential client with the redirect URI <scheme>://<host>/auth/callback.
+    clientId: console-web
+    clientSecret: ""
+    ## A Secret with the keys OIDC_CLIENT_SECRET and COOKIE_SECRET. The chart makes one when this is empty.
+    existingSecret: ""
+  ## The storage that the signed links of the query tab point to. The browser must reach this endpoint.
+  storage:
+    endpoint: ""
+    region: us-east-1
+    ## A Secret with the keys accessKey and secretKey of a read-only credential. The chart uses its own read-only credential when this is empty.
+    existingSecret: ""
+    ## Make one identity in the storage for each schema, limited to the folder of that schema. The console makes it on the first
+    ## query of the schema, through the IAM API of the storage, with an admin credential. SeaweedFS needs the server flag
+    ## -s3.iam.readOnly=false (seaweedfs.allInOne.extraArgs). Without this, every schema signs with the read-only credential.
+    perSchemaIdentities: false
+    ## A Secret with the keys accessKey and secretKey of an admin credential. The chart uses the admin credential of its S3 secret when this is empty.
+    adminSecret: ""
+    ## The IAM endpoint of the storage. The storage endpoint above by default.
+    iamEndpoint: ""
+## The static site of the notebooks. It runs on its own origin, so a notebook never shares cookies with the console.
+## It uses the image of the console, with another command.
+notebooks:
+  enabled: false
+  host: ""
+  scheme: https
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 96Mi
 ## Istio VirtualService for exposing PostgREST through the Istio ingress gateway.
 ingress:
   sidecarInject: true
