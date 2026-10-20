@@ -1,0 +1,80 @@
+suite: Schema reader roles
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - jobs.yaml
+  - secrets.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: gives the configure-db Job the signer login and its password
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-configure-db-0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SIGNER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-signer
+                key: password
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_SIGNER_ROLE
+            value: console_signer
+        template: jobs.yaml
+
+  - it: gives the provision Job the signer login that each reader role goes to
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: provision
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_SIGNER_ROLE
+            value: console_signer
+        template: jobs.yaml
+
+  - it: tells the provision Job which role creates the metadata tables
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: provision
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGUSER
+            value: ops
+        template: jobs.yaml
+
+  - it: stores the signer login in a Secret that the chart keeps on upgrade
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-signer
+    asserts:
+      - equal:
+          path: stringData.username
+          value: console_signer
+        template: secrets.yaml
+      - matchRegex:
+          path: stringData.password
+          pattern: "^[A-Za-z0-9]{32}$"
+        template: secrets.yaml
+
+  - it: names another signer login on request
+    set:
+      auth.signerRole: other_signer
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-signer
+    asserts:
+      - equal:
+          path: stringData.username
+          value: other_signer
+        template: secrets.yaml

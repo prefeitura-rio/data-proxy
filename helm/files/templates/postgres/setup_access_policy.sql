@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create access_policy and access_log tables with a change trigger, row policies that ask for the read_policy, create_policy, edit_policy and delete_policy permissions in the schemas of the token, a commit that waits for the standbys, and a trigger that moves the counter in rbac.revision on every write.",
+  "description": "Create access_policy and access_log tables with a change trigger, row policies that ask for the read_policy, create_policy, edit_policy and delete_policy permissions in the schemas of the token (the log takes only the read_policy policy), a commit that waits for the standbys, and a trigger that moves the counter in rbac.revision on every write.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Database role that every token switches to.",
@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS {{ schema }}.access_log (
 );
 CREATE INDEX IF NOT EXISTS access_log_changed_at
     ON {{ schema }}.access_log (changed_at);
+ALTER TABLE {{ schema }}.access_log ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON {{ schema }}.access_log TO {{ user_role }};
 
 CREATE OR REPLACE FUNCTION {{ app_schema }}.log_access_policy_change()
 RETURNS trigger
@@ -63,6 +65,11 @@ DROP TRIGGER IF EXISTS access_log_trigger ON {{ schema }}.access_policy;
 CREATE TRIGGER access_log_trigger
 AFTER INSERT OR UPDATE OR DELETE ON {{ schema }}.access_policy
 FOR EACH ROW EXECUTE FUNCTION {{ app_schema }}.log_access_policy_change();
+
+DROP POLICY IF EXISTS user_read ON {{ schema }}.access_log;
+CREATE POLICY user_read ON {{ schema }}.access_log
+FOR SELECT TO {{ user_role }}
+USING ({{ scope }} AND rbac.can('read_policy'));
 
 DROP POLICY IF EXISTS user_read ON {{ schema }}.access_policy;
 CREATE POLICY user_read ON {{ schema }}.access_policy

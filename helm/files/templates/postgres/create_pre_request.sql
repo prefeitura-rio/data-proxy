@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create a function that maps JWT claims into PostgreSQL session variables, loads the rbac rules for the role and the schemas of the token, and gives a request to the console profile a longer statement timeout.",
+  "description": "Create a function that maps JWT claims into PostgreSQL session variables (a claim whose name is not a plain word is skipped, because it can't name a setting), loads the rbac rules for the role and the schemas of the token, and gives a request to the console profile a longer statement timeout.",
   "inputs": {
     "schema": "PostgreSQL schema that holds the pre-request function."
   }
@@ -20,6 +20,8 @@ DECLARE
 BEGIN
     FOR claim_name, claim_value IN
         SELECT * FROM json_each(claims)
+        -- A claim name that is not a plain word, such as allowed-origins from Keycloak, can't be a setting name.
+        WHERE key ~ '^[A-Za-z_][A-Za-z0-9_]*$'
     LOOP
         PERFORM set_config(
             'app.claim_' || claim_name,

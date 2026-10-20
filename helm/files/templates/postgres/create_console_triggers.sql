@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Make the changes that the proxy and the schemas depend on enqueue a workflow. A change to the sync configuration tables of the console, to the access policy, or to the rules (each moves the counter in rbac.revision) enqueues a reload of the proxy. A change to console.schemas also enqueues the provision of the schemas. A change queues a workflow only when none of that kind waits in its queue. A change that arrives while one runs queues the next run, because the running one may have read the data already, and a burst of changes shares one waiting run. Run it after the rbac schema and the console tables exist.",
+  "description": "Make the changes that the proxy and the schemas depend on enqueue a workflow. A change to the sync configuration tables of the console, to the access policy, or to the rules (each moves the counter in rbac.revision) enqueues a reload of the proxy. A change to console.schemas also enqueues the provision of the schemas. A delete from console.tables enqueues the cleanup of the tables that left the console. A change queues a workflow only when none of that kind waits in its queue. A change that arrives while one runs queues the next run, because the running one may have read the data already, and a burst of changes shares one waiting run. Run it after the rbac schema and the console tables exist.",
   "inputs": {}
 }
 #}
@@ -42,3 +42,8 @@ CREATE OR REPLACE TRIGGER provision_schemas
 AFTER INSERT OR UPDATE OR DELETE ON console.schemas
 FOR EACH STATEMENT
 EXECUTE FUNCTION console.enqueue_once('provision_schemas', 'provision');
+
+CREATE OR REPLACE TRIGGER cleanup_tables
+AFTER DELETE ON console.tables
+FOR EACH STATEMENT
+EXECUTE FUNCTION console.enqueue_once('cleanup_tables', 'provision');

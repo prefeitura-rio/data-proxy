@@ -66,6 +66,7 @@ DECLARE
     scope text[] := console.start_scope(schemas, tables);
     unknown text[];
     pending text[];
+    run text;
 BEGIN
     SELECT array_agg(s.name ORDER BY s.name) INTO unknown
     FROM unnest(scope) AS s (name)
@@ -86,7 +87,7 @@ BEGIN
             USING ERRCODE = 'PT409';
     END IF;
 
-    RETURN dbos.enqueue_workflow(
+    run := dbos.enqueue_workflow(
         workflow_name => 'run_sync',
         queue_name => 'sync',
         positional_args => ARRAY[
@@ -95,6 +96,12 @@ BEGIN
         ],
         authenticated_user => console.username()
     );
+
+    INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name)
+    SELECT run, run, s.name FROM unnest(scope) AS s (name)
+    ON CONFLICT DO NOTHING;
+
+    RETURN run;
 END
 $$;
 

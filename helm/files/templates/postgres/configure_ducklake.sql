@@ -7,7 +7,8 @@
     "s3_secret_key": "S3 secret key.",
     "s3_endpoint": "S3 endpoint.",
     "s3_use_ssl": "Whether S3 uses TLS.",
-    "duckdb_password": "Password of the duckdb role."
+    "duckdb_password": "Password of the duckdb role.",
+    "catalog_port": "Port of the catalog database, as the PostgreSQL server sees it. The default is 5432."
   }
 }
 #}
@@ -23,7 +24,8 @@ SELECT duckdb.raw_query(
 );
 SELECT duckdb.raw_query(
     format(
-        'CREATE OR REPLACE PERSISTENT SECRET ducklake_catalog_pg (TYPE postgres, HOST ''localhost'', PORT 5432, DATABASE ''ducklake'', USER ''duckdb'', PASSWORD %L)',
+        'CREATE OR REPLACE PERSISTENT SECRET ducklake_catalog_pg (TYPE postgres, HOST ''localhost'', PORT %s, DATABASE ''ducklake'', USER ''duckdb'', PASSWORD %L)',
+        '{{ catalog_port | default(5432) }}',
         '{{ duckdb_password }}'
     )
 );
