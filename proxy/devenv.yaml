@@ -1,0 +1,7 @@
+inputs:
+  lpeg-types:
+    url: github:LuaCATS/lpeg
+    flake: false
+  penlight-types:
+    url: github:goldenstein64/pl-definitions
+    flake: false

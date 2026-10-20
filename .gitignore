@@ -29,3 +29,4 @@ k3d/.tmp/
 
 # Lux project tree
 proxy/.lux/
+sync/.env.test

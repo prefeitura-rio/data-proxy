@@ -1,16 +1,9 @@
+{ pkgs, ... }:
 {
-  pkgs,
-  lib,
-  config,
-  ...
-}:
-{
-  env.TEST_VALKEY_PORT = lib.mkDefault "16379";
-
-  services.redis = lib.mkIf config.devenv.isTesting {
+  services.redis = {
     enable = true;
     package = pkgs.valkey;
-    port = lib.toInt config.env.TEST_VALKEY_PORT;
+    port = 18379;
     extraConfig = ''
       locale-collate C
       save ""

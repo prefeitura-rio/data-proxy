@@ -6,11 +6,9 @@ inputs:
         follows: nixpkgs
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
-  lpeg-types:
-    url: github:LuaCATS/lpeg
-    flake: false
-  penlight-types:
-    url: github:goldenstein64/pl-definitions
-    flake: false
-  import-tree:
-    url: github:vic/import-tree
+
+imports:
+  - ./proxy
+  - ./sync
+  - ./console
+  - ./helm
