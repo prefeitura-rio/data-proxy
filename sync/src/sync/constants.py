@@ -28,6 +28,7 @@ DUMP_QUEUE = "dump"
 SYNC_QUEUE = "sync"
 PROXY_QUEUE = "proxy"
 PROVISION_QUEUE = "provision"
+CONTROL_QUEUE = "control"
 
 PROJECT_PATH: Final = "/data_proxy/"
 LOCATION_FRAMES: Final = 3

@@ -2,9 +2,10 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import ClassVar
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from dbos import DBOS
 from psycopg import OperationalError
 from pydantic import ValidationError
 
@@ -439,6 +440,7 @@ class RecordingDbos:
     queues: ClassVar[list[tuple[str, str]]] = []
     concurrency: ClassVar[dict[str, object]] = {}
     applied: ClassVar[list[str]] = []
+    listened: ClassVar[list[str]] = []
     existing: ClassVar[object | None] = None
 
     def __init__(self, **_: object) -> None:
@@ -446,7 +448,8 @@ class RecordingDbos:
 
     @classmethod
     def listen_queues(cls, queues: list[str]) -> None:
-        """Ignore the queues to listen to."""
+        """Record the queues to listen to."""
+        cls.listened = queues
 
     @classmethod
     def launch(cls) -> None:
@@ -493,6 +496,7 @@ class TestServe:
         RecordingDbos.queues = []
         RecordingDbos.concurrency = {}
         RecordingDbos.applied = []
+        RecordingDbos.listened = []
         RecordingDbos.existing = None
         monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
         monkeypatch.setattr(dbos_main, "Event", ReturnsAtOnce)
@@ -508,7 +512,33 @@ class TestServe:
             ("publish", "never_update"),
             ("proxy", "never_update"),
             ("provision", "never_update"),
+            ("control", "never_update"),
         ]
+
+    @pytest.mark.asyncio
+    async def test_listens_to_every_queue_by_default(self) -> None:
+        """A worker of the chart runs every kind of work."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.listened == [
+            "sync",
+            "dump",
+            "publish",
+            "proxy",
+            "provision",
+            "control",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_listens_only_to_the_queues_that_the_setting_names(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The test stack runs a worker that only controls runs and schedules."""
+        monkeypatch.setattr(settings, "LISTEN_QUEUES", "control")
+
+        await dbos_main.serve()
+
+        assert RecordingDbos.listened == ["control"]
 
     @pytest.mark.asyncio
     async def test_runs_one_provision_at_a_time(self) -> None:
@@ -532,6 +562,30 @@ class TestServe:
         await dbos_main.serve()
 
         assert RecordingDbos.applied == []
+
+
+class TestListenedQueues:
+    """The setting LISTEN_QUEUES picks the queues that one worker listens to."""
+
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            pytest.param("", ["a", "b", "c"], id="empty means every queue"),
+            pytest.param("  ", ["a", "b", "c"], id="blank means every queue"),
+            pytest.param("b", ["b"], id="one queue"),
+            pytest.param(
+                "c, a", ["a", "c"], id="the order of the queues, not of the setting"
+            ),
+        ],
+    )
+    def test_picks_the_queues(self, configured: str, expected: list[str]) -> None:
+        """Pick the queues that the setting names."""
+        assert utils.listened_queues(["a", "b", "c"], configured) == expected
+
+    def test_refuses_an_unknown_queue(self) -> None:
+        """A typo must stop the worker, not leave work in a queue that nobody reads."""
+        with pytest.raises(ValueError, match="Unknown queues: z"):
+            utils.listened_queues(["a", "b"], "a,z")
 
 
 class TestMain:
@@ -639,6 +693,52 @@ class TestNotifyProxies:
         await workflow_body(workflows.reload_proxy)()
 
         notify.assert_awaited_once_with()
+
+
+class TestControlWorkflows:
+    """The workflows that the console enqueues to cancel or resume a run, and to pause or resume a schedule."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_run_cancels_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cancel_run asks DBOS to cancel the run once."""
+        cancel = AsyncMock()
+        monkeypatch.setattr(DBOS, "cancel_workflow_async", cancel)
+
+        await workflow_body(workflows.cancel_run)("run-1")
+
+        cancel.assert_awaited_once_with("run-1", cancel_children=True)
+
+    @pytest.mark.asyncio
+    async def test_resume_run_resumes_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resume_run puts the run back in the sync queue, so the sync concurrency still applies."""
+        resume = AsyncMock()
+        monkeypatch.setattr(DBOS, "resume_workflow_async", resume)
+
+        await workflow_body(workflows.resume_run)("run-1")
+
+        resume.assert_awaited_once_with("run-1", queue_name="sync")
+
+    @pytest.mark.parametrize(
+        ("workflow", "method"),
+        [
+            pytest.param("pause_schedule", "pause_schedule", id="pause"),
+            pytest.param("resume_schedule", "resume_schedule", id="resume"),
+        ],
+    )
+    def test_the_schedule_workflows_call_dbos(
+        self, monkeypatch: pytest.MonkeyPatch, workflow: str, method: str
+    ) -> None:
+        """Each schedule workflow calls the DBOS method of its name with the schedule."""
+        call = MagicMock()
+        monkeypatch.setattr(DBOS, method, call)
+
+        workflow_body(getattr(workflows, workflow))("sync")
+
+        call.assert_called_once_with("sync")
 
 
 class TestRunProvision:

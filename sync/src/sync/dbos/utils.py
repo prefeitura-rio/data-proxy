@@ -24,6 +24,22 @@ def otlp_enabled(application_settings: Settings) -> bool:
     )
 
 
+def listened_queues(queues: list[str], configured: str) -> list[str]:
+    """Return the queues that one worker listens to: every queue, or the ones that the setting names."""
+    names = {name.strip() for name in configured.split(",") if name.strip()}
+
+    if not names:
+        return queues
+
+    unknown = sorted(names - set(queues))
+
+    if unknown:
+        message = f"Unknown queues: {', '.join(unknown)}"
+        raise ValueError(message)
+
+    return [queue for queue in queues if queue in names]
+
+
 def retry_catalog_locked(error: BaseException) -> bool:
     """Retry only while another process holds the DuckLake catalog write lock."""
     match error:

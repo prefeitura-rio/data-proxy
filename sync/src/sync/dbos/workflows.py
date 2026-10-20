@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
 
-from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE
+from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
 from sync.log import SCHEMA, TABLE
 from sync.metrics import observe
 from sync.models import DumpResult, DumpStatus, DumpTask, SyncPlan, SyncScope
@@ -187,3 +187,27 @@ async def cleanup_tables() -> None:
 async def reload_proxy() -> None:
     """Ask the proxy pods to read the configuration after a change in the console tables."""
     await notify_proxies()
+
+
+@DBOS.workflow()
+async def cancel_run(run_id: str) -> None:
+    """Cancel a sync run, and its tasks, after a console user asked for it."""
+    await DBOS.cancel_workflow_async(run_id, cancel_children=True)
+
+
+@DBOS.workflow()
+async def resume_run(run_id: str) -> None:
+    """Put a cancelled sync run back in the sync queue to continue from its last finished step, after a console user asked for it."""
+    await DBOS.resume_workflow_async(run_id, queue_name=SYNC_QUEUE)
+
+
+@DBOS.workflow()
+def pause_schedule(name: str) -> None:
+    """Stop a schedule from firing, after a console user asked for it."""
+    DBOS.pause_schedule(name)
+
+
+@DBOS.workflow()
+def resume_schedule(name: str) -> None:
+    """Let a paused schedule fire again, after a console user asked for it."""
+    DBOS.resume_schedule(name)
