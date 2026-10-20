@@ -12,9 +12,7 @@ class TestStaleUsers:
             pytest.param(
                 ["sig_sales", "sig_hr"], {"sales"}, ["sig_hr"], id="schema-removed"
             ),
-            pytest.param(
-                ["sig_sales"], {"sales"}, [], id="every-schema-is-configured"
-            ),
+            pytest.param(["sig_sales"], {"sales"}, [], id="every-schema-is-configured"),
             pytest.param(
                 ["admin", "reader", "sig_gone"],
                 {"sales"},

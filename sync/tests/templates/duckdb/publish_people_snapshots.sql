@@ -6,7 +6,9 @@
     "catalog_url": "libpq URI of the catalog database.",
     "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "DuckLake data path.",
-    "endpoint": "Silo host and port.",
+    "endpoint": "Storage host and port.",
+    "access_key": "Storage access key.",
+    "secret_key": "Storage secret key.",
     "first": "Parquet path of the first snapshot.",
     "second": "Parquet path of the second snapshot."
   }
@@ -15,8 +17,8 @@
 -- noqa: disable=PRS
 INSTALL httpfs;
 LOAD httpfs;
-CREATE OR REPLACE SECRET silo_s3 (
-    TYPE S3, KEY_ID 'minioadmin', SECRET 'minioadmin',
+CREATE OR REPLACE SECRET test_s3 (
+    TYPE S3, KEY_ID '{{ access_key }}', SECRET '{{ secret_key }}',
     ENDPOINT '{{ endpoint }}', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1'
 );
 ATTACH 'ducklake:postgres:{{ catalog_url }}' AS lake (

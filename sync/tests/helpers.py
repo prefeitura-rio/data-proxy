@@ -59,7 +59,7 @@ from tests.constants import (
     PARQUET,
     RBAC_RULES,
     ROUTED_TABLE,
-    SILO_ENDPOINT,
+    S3_SECRET_INPUTS,
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import Postgres
@@ -633,7 +633,7 @@ def publish_people_catalog(metadata_schema: str, data_path: str) -> None:
             "catalog_url": settings.DUCKLAKE_CATALOG_URL,
             "metadata_schema": metadata_schema,
             "data_path": data_path,
-            "endpoint": SILO_ENDPOINT,
+            **S3_SECRET_INPUTS,
             "first": "s3://test-bucket/app/people/people_partition_10.parquet",
             "second": "s3://test-bucket/app/people/people_partition_20.parquet",
         },

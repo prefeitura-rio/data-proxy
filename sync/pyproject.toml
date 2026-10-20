@@ -125,7 +125,7 @@ runtime-evaluated-base-classes = [
   "PLC0415",  # lazy imports in tests keep optional services out of collection
   "PLC2701",  # tests import private names of the code under test
   "PLW1514",  # test files are ASCII
-  "S106",     # the Silo credentials are test constants
+  "S106",     # the storage credentials are test constants
   "S404",     # the psql fixture runs the psql command-line client
   "S603",     # the fixtures run the psql client and the container engine
   "S607",     # the fixtures find psql on PATH

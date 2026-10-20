@@ -29,12 +29,12 @@ from sync.state import write_table_state
 from sync.templates import render_template
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
-from tests.constants import FILES, POSTGRES_URL, SILO_ENDPOINT, TEST_SQL_DIR
+from tests.constants import FILES, POSTGRES_URL, S3_SECRET_INPUTS, TEST_SQL_DIR
 from tests.fixtures.types import (
     Postgres,
     PostgresTestNamespace,
     Psql,
-    Silo,
+    Storage,
 )
 from tests.helpers import (
     act_as_token,
@@ -64,7 +64,7 @@ def invalid_selection() -> TaskSelection:
 
 
 @pytest.fixture
-async def postgres(silo: Silo) -> AsyncIterator[Postgres]:
+async def postgres(storage: Storage) -> AsyncIterator[Postgres]:
     """Provide the async PostgreSQL boundary for one isolated schema."""
     namespace = PostgresTestNamespace(f"test_{secrets.token_hex(8)}")
     dsn = f"{POSTGRES_URL}/test_template"
@@ -75,15 +75,15 @@ async def postgres(silo: Silo) -> AsyncIterator[Postgres]:
     await setup.close()
 
     fixture = FILES / "people_partition_10.parquet"
-    silo.client.fput_object(
+    storage.client.fput_object(
         "test-bucket", f"{namespace.schema}/people/data.parquet", str(fixture)
     )
 
     connection = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     await connection.execute(
         render_template(
-            "postgres/create_silo_s3_secret",
-            {"endpoint": SILO_ENDPOINT},
+            "postgres/create_s3_secret",
+            S3_SECRET_INPUTS,
             root=TEST_SQL_DIR,
         ).encode()
     )
@@ -161,8 +161,8 @@ async def ducklake_catalog(postgres: Postgres) -> Postgres:
     writer = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
     try:
         script = render_template(
-            "postgres/create_silo_s3_secret",
-            {"endpoint": SILO_ENDPOINT},
+            "postgres/create_s3_secret",
+            S3_SECRET_INPUTS,
             root=TEST_SQL_DIR,
         )
         for statement in filter(str.strip, script.split(";\n")):

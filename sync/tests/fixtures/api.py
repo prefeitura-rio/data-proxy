@@ -14,10 +14,12 @@ from sync.templates import render_template
 from tests.constants import (
     FILES,
     POSTGRES_URL,
-    SILO_ENDPOINT,
+    S3_ACCESS_KEY,
+    S3_ENDPOINT,
+    S3_SECRET_KEY,
     TEST_SQL_DIR,
 )
-from tests.fixtures.types import BigQueryQueryResult, Silo
+from tests.fixtures.types import BigQueryQueryResult, Storage
 from tests.helpers import create_state_tables
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
@@ -104,13 +106,13 @@ def bigquery() -> Iterator[BigQuery]:
 
 
 @pytest.fixture(scope="session")
-def silo() -> Silo:
-    """Provide the Silo object storage populated with the Parquet test fixtures."""
-    host, _, port = SILO_ENDPOINT.partition(":")
+def storage() -> Storage:
+    """Provide the object storage populated with the Parquet test fixtures."""
+    host, _, port = S3_ENDPOINT.partition(":")
     client = Minio(
-        SILO_ENDPOINT,
-        access_key="minioadmin",
-        secret_key="minioadmin",
+        S3_ENDPOINT,
+        access_key=S3_ACCESS_KEY,
+        secret_key=S3_SECRET_KEY,
         secure=False,
     )
     if not client.bucket_exists("test-bucket"):
@@ -119,4 +121,4 @@ def silo() -> Silo:
         client.fput_object("test-bucket", f"app/people/{fixture.name}", str(fixture))
         if fixture.name == "people_partition_10.parquet":
             client.fput_object("test-bucket", "app/people/data.parquet", str(fixture))
-    return Silo(host, int(port), client)
+    return Storage(host, int(port), client)

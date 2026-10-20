@@ -28,8 +28,8 @@ class Postgres:
 
 
 @dataclass(frozen=True, slots=True)
-class Silo:
-    """Silo endpoint and S3-compatible client."""
+class Storage:
+    """Object storage endpoint and S3-compatible client."""
 
     host: str
     port: int

@@ -14,6 +14,13 @@ PROXY_FILTER_CASES = (
 PARQUET = str(FILES / "people_partition_10.parquet")
 ROUTED_TABLE = "p.d.routed"
 POSTGRES_HOST = "127.0.0.1"
-POSTGRES_PORT = environ.get("TEST_POSTGRES_PORT", "15432")
+POSTGRES_PORT = environ["TEST_POSTGRES_PORT"]
 POSTGRES_URL = f"postgresql://test:test@{POSTGRES_HOST}:{POSTGRES_PORT}"
-SILO_ENDPOINT = environ.get("TEST_SILO_ENDPOINT", "127.0.0.1:19000")
+S3_ENDPOINT = environ["TEST_S3_ENDPOINT"]
+S3_ACCESS_KEY = environ["TEST_S3_ACCESS_KEY"]
+S3_SECRET_KEY = environ["TEST_S3_SECRET_KEY"]
+S3_SECRET_INPUTS = {
+    "endpoint": S3_ENDPOINT,
+    "access_key": S3_ACCESS_KEY,
+    "secret_key": S3_SECRET_KEY,
+}
