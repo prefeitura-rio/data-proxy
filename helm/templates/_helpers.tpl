@@ -288,11 +288,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       key: {{ .Values.redis.writeKey | default "REDIS_WRITE" }}
 {{- end }}
 
-{{- define "data-proxy.cnpgClusterName" -}}
-{{- $root := .root -}}
-{{- include "data-proxy.fullname" $root -}}
-{{- end }}
-
 {{- /*
 PostgREST sends its queries to PgDog. Its listener needs a read-write session, which PgDog does not give,
 so libpq moves on to the second host, the primary.
@@ -309,10 +304,6 @@ postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }
 {{- $db := .Values.cnpg.db.name -}}
 {{- $cluster := include "data-proxy.fullname" . -}}
 postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
-{{- end }}
-
-{{- define "data-proxy.postgresDsn" -}}
-{{ include "data-proxy.postgresWriteDsn" . }}
 {{- end }}
 
 {{- define "data-proxy.appPgDsn" -}}
