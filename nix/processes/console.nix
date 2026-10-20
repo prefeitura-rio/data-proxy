@@ -27,6 +27,19 @@ let
         open ${../../k3d/values/data-proxy.yaml} | get sync.config | to json | save --raw $env.out
       ''}";
 
+  notebookInputs = [
+    "console/notebooks/src"
+    "console/notebooks/notebooks"
+    "console/notebooks/build.nu"
+    "console/notebooks/bundle.ts"
+    "console/notebooks/tsconfig.json"
+    "console/notebooks/package.json"
+    "console/notebooks/pnpm-lock.yaml"
+    "console/notebooks/pnpm-workspace.yaml"
+    "console/notebooks/pyproject.toml"
+    "console/notebooks/uv.lock"
+  ];
+
   setup = utils.mkTaskChain {
     name = "console:setup";
     common.cwd = config.devenv.root;
@@ -181,6 +194,7 @@ let
         "console/ui/static"
         "console/ui/package.json"
         "console/ui/pnpm-lock.yaml"
+        "console/ui/.npmrc"
         "console/ui/tsconfig.json"
         "console/ui/vite.config.ts"
       ];
@@ -245,15 +259,26 @@ in
           description = "Build the notebook site.";
           cwd = "${config.devenv.root}/console/notebooks";
           before = [ (utils.processTask "notebooks") ];
-          execIfModified = [
-            "console/notebooks/src"
-            "console/notebooks/notebooks"
-            "console/notebooks/build.nu"
-            "console/notebooks/bundle.ts"
-            "console/notebooks/csp.ts"
-            "console/notebooks/package.json"
-            "console/notebooks/pnpm-lock.yaml"
+          execIfModified = notebookInputs;
+        };
+
+      "notebooks:check-site" =
+        utils.mkTask {
+          command = [
+            "nu"
+            "build.nu"
+            "notebooks/check.py"
+            "dist-check"
+            "--mode"
+            "run"
           ];
+        }
+        // {
+          description = "Build the notebook site that the browser test opens.";
+          cwd = "${config.devenv.root}/console/notebooks";
+          after = [ "notebooks:build" ];
+          before = [ "devenv:enterTest" ];
+          execIfModified = notebookInputs;
         };
     }
   );
