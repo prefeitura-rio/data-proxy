@@ -69,7 +69,7 @@ The PostgreSQL image installs the `ducklake` and `postgres` extensions while it 
 
 On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s, and a cold `devenv --profile sync test` run takes about 60 s, so CI keeps no layer cache.
 
-PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state`.
+PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`.
 
 To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/processes/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
 
@@ -106,11 +106,24 @@ Run the tests of the console with `devenv --profile console test`. It works like
 | `processes/postgrest` | PostgREST, with the keys that the task `postgrest:jwks` downloads from the local Keycloak |
 | `processes/console` (setup) | the tasks `console:setup:*`, one for each step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, `provision.nu` (the scripts of the chart Jobs), and `sync/tests/seeds/console.py`, which fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
 | `processes/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
+| `processes/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control`, so the browser tests run cancel, resume and the schedule actions without a sync run |
 | `processes/console` (notebooks) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin |
 
 `enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/` and then the browser test of `console/notebooks/`. The Vitest tests and the unit tests of the notebooks are the tasks `test:console` and `test:nb`, which `test:all` runs. Set `EXPECTED_ROWS_FILE` and the other variables in the `env` of the console profile. The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend. The scenario that renews the links waits for the real timer of four minutes, so a full run takes about ten minutes. The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set, so `@playwright/test` and the Python `playwright` package stay at the versions of that package.
 
 To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. Keycloak imports the realm at every start, which takes about 40 seconds.
+
+### Run the console locally
+
+To use the console in a browser, start the same stack without the tests:
+
+```bash
+devenv --profile console up
+```
+
+Use `devenv --profile console up -d` and then `devenv processes wait` to run it in the background, and `devenv down` to stop it. The first start takes one to two minutes. The console is at `http://console.localhost:13001`. If the port is busy, devenv uses the next free port and shows it in the process list. Sign in as `admin` (role `dp_admin`, schema `test`, password `admin`). The tests use three more users with the password `web-test`: `web_admin` (role `dp_admin`, schema `test`), `web_viewer` (role `dp_console`), `web_api` (role `dp_api`, no console permission), `web_policy` (role `dp_policy`, the Access tab only) and `web_other` (role `dp_admin`, schema `other`). The seed adds 30 enqueued runs, one finished run (`00000000-0000-4000-8000-0000000000f1`) with 61 tasks, 64 steps and 600 log lines, 60 access policies, 15 errors and a `test` table of 5000 rows.
+
+No sync worker runs, so a run that you start stays `ENQUEUED`. The worker `control-worker` handles only the queue `control`, so cancel, resume and the schedule actions work.
 
 ## Notebooks
 
@@ -133,18 +146,17 @@ The `nix/` folder holds the shared parts. A module in `nix/processes/` or `nix/s
 A long-running service is a process, and a command that runs and exits is a task. `utils.mkProcess` and `utils.mkTask` build the command and the variables, and the caller adds the other options with `//`. A task runs `before` a process that needs it, or `after` a process that it needs. A setup with several steps is a chain of tasks (`utils.mkTaskChain`), so a failure names the step:
 
 ```nix
-processes.gateway = utils.whenTesting (
+processes.gateway =
   utils.mkProcess {
     command = [ "caddy" "reverse-proxy" "--from" ":13001" "--to" "127.0.0.1:13004" ];
   }
   // {
     ready = utils.probes.http utils.urls.console;
     after = [ (utils.processTask "console") ];
-  }
-);
+  };
 ```
 
-devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. A process is always declared, and it starts only in `devenv test`. A module reads the port of another process with `utils.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
+devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. `devenv up` starts the same processes without the tests. A module reads the port of another process with `utils.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
 
 `execIfModified` skips a build task when its input files didn't change, so delete `console/ui/build` or `console/notebooks/site` to force a build. A file that Nix builds from values is a `files` entry: `sync/.env.test`, the SeaweedFS identities, the SQL that creates the databases and the four nginx files. They live in the state folder of the run (`utils.fileEntry`), except `sync/.env.test`, which devenv links into the project and git ignores. A file whose input is YAML, such as the Keycloak realm and the sync settings, stays a derivation, because Nix can't read YAML. A task that reads a generated file runs `after` `devenv:files`, because `devenv tasks run` doesn't create files by itself.
 

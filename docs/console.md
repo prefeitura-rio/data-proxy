@@ -27,11 +27,11 @@ The chart sets these settings ([Helm chart](helm_chart.md#console-and-notebooks)
 
 ## Views
 
-The `console` schema holds the views that the console reads through PostgREST. `console/migrations/00002_create_console_views.sql` creates them, and the `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
+The `console` schema holds the views that the console reads through PostgREST. `console/migrations/00001_create_console_views.sql` creates them, and the `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
 
 | View | Content |
 | --- | --- |
-| `runs` | Sync runs: status, queue, schedule, who started it, the times, and the number of tasks and failed tasks. |
+| `runs` | Sync runs: status, queue, schedule, who started it, the times, the number of tasks and failed tasks, and the schemas of the token that the run covers. |
 | `tasks` | The dump and publish workflows of a run. |
 | `steps` | The steps of a run and its tasks, with the times and a `failed` flag. |
 | `logs` | The log lines of a run and its tasks, read from the portable DBOS log stream. |
@@ -40,9 +40,39 @@ The `console` schema holds the views that the console reads through PostgREST. `
 | `errors` | The errors that the sync recorded, newest first. |
 | `overview` | One row for each schema: its tables, how many have committed state, its last run, and the runs, failed runs, and errors of the last 24 hours. The dashboard reads it in one request. |
 
+## Lists
+
+Every list pages. A page has 25 rows, except the access policy and the tasks and steps of a run (50 rows each) and the errors (10 rows). The footer says which rows the page shows and how many rows there are. PostgREST gives the total in the `Content-Range` header when the request sends `Prefer: count=exact`. The address holds the page and the filters, so you can bookmark a page.
+
+The runs list filters by status, by schema, by a range of dates and by the start of a run id. The schema filter uses the column `schemas` of the view `runs`. The errors list, the access policy, the access log, the tables and the history filter by text or by a value. The log of a run shows 500 lines, and a button loads 500 more, up to 5000.
+
+## Control a run and a schedule
+
+A user with `control_sync` can cancel a run, resume it and run it again, and pause or resume a schedule. The functions `console.cancel_run(run)`, `console.resume_run(run)`, `console.retry_run(run)`, `console.pause_schedule(schedule_name)` and `console.resume_schedule(schedule_name)` check the permission and the schemas of the token. They're in the template `create_console_functions`.
+
+Cancel, resume and the schedule actions enqueue a workflow in the queue `control`, and the sync worker runs it with the DBOS API. A cancel stops the run and its tasks at the next step. A resume puts a cancelled run back in the `sync` queue, so the concurrency of that queue still applies. Running a run again starts a new run for the same schemas through `start_sync`, so it needs `start_sync` too.
+
+A run accepts an action only in the right state. Cancel needs `PENDING`, `ENQUEUED` or `DELAYED`. Resume needs `CANCELLED` or `MAX_RECOVERY_ATTEMPTS_EXCEEDED`. Running again needs a finished run. In any other state the function answers 409. A function answers 404 for a run that the token doesn't see.
+
+A schedule serves every schema. Pausing or resuming it therefore needs a token whose `schemas` claim holds every schema of `console.schemas`. A narrower claim gets 403.
+
+The setting `LISTEN_QUEUES` limits the queues that one worker listens to. It holds queue names separated by commas, and an empty value means every queue. The test stack runs a second worker with `LISTEN_QUEUES=control`, so the browser tests run the control workflows and never a sync run.
+
+## History of the configuration
+
+`console.config_history` records every insert, update and delete in `schemas`, `tables` and `rls`. A row holds the time, the user name, the schema, the key, and the old and the new row. The trigger `record_change` writes it, and nobody else can. A token with `read_config` reads the rows of the schemas in its claim, and the Config tab shows them.
+
+The deletion of a rule that follows the deletion of its table isn't recorded, because the row of the table says it.
+
+## Import preview
+
+`console.import_preview(document)` runs `import_config` in a sub-transaction, reads the rows that the history trigger wrote, and rolls the import back. It returns one row for each schema, table and rule with the action `insert`, `update`, `delete` or `unchanged`. A token needs `import_config`.
+
+The Config tab shows the preview before it imports. The import applies only after you choose Apply import.
+
 ## Configuration tables
 
-The sync configuration is data in three tables of the `console` schema. `console/migrations/00004_create_config.sql` creates them, and the end-to-end suite tests the rules.
+The sync configuration is data in three tables of the `console` schema. `console/migrations/00003_create_config.sql` creates them, and the end-to-end suite tests the rules.
 
 | Table | Holds |
 | --- | --- |
@@ -102,6 +132,7 @@ A token carries one `role` claim and a `schemas` claim. The rules live in `helm/
 | `delete_config` | Delete on the three tables. | The delete policies. |
 | `import_config` | `import_config()`. The import also inserts, updates, and deletes rows, so the role needs the other configuration permissions too. | A check at the start of the function. |
 | `start_sync` | `start_sync()` and `start_scope()`. | A check at the start of `start_scope()`. |
+| `control_sync` | `cancel_run()`, `resume_run()`, `retry_run()`, `pause_schedule()` and `resume_schedule()`. Running a run again also needs `start_sync`. | A check at the start of each function. |
 | `read_files` | `table_files()`, the Parquet files for the query tab. | A check at the start of the function. |
 | `read_api` | The synced views of the data API. | A check at the start of the function behind each view. |
 | `read_ducklake` | The change feed of the catalog. | A check at the start of the function. |
@@ -118,7 +149,7 @@ Every role sees only the schemas in the `schemas` claim, and a token without the
 - The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
 - When a run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. `runs`, `tasks`, and `steps` show a user the runs and tasks that cover one of its schemas. The counts of tasks in a run count only the tasks that the user sees.
 - `GET /rpc/sync_config` returns the schemas of the claim.
-- Queues and schedules serve every schema. Any role with `read_sync` reads them, and no token changes them: change them in the deployment.
+- Queues and schedules serve every schema. Any role with `read_sync` reads them. Only a token that holds every schema pauses or resumes a schedule, and no token changes a queue: change a queue in the deployment.
 
 `GET /rpc/permissions` returns the permissions of the role of the token, so the console can show only the controls that work. The pre-request function gives a request to the `console` profile a statement timeout of 30 seconds, and the data API has 15 seconds. `rbac` holds the rules that the data schemas share, and `console` holds what the web app calls: [Database](database.md#schemas) lists the schemas.
 
@@ -133,7 +164,7 @@ No token can read the DBOS tables or the state tables behind the views. A token 
 | `dp_api` | | `read_api` |
 | `dp_policy` | | `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
 | `dp_console` | `dp_api` | `read_sync`, `read_config` |
-| `dp_admin` | `dp_console`, `dp_policy` | `start_sync`, `create_config`, `edit_config`, `delete_config`, `import_config`, `read_files`, `read_ducklake` |
+| `dp_admin` | `dp_console`, `dp_policy` | `start_sync`, `control_sync`, `create_config`, `edit_config`, `delete_config`, `import_config`, `read_files`, `read_ducklake` |
 
 `dp_policy` is for an API that registers its own access policies. `dp_admin` runs schemas, and every role is limited to the schemas in its claim. A user holds one role. A person who needs both console and policy rights takes `dp_admin`.
 

@@ -49,6 +49,7 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `SYNC_SCHEDULE` | `0 2 * * *` | Initial DBOS schedule for `run_sync`. |
 | `SYNC_SCHEDULE_NAME` | `sync` | DBOS schedule name. |
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Initial sync workflow concurrency. |
+| `LISTEN_QUEUES` | empty | Queue names, separated by commas, that this worker listens to. Empty means every queue. An unknown name stops the worker. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Initial dump worker concurrency. |
