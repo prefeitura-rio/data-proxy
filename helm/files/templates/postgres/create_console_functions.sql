@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the start of a sync run, and the list of the data files of a table. Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.",
+  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the start of a sync run, the control of a run (cancel, resume, run again) and of a schedule (pause, resume), and the list of the data files of a table. Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.",
   "inputs": {}
 }
 #}
@@ -133,3 +133,162 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION console.table_files(text, text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.guard_run(run text, allowed text[])
+RETURNS void
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    run_status text;
+BEGIN
+    IF NOT rbac.can('control_sync') THEN
+        RAISE EXCEPTION 'The token lacks the control_sync permission'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    SELECT w.status INTO run_status
+    FROM dbos.workflow_status AS w
+    WHERE
+        w.workflow_uuid = run
+        AND w.name = 'run_sync'
+        AND data_proxy.sees(w.workflow_uuid, NULL);
+
+    IF run_status IS NULL THEN
+        RAISE EXCEPTION 'No such run' USING ERRCODE = 'PT404';
+    END IF;
+
+    IF NOT run_status = ANY (allowed) THEN
+        RAISE EXCEPTION 'The run is %', run_status USING ERRCODE = 'PT409';
+    END IF;
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.guard_run(text, text[]) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.control_run(action text, run text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    allowed text[] := CASE action
+        WHEN 'cancel_run' THEN ARRAY['PENDING', 'ENQUEUED', 'DELAYED']
+        WHEN 'resume_run' THEN ARRAY['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']
+    END;
+BEGIN
+    IF allowed IS NULL THEN
+        RAISE EXCEPTION 'Unknown action %', action USING ERRCODE = 'PT400';
+    END IF;
+
+    PERFORM console.guard_run(run, allowed);
+
+    PERFORM dbos.enqueue_workflow(
+        workflow_name => action,
+        queue_name => 'control',
+        positional_args => ARRAY[to_json(run)],
+        authenticated_user => console.username()
+    );
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.control_run(text, text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.cancel_run(run text)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+    SELECT console.control_run('cancel_run', run)
+$$;
+
+REVOKE ALL ON FUNCTION console.cancel_run(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.resume_run(run text)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+    SELECT console.control_run('resume_run', run)
+$$;
+
+REVOKE ALL ON FUNCTION console.resume_run(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.retry_run(run text)
+RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    scope text[];
+BEGIN
+    PERFORM console.guard_run(
+        run, ARRAY['SUCCESS', 'ERROR', 'CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']
+    );
+
+    scope := ARRAY(
+        SELECT DISTINCT s.schema_name
+        FROM data_proxy.scope AS s
+        WHERE s.run_id = run AND rbac.mine(s.schema_name)
+        ORDER BY s.schema_name
+    );
+
+    IF cardinality(scope) = 0 THEN
+        RAISE EXCEPTION 'The run has no schema that the token reaches'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    RETURN console.start_sync(scope, '{}');
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.retry_run(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.control_schedule(action text, target text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+    IF NOT rbac.can('control_sync') THEN
+        RAISE EXCEPTION 'The token lacks the control_sync permission'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF action NOT IN ('pause_schedule', 'resume_schedule') THEN
+        RAISE EXCEPTION 'Unknown action %', action USING ERRCODE = 'PT400';
+    END IF;
+
+    IF EXISTS (SELECT FROM console.schemas AS s WHERE NOT rbac.mine(s.name)) THEN
+        RAISE EXCEPTION 'A schedule serves every schema, so the token needs every schema'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT FROM dbos.workflow_schedules AS w WHERE w.schedule_name = target
+    ) THEN
+        RAISE EXCEPTION 'No such schedule' USING ERRCODE = 'PT404';
+    END IF;
+
+    PERFORM dbos.enqueue_workflow(
+        workflow_name => action,
+        queue_name => 'control',
+        positional_args => ARRAY[to_json(target)],
+        authenticated_user => console.username()
+    );
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.control_schedule(text, text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.pause_schedule(schedule_name text)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+    SELECT console.control_schedule('pause_schedule', schedule_name)
+$$;
+
+REVOKE ALL ON FUNCTION console.pause_schedule(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.resume_schedule(schedule_name text)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+    SELECT console.control_schedule('resume_schedule', schedule_name)
+$$;
+
+REVOKE ALL ON FUNCTION console.resume_schedule(text) FROM PUBLIC;

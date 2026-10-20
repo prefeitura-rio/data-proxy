@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. They read and write the configuration tables of the console.",
+  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, the preview of what an import would change, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. They read and write the configuration tables of the console.",
   "inputs": {}
 }
 #}
@@ -135,6 +135,91 @@ BEGIN
     CROSS JOIN LATERAL jsonb_to_recordset(t.rls) AS r ("column" text, unit_type text);
 END
 $$;
+
+CREATE OR REPLACE FUNCTION console.import_preview(document jsonb)
+RETURNS TABLE (object text, schema_name text, key text, action text)
+LANGUAGE plpgsql AS $$
+DECLARE
+    mark bigint;
+    changes jsonb;
+BEGIN
+    IF NOT rbac.can('import_config') THEN
+        RAISE EXCEPTION 'The token lacks the import_config permission'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    SELECT coalesce(max(h.id), 0) INTO mark FROM console.config_history AS h;
+
+    BEGIN
+        PERFORM console.import_config(document);
+
+        WITH changed AS (
+            SELECT h.object, h.schema_name, h.key, h.action, h.old_row, h.new_row
+            FROM console.config_history AS h
+            WHERE h.id > mark
+        ),
+
+        plain AS (
+            SELECT
+                c.object,
+                c.schema_name,
+                c.key,
+                CASE
+                    WHEN
+                        c.action = 'update'
+                        AND (c.old_row - 'updated_at' - 'updated_by')
+                        = (c.new_row - 'updated_at' - 'updated_by')
+                        THEN 'unchanged'
+                    ELSE c.action
+                END AS action
+            FROM changed AS c
+            WHERE c.object <> 'rls'
+        ),
+
+        rules AS (
+            SELECT
+                c.object,
+                c.schema_name,
+                c.key,
+                CASE
+                    WHEN bool_or(c.action = 'delete') AND bool_or(c.action = 'insert') THEN
+                        CASE
+                            WHEN
+                                max(c.old_row ->> 'unit_type') FILTER (WHERE c.action = 'delete')
+                                IS NOT DISTINCT FROM
+                                max(c.new_row ->> 'unit_type') FILTER (WHERE c.action = 'insert')
+                                THEN 'unchanged'
+                            ELSE 'update'
+                        END
+                    WHEN bool_or(c.action = 'insert') THEN 'insert'
+                    ELSE 'delete'
+                END AS action
+            FROM changed AS c
+            WHERE c.object = 'rls'
+            GROUP BY c.object, c.schema_name, c.key
+        )
+
+        SELECT coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) INTO changes
+        FROM (
+            SELECT * FROM plain
+            UNION ALL
+            SELECT * FROM rules
+        ) AS r;
+
+        RAISE EXCEPTION 'The preview rolls the import back' USING ERRCODE = 'PV001';
+    EXCEPTION
+        WHEN SQLSTATE 'PV001' THEN
+            NULL;
+    END;
+
+    RETURN QUERY
+    SELECT p.object, p.schema_name, p.key, p.action
+    FROM jsonb_to_recordset(changes) AS p (object text, schema_name text, key text, action text)
+    ORDER BY p.schema_name, p.object, p.key;
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.import_preview(jsonb) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION console.sync_config() FROM PUBLIC;
 REVOKE ALL ON FUNCTION console.import_config(jsonb) FROM PUBLIC;
