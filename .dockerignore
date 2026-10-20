@@ -1,2 +1,11 @@
 k3d/.tmp/
 **/*.d.lua
+**/node_modules
+**/.venv
+**/__pycache__
+console/ui/build
+console/ui/.svelte-kit
+console/ui/.features-gen
+console/ui/test-results
+console/notebooks/dist*
+console/notebooks/test-results
