@@ -14,6 +14,7 @@ BigQuery is the authoritative data store. PostgreSQL is a disposable, eventually
 - [KEDA Scaling](docs/keda.md)—worker streams, reclaim timeouts, and batch sizing.
 - [Database Schema](docs/database.md)—PostgreSQL roles, tables, policies, and S3 access.
 - [Console](docs/console.md)—the admin web app (SvelteKit) and its database views.
+- [Notebooks](docs/notebooks.md)—the notebook site of the query tab.
 - [Environment Variables](docs/environment_variables.md)—application defaults and Helm environment conversion.
 - [Helm Chart](docs/helm_chart.md)—chart installation, storage, upgrades, ingress, and fallback configuration.
 - [Metrics](docs/metrics.md)—worker metrics, proxy logs, load limits, and Pushgateway scraping.

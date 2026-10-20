@@ -1,6 +1,29 @@
 # Console
 
-The console is the admin web app of the data proxy. It lives in `console/`. It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. Today it has a placeholder page, and the next steps build the pages on top of the database.
+The console is the admin web app of the data proxy. It lives in `console/`, which has three folders: `ui/` is the SvelteKit app, `notebooks/` builds the notebook site of the Query tab, and `migrations/` holds the SQL of the `console` schema. It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. It has four tabs: Sync, Config, Access and Query. The browser never calls PostgREST. The SvelteKit server holds the session and calls PostgREST with the token of the user.
+
+## The web app
+
+The app signs in people with OpenID Connect: the authorization code flow with PKCE and a `state` value. The server keeps the access token and the refresh token in an encrypted cookie. The cookie is `httpOnly`, `SameSite=Lax` and host-only. The token is too long for one cookie, so the server splits the sealed value into pieces of 3500 characters. The server refreshes the token 60 seconds before it expires, and a failed refresh sends the user back to the sign-in page. Every request that changes data must come from the origin of the console, or the server answers 403.
+
+`GET /rpc/permissions` decides which tabs and buttons the user sees, and the database still checks every call. The routes are `/sync`, `/sync/runs/<id>`, `/config`, `/access` and `/query`. The code of the app is in `console/ui/src`: `lib/server/` holds the session, the OpenID Connect client, the PostgREST client, the catalog reader and the signer, and `lib/types.ts` holds the types of the rows. The types are written by hand. Update them in the same commit that changes a view.
+
+The Config page edits a row in a dialog. A schema has a `claim` and `encrypted`, a table has a strategy, `n`, `fallback`, a cache TTL and sort columns, and a row rule has a column and a unit type. The page doesn't edit `partitioning`. Change it with an import of the document. The Access page lists the access policy of one schema and its access log, which the same `read_policy` permission opens. A run is visible to the user who started it from the first second, because `console.start_sync` records the schemas of the run in the same transaction that queues it.
+
+The route `/healthz` answers 200 without a session and calls nothing else. The chart uses it for the probes of the Deployment, and it sets resource requests and limits from `console.resources` and `notebooks.resources`.
+
+| Setting | Holds |
+| --- | --- |
+| `OIDC_ISSUER` | The address of the identity provider. |
+| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | A confidential client with the redirect URI `<origin>/auth/callback`. |
+| `COOKIE_SECRET` | The secret that seals the cookie. |
+| `POSTGREST_URL` | The address of PostgREST. |
+| `ORIGIN` | The public origin of the console. |
+| `PROTOCOL_HEADER` | The header that gives the scheme to the Node adapter, `x-forwarded-proto` behind the gateway. Without it, the adapter assumes `https` and refuses every form post from an `http` site. |
+| `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. |
+| `S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`, `S3_IAM_ENDPOINT` | Optional. They turn on one storage identity for each schema. The IAM endpoint is the storage endpoint by default. |
+
+The chart sets these settings ([Helm chart](helm_chart.md#console-and-notebooks)). In the k3d cluster, the realm `dev` has the client `console-web` with the secret `test-secret`, and the users `web_viewer` (`dp_console`), `web_admin` (`dp_admin`) and `web_other` (`dp_admin` for the schema `other`). Their password is `web-test`. The client `console` of the realm is another client: the end-to-end suite uses it with client credentials.
 
 ## Views
 
@@ -40,6 +63,12 @@ Constraints replace a validation step:
 The engine still checks the rules that belong to a source, such as the form of a table name, when a run starts.
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy`, and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
+
+## Remove a table
+
+A trigger on `tables` queues the workflow `cleanup_tables` when a delete happens and none waits. The workflow runs in the sync worker, because dropping a DuckLake table needs DuckDB. It reads the configuration and, for each schema, drops the DuckLake tables that the configuration no longer lists. Then it deletes the data files of each dropped table in S3, and the state and the errors of every table that the configuration no longer lists. The daily `maintenance` Job drops the views. Every step can run again. A run that stops between the drop and the file deletion leaves files behind, and the orphan cleanup of the DuckLake maintenance deletes them later.
+
+Deleting a row in `tables` therefore destroys the data of the table. The database asks for no confirmation: the console asks the user before it deletes.
 
 ## Add and remove a schema
 
@@ -129,19 +158,28 @@ The console polls. A page reads `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&o
 
 ## The query tab
 
-A role with `read_files` queries the synced data in the browser, with DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly.
+A role with `read_files` queries the synced data in a notebook in the browser. The notebook is a marimo export that runs Python (Pyodide) and DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly. The notebook runs on its own origin, `notebooks.<domain>`, which is a different site from the console, and the console page embeds it in an `iframe`. The notebook has no token and no cookie of the console.
 
-1. The console server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files`. It checks the schemas of the token, and it answers 403 for a schema or a table outside them, for a name that doesn't exist, and for a token without the permission. The engine generates `dl_table_files` in every schema, and the function calls it. It lists the Parquet files of the table at its latest snapshot, with the size of each and its delete file, if any.
-2. The console server signs a short-lived `GET` link for each file with its own read-only storage credentials, and it sends the links to the browser. PostgREST can't sign links, so the database never holds storage credentials.
-3. The browser reads the files with `read_parquet`. A delete file means that some rows are gone, and the browser can't apply it, so the page must say so and not show wrong rows. A schema with encrypted files answers 409, because the browser has no key.
+The grant that the console server builds for one schema has four steps:
 
-The files hold every row, and row-level security doesn't apply to them. That's the reason why only roles with `read_files` can list them. The bucket needs a CORS rule for the origin of the console, or the browser can't read the files. The rule allows `GET` and `HEAD`, allows the `Range` header, and exposes `Content-Length`, `Content-Range`, `ETag`, and `Accept-Ranges`. The chart doesn't set it, because the storage differs between deployments: SeaweedFS, S3, and GCS each use their own command.
+1. **Authorize.** The server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files`. It checks the schemas of the token, and it answers 403 for a schema or a table outside them, for a name that doesn't exist, and for a token without the permission. It answers 409 for a schema with encrypted files, because the browser has no key. The engine generates `dl_table_files` in every schema, and the function calls it.
+2. **List.** The server connects to the catalog database with the `console_signer` login and runs `SET LOCAL ROLE schema_<name>` for the schema that step 1 authorized. That role reads the metadata of its schema only. The server reads the data files and the delete files of each table at the latest snapshot.
+3. **Sign.** The server signs a `GET` link for each listed path, valid for 5 minutes. PostgREST can't sign links, so the database never holds storage credentials. The credential is the identity of that schema: a user in the storage with a policy that allows `s3:GetObject` on the folder of the schema and nothing else. The console makes the identity on the first query of the schema, through the IAM API of the storage, with an admin credential (`S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`). The storage shows the secret of a key only once, so the console seals it and stores it in `signer.keys` in the catalog database. An advisory lock keeps two replicas from making two keys. If the console can't open a stored key, it makes a new one. Without the admin credential, every schema signs with one read-only credential.
+4. **Send.** The page sends `{ schema, tables, expiresAt }` to the notebook with `postMessage` and the exact origin of the notebook. It sends a new grant every 4 minutes. The notebook builds one view for each table. A data file with a delete file becomes an anti join that removes the deleted rows, so the counts match the database.
+
+`provision` creates the role `schema_<name>` with the schema, and drops it with the schema. The role has no login. It has `USAGE` on the metadata schema of its schema and `SELECT` on its tables, now and for the tables that DuckLake creates later. `configure-db` creates the `console_signer` login without inheritance, and its password is in the Secret `<release>-signer`. It also creates the table `signer.keys` in the catalog database, where only that login reads and writes. The drop of a schema deletes its row. The sync worker removes the identity in the storage: the step `cleanup_s3_credentials` runs in the workflows `provision_schemas` and `cleanup_tables`, lists the users named `sig_<schema>`, and deletes the keys, the policies and the user of each one whose schema the configuration no longer lists. The step runs only when `S3_IDENTITIES` is `true`, which the chart sets with `console.storage.perSchemaIdentities`. It uses the admin credential that the worker already has for DuckLake. The login is a member of every `schema_<name>` role and must switch into one. A schema name has at most 56 characters, so that the role name fits in 63.
+
+The files hold every row, and row-level security doesn't apply to them. That's the reason why only roles with `read_files` can list them. [Security](security.md#query-tab-scope) describes what each layer stops and what the layers don't stop.
+
+The bucket needs a CORS rule for the origin of the notebook, or the browser can't read the files. The rule allows `GET` and `HEAD`, allows the `Range` header, and exposes `Content-Length`, `Content-Range`, `ETag`, and `Accept-Ranges`. Without `Content-Range`, DuckDB reads a wrong size and fails with the message No magic bytes found. Set `s3.bootstrap.corsOrigins` to the notebook origins, and the bootstrap Job sets the rule through the S3 API of SeaweedFS or S3. The Job needs the permission to change the bucket, and it skips a GCS endpoint. GCS needs its own command.
+
+The notebook origin sends a Content Security Policy that allows only its own files and the storage host. [Notebooks](notebooks.md) describes the build of the site.
 
 ## HTTP interface
 
 The console talks to PostgREST only. The `console` scenario in `k6/scenarios/console.js` tests this contract against the cluster.
 
-- Send `Authorization: Bearer <JWT>` with the `role` claim of the user (one role of `rbac.toml`) and the schemas of the user in the `schemas` claim. Send `Accept-Profile: console` on reads and `Content-Profile: admin` on writes, because PostgREST also serves the schemas of the synced data.
+- Send `Authorization: Bearer <JWT>` with the `role` claim of the user (one role of `rbac.toml`) and the schemas of the user in the `schemas` claim. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the data schema as the profile.
 - Send `Prefer: return=representation` to get the written row back.
 - Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
@@ -160,4 +198,4 @@ The database is the API. The console reads these views, and it writes through th
 
 ## Develop
 
-[Development](development.md#console) lists the commands of the `console` profile. The migrations are in [Development](development.md#database-migrations).
+[Development](development.md#console) lists the commands of the `console` profile and of the tests. The migrations are in [Development](development.md#database-migrations).

@@ -25,6 +25,7 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs` | S3 secret key. |
 | `S3_SCRATCH_PREFIX` | `tmp` | Temporary extraction Parquet prefix. |
+| `S3_IDENTITIES` | `false` | Delete the S3 identities of schemas that the console no longer lists (the step `cleanup_s3_credentials`). The chart turns it on with `console.storage.perSchemaIdentities`. |
 | `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ops` role. The chart builds it from the password Secret of `ops`. Each schema writes to its own metadata schema. |
 | `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for the per-schema Parquet data. |
 | `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
