@@ -1,3 +1,4 @@
+use std/log
 use lib.nu [
     apply-gcp-secret
     build-k6-image
@@ -30,10 +31,7 @@ def wait-for-topology [kubecfg: path]: nothing -> nothing {
         interval: 10sec
         max_attempts: 90
     }) {
-        fail 'The cluster did not settle on a primary and a standby within 15 minutes' {
-            command: wait-for-topology
-            span: (metadata $kubecfg).span
-        }
+        fail 'The cluster did not settle on a primary and a standby within 15 minutes'
     }
 
     [
@@ -50,10 +48,7 @@ def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool,
         | get items
         | each {|job| $job.status.conditions? | default [] }
         | flatten
-    } catch {|err| fail $'Could not read the k6 runner Jobs: ($err.msg)' {
-            command: test-phase
-            span: (metadata $label).span
-        } }
+    } catch {|err| fail $'Could not read the k6 runner Jobs: ($err.msg)' }
 
     {
         complete: (
@@ -65,6 +60,13 @@ def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool,
             | any {|condition| $condition.type == 'Failed' and $condition.status == 'True' }
         )
     }
+}
+
+# Wait until the runner Jobs complete or fail, and return their last phase.
+def await-test [kubecfg: path, label: string, attempts: int]: nothing -> record<complete: bool, failed: bool> {
+    poll {|| let phase = test-phase $kubecfg $label; $phase.complete or $phase.failed } {interval: 2sec, max_attempts: $attempts} | ignore
+
+    test-phase $kubecfg $label
 }
 
 # Run one Job from a Helm-managed suspended CronJob and wait for completion.
@@ -83,34 +85,56 @@ def run-cronjob [kubecfg: path, cronjob: string, description: string]: nothing -
             ''
         }
         log error $logs
-        fail $'($description) failed: ($err.msg)' {
-            command: k6
-            span: (metadata $job).span
-        }
+        fail $'($description) failed: ($err.msg)'
     }
 }
 
 # Print the log of one pod as it grows, once the container has started. Returns false when the stream failed.
 def stream-log [kubecfg: path, pod: string]: nothing -> bool {
-    mut started = false
-    for _ in 1..150 {
-        $started = try {
+    let started = poll {||
+        try {
             wrap-kubectl $kubecfg -n $NAMESPACE logs $pod --tail=1 | ignore
             true
         } catch {
             false
         }
-        if $started { break }
-        sleep 2sec
-    }
+    } {interval: 2sec, max_attempts: 150}
+
     if not $started { return false }
 
     try {
-        wrap-kubectl $kubecfg -n $NAMESPACE logs --follow $pod | lines | each {|line| print $line } | ignore
+        for line in (wrap-kubectl $kubecfg -n $NAMESPACE logs --follow $pod | lines) {
+            print $line
+        }
+
         true
     } catch {
         false
     }
+}
+
+# Return the TestRun manifest from its file, with a new name, the image of this run, and the settings in its environment.
+def testrun-manifest [yaml_path: path, testrun: string, image_tag: string, settings: record]: nothing -> string {
+    let env_names = open $yaml_path | get spec.runner.env | get name
+    let added = $settings
+    | columns
+    | where $it not-in $env_names
+    | each {|name| {name: $name, value: ($settings | get --optional $name | into string)} }
+
+    open $yaml_path
+    | update metadata.name $testrun
+    | update spec.runner.image $'($IMAGE_REGISTRY)/k6:($image_tag)'
+    | update spec.runner.env {|run|
+        $run.spec.runner.env
+        | each {|entry|
+            match ($settings | get --optional $entry.name) {
+                null => $entry
+                $value => {name: $entry.name, value: ($value | into string)}
+            }
+        }
+        | append $added
+    }
+    | to yaml
 }
 
 # Build the k6 image with the scripts in it, run one TestRun from it, and print the runner output.
@@ -135,29 +159,7 @@ def k6-run [
     log info $'Deleting previous testrun ($testrun)...'
     wrap-kubectl $kubecfg -n $NAMESPACE delete testrun $testrun --ignore-not-found
 
-    let raw = try {
-        open --raw $yaml_path
-    } catch {|err| fail $'Failed to open ($yaml_path): ($err.msg)' {
-            command: k6-run
-            span: (metadata $yaml_path).span
-        } }
-
-    let named = $raw
-    | str replace --regex '(?m)(kind: TestRun\nmetadata:\n\s+name: )[^\n]+' (['${1}' $testrun] | str join '')
-
-    let runner_image = $named
-    | str replace --all $'($IMAGE_REGISTRY)/k6:local' $'($IMAGE_REGISTRY)/k6:($image_tag)'
-
-    let yaml = $set
-    | items {|name, value|
-        {
-            name: $name
-            value: $value
-        }
-    }
-    | reduce --fold $runner_image {|entry, text|
-        $text | str replace --regex (['(?m)(- name: ' $entry.name '\n\s+value: ).*'] | str join '') (['${1}"' $entry.value '"'] | str join '')
-    }
+    let yaml = testrun-manifest $yaml_path $testrun $image_tag $set
 
     log info $'Applying testrun ($testrun)...'
     $yaml | wrap-kubectl $kubecfg apply -f -
@@ -179,10 +181,7 @@ def k6-run [
         } catch {
             missing
         }
-        fail $"k6 runner Job didn't appear within 15 minutes (TestRun stage=($stage))" {
-            command: k6-run
-            span: (metadata $testrun).span
-        }
+        fail $"k6 runner Job didn't appear within 15 minutes (TestRun stage=($stage))"
     }
 
     let pod = wrap-kubectl $kubecfg -n $NAMESPACE get pods -l $label -o 'jsonpath={.items[0].metadata.name}'
@@ -190,63 +189,45 @@ def k6-run [
     let streamed = stream-log $kubecfg $pod
 
     log info 'Waiting for the test to complete...'
-    let deadline = (date now) + 60min
-    mut phase = test-phase $kubecfg $label
-    while (date now) < $deadline and not $phase.complete and not $phase.failed {
-        sleep 2sec
-        $phase = test-phase $kubecfg $label
-    }
+    let phase = await-test $kubecfg $label 1800
 
     if not $streamed {
         print (wrap-kubectl $kubecfg -n $NAMESPACE logs $pod | to text)
     }
 
     if $phase.failed {
-        fail 'k6 runner Job failed' {
-            command: k6-run
-            span: (metadata $testrun).span
-        }
+        fail 'k6 runner Job failed'
     }
 
     if not $phase.complete {
-        fail 'k6 runner Job timed out after 60 minutes' {
-            command: k6-run
-            span: (metadata $testrun).span
-        }
+        fail 'k6 runner Job timed out after 60 minutes'
     }
+}
+
+# The k6 setting of each traffic share.
+const SHARE_SETTINGS = {
+    bottleneck: K6_BOTTLENECK_SHARE
+    fallback: K6_FALLBACK_SHARE
 }
 
 # Parse traffic shares in the form bottleneck=0.01 fallback=0.01.
 def parse-shares [...shares: string]: nothing -> record {
-    mut result = {}
-    for share in $shares {
+    $shares | reduce --fold {} {|share, result|
         let parts = $share | split row '='
+
         if ($parts | length) != 2 {
-            fail $'Invalid share: ($share). Use bottleneck=0.01 or fallback=0.01.' {
-                command: parse-shares
-                span: (metadata $share).span
-            }
+            fail $'Invalid share: ($share). Use bottleneck=0.01 or fallback=0.01.'
         }
-        let value = try {
-            $parts.1? | into float
-        } catch {
-            fail $'Invalid share value: ($share)' {
-                command: parse-shares
-                span: (metadata $share).span
-            }
+
+        let setting = $SHARE_SETTINGS | get --optional ($parts | first)
+        if $setting == null {
+            fail $'Unknown share: ($parts | first). Use bottleneck or fallback.'
         }
-        match $parts.0? {
-            bottleneck => { $result = ($result | upsert K6_BOTTLENECK_SHARE $value) }
-            fallback => { $result = ($result | upsert K6_FALLBACK_SHARE $value) }
-            _ => {
-                fail $'Unknown share: ($parts.0?). Use bottleneck or fallback.' {
-                    command: parse-shares
-                    span: (metadata $share).span
-                }
-            }
-        }
+
+        let value = try { $parts | last | into float } catch { fail $'Invalid share value: ($share)' }
+
+        $result | upsert $setting $value
     }
-    $result
 }
 
 # Run one k6 profile.
@@ -317,10 +298,7 @@ export def "main k6 e2e" [
 
     try {
         cd $repo
-    } catch {|err| fail $'Could not change to repository root: ($err.msg)' {
-            command: k6-e2e
-            span: (metadata $repo).span
-        } }
+    } catch {|err| fail $'Could not change to repository root: ($err.msg)' }
 
     log info 'Waiting for the existing Data Proxy release...'
     [

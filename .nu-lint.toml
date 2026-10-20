@@ -1,6 +1,5 @@
 # Shared nu-lint exceptions for this repository and the global LSP configuration.
 [rules]
-add_doc_comment_exported_fn = "off"
 block_brace_spacing = "off"
 check_typed_flag_before_use = "off"
 nu_parse_error = "off"
@@ -10,3 +9,24 @@ print_and_return_data = "off"
 redundant_ignore = "off"
 string_may_be_bare = "off"
 unhandled_external_error = "off"
+
+# The rule does not see a doc comment above an @example attribute, and every exported command has one there.
+add_doc_comment_exported_fn = "off"
+# A failing builtin stops the script with its own message, so a try block would only repeat it.
+catch_builtin_error_try = "off"
+# `fail` raises the error without a label on purpose: the label points at a call site and tells the reader nothing.
+add_label_to_error = "off"
+# The test runner runs each test in its own Nushell, so that one test cannot change the state of another.
+redundant_nu_subprocess = "off"
+# A named step with one line keeps the main command readable.
+single_call_command = "off"
+# The signed request to the object store needs curl, because `http` has no AWS signature.
+curl_to_http = "off"
+# A parameter that is a list stays a list, because the callers build it.
+list_param_to_variadic = "off"
+# A named parameter of a pure function reads better than input from a pipeline.
+positional_to_pipeline = "off"
+# An unset variable and an empty one mean the same for these settings.
+default_empty_string_masks_missing = "off"
+# The check needs a value that is not empty, and `has` only tests that the key exists.
+get_optional_to_has = "off"

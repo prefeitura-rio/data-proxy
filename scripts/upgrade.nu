@@ -28,7 +28,7 @@ def query-primary [kubecfg: path, query: string]: nothing -> string {
 # Run a subset of the E2E scenarios against the current release.
 def e2e-subset [scenarios: string]: nothing -> nothing {
     log info $'Running the E2E scenarios: ($scenarios)...'
-    ^nu (git-root | path join scripts cluster.nu) k6 e2e --scenarios $scenarios
+    nu (git-root | path join scripts cluster.nu) k6 e2e --scenarios $scenarios
 }
 
 # Check what an upgrade must keep: the migrations, the rules, the logins, and the serving workloads.
@@ -46,13 +46,15 @@ def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     | compact
 
     for problem in $problems {
-        fail $'The upgraded release is not right: ($problem)' {
-            command: check-upgraded-release
-            span: (metadata $problem).span
-        }
+        fail $'The upgraded release is not right: ($problem)'
     }
 
-    ['data-proxy/data-proxy-pgdog' 'data-proxy/data-proxy-postgrest' 'data-proxy/data-proxy-sync'] | wait-for deployment $kubecfg
+    [
+        data-proxy/data-proxy-pgdog
+        data-proxy/data-proxy-postgrest
+        data-proxy/data-proxy-sync
+    ]
+    | wait-for deployment $kubecfg
 }
 
 # Install a published chart release, upgrade it to the local chart, and check the upgraded release. Run it at release time, after the first release exists.
@@ -61,10 +63,7 @@ export def "main upgrade" [
     --chart: string = 'oci://ghcr.io/prefeitura-rio/charts/data-proxy' # OCI address of the published chart.
 ]: nothing -> nothing {
     if ($from | is-empty) {
-        fail 'Give the published chart version with --from' {
-            command: main-upgrade
-            span: (metadata $from).span
-        }
+        fail 'Give the published chart version with --from'
     }
 
     let kubecfg = local-kubeconfig

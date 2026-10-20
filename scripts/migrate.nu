@@ -16,9 +16,6 @@ def main [
     print ($result.stdout + $result.stderr)
 
     if $result.exit_code != 0 {
-        fail $'goose ($command) failed: ($result.stderr)' {
-            command: main
-            span: (metadata $command).span
-        }
+        fail $'goose ($command) failed: ($result.stderr)'
     }
 }

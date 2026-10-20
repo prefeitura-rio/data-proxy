@@ -29,7 +29,7 @@ def "main up" [
 ]: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let repo = git-root
-    let catalogs = $repo | path join k3d .tmp catalogs
+    let duckdb = $repo | path join k3d .tmp duckdb
 
     if (podman network exists $NETWORK | complete).exit_code != 0 {
         log info $'Creating Podman network ($NETWORK)...'
@@ -42,27 +42,11 @@ def "main up" [
         k3d registry create --default-network $NETWORK --port 5001 $REGISTRY
     }
 
-    try {
-        cd $repo
-    } catch {|err| fail $'Could not change to repository root: ($err.msg)' {
-            command: main-up
-            span: (metadata $repo).span
-        } }
+    cd $repo
+    mkdir k3d/.tmp/duckdb
+    chmod 777 k3d/.tmp/duckdb
 
-    try {
-        mkdir k3d/.tmp/catalogs/writer
-        chmod 777 k3d/.tmp/catalogs/writer
-    } catch {|err| fail $'Could not create k3d runtime directories: ($err.msg)' {
-            command: main-up
-            span: (metadata $repo).span
-        } }
-
-    let clusters = try {
-        k3d cluster list --no-headers | lines
-    } catch {|err| fail $'Could not list k3d clusters: ($err.msg)' {
-            command: main-up
-            span: (metadata $kubecfg).span
-        } }
+    let clusters = k3d cluster list --no-headers | lines
 
     if not ($clusters | any {|line| $line | str starts-with $CLUSTER_NAME }) {
         log info 'Starting k3d...'
@@ -72,28 +56,20 @@ def "main up" [
             --config
             k3d/k3d.yaml
             --volume
-            $'($catalogs)/writer:/var/lib/data-proxy/catalogs/writer@server:*;agent:*'
+            $'($duckdb):/var/lib/data-proxy/duckdb@server:*;agent:*'
         ]
         | if $debug { append [--no-rollback --trace] } else { }
         k3d ...$args
     }
 
-    try {
-        k3d kubeconfig get $CLUSTER_NAME | save --force $kubecfg
-    } catch {|err| fail $'Could not write k3d kubeconfig: ($err.msg)' {
-            command: main-up
-            span: (metadata $kubecfg).span
-        } }
+    k3d kubeconfig get $CLUSTER_NAME | save --force $kubecfg
 
     log info 'Waiting for the K3s metrics-server...'
     if not (poll {|| ((wrap-kubectl $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0) } {
         interval: 5sec
         max_attempts: 60
     }) {
-        fail "metrics-server didn't become ready within 5 minutes" {
-            command: main-up
-            span: (metadata $kubecfg).span
-        }
+        fail "metrics-server didn't become ready within 5 minutes"
     }
 
     apply-gcp-secret $kubecfg --required
@@ -127,13 +103,8 @@ def "main down" []: nothing -> nothing {
     k3d cluster delete $CLUSTER_NAME
 
     let kubecfg = local-kubeconfig
-    let catalogs = git-root | path join k3d .tmp catalogs
+    let duckdb = git-root | path join k3d .tmp duckdb
 
-    try {
-        rm --force $kubecfg
-        podman unshare rm --recursive --force $catalogs
-    } catch {|err| fail $'Could not remove the k3d state: ($err.msg)' {
-            command: main-down
-            span: (metadata $kubecfg).span
-        } }
+    rm --force $kubecfg
+    podman unshare rm --recursive --force $duckdb
 }

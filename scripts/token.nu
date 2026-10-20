@@ -20,18 +20,18 @@ def main [
     | default (if $local { $LOCAL_CLIENT_SECRET })
 
     if $username != null and $password == null {
-        fail '--password is required with --username' {command: main, span: (metadata $username).span}
+        fail '--password is required with --username'
     }
 
     let form = {
         grant_type: (if $username == null { 'client_credentials' } else { 'password' })
         client_id: $client_id
+        client_secret: $secret
+        username: $username
+        password: $password
+        scope: $scope
     }
-    | merge (if $secret != null { {client_secret: $secret} } else { {} })
-    | merge (
-        if $username != null { {username: $username, password: $password} } else { {} }
-    )
-    | merge (if $scope != null { {scope: $scope} } else { {} })
+    | compact
 
     let response = try {
         if $local {
@@ -44,12 +44,12 @@ def main [
         } else {
             http post --content-type application/x-www-form-urlencoded $url $form
         }
-    } catch {|err| fail $'Failed to fetch a token from ($url): ($err.msg)' {command: main, span: (metadata $url).span} }
+    } catch {|err| fail $'Failed to fetch a token from ($url): ($err.msg)' }
 
     let token = $response | get --optional access_token
 
     if $token == null {
-        fail $'The response from ($url) has no access_token' {command: main, span: (metadata $url).span}
+        fail $'The response from ($url) has no access_token'
     }
 
     let result = {
