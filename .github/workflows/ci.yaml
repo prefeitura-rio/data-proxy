@@ -17,6 +17,7 @@ on:
       - Containerfile.sync
       - Containerfile.postgres
       - Containerfile.proxy
+      - Containerfile.console
       - devenv.nix
       - devenv.lock
       - devenv.yaml
@@ -105,6 +106,16 @@ jobs:
       - uses: ./.github/actions/setup-devenv
       - run: podman --version
       - run: devenv --profile sync test
+  test-console:
+    name: Console tests
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/setup-devenv
+      - run: podman --version
+      - run: devenv --profile console test
   test-proxy:
     name: Proxy integration tests
     needs: changes
@@ -121,10 +132,11 @@ jobs:
       - checks
       - test-sync
       - test-proxy
+      - test-console
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
-    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -161,8 +173,9 @@ jobs:
       - checks
       - test-sync
       - test-proxy
+      - test-console
       - build-images
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -183,6 +196,7 @@ jobs:
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.nushell }}
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
+          CONSOLE_SHA: ${{ steps.shas.outputs.console }}
       - name: Read current version
         id: version
         run: devenv --profile checks shell -- ci version
