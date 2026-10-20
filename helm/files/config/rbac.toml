@@ -15,6 +15,7 @@ read = "Read them"
 description = "Sync runs"
 read = "Runs, tasks, steps, logs, errors and the overview"
 start = "Start a run"
+control = "Cancel, resume or run again a run, and pause or resume a schedule"
 
 [permissions.config]
 description = "The sync configuration"
@@ -53,6 +54,7 @@ description = "People who run schemas"
 inherits = ["dp_console", "dp_policy"]
 permissions = [
   "start_sync",
+  "control_sync",
   "create_config",
   "edit_config",
   "delete_config",

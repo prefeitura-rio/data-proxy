@@ -1901,6 +1901,34 @@ class TestPostgresTemplates:
         ] == [can_read_sync, can_start_sync, mine_pic]
 
     @pytest.mark.parametrize(
+        ("role", "can_control_sync"),
+        [
+            pytest.param("dp_admin", True, id="admin"),
+            pytest.param("dp_console", False, id="console"),
+            pytest.param("dp_policy", False, id="policy"),
+            pytest.param("dp_api", False, id="api"),
+        ],
+    )
+    async def test_only_the_admin_controls_runs_and_schedules(
+        self, rbac: Postgres, role: str, can_control_sync: bool
+    ) -> None:
+        """Cancelling a run and pausing a schedule are rights of dp_admin only."""
+        await rbac.connection.execute(
+            helm_sql(
+                "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
+            ).encode()
+        )
+        await set_setting(
+            rbac,
+            "request.jwt.claims",
+            json.dumps({"role": role, "schemas": ["pic"]}),
+        )
+
+        await rbac.connection.execute("SELECT data_proxy.pre_request()")
+
+        assert await scalar(rbac, "SELECT rbac.can('control_sync')") is can_control_sync
+
+    @pytest.mark.parametrize(
         ("profile", "longer"),
         [
             pytest.param("console", True, id="console-profile"),
