@@ -1267,6 +1267,14 @@ realm:
           ],
           "console-web": [
             {
+              "name": "dp_api",
+              "description": "Clients that read the synced data"
+            },
+            {
+              "name": "dp_policy",
+              "description": "APIs that register their own access policies"
+            },
+            {
               "name": "dp_console",
               "description": "People who watch the system"
             },
@@ -1379,6 +1387,84 @@ realm:
           "clientRoles": {
             "console-web": [
               "dp_admin"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "admin",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "admin@example.test",
+          "firstName": "admin",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "admin",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_admin"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "web_api",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_api@example.test",
+          "firstName": "web_api",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_api"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
+          "username": "web_policy",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_policy@example.test",
+          "firstName": "web_policy",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "console-web": [
+              "dp_policy"
             ]
           },
           "requiredActions": []
