@@ -37,13 +37,11 @@ in
     };
   };
 
-  tasks."seaweedfs:clean" = utils.whenTesting (
-    utils.nuTask {
-      description = "Empty the data folder of the object store.";
-      exec = "rm --recursive --force ${dataDir}; mkdir ${dataDir}";
-      before = [ (utils.processTask "seaweedfs") ];
-    }
-  );
+  tasks."seaweedfs:clean" = utils.nuTask {
+    description = "Empty the data folder of the object store.";
+    exec = "rm --recursive --force ${dataDir}; mkdir ${dataDir}";
+    before = [ (utils.processTask "seaweedfs") ];
+  };
 
   processes.seaweedfs =
     utils.mkProcess {

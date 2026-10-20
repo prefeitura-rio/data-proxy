@@ -40,6 +40,43 @@ let
     "console/notebooks/uv.lock"
   ];
 
+  setupEnv = {
+    AUTH_ANON_ROLE = postgres.roles.anon;
+    AUTH_SERVING_ROLE = postgres.roles.serving;
+    AUTH_SIGNER_ROLE = postgres.roles.signer;
+    AUTH_USER_ROLE = postgres.roles.user;
+    CATALOG_PORT = postgresPort;
+    DBOS_APPLICATION_NAME = "data-proxy-sync";
+    DBOS_APP_SCHEMA = "data_proxy";
+    DBOS_SYSTEM_DATABASE_URL = utils.postgresUrl { database = appDatabase; };
+    DBOS_SYSTEM_SCHEMA = "dbos";
+    DUCKDB_PASSWORD = postgres.passwords.duckdb;
+    DUCKLAKE_ADMIN_URL = utils.postgresUrl { database = catalogDatabase; };
+    DUCKLAKE_CATALOG_PATH = "ducklake";
+    DUCKLAKE_CATALOG_URL = utils.postgresUrl { database = catalogDatabase; };
+    EXPECTED_ROWS_FILE = utils.stateFile "expected-rows";
+    PGDATABASE = appDatabase;
+    PGHOST = "127.0.0.1";
+    PGPASSWORD = postgres.password;
+    PGPORT = postgresPort;
+    PGUSER = postgres.user;
+    PG_DATABASE_URL = utils.postgresUrl { database = appDatabase; };
+    PROVISION_ALL = "true";
+    RBAC_FILE = "${config.devenv.root}/helm/files/config/rbac.toml";
+    S3_ACCESS_KEY = storage.admin.accessKey;
+    S3_BOOTSTRAP_RETRY = "2sec";
+    S3_BOOTSTRAP_TIMEOUT = "2min";
+    S3_BUCKET = s3Bucket;
+    S3_CORS_ORIGINS = urls.notebooks;
+    S3_ENDPOINT = "127.0.0.1:${toString (utils.port "seaweedfs" "main")}";
+    S3_SECRET_KEY = storage.admin.secretKey;
+    S3_USE_SSL = "false";
+    SERVING_PASSWORD = postgres.passwords.serving;
+    SIGNER_PASSWORD = postgres.passwords.signer;
+    SQL_TEMPLATE_DIR = "${config.devenv.root}/helm/files/templates";
+    SYNC_CONFIG_PATH = syncConfig;
+  };
+
   setup = utils.mkTaskChain {
     name = "console:setup";
     common.cwd = config.devenv.root;
@@ -51,42 +88,7 @@ let
       (utils.processTask "console")
       (utils.processTask "postgrest")
     ];
-    env = {
-      AUTH_ANON_ROLE = postgres.roles.anon;
-      AUTH_SERVING_ROLE = postgres.roles.serving;
-      AUTH_SIGNER_ROLE = postgres.roles.signer;
-      AUTH_USER_ROLE = postgres.roles.user;
-      CATALOG_PORT = postgresPort;
-      DBOS_APPLICATION_NAME = "data-proxy-sync";
-      DBOS_APP_SCHEMA = "data_proxy";
-      DBOS_SYSTEM_DATABASE_URL = utils.postgresUrl { database = appDatabase; };
-      DBOS_SYSTEM_SCHEMA = "dbos";
-      DUCKDB_PASSWORD = postgres.passwords.duckdb;
-      DUCKLAKE_ADMIN_URL = utils.postgresUrl { database = catalogDatabase; };
-      DUCKLAKE_CATALOG_PATH = "ducklake";
-      DUCKLAKE_CATALOG_URL = utils.postgresUrl { database = catalogDatabase; };
-      EXPECTED_ROWS_FILE = utils.stateFile "expected-rows";
-      PGDATABASE = appDatabase;
-      PGHOST = "127.0.0.1";
-      PGPASSWORD = postgres.password;
-      PGPORT = postgresPort;
-      PGUSER = postgres.user;
-      PG_DATABASE_URL = utils.postgresUrl { database = appDatabase; };
-      PROVISION_ALL = "true";
-      RBAC_FILE = "${config.devenv.root}/helm/files/config/rbac.toml";
-      S3_ACCESS_KEY = storage.admin.accessKey;
-      S3_BOOTSTRAP_RETRY = "2sec";
-      S3_BOOTSTRAP_TIMEOUT = "2min";
-      S3_BUCKET = s3Bucket;
-      S3_CORS_ORIGINS = urls.notebooks;
-      S3_ENDPOINT = "127.0.0.1:${toString (utils.port "seaweedfs" "main")}";
-      S3_SECRET_KEY = storage.admin.secretKey;
-      S3_USE_SSL = "false";
-      SERVING_PASSWORD = postgres.passwords.serving;
-      SIGNER_PASSWORD = postgres.passwords.signer;
-      SQL_TEMPLATE_DIR = "${config.devenv.root}/helm/files/templates";
-      SYNC_CONFIG_PATH = syncConfig;
-    };
+    env = setupEnv;
     steps = [
       {
         name = "databases";
@@ -242,7 +244,7 @@ in
     rclone
   ];
 
-  tasks = utils.whenTesting (
+  tasks =
     setup.tasks
     // build.tasks
     // {
@@ -280,10 +282,33 @@ in
           before = [ "devenv:enterTest" ];
           execIfModified = notebookInputs;
         };
-    }
-  );
+    };
 
   processes = {
+    control-worker =
+      utils.mkProcess {
+        command = uv ++ [
+          "python"
+          "-m"
+          "sync.dbos.main"
+        ];
+        env = setupEnv // {
+          LISTEN_QUEUES = "control";
+        };
+      }
+      // {
+        cwd = config.devenv.root;
+        after = [ setup.last ];
+        ready = utils.probes.command [
+          "psql"
+          (utils.postgresUrl { database = appDatabase; })
+          "--no-psqlrc"
+          "--quiet"
+          "--command"
+          "SELECT 1 / count(*) FROM dbos.queues WHERE name = 'control'"
+        ];
+      };
+
     console =
       utils.mkProcess {
         command = [

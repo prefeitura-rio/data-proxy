@@ -11,7 +11,7 @@ in
     TEST_POSTGRES_CONTAINER = container;
   };
 
-  tasks."postgres:image" = utils.whenTesting (
+  tasks."postgres:image" =
     utils.mkTask {
       command = [
         "podman"
@@ -27,8 +27,7 @@ in
       description = "Build the PostgreSQL test image.";
       before = [ (utils.processTask "postgres") ];
       execIfModified = [ "Containerfile.postgres" ];
-    }
-  );
+    };
 
   processes.postgres =
     utils.mkProcess {

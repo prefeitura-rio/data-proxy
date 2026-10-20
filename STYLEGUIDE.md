@@ -48,12 +48,12 @@ Put each test at the lowest level that can prove the behavior. Don't repeat a ch
 
 A unit test checks one unit exhaustively: a function, a class, a method, or an SQL template. It covers every input, every branch, and the edge cases. An integration test checks a behavior: a scenario that crosses units or services, such as a state commit, a catalog read, or a request through the proxy. The infrastructure doesn't decide the level. A template belongs to the unit level even when it runs on the real PostgreSQL server, because the test checks that template alone.
 
-| Level       | Location                                               | Runs against                                                                                              | Covers                                                                                           |
-| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Level       | Location                                               | Runs against                                                                                                    | Covers                                                                                                                    |
+| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
-| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage |
-| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST                                                     | Proxy request path: routing, retry, cache, filter pushdown                                       |
-| E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`             | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                 | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                           |
+| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS                       | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage                      |
+| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST                                                           | Proxy request path: routing, retry, cache, filter pushdown                                                                |
+| E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`             | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
 
 - A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
@@ -295,6 +295,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 - Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
 - In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
 - In `tasks`, put the aggregate tasks (`lint:all`, `test:all`) last.
+- Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack.
 - Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
 
 ### Documentation

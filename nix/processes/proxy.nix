@@ -116,32 +116,28 @@ in
     HURL_VARIABLE_console_reload = host "proxy-reload" "postgrest";
   };
 
-  files = utils.whenTesting (
-    lib.mergeAttrsList (
-      lib.mapAttrsToList (
-        name: instance: utils.fileEntry "${name}.conf" { text = renderConf name instance; }
-      ) instances
-    )
-  );
-
-  tasks = utils.whenTesting (
-    lib.mapAttrs' (
-      name: _:
-      lib.nameValuePair "proxy:run-dir:${name}" (
-        utils.mkTask {
-          command = [
-            "mkdir"
-            "--parents"
-            (utils.stateFile name)
-          ];
-        }
-        // {
-          description = "Create the run folder of ${name}.";
-          before = [ (utils.processTask name) ];
-        }
-      )
+  files = lib.mergeAttrsList (
+    lib.mapAttrsToList (
+      name: instance: utils.fileEntry "${name}.conf" { text = renderConf name instance; }
     ) instances
   );
+
+  tasks = lib.mapAttrs' (
+    name: _:
+    lib.nameValuePair "proxy:run-dir:${name}" (
+      utils.mkTask {
+        command = [
+          "mkdir"
+          "--parents"
+          (utils.stateFile name)
+        ];
+      }
+      // {
+        description = "Create the run folder of ${name}.";
+        before = [ (utils.processTask name) ];
+      }
+    )
+  ) instances;
 
   processes = lib.mapAttrs mkNginx instances;
 }

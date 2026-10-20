@@ -100,7 +100,6 @@ let
       exec = "exec ${lib.escapeShellArgs command}";
       env = toStrings env;
       restart.on = "never";
-      start.enable = config.devenv.isTesting;
     };
 
   /**
@@ -304,11 +303,6 @@ let
           exec ${lib.getExe pkgs.nushell} --include-path ${config.devenv.root}/scripts ${script}/${name} ...$args
       }
     '';
-
-  /**
-    Apply a definition only in `devenv test`.
-  */
-  whenTesting = lib.mkIf config.devenv.isTesting;
 in
 {
   inherit
@@ -326,6 +320,5 @@ in
     probes
     stateFile
     urls
-    whenTesting
     ;
 }

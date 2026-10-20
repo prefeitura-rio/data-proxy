@@ -9,7 +9,7 @@ in
     pkgs.postgrest
   ];
 
-  tasks."postgrest:jwks" = utils.whenTesting (
+  tasks."postgrest:jwks" =
     utils.mkTask {
       command = [
         "curl"
@@ -25,8 +25,7 @@ in
       description = "Download the signing keys of the test Keycloak.";
       after = [ (utils.processTask "keycloak") ];
       before = [ (utils.processTask "postgrest") ];
-    }
-  );
+    };
 
   processes.postgrest =
     utils.mkProcess {

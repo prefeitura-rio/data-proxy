@@ -1,6 +1,6 @@
 { utils, ... }:
 {
-  tasks."sync:setup" = utils.whenTesting (
+  tasks."sync:setup" =
     utils.mkTask {
       command = [
         "nu"
@@ -11,6 +11,5 @@
       description = "Create the databases of the sync tests.";
       after = [ (utils.processTask "postgres") ];
       wantedBy = [ (utils.processTask "postgres") ];
-    }
-  );
+    };
 }
