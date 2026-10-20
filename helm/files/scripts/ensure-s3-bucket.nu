@@ -1,15 +1,7 @@
 use std/log
-use ./lib.nu [fail]
+use ./lib.nu [endpoint-url fail rclone-env wait-until]
 
-def endpoint-url []: nothing -> string {
-    if ($env.S3_ENDPOINT | str starts-with 'http') {
-        return $env.S3_ENDPOINT
-    }
-
-    let scheme = if $env.S3_USE_SSL == 'true' { 'https' } else { 'http' }
-    $'($scheme)://($env.S3_ENDPOINT)'
-}
-
+# Read, write and delete one object, to prove that the credentials work on the bucket.
 def verify-bucket [bucket: string]: nothing -> nothing {
     let probe = $'.data-proxy-s3-probe-(random uuid)'
     rclone lsf $'store:($bucket)'
@@ -18,64 +10,52 @@ def verify-bucket [bucket: string]: nothing -> nothing {
     rclone deletefile $'store:($bucket)/($probe)'
 }
 
+# Allow the notebook origins to read the files with a range request, and expose the headers that DuckDB reads.
+def put-cors [bucket: string, ...origins: string]: nothing -> nothing {
+    let allowed = $origins | each {|origin| $'<AllowedOrigin>($origin)</AllowedOrigin>' } | str join
+    let exposed = [Content-Length Content-Range ETag Accept-Ranges] | each {|name| $'<ExposeHeader>($name)</ExposeHeader>' } | str join
+
+    $'<CORSConfiguration><CORSRule>($allowed)<AllowedMethod>GET</AllowedMethod><AllowedMethod>HEAD</AllowedMethod><AllowedHeader>Range</AllowedHeader>($exposed)<MaxAgeSeconds>3000</MaxAgeSeconds></CORSRule></CORSConfiguration>'
+    | curl --silent --show-error --fail --request PUT $'(endpoint-url)/($bucket)?cors' --aws-sigv4 'aws:amz:us-east-1:s3' --user $'($env.S3_ACCESS_KEY):($env.S3_SECRET_KEY)' --header 'Content-Type: application/xml' --data-binary @-
+    | ignore
+}
+
+# Check that the object-store bucket exists, and create it or wait for it.
 def main [
     --create # Create the configured bucket when it is absent.
     --wait # Verify the configured bucket without creating it.
 ]: nothing -> nothing {
     if $create == $wait {
-        fail 'Specify exactly one S3 bootstrap mode: --create or --wait' {
-            command: main
-            span: (metadata $create).span
-        }
+        fail 'Specify exactly one S3 bootstrap mode: --create or --wait'
     }
 
-    let timeout = $env.S3_BOOTSTRAP_TIMEOUT | into duration
-    let retry = $env.S3_BOOTSTRAP_RETRY | into duration
-    let deadline = (date now) + $timeout
     let bucket = $env.S3_BUCKET
+    let gcs = endpoint-url | str contains 'googleapis.com'
+    let remote = rclone-env --access-key $env.S3_ACCESS_KEY --secret-key $env.S3_SECRET_KEY
+    let remote = if $gcs { $remote } else { $remote | upsert RCLONE_CONFIG_STORE_NO_CHECK_BUCKET 'false' }
+    let origins = $env.S3_CORS_ORIGINS? | default '' | split row ',' | where $it != ''
 
-    let endpoint = endpoint-url
-    if ($endpoint | str contains 'googleapis.com') {
-        load-env {
-            RCLONE_CONFIG: '/dev/null'
-            RCLONE_CONFIG_STORE_TYPE: 'google cloud storage'
-            RCLONE_CONFIG_STORE_SERVICE_ACCOUNT_FILE: $env.GOOGLE_APPLICATION_CREDENTIALS
-            RCLONE_CONFIG_STORE_BUCKET_POLICY_ONLY: 'true'
-        }
-    } else {
-        load-env {
-            RCLONE_CONFIG: '/dev/null'
-            RCLONE_CONFIG_STORE_TYPE: 's3'
-            RCLONE_CONFIG_STORE_PROVIDER: 'Other'
-            RCLONE_CONFIG_STORE_ENDPOINT: $endpoint
-            RCLONE_CONFIG_STORE_ACCESS_KEY_ID: $env.S3_ACCESS_KEY
-            RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: $env.S3_SECRET_KEY
-            RCLONE_CONFIG_STORE_FORCE_PATH_STYLE: 'true'
-            RCLONE_CONFIG_STORE_REGION: 'auto'
-        }
-    }
+    log info $'S3 bootstrap started: bucket=($bucket) endpoint=(endpoint-url) mode=(if $create { "create" } else { "wait" })'
 
-    log info $'S3 bootstrap started: bucket=($bucket) endpoint=(endpoint-url) timeout=($timeout) retry=($retry) mode=(if $create { "create" } else { "wait" })'
-
-    loop {
-        try {
-            if $create {
-                rclone mkdir $'store:($bucket)'
-            }
-
-            verify-bucket $bucket
-            log info $'S3 bucket is ready: bucket=($bucket)'
-            return
-        } catch {|err|
-            if (date now) >= $deadline {
-                fail $'s3-bootstrap state=failed bucket=($bucket) timeout=($timeout) error=($err.msg)' {
-                    command: main
-                    span: (metadata $bucket).span
+    with-env ({RCLONE_CONFIG: '/dev/null'} | merge $remote) {
+        wait-until $'S3 bucket ($bucket)' --timeout ($env.S3_BOOTSTRAP_TIMEOUT | into duration) --interval ($env.S3_BOOTSTRAP_RETRY | into duration) {||
+            try {
+                if $create {
+                    rclone mkdir $'store:($bucket)'
                 }
-            }
 
-            log warning $'S3 bucket is not ready; retrying: bucket=($bucket) retry=($retry) error=($err.msg)'
-            sleep $retry
+                verify-bucket $bucket
+
+                if ($origins | is-not-empty) and not $gcs {
+                    put-cors $bucket ...$origins
+                    log info $'S3 CORS rule is set: bucket=($bucket) origins=($origins | str join ",")'
+                }
+
+                true
+            } catch {|err|
+                log warning $'S3 bucket is not ready: bucket=($bucket) error=($err.msg)'
+                false
+            }
         }
     }
 }

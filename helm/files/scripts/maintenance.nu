@@ -1,11 +1,13 @@
 use std/log
 use ./lib.nu [
+    app-schema
     execute-sql
-    quote-pg
+    quote-literal
     schema-list
     sync-config
 ]
 
+# Clean the stale objects of every schema in the configuration.
 def main []: nothing -> nothing {
     log info 'Database maintenance started'
 
@@ -13,8 +15,8 @@ def main []: nothing -> nothing {
 
     for schema in ($config | schema-list) {
         execute-sql postgres/call_cleanup_stale_objects.sql {
-            schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
-            schema_argument: (quote-pg $schema literal)
+            schema: (app-schema)
+            schema_argument: (quote-literal $schema)
         } --vars {config: ($config | to json)}
     }
 

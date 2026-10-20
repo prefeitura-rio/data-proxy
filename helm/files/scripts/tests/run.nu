@@ -1,84 +1,40 @@
 use std/assert
-use ./lib.nu *
 
-# Run every pure Helm helper test without Kubernetes, PostgreSQL, or network access.
+# Run every test of the test files in its own Nushell, without Kubernetes, PostgreSQL, or network access.
 def main [
+    ...files: path # The test files to run. The default is lib.nu next to this script.
     --filter: string = '' # Run only test names that match this regex.
 ]: nothing -> nothing {
-    let tests = [
-        {
-            name: schema-list-returns-all-schemas
-            run: { test schema-list-returns-all-schemas }
-        }
-        {
-            name: schema-list-filters-schema
-            run: { test schema-list-filters-schema }
-        }
-        {
-            name: quote-pg-escapes-identifier-and-literal
-            run: { test quote-pg-escapes-identifier-and-literal }
-        }
-        {
-            name: sync-config-fails-without-a-database
-            run: { test sync-config-fails-without-a-database }
-        }
-        {
-            name: postgres-ready-args-include-dsn
-            run: { test postgres-ready-args-include-dsn }
-        }
-        {
-            name: wait-for-postgres-passes-args-to-probe
-            run: { test wait-for-postgres-passes-args-to-probe }
-        }
-        {
-            name: rbac-context-reads-the-rules-and-hashes-the-text
-            run: { test rbac-context-reads-the-rules-and-hashes-the-text }
-        }
-        {
-            name: rbac-context-fails-without-the-file
-            run: { test rbac-context-fails-without-the-file }
-        }
-        {
-            name: orphans-need-both-marker-tables-and-no-console-row
-            run: { test orphans-need-both-marker-tables-and-no-console-row }
-        }
-        {
-            name: orphans-never-include-system-schemas
-            run: { test orphans-never-include-system-schemas }
-        }
-        {
-            name: data-prefix-names-the-schema-folder
-            run: { test data-prefix-names-the-schema-folder }
-        }
-        {
-            name: data-prefix-refuses-a-name-that-leaves-the-folder
-            run: { test data-prefix-refuses-a-name-that-leaves-the-folder }
-        }
-    ]
+    let files = if ($files | is-empty) { [($env.FILE_PWD | path join lib.nu)] } else { $files | path expand }
 
-    mut passed = 0
-    mut failed = 0
+    let tests = $files
+    | each {|file|
+        nu --no-config-file --commands $'use ($file) *; scope commands | where name starts-with "test " | get name | to json --raw'
+        | from json
+        | where $it =~ $filter
+        | each {|name| {file: $file, name: $name} }
+    }
+    | flatten
+    | sort-by name
 
-    for test in $tests {
-        if ($filter | is-not-empty) and ($test.name !~ $filter) {
-            continue
-        }
+    let failures = $tests
+    | each {|test|
+        let result = nu --no-config-file --commands $'use ($test.file) *; ($test.name)' | complete
+        let passed = $result.exit_code == 0
 
-        let result = try {
-            do $test.run
-            {passed: true, error: ''}
-        } catch {|err| {passed: false, error: $err.msg} }
+        print $'(if $passed { "✓" } else { "✗" }) ($test.name | str replace "test " "")'
 
-        if $result.passed {
-            $passed += 1
-            print $'✓ ($test.name)'
-        } else {
-            $failed += 1
-            print $'✗ ($test.name)'
-            print ($result.error | str trim)
+        {
+            name: $test.name
+            error: (if $passed { '' } else { $result.stderr | str trim })
         }
     }
+    | where error != ''
 
-    assert equal $failed 0
-    print $'Results: ($passed) passed'
+    for failure in $failures {
+        print $failure.error
+    }
+
+    assert equal ($failures | length) 0
+    print $'Results: (($tests | length) - ($failures | length)) passed'
 }

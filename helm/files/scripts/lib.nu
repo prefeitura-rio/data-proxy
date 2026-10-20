@@ -1,11 +1,49 @@
 use std/log
 
-# Log an error and raise a labeled error in one call.
-export def fail [message: string, context: record<command: string, span: record>]: nothing -> error {
-    log error $'Command failed: command=($context.command) error=($message)'
-    error make {
-        msg: $message
-        label: {text: $context.command, span: $context.span}
+# Log an error and stop the script with the same message.
+export def fail [message: string]: nothing -> error {
+    log error $message
+    error make --unspanned {msg: $message}
+}
+
+# Return the output of a finished command, or fail with its error text.
+@example "A command that failed" {
+    {stdout: '', stderr: 'boom', exit_code: 1} | check-result 'the command'
+}
+export def check-result [what: string]: record<stdout: string, stderr: string, exit_code: int> -> string {
+    let result = $in
+
+    if $result.exit_code != 0 {
+        fail $'($what) failed: ($result.stderr | str trim)'
+    }
+
+    $result.stdout | str trim
+}
+
+# Run a check until it returns true, and fail when the timeout ends first.
+@example "A check that is true at once" {
+    wait-until 'the answer' {|| true }
+}
+export def wait-until [
+    description: string
+    check: closure
+    --timeout: duration = 10min
+    --interval: duration = 2sec
+]: nothing -> nothing {
+    let deadline = (date now) + $timeout
+
+    loop {
+        if (do $check) {
+            log info $'Done waiting for ($description)'
+            return
+        }
+
+        if (date now) >= $deadline {
+            fail $'Timed out after ($timeout) waiting for ($description)'
+        }
+
+        log info $'Waiting for ($description)'
+        sleep $interval
     }
 }
 
@@ -20,10 +58,7 @@ export def fail [message: string, context: record<command: string, span: record>
 export def dump-table [dsn: string, config: record<schema: string, table: string, file: string>]: nothing -> nothing {
     try {
         pg_dump $dsn --format=custom --no-owner --no-acl --enable-row-security --table=$"($config.schema).($config.table)" --data-only --file=($config.file)
-    } catch {|err| fail $"pg_dump failed for ($config.schema).($config.table): ($err.msg)" {
-        command: dump-table
-        span: (metadata $config.table).span
-    } }
+    } catch {|err| fail $"pg_dump failed for ($config.schema).($config.table): ($err.msg)" }
 }
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
@@ -52,16 +87,7 @@ export def schema-list []: record -> list<string> {
     query-sql 'SELECT name FROM console.schemas' | lines
 }
 export def query-sql [query: string]: nothing -> string {
-    let result = psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -F ',' -c $query | complete
-
-    if $result.exit_code != 0 {
-        fail $'SQL query failed: ($result.stderr | str trim)' {
-            command: query-sql
-            span: (metadata $query).span
-        }
-    }
-
-    $result.stdout | str trim
+    psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -F ',' -c $query | complete | check-result 'SQL query'
 }
 
 # Read the synchronization configuration from the console tables or fail with contextual logging.
@@ -81,26 +107,12 @@ export def wait-for-relation [
     --timeout: duration = 10min
     --interval: duration = 2sec
 ]: nothing -> nothing {
-    let deadline = (date now) + $timeout
-    let query = 'SELECT to_regclass(' + (quote-pg $relation literal) + ') IS NOT NULL'
+    let query = 'SELECT to_regclass(' + (quote-literal $relation) + ') IS NOT NULL'
 
-    loop {
+    wait-until $'relation ($relation)' --timeout $timeout --interval $interval {||
         let result = psql --no-psqlrc --quiet -t -A -c $query | complete
 
-        if $result.exit_code == 0 and ($result.stdout | str trim) == 't' {
-            log info $'Relation ($relation) exists'
-            return
-        }
-
-        if (date now) >= $deadline {
-            fail $'Timed out after ($timeout) waiting for relation ($relation)' {
-                command: wait-for-relation
-                span: (metadata $timeout).span
-            }
-        }
-
-        log info $'Relation ($relation) is missing'
-        sleep $interval
+        $result.exit_code == 0 and ($result.stdout | str trim) == 't'
     }
 }
 
@@ -137,66 +149,54 @@ export def wait-for-postgres [
     --interval: duration = 2sec
     --probe: closure
 ]: nothing -> nothing {
-    let deadline = (date now) + $timeout
     let args = postgres-ready-args $dsn
 
-    loop {
-        let result = if $probe == null {
-            psql ...$args | complete
-        } else {
-            do $probe $args
-        }
+    wait-until PostgreSQL --timeout $timeout --interval $interval {||
+        let result = if $probe == null { psql ...$args | complete } else { do $probe $args }
 
-        if $result.exit_code == 0 {
-            log info 'PostgreSQL readiness completed'
-            return
-        }
-
-        if (date now) >= $deadline {
-            fail $'Timed out after ($timeout) waiting for PostgreSQL: ($result.stderr | str trim)' {
-                command: wait-for-postgres
-                span: (metadata $timeout).span
-            }
-        }
-
-        log info 'PostgreSQL readiness is waiting'
-        sleep $interval
+        $result.exit_code == 0
     }
 }
 
-# Quote a PostgreSQL value for use in rendered SQL.
-@example "Quote an identifier and a Portuguese literal" {
-    [
-        (quote-pg 'test"schema' identifier)
-        (quote-pg "d'água" literal)
-    ]
-} --result "[\"test\"\"schema\", 'd''água']"
-export def quote-pg [value: string, kind: string]: nothing -> string {
-    match $kind {
-        identifier => {
-            let escaped = $value | str replace --all '"' '""'
-            $'"($escaped)"'
-        }
-        literal => {
-            let escaped = $value | str replace --all "'" "''"
-            $"'($escaped)'"
-        }
-        _ => {
-            fail $'Unknown PostgreSQL quote kind: ($kind)' {
-                command: quote-pg
-                span: (metadata $kind).span
-            }
-        }
-    }
+# Quote a PostgreSQL identifier for use in rendered SQL.
+@example "Quote an identifier that holds a double quote" {
+    quote-identifier 'test"schema'
+} --result '"test""schema"'
+export def quote-identifier [value: string]: nothing -> string {
+    let escaped = $value | str replace --all '"' '""'
+
+    $'"($escaped)"'
+}
+
+# Quote a PostgreSQL literal for use in rendered SQL.
+@example "Quote a Portuguese literal" {
+    quote-literal "d'água"
+} --result "'d''água'"
+export def quote-literal [value: string]: nothing -> string {
+    let escaped = $value | str replace --all "'" "''"
+
+    $"'($escaped)'"
+}
+
+# Return the quoted identifier of the application schema, from DBOS_APP_SCHEMA or the default.
+export def app-schema []: nothing -> string {
+    quote-identifier ($env.DBOS_APP_SCHEMA? | default data_proxy)
+}
+
+# Return the names of the roles as quoted literals, separated by commas, for a SQL list.
+@example "Quote two role names" {
+    [dp_api dp_admin] | role-literals
+} --result "'dp_api', 'dp_admin'"
+export def role-literals []: list<string> -> string {
+    each {|name| quote-literal $name } | str join ', '
 }
 
 # Read the rbac.toml file and return what the create_rbac template needs: the parsed rules and the hash of the file text.
-export def rbac-context [file: path]: nothing -> record {
+export def rbac-context [file?: path]: nothing -> record {
+    let file = $file | default ($env.RBAC_FILE? | default ./rbac.toml)
+
     if not ($file | path exists) {
-        fail $'The rules file does not exist: ($file)' {
-            command: rbac-context
-            span: (metadata $file).span
-        }
+        fail $'The rules file does not exist: ($file)'
     }
 
     let text = open --raw $file | decode utf-8
@@ -216,16 +216,15 @@ export def rbac-context [file: path]: nothing -> record {
     }
 }
 export def render-sql [name: path, context: record]: nothing -> string {
-    let context_file = '/tmp/context.json'
+    let context_file = mktemp --tmpdir --suffix .json
+    let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates
 
-    try {
-        $context | to json | save --force $context_file
-        let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates
-        minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file
-    } catch {|err| fail $'Failed to render SQL template ($name): ($err.msg)' {
-        command: render-sql
-        span: (metadata $name).span
-    } }
+    $context | to json | save --force $context_file
+
+    let result = minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file | complete
+    rm --force $context_file
+
+    $result | check-result $'rendering of the SQL template ($name)'
 }
 
 # Render a Jinja SQL template and execute it against PostgreSQL.
@@ -244,20 +243,17 @@ export def execute-sql [
     --single-transaction # Run the whole template in one transaction, so that an error changes nothing
 ]: nothing -> nothing {
     let query = render-sql $template $context
-    let dsn = $dsn | default $env.PG_DATABASE_URL
+    let dsn = $dsn | default {|| $env.PG_DATABASE_URL }
     let var_args = if ($vars | is-empty) { [] } else {
         $vars | items {|k v| [--set $"($k)=($v)"] } | flatten
     }
     let transaction_args = if $single_transaction { [--single-transaction] } else { [] }
 
-    let result = $query | psql $dsn --no-psqlrc --quiet -v ON_ERROR_STOP=1 ...$transaction_args ...$var_args | complete
-
-    if $result.exit_code != 0 {
-        fail $'SQL execution failed for ($template): ($result.stderr | str trim)' {
-            command: execute-sql
-            span: (metadata $template).span
-        }
-    }
+    $query
+    | psql $dsn --no-psqlrc --quiet -v ON_ERROR_STOP=1 ...$transaction_args ...$var_args
+    | complete
+    | check-result $'SQL execution of ($template)'
+    | ignore
 }
 
 # Return the configured object-store endpoint with an explicit scheme.
@@ -273,8 +269,11 @@ export def endpoint-url []: nothing -> string {
     $'($scheme)://($endpoint)'
 }
 
-# Return the rclone remote environment for the configured object store.
-export def rclone-env []: nothing -> record {
+# Return the rclone remote environment for the configured object store. The credentials default to AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+export def rclone-env [
+    --access-key: string
+    --secret-key: string
+]: nothing -> record {
     let endpoint = endpoint-url
 
     if ($endpoint | str contains 'googleapis.com') {
@@ -289,8 +288,8 @@ export def rclone-env []: nothing -> record {
         RCLONE_CONFIG_STORE_TYPE: 's3'
         RCLONE_CONFIG_STORE_PROVIDER: 'Other'
         RCLONE_CONFIG_STORE_ENDPOINT: $endpoint
-        RCLONE_CONFIG_STORE_ACCESS_KEY_ID: $env.AWS_ACCESS_KEY_ID
-        RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: $env.AWS_SECRET_ACCESS_KEY
+        RCLONE_CONFIG_STORE_ACCESS_KEY_ID: ($access_key | default {|| $env.AWS_ACCESS_KEY_ID })
+        RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: ($secret_key | default {|| $env.AWS_SECRET_ACCESS_KEY })
         RCLONE_CONFIG_STORE_FORCE_PATH_STYLE: 'true'
         RCLONE_CONFIG_STORE_REGION: 'auto'
         RCLONE_CONFIG_STORE_NO_CHECK_BUCKET: 'true'
@@ -309,10 +308,9 @@ const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public]
     | orphans [test]
 } --result [e2e_new]
 export def orphans [configured: list<string>]: table<schema: string, table: string> -> list<string> {
-    $in
-    | group-by schema
+    group-by schema
     | transpose schema rows
-    | where {|group| ($MARKER_TABLES | all {|marker| $marker in ($group.rows | get table) }) }
+    | where ($MARKER_TABLES | all {|marker| $marker in ($it.rows | get table) })
     | get schema
     | where $it not-in $SYSTEM_SCHEMAS and $it not-in $configured
     | sort
@@ -323,11 +321,8 @@ export def orphans [configured: list<string>]: table<schema: string, table: stri
     data-prefix bucket ducklake e2e_new
 } --result 'store:bucket/ducklake/e2e_new'
 export def data-prefix [bucket: string, catalog_path: string, schema: string]: nothing -> string {
-    if ($schema | is-empty) or ($schema | str contains '/') or ($schema | str contains '..') {
-        fail $'Refusing to purge the data of the schema "($schema)"' {
-            command: data-prefix
-            span: (metadata $schema).span
-        }
+    if ($schema | is-empty) or $schema =~ '/|\.\.' {
+        fail $'Refusing to purge the data of the schema "($schema)"'
     }
 
     $'store:($bucket)/($catalog_path)/($schema)'

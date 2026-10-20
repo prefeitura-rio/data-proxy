@@ -1,5 +1,5 @@
 use std/log
-use ./lib.nu [dump-table execute-sql fail quote-pg rclone-env schema-list sync-config]
+use ./lib.nu [app-schema dump-table execute-sql fail rclone-env schema-list sync-config]
 
 # Dump one PostgreSQL table and upload it to the configured object store.
 def backup-table [context: record<schema: string, remote_prefix: string>, dump: record<table: string, file: string>]: nothing -> nothing {
@@ -14,10 +14,7 @@ def backup-table [context: record<schema: string, remote_prefix: string>, dump: 
     try {
         rclone copyto $dump.file $'($context.remote_prefix)/($dump.table).dump'
     } catch {|err|
-        fail $'S3 upload failed for ($context.schema).($dump.table): ($err.msg)' {
-            command: rclone
-            span: (metadata $dump.table).span
-        }
+        fail $'S3 upload failed for ($context.schema).($dump.table): ($err.msg)'
     }
 }
 
@@ -39,11 +36,7 @@ def backup-schema [schema: string]: nothing -> nothing {
     }
 
     log info $'Access log retention pruning started: schema=($schema)'
-    let procedure_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
-
-    execute-sql postgres/call_prune_access_log.sql {
-        schema: $procedure_schema
-    } --vars {
+    execute-sql postgres/call_prune_access_log.sql {schema: (app-schema)} --vars {
         retention: $"($env.ACCESS_LOG_RETENTION_DAYS) days"
         schema: $schema
     }
@@ -57,29 +50,25 @@ def backup-schema [schema: string]: nothing -> nothing {
     } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
 }
 
+# Back up one schema. Return null when it worked and the name of the schema when it failed.
+def backup-or-name [schema: string]: nothing -> oneof<string, nothing> {
+    try {
+        backup-schema $schema
+        null
+    } catch {|err|
+        log error $'Backup failed: schema=($schema) error=($err.msg)'
+        $schema
+    }
+}
+
 # Back up every schema in the configuration, and fail at the end if any schema failed.
 def main []: nothing -> nothing {
     load-env {RCLONE_CONFIG: '/dev/null'}
     load-env (rclone-env)
 
-    let failed = sync-config
-    | schema-list
-    | where {
-        let schema = $in
-
-        try {
-            backup-schema $schema
-            false
-        } catch {|err|
-            log error $'Backup failed: schema=($schema) error=($err.msg)'
-            true
-        }
-    }
+    let failed = sync-config | schema-list | each {|schema| backup-or-name $schema } | compact
 
     if ($failed | is-not-empty) {
-        fail $'Backup failed for: ($failed | str join ", ")' {
-            command: main
-            span: (metadata $failed).span
-        }
+        fail $'Backup failed for: ($failed | str join ", ")'
     }
 }

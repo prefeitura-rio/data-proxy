@@ -1,11 +1,14 @@
 use std/log
 use ./lib.nu [
+    app-schema
+    check-result
     data-prefix
     execute-sql
     fail
     orphans
     query-sql
-    quote-pg
+    quote-identifier
+    quote-literal
     rclone-env
     sync-config
     wait-for-postgres
@@ -22,16 +25,11 @@ def bootstrap-config []: nothing -> nothing {
     }
 
     # The job has no token, so it acts as the role that holds import_config, for one transaction.
-    let result = "BEGIN; SELECT set_config('app.claim_role', 'dp_admin', true); SELECT rbac.load(); SELECT console.import_config(:'document'::jsonb); COMMIT;"
+    "BEGIN; SELECT set_config('app.claim_role', 'dp_admin', true); SELECT rbac.load(); SELECT console.import_config(:'document'::jsonb); COMMIT;"
     | psql $env.PG_DATABASE_URL --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"document=($bootstrap | to json --raw)"
     | complete
-
-    if $result.exit_code != 0 {
-        fail $'Failed to import the values file: ($result.stderr | str trim)' {
-            command: bootstrap-config
-            span: (metadata $result).span
-        }
-    }
+    | check-result 'Import of the values file'
+    | ignore
 
     log info 'The values file filled the empty configuration'
 }
@@ -49,20 +47,26 @@ def install-console-functions []: nothing -> nothing {
     log info 'Console functions setup completed'
 }
 
-# Create the schema and its access policy for every configured schema
+# Create the schema, its access policy and the role that reads its metadata, for every given schema
 def create-schemas [...names: string]: nothing -> nothing {
-    let app_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
+    let app_schema = app-schema
 
     for schema in $names {
-        let scope = 'rbac.mine(' + (quote-pg $schema literal) + ')'
+        let scope = 'rbac.mine(' + (quote-literal $schema) + ')'
 
-        execute-sql postgres/create_schema.sql {schema: (quote-pg $schema identifier)}
+        execute-sql postgres/create_schema.sql {schema: (quote-identifier $schema)}
 
         execute-sql postgres/setup_access_policy.sql {
-            schema: (quote-pg $schema identifier)
-            user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
+            schema: (quote-identifier $schema)
+            user_role: (quote-identifier $env.AUTH_USER_ROLE)
             app_schema: $app_schema
             scope: $scope
+        }
+
+        execute-sql postgres/create_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
+            name: (quote-literal $schema)
+            signer: (quote-literal $env.AUTH_SIGNER_ROLE)
+            writer: (quote-literal $env.PGUSER)
         }
     }
 
@@ -79,20 +83,20 @@ def unprovisioned-schemas []: nothing -> list<string> {
 
 # The schemas that PostgREST serves now, as the serving login records them
 def current-db-schemas []: nothing -> string {
-    let query = "SELECT coalesce(max(substring(s FROM '^pgrst\\.db_schemas=(.*)$')), '') FROM pg_db_role_setting AS r INNER JOIN pg_roles AS o ON r.setrole = o.oid CROSS JOIN LATERAL unnest(r.setconfig) AS s WHERE o.rolname = " + (quote-pg $env.AUTH_SERVING_ROLE literal)
+    let query = "SELECT coalesce(max(substring(s FROM '^pgrst\\.db_schemas=(.*)$')), '') FROM pg_db_role_setting AS r INNER JOIN pg_roles AS o ON r.setrole = o.oid CROSS JOIN LATERAL unnest(r.setconfig) AS s WHERE o.rolname = " + (quote-literal $env.AUTH_SERVING_ROLE)
     query-sql $query
 }
 
 # Record the schemas that PostgREST serves, or forget the record when the list is empty
 def record-db-schemas [schemas: string]: nothing -> nothing {
-    let serving = quote-pg $env.AUTH_SERVING_ROLE identifier
+    let serving = quote-identifier $env.AUTH_SERVING_ROLE
 
     if ($schemas | is-empty) {
         execute-sql postgres/reset_db_schemas.sql {serving_role: $serving}
     } else {
         execute-sql postgres/set_db_schemas.sql {
             serving_role: $serving
-            db_schemas: (quote-pg $schemas literal)
+            db_schemas: (quote-literal $schemas)
         }
     }
 }
@@ -112,14 +116,11 @@ def publish-schemas [...names: string]: nothing -> nothing {
 
     try {
         execute-sql postgres/call_reload_postgrest.sql {
-            schema: (quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier)
+            schema: (app-schema)
         }
     } catch {|err|
         record-db-schemas $current
-        fail $'Failed to reload PostgREST: ($err.msg)' {
-            command: publish-schemas
-            span: (metadata $desired).span
-        }
+        fail $'Failed to reload PostgREST: ($err.msg)'
     }
 
     log info $'PostgREST serves: ($desired)'
@@ -140,28 +141,29 @@ def purge-data [schema: string]: nothing -> nothing {
     }
 
     if $result.exit_code not-in [0 3] {
-        fail $'Failed to purge ($prefix): ($result.stderr | str trim)' {
-            command: purge-data
-            span: (metadata $result).span
-        }
+        fail $'Failed to purge ($prefix): ($result.stderr | str trim)'
     }
 }
 
-# Remove every schema that the console dropped: the files, the catalog, and then the schema of the database.
+# Remove every schema that the console dropped: the files, the catalog, its reader role, and then the schema of the database.
 # The schema of the database goes last, because the next run finds an unfinished removal through it.
 def remove-schemas [...names: string]: nothing -> nothing {
-    let app_schema = quote-pg ($env.DBOS_APP_SCHEMA? | default data_proxy) identifier
+    let app_schema = app-schema
 
     for schema in $names {
         purge-data $schema
 
         execute-sql postgres/drop_catalog_schema.sql --dsn $env.DUCKLAKE_ADMIN_URL {
-            schema: (quote-pg $schema identifier)
+            schema: (quote-identifier $schema)
+        }
+
+        execute-sql postgres/drop_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
+            name: (quote-literal $schema)
         }
 
         execute-sql postgres/remove_schema.sql {
-            schema: (quote-pg $schema identifier)
-            name: (quote-pg $schema literal)
+            schema: (quote-identifier $schema)
+            name: (quote-literal $schema)
             app_schema: $app_schema
         }
 
@@ -188,6 +190,7 @@ def reconcile [all: bool]: nothing -> nothing {
     }
 }
 
+# Make the database match the console configuration: create, serve and remove schemas.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 
@@ -202,12 +205,12 @@ def main []: nothing -> nothing {
 
     # Every token switches to one role. It needs the rights on the console schema once the migrations created them.
     execute-sql postgres/grant_console_usage.sql {
-        user_role: (quote-pg $env.AUTH_USER_ROLE identifier)
+        user_role: (quote-identifier $env.AUTH_USER_ROLE)
     }
 
     # The anonymous role reads the one document that the proxy needs, and nothing else of the console schema.
     execute-sql postgres/grant_proxy_config.sql {
-        anonymous_role: (quote-pg $env.AUTH_ANON_ROLE identifier)
+        anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
     }
 
     reconcile ($env.PROVISION_ALL? == 'true')

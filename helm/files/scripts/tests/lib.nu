@@ -1,5 +1,20 @@
 use std/assert
-use ../lib.nu [data-prefix orphans postgres-ready-args quote-pg rbac-context schema-list sync-config wait-for-postgres]
+use ../lib.nu [
+    app-schema
+    check-result
+    data-prefix
+    orphans
+    postgres-ready-args
+    quote-identifier
+    quote-literal
+    rclone-env
+    rbac-context
+    role-literals
+    schema-list
+    sync-config
+    wait-for-postgres
+    wait-until
+]
 
 # Verify that schema-list passes all configured schemas through without a filter.
 export def "test schema-list-returns-all-schemas" []: nothing -> nothing {
@@ -31,10 +46,54 @@ export def "test schema-list-filters-schema" []: nothing -> nothing {
     }
 }
 
-# Verify that quote-pg escapes PostgreSQL identifiers and literals.
-export def "test quote-pg-escapes-identifier-and-literal" []: nothing -> nothing {
-    assert equal (quote-pg 'a"b' identifier) '"a""b"'
-    assert equal (quote-pg "a'b" literal) "'a''b'"
+# Verify that quote-identifier doubles the double quotes of a name.
+export def "test quote-identifier-escapes-double-quotes" []: nothing -> nothing {
+    assert equal (quote-identifier 'a"b') '"a""b"'
+}
+
+# Verify that quote-literal doubles the single quotes of a value.
+export def "test quote-literal-escapes-single-quotes" []: nothing -> nothing {
+    assert equal (quote-literal "a'b") "'a''b'"
+}
+
+# Verify that app-schema reads DBOS_APP_SCHEMA and falls back to data_proxy.
+export def "test app-schema-reads-the-setting-or-the-default" []: nothing -> nothing {
+    with-env {DBOS_APP_SCHEMA: 'sales"x'} {
+        assert equal (app-schema) '"sales""x"'
+    }
+
+    hide-env --ignore-errors DBOS_APP_SCHEMA
+    assert equal (app-schema) '"data_proxy"'
+}
+
+# Verify that role-literals quotes each name and separates them with commas.
+export def "test role-literals-quotes-each-name" []: nothing -> nothing {
+    assert equal ([dp_api "o'brien"] | role-literals) "'dp_api', 'o''brien'"
+    assert equal ([] | role-literals) ''
+}
+
+# Verify that check-result returns the trimmed output on success and fails with the error text otherwise.
+export def "test check-result-returns-output-or-fails" []: nothing -> nothing {
+    assert equal ({stdout: " ok\n", stderr: '', exit_code: 0} | check-result 'the command') 'ok'
+
+    let failed = try {
+        {stdout: '', stderr: 'boom', exit_code: 1} | check-result 'the command'
+        ''
+    } catch {|err| $err.msg }
+
+    assert equal $failed 'the command failed: boom'
+}
+
+# Verify that wait-until returns when the check is true and fails when the timeout ends first.
+export def "test wait-until-returns-or-times-out" []: nothing -> nothing {
+    wait-until 'a true check' {|| true } --timeout 1sec
+
+    let failed = try {
+        wait-until 'a false check' {|| false } --timeout 0sec --interval 1ms
+        ''
+    } catch {|err| $err.msg }
+
+    assert ($failed | str starts-with 'Timed out after')
 }
 
 # Verify that sync-config reports a database that it cannot read.
@@ -124,7 +183,12 @@ export def "test orphans-need-both-marker-tables-and-no-console-row" []: nothing
 # Verify that the schemas of the system are never orphans, even with both marker tables.
 export def "test orphans-never-include-system-schemas" []: nothing -> nothing {
     let relations = [console data_proxy dbos rbac public]
-    | each {|schema| [{schema: $schema, table: access_policy} {schema: $schema, table: access_log}] }
+    | each {|schema|
+        [
+            {schema: $schema, table: access_policy}
+            {schema: $schema, table: access_log}
+        ]
+    }
     | flatten
 
     assert equal ($relations | orphans []) []
@@ -144,5 +208,17 @@ export def "test data-prefix-refuses-a-name-that-leaves-the-folder" []: nothing 
         } catch {|err| $err.msg }
 
         assert equal $failed $'Refusing to purge the data of the schema "($schema)"'
+    }
+}
+
+# Verify that rclone-env needs no AWS variable when the caller passes both keys, as the bucket job does.
+export def "test rclone-env-uses-the-given-keys-without-aws-variables" []: nothing -> nothing {
+    hide-env --ignore-errors AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+
+    with-env {S3_ENDPOINT: 'seaweed:8333'} {
+        let remote = rclone-env --access-key key --secret-key secret
+
+        assert equal $remote.RCLONE_CONFIG_STORE_ACCESS_KEY_ID key
+        assert equal $remote.RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY secret
     }
 }
