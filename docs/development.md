@@ -14,7 +14,7 @@ cluster up
 
 The local synchronization configuration uses BigQuery. `cluster up` stops before Helmfile when application-default credentials are absent.
 
-The k3d configuration mounts `k3d/.tmp/catalogs` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume, which holds the DuckDB secrets.
+The k3d configuration mounts `k3d/.tmp/duckdb` into every local node and Helmfile applies the local-only `k3d-rwx` static RWX storage manifest for the shared `data-proxy-duckdb` volume, which holds the DuckDB secrets.
 
 The script writes the k3d credentials to the ignored `k3d/.kubeconfig`. It doesn't change the user kubeconfig.
 
@@ -39,29 +39,31 @@ Run the unit tests that need no services with `devenv --profile default tasks ru
 Run the two integration suites with separate commands. Each command starts only the processes that its suite needs, runs the tests, and stops the processes:
 
 ```bash
-devenv --profile sync test    # PostgreSQL, Silo, then pytest
+devenv --profile sync test    # PostgreSQL, SeaweedFS, then pytest
 devenv --profile proxy test   # OpenResty with a mock PostgREST, Valkey, then the Hurl files
 ```
 
 The `sync` profile starts these processes:
 
 - PostgreSQL, built from `Containerfile.postgres` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
-- Silo for S3.
+- SeaweedFS for S3.
 
 The `sync` suite tests the sync code and the SQL templates. A unit test checks one function, class, method or template with every input and edge case. `sync/tests/unit/test_templates.py` holds all the template tests, as one class for each engine. The PostgreSQL class runs the templates on the real test server, the DuckDB class runs them on a real DuckDB with a file catalog, and the BigQuery class uses a mock. The `rbac` tests there include Hypothesis tests that generate random rules files and compare the answers of `rbac.can()` and `rbac.mine()` with a reference that the test computes in Python. A property runs 300 examples by default, and `RBAC_EXAMPLES` sets another number. Every template that has some logic has a test that renders it, runs it, and checks the result, and a test fails when a template has neither a test nor a reason on its list of skipped templates. An integration test (`sync/tests/integration/`) checks a behavior that crosses units, such as the catalog, the state and S3. The suite doesn't test the API schemas, the database roles, or what a token may do: the end-to-end suite tests those ([Console](console.md#how-roles-and-access-are-tested) lists what it covers).
 
 The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs no container engine.
 
-The two suites use different ports, so they can run at the same time:
+Every process asks devenv for its ports with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy, so two runs never clash and they can run at the same time. The setup passes the real number to the tests in environment variables.
 
-| Suite | Ports |
+| Suite | Base ports |
 | --- | --- |
-| `sync` | 15432 (PostgreSQL), 19000 and 19001 (Silo) |
-| `proxy` | 18080 (proxy), 18081 and 18082 (mock PostgREST), 18090 to 18092 (proxy with Redis down), 18379 (Valkey) |
+| `sync` | 15432 (PostgreSQL), 18333, 19333, 18082 and 18888 (SeaweedFS) |
+| `proxy` | 18080, 18090, 18100 and 18110 (the four proxies), 18081, 18091, 18101 and 18111 (mock PostgREST), 18083, 18093, 18103 and 18113 (admin), 18399 (the Redis that the Redis-down proxy uses), 18379 (Valkey) |
+
+The four proxies start one after another, because each `lx exec` rewrites `proxy/lux.lock` and two at the same time can read a half-written file.
 
 The `default` profile runs both suites in one `devenv test`.
 
-If the database setup in `scripts/db.nu` fails, the run stops within five minutes with the message `database bootstrap failed`. A marker file, `database-ready` in `.devenv/test-state`, tells the test script that the setup finished, and the script waits for it before it starts pytest.
+devenv runs the task `sync:setup` (`scripts/db.nu`) before it starts pytest. If the task fails, the run stops and shows the error of the task.
 
 The PostgreSQL image installs the `ducklake` and `postgres` extensions while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
 
@@ -69,7 +71,7 @@ On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. 
 
 PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state`.
 
-To add another test container, declare `processes.<name> = mkPodmanProcess { ... }` with the function from `nix/lib.nix`, as `nix/processes/postgres.nix` does. Set `build.file` to build a Containerfile or `image` to run an existing image. Use `before` for shell lines that run before the container starts, and `ready` for a command that runs in the container. For a one-shot step after the container is ready, declare a normal process `after-<name>` with `after = [ "devenv:processes:<name>" ]`. The function uses the host Podman, or the engine in `CONTAINER_RUNTIME`.
+To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/processes/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
 
 ## Python project
 
@@ -79,18 +81,72 @@ To add another test container, declare `processes.<name> = mkPodmanProcess { ...
 
 ## Console
 
-`console/` is the admin web app. It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. The `console` profile provides Node, pnpm, TypeScript and `goose`:
+`console/ui/` is the admin web app. It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. The `console` profile provides Node, pnpm, TypeScript and `goose`:
 
 ```bash
 devenv --profile console shell
-cd console
+cd console/ui
 pnpm install      # install the dependencies
 pnpm dev          # start the dev server
 pnpm check        # type-check the Svelte and TypeScript code
-pnpm build        # build the Node server in console/build
+pnpm lint         # ESLint and the format check
+pnpm format       # format the code with Prettier
+pnpm build        # build the Node server in console/ui/build
 ```
 
-`devenv --profile console tasks run lint:console` installs the locked dependencies and runs `pnpm check`. The `checks` profile includes it in `lint:all`.
+`devenv --profile console tasks run lint:console` installs the locked dependencies and runs `pnpm check` and `pnpm lint` in `console/ui/`. `lint:nb` runs `pnpm lint` in `console/notebooks/`. The root `.prettierignore` lists what Prettier skips, for the scripts and for the hook. `pnpm lint` runs ESLint (the Svelte plugin and typescript-eslint) and `prettier --check`. prek runs the hooks `prettier` and `eslint` at commit time, with the binaries of `console/ui/node_modules`, so run `pnpm install` in `console/ui/` once. The [style guide](../STYLEGUIDE.md#typescript-and-svelte) lists the rules. The `checks` profile includes it in `lint:all`.
+
+Run the tests of the console with `devenv --profile console test`. It works like `devenv --profile sync test`: devenv starts the services, the setup runs, and the tests run against them. The profile in `console/devenv.nix` imports one module for each part of the setup. Every part that runs as a process is in `nix/processes/`: the database, the object store, the identity provider and PostgREST, and also the console. `nix/services/` holds the parts that devenv ships as a service module, which is only Redis today. A module is a `.nix` file. `nix/utils.nix` holds the helpers that the modules share, and `nix/data.nix` holds the addresses and the test credentials:
+
+| Process | Role |
+|---|---|
+| `processes/postgres` | the `pg_duckdb` image in Podman, as in the sync tests (the task `postgres:image` builds it, the process `postgres` runs it) |
+| `processes/seaweedfs` | the object store, with its IAM API and a read-only reader key |
+| `processes/keycloak` | the official Keycloak image in Podman, with the realm `dev` of `k3d/values/keycloak.yaml` and the redirect addresses of the local console |
+| `processes/postgrest` | PostgREST, with the keys that the task `postgrest:jwks` downloads from the local Keycloak |
+| `processes/console` (setup) | the tasks `console:setup:*`, one for each step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, `provision.nu` (the scripts of the chart Jobs), and `sync/tests/seeds/console.py`, which fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
+| `processes/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
+| `processes/console` (notebooks) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin |
+
+`enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/` and then the browser test of `console/notebooks/`. The Vitest tests and the unit tests of the notebooks are the tasks `test:console` and `test:nb`, which `test:all` runs. Set `EXPECTED_ROWS_FILE` and the other variables in the `env` of the console profile. The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend. The scenario that renews the links waits for the real timer of four minutes, so a full run takes about ten minutes. The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set, so `@playwright/test` and the Python `playwright` package stay at the versions of that package.
+
+To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. Keycloak imports the realm at every start, which takes about 40 seconds.
+
+## Notebooks
+
+`console/notebooks/` builds the static site of the query tab ([Notebooks](notebooks.md)). `devenv --profile console tasks run test:nb` runs its unit tests. The browser test of the built site runs in `devenv --profile console test`. To run it alone:
+
+```bash
+cd console/notebooks
+nu build.nu notebooks/check.py dist-check --mode run
+pnpm exec playwright test
+```
+
+The test serves the built site under the real policy, with a stub of the console on another origin, and checks that nothing is blocked, that the delete files apply (2700 of 3000 rows), that a message from another origin is ignored, and that Python gets at most 100000 rows.
+
+## Nix setup
+
+The root `devenv.yaml` composes the environment with `imports:`. Each component folder (`proxy/`, `sync/`, `console/` and `helm/`) has a `devenv.nix` with the profile of that component. The profile names the modules of a test setup and the tests, and nothing else. `proxy/devenv.yaml` holds the inputs that only the proxy uses, and devenv merges them. `nix/profiles/` holds the profiles that belong to no component: `base`, `checks`, `default` and `python`. Run a setup from the root with `devenv --profile <name>`.
+
+The `nix/` folder holds the shared parts. A module in `nix/processes/` or `nix/services/` holds one component. `nix/utils.nix` and `nix/data.nix` hold the helpers and the shared values. The `base` profile gives every module the argument `utils`. Every script is Nushell, except a bash script that's a list of plain commands, such as `enterTest`.
+
+A long-running service is a process, and a command that runs and exits is a task. `utils.mkProcess` and `utils.mkTask` build the command and the variables, and the caller adds the other options with `//`. A task runs `before` a process that needs it, or `after` a process that it needs. A setup with several steps is a chain of tasks (`utils.mkTaskChain`), so a failure names the step:
+
+```nix
+processes.gateway = utils.whenTesting (
+  utils.mkProcess {
+    command = [ "caddy" "reverse-proxy" "--from" ":13001" "--to" "127.0.0.1:13004" ];
+  }
+  // {
+    ready = utils.probes.http utils.urls.console;
+    after = [ (utils.processTask "console") ];
+  }
+);
+```
+
+devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. A process is always declared, and it starts only in `devenv test`. A module reads the port of another process with `utils.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
+
+`execIfModified` skips a build task when its input files didn't change, so delete `console/ui/build` or `console/notebooks/site` to force a build. A file that Nix builds from values is a `files` entry: `sync/.env.test`, the SeaweedFS identities, the SQL that creates the databases and the four nginx files. They live in the state folder of the run (`utils.fileEntry`), except `sync/.env.test`, which devenv links into the project and git ignores. A file whose input is YAML, such as the Keycloak realm and the sync settings, stays a derivation, because Nix can't read YAML. A task that reads a generated file runs `after` `devenv:files`, because `devenv tasks run` doesn't create files by itself.
 
 ## Database migrations
 
@@ -310,8 +366,11 @@ The Helm suite tests pure helpers from `helm/files/scripts/lib.nu` without Kuber
 PostgreSQL, rclone, or network access:
 
 ```bash
-nu helm/files/scripts/tests/run.nu
+devenv --profile checks tasks run test:nu
 ```
+
+The task also runs the tests of `scripts/tests/lib.nu`, which cover the pure helpers of the local scripts.
+`run.nu` takes the test files as arguments and finds every `test ...` command in them.
 
 The Helm Job scripts and local cluster scripts remain separate codebases. Do
 not import modules across them.

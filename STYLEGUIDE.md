@@ -51,14 +51,14 @@ A unit test checks one unit exhaustively: a function, a class, a method, or an S
 | Level       | Location                                               | Runs against                                                                                              | Covers                                                                                           |
 | ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
-| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), Silo, Valkey, PostgREST | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage |
+| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage |
 | Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST                                                     | Proxy request path: routing, retry, cache, filter pushdown                                       |
 | E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`             | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                 | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                           |
 
 - A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
-- In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file holds only its steps, and `load.js` holds only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. Write a new type as a `@typedef` in `k6/lib/types.js`, and give every function parameter a `@param` type. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON, and a declaration in `k6/types/` for the Kubernetes calls. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
+- In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file holds only its steps, and `load.js` holds only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
 - Test modules hold only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
 - Merge small test files that cover one module.
 - Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants across generated inputs.
@@ -227,6 +227,13 @@ Nushell scripts run the Helm jobs and the local commands.
 - Add input/output types and `@example` blocks to exported reusable helpers.
 - `helm/files/scripts/` and `scripts/` are separate codebases. Don't import modules across them.
 - Run `nu --ide-check` on changed files.
+- Stop a script with `fail $message` from `lib.nu`. It logs the message and raises an error without a label. Don't build a `{command, span}` record.
+- Let an error of a builtin or an external command stop the script. Use `try` only when you add context that the error lacks, such as the table that failed, or when you clean up.
+- Use `check-result` for the record that `complete` returns, and `wait-until` for a wait. Don't write the exit-code check or the polling loop again.
+- Write an expression that three places repeat as a helper (`app-schema`, `role-literals`), and keep one table for a list that several commands read (`IMAGES` in `scripts/lib.nu`).
+- `default $env.NAME` reads the variable even when the value isn't null, and it fails when the variable isn't set. Use `default {|| $env.NAME }` for a variable that a caller may not need.
+- Use one command for one kind of quote (`quote-identifier`, `quote-literal`). Don't pass the kind as a string.
+- `devenv --profile checks tasks run lint:nu` runs `nu-lint`, and it fails when `nu-lint` reports a finding, because `nu-lint` exits with 0 in that case. Each rule that `.nu-lint.toml` turns off has a comment with the reason.
 
 ### Logs
 
@@ -234,10 +241,10 @@ Nushell scripts run the Helm jobs and the local commands.
 
 ### Tests
 
-Run the Helm Nushell suite after Helm script changes:
+Run the Nushell tests after a script change. `run.nu` finds every `test ...` command of the test files, so a new test needs no registration:
 
 ```bash
-nu helm/files/scripts/tests/run.nu
+devenv --profile checks tasks run test:nu
 ```
 
 ```nu
@@ -247,6 +254,80 @@ for schema in $schemas {
     execute-sql postgres/create_schema.sql {schema: (quote-pg $schema identifier)}
 }
 ```
+
+## Nix
+
+Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` holds the profiles that belong to no component. `nix/processes/` holds one process for each file, and `nix/utils.nix` holds the helpers.
+
+### Code
+
+- Format with `nixfmt`. Don't align by hand.
+- Put every web address in quotes. Don't use a bare address.
+- Don't use `rec`. Bind the shared names in a `let` block and use `inherit`.
+- Don't use `with` at the top of a file or around code. Use `with pkgs; [ ... ]` only for a list of packages.
+- Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input.
+- Name the arguments of a function in a set pattern, and give an optional argument a default with `?`.
+- Use `inherit (set) name;` instead of `name = set.name;`.
+- Write a path that Nix must track as a path literal, such as `../../Containerfile.postgres`. A string path breaks in the sandbox.
+- Keep a value in one place. A login and an address live in `nix/data.nix`, and a port lives on its process.
+- Use bash only for a script that's a list of plain commands, with no loop, condition or variable, such as `scripts.seed` or an `enterTest`. Write anything else in Nushell, or run a plain command. See the [Nushell](#nushell) section.
+- Prefer a plain command with `env` and `cwd` to a generated wrapper script.
+- Put a profile in the folder of the component that it tests, and list the folder under `imports:` in `devenv.yaml`. Put an input that only one component uses in the `devenv.yaml` of that folder.
+- Declare the port of a process with `ports.<name>.allocate = <base>` and read it with `utils.port "<process>" "<name>"`. Don't write a port number in another place.
+- Give every task and every script a `description`.
+- Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
+- Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
+- Name a task `<component>:<step>`, such as `console:setup:seed`. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
+- A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
+- Use `execIfModified` only on a build task, and list its input files.
+- Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. Give a task that reads a generated file `after = [ "devenv:files" ]`.
+
+### Layout
+
+Read each file from the top to the bottom. The main part of the file is the last block.
+
+1. The argument set, then `utils`.
+2. Constants that the file uses more than once.
+3. Helper functions, each after the values it uses.
+4. Parts that the main block uses more than once, such as a `mkTaskChain` result.
+5. The main block: `profiles.<name>`, `processes`, or `services`.
+
+- Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
+- In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
+- In `tasks`, put the aggregate tasks (`lint:all`, `test:all`) last.
+- Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
+
+### Documentation
+
+- Write the documentation of a function as a doc comment, as [RFC 145](https://github.com/NixOS/rfcs/blob/master/rfcs/0145-doc-strings.md) defines. Start it with `/**` and put it directly before the function.
+- Document functions only. Don't document a variable, a set of values, or a module.
+- Write the content as CommonMark.
+- Start with one sentence that says what the function returns. Then use these headings when they apply: `# Inputs` with one term for each argument, and `# Type` with a type signature in a code block.
+- Write the type in the form `name :: { key :: Type, optional :: Type? } -> Result`.
+- Don't add a comment that explains how code works. Name the value or split the function instead.
+- Document each function of a set where it's defined, as `probes` does.
+
+````nix
+/**
+  A `ready` check that passes when the command exits with 0.
+
+  # Inputs
+
+  `command`
+  : The command, as a list of arguments.
+
+  # Type
+
+  ```
+  command :: [String] -> AttrSet
+  ```
+*/
+command = command: mkProbe (lib.escapeShellArgs command);
+````
+
+### Tests
+
+Run `devenv --profile <name> test` for each profile that a change touches. The first run can fail when a hook formats a file. Run it again.
 
 ## SQL
 
@@ -280,6 +361,59 @@ mapping = {"table": Identifier(schema, name), "limit": Literal(n)}
 ### Tests
 
 - Put test SQL in `sync/tests/templates/<backend>/`, with the same headers and names as `src/` templates. Inline only one short statement, such as `SELECT set_config(...)` or `SET ROLE`.
+
+## TypeScript and Svelte
+
+The console is a SvelteKit app in `console/ui/`. The sources are the [Svelte best practices](https://svelte.dev/docs/svelte/best-practices), the [typescript-eslint configurations](https://typescript-eslint.io/users/configs) and the [Google TypeScript guide](https://google.github.io/styleguide/tsguide.html). ESLint and `svelte-check` enforce the rules below, so a rule that a tool can't check is the exception.
+
+### Architecture
+
+- The browser never calls PostgREST. A `load` function or a form action in `console/ui/src/routes` calls it through `lib/server/postgrest.ts`, with the token of the session. Keep the token and every secret in `lib/server/`.
+- Keep the logic that needs a test in a module with no import of `$app` or `$env`, so that Vitest runs it. Pass the settings and `fetch` as arguments.
+- Map a status to a message in one place (`postgrest.ts` and `messages.ts`), so that a page never writes its own text for a refusal.
+
+### TypeScript
+
+- Use `strict` and `noUncheckedIndexedAccess`. Lint with the typescript-eslint `strictTypeChecked` and `stylisticTypeChecked` configurations.
+- Don't use `any`, the non-null `!`, or a type assertion. Only `as const` is allowed.
+- Type a value where it enters the program, with a valibot schema: a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field or a message from a frame. Derive the type with `v.InferOutput`. `lib/types.ts` holds the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message.
+- Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`.
+- Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions.
+- Return a `Result` for a failure that the caller can handle, such as an answer of PostgREST. Throw for an input that the program can't run without.
+- Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. A lint disable comment gives the reason.
+
+### Svelte
+
+- Use runes only. Use `$state` for a value that changes what the page shows, and a plain variable for the rest.
+- Compute a value with `$derived`. Don't copy a prop or `data` into `$state` in an `$effect`: derive from the prop, and keep only the changed part in `$state`.
+- Use `$effect` only for a system outside Svelte, such as a timer or a listener, and return its cleanup. Use `{@attach}` to sync a DOM element, as `Modal.svelte` does.
+- Treat props as values that change. Derive a value that depends on a prop.
+- Use a keyed `{#each}` with a key that's unique to the item. Never use the index.
+- Write events as attributes (`onclick`). Don't use `on:`.
+- Pass every internal `href` through `resolve()` from `$app/paths`. For a query string, use a `GET` form.
+- Write each repeated piece of markup once, as a component in `lib/components/`. A component that belongs to one page stays in the folder of that route. A `.svelte` file has at most 80 lines of script and 150 lines of template.
+- Use `use:enhance` on every form, and give every input a visible label (`Field` and `Check`). An input in a table row uses `aria-label`, because its column gives the visible name.
+- Style with Tailwind and DaisyUI classes. Import icons by name from `@lucide/svelte`.
+
+### Tooling
+
+```bash
+devenv --profile console tasks run lint:console
+```
+
+`lint:console` runs `svelte-check`, ESLint (`eslint-plugin-svelte` recommended and typescript-eslint) and `prettier --check`, for `console/ui/` and `console/notebooks/`. Run `pnpm format` in the folder to format. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` once.
+
+### Tests
+
+- Test a unit with Vitest, in a `*.test.ts` file next to the module. Use a table of cases with a name for each case.
+- Write a browser test as a `playwright-bdd` scenario that a user could read. A step does one thing.
+- Hand state from one step to the next through the typed `world` fixture in `console/ui/tests/fixtures.ts`. Don't attach it to `page`.
+
+## Notebooks
+
+- A notebook never holds a token, a cookie or a secret. It gets its data from the grant that the console sends, and it reads only the links in that grant.
+- Give every variable of a marimo cell a name that no other cell uses. A duplicate stops the whole notebook.
+- Check the origin and the source of every message in `console/notebooks/src/bridge.ts`, and send a message to one exact origin, never to `*`.
 
 ## Documentation
 
