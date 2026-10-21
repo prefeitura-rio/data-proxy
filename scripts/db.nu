@@ -1,4 +1,4 @@
-use lib.nu [check-result]
+use lib.nu [check-result parse-toml read-text remove-path write-text]
 
 const DUCKDB_SETTINGS = [
     'duckdb.unsafe_allow_execution_inside_functions'
@@ -9,9 +9,9 @@ const DUCKDB_SETTINGS = [
 def render [template: path, context: record = {}]: nothing -> string {
     let file = mktemp --tmpdir --suffix .json
 
-    $context | to json | save --force $file
+    $context | to json | write-text $file
     let result = minijinja-cli --strict --autoescape none --format json $template $file | complete
-    rm --force $file
+    remove-path $file
 
     $result | check-result $'Rendering of ($template)'
 }
@@ -46,9 +46,9 @@ def main []: nothing -> nothing {
     render ($templates | path join fixture.sql) | run-sql test_template $port
 
     # The policies and the functions of every data schema ask rbac.can(), so the data tests need the rules too.
-    let rules_text = open --raw ($env.DEVENV_ROOT | path join helm files config rbac.toml) | decode utf-8
+    let rules_text = read-text ($env.DEVENV_ROOT | path join helm files config rbac.toml)
     let rbac_sql = render ($env.DEVENV_ROOT | path join helm files templates postgres create_rbac.sql) {
-        rules: ($rules_text | from toml)
+        rules: ($rules_text | parse-toml)
         anonymous_role: '"anon"'
         source_hash: ($rules_text | hash sha256)
     }

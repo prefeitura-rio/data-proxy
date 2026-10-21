@@ -127,9 +127,9 @@ def publish-schemas [...names: string]: nothing -> nothing {
 }
 
 # The schemas of the database that the console no longer lists, which a removal pass drops.
-def orphan-schemas [configured: list<string>]: nothing -> list<string> {
+def orphan-schemas [...configured: string]: nothing -> list<string> {
     let query = "SELECT schemaname, tablename FROM pg_tables WHERE tablename IN ('access_policy', 'access_log')"
-    query-sql $query | lines | split column ',' schema table | orphans $configured
+    query-sql $query | lines | split column ',' schema table | orphans ...$configured
 }
 
 # Delete the data files of one schema. A folder that does not exist is already gone.
@@ -171,25 +171,6 @@ def remove-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# Make the database match the console: create what is configured, serve it, and remove what is not.
-# After a pass it reads both lists again and repeats up to three times, so that an edit made
-# during the run is not lost.
-def reconcile [all: bool]: nothing -> nothing {
-    for pass in 0..2 {
-        let names = (sync-config).schemas | columns
-        let pending = if $all and $pass == 0 { $names } else { unprovisioned-schemas }
-        let removed = orphan-schemas $names
-
-        if $pass > 0 and ($pending | is-empty) and ($removed | is-empty) {
-            break
-        }
-
-        create-schemas ...$pending
-        publish-schemas ...$names
-        remove-schemas ...$removed
-    }
-}
-
 # Make the database match the console configuration: create, serve and remove schemas.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
@@ -213,7 +194,20 @@ def main []: nothing -> nothing {
         anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
     }
 
-    reconcile ($env.PROVISION_ALL? == 'true')
+    # Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
+    for pass in 0..2 {
+        let names = (sync-config).schemas | columns
+        let pending = if $env.PROVISION_ALL? == 'true' and $pass == 0 { $names } else { unprovisioned-schemas }
+        let removed = orphan-schemas ...$names
+
+        if $pass > 0 and ($pending | is-empty) and ($removed | is-empty) {
+            break
+        }
+
+        create-schemas ...$pending
+        publish-schemas ...$names
+        remove-schemas ...$removed
+    }
 
     log info 'Schema provisioning completed'
 }

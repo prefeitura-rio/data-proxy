@@ -33,7 +33,8 @@ def main [
     let gcs = endpoint-url | str contains 'googleapis.com'
     let remote = rclone-env --access-key $env.S3_ACCESS_KEY --secret-key $env.S3_SECRET_KEY
     let remote = if $gcs { $remote } else { $remote | upsert RCLONE_CONFIG_STORE_NO_CHECK_BUCKET 'false' }
-    let origins = $env.S3_CORS_ORIGINS? | default '' | split row ',' | where $it != ''
+    let configured_origins = $env.S3_CORS_ORIGINS?
+    let origins = if $configured_origins == null { [] } else { $configured_origins | split row ',' | where $it != '' }
 
     log info $'S3 bootstrap started: bucket=($bucket) endpoint=(endpoint-url) mode=(if $create { "create" } else { "wait" })'
 

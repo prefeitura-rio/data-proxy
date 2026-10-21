@@ -7,10 +7,13 @@ use lib.nu [
     git-root
     local-image-tag
     local-kubeconfig
+    make-dir
     poll
+    remove-path
+    wait-for
     wrap-helmfile
     wrap-kubectl
-    wait-for
+    write-text
 ]
 use k6.nu *
 use upgrade.nu *
@@ -42,8 +45,13 @@ def "main up" [
         k3d registry create --default-network $NETWORK --port 5001 $REGISTRY
     }
 
-    cd $repo
-    mkdir k3d/.tmp/duckdb
+    try {
+        cd $repo
+    } catch {|err|
+        fail $'Cannot enter ($repo): ($err.msg)'
+    }
+
+    make-dir k3d/.tmp/duckdb
     chmod 777 k3d/.tmp/duckdb
 
     let clusters = k3d cluster list --no-headers | lines
@@ -62,7 +70,7 @@ def "main up" [
         k3d ...$args
     }
 
-    k3d kubeconfig get $CLUSTER_NAME | save --force $kubecfg
+    k3d kubeconfig get $CLUSTER_NAME | write-text $kubecfg
 
     log info 'Waiting for the K3s metrics-server...'
     if not (poll {|| ((wrap-kubectl $kubecfg get --raw /apis/metrics.k8s.io/v1beta1/nodes | complete).exit_code == 0) } {
@@ -105,6 +113,6 @@ def "main down" []: nothing -> nothing {
     let kubecfg = local-kubeconfig
     let duckdb = git-root | path join k3d .tmp duckdb
 
-    rm --force $kubecfg
+    remove-path $kubecfg
     podman unshare rm --recursive --force $duckdb
 }

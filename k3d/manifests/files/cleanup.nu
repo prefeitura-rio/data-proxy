@@ -6,12 +6,24 @@ const NEW_SCHEMA = 'e2e_new'
 const DB_PASSWORD = 'test-pg-pass'
 const JSONPATH = 'jsonpath={.items[0].metadata.name}'
 
+# Log an error and stop the script with the same message. The label points at the message in the caller.
+def fail [message: string]: nothing -> error {
+    log error $message
+
+    error make {
+        msg: $message
+        labels: [
+            {text: 'raised here', span: (metadata $message).span}
+        ]
+    }
+}
+
 # Return the first pod name for a label selector, or fail with a description when there is none.
 def first-pod [selector: string, description: string]: nothing -> string {
     let name = kubectl -n $NAMESPACE get pod -l $selector -o $JSONPATH | str trim
 
     if ($name | is-empty) {
-        error make --unspanned {msg: $'($description) is unavailable during test cleanup'}
+        fail $'($description) is unavailable during test cleanup'
     }
 
     $name
@@ -21,9 +33,19 @@ def first-pod [selector: string, description: string]: nothing -> string {
 def cleanup-sql []: nothing -> string {
     let context = mktemp --tmpdir --suffix .json
 
-    {schema: $TEST_SCHEMA, new_schema: $NEW_SCHEMA} | to json | save --force $context
+    try {
+        {schema: $TEST_SCHEMA, new_schema: $NEW_SCHEMA} | to json | save --force $context
+    } catch {|err|
+        fail $'Cannot write ($context): ($err.msg)'
+    }
+
     let sql = minijinja-cli --strict --autoescape none --format json /scripts/cleanup.sql $context
-    rm --force $context
+
+    try {
+        rm --force $context
+    } catch {|err|
+        fail $'Cannot remove ($context): ($err.msg)'
+    }
 
     $sql
 }
@@ -42,7 +64,11 @@ def main []: nothing -> nothing {
     kubectl -n $NAMESPACE exec (first-pod app.kubernetes.io/name=valkey 'Valkey pod') -- redis-cli -n 1 FLUSHDB
 
     let query = cleanup-sql
-    let clusters = kubectl -n $NAMESPACE get clusters -o json | from json | get items | get metadata.name
+    let clusters = try {
+        kubectl -n $NAMESPACE get clusters -o json | from json | get items | get metadata.name
+    } catch {|err|
+        fail $'Cannot list the clusters: ($err.msg)'
+    }
 
     for cluster in $clusters {
         let primary = first-pod $'cnpg.io/cluster=($cluster),cnpg.io/instanceRole=primary' $'CNPG primary of ($cluster)'

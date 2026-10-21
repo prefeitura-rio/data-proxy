@@ -10,6 +10,7 @@ use lib.nu [
     local-kubeconfig
     NAMESPACE
     poll
+    read-data
     wrap-helmfile
     wait-for
     wrap-kubectl
@@ -115,13 +116,13 @@ def stream-log [kubecfg: path, pod: string]: nothing -> bool {
 
 # Return the TestRun manifest from its file, with a new name, the image of this run, and the settings in its environment.
 def testrun-manifest [yaml_path: path, testrun: string, image_tag: string, settings: record]: nothing -> string {
-    let env_names = open $yaml_path | get spec.runner.env | get name
+    let env_names = read-data $yaml_path | get spec.runner.env | get name
     let added = $settings
     | columns
     | where $it not-in $env_names
     | each {|name| {name: $name, value: ($settings | get --optional $name | into string)} }
 
-    open $yaml_path
+    read-data $yaml_path
     | update metadata.name $testrun
     | update spec.runner.image $'($IMAGE_REGISTRY)/k6:($image_tag)'
     | update spec.runner.env {|run|
@@ -210,24 +211,30 @@ const SHARE_SETTINGS = {
     fallback: K6_FALLBACK_SHARE
 }
 
+# Parse one traffic share in the form bottleneck=0.01 into the name of its setting and its value.
+def parse-share [share: string]: nothing -> record<setting: string, value: float> {
+    let parts = $share | split row '='
+
+    if ($parts | length) != 2 {
+        fail $'Invalid share: ($share). Use bottleneck=0.01 or fallback=0.01.'
+    }
+
+    let setting = $SHARE_SETTINGS | get --optional ($parts | first)
+
+    if $setting == null {
+        fail $'Unknown share: ($parts | first). Use bottleneck or fallback.'
+    }
+
+    let value = try { $parts | last | into float } catch { fail $'Invalid share value: ($share)' }
+
+    {setting: $setting, value: $value}
+}
+
 # Parse traffic shares in the form bottleneck=0.01 fallback=0.01.
 def parse-shares [...shares: string]: nothing -> record {
-    $shares | reduce --fold {} {|share, result|
-        let parts = $share | split row '='
+    let parsed = $shares | each {|share| parse-share $share }
 
-        if ($parts | length) != 2 {
-            fail $'Invalid share: ($share). Use bottleneck=0.01 or fallback=0.01.'
-        }
-
-        let setting = $SHARE_SETTINGS | get --optional ($parts | first)
-        if $setting == null {
-            fail $'Unknown share: ($parts | first). Use bottleneck or fallback.'
-        }
-
-        let value = try { $parts | last | into float } catch { fail $'Invalid share value: ($share)' }
-
-        $result | upsert $setting $value
-    }
+    $parsed | reduce --fold {} {|share, result| $result | upsert $share.setting $share.value }
 }
 
 # Run one k6 profile.

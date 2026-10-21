@@ -9,11 +9,13 @@ use ../lib.nu [
     quote-literal
     rclone-env
     rbac-context
+    remove-path
     role-literals
     schema-list
     sync-config
     wait-for-postgres
     wait-until
+    write-text
 ]
 
 # Verify that schema-list passes all configured schemas through without a filter.
@@ -146,13 +148,13 @@ export def "test wait-for-postgres-passes-args-to-probe" []: nothing -> nothing 
 # Verify that rbac-context parses the rules file and hashes the exact text of the file.
 export def "test rbac-context-reads-the-rules-and-hashes-the-text" []: nothing -> nothing {
     let file = mktemp --tmpdir
-    "abc = 1\n" | save --force $file
+    "abc = 1\n" | write-text $file
 
     let context = rbac-context $file
 
     assert equal $context.rules {abc: 1}
     assert equal $context.source_hash 78f1a1656aa4c78dbb60ac7b5d1883ac87bd79028f8e85561ba00cb0f339cf89
-    rm $file
+    remove-path $file
 }
 
 # Verify that rbac-context fails with a clear message when the rules file is missing.
@@ -176,8 +178,8 @@ export def "test orphans-need-both-marker-tables-and-no-console-row" []: nothing
         {schema: other, table: people}
     ]
 
-    assert equal ($relations | orphans [test]) [e2e_new]
-    assert equal ($relations | orphans [test e2e_new]) []
+    assert equal ($relations | orphans test) [e2e_new]
+    assert equal ($relations | orphans test e2e_new) []
 }
 
 # Verify that the schemas of the system are never orphans, even with both marker tables.

@@ -71,10 +71,100 @@ export const IMAGES = [
     }
 ]
 
-# Log an error and stop the script with the same message.
+# Log an error and stop the script with the same message. The label points at the message in the caller.
 export def fail [message: string]: nothing -> error {
     log error $message
-    error make --unspanned {msg: $message}
+
+    error make {
+        msg: $message
+        labels: [
+            {text: 'raised here', span: (metadata $message).span}
+        ]
+    }
+}
+
+# Return the text of a file, or fail with the reason.
+export def read-text [file: path]: nothing -> string {
+    try {
+        open --raw $file | decode utf-8
+    } catch {|err|
+        fail $'Cannot read ($file): ($err.msg)'
+    }
+}
+
+# Return the data of a YAML, TOML or JSON file, or fail with the reason.
+export def read-data [file: path]: nothing -> record {
+    try {
+        open $file
+    } catch {|err|
+        fail $'Cannot read ($file): ($err.msg)'
+    }
+}
+
+# Save the text from the pipeline to a file, or fail with the reason. It replaces the file unless the flag is set.
+export def write-text [file: path, --append]: string -> nothing {
+    let text = $in
+
+    try {
+        if $append {
+            $text | save --append $file
+        } else {
+            $text | save --force $file
+        }
+    } catch {|err|
+        fail $'Cannot write ($file): ($err.msg)'
+    }
+}
+
+# Parse JSON text from the pipeline, or fail with the reason.
+export def parse-json []: string -> oneof<record, list<any>> {
+    let text = $in
+
+    try {
+        $text | from json
+    } catch {|err|
+        fail $'Invalid JSON: ($err.msg)'
+    }
+}
+
+# Parse TOML text from the pipeline, or fail with the reason.
+export def parse-toml []: string -> record {
+    let text = $in
+
+    try {
+        $text | from toml
+    } catch {|err|
+        fail $'Invalid TOML: ($err.msg)'
+    }
+}
+
+# Parse YAML text from the pipeline, or fail with the reason.
+export def parse-yaml []: string -> oneof<record, list<any>> {
+    let text = $in
+
+    try {
+        $text | from yaml
+    } catch {|err|
+        fail $'Invalid YAML: ($err.msg)'
+    }
+}
+
+# Create a folder with its parents, or fail with the reason.
+export def make-dir [folder: path]: nothing -> nothing {
+    try {
+        mkdir $folder
+    } catch {|err|
+        fail $'Cannot create ($folder): ($err.msg)'
+    }
+}
+
+# Remove a file or a folder, or fail with the reason. A path that is already gone is not an error.
+export def remove-path [target: path]: nothing -> nothing {
+    try {
+        rm --recursive --force $target
+    } catch {|err|
+        fail $'Cannot remove ($target): ($err.msg)'
+    }
 }
 
 # Return the output of a finished command, or fail with its error text.
@@ -144,7 +234,7 @@ export def local-kubeconfig []: nothing -> string {
 export def local-image-tag []: nothing -> string {
     let tag_file = git-root | path join $IMAGE_TAG_FILE
 
-    open --raw $tag_file | str trim
+    read-text $tag_file | str trim
 }
 
 # Return local registry images for one immutable tag.
@@ -180,7 +270,7 @@ export def build-local-images []: nothing -> string {
     log info $"Building local images with tag ($tag)..."
     local-images $tag | build-images
 
-    $tag | save --force $tag_file
+    $tag | write-text $tag_file
 
     $tag
 }
@@ -211,7 +301,7 @@ export def apply-gcp-secret [
     | wrap-kubectl $kubecfg apply -f -
     | ignore
 
-    let secret = wrap-kubectl $kubecfg -n $NAMESPACE get secret gcp -o json | from json
+    let secret = wrap-kubectl $kubecfg -n $NAMESPACE get secret gcp -o json | parse-json
 
     if ($secret.data | get --optional 'key.json') == null {
         fail 'GCP secret was created without key.json'

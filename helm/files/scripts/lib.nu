@@ -1,9 +1,66 @@
 use std/log
 
-# Log an error and stop the script with the same message.
+# Log an error and stop the script with the same message. The label points at the message in the caller.
 export def fail [message: string]: nothing -> error {
     log error $message
-    error make --unspanned {msg: $message}
+
+    error make {
+        msg: $message
+        labels: [
+            {text: 'raised here', span: (metadata $message).span}
+        ]
+    }
+}
+
+# Return the text of a file, or fail with the reason.
+export def read-text [file: path]: nothing -> string {
+    try {
+        open --raw $file | decode utf-8
+    } catch {|err|
+        fail $'Cannot read ($file): ($err.msg)'
+    }
+}
+
+# Save the text from the pipeline to a file, or fail with the reason.
+export def write-text [file: path]: string -> nothing {
+    let text = $in
+
+    try {
+        $text | save --force $file
+    } catch {|err|
+        fail $'Cannot write ($file): ($err.msg)'
+    }
+}
+
+# Parse JSON text of an object from the pipeline, or fail with the reason.
+export def parse-json []: string -> record {
+    let text = $in
+
+    try {
+        $text | from json
+    } catch {|err|
+        fail $'Invalid JSON: ($err.msg)'
+    }
+}
+
+# Parse TOML text from the pipeline, or fail with the reason.
+export def parse-toml []: string -> record {
+    let text = $in
+
+    try {
+        $text | from toml
+    } catch {|err|
+        fail $'Invalid TOML: ($err.msg)'
+    }
+}
+
+# Remove a file or a folder, or fail with the reason. A path that is already gone is not an error.
+export def remove-path [target: path]: nothing -> nothing {
+    try {
+        rm --recursive --force $target
+    } catch {|err|
+        fail $'Cannot remove ($target): ($err.msg)'
+    }
 }
 
 # Return the output of a finished command, or fail with its error text.
@@ -95,7 +152,7 @@ export def query-sql [query: string]: nothing -> string {
     sync-config | get schemas | columns
 }
 export def sync-config []: nothing -> record {
-    query-sql 'SELECT console.sync_config()' | from json
+    query-sql 'SELECT console.sync_config()' | parse-json
 }
 
 # Wait until a relation exists in PostgreSQL or fail after the configured timeout.
@@ -199,10 +256,10 @@ export def rbac-context [file?: path]: nothing -> record {
         fail $'The rules file does not exist: ($file)'
     }
 
-    let text = open --raw $file | decode utf-8
+    let text = read-text $file
 
     {
-        rules: ($text | from toml)
+        rules: ($text | parse-toml)
         source_hash: ($text | hash sha256)
     }
 }
@@ -219,10 +276,10 @@ export def render-sql [name: path, context: record]: nothing -> string {
     let context_file = mktemp --tmpdir --suffix .json
     let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates
 
-    $context | to json | save --force $context_file
+    $context | to json | write-text $context_file
 
     let result = minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file | complete
-    rm --force $context_file
+    remove-path $context_file
 
     $result | check-result $'rendering of the SQL template ($name)'
 }
@@ -305,9 +362,9 @@ const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public]
 # Find the schemas that the console no longer lists: the schemas with both marker tables, except the system.
 @example "A schema with both tables and no row in the console" {
     [[schema table]; [e2e_new access_policy] [e2e_new access_log] [test access_policy] [test access_log]]
-    | orphans [test]
+    | orphans test
 } --result [e2e_new]
-export def orphans [configured: list<string>]: table<schema: string, table: string> -> list<string> {
+export def orphans [...configured: string]: table<schema: string, table: string> -> list<string> {
     group-by schema
     | transpose schema rows
     | where ($MARKER_TABLES | all {|marker| $marker in ($it.rows | get table) })

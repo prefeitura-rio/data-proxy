@@ -1,8 +1,8 @@
-use lib.nu [fail]
+use lib.nu [fail parse-json read-text write-text]
 
 # Return the digest of the rocks in the text of a lux.lock file, without the random order of the binaries.
 def lock-digest [text: string]: nothing -> string {
-    let lock = $text | from json
+    let lock = $text | parse-json
 
     [dependencies test_dependencies]
     | each {|section|
@@ -30,28 +30,36 @@ def lock-digest [text: string]: nothing -> string {
 
 # Install the locked rocks and fail when `lux.lock` changed, ignoring Lux's random `binaries` order. Restore the committed file after a clean install, so repeated runs leave no diff. Run it from the repository root.
 def main []: nothing -> nothing {
-    cd proxy
+    try {
+        cd proxy
+    } catch {|err|
+        fail $'Cannot enter proxy: ($err.msg)'
+    }
 
     let lockfile = 'lux.lock'
-    let original = open --raw $lockfile
+    let original = read-text $lockfile
     let before = lock-digest $original
 
     lx --no-prompt true --lua-version jit sync
 
-    if (lock-digest (open --raw $lockfile)) != $before {
+    if (lock-digest (read-text $lockfile)) != $before {
         fail $'Run lx add or lx update, then commit ($lockfile)'
     }
 
-    $original | save --force --raw $lockfile
+    $original | write-text $lockfile
 }
 
 # Run commands in the proxy folder, and restore `lux.lock` afterwards, because lux rewrites the file.
 def with-lock [action: closure]: nothing -> nothing {
-    cd proxy
+    try {
+        cd proxy
+    } catch {|err|
+        fail $'Cannot enter proxy: ($err.msg)'
+    }
 
-    let lock = open --raw lux.lock
+    let lock = read-text lux.lock
 
-    try { do $action } finally { $lock | save --force --raw lux.lock }
+    try { do $action } finally { $lock | write-text lux.lock }
 }
 
 # Lint the Lua code of the proxy with lux and the language server. Run it from the repository root.
@@ -69,7 +77,11 @@ def "main test" []: nothing -> nothing {
 
 # Format the Lua code of the proxy with lux. Run it from the repository root.
 def "main format" []: nothing -> nothing {
-    cd proxy
+    try {
+        cd proxy
+    } catch {|err|
+        fail $'Cannot enter proxy: ($err.msg)'
+    }
 
     lx --lua-version jit fmt
 }

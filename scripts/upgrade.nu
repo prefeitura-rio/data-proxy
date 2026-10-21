@@ -33,7 +33,12 @@ def e2e-subset [scenarios: string]: nothing -> nothing {
 
 # Check what an upgrade must keep: the migrations, the rules, the logins, and the serving workloads.
 def check-upgraded-release [kubecfg: path]: nothing -> nothing {
-    let migrations = ls (git-root | path join console migrations) | where name =~ '\.sql$' | length
+    let migrations = try {
+        ls (git-root | path join console migrations) | where name =~ '\.sql$' | length
+    } catch {|err|
+        fail $'Cannot list the migrations: ($err.msg)'
+    }
+
     let applied = query-primary $kubecfg 'SELECT max(version_id) FROM public.goose_db_version'
     let roles = query-primary $kubecfg 'SELECT count(*) FROM rbac.roles'
     let serving = query-primary $kubecfg "SELECT count(*) FROM pg_roles WHERE rolname = 'serving' AND rolcanlogin"
@@ -68,7 +73,12 @@ export def "main upgrade" [
 
     let kubecfg = local-kubeconfig
     let repo = git-root
-    cd $repo
+
+    try {
+        cd $repo
+    } catch {|err|
+        fail $'Cannot enter ($repo): ($err.msg)'
+    }
 
     log info $'Removing the current release ($RELEASE)...'
     wrap-helm $kubecfg uninstall $RELEASE --namespace $NAMESPACE --wait --ignore-not-found | ignore

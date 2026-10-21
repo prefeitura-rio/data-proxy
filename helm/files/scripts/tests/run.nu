@@ -1,3 +1,4 @@
+use ../lib.nu [fail]
 use std/assert
 
 # Run every test of the test files in its own Nushell, without Kubernetes, PostgreSQL, or network access.
@@ -9,8 +10,15 @@ def main [
 
     let tests = $files
     | each {|file|
-        nu --no-config-file --commands $'use ($file) *; scope commands | where name starts-with "test " | get name | to json --raw'
-        | from json
+        let output = nu --no-config-file --commands $'use ($file) *; scope commands | where name starts-with "test " | get name | to json --raw'
+
+        let names = try {
+            $output | from json
+        } catch {|err|
+            fail $'Cannot read the test names of ($file): ($err.msg)'
+        }
+
+        $names
         | where $it =~ $filter
         | each {|name| {file: $file, name: $name} }
     }

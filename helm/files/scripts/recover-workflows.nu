@@ -1,12 +1,12 @@
 use std/log
-use ./lib.nu [check-result execute-sql quote-literal]
+use ./lib.nu [check-result execute-sql parse-json quote-literal]
 
 # Return the UIDs of the sync pods that are running and not deleting, which are the live executors of DBOS.
 def live-executor-ids []: nothing -> list<string> {
     kubectl get pods --namespace $env.KUBERNETES_NAMESPACE --selector app.kubernetes.io/component=sync --output json
     | complete
     | check-result 'Listing of the sync pods'
-    | from json
+    | parse-json
     | get items
     | where $it.status.phase == Running
     | where $it.metadata.deletionTimestamp? == null

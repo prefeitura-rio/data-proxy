@@ -1,5 +1,5 @@
 use std/log
-use lib.nu [fail IMAGES latest-helm-tag]
+use lib.nu [fail IMAGES latest-helm-tag make-dir read-data read-text write-text]
 
 # CI platform configuration with GitHub Actions defaults.
 let ci = {
@@ -46,7 +46,7 @@ def write-output [name: string, value: string]: nothing -> nothing {
     if ($ci.output_file | is-empty) {
         print $line
     } else {
-        $line + (char nl) | save --append $ci.output_file
+        $line + (char nl) | write-text --append $ci.output_file
     }
 }
 
@@ -120,7 +120,7 @@ def 'main images resolve' []: nothing -> nothing {
 def 'main version' []: nothing -> nothing {
     log info 'Calculating the next Helm chart version...'
 
-    let current = open helm/Chart.yaml | get version
+    let current = read-data helm/Chart.yaml | get version
     let previous = previous-helm-tag
 
     let range = if $previous == null {
@@ -174,7 +174,7 @@ def 'main images pin' []: nothing -> nothing {
         }
     }
 
-    let values = open helm/values.yaml --raw
+    let values = read-text helm/values.yaml
     | lines
     | each {|line|
         $replacements | reduce --fold $line {|replacement value|
@@ -191,7 +191,7 @@ def 'main images pin' []: nothing -> nothing {
         fail $'Expected ($IMAGES | length) pinned image lines, found ($pinned)'
     }
 
-    $values | save --force helm/values.yaml
+    $values | write-text helm/values.yaml
     log info $'Pinned ($pinned) image references in helm/values.yaml.'
 }
 
@@ -199,9 +199,9 @@ def 'main images pin' []: nothing -> nothing {
 def 'main chart bump' []: nothing -> nothing {
     log info $'Bumping Helm chart version to ($env.NEXT)...'
 
-    open helm/Chart.yaml --raw
+    read-text helm/Chart.yaml
     | str replace --regex '(?m)^version: .*$' $'version: ($env.NEXT)'
-    | save --force helm/Chart.yaml
+    | write-text helm/Chart.yaml
 
     log info 'Helm chart version updated.'
 }
@@ -223,7 +223,7 @@ def 'main chart login' []: nothing -> nothing {
 # Package the Helm chart into the packaged directory.
 def 'main chart package' []: nothing -> nothing {
     log info 'Packaging Helm chart...'
-    mkdir packaged
+    make-dir packaged
     helm package helm/ --destination packaged
     log info 'Helm chart packaged.'
 }

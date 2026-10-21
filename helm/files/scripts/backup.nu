@@ -50,23 +50,24 @@ def backup-schema [schema: string]: nothing -> nothing {
     } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
 }
 
-# Back up one schema. Return null when it worked and the name of the schema when it failed.
-def backup-or-name [schema: string]: nothing -> oneof<string, nothing> {
-    try {
-        backup-schema $schema
-        null
-    } catch {|err|
-        log error $'Backup failed: schema=($schema) error=($err.msg)'
-        $schema
-    }
-}
-
 # Back up every schema in the configuration, and fail at the end if any schema failed.
 def main []: nothing -> nothing {
     load-env {RCLONE_CONFIG: '/dev/null'}
     load-env (rclone-env)
 
-    let failed = sync-config | schema-list | each {|schema| backup-or-name $schema } | compact
+    let failed = sync-config
+    | schema-list
+    | reduce --fold [] {|schema, failed|
+        try {
+            backup-schema $schema
+
+            $failed
+        } catch {|err|
+            log error $'Backup failed: schema=($schema) error=($err.msg)'
+
+            $failed | append $schema
+        }
+    }
 
     if ($failed | is-not-empty) {
         fail $'Backup failed for: ($failed | str join ", ")'
