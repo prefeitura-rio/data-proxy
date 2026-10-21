@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         "env_file": ".env",
     }
 
-    AUTH_USER_ROLE: str = "user"
+    AUTH_USER_ROLE: str = "dp_api"
     DBOS_APPLICATION_NAME: str = "data-proxy-sync"
     DBOS_APPLICATION_VERSION: str = "0.1.0"
     DBOS_APP_SCHEMA: str = "data_proxy"
