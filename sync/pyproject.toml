@@ -1,7 +1,7 @@
 [project]
 name = "sync"
 version = "1.0.0"
-description = "Sync service: copies BigQuery tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
+description = "Sync service: copies source tables into DuckLake with DBOS workflows and serves them through PostgreSQL views"
 
 requires-python = ">=3.14"
 dependencies = [
