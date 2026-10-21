@@ -191,3 +191,7 @@ Tailwind
 valibot
 Vitest
 esbuild
+PgDog
+OpenResty
+Hurl
+goose

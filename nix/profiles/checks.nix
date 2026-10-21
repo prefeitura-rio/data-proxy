@@ -28,6 +28,7 @@ in
       {
         packages = with pkgs; [
           actionlint
+          d2
           hadolint
           nu-lint
           nushell
@@ -105,6 +106,51 @@ in
               ".vale.ini"
               ".vale/styles"
             ];
+          };
+
+          "docs:diagrams" = utils.nuTask {
+            description = "Render the D2 diagrams to SVG.";
+            exec = ''
+              for file in (glob docs/diagrams/**/*.d2) {
+                  d2 --layout elk --dark-theme 200 $file ($file | str replace --regex '\.d2$' '.svg')
+              }
+            '';
+            execIfModified = [ "docs/diagrams/**/*.d2" ];
+          };
+          "docs:roles" = utils.nuTask {
+            description = "Write the role and permission table in the Roles page.";
+            exec = "nu scripts/docs.nu write";
+            execIfModified = [ "helm/files/config/rbac.toml" "scripts/docs.nu" ];
+          };
+          "lint:roles" = utils.nuTask {
+            description = "Check that the role and permission table in the Roles page is current.";
+            exec = "nu scripts/docs.nu check";
+            execIfModified = [ "helm/files/config/rbac.toml" "docs/security/roles.md" "scripts/docs.nu" ];
+          };
+          "docs:nav" = utils.nuTask {
+            description = "Write the navigation block of every docs page, in the order of docs/.nav.json.";
+            exec = "nu scripts/docs.nu nav write";
+            execIfModified = [ "docs" "scripts/docs.nu" ];
+          };
+          "lint:nav" = utils.nuTask {
+            description = "Check the navigation blocks and docs/.nav.json against the docs files.";
+            exec = "nu scripts/docs.nu nav check";
+            execIfModified = [ "docs" "scripts/docs.nu" ];
+          };
+          "lint:diagrams" = utils.nuTask {
+            description = "Check that the rendered diagrams are current.";
+            exec = ''
+              let temp = mktemp --directory
+              for file in (glob docs/diagrams/**/*.d2) {
+                  let svg = $file | str replace --regex '\.d2$' '.svg'
+                  let fresh = $temp | path join ($svg | path basename)
+                  d2 --layout elk --dark-theme 200 $file $fresh
+                  if (open --raw $fresh) != (open --raw $svg) {
+                      error make { msg: $"($svg) is out of date: run docs:diagrams" }
+                  }
+              }
+            '';
+            execIfModified = [ "docs/diagrams" ];
           };
 
           "lint:all" = {

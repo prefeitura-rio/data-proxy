@@ -24,3 +24,8 @@ swap:
   Nginx: nginx
   NGINX: nginx
   webdis: Webdis
+  at once: immediately
+  stale: outdated
+  holds: contains|stores|has
+  hold: contain|store|have
+  sits in front of: stands before

@@ -15,6 +15,7 @@
           ast-grep
           kubecolor
           kubectl
+          marksman
           k6
           k3d
           seaweedfs
