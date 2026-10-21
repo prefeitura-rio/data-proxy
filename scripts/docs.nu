@@ -1,0 +1,246 @@
+use lib.nu [fail read-data read-text write-text]
+
+const START = '<!-- roles-matrix:start -->'
+const END = '<!-- roles-matrix:end -->'
+const PAGE = 'docs/security/roles.md'
+const RULES = 'helm/files/config/rbac.toml'
+const DOCS = 'docs'
+const NAV = 'docs/.nav.json'
+const NAV_START = '<!-- nav:start -->'
+const NAV_END = '<!-- nav:end -->'
+
+# Return the permissions of a role, including the permissions of the roles that it inherits.
+export def closure [roles: list<record>, name: string]: nothing -> list<string> {
+    let role = $roles | where name == $name | first
+
+    let inherited = $role
+    | get --optional inherits
+    | default []
+    | each {|parent| closure $roles $parent }
+    | flatten
+
+    $role.permissions | append $inherited | uniq
+}
+
+# Return every permission name of the rules, as `<action>_<object>`, in file order.
+export def permission-names [rules: record]: nothing -> list<string> {
+    $rules.permissions
+    | items {|object, body|
+        $body | reject description | columns | each {|action| $'($action)_($object)' }
+    }
+    | flatten
+}
+
+# Render the Markdown table of the roles and their permissions, with one row for each permission.
+export def matrix [rules: record]: nothing -> string {
+    let granted = $rules.roles
+    | each {|role| {name: $role.name, permissions: (closure $rules.roles $role.name)} }
+
+    permission-names $rules
+    | each {|permission|
+        $granted
+        | reduce --fold {Permission: $'`($permission)`'} {|role, row|
+            $row | insert $'`($role.name)`' (if $permission in $role.permissions { 'yes' } else { '' })
+        }
+    }
+    | to md --pretty
+}
+
+# Replace the table between the markers of a page with the rendered table.
+export def splice [page: string, table: string]: nothing -> string {
+    let pattern = ['(?s)(' $START '\n).*?(' $END ')'] | str join
+
+    $page | str replace --regex $pattern $"${1}($table)\n${2}"
+}
+
+# Return the pages of the navigation tree in reading order, each with the page of its parent.
+# The parent of the home page is an empty string.
+export def flatten-nav [node: record, parent: string = '']: nothing -> list<record> {
+    let children = $node
+    | get --optional children
+    | default []
+    | each {|child| flatten-nav $child $node.page }
+    | flatten
+
+    [
+        {page: $node.page, parent: $parent}
+        ...$children
+    ]
+}
+
+# Return the first heading of a page.
+def title [root: path, page: path]: nothing -> string {
+    read-text ($root | path join $page)
+    | lines
+    | where $it =~ '^# '
+    | first
+    | str substring 2..
+}
+
+# Return the path components of a path, or an empty list for an empty path.
+def components [path: string]: nothing -> list<string> {
+    if $path == '' {
+        []
+    } else {
+        $path | path split
+    }
+}
+
+# Return the relative link from one page to another, both as paths below the root.
+def relative-link [from: string, to: string]: nothing -> string {
+    let base = components ($from | path dirname)
+
+    let target = components $to
+
+    let common = $base
+    | zip $target
+    | take while {|pair| ($pair | uniq | length) == 1 }
+    | length
+
+    $base | skip $common | each { '..' } | append ($target | skip $common) | str join '/'
+}
+
+# Return a Markdown link.
+def md-link [label: string, target: string]: nothing -> string {
+    ['[' $label '](' $target ')'] | str join
+}
+
+# Return the problems of the navigation: a file that the tree lacks, a page that has no file,
+# and a page that its parent doesn't link.
+export def problems [entries: list<record>, root: path]: nothing -> list<string> {
+    let pages = $entries | get page
+
+    let base = $root | path expand
+
+    let lost = glob ($base | path join '**' '*.md')
+    | each {|file| $file | path relative-to $base }
+    | where $it not-in $pages
+    | sort
+    | each {|file| $'not in the navigation: ($file)' }
+
+    let missing = $pages
+    | where not ($root | path join $it | path exists)
+    | each {|page| $'no such file: ($page)' }
+
+    let unlinked = $entries
+    | where parent != ''
+    | each {|entry|
+        let parent_file = $root | path join $entry.parent
+
+        let target = ['](' (relative-link $entry.parent $entry.page)] | str join
+
+        if ($parent_file | path exists) and (read-text $parent_file | str index-of $target) < 0 {
+            $"($entry.parent) doesn't link ($entry.page)"
+        }
+    }
+    | compact
+
+    [...$lost ...$missing ...$unlinked]
+}
+
+# Return the navigation line of a page: previous, next, index and home.
+export def footer [root: path, entries: list<record>, page: string]: nothing -> string {
+    let pages = $entries | get page
+
+    let position = $pages | enumerate | where item == $page | get index | first
+
+    let parent = $entries | where page == $page | get parent | first
+
+    [
+        (if $position > 0 {
+            let previous = $pages | get --optional ($position - 1)
+
+            md-link $'Previous: (title $root $previous)' (relative-link $page $previous)
+        })
+        (if $position < (($pages | length) - 1) {
+            let next = $pages | get --optional ($position + 1)
+
+            md-link $'Next: (title $root $next)' (relative-link $page $next)
+        })
+        (
+            if $parent not-in ['' index.md] { md-link Index (relative-link $page $parent) }
+        )
+        (if $page != index.md { md-link Home (relative-link $page index.md) })
+    ]
+    | compact
+    | str join ' | '
+}
+
+# Add the navigation block at the end of a page, or replace the block that the page has.
+export def render-page [text: string, links: string]: nothing -> string {
+    let block = $"($NAV_START)\n---\n\n($links)\n($NAV_END)"
+
+    let pattern = ['(?s)' $NAV_START '.*?' $NAV_END] | str join
+
+    if ($text | str index-of $NAV_START) >= 0 {
+        $text | str replace --regex $pattern $block
+    } else {
+        $"($text | str trim --right)\n\n($block)\n"
+    }
+}
+
+# Return the pages whose text differs from the text with a current navigation block.
+def stale-pages [entries: list<record>, root: path]: nothing -> list<string> {
+    $entries
+    | get page
+    | each {|page|
+        let text = read-text ($root | path join $page)
+
+        if (render-page $text (footer $root $entries $page)) != $text { $page }
+    }
+    | compact
+}
+
+# Return the page with the table of the rules.
+def render []: nothing -> string {
+    splice (read-text $PAGE) (matrix (read-data $RULES))
+}
+
+# Write the role and permission table in the Roles page.
+def "main write" []: nothing -> nothing {
+    render | write-text $PAGE
+}
+
+# Fail when the Roles page has an old role and permission table.
+def "main check" []: nothing -> nothing {
+    if (render) != (read-text $PAGE) {
+        fail $'($PAGE) has an old table: run `nu scripts/docs.nu write`'
+    }
+}
+
+# Return the navigation entries of the docs, and fail when the tree and the files disagree.
+def load-nav []: nothing -> list<record> {
+    let entries = flatten-nav (read-data $NAV)
+
+    let found = problems $entries $DOCS
+
+    if ($found | is-not-empty) {
+        fail $"The navigation in ($NAV) has problems:\n($found | str join "\n")"
+    }
+
+    $entries
+}
+
+# Write the navigation block of every page of the docs, in the order of docs/.nav.json.
+def "main nav write" []: nothing -> nothing {
+    let entries = load-nav
+
+    for page in (stale-pages $entries $DOCS) {
+        let file = $DOCS | path join $page
+
+        render-page (read-text $file) (footer $DOCS $entries $page) | write-text $file
+    }
+}
+
+# Fail when a page has an old navigation block, or when docs/.nav.json and the files disagree.
+def "main nav check" []: nothing -> nothing {
+    let old = stale-pages (load-nav) $DOCS
+
+    if ($old | is-not-empty) {
+        fail $'These pages have an old navigation block, run `nu scripts/docs.nu nav write`: ($old | str join ", ")'
+    }
+}
+
+def main []: nothing -> nothing {
+    help main
+}
