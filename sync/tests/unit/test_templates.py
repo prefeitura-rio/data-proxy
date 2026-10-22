@@ -109,6 +109,7 @@ SKIPPED_TEMPLATES = {
     "macros": "Macros are rendered by the templates that import them.",
     "call_cleanup_stale_objects": "A one-line call of a procedure that has its own test.",
     "call_prune_access_log": "A one-line call of a procedure that has its own test.",
+    "call_prune_workflows": "A one-line call of a procedure that has its own test.",
     "call_recover_orphaned_workflows": "A one-line call of a procedure that has its own test.",
     "call_reload_postgrest": "A one-line call of a function that has its own test.",
     "grant_select": "A grant to a role. The roles belong to the end-to-end suite.",
@@ -1428,6 +1429,83 @@ class TestPostgresTemplates:
             mapping={"schema": target},
         ) == [("recent", "unit", "unit_1", "insert")]
 
+    @pytest.mark.parametrize(
+        ("status", "age_days", "kept"),
+        [
+            pytest.param("SUCCESS", 100, False, id="old-success"),
+            pytest.param("ERROR", 100, False, id="old-error"),
+            pytest.param("CANCELLED", 100, False, id="old-cancelled"),
+            pytest.param(
+                "MAX_RECOVERY_ATTEMPTS_EXCEEDED", 100, False, id="old-max-attempts"
+            ),
+            pytest.param("SUCCESS", 1, True, id="recent-success"),
+            pytest.param("PENDING", 100, True, id="old-pending"),
+            pytest.param("ENQUEUED", 100, True, id="old-enqueued"),
+        ],
+    )
+    async def test_prune_workflows_deletes_only_old_finished_workflows(
+        self,
+        postgres: Postgres,
+        psql: Psql,
+        dbos_schema: str,
+        status: str,
+        age_days: int,
+        kept: bool,
+    ) -> None:
+        """Deletes a finished workflow older than the retention with its scope rows, and keeps the others."""
+        target = postgres.namespace.identifier
+        dbos = {"dbos_schema": Identifier(dbos_schema)}
+        workflow = f"{postgres.namespace.schema}-workflow"
+        try:
+            await postgres.connection.execute(
+                helm_sql("create_state", {"schema": target}).encode()
+            )
+            await execute_sql(
+                postgres,
+                "postgres/insert_aged_workflow",
+                mapping=dbos,
+                params={
+                    "workflow_uuid": workflow,
+                    "status": status,
+                    "updated_at": int(time() * 1000) - age_days * 24 * HOUR_MS,
+                },
+            )
+            await postgres.connection.execute(
+                SQL(
+                    "INSERT INTO {}.scope (workflow_id, run_id, schema_name) VALUES (%s, 'r1', 's1')"
+                ).format(target),
+                (workflow,),
+            )
+            await postgres.connection.commit()
+
+            psql.run(
+                psql_script(
+                    helm_sql("prune_workflows", {"schema": target}),
+                    helm_sql("call_prune_workflows", {"schema": target}),
+                ),
+                {"retention": "90 days"},
+            )
+
+            assert await fetch_all(
+                postgres,
+                "postgres/select_workflows",
+                mapping=dbos,
+                params={"prefix": workflow},
+            ) == ([(workflow, status, True)] if kept else [])
+            assert await scalar(
+                postgres,
+                SQL("SELECT count(*) FROM {}.scope").format(target).as_string(),
+            ) == (1 if kept else 0)
+        finally:
+            await postgres.connection.rollback()
+            await execute_sql(
+                postgres,
+                "postgres/delete_workflows",
+                mapping=dbos,
+                params={"prefix": workflow},
+            )
+            await postgres.connection.commit()
+
     async def test_recover_orphaned_workflows_re_enqueues_only_orphaned_workflows(
         self, postgres: Postgres, psql: Psql, dbos_schema: str
     ) -> None:
@@ -2175,6 +2253,7 @@ class TestPostgresTemplates:
             "create_pre_request",
             "cleanup_stale_objects",
             "prune_access_log",
+            "prune_workflows",
             "recover_orphaned_workflows",
         ):
             await table_function.connection.execute(

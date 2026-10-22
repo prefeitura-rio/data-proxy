@@ -32,6 +32,7 @@ sync/tests/templates/postgres/has_schema_usage.sql
 sync/tests/templates/postgres/has_table_select.sql
 sync/tests/templates/postgres/insert_access_log.sql
 sync/tests/templates/postgres/insert_access_policy.sql
+sync/tests/templates/postgres/insert_aged_workflow.sql
 sync/tests/templates/postgres/insert_workflow.sql
 sync/tests/templates/postgres/relation_exists.sql
 sync/tests/templates/postgres/role_memberships.sql

@@ -123,6 +123,10 @@ def install-maintenance []: nothing -> nothing {
         schema: $schema
     }
 
+    execute-sql postgres/prune_workflows.sql {
+        schema: $schema
+    }
+
     execute-sql postgres/recover_orphaned_workflows.sql {
         schema: $schema
         application_name: (quote-literal ($env.DBOS_APPLICATION_NAME? | default data-proxy-sync))
