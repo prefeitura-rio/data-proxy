@@ -47,6 +47,18 @@ in
 
         git-hooks.hooks.ripsecrets.enable = true;
 
+        git-hooks.hooks.vale = {
+          enable = true;
+          name = "vale";
+          entry = toString (
+            pkgs.writeShellScript "vale-hook" ''
+              ${lib.getExe pkgs.vale} sync --no-exit
+              exec ${lib.getExe pkgs.vale} "$@"
+            ''
+          );
+          files = "^(docs/.*\\.md|README\\.md|STYLEGUIDE\\.md|sync/src/sync/.*\\.py|scripts/.*\\.nu)$";
+        };
+
         tasks = {
           "lint:ci" = utils.nuTask {
             description = "Lint the GitHub workflows.";
@@ -91,22 +103,6 @@ in
             description = "Lint the Containerfiles.";
             exec = lib.concatMapStringsSep "\n" (name: "hadolint ${name}") containerfiles;
             execIfModified = [ ".hadolint.yaml" ] ++ containerfiles;
-          };
-          "lint:docs" = utils.nuTask {
-            description = "Lint the prose of the documentation.";
-            exec = ''
-              vale sync --no-exit
-              vale docs/ README.md STYLEGUIDE.md sync/src/sync/ scripts/
-            '';
-            execIfModified = [
-              "docs"
-              "README.md"
-              "STYLEGUIDE.md"
-              "sync/src/**/*.py"
-              "scripts"
-              ".vale.ini"
-              ".vale/styles"
-            ];
           };
 
           "docs:diagrams" = utils.nuTask {
