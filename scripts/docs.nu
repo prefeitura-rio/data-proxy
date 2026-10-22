@@ -265,6 +265,93 @@ def "main nav check" []: nothing -> nothing {
     }
 }
 
+# Return the heading anchor that MkDocs makes: lowercase, no punctuation, a hyphen for each space.
+export def slug [heading: string]: nothing -> string {
+    $heading
+    | str lowercase
+    | str trim
+    | str replace --all --regex '[^\w\- ]' ''
+    | split row ' '
+    | str join '-'
+}
+
+# Return the lines of a text that are not in a code fence, with their line numbers.
+def prose [text: string]: nothing -> list<record<number: int, text: string>> {
+    $text
+    | lines
+    | enumerate
+    | reduce --fold {fenced: false, rows: []} {|row, state|
+        if ($row.item | str starts-with '```') {
+            $state | update fenced { not $in }
+        } else if $state.fenced {
+            $state
+        } else {
+            $state | update rows { append {number: ($row.index + 1), text: $row.item} }
+        }
+    }
+    | get rows
+}
+
+# Return the anchors of the headings of a text.
+export def anchors [text: string]: nothing -> list<string> {
+    prose $text
+    | get text
+    | parse --regex '^#{1,6} (?<title>.+)$'
+    | each {|heading| slug $heading.title }
+}
+
+# Return the targets of the Markdown links of a text, with their line numbers. Code is not a link.
+export def links-of [text: string]: nothing -> list<record<number: int, target: string>> {
+    prose $text
+    | each {|row|
+        $row.text
+        | str replace --all --regex '`[^`]*`' ''
+        | parse --regex '\[[^\]]*\]\((?<target>[^)\s]+)\)'
+        | each {|link| {number: $row.number, target: $link.target} }
+    }
+    | flatten
+}
+
+# Return the broken links of the files: a link to a file that is not there, or to a heading that the page lacks.
+# A link that starts with a scheme, such as https:, is not checked.
+export def link-problems [...files: path]: nothing -> list<string> {
+    $files
+    | each {|file|
+        links-of (read-text $file)
+        | where target !~ '^[a-z]+:'
+        | each {|link|
+            let hash = $link.target | str index-of '#'
+
+            let path = if $hash < 0 { $link.target } else { $link.target | str substring 0..<$hash }
+
+            let fragment = if $hash < 0 { '' } else { $link.target | str substring ($hash + 1).. }
+
+            let target = if $path == '' { $file } else { $file | path dirname | path join $path | path expand }
+
+            let where = $'($file):($link.number): ($link.target)'
+
+            if not ($target | path exists) {
+                $'($where): no such file'
+            } else if $fragment != '' and ($target | str ends-with .md) and $fragment not-in (anchors (read-text $target)) {
+                $'($where): no such heading'
+            }
+        }
+        | compact
+    }
+    | flatten
+}
+
+# Fail when a link of the docs, the README or the style guide points to a missing file or heading.
+def "main links" []: nothing -> nothing {
+    let files = [...(glob $'($DOCS)/**/*.md') README.md STYLEGUIDE.md]
+
+    let found = link-problems ...$files
+
+    if ($found | is-not-empty) {
+        fail $"The docs have broken links:\n($found | str join "\n")"
+    }
+}
+
 # Return the ids of the processes that listen on a port. The command lsof exits with 1 when there are none.
 def listeners [port: int]: nothing -> list<int> {
     let result = lsof -t -i $'tcp:($port)' -sTCP:LISTEN | complete
