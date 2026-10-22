@@ -10,6 +10,7 @@ let
   inherit (utils) urls;
   appPort = utils.port "console" "main";
   gatewayPort = utils.port "gateway" "main";
+  opener = if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open";
   postgresPort = utils.port "postgres" "main";
   appDatabase = "data_proxy";
   catalogDatabase = "ducklake";
@@ -368,5 +369,20 @@ in
           path = "/config.js";
         };
       };
+
+    browser =
+      lib.mkIf (!config.devenv.isTesting)
+        (
+          utils.mkProcess {
+            command = [
+              opener
+              urls.console
+            ];
+            packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
+          }
+          // {
+            after = [ (utils.processTask "gateway") ];
+          }
+        );
   };
 }
