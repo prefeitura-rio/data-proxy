@@ -61,7 +61,7 @@ The `pre_bump_hooks` of `cog.toml` call `ci images pin`, so the release commit c
 
 A push to `preview` runs the same checks as `main`. Then `build-images` builds all five images, because the workflow sets `FORCE_FULL` on that branch. The tag of each image is the first seven characters of the commit, and the PostgreSQL image keeps its `17-` prefix.
 
-The job `pin-preview` runs `ci preview pin` after the build. The command writes those tags into `helm/values.yaml`, commits the file as `chore(preview): pin the images to <commit> [skip ci]`, and pushes the commit to `preview`. The `helm` job never runs on this branch, so a push to `preview` makes no release and no tag.
+The job `pin-preview` runs `ci preview pin` after the build. The command writes those tags into `helm/values.yaml`, commits the file as `chore(preview): pin the images to <commit> [skip ci]`, and pushes the commit to `preview`. If a newer pin is already there, the job keeps its own pin local and goes on. The `helm` job never runs on this branch, so a push to `preview` makes no release and no tag.
 
 After the pin, the same job runs `ci chart login` and `ci chart preview`. The second command packages the chart with the version of the next release and the suffix `-preview.<run number>`, such as `2.0.0-preview.12`. Then it pushes the package to the OCI registry. It makes no commit, no tag and no GitHub release, and it never touches `main`. The run number makes each preview version newer than the last.
 

@@ -209,7 +209,16 @@ def 'main preview pin' []: nothing -> nothing {
     git config user.email $ci.bot_email
     git add helm/values.yaml
     git commit --message ('chore(preview): pin the images to ' + $short + ' [skip ci]') | complete | check-result 'git commit' | ignore
-    git pull --rebase origin preview | complete | check-result 'git pull' | ignore
+
+    let pulled = git pull --rebase origin preview | complete
+
+    if $pulled.exit_code != 0 {
+        # A newer commit pinned its own images first, and the run of that commit rolls the preview. Keep this pin local.
+        git rebase --abort
+        log warning 'A newer pin is on preview. This run does not push its pin.'
+        return
+    }
+
     git push origin HEAD:preview | complete | check-result 'git push' | ignore
 
     log info 'Pinned the preview images and pushed the commit.'
