@@ -54,7 +54,9 @@ db.execute(
 
 db.execute("DELETE FROM dl.full_table WHERE n < 100")
 
-db.execute("CREATE TABLE dl.snapshot_table AS SELECT i AS n, 'unit_' || (i % 5 + 1) AS unit_id FROM range(300) AS t(i)")
+db.execute(
+    "CREATE TABLE dl.snapshot_table AS SELECT i AS n, 'unit_' || (i % 5 + 1) AS unit_id FROM range(300) AS t(i)"
+)
 
 db.execute(
     f"COPY (SELECT count(*) FROM dl.full_table) TO '{environ['EXPECTED_ROWS_FILE']}' (FORMAT csv, HEADER false)"
