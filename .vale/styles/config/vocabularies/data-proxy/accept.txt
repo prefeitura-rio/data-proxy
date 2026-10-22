@@ -196,3 +196,4 @@ OpenResty
 Hurl
 goose
 cocogitto
+Tailscale

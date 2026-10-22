@@ -1,0 +1,38 @@
+shape: sequence_diagram
+
+t: Trigger
+run: "run_sync"
+prov: "Provision Job"
+pg: PostgreSQL
+wk: Workers
+src: Source
+s3: SeaweedFS
+api: PostgREST
+r: Redis
+
+t -> run: "start a run"
+run -> prov: "run Job, wait"
+run -> pg: "read configuration"
+run -> src: "plan changed tables"
+run -> wk: "enqueue dump tasks"
+parallel: "par: dump tasks" {
+  wk -> src: "extract rows"
+  wk -> s3: "write scratch Parquet"
+}
+wk -> run: "results" {style.stroke-dash: 3}
+run -> pg: "record scope"
+run -> pg: "seed views, functions"
+run -> wk: "enqueue publish tasks"
+each: "for each schema (in parallel)" {
+  wk -> s3: "read scratch, write data"
+  wk -> pg: "commit snapshot"
+  wk -> pg: "commit table state"
+  wk -> pg: "maintenance"
+  pg -> pg: "replicate to standbys"
+}
+reload: "opt: views changed" {
+  run -> pg: "wait for standbys"
+  pg -> api: "NOTIFY: reload" {style.stroke-dash: 3}
+}
+run -> s3: "remove scratch objects"
+run -> r: "flush cache"

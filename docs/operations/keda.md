@@ -1,6 +1,8 @@
 # KEDA Scaling
 
-KEDA scales the DBOS sync Deployment from the DBOS system database. The sync workers share the `data-proxy-duckdb` PVC and use schema-specific DBOS queues with global concurrency one.
+Kubernetes Event-driven Autoscaling (KEDA) scales the DBOS sync Deployment from the DBOS system database. The sync workers share the `data-proxy-duckdb` PersistentVolumeClaim (PVC). They publish through one `publish` queue that's partitioned by schema, so each schema runs one publish task at a time.
+
+KEDA also scales PostgREST, the proxy and the CloudNativePG (CNPG) standbys. [Topology](topology.md) describes how.
 
 ```yaml
 triggers:
@@ -16,17 +18,19 @@ triggers:
 
 ## Orchestrator and dump workers
 
+These Helm values set the scale and the concurrency of the sync workers. The table gives the default of each value.
+
 | Value | Helm default | Meaning |
 | --- | --- | --- |
-| `autoscaling.minReplicaCount` | `3` | Minimum active sync replicas. |
-| `autoscaling.maxReplicaCount` | `15` | Maximum sync replicas. |
-| `autoscaling.pollingInterval` | `30` | Seconds between KEDA checks. |
-| `autoscaling.cooldownPeriod` | `60` | Seconds before scale-down. |
-| `autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
-| `autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
-| `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
+| `sync.autoscaling.minReplicaCount` | `3` | Minimum active sync replicas. |
+| `sync.autoscaling.maxReplicaCount` | `15` | Maximum sync replicas. |
+| `sync.autoscaling.pollingInterval` | `30` | Seconds between KEDA checks. |
+| `sync.autoscaling.cooldownPeriod` | `60` | Seconds before scale-down. |
+| `sync.autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
+| `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
+| `sync.dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
-| `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
+| `sync.dumpStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
 ## Catalogs
 
@@ -35,6 +39,8 @@ The DBOS sync workers write the catalogs in the `ducklake` database, through the
 Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
 
 ## Configuration
+
+This example shows the Helm values that set the schedule, the retries and the KEDA scaling of the sync workers.
 
 ```yaml
 sync:
@@ -55,4 +61,8 @@ DBOS deduplicates the scheduled workflow across orchestrator replicas. The sync 
 
 ---
 
-[← Previous](proxy.md) · [Home](../README.md) · [Next →](database.md)
+<!-- nav:start -->
+---
+
+[Previous: Environment Variables](environment.md) | [Next: Metrics](metrics.md) | [Index](index.md) | [Home](../index.md)
+<!-- nav:end -->

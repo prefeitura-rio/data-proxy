@@ -1,0 +1,22 @@
+shape: sequence_diagram
+
+u: "Console user"
+app: "Console server"
+api: PostgREST
+db: PostgreSQL
+w: "Sync worker (control queue)"
+
+u -> app: "cancel a sync run"
+app -> api: "POST /rpc/cancel_run"
+api -> db: "check permission, scope and status"
+refuse: "alt: refused" {
+  db -> api: "403, 404 or 409" {style.stroke-dash: 3}
+}
+accept: "else: allowed" {
+  db -> db: "enqueue cancel_run in control"
+  db -> api: "done" {style.stroke-dash: 3}
+}
+api -> app: "answer" {style.stroke-dash: 3}
+app -> u: "page" {style.stroke-dash: 3}
+w -> db: "take the workflow"
+w -> db: "cancel the run and its tasks"

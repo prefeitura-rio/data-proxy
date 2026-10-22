@@ -1,0 +1,26 @@
+shape: sequence_diagram
+
+h: "Helm install or upgrade"
+cfg: "configure-db Job"
+mig: "migrate-db Job"
+prov: "provision Job"
+pg: "PostgreSQL primary"
+pgr: PostgREST
+
+h -> cfg: "start"
+cfg -> pg: "wait for the writer"
+cfg -> pg: "roles, rbac, state tables, functions"
+cfg -> pg: "DuckDB secrets and grants"
+h -> mig: "start"
+mig -> pg: "wait for the state tables"
+mig -> pg: "dbos migrate"
+mig -> pg: "goose up (console schema)"
+h -> prov: "start"
+prov -> pg: "wait for the console tables"
+prov -> pg: "console functions and triggers"
+prov -> pg: "fill an empty configuration"
+prov -> pg: "schemas, access policies, grants"
+prov -> pg: "set pgrst.db_schemas"
+reload: "opt: the schema list changed" {
+  pg -> pgr: "NOTIFY after the standbys replay"
+}

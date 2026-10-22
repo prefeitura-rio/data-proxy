@@ -1,0 +1,179 @@
+{
+  "page": "index.md",
+  "children": [
+    {
+      "page": "architecture/index.md",
+      "children": [
+        {
+          "page": "architecture/serving.md"
+        },
+        {
+          "page": "architecture/sync.md"
+        },
+        {
+          "page": "architecture/console.md"
+        }
+      ]
+    },
+    {
+      "page": "sync.md"
+    },
+    {
+      "page": "using.md"
+    },
+    {
+      "page": "proxy.md"
+    },
+    {
+      "page": "database.md"
+    },
+    {
+      "page": "model.md"
+    },
+    {
+      "page": "glossary.md"
+    },
+    {
+      "page": "notebooks.md"
+    },
+    {
+      "page": "sql.md"
+    },
+    {
+      "page": "security/index.md",
+      "children": [
+        {
+          "page": "security/claims.md"
+        },
+        {
+          "page": "security/permissions.md"
+        },
+        {
+          "page": "security/roles.md"
+        },
+        {
+          "page": "security/flow.md"
+        },
+        {
+          "page": "security/authorization.md"
+        },
+        {
+          "page": "security/requests.md"
+        },
+        {
+          "page": "security/identity.md"
+        },
+        {
+          "page": "security/tokens.md"
+        },
+        {
+          "page": "security/troubleshooting.md"
+        }
+      ]
+    },
+    {
+      "page": "console/index.md",
+      "children": [
+        {
+          "page": "console/app.md"
+        },
+        {
+          "page": "console/views.md"
+        },
+        {
+          "page": "console/runs.md"
+        },
+        {
+          "page": "console/configuration.md"
+        },
+        {
+          "page": "console/changes.md"
+        },
+        {
+          "page": "console/query.md"
+        },
+        {
+          "page": "console/scope.md"
+        }
+      ]
+    },
+    {
+      "page": "development/index.md",
+      "children": [
+        {
+          "page": "development/setup.md"
+        },
+        {
+          "page": "development/tests.md"
+        },
+        {
+          "page": "development/checks.md"
+        },
+        {
+          "page": "development/frontend.md"
+        },
+        {
+          "page": "development/nix.md"
+        },
+        {
+          "page": "development/migrations.md"
+        },
+        {
+          "page": "development/releases.md"
+        },
+        {
+          "page": "development/ci.md"
+        },
+        {
+          "page": "development/seed.md"
+        },
+        {
+          "page": "development/api.md"
+        },
+        {
+          "page": "development/k6/index.md",
+          "children": [
+            {
+              "page": "development/k6/thresholds.md"
+            },
+            {
+              "page": "development/k6/e2e.md"
+            },
+            {
+              "page": "development/k6/scenarios.md"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "page": "operations/index.md",
+      "children": [
+        {
+          "page": "operations/helm.md"
+        },
+        {
+          "page": "operations/initialization.md"
+        },
+        {
+          "page": "operations/ingress.md"
+        },
+        {
+          "page": "operations/topology.md"
+        },
+        {
+          "page": "operations/environment.md"
+        },
+        {
+          "page": "operations/keda.md"
+        },
+        {
+          "page": "operations/metrics.md"
+        },
+        {
+          "page": "operations/backups.md"
+        }
+      ]
+    }
+  ]
+}

@@ -27,7 +27,7 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 
 ### State
 
-- DBOS and PostgreSQL own orchestration state. Redis is a cache only. See [Architecture](docs/architecture.md).
+- DBOS and PostgreSQL own orchestration state. Redis is a cache only. See [Architecture](docs/architecture/index.md).
 - Keep DBOS workflows deterministic. Put I/O in steps.
 - Don't re-implement DBOS checkpoints.
 - See [Database Schema](docs/database.md) for roles, RLS, and privileged functions.
@@ -40,26 +40,29 @@ Run the checks before you finish a change:
 devenv --profile default tasks run lint:all test:all
 devenv --profile sync test
 devenv --profile proxy test
+devenv --profile console test
 ```
 
-`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite.
+`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite. `devenv --profile console test` starts the whole console stack and runs the browser tests. It takes about 10 minutes, because one scenario waits for the real timer of four minutes.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
 A unit test checks one unit exhaustively: a function, a class, a method, or an SQL template. It covers every input, every branch, and the edge cases. An integration test checks a behavior: a scenario that crosses units or services, such as a state commit, a catalog read, or a request through the proxy. The infrastructure doesn't decide the level. A template belongs to the unit level even when it runs on the real PostgreSQL server, because the test checks that template alone.
 
-| Level       | Location                                               | Runs against                                                                                                    | Covers                                                                                                                    |
-| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
-| Integration | `sync/tests/integration/`                              | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS                       | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage                      |
-| Integration | `proxy/tests/integration/`                             | devenv processes: OpenResty, Valkey, a mock PostgREST                                                           | Proxy request path: routing, retry, cache, filter pushdown                                                                |
-| E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`             | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
+| Level       | Location                                                | Runs against                                                                                                    | Covers                                                                                                                    |
+| ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/`  | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
+| Integration | `sync/tests/integration/`                               | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS                       | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage                      |
+| Integration | `proxy/tests/integration/`                              | devenv processes: OpenResty, Valkey, a mock PostgREST                                                           | Proxy request path: routing, retry, cache, filter pushdown                                                                |
+| Unit        | `console/ui/src/**/*.test.ts`, `console/notebooks/src/` | Vitest, with no service and no `$app` or `$env` import                                                          | Every behavior of a module in `lib/` and `lib/server/`                                                                    |
+| Integration | `console/ui/tests/`, `console/notebooks/tests/`         | devenv processes: PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, a browser                            | The console as a user sees it: sign-in, tabs, forms, run control, the notebook                                            |
+| E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
 
 - A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
-- In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file holds only its steps, and `load.js` holds only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
-- Test modules hold only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
+- In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file contains only its steps, and `load.js` contains only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
+- Test modules contain only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
 - Merge small test files that cover one module.
 - Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants across generated inputs.
 - Use `pytest-bdd` for integration behavior that crosses database, cache, or storage boundaries. Put feature files in `sync/tests/integration/features/` and step definitions in `sync/tests/integration/steps/`.
@@ -86,7 +89,7 @@ def test_renders_exact_predicate(selection, expected):
 ### Code
 
 - Use dataclasses for plain data. Use Pydantic models only for validation at boundaries.
-- Model closed alternatives as tagged unions. Match every case; use `_` only for open sets.
+- Model closed alternatives as tagged unions. Match every case. Use `_` only for open sets.
 - Don't prefix internal names with `_`. Use `_` only for a required but unused parameter.
 - Keep `__init__.py` empty. Import from submodules.
 - Inline a one-line helper that has one caller.
@@ -118,17 +121,21 @@ class PlanningContext:
 logger.info("DuckLake commit completed: published_tables=%d", len(published_tables))
 ```
 
+### Tooling
+
+`devenv --profile default tasks run lint:sync` runs `ruff` with `select = ["ALL"]`, `basedpyright`, `pyrefly`, `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any` or `cast`. `basedpyright` refuses implicit string concatenation, so write one long string. `E501` is off.
+
 ## Lua and OpenResty
 
 The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned OpenResty image.
 
 ### Layout and dependencies
 
-- Keep one named module for each concern: `parser`, `routing`, `request`, `cache`, `postgrest`, `response`, `log`, `config`.
+- Keep one named module for each concern: `cache`, `config`, `constants`, `handler`, `limiter`, `log`, `main`, `parser`, `postgrest`, `redis`, `regex`, `request`, `response`, `schemas`, `settings`, `sync` and `utils`.
 - Write a module in this order: imports, local variables, local functions, classes, and the returned object (the module table, the functions on it, and `return`). Put a local variable that needs a local function right after that function. Declare the module table with the other local variables when nothing else needs it later.
 - Name modules `proxy.<name>`. `nginx.conf` loads only `proxy.main`.
 - Return the module table directly. Don't add re-export modules.
-- Read the settings only through the table that `config.load` (`proxy/src/proxy/config.lua`) returns. Only `main` loads it, once at start-up in `main.init`, and passes it down as a parameter named `config`. Don't call `os.getenv` or read `ngx.var` for a setting in another module. Declare each setting, with its type, default and limits, in the fields of `proxy/src/proxy/schemas/definitions/config.lua`, and list its `PROXY_` variable in `helm/files/config/nginx.conf` with an `env` directive. `config` has no test file. The handler and main tests cover it.
+- Read the `PROXY_*` variables only through the table that `config.load` (`proxy/src/proxy/config.lua`) returns. Only `main` loads it, once at start-up in `main.init`, and passes it down as a parameter named `config`. Don't call `os.getenv` or read `ngx.var` for a setting in another module. Declare each setting, with its type, default and limits, in the fields of `proxy/src/proxy/schemas/definitions/config.lua`, and list its `PROXY_` variable in `helm/files/config/nginx.conf` with an `env` directive. The module `settings` is another thing: it keeps the `sync.json` table that every worker shares, and the console replaces it.
 - Define every named constant in `constants.lua`, in a group: `constants.redis.connect_timeout_ms`. Write group names and constant names in lower case. Describe each group with a small type in `constants.d.lua`, and compose the `Constants` type from them. Other modules define no constants.
 - Define every Lua pattern that matches text in `regex.lua`, named after what it matches: `regex.parameter`, with a `---@field` line in `regex.d.lua`. Don't write such a pattern at the point of use. A single character stays in its `gsub` call, and a filter grammar stays in `parser/patterns.lua` as LPeg.
 - Write grammars for query parameters with LPeg, in `parser/patterns.lua`. Don't split strings by hand.
@@ -146,7 +153,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 - Write a pure core and a thin shell. A pure function gets all its inputs as arguments, such as the configuration and the current time. It returns a new value.
 - Only `main.lua`, `handler.lua`, the `Redis` class in `redis.lua`, `postgrest.send`, `log.write`, and `response.send` read or write `ngx.var`, `ngx.req`, `ngx.header`, `ngx.now`, `ngx.log`, or the network.
 - Pure `ngx` string helpers, such as `ngx.escape_uri` and `ngx.decode_base64`, are allowed in the core.
-- Keep module state only in `main.lua`, and the loaded schemas in the registry (`schemas/main.lua`). Other modules don't hold state.
+- Keep module state only in `main.lua`, and the loaded schemas in the registry (`schemas/main.lua`). Other modules don't keep state.
 - Build new tables. Don't change an argument.
 - Don't use `assert` in code under `proxy/src`. Check the value, and raise an error with a message. Specs can use `assert`.
 - Split a decision from its effect. Write `plan` to decide and `send` to act, as `response.plan` and `response.send` do.
@@ -175,7 +182,7 @@ end
 - Describe every function with `---@param` and `---@return`. Describe every shared table with `---@class` and `---@field`.
 - Put the types of a module in `<module>.d.lua`, next to `<module>.lua`. Start the file with `---@meta`, and write no other file comment. Put a type in the file of the module that creates it. Don't write types in `<module>.lua`, except the `---@class` of the module table itself, and the class of an object that the module implements with methods. LuaLS reports `inject-field` for a function that a file adds to a class that another file declares. Keep that class next to its `local` table, and declare no `---@field` for functions that the file defines.
 - Don't use `table` or `any` if a named type exists.
-- Define the fields of each schema in its own file, `proxy/src/proxy/schemas/definitions/<name>.lua`. The file returns only the fields: a table of field name to field type, built with `tableshape` (`require("tableshape").types`). `schemas/schema.lua` holds the `Schema` class: it makes the checker (`types.shape(fields, { open = true })`) and gives `validate`. Call one field type a field, not a shape, and keep the word `shape` for the `types.shape` call. `schemas/main.lua` is the registry singleton: when the module loads, at start-up, it registers each `<name>.lua` of `definitions/` as the schema `<name>`. A caller reads a schema as a field, `schemas.cached_entry`, with no call. Every checker is open, because every schema describes data from outside that can have other fields. To add a schema: make the file, and add `---@field <name> Schema<T>` to `SchemasModule` in the `.d.lua` file of the module that owns the data type `T`. Read data that the proxy doesn't create (files, Redis entries, tokens, environment variables) only through `schemas.<name>:validate(value)`, at the boundary where it enters. It gives the value, converted if the checker converts, or nil and a reason that names the field.
+- Define the fields of each schema in its own file, `proxy/src/proxy/schemas/definitions/<name>.lua`. The file returns only the fields: a table of field name to field type, built with `tableshape` (`require("tableshape").types`). `schemas/schema.lua` contains the `Schema` class: it makes the checker (`types.shape(fields, { open = true })`) and gives `validate`. Call one field type a field, not a shape, and keep the word `shape` for the `types.shape` call. `schemas/main.lua` is the registry singleton: when the module loads, at start-up, it registers each `<name>.lua` of `definitions/` as the schema `<name>`. A caller reads a schema as a field, `schemas.cached_entry`, with no call. Every checker is open, because every schema describes data from outside that can have other fields. To add a schema: make the file, and add `---@field <name> Schema<T>` to `SchemasModule` in the `.d.lua` file of the module that owns the data type `T`. Read data that the proxy doesn't create (files, Redis entries, tokens, environment variables) only through `schemas.<name>:validate(value)`, at the boundary where it enters. It gives the value, converted if the checker converts, or nil and a reason that names the field.
 - Test the registry and every schema in `schemas_spec.lua`, table-driven: valid values, and invalid values with the field in the reason. For `config`, give a typed `Config` that has every field and compare it with the result. The language server can't compare a definition with its type, so a drift fails there: a new field of `Config` makes the typed value incomplete, and the test fails if the definition has a field that the type lacks. The specs of the modules that parse data (`sync`, `cache`, `request`) cover the rest.
 - Write a one-line `---` description above every `---@class` and `---@alias`.
 - Write a `---` summary line above every function and every constant. Use Simplified Technical English: short sentences, present tense, active voice. Write the word `if`, not `when`.
@@ -195,16 +202,16 @@ end
 
 ### Tests
 
-- Write one test file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat.
+- Write one test file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main`, `handler` and `log` have no test file.
 - Write table-driven Busted specs. Use one `describe` for each function and `it(case.name)` for each case.
 - Give each case a name that states the behavior, for example `retries a 503 on the retry service`.
 - Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, for example the 32 raw bytes that `resty.sha256` gives.
-- Test pure functions only. A function that has an effect, such as a request, a socket, or an nginx phase, belongs to `sync/tests/integration/proxy/` or to k6, not to the unit specs.
+- Test pure functions only. A function that has an effect, such as a request, a socket, or an nginx phase, belongs to the Hurl suite in `proxy/tests/integration/` or to k6, not to the unit specs.
 - Compare a rewrite with the old code on random inputs before you delete the old code.
 
 ### Checks
 
-- Run `devenv tasks run lint:proxy test:proxy` before review.
+- Run `devenv --profile proxy tasks run lint:proxy test:proxy` before review.
 - `lint:proxy` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
 - The git hook runs `lx fmt` (StyLua). Use tabs.
 - Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it.
@@ -227,7 +234,8 @@ Nushell scripts run the Helm jobs and the local commands.
 - Add input/output types and `@example` blocks to exported reusable helpers.
 - `helm/files/scripts/` and `scripts/` are separate codebases. Don't import modules across them.
 - Run `nu --ide-check` on changed files.
-- Stop a script with `fail $message` from `lib.nu`. It logs the message and raises an error without a label. Don't build a `{command, span}` record.
+- Stop a script with `fail $message` from `lib.nu`. It logs the message and raises an error that has a label on the message in the caller. Don't call `error make` in a script.
+- Read and write files only through the helpers of `lib.nu` (`read-text`, `read-data`, `write-text`, `parse-json`, `parse-toml`, `parse-yaml`, `make-dir`, `remove-path`). They wrap the builtin in `try` and name the file in the error. Wrap `cd` and `http get` in `try` at the call.
 - Let an error of a builtin or an external command stop the script. Use `try` only when you add context that the error lacks, such as the table that failed, or when you clean up.
 - Use `check-result` for the record that `complete` returns, and `wait-until` for a wait. Don't write the exit-code check or the polling loop again.
 - Write an expression that three places repeat as a helper (`app-schema`, `role-literals`), and keep one table for a list that several commands read (`IMAGES` in `scripts/lib.nu`).
@@ -257,7 +265,7 @@ for schema in $schemas {
 
 ## Nix
 
-Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` holds the profiles that belong to no component. `nix/processes/` holds one process for each file, and `nix/utils.nix` holds the helpers.
+Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/processes/` contains one component for each file, with its processes and tasks, and `nix/utils.nix` contains the helpers.
 
 ### Code
 
@@ -332,7 +340,7 @@ Run `devenv --profile <name> test` for each profile that a change touches. The f
 
 ## SQL
 
-Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live in `helm/files/templates/postgres/`. See [SQL Templates](docs/sql-templates.md).
+Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live in `helm/files/templates/postgres/`. See [SQL Templates](docs/sql.md).
 
 ### Code
 
@@ -359,9 +367,28 @@ mapping = {"table": Identifier(schema, name), "limit": Literal(n)}
 - Keep `Source` construction side-effect free. Create external clients on first use and close them through the adapter lifecycle.
 - Use a service account or Workload Identity. Don't put credentials in an image.
 
+### Console migrations
+
+- The migrations of the `console` schema live in `console/migrations/NNNNN_name.sql`, and `goose` applies them. Add a new numbered file for each change. Don't edit a migration that another install applied.
+- `lint:sql` runs `sqlfluff` on the files, with a limit of 88 columns, and `goose validate`.
+- Give a `SECURITY DEFINER` function a fixed `search_path`, as `data_proxy.sees` does.
+- Check access with `rbac.can()` and `rbac.mine()`. Both refuse if the rule is missing.
+
 ### Tests
 
 - Put test SQL in `sync/tests/templates/<backend>/`, with the same headers and names as `src/` templates. Inline only one short statement, such as `SELECT set_config(...)` or `SET ROLE`.
+
+## Permissions
+
+Add a permission in these steps:
+
+1. Add it under `[permissions.<object>]` in `helm/files/config/rbac.toml`, and give it to a role.
+2. Call `rbac.can('<name>')` in the SQL that needs it.
+3. Run `devenv --profile checks tasks run lint:toml`. It checks the file with `taplo` and the JSON schema.
+4. Add a role test in `sync/tests/unit/test_templates.py`.
+5. Update the permission tables in `docs/security/permissions.md`.
+
+The `configure-db` job runs `verify-rbac` and fails if the database differs from the file.
 
 ## TypeScript and Svelte
 
@@ -377,11 +404,11 @@ The console is a SvelteKit app in `console/ui/`. The sources are the [Svelte bes
 
 - Use `strict` and `noUncheckedIndexedAccess`. Lint with the typescript-eslint `strictTypeChecked` and `stylisticTypeChecked` configurations.
 - Don't use `any`, the non-null `!`, or a type assertion. Only `as const` is allowed.
-- Type a value where it enters the program, with a valibot schema: a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field or a message from a frame. Derive the type with `v.InferOutput`. `lib/types.ts` holds the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message.
+- Type a value where it enters the program, with a valibot schema: a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field or a message from a frame. Derive the type with `v.InferOutput`. `lib/types.ts` contains the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message.
 - Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`.
 - Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions.
 - Return a `Result` for a failure that the caller can handle, such as an answer of PostgREST. Throw for an input that the program can't run without.
-- Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. A lint disable comment gives the reason.
+- Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. A lint disable comment gives the reason. A marker that a tool reads, such as `// pragma: allowlist secret`, is allowed.
 
 ### Svelte
 
@@ -393,7 +420,7 @@ The console is a SvelteKit app in `console/ui/`. The sources are the [Svelte bes
 - Write events as attributes (`onclick`). Don't use `on:`.
 - Pass every internal `href` through `resolve()` from `$app/paths`. For a query string, use a `GET` form.
 - Write each repeated piece of markup once, as a component in `lib/components/`. A component that belongs to one page stays in the folder of that route. A `.svelte` file has at most 80 lines of script and 150 lines of template.
-- Use `use:enhance` on every form, and give every input a visible label (`Field` and `Check`). An input in a table row uses `aria-label`, because its column gives the visible name.
+- Use `use:enhance` on every POST form, except sign-out. A GET form (a filter or a pager) doesn't use it. Give every input a visible label (`Field` and `Check`). An input in a table row uses `aria-label`, because its column gives the visible name.
 - Style with Tailwind and DaisyUI classes. Import icons by name from `@lucide/svelte`.
 
 ### Tooling
@@ -412,25 +439,46 @@ devenv --profile console tasks run lint:console
 
 ## Notebooks
 
-- A notebook never holds a token, a cookie or a secret. It gets its data from the grant that the console sends, and it reads only the links in that grant.
+- A notebook never stores a token, a cookie or a secret. It gets its data from the grant that the console sends, and it reads only the links in that grant.
 - Give every variable of a marimo cell a name that no other cell uses. A duplicate stops the whole notebook.
 - Check the origin and the source of every message in `console/notebooks/src/bridge.ts`, and send a message to one exact origin, never to `*`.
 
 ## Documentation
 
 - Use Simplified Technical English: short sentences, active voice, one idea per sentence.
-- Keep one topic in one document. Link to the owner; don't copy.
+- Keep a sentence at 25 words or fewer and a paragraph at 6 sentences or fewer. Split a longer text into a list or a table.
+- Expand an acronym at its first use on a page, and define each project term once in `docs/glossary.md`. Add a row to its Tools table for each new tool.
+- Use the fixed terms `access policy` (the table), `row policy` (the PostgreSQL rule) and `sync run`. Write `contains`, `stores` or `has`, and not `holds`. Write `immediately`, and not `at once`. Vale enforces the word swaps and the ban on semicolons.
+- Give a diagram one owner page. Other pages link to it and don't embed a copy.
+- Give every diagram a short name, and write it as the alt text of the image. Don't add a caption line under the image.
+- Draw one dependency diagram of the whole system, on `docs/architecture/index.md`. Draw sequence diagrams for what happens in order, and put the diagrams of a layer in `docs/diagrams/architecture/`. The pages of the serving, sync and console layers have sequence diagrams only. A page about another topic may have a small dependency diagram. Use a table for anything else.
+- Don't write by hand a table that a file already defines. `docs/security/roles.md` has a role table that `docs:build:roles` writes from `rbac.toml`, and `lint:roles` checks it.
+- Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages.
+- Link to another page with a relative Markdown link: the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. Marksman completes and follows these links in the editor, but it doesn't flag a broken one.
+- Every page ends with a navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. `docs/.nav.json` has the page order. Add a new page to that file and link it from its parent page. `lint:nav` fails on a missing page, a page without a link from its parent, or an old block.
+- Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile checks tasks run docs:build:diagrams`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `lint:diagrams` fails when an SVG is out of date. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
+- Name a file with one word, and use two words only if one word is unclear.
+- Give each topic one page, and link to it from the other pages. Keep a file near 800 words. Split a larger file by topic.
+- Keep one topic in one document. Link to the owner. Don't copy.
 - Use generic examples unless a real value is required.
+- Say "the source" for the product, and name BigQuery only on a page about the BigQuery adapter or for a value that's specific to it.
 - Verify claims against source, Helm templates, tests, or a command you ran.
+- Vale runs only in the `vale` git hook. It checks the staged `*.md`, `*.py` and `*.nu` files when you commit. Run `vale <file>` in the `checks` shell to check a file earlier.
+- Use contractions in Markdown. The Python and Nushell checks turn that rule off, because messages keep their full forms.
+- Vale flags the acronym for a web address (write address), some adverbs, and acronyms in headings. Rephrase the sentence instead of ignoring the message.
+- `DataProxy.Terms` fixes the casing of product names: PostgreSQL, PostgREST, SeaweedFS, DuckDB, BigQuery. Add a word to `.vale/styles/config/vocabularies/data-proxy/accept.txt` at the end of the file only.
 
 ## Git
 
 - Use Conventional Commits: `type(scope)!: imperative summary`, lowercase, no trailing period. The scope is optional.
-- Types: `feat` for new user-visible capability; `fix` for a user-visible defect; `refactor` for internal restructuring; `test` for test-only work; `docs` for documentation-only work; `chore` for CI, tooling, dependencies, and maintenance.
+- Types: `feat` (new user-visible capability), `fix` (user-visible defect), `refactor` (internal restructuring), `test` (test-only work), `docs` (documentation-only work), and `chore` (CI, tooling, dependencies, and maintenance).
 - Don't use `perf` or `ci`: classify release-worthy performance work as `feat` or `fix`, and classify CI work as `chore`.
-- Release levels: `feat!:` and `fix!:` bump major; `feat:` bumps minor; `fix:` bumps patch; all other types create no release.
+- Release levels: a type with `!` bumps major. `feat:` bumps minor. `fix:` bumps patch. All other types create no release. `cog` (cocogitto) applies these rules, and `cog.toml` has its settings.
 - Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer.
+- Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes.
 - Make one logical change per commit. Squash fixups before merge.
+- The hooks run in prek at commit time. If a hook rewrites a file, stage the file again and commit again.
+- `ripsecrets` blocks a line that looks like a secret. Add a whole file to `.secretsignore`, or mark one line with `pragma: allowlist secret`, as `helm/tests/ducklake_catalog_test.yaml` does.
 - Never commit or push without explicit approval. Stage, summarize, and wait.
 
 ```text

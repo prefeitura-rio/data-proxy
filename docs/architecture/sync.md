@@ -1,0 +1,48 @@
+# Sync layer
+
+The sync layer copies the tables of the source into DuckLake. It also keeps the PostgreSQL views, the cache and the proxy settings in step with the data. The layer is a set of DBOS workflows. [Sync](../sync.md) describes its configuration.
+
+## Workflows
+
+Each row of the table names one workflow or step, its work, and its result.
+
+| Component | Work | Result |
+| --- | --- | --- |
+| `run_sync` | Plans changed tables and partitions. | Enqueues dump and publish workflows. |
+| `dump_task` | Extracts source data. | Writes independent scratch Parquet files. |
+| `seed_schemas` | Reconciles the PostgreSQL functions and views. | Returns whether the view set changed. |
+| `publish_schema` | Inserts scratch Parquet into the schema catalog. | The commit creates a snapshot that every instance sees after replication. |
+| `apply_ducklake_maintenance` | Runs inside `publish_schema` after a publication. | Expires old snapshots, merges files, and removes old and orphaned Parquet files. |
+| `finalize_run` | Clears the scratch objects and the cache. | Keeps the DuckLake data prefix intact. |
+
+Seed and publish run concurrently. When a view is added or removed, the workflow tells PostgREST to reload its schema after every publisher finishes. The database first waits until every standby replayed the change. A new snapshot alone reloads nothing.
+
+## Scaling and access
+
+KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. It has no other rights. The workflow recovery needs the pod list, and the provision step needs the CronJob and the Jobs.
+
+## Sync sequence
+
+The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, seeding the views, publishing each schema, and the reload of PostgREST.
+
+![Sync run sequence](../diagrams/architecture/sync-sequence.svg)
+
+## DuckLake write path
+
+A publish worker commits one schema at a time. It uses DuckDB with the DuckLake extension.
+
+![DuckLake publication sequence](../diagrams/architecture/publish-sequence.svg)
+
+- **One writer for each schema:** publishing is parallel across schemas and sequential within each schema. One `publish` queue serves all schemas, and the schema name is its partition key. A new schema needs no new queue.
+- **Files first:** the writer writes the Parquet files before it commits the snapshot.
+- **Retry:** a commit retries while the catalog is locked. `DUCKLAKE_COMMIT_MAX_ATTEMPTS` and `DUCKLAKE_COMMIT_RETRY_SECONDS` set the limit.
+- **Maintenance:** it runs only after a commit made a snapshot. A maintenance error is logged and doesn't stop the sync run.
+- **Retention:** `DUCKLAKE_SNAPSHOT_EXPIRATION` (7 days by default) keeps the files that an older snapshot uses. The CNPG backups cover the catalogs.
+
+See [DuckLake read path](serving.md#ducklake-read-path) for how a catalog reaches the readers.
+
+<!-- nav:start -->
+---
+
+[Previous: Serving layer](serving.md) | [Next: Console layer](console.md) | [Index](index.md) | [Home](../index.md)
+<!-- nav:end -->

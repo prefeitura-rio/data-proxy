@@ -52,3 +52,9 @@ Keep SQLFluff context values close to the template family that uses them. Each v
 
 Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata.
 ''
+
+<!-- nav:start -->
+---
+
+[Previous: Notebooks](notebooks.md) | [Next: Security](security/index.md) | [Home](index.md)
+<!-- nav:end -->

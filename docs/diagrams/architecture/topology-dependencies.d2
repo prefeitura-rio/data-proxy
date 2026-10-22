@@ -1,0 +1,27 @@
+direction: down
+
+postgrest: "PostgREST pods"
+pgdog: "PgDog pods (pgdog.replicas)"
+ro: "Service -ro"
+rw: "Service -rw"
+
+cnpg: "CNPG cluster" {
+  primary: "Primary"
+  standbys: "Standbys"
+  volume: "DuckDB secrets volume"
+  primary -> standbys: "WAL replication"
+  primary -> volume: "writes"
+  standbys -> volume: "reads"
+}
+keda: KEDA
+operator: "CNPG operator"
+
+postgrest -> pgdog: "queries"
+postgrest -> rw: "LISTEN connection"
+pgdog -> ro: "read-only transactions"
+pgdog -> rw: "other transactions"
+ro -> cnpg.standbys
+rw -> cnpg.primary
+operator -> ro: "removes a lagging standby"
+keda -> postgrest: "scales"
+keda -> cnpg: "scales the instances"

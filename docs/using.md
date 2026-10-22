@@ -1,6 +1,6 @@
 # Using the API
 
-Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JWT and select the target schema with `Accept-Profile`.
+Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and select the target schema with `Accept-Profile`.
 
 ```bash
 curl \
@@ -11,9 +11,9 @@ curl \
 
 ## Request routing
 
-The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Helm Chart](helm_chart.md#topology).
+The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Topology](operations/topology.md).
 
-Sync tells PostgREST to reload its schema once when generated serving PostgreSQL objects change. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. No pod restarts. Sync metric checkpoints are required: a metric recording failure fails the related workflow so operators don't treat an unobserved run as successful.
+Sync tells PostgREST to reload its schema once when generated serving PostgreSQL objects change. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. No pod restarts. The workflow requires its sync metric checkpoints. A failure to record a metric fails the related workflow, so operators never treat an unobserved run as successful.
 
 ## OpenAPI
 
@@ -23,7 +23,7 @@ When `swaggerUi.enabled` is true, the OpenAPI page is available at:
 ${BASE_URL}/docs
 ```
 
-The page can list table and column names without exposing data. Use its Authorize control with the token value only; the page adds `Bearer `.
+The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
 ## Querying
 
@@ -35,7 +35,7 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. RLS filters rows in the DuckDB scan. Query filters run in PostgreSQL after the scan, so they reduce the response, not the data that DuckDB reads.
+Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. Query filters run in PostgreSQL after the scan, so they reduce the response, not the data that DuckDB reads.
 
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`.
 
@@ -62,7 +62,7 @@ curl \
   "${BASE_URL}/rpc/dl_latest_snapshot"
 ```
 
-Snapshot bounds are inclusive. Deleted rows are returned as preimages. The same schema scope and row-level policy apply to change rows, including deleted preimages. Snapshot history is retained for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
+Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
 
 ## Response source and cache
 
@@ -74,13 +74,13 @@ Read responses include:
 | `X-DuckLake-Snapshot` | The DuckLake snapshot the response was read from          |
 | `X-Cache`             | `HIT`, `MISS`                                             |
 
-`X-Source` lists the sources the request queried, not the sources that returned rows. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only BigQuery was queried. BigQuery rows are always current; they carry no snapshot.
+`X-Source` lists the sources the request queried, not the sources that returned rows. The value names the source adapter, and `bigquery` is the only adapter today. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only the source was queried. Rows from the source are always current, so they carry no snapshot.
 
 A cache hit returns the headers of the answer it stored. Use `X-Cache` to tell a hit from a miss.
 
 ### Pin a snapshot
 
-Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request reads DuckLake only and never BigQuery:
+Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request reads DuckLake only and never the source:
 
 ```bash
 curl \
@@ -90,12 +90,16 @@ curl \
   "${BASE_URL}/my_table?limit=20"
 ```
 
-An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. Snapshot history is retained for seven days. A table that has no published data and no fallback also returns `404`.
+An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. DuckLake keeps the snapshot history for seven days. A table that has no published data and no fallback also returns `404`.
 
 Use these headers for troubleshooting, not authorization.
 
-See [Security](security.md) for token and access-policy setup.
+See [Security](security/index.md) for token and access-policy setup.
 
 ---
 
-[← Previous](sync.md) · [Home](../README.md) · [Next →](security.md)
+<!-- nav:start -->
+---
+
+[Previous: Sync](sync.md) | [Next: Proxy](proxy.md) | [Home](index.md)
+<!-- nav:end -->

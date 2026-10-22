@@ -1,0 +1,78 @@
+# Tests
+
+Run the unit tests that need no services with `devenv --profile default tasks run test:all`. The command runs these tasks:
+
+- `test:proxy`: the proxy specs.
+- `test:chart`: the chart tests.
+- `test:sync`: the sync unit tests.
+- `test:console` and `test:nb`: the unit tests of the console and the notebooks.
+- `test:nu`: the Nushell tests.
+
+Run the three integration suites with separate commands. Each command starts only the processes that its suite needs, runs the tests, and stops the processes:
+
+```bash
+devenv --profile sync test    # PostgreSQL, SeaweedFS, then pytest
+devenv --profile proxy test   # OpenResty with a mock PostgREST, Valkey, then the Hurl files
+devenv --profile console test # PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, then the browser tests
+```
+
+The `sync` profile starts these processes:
+
+- PostgreSQL, built from `Containerfile.postgres` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
+- SeaweedFS for S3.
+
+The `sync` suite tests the sync code and the SQL templates.
+
+A unit test checks one function, class, method or template with every input and edge case. `sync/tests/unit/test_templates.py` contains all the template tests, as one class for each engine:
+
+- The PostgreSQL class runs the templates on the real test server.
+- The DuckDB class runs them on a real DuckDB with a file catalog.
+- The BigQuery class uses a mock.
+
+The `rbac` tests in that file include Hypothesis tests. They generate random rules files and compare the answers of `rbac.can()` and `rbac.mine()` with a reference that the test computes in Python. A property runs 300 examples by default, and `RBAC_EXAMPLES` sets another number.
+
+Every template that has some logic has a test that renders it, runs it, and checks the result. A test fails when a template has neither a test nor a reason on its list of skipped templates.
+
+An integration test (`sync/tests/integration/`) checks a behavior that crosses units, such as the catalog, the state and S3.
+
+The suite doesn't test the API schemas, the database roles, or what a token may do. The end-to-end suite tests those ([Roles](../security/roles.md#how-the-rules-are-tested) lists what it covers).
+
+The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs no container engine.
+
+The `console` profile starts these parts:
+
+- the services of the `sync` profile
+- Keycloak and PostgREST
+- the console with its gateway
+- a worker for the `control` queue
+- the notebook site
+
+It runs the browser tests of the console and of the notebooks. [Frontend](frontend.md) describes it. A full run takes about ten minutes.
+
+Every process asks devenv for its ports with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. Two runs therefore never clash, and they can run at the same time. The setup passes the real number to the tests in environment variables.
+
+| Suite | Base ports |
+| --- | --- |
+| `sync` | 15432 (PostgreSQL), 18333, 19333, 18082 and 18888 (SeaweedFS) |
+| `console` | 15432 (PostgreSQL), 18333, 19333, 18082 and 18888 (SeaweedFS), 18180 (Keycloak), 13000 (PostgREST), 13001 (gateway), 13002 (notebooks), 13004 (console) |
+| `proxy` | 18080, 18090, 18100 and 18110 (the four proxies), 18081, 18091, 18101 and 18111 (mock PostgREST), 18083, 18093, 18103 and 18113 (admin), 18399 (the Redis that the Redis-down proxy uses), 18379 (Valkey) |
+
+The four proxies start one after another, because each `lx exec` rewrites `proxy/lux.lock` and two at the same time can read a half-written file.
+
+The `default` profile runs the three suites in one `devenv test`.
+
+devenv runs the task `sync:setup` (`scripts/db.nu`) before it starts pytest. If the task fails, the run stops and shows the error of the task.
+
+The PostgreSQL image installs the `ducklake` and `postgres` extensions while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
+
+On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s. A cold `devenv --profile sync test` run takes about 60 s. CI therefore keeps no layer cache.
+
+PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run seaweedfs:clean`. The task deletes the SeaweedFS data folder and creates it again.
+
+To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/processes/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
+
+<!-- nav:start -->
+---
+
+[Previous: Setup](setup.md) | [Next: Checks](checks.md) | [Index](index.md) | [Home](../index.md)
+<!-- nav:end -->

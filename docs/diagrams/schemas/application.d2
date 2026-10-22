@@ -1,0 +1,107 @@
+direction: right
+
+console: "console schema (configuration)" {
+  schemas: {
+    shape: sql_table
+    name: text {constraint: primary_key}
+    source: text
+    settings: jsonb
+    claim: text
+    encrypted: boolean
+    updated_at: timestamptz
+    updated_by: text
+  }
+  tables: {
+    shape: sql_table
+    name: text {constraint: primary_key}
+    schema: text {constraint: foreign_key}
+    strategy: text
+    n: integer
+    fallback: boolean
+    cache_ttl: integer
+    partitioning: jsonb
+    sort: "text[]"
+    updated_at: timestamptz
+    updated_by: text
+  }
+  rls: {
+    shape: sql_table
+    id: bigint {constraint: primary_key}
+    table_name: text {constraint: foreign_key}
+    column_name: text
+    unit_type: text
+    updated_at: timestamptz
+    updated_by: text
+  }
+  config_history: {
+    shape: sql_table
+    id: bigint {constraint: primary_key}
+    changed_at: timestamptz
+    changed_by: text
+    action: text
+    object: text
+    schema_name: text
+    key: text
+    old_row: jsonb
+    new_row: jsonb
+  }
+  tables.schema -> schemas.name
+  rls.table_name -> tables.name
+}
+
+data_proxy: "data_proxy schema (engine)" {
+  state: {
+    shape: sql_table
+    table_name: text {constraint: primary_key}
+    state: jsonb
+  }
+  errors: {
+    shape: sql_table
+    id: bigint {constraint: primary_key}
+    reason: text
+    fields: jsonb
+    recorded_at: timestamptz
+  }
+  scope: {
+    shape: sql_table
+    workflow_id: text {constraint: primary_key}
+    run_id: text
+    schema_name: text {constraint: primary_key}
+    table_name: text {constraint: primary_key}
+  }
+}
+
+rbac: "rbac schema (rules)" {
+  roles: {
+    shape: sql_table
+    name: text {constraint: primary_key}
+    permissions: "text[]"
+    wrapped: text
+  }
+  revision: {
+    shape: sql_table
+    singleton: boolean {constraint: primary_key}
+    value: bigint
+  }
+}
+
+source_schema: "one schema for each source schema" {
+  access_policy: {
+    shape: sql_table
+    subject: text {constraint: unique}
+    unit_type: text {constraint: unique}
+    unit_id: text {constraint: unique}
+  }
+  access_log: {
+    shape: sql_table
+    subject: text
+    unit_type: text
+    unit_id: text
+    action: text
+    changed_at: timestamptz
+  }
+  access_policy -> access_log: "trigger writes"
+}
+
+data_proxy.scope.schema_name -> console.schemas.name: "same name, no foreign key" {style.stroke-dash: 3}
+console.config_history.schema_name -> console.schemas.name: "same name, no foreign key" {style.stroke-dash: 3}

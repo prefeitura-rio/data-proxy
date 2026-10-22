@@ -1,0 +1,12 @@
+direction: right
+
+app: "Application database (data-proxy)" {
+  ...@application
+  ...@workflows
+}
+catalog: "Catalog database (ducklake)" {
+  ...@catalog
+}
+
+app.data_proxy.scope.workflow_id -> app.dbos.workflow_status.workflow_uuid: "same value, no foreign key" {style.stroke-dash: 3}
+catalog.signer.keys.schema_name -> catalog.metadata: "same name as the metadata schema" {style.stroke-dash: 3}
