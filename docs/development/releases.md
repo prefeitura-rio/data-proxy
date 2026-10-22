@@ -33,7 +33,9 @@ The release commit goes straight to `main`. If `main` is protected, add the secr
 
 ## Changelog
 
-`CHANGELOG.md` has one section for each release, with the groups Breaking changes, Features and Fixes. The template is `scripts/changelog.tera`. Don't edit the file by hand.
+`CHANGELOG.md` has one section for each release, with the groups Breaking changes, Features and Fixes. The template is `scripts/changelog.tera`. Don't edit a later section by hand.
+
+The first release lists every `feat` and `fix` since `helm-v1.127.0`. The maintainer edits that first section of `CHANGELOG.md` by hand in a normal commit, and edits the release page the same way.
 
 ## Run it locally
 

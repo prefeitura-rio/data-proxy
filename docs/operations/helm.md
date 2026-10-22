@@ -16,7 +16,7 @@ The chart creates these main objects. Each name starts with the release name.
 | `-swagger-ui` | Deployment | The Swagger UI of the API. |
 | `-configure-db`, `-migrate-db`, `-provision` | Job | The install Jobs of [Initialization](initialization.md). `configure-db` and `provision` also have a suspended CronJob of the same name. |
 | `-s3-bootstrap` | Job | Creates the S3 bucket or waits for it. |
-| `-backup`, `-maintenance` | CronJob | The access policy backup and the database maintenance. |
+| `-backup`, `-maintenance` | CronJob | The access policy backup and the database maintenance. Maintenance also deletes the DBOS workflows that finished more than `jobs.maintenance.workflowRetentionDays` days ago (90 by default). |
 | `-duckdb` | PersistentVolumeClaim | The shared volume of the DuckDB secrets. |
 
 ## Prerequisites

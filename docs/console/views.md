@@ -17,6 +17,8 @@ The `console` schema contains the views that the console reads through PostgREST
 | `errors` | The errors that the sync recorded, newest first. |
 | `overview` | One row for each schema: its tables, how many have committed state, its last sync run, and the sync runs, failed sync runs, and errors of the last 24 hours. The dashboard reads it in one request. |
 
+The maintenance job deletes a sync run with its tasks and logs after it finishes and `jobs.maintenance.workflowRetentionDays` days pass (90 by default). The views then no longer show it. A sync run that isn't finished stays.
+
 ## Reading logs and runs
 
 The console polls. A page reads `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&order=logged_at.asc` every few seconds, and it drops the lines that it already has, using the pair of `workflow_id` and `position`.

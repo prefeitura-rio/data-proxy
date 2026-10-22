@@ -26,6 +26,7 @@ E2E tests run against the local cluster or staging environment, not in CI.
 | `lint:toml` | `checks` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
 | `lint:containers` | `checks` | The container files, with `hadolint`. |
 | `lint:diagrams` | `checks` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
+| `lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 
 `docs:build:diagrams` renders the D2 sources in `docs/diagrams/` to SVG files. `docs:build:all` runs it with `docs:build:nav` and `docs:build:roles`.
 
