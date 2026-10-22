@@ -38,7 +38,9 @@ def main [
         fail $'Cannot remove ($output): ($err.msg)'
     }
 
-    uv run --frozen marimo export html-wasm $notebook --output $output --mode $mode --offline --force
+    # --no-sandbox: marimo asks on a terminal whether to run in a sandbox, and the task waits for an answer.
+    # The project has its own environment, which uv sync made above.
+    uv run --frozen marimo export html-wasm $notebook --output $output --mode $mode --offline --force --no-sandbox
 
     let duckdb = [$output duckdb] | path join
     let extension_folder = [$duckdb ext $EXTENSION_VERSION wasm_eh] | path join
