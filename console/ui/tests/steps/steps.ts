@@ -632,11 +632,11 @@ Then('the notebook shows the number of rows that the database counts', async ({ 
 	await expect(frameOf(page).locator('body')).toContainText(`ROWS=${expected}`, { timeout: 60_000 });
 });
 
-Then('the notebook gets a renewed grant within {int} minutes', async ({ page }, minutes: number) => {
+Then('the notebook gets a renewed grant within {int} seconds', async ({ page }, seconds: number) => {
 	await expect
 		.poll(async () => (await messages(page)).filter((type) => type === 'applied').length, {
-			timeout: minutes * 60_000,
-			intervals: [5_000]
+			timeout: seconds * 1000,
+			intervals: [1_000]
 		})
 		.toBeGreaterThan(1);
 });

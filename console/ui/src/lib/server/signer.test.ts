@@ -5,6 +5,7 @@ const config: SignerConfig = {
 	endpoint: 'http://storage:8333',
 	region: 'us-east-1',
 	bucket: 'data',
+	ttlSeconds: 300,
 	fallback: { accessKeyId: 'shared', secretAccessKey: 'shared-secret' }
 };
 
@@ -17,6 +18,12 @@ describe('signWith', () => {
 		expect(url.searchParams.get('X-Amz-Expires')).toBe('300');
 		expect(url.searchParams.get('X-Amz-Credential')).toContain('sales-key/');
 		expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host');
+	});
+
+	it('signs a link that expires after the lifetime of the settings', async () => {
+		const sign = signWith({ ...config, ttlSeconds: 30 }, config.fallback);
+
+		expect(new URL(await sign('a')).searchParams.get('X-Amz-Expires')).toBe('30');
 	});
 
 	it('signs a different link for another key', async () => {

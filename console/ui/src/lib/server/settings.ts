@@ -1,4 +1,5 @@
 import * as env from '$app/env/private';
+import { ttlFrom } from './grant';
 
 export const settings = () => ({
 	issuer: env.OIDC_ISSUER,
@@ -34,6 +35,7 @@ export function querySettings(): QuerySettings | null {
 			endpoint: S3_ENDPOINT,
 			region: env.S3_REGION ?? 'us-east-1',
 			bucket: S3_BUCKET,
+			ttlSeconds: ttlFrom(env.GRANT_TTL_SECONDS),
 			fallback: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY }
 		},
 		iam:

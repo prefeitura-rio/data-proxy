@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { pageOf, rangeQuery } from '#lib/list.js';
+import { collectLines } from '#lib/logs.js';
 import { controlMessage } from '#lib/messages.js';
 import { can } from '#lib/permissions.js';
 import { api, need } from '#lib/server/api.js';
@@ -28,7 +29,16 @@ export const load: PageServerLoad = async ({ locals, parent, params, url }) => {
 		client.get(`/runs?id=eq.${id}`, v.array(Run)),
 		client.page(`/tasks?run_id=eq.${id}&order=created_at&${rangeQuery(tasksPage)}`, v.array(Task)),
 		client.page(`/steps?run_id=eq.${id}&order=started_at,function_id&${rangeQuery(stepsPage)}`, v.array(Step)),
-		client.page(`/logs?run_id=eq.${id}&order=logged_at.asc&limit=${lines}`, v.array(LogLine))
+		collectLines(
+			async (limit, offset) =>
+				need(
+					await client.page(
+						`/logs?run_id=eq.${id}&order=logged_at.asc&limit=${limit}&offset=${offset}`,
+						v.array(LogLine)
+					)
+				),
+			lines
+		)
 	]);
 	const run = need(runs)[0];
 
@@ -38,7 +48,7 @@ export const load: PageServerLoad = async ({ locals, parent, params, url }) => {
 
 	const taskRows = need(tasks);
 	const stepRows = need(steps);
-	const logRows = need(logs);
+	const logRows = logs;
 
 	return {
 		run,

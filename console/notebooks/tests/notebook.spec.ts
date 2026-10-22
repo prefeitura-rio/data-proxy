@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 let servers: Awaited<ReturnType<typeof startServers>>;
 
 test.beforeAll(async () => {
-	const data = join(root, 'test-results', 'data');
+	const data = join(root, 'test-results', `data-${test.info().parallelIndex}`);
 	execFileSync('uv', ['run', '--frozen', '--group', 'test', 'python', 'tests/fixtures.py', data], {
 		cwd: root,
 		env: { ...process.env, UV_PROJECT_ENVIRONMENT: join(root, '.venv') }

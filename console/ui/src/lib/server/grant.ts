@@ -3,6 +3,21 @@ import type { Result } from './postgrest';
 
 export const TTL_SECONDS = 300;
 
+/** The lifetime of the links in seconds: the value of GRANT_TTL_SECONDS, or five minutes without one. */
+export function ttlFrom(raw: string | undefined): number {
+	if (raw === undefined || raw === '') {
+		return TTL_SECONDS;
+	}
+
+	const seconds = Number(raw);
+
+	if (!Number.isInteger(seconds) || seconds < 1) {
+		throw new Error('GRANT_TTL_SECONDS must be a positive whole number of seconds');
+	}
+
+	return seconds;
+}
+
 const SCHEMA_NAME = /^[a-z][a-z0-9_]{0,55}$/;
 
 export type FileRow = {
@@ -48,6 +63,7 @@ export async function buildGrant(options: {
 	rows: FileRow[];
 	sign: (key: string) => Promise<string> | string;
 	now: number;
+	ttlSeconds?: number;
 }): Promise<Grant> {
 	const tables = new Map<string, Grant['tables'][number]>();
 
@@ -71,7 +87,7 @@ export async function buildGrant(options: {
 	return {
 		schema: options.schema,
 		tables: [...tables.values()],
-		expiresAt: options.now + TTL_SECONDS * 1000
+		expiresAt: options.now + (options.ttlSeconds ?? TTL_SECONDS) * 1000
 	};
 }
 
@@ -87,6 +103,7 @@ type Deps = {
 	signerFor: (dataPath: string) => Promise<(key: string) => Promise<string> | string>;
 	bucket: string;
 	now: number;
+	ttlSeconds?: number;
 };
 
 const destination = (table: string) => table.replace(/^.*\./, '');
@@ -115,7 +132,8 @@ export async function createGrant(schema: string, tables: string[], deps: Deps):
 			bucket: deps.bucket,
 			rows,
 			sign: await deps.signerFor(dataPath),
-			now: deps.now
+			now: deps.now,
+			ttlSeconds: deps.ttlSeconds
 		})
 	};
 }

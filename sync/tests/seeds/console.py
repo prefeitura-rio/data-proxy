@@ -14,6 +14,8 @@ SCHEMA = "test"
 
 RUN_ID = "00000000-0000-4000-8000-0000000000f1"
 
+BIG_LOG_RUN_ID = "00000000-0000-4000-8000-0000000000f2"
+
 paths = DuckLakePaths.for_schema(SCHEMA)
 
 db = duckdb.connect()
@@ -51,6 +53,8 @@ db.execute(
 )
 
 db.execute("DELETE FROM dl.full_table WHERE n < 100")
+
+db.execute("CREATE TABLE dl.snapshot_table AS SELECT i AS n, 'unit_' || (i % 5 + 1) AS unit_id FROM range(300) AS t(i)")
 
 db.execute(
     f"COPY (SELECT count(*) FROM dl.full_table) TO '{environ['EXPECTED_ROWS_FILE']}' (FORMAT csv, HEADER false)"
@@ -173,4 +177,46 @@ with connect(settings.PG_DATABASE_URL, autocommit=True) as connection:
         FROM generate_series(0, 599) AS n
         """,
         (RUN_ID,),
+    )
+    connection.execute(
+        """
+        WITH base AS (SELECT (extract(epoch FROM now()) * 1000)::bigint - 1800000 AS ms)
+        INSERT INTO dbos.workflow_status (
+            workflow_uuid, status, name, authenticated_user, queue_name, queue_partition_key,
+            parent_workflow_id, created_at, updated_at, started_at_epoch_ms, completed_at
+        )
+        SELECT %s, 'SUCCESS', 'run_sync', 'seed-run', 'sync', NULL, NULL, ms, ms + 1000, ms, ms + 1000
+        FROM base
+        """,
+        (BIG_LOG_RUN_ID,),
+    )
+    connection.execute(
+        "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, 'test')",
+        (BIG_LOG_RUN_ID, BIG_LOG_RUN_ID),
+    )
+    connection.execute(
+        """
+        INSERT INTO dbos.streams (workflow_uuid, key, value, "offset", serialization)
+        SELECT
+            %s, 'logs',
+            json_build_object(
+                'time', now() - (5200 - n) * interval '1 second',
+                'level', 'INFO',
+                'message', 'big log line ' || n,
+                'fields', '{}'::json,
+                'schema', 'test',
+                'table', 'full_table'
+            )::text,
+            n, 'portable_json'
+        FROM generate_series(0, 5199) AS n
+        """,
+        (BIG_LOG_RUN_ID,),
+    )
+    connection.execute(
+        """
+        INSERT INTO console.config_history (changed_by, action, object, schema_name, key)
+        SELECT 'seed', 'update', 'tables', 'test', 'seed.table.' || n FROM generate_series(1, 30) AS n
+        UNION ALL
+        SELECT 'seed', 'update', 'schemas', 'test', 'test' FROM generate_series(1, 2)
+        """
     )

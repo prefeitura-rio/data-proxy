@@ -74,3 +74,10 @@ Feature: Who sees and does what
     And I do not see the "Sync" tab
     And I do not see the "Config" tab
     And I do not see the "Query" tab
+
+  Scenario: The access log pages
+    Given I sign in as "web_admin"
+    When I open the "Access" tab
+    Then the list with the column "Action" says "1 to 20 of"
+    When I go to the "Older" rows of the list with the column "Action"
+    Then the list with the column "Action" says "21 to 40 of"
