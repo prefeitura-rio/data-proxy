@@ -31,3 +31,5 @@ k3d/.tmp/
 proxy/.lux/
 sync/.env.test
 packaged/
+site/
+mkdocs.nav.yml

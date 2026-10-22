@@ -1,4 +1,5 @@
 {
+  lib,
   pkgs,
   config,
   utils,
@@ -104,6 +105,7 @@ let
       {
         name = "bucket";
         description = "Create the storage bucket.";
+        packages = with pkgs; [ rclone ];
         command = [
           "nu"
           "helm/files/scripts/ensure-s3-bucket.nu"
@@ -145,6 +147,7 @@ let
       {
         name = "provision";
         description = "Provision the schemas of the sync settings.";
+        packages = with pkgs; [ rclone ];
         command = [
           "nu"
           "helm/files/scripts/provision.nu"
@@ -236,14 +239,6 @@ in
     '';
   };
 
-  packages = with pkgs; [
-    caddy
-    goose
-    minijinja
-    postgresql_17
-    rclone
-  ];
-
   tasks =
     setup.tasks
     // build.tasks
@@ -329,7 +324,7 @@ in
     gateway =
       utils.mkProcess {
         command = [
-          "caddy"
+          (lib.getExe pkgs.caddy)
           "reverse-proxy"
           "--from"
           ":${toString gatewayPort}"

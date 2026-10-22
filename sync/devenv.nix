@@ -23,12 +23,7 @@
           DUCKLAKE_CATALOG_URL=${utils.postgresUrl { database = "ducklake"; }}
         '';
 
-        packages = with pkgs; [
-          goose
-          minijinja
-          postgresql_17
-          sqlfluff
-        ];
+        packages = with pkgs; [ sqlfluff ];
 
         languages.python.lsp.package = pkgs.basedpyright;
 

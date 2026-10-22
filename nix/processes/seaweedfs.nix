@@ -5,11 +5,6 @@ let
   port = toString (utils.port "seaweedfs" "main");
 in
 {
-  packages = [
-    pkgs.curl
-    pkgs.seaweedfs
-  ];
-
   env = {
     TEST_S3_ENDPOINT = "127.0.0.1:${port}";
     TEST_S3_ACCESS_KEY = storage.admin.accessKey;
@@ -45,6 +40,7 @@ in
 
   processes.seaweedfs =
     utils.mkProcess {
+      packages = with pkgs; [ seaweedfs ];
       command = [
         "weed"
         "server"

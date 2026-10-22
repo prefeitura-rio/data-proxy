@@ -58,9 +58,52 @@ let
     "postgresql://${user}:${password}@127.0.0.1:${toString (port "postgres" "main")}/${database}";
 
   /**
-    A devenv task that runs Nushell.
+    The lines of a Bash command that put the programs of some packages first in `PATH`. They change `PATH` for that
+    command only. The result is empty without packages.
+
+    # Type
+
+    ```
+    bashPath :: [Package] -> String
+    ```
   */
-  nuTask = task: { package = pkgs.nushell; } // task;
+  bashPath =
+    packages: lib.optionalString (packages != [ ]) "export PATH=${lib.makeBinPath packages}:\"$PATH\"\n";
+
+  /**
+    The lines of a Nushell command that put the programs of some packages first in `PATH`. They change `PATH` for that
+    command only. The result is empty without packages.
+
+    # Type
+
+    ```
+    nuPath :: [Package] -> String
+    ```
+  */
+  nuPath =
+    packages:
+    lib.optionalString (packages != [ ])
+      "$env.PATH = ($env.PATH | prepend ${builtins.toJSON (lib.splitString ":" (lib.makeBinPath packages))})\n";
+
+  /**
+    A devenv task that runs Nushell. It puts the programs of `packages` first in `PATH` for the task only. Add the other
+    options of the task with the same attribute set.
+
+    # Type
+
+    ```
+    nuTask :: { packages :: [Package]?, exec :: String? } -> AttrSet
+    ```
+  */
+  nuTask =
+    {
+      packages ? [ ],
+      exec ? null,
+      ...
+    }@task:
+    { package = pkgs.nushell; }
+    // removeAttrs task [ "packages" ]
+    // lib.optionalAttrs (exec != null) { exec = nuPath packages + exec; };
 
   /**
     The name of the devenv task of a process, to use in `after`, `before` and `wantedBy`.
@@ -85,19 +128,23 @@ let
     `env`
     : The variables to set.
 
+    `packages`
+    : The packages whose programs the command may call. They come first in `PATH` for this process only.
+
     # Type
 
     ```
-    mkProcess :: { command :: [String], env :: AttrSet? } -> AttrSet
+    mkProcess :: { command :: [String], env :: AttrSet?, packages :: [Package]? } -> AttrSet
     ```
   */
   mkProcess =
     {
       command,
       env ? { },
+      packages ? [ ],
     }:
     {
-      exec = "exec ${lib.escapeShellArgs command}";
+      exec = "${bashPath packages}exec ${lib.escapeShellArgs command}";
       env = toStrings env;
       restart.on = "never";
     };
@@ -114,19 +161,23 @@ let
     `env`
     : The variables to set.
 
+    `packages`
+    : The packages whose programs the command may call. They come first in `PATH` for this task only.
+
     # Type
 
     ```
-    mkTask :: { command :: [String], env :: AttrSet? } -> AttrSet
+    mkTask :: { command :: [String], env :: AttrSet?, packages :: [Package]? } -> AttrSet
     ```
   */
   mkTask =
     {
       command,
       env ? { },
+      packages ? [ ],
     }:
     {
-      exec = lib.escapeShellArgs command;
+      exec = bashPath packages + lib.escapeShellArgs command;
       env = toStrings env;
     };
 
@@ -141,10 +192,13 @@ let
     : The prefix of the task names.
 
     `steps`
-    : A list of `{ name, command }`, and an optional `description`.
+    : A list of `{ name, command }`, with an optional `description` and an optional `packages` list for that step.
 
     `env`
     : The variables of every step.
+
+    `packages`
+    : The packages whose programs the steps may call.
 
     `common`
     : The options that every step shares, such as `cwd` and `execIfModified`.
@@ -155,7 +209,7 @@ let
     # Type
 
     ```
-    mkTaskChain :: { name :: String, steps :: [{ name :: String, command :: [String] }], env :: AttrSet?, common :: AttrSet?, after :: [String]?, before :: [String]? } -> { tasks :: AttrSet, last :: String }
+    mkTaskChain :: { name :: String, steps :: [{ name :: String, command :: [String] }], env :: AttrSet?, packages :: [Package]?, common :: AttrSet?, after :: [String]?, before :: [String]? } -> { tasks :: AttrSet, last :: String }
     ```
 
     `last` is the name of the last step.
@@ -165,6 +219,7 @@ let
       name,
       steps,
       env ? { },
+      packages ? [ ],
       common ? { },
       after ? [ ],
       before ? [ ],
@@ -186,6 +241,7 @@ let
             mkTask {
               inherit (step) command;
               inherit env;
+              packages = packages ++ step.packages or [ ];
             }
             // common
             // stepOrder
@@ -272,7 +328,8 @@ let
         A `ready` check that passes with any answer. The storage answers 403 to a call without a key, which still shows
         that it runs. It uses the same timing as `http`.
       */
-      anyAnswer = url: mkProbe { exec = "curl --silent --output /dev/null ${lib.escapeShellArg url}"; };
+      anyAnswer =
+        url: mkProbe { exec = "${lib.getExe pkgs.curl} --silent --output /dev/null ${lib.escapeShellArg url}"; };
 
       /**
         A `ready` check that passes when the command exits with 0. It uses the same timing as `http`.
@@ -282,16 +339,17 @@ let
 
   /**
     A command of the shell of the project that runs one script of `scripts/`. The copy has the plain name of the
-    command, so that the help of the script shows it and not the name of a store path.
+    command, so that the help of the script shows it and not the name of a store path. The programs of `packages` come
+    first in `PATH` while the script runs.
 
     # Type
 
     ```
-    nushellCommand :: String -> Derivation
+    nushellCommand :: String -> [Package] -> Derivation
     ```
   */
   nushellCommand =
-    name:
+    name: packages:
     let
       script = pkgs.runCommand name { } ''
         mkdir -p $out
@@ -300,7 +358,7 @@ let
     in
     pkgs.writers.writeNuBin name ''
       def --wrapped main [...args: string] {
-          exec ${lib.getExe pkgs.nushell} --include-path ${config.devenv.root}/scripts ${script}/${name} ...$args
+          ${nuPath packages}exec ${lib.getExe pkgs.nushell} --include-path ${config.devenv.root}/scripts ${script}/${name} ...$args
       }
     '';
 in

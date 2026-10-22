@@ -1,4 +1,4 @@
-{ utils, ... }:
+{ pkgs, utils, ... }:
 {
   tasks."sync:setup" =
     utils.mkTask {
@@ -6,6 +6,7 @@
         "nu"
         "scripts/db.nu"
       ];
+      packages = with pkgs; [ kubernetes-helm ];
     }
     // {
       description = "Create the databases of the sync tests.";

@@ -6,6 +6,7 @@ const PAGE = 'docs/security/roles.md'
 const RULES = 'helm/files/config/rbac.toml'
 const DOCS = 'docs'
 const NAV = 'docs/.nav.json'
+const MKDOCS_NAV = 'mkdocs.nav.yml'
 const NAV_START = '<!-- nav:start -->'
 const NAV_END = '<!-- nav:end -->'
 
@@ -75,6 +76,23 @@ def title [root: path, page: path]: nothing -> string {
     | where $it =~ '^# '
     | first
     | str substring 2..
+}
+
+# Return the MkDocs item of a node of the navigation tree.
+# A page without children is its path. A page with children is a section that starts with the page.
+export def mkdocs-item [node: record, root: path]: nothing -> oneof<string, record> {
+    let children = $node | get --optional children | default []
+
+    if ($children | is-empty) {
+        return $node.page
+    }
+
+    {
+        (title $root $node.page): [
+            $node.page
+            ...($children | each {|child| mkdocs-item $child $root })
+        ]
+    }
 }
 
 # Return the path components of a path, or an empty list for an empty path.
@@ -221,9 +239,15 @@ def load-nav []: nothing -> list<record> {
     $entries
 }
 
-# Write the navigation block of every page of the docs, in the order of docs/.nav.json.
+# Write the navigation block of every page of the docs and the MkDocs navigation, in the order of docs/.nav.json.
 def "main nav write" []: nothing -> nothing {
     let entries = load-nav
+    let tree = read-data $NAV
+    let sections = $tree | get children | each {|child| mkdocs-item $child $DOCS }
+
+    {
+        nav: [$tree.page ...$sections]
+    } | to yaml | write-text $MKDOCS_NAV
 
     for page in (stale-pages $entries $DOCS) {
         let file = $DOCS | path join $page
@@ -239,6 +263,56 @@ def "main nav check" []: nothing -> nothing {
     if ($old | is-not-empty) {
         fail $'These pages have an old navigation block, run `nu scripts/docs.nu nav write`: ($old | str join ", ")'
     }
+}
+
+# Return the ids of the processes that listen on a port. The command lsof exits with 1 when there are none.
+def listeners [port: int]: nothing -> list<int> {
+    let result = lsof -t -i $'tcp:($port)' -sTCP:LISTEN | complete
+
+    if $result.exit_code > 1 {
+        fail $'lsof failed: ($result.stderr)'
+    }
+
+    $result.stdout | lines | into int
+}
+
+# Stop the MkDocs servers that listen on a port, and fail when another program uses the port.
+def free-port [port: int]: nothing -> nothing {
+    for pid in (listeners $port) {
+        let found = ps --long | where pid == $pid
+
+        if ($found | is-empty) {
+            continue
+        }
+
+        if $found.command.0 !~ mkdocs {
+            fail $'Port ($port) is in use by process ($pid), which is not MkDocs. Set DOCS_PORT to use another port.'
+        }
+
+        kill $pid
+    }
+
+    while (listeners $port | is-not-empty) {
+        sleep 100ms
+    }
+}
+
+# Stop an old MkDocs server on the port, then serve the docs and open them in the browser.
+def "main serve" [
+    --opener: string = xdg-open # The program that opens the address, `open` on macOS.
+]: nothing -> nothing {
+    let port = $env.DOCS_PORT? | default 18200 | into int
+
+    free-port $port
+
+    let address = $'127.0.0.1:($port)'
+
+    job spawn {
+        sleep 2sec
+        ^$opener $'http://($address)'
+    }
+
+    mkdocs serve --dev-addr $address
 }
 
 def main []: nothing -> nothing {

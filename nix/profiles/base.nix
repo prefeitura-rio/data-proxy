@@ -16,7 +16,10 @@
 
       packages = with pkgs; [
         curl
+        goose
+        minijinja
         nushell
+        postgresql_17
       ];
 
       env = {

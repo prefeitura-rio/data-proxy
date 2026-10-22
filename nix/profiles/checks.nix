@@ -4,6 +4,8 @@
   ...
 }:
 let
+  opener = if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open";
+  openerPackages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
   containerfiles = builtins.attrNames (
     lib.filterAttrs (name: _: lib.hasPrefix "Containerfile." name) (builtins.readDir ../..)
   );
@@ -27,22 +29,25 @@ in
       in
       {
         packages = with pkgs; [
-          actionlint
           cocogitto
           d2
-          hadolint
-          nu-lint
-          nushell
-          shellcheck
-          taplo
           vale
         ];
+
+        env = {
+          D2_LAYOUT = "elk";
+          D2_DARK_THEME = "200";
+        };
 
         scripts.ci = {
           description = "Compute the CI change flags and publish the chart and the images.";
           package = pkgs.nushell;
           binary = "nu";
           exec = ../../scripts/ci.nu;
+          packages = with pkgs; [
+            git
+            go-containerregistry
+          ];
         };
 
         git-hooks.hooks.ripsecrets.enable = true;
@@ -62,6 +67,10 @@ in
         tasks = {
           "lint:ci" = utils.nuTask {
             description = "Lint the GitHub workflows.";
+            packages = with pkgs; [
+              actionlint
+              shellcheck
+            ];
             exec = "actionlint .github/workflows/*.yaml";
             execIfModified = [
               ".github/workflows"
@@ -70,6 +79,7 @@ in
           };
           "lint:nu" = utils.nuTask {
             description = "Lint the Nushell scripts.";
+            packages = with pkgs; [ nu-lint ];
             exec = builtins.readFile ../../scripts/nu-lint.nu;
             execIfModified = [
               "helm/files/**/*.nu"
@@ -89,6 +99,7 @@ in
           };
           "lint:toml" = utils.nuTask {
             description = "Lint the RBAC rules file.";
+            packages = with pkgs; [ taplo ];
             exec = ''
               taplo lint helm/files/config/rbac.toml
               taplo fmt --check helm/files/config/rbac.toml
@@ -101,49 +112,83 @@ in
           };
           "lint:containers" = utils.nuTask {
             description = "Lint the Containerfiles.";
+            packages = with pkgs; [ hadolint ];
             exec = lib.concatMapStringsSep "\n" (name: "hadolint ${name}") containerfiles;
             execIfModified = [ ".hadolint.yaml" ] ++ containerfiles;
           };
 
-          "docs:diagrams" = utils.nuTask {
+          "docs:build:diagrams" = utils.nuTask {
             description = "Render the D2 diagrams to SVG.";
             exec = ''
               for file in (glob docs/diagrams/**/*.d2) {
-                  d2 --layout elk --dark-theme 200 $file ($file | str replace --regex '\.d2$' '.svg')
+                  d2 $file ($file | path parse | update extension svg | path join)
               }
             '';
             execIfModified = [ "docs/diagrams/**/*.d2" ];
           };
-          "docs:roles" = utils.nuTask {
+          "docs:build:all" = {
+            description = "Generate the diagrams, the navigation and the role table.";
+            after = tasksWith "docs:build:";
+          };
+          "docs:serve" = utils.nuTask {
+            description = "Generate the diagrams, the navigation and the role table, then serve the docs.";
+            packages =
+              with pkgs;
+              [
+                lsof
+                mkdocs
+              ]
+              ++ openerPackages;
+            after = [ "docs:build:all" ];
+            exec = "nu scripts/docs.nu serve --opener ${opener}";
+          };
+          "docs:build:roles" = utils.nuTask {
             description = "Write the role and permission table in the Roles page.";
             exec = "nu scripts/docs.nu write";
-            execIfModified = [ "helm/files/config/rbac.toml" "scripts/docs.nu" ];
+            execIfModified = [
+              "helm/files/config/rbac.toml"
+              "scripts/docs.nu"
+            ];
           };
           "lint:roles" = utils.nuTask {
             description = "Check that the role and permission table in the Roles page is current.";
             exec = "nu scripts/docs.nu check";
-            execIfModified = [ "helm/files/config/rbac.toml" "docs/security/roles.md" "scripts/docs.nu" ];
+            execIfModified = [
+              "helm/files/config/rbac.toml"
+              "docs/security/roles.md"
+              "scripts/docs.nu"
+            ];
           };
-          "docs:nav" = utils.nuTask {
-            description = "Write the navigation block of every docs page, in the order of docs/.nav.json.";
+          "docs:build:nav" = utils.nuTask {
+            description = "Write the navigation block of every docs page and the MkDocs navigation, in the order of docs/.nav.json.";
             exec = "nu scripts/docs.nu nav write";
-            execIfModified = [ "docs" "scripts/docs.nu" ];
+            execIfModified = [
+              "docs"
+              "mkdocs.nav.yml"
+              "scripts/docs.nu"
+            ];
           };
           "lint:nav" = utils.nuTask {
             description = "Check the navigation blocks and docs/.nav.json against the docs files.";
             exec = "nu scripts/docs.nu nav check";
-            execIfModified = [ "docs" "scripts/docs.nu" ];
+            execIfModified = [
+              "docs"
+              "scripts/docs.nu"
+            ];
           };
           "lint:diagrams" = utils.nuTask {
             description = "Check that the rendered diagrams are current.";
             exec = ''
-              let temp = mktemp --directory
               for file in (glob docs/diagrams/**/*.d2) {
-                  let svg = $file | str replace --regex '\.d2$' '.svg'
-                  let fresh = $temp | path join ($svg | path basename)
-                  d2 --layout elk --dark-theme 200 $file $fresh
-                  if (open --raw $fresh) != (open --raw $svg) {
-                      error make { msg: $"($svg) is out of date: run docs:diagrams" }
+                  let svg = $file | path parse | update extension svg | path join
+                  let fresh = d2 $file - | complete
+
+                  if $fresh.exit_code != 0 {
+                      error make { msg: $fresh.stderr }
+                  }
+
+                  if ($fresh.stdout | str trim) != (open --raw $svg | str trim) {
+                      error make { msg: $"($svg) is out of date: run docs:build:diagrams" }
                   }
               }
             '';

@@ -5,13 +5,6 @@
     module =
       { utils, ... }:
       {
-        packages = with pkgs; [
-          gh
-          helmfile
-          kubeconform
-          kubernetes-helm
-        ];
-
         languages.helm = {
           enable = true;
           plugins = [ "helm-unittest" ];
@@ -25,6 +18,7 @@
           };
           "test:chart" = utils.nuTask {
             description = "Run the Helm chart tests.";
+            packages = with pkgs; [ kubeconform ];
             exec = builtins.readFile ../scripts/helm.nu;
             execIfModified = [
               "helm"

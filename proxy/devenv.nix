@@ -21,10 +21,7 @@
           PENLIGHT_TYPES = "${inputs.penlight-types}/library";
         };
 
-        packages = with pkgs; [
-          hurl
-          lux-cli
-        ];
+        packages = with pkgs; [ lux-cli ];
 
         languages.lua = {
           enable = true;
@@ -97,7 +94,7 @@
             };
         };
 
-        enterTest = "hurl --test --max-time 30 proxy/tests/integration/*.hurl";
+        enterTest = "${lib.getExe pkgs.hurl} --test --max-time 30 proxy/tests/integration/*.hurl";
       };
   };
 }

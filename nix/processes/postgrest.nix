@@ -4,13 +4,9 @@ let
   jwks = utils.stateFile "jwks.json";
 in
 {
-  packages = [
-    pkgs.curl
-    pkgs.postgrest
-  ];
-
   tasks."postgrest:jwks" =
     utils.mkTask {
+      packages = with pkgs; [ curl ];
       command = [
         "curl"
         "--fail"
@@ -29,6 +25,7 @@ in
 
   processes.postgrest =
     utils.mkProcess {
+      packages = with pkgs; [ postgrest ];
       command = [ "postgrest" ];
       env = {
         PGRST_DB_URI = utils.postgresUrl {
