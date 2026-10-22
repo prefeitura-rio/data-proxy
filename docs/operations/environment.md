@@ -26,7 +26,7 @@ These variables set the object store and the DuckLake catalogs.
 | `S3_USE_SSL` | `false` | Use TLS for S3. |
 | `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
 | `S3_SECRET_KEY` | `seaweedfs-local` | S3 secret key. |
-| `S3_SCRATCH_PREFIX` | `tmp` | Temporary extraction Parquet prefix. |
+| `S3_SCRATCH_PREFIX` | `tmp` | The folder of the temporary extraction Parquet files. The sync worker deletes everything under it when a run ends, so each install that shares a bucket needs its own. The chart sets it with `s3.scratchPrefix`. |
 | `S3_IDENTITIES` | `false` | Delete the S3 identities of schemas that the console no longer lists (the step `cleanup_s3_credentials`). The chart turns it on with `console.storage.perSchemaIdentities`. |
 | `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ops` role. The chart builds it from the password Secret of `ops`. Each schema writes to its own metadata schema. |
 | `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for the per-schema Parquet data. |
