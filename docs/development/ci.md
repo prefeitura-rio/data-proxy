@@ -63,6 +63,8 @@ A push to `preview` runs the same checks as `main`. Then `build-images` builds a
 
 The job `pin-preview` runs `ci preview pin` after the build. The command writes those tags into `helm/values.yaml`, commits the file as `chore(preview): pin the images to <commit> [skip ci]`, and pushes the commit to `preview`. The `helm` job never runs on this branch, so a push to `preview` makes no release and no tag.
 
+After the pin, the same job runs `ci chart login` and `ci chart preview`. The second command packages the chart with the version of the next release and the suffix `-preview.<run number>`, such as `2.0.0-preview.12`, and pushes it to the OCI registry. It makes no commit, no tag and no GitHub release, and it never touches `main`. The run number makes each preview version newer than the last.
+
 The cluster reads the branch with a Flux GitRepository and renders `./helm` from it. The pin commit therefore rolls the preview to the new images.
 
 ## SAST
