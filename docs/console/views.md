@@ -21,7 +21,9 @@ The maintenance job deletes a sync run with its tasks and logs after it finishes
 
 ## Reading logs and runs
 
-The console polls. A page reads `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&order=logged_at.asc` every few seconds, and it drops the lines that it already has, using the pair of `workflow_id` and `position`.
+The run page streams the log. The route `/sync/runs/<id>/logs` sends server-sent events. Each second it reads `GET /runs?id=eq.<id>` for the status and `GET /logs?run_id=eq.<id>&logged_at=gte.<last>&order=logged_at.asc` for the lines. It sends each line once, using the pair of `workflow_id` and `position`.
+
+The page has a Live logs switch, which is on while the sync run is active. Turn it off to stop the stream and the scrolling, and turn it on again to continue from the last line. The stream ends when the sync run finishes.
 
 It reads `GET /runs?id=eq.<id>` and `GET /tasks?run_id=eq.<id>` for the status. `GET /overview` returns the dashboard in one request.
 

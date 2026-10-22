@@ -28,7 +28,7 @@ The app has these routes besides the tab pages. Every request that changes data 
 | `/auth/logout` | POST | No | Deletes the session cookie. It redirects to the end-session address of the identity provider, or to `/auth/login` when the provider has none. |
 | `/config/export` | GET | Yes | Downloads `sync.json`, which `console.sync_config()` builds from the rows that the user may read. |
 | `/query/grant` | POST | Yes | Takes `{schema, tables}` and returns the signed links for the files of those tables. It needs `read_files` and the schema, which `console.table_files()` checks. It answers 503 when the query tab isn't set up. |
-| `/sync/runs/<id>/logs` | GET | Yes | Returns up to 1000 log lines of the run and its status. The query `after` limits the lines to a later time. The run page asks every 3 seconds. It answers 404 for an unknown run. |
+| `/sync/runs/<id>/logs` | GET | Yes | Streams the status and the new log lines of the run as server-sent events, one read each second, until the sync run finishes or the page leaves. The query `after`, or the header `Last-Event-ID` of a reconnect, limits the lines to a later time. The query `settle` keeps the stream open for 30 seconds after the status finishes, because a resume or a retry may follow. It answers 404 for an unknown run. |
 | `/healthz` | GET | No | Answers `ok`. The probes of the Deployment use it. |
 
 The code of the app is in `console/ui/src`:
