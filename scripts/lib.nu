@@ -343,3 +343,8 @@ export def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
 export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
     where $it =~ ^helm-v | get --optional 0
 }
+
+# Return the tag that `cog bump --dry-run` prints when a release is due, or null when it prints a message.
+export def release-tag []: string -> oneof<string, nothing> {
+    lines | where $it =~ '^helm-v\d+\.\d+\.\d+' | get --optional 0
+}

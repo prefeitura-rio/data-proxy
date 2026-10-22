@@ -1,5 +1,15 @@
 use std/log
-use lib.nu [fail IMAGES latest-helm-tag make-dir read-data read-text write-text]
+use lib.nu [
+    check-result
+    fail
+    IMAGES
+    latest-helm-tag
+    make-dir
+    read-data
+    read-text
+    release-tag
+    write-text
+]
 
 # CI platform configuration with GitHub Actions defaults.
 let ci = {
@@ -10,7 +20,6 @@ let ci = {
     registry_user: ($env.CI_REGISTRY_USER? | default ($env.GITHUB_ACTOR?))
     bot_name: ($env.CI_BOT_NAME? | default 'github-actions[bot]')
     bot_email: ($env.CI_BOT_EMAIL? | default 'github-actions[bot]@users.noreply.github.com')
-    release_tool: ($env.CI_RELEASE_TOOL? | default gh)
 }
 
 # Return the image name from the environment, such as SYNC_IMAGE, or the default name of the image.
@@ -120,44 +129,21 @@ def 'main images resolve' []: nothing -> nothing {
 def 'main version' []: nothing -> nothing {
     log info 'Calculating the next Helm chart version...'
 
-    let current = read-data helm/Chart.yaml | get version
-    let previous = previous-helm-tag
+    write-output current (read-data helm/Chart.yaml | get version)
 
-    let range = if $previous == null {
-        log warning 'No previous Helm tag found; using the last commit.'
-        'HEAD~1..HEAD'
-    } else {
-        log info $'Previous Helm release: ($previous)'
-        $'($previous)..HEAD'
-    }
+    let tag = cog bump --auto --dry-run | complete | check-result 'cog bump --dry-run' | release-tag
 
-    let levels = git log --format=%s $range
-    | lines
-    | where $it !~ '\[skip ci\]'
-    | each {|subject|
-        match $subject {
-            $header if $header =~ '^(feat|fix)(\([^)]+\))?!:' => 'major'
-            $header if $header =~ '^feat(\([^)]+\))?:' => 'minor'
-            $header if $header =~ '^fix(\([^)]+\))?:' => 'patch'
-            _ => null
-        }
-    }
-    | compact
-
-    write-output current $current
-
-    if ($levels | is-empty) {
+    if $tag == null {
         write-output release (false | into string)
         log info 'No release-level Conventional Commit found.'
         return
     }
 
-    let level = [major minor patch] | where $it in $levels | first
-    let next = $current | semver bump $level | to text
+    let next = $tag | str replace helm-v ''
 
     write-output release (true | into string)
     write-output next $next
-    write-output tag $'helm-v($next)'
+    write-output tag $tag
 
     log info $'Next Helm chart version: ($next)'
 }
@@ -195,12 +181,14 @@ def 'main images pin' []: nothing -> nothing {
     log info $'Pinned ($pinned) image references in helm/values.yaml.'
 }
 
-# Set the chart version selected by the version subcommand.
-def 'main chart bump' []: nothing -> nothing {
-    log info $'Bumping Helm chart version to ($env.NEXT)...'
+# Set the chart version. The pre-bump hook of cog.toml calls it with the next version.
+def 'main chart bump' [
+    version: string # The next chart version, without the helm-v prefix.
+]: nothing -> nothing {
+    log info $'Bumping Helm chart version to ($version)...'
 
     read-text helm/Chart.yaml
-    | str replace --regex '(?m)^version: .*$' $'version: ($env.NEXT)'
+    | str replace --regex '(?m)^version: .*$' $'version: ($version)'
     | write-text helm/Chart.yaml
 
     log info 'Helm chart version updated.'
@@ -215,9 +203,15 @@ def 'main git update' []: nothing -> nothing {
 
 # Log in to the OCI chart registry.
 def 'main chart login' []: nothing -> nothing {
-    log info 'Logging in to GHCR...'
-    $ci.registry_token | helm registry login $ci.registry --username $ci.registry_user --password-stdin
-    log info 'Logged in to GHCR.'
+    log info $'Logging in to ($ci.registry)...'
+
+    $ci.registry_token
+    | helm registry login $ci.registry --username $ci.registry_user --password-stdin
+    | complete
+    | check-result 'helm registry login'
+    | ignore
+
+    log info $'Logged in to ($ci.registry).'
 }
 
 # Package the Helm chart into the packaged directory.
@@ -228,32 +222,47 @@ def 'main chart package' []: nothing -> nothing {
     log info 'Helm chart packaged.'
 }
 
-# Commit and push the generated chart release.
-def 'main chart commit' []: nothing -> nothing {
-    log info $'Committing Helm release ($env.NEXT)...'
+# Bump the chart version, write the changelog, commit and tag with cog. The hooks of cog.toml pin the images first.
+def 'main release bump' []: nothing -> nothing {
+    log info 'Bumping the Helm release with cog...'
+
     git config user.name $ci.bot_name
     git config user.email $ci.bot_email
-    git add helm/Chart.yaml helm/values.yaml
-    git commit -m $'chore: release helm chart ($env.NEXT) [skip ci]'
-    git tag $env.RELEASE_TAG
-    git push origin HEAD:main
-    git push origin $env.RELEASE_TAG
-    log info $'Committed and pushed Helm release ($env.NEXT).'
+    cog bump --auto --skip-ci | complete | check-result 'cog bump' | print
+
+    log info 'Helm release committed and tagged.'
 }
 
-# Publish the packaged chart and create its release.
+# Push the release commit and its tag to main. The push is atomic, so a rejected main leaves no tag behind.
+def 'main release push' [
+    tag: string # The release tag, such as helm-v1.128.0.
+]: nothing -> nothing {
+    log info $'Pushing Helm release ($tag)...'
+
+    git push --atomic origin HEAD:main $tag | complete | check-result 'git push' | ignore
+
+    log info $'Pushed Helm release ($tag).'
+}
+
+# Write the changelog section of a release to packaged/notes.md, for the release page of any forge.
+def 'main release notes' [
+    tag: string # The release tag, such as helm-v1.128.0.
+]: nothing -> nothing {
+    log info $'Writing the notes of ($tag)...'
+
+    make-dir packaged
+    cog changelog --at $tag | complete | check-result 'cog changelog' | write-text packaged/notes.md
+}
+
+# Publish the packaged chart to the OCI registry.
 def 'main chart publish' []: nothing -> nothing {
-    log info $'Publishing Helm release ($env.RELEASE_TAG)...'
-
     let package = glob packaged/*.tgz | first
-    let previous = previous-helm-tag
-    let notes = if $previous == null { [] } else { [--notes-start-tag $previous] }
 
-    helm push $package $'oci://($ci.registry)/(ci-repository-owner)/charts'
-    ^($ci.release_tool) release create $env.RELEASE_TAG --title $'Helm chart ($env.RELEASE_TAG)' ...$notes --generate-notes
-    ^($ci.release_tool) release upload $env.RELEASE_TAG $package
+    log info $'Publishing ($package)...'
 
-    log info $'Published Helm release ($env.RELEASE_TAG).'
+    helm push $package $'oci://($ci.registry)/(ci-repository-owner)/charts' | complete | check-result 'helm push' | ignore
+
+    log info 'Published the Helm chart.'
 }
 
 # Decide whether a Helm release is needed.

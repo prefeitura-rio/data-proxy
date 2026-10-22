@@ -1,5 +1,5 @@
 use std/assert
-use ../lib.nu latest-helm-tag
+use ../lib.nu [latest-helm-tag release-tag]
 
 # Verify that the newest Helm tag wins and that other tags do not count.
 export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
@@ -10,4 +10,18 @@ export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
 export def "test latest-helm-tag-is-null-without-a-helm-tag" []: nothing -> nothing {
     assert equal ([v1.0.0] | latest-helm-tag) null
     assert equal ([] | latest-helm-tag) null
+}
+
+# Verify that the tag that a dry run prints is returned.
+export def "test release-tag-reads-the-printed-tag" []: nothing -> nothing {
+    assert equal ("helm-v2.0.0\n" | release-tag) 'helm-v2.0.0'
+    assert equal ("Found feature commit abc\nhelm-v1.128.0\n" | release-tag) 'helm-v1.128.0'
+}
+
+# Verify that the message of a dry run without a release gives null.
+export def "test release-tag-is-null-without-a-release" []: nothing -> nothing {
+    let message = "No conventional commits for your repository that required a bump.\nPre-Hooks and Post-Hooks have been skipped.\n"
+
+    assert equal ($message | release-tag) null
+    assert equal ("" | release-tag) null
 }

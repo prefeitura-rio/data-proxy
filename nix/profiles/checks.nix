@@ -28,6 +28,7 @@ in
       {
         packages = with pkgs; [
           actionlint
+          cocogitto
           d2
           hadolint
           nu-lint
