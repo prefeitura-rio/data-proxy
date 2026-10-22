@@ -62,6 +62,7 @@
             cwd = "sync";
             exec = ''
               uv run --frozen ruff check src tests
+              uv run --frozen ruff format --check src tests
               basedpyright
               uv run --frozen pyrefly check
               uv run --frozen complexipy src tests
