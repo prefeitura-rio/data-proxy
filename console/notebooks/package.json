@@ -1,0 +1,30 @@
+{
+	"name": "data-proxy-notebooks",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "vitest run src",
+		"check": "tsc",
+		"test:browser": "playwright test",
+		"lint": "eslint . && prettier --ignore-path ../../.prettierignore --check .",
+		"format": "prettier --ignore-path ../../.prettierignore --write ."
+	},
+	"dependencies": {
+		"@duckdb/duckdb-wasm": "1.29.0",
+		"apache-arrow": "^21.0.0",
+		"valibot": "^1.5.0"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@playwright/test": "1.61.1",
+		"@types/node": "^24",
+		"esbuild": "^0.25.0",
+		"eslint": "^10.13.0",
+		"globals": "^17.13.0",
+		"prettier": "^3.9.10",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.71.2",
+		"vitest": "^5.0.5"
+	}
+}

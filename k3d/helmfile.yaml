@@ -1,0 +1,136 @@
+helmDefaults:
+  createNamespace: true
+  wait: true
+  timeout: 900
+  syncArgs:
+    - --force-conflicts
+
+repositories:
+  - name: cnpg
+    url: https://cloudnative-pg.io/charts/
+  - name: keda
+    url: https://kedacore.github.io/charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  - name: istio
+    url: https://istio-release.storage.googleapis.com/charts
+  - name: cloudpirates
+    url: https://cloudpirates-io.github.io/helm-charts/
+  - name: seaweedfs
+    url: https://seaweedfs.github.io/seaweedfs/helm
+
+releases:
+  - name: cnpg
+    namespace: cnpg-system
+    chart: cnpg/cloudnative-pg
+    version: 0.29.1
+
+  - name: manifests
+    namespace: data-proxy
+    chart: ./manifests
+    values:
+      - redisSecret:
+          enabled: true
+        storage:
+          enabled: true
+        trigger:
+          enabled: true
+        k6:
+          enabled: true
+        gateway:
+          enabled: false
+      - values/images.yaml.gotmpl
+
+  - name: valkey
+    namespace: data-proxy
+    chart: oci://registry-1.docker.io/cloudpirates/valkey
+    version: 0.17.0
+    needs:
+      - data-proxy/manifests
+    values:
+      - values/valkey.yaml
+
+  - name: keda
+    namespace: keda
+    chart: keda/keda
+    version: 2.18.3
+
+  - name: k6-operator
+    namespace: k6-operator-system
+    chart: grafana/k6-operator
+    version: 4.6.0
+
+  - name: istio-base
+    namespace: istio-system
+    chart: istio/base
+    version: 1.27.1
+
+  - name: istiod
+    namespace: istio-system
+    chart: istio/istiod
+    version: 1.27.1
+    needs:
+        - istio-system/istio-base
+
+  - name: istio-ingressgateway
+    namespace: istio-ingress
+    chart: istio/gateway
+    version: 1.27.1
+    needs:
+      - istio-system/istio-base
+      - istio-system/istiod
+    values:
+      - service:
+          type: NodePort
+
+  - name: manifests-gateway
+    namespace: istio-system
+    chart: ./manifests
+    needs:
+      - istio-ingress/istio-ingressgateway
+    values:
+      - redisSecret:
+          enabled: false
+        storage:
+          enabled: false
+        cleanup:
+          enabled: false
+        k6:
+          enabled: false
+        gateway:
+          enabled: true
+
+  - name: keycloak
+    namespace: keycloak
+    chart: cloudpirates/keycloak
+    version: 0.21.41
+    values:
+      - values/keycloak.yaml
+
+  - name: data-proxy
+    namespace: data-proxy
+    chart: ../helm
+    waitForJobs: true
+    needs:
+      - cnpg-system/cnpg
+      - data-proxy/manifests
+      - data-proxy/valkey
+      - istio-system/istiod
+      - istio-system/manifests-gateway
+      - keda/keda
+      - keycloak/keycloak
+    values:
+      - values/data-proxy.yaml
+      - values/images.yaml.gotmpl
+    hooks:
+      - events:
+          - postsync
+        showlogs: true
+        command: kubectl
+        args:
+          - --namespace
+          - data-proxy
+          - wait
+          - --for=jsonpath={.status.phase}=Cluster in healthy state
+          - cluster/data-proxy
+          - --timeout=10m

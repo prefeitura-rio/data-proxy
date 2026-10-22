@@ -3,11 +3,11 @@
     "devenv": {
       "locked": {
         "dir": "src/modules",
-        "lastModified": 1789991752,
-        "narHash": "sha256-SiH+H00IutELZBg7BBNo6r5DU6E+DG7DjrbeX5+QLa0=",
+        "lastModified": 1790701375,
+        "narHash": "sha256-0FpLHIRDYiyo3EMTnMQSobZQknZaa3JuWo6vmMCK76o=",
         "owner": "cachix",
         "repo": "devenv",
-        "rev": "1c57b5dea0d400af97053fdd1a536fca17378f73",
+        "rev": "fe20b5cba7ab5e93ae73f956a8d3efc50e1753f4",
         "type": "github"
       },
       "original": {
@@ -41,16 +41,32 @@
         ]
       },
       "locked": {
-        "lastModified": 1789514889,
-        "narHash": "sha256-PFD1nxptCXJyJoiYO1gf/5Vv43yqGpHtMC6LUhl9/pQ=",
+        "lastModified": 1790500375,
+        "narHash": "sha256-XN3sDtn8TU9hAc9xqZ+SqRB/HHm2wjxM6aSWYLJU+oo=",
         "owner": "cachix",
         "repo": "git-hooks.nix",
-        "rev": "59f4ca0d063a1a3ec722c88b51a33004862e5379",
+        "rev": "a0e4241b51206fbcbf52fd322eb5f0cd80f153c4",
         "type": "github"
       },
       "original": {
         "owner": "cachix",
         "repo": "git-hooks.nix",
+        "type": "github"
+      }
+    },
+    "lpeg-types": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789147978,
+        "narHash": "sha256-/twBBdUVe4KB0y/VVKhSid0LE/wMIpz2m9BolsEz2ho=",
+        "owner": "LuaCATS",
+        "repo": "lpeg",
+        "rev": "84391d4740dce8b836154dd772cc63a884b69316",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LuaCATS",
+        "repo": "lpeg",
         "type": "github"
       }
     },
@@ -90,11 +106,29 @@
         "type": "github"
       }
     },
+    "penlight-types": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775873279,
+        "narHash": "sha256-6/5N9+OloDJfwPd/X4fFmSIgddfXatnTxyxYk6wmAOo=",
+        "owner": "goldenstein64",
+        "repo": "pl-definitions",
+        "rev": "1d22ec2d0a5966cd697d6807b04897145efe26c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "goldenstein64",
+        "repo": "pl-definitions",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "devenv": "devenv",
         "git-hooks": "git-hooks",
-        "nixpkgs": "nixpkgs"
+        "lpeg-types": "lpeg-types",
+        "nixpkgs": "nixpkgs",
+        "penlight-types": "penlight-types"
       }
     }
   },

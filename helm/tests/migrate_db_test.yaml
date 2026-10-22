@@ -1,0 +1,86 @@
+suite: Migrate-db Job
+templates:
+  - jobs.yaml
+tests:
+  - it: runs the DBOS and console migrations in the sync image
+    set:
+      sync.image: ghcr.io/example/sync:test
+    asserts:
+      - isKind:
+          of: Job
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/example/sync:test
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - sh
+            - -c
+            - dbos migrate --sys-db-url "$DBOS_SYSTEM_DATABASE_URL" --schema "$DBOS_SYSTEM_SCHEMA" && goose -dir /app/migrations postgres "$PG_DATABASE_URL" up
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+
+  - it: waits for the state tables before it runs the console migrations
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-state
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: [nu, /scripts/wait-for-relation.nu]
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: RELATION
+            value: data_proxy.scope
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+
+  - it: connects with the database user and the password secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-ops
+                key: password
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: PG_DATABASE_URL
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[1].value
+          pattern: "@data-proxy-rw:5432/data-proxy$"
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: migrate-db
+        template: jobs.yaml

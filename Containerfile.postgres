@@ -1,0 +1,22 @@
+FROM docker.io/pgduckdb/pgduckdb:17-main@sha256:50ff4ed332fa8d2cdfd07e802e6e15fb1922fe4bb0b5f8bd272e420f6331530b
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl=7.88.1-10+deb12u15 \
+    postgresql-17-postgis-3=3.6.4+dfsg-2.pgdg12+1 && \
+  apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN groupmod --gid 998 tape && \
+  groupmod --gid 26 postgres && \
+  usermod --uid 26 --gid 26 postgres && \
+  mkdir -p /usr/local/lib/pg_duckdb/extensions && \
+  chown -R postgres:postgres /var/lib/postgresql /usr/local/lib/pg_duckdb
+
+USER postgres
+
+RUN initdb -D /tmp/pgdata --auth=trust && \
+  pg_ctl -D /tmp/pgdata -o "-c shared_preload_libraries=pg_duckdb -c duckdb.allow_unsigned_extensions=on -c duckdb.allow_community_extensions=on -c duckdb.extension_directory=/usr/local/lib/pg_duckdb/extensions -c unix_socket_directories=/tmp" start && \
+  psql -h /tmp -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_duckdb; SELECT duckdb.install_extension('postgres'); SELECT duckdb.install_extension('ducklake'); SELECT duckdb.install_extension('bigquery', 'community');" && \
+  pg_ctl -D /tmp/pgdata stop -m immediate && \
+  rm -rf /tmp/pgdata

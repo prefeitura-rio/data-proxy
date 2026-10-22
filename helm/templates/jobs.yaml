@@ -1,0 +1,295 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-configure-db-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure-db
+data:
+  configure-db.nu: |
+{{ .Files.Get "files/scripts/configure-db.nu" | nindent 4 }}
+  lib.nu: |
+{{ .Files.Get "files/scripts/lib.nu" | nindent 4 }}
+  wait-for-postgres.nu: |
+{{ .Files.Get "files/scripts/wait-for-postgres.nu" | nindent 4 }}
+  wait-for-relation.nu: |
+{{ .Files.Get "files/scripts/wait-for-relation.nu" | nindent 4 }}
+  provision.nu: |
+{{ .Files.Get "files/scripts/provision.nu" | nindent 4 }}
+  fetch-jwks.nu: |
+{{ .Files.Get "files/scripts/fetch-jwks.nu" | nindent 4 }}
+  rbac.toml: |
+{{ .Files.Get "files/config/rbac.toml" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-configure-db-sql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configure-db
+data:
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+  {{ base (dir $path) }}_{{ base $path }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+---
+{{ include "data-proxy.revisionJob" (dict "root" . "name" "configure-db" "podSpec" (include "data-proxy.configureDbPodSpec" .)) }}
+---
+{{ include "data-proxy.templateCronJob" (dict "root" . "name" "configure-db" "deadline" 900 "podSpec" (include "data-proxy.configureDbPodSpec" .)) }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-migrate-db-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate-db
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate-db
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-state
+          image: {{ .Values.jobs.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [nu, /scripts/wait-for-relation.nu]
+          workingDir: /scripts
+          env:
+            - name: RELATION
+              value: data_proxy.scope
+            {{- include "data-proxy.pgEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      containers:
+        - name: migrate-db
+          image: {{ .Values.sync.image | quote }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - dbos migrate --sys-db-url "$DBOS_SYSTEM_DATABASE_URL" --schema "$DBOS_SYSTEM_SCHEMA" && goose -dir /app/migrations postgres "$PG_DATABASE_URL" up
+          env:
+            {{- include "data-proxy.appEnv" . | nindent 12 }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-configure-db-script
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-s3-bootstrap-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3-bootstrap
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: s3-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: {{ .Values.jobs.image | quote }}
+          command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, {{ if .Values.s3.bootstrap.createIfMissing }}--create{{ else }}--wait{{ end }}]
+          env:
+            {{- include "data-proxy.s3BootstrapEnv" . | nindent 12 }}
+            {{- with .Values.s3.bootstrap.corsOrigins }}
+            - name: S3_CORS_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: s3-bootstrap
+              mountPath: /s3-bootstrap
+              readOnly: true
+      volumes:
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+
+---
+{{- if .Values.jobs.backup.enabled }}
+{{- $root := . }}
+{{- $backupName := printf "%s-backup" (include "data-proxy.fullname" $root) }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $backupName }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ $root.Values.jobs.backup.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.jobs.backup.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ $root.Values.jobs.backup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $root.Values.jobs.backup.ttlSecondsAfterFinished }}
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          initContainers:
+            {{- include "data-proxy.backupS3WaitInitContainer" $root | nindent 12 }}
+          containers:
+            - name: backup
+              image: {{ $root.Values.jobs.image | quote }}
+              command: [nu, /scripts/backup.nu]
+              workingDir: /scripts
+              env:
+                {{- include "data-proxy.pgEnv" $root | nindent 16 }}
+                - name: PG_DATABASE_URL
+                  value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) $root.Values.cnpg.db.name | quote }}
+                - name: BACKUP_PREFIX
+                  value: {{ $root.Values.jobs.backup.prefix | quote }}
+                - name: S3_BUCKET
+                  value: {{ required "jobs.backup.s3.bucket is required when backup is enabled" $root.Values.jobs.backup.s3.bucket | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ required "jobs.backup.s3.endpointURL is required when backup is enabled" $root.Values.jobs.backup.s3.endpointURL | quote }}
+                - name: S3_USE_SSL
+                  value: "true"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "jobs.backup.s3.existingSecret is required when backup is enabled" $root.Values.jobs.backup.s3.existingSecret }}
+                      key: S3_ACCESS_KEY
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "jobs.backup.s3.existingSecret is required when backup is enabled" $root.Values.jobs.backup.s3.existingSecret }}
+                      key: S3_SECRET_KEY
+                - name: ACCESS_LOG_RETENTION_DAYS
+                  value: {{ $root.Values.jobs.backup.accessLog.retentionDays | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
+                {{- if $root.Values.gcp.existingSecret }}
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: {{ $root.Values.gcp.mountPath | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                {{- include "data-proxy.gcpVolumeMount" $root | nindent 16 }}
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-scripts
+                defaultMode: 0555
+                items:
+                  - key: backup.nu
+                    path: backup.nu
+                  - key: lib.nu
+                    path: lib.nu
+{{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
+                  - key: {{ base $path }}
+                    path: {{ base $path }}
+{{- end }}
+{{- range $path, $_ := $root.Files.Glob "files/templates/**/*.sql" }}
+                  - key: {{ base (dir $path) }}_{{ base $path }}
+                    path: {{ base (dir $path) }}/{{ base $path }}
+{{- end }}
+            {{- include "data-proxy.gcpVolume" $root | nindent 12 }}
+            {{- include "data-proxy.s3BootstrapVolume" $root | nindent 12 }}
+{{- end }}
+---
+{{- if .Values.jobs.maintenance.enabled }}
+{{- $root := . }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" $root }}-maintenance
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: maintenance
+spec:
+  schedule: {{ $root.Values.jobs.maintenance.schedule | quote }}
+  startingDeadlineSeconds: {{ $root.Values.jobs.maintenance.startingDeadlineSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: maintenance
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: maintenance
+              image: {{ $root.Values.jobs.image | quote }}
+              imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+              command: [nu, /scripts/maintenance.nu]
+              workingDir: /scripts
+              env:
+                - name: PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "data-proxy.dbSecretName" $root }}
+                      key: password
+                - name: PG_DATABASE_URL
+                  value: {{ include "data-proxy.appPgDsn" $root | quote }}
+                - name: DBOS_APP_SCHEMA
+                  value: {{ $root.Values.sync.dbos.appSchema | quote }}
+                - name: WORKFLOW_RETENTION_DAYS
+                  value: {{ $root.Values.jobs.maintenance.workflowRetentionDays | quote }}
+                - name: SQL_TEMPLATE_DIR
+                  value: /scripts
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "data-proxy.fullname" $root }}-scripts
+                defaultMode: 0555
+                items:
+                  - key: maintenance.nu
+                    path: maintenance.nu
+                  - key: lib.nu
+                    path: lib.nu
+{{- range $path, $_ := $root.Files.Glob "files/templates/*.sql" }}
+                  - key: {{ base $path }}
+                    path: {{ base $path }}
+{{- end }}
+{{- range $path, $_ := $root.Files.Glob "files/templates/**/*.sql" }}
+                  - key: {{ base (dir $path) }}_{{ base $path }}
+                    path: {{ base (dir $path) }}/{{ base $path }}
+{{- end }}
+{{- end }}
+---
+{{ include "data-proxy.revisionJob" (dict "root" . "name" "provision" "podSpec" (include "data-proxy.provisionPodSpec" (dict "root" . "all" true))) }}
+---
+{{ include "data-proxy.templateCronJob" (dict "root" . "name" "provision" "deadline" .Values.jobs.provision.activeDeadlineSeconds "podSpec" (include "data-proxy.provisionPodSpec" (dict "root" . "all" false))) }}

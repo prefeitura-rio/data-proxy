@@ -1,60 +1,58 @@
 # KEDA Scaling
 
-Dumper is a ScaledObject. Seeder and Publisher are ScaledJobs. All workers scale to zero when their streams are empty.
+KEDA scales the DBOS sync Deployment from the DBOS system database. The sync workers share the `data-proxy-duckdb` PVC and use schema-specific DBOS queues with global concurrency one.
 
-| Worker    | Work unit                          | Stream       |
-| --------- | ---------------------------------- | ------------ |
-| Dumper    | One full table or partition batch. | `dp:extract` |
-| Seeder    | One run.                           | `dp:prepare` |
-| Publisher | One schema plan.                   | `dp:publish` |
+```yaml
+triggers:
+  - type: postgresql
+    metadata:
+      connectionFromEnv: DBOS_SYSTEM_DATABASE_URL
+      query: "SELECT ceil(COUNT(*)::decimal / 16) FROM dbos.workflow_status WHERE application_name = 'data-proxy-sync' AND status IN ('PENDING', 'ENQUEUED', 'DELAYED', 'RUNNING');
+      targetQueryValue: "1.1"
+      activationTargetQueryValue: "5"
+```
 
-`lagCount` starts work for unread messages. `pendingEntriesCount` starts recovery work for pending messages after the visibility timeout.
+`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed, and running DBOS workflows for the sync application.
 
-## Dumper
+## Orchestrator and dump workers
 
-| Value                  | Helm default | Meaning                           |
-| ---------------------- | ------------ | --------------------------------- |
-| `keda.maxReplicaCount` | `15`         | Maximum concurrent dump pods.     |
-| `keda.cooldownPeriod`  | `60`         | Seconds before scale-to-zero.     |
-| `visibilityTimeoutMs`  | `3600000`    | Pending-message reclaim timeout.  |
-| `batchMegaBytes`       | `600`        | Uncompressed batch target in MiB. |
-| `batchMaxPartitions`   | `256`        | Maximum partitions in one batch.  |
+| Value | Helm default | Meaning |
+| --- | --- | --- |
+| `autoscaling.minReplicaCount` | `3` | Minimum active sync replicas. |
+| `autoscaling.maxReplicaCount` | `15` | Maximum sync replicas. |
+| `autoscaling.pollingInterval` | `30` | Seconds between KEDA checks. |
+| `autoscaling.cooldownPeriod` | `60` | Seconds before scale-down. |
+| `autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
+| `autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
+| `dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
+| `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
+| `dumperStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
-Set the timeout longer than normal extraction duration. Set replica count from BigQuery quota and extraction capacity.
+## Catalogs
 
-## Seeder and Publisher
+The DBOS sync workers write the catalogs in the `ducklake` database, through the primary. PostgreSQL replication copies them to every standby.
 
-| Value              | Seeder      | Publisher                                    |
-| ------------------ | ----------- | -------------------------------------------- |
-| Maximum jobs       | `1`         | Number of configured schemas, unless capped. |
-| Successful history | `0`         | `0`                                          |
-| Failed history     | `1`         | `1`                                          |
-| Visibility timeout | `900000` ms | `7200000` ms                                 |
-
-A ScaledJob handles one message, acknowledges it, and exits. `backoffLimit` is `0`; recovery uses the pending stream trigger instead of Kubernetes retries.
+Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
 
 ## Configuration
 
 ```yaml
-dumper:
-  visibilityTimeoutMs: 3600000
-  batchMegaBytes: 600
-  batchMaxPartitions: 256
-  keda:
+sync:
+  schedule: "0 2 * * *"
+  dumpStepMaxAttempts: 3
+  dumpQueueWorkerConcurrency: 4
+  # DBOS workers use the shared data-proxy-duckdb PVC.
+  autoscaling:
+    minReplicaCount: 3
     maxReplicaCount: 15
+    pollingInterval: 30
     cooldownPeriod: 60
-
-seeder:
-  visibilityTimeoutMs: 900000
-
-publisher:
-  visibilityTimeoutMs: 7200000
-  keda:
-    maxReplicaCount: 2
+    targetQueryValue: "1.1"
+    activationTargetQueryValue: "5"
 ```
 
-Do not set `activeDeadlineSeconds` below the matching visibility timeout.
+DBOS deduplicates the scheduled workflow across orchestrator replicas. The sync Deployment never scales below `minReplicaCount`, so a new schedule always reaches a worker. The chart doesn't set `idleReplicaCount`, because KEDA supports only `0` for it and any other value makes KEDA and the HPA fight.
 
 ---
 
-[← Previous](fallback.md) · [Home](../README.md) · [Next →](database.md)
+[← Previous](proxy.md) · [Home](../README.md) · [Next →](database.md)

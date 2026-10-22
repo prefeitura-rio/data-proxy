@@ -1,0 +1,11 @@
+@import 'tailwindcss';
+@plugin 'daisyui' {
+	themes:
+		light --default,
+		dark --prefersdark;
+}
+
+/* A form that sits on a card: the filters above a table and the add forms below it. */
+@utility toolbar {
+	@apply flex flex-wrap items-end gap-3 rounded-box border border-base-300 bg-base-100 p-3;
+}

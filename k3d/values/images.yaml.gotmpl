@@ -1,0 +1,17 @@
+sync:
+  image: registry.localhost:5001/data-proxy-sync:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+  imagePullPolicy: Always
+jobs:
+  image: registry.localhost:5001/data-proxy-jobs:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+cleanup:
+  image: registry.localhost:5001/data-proxy-jobs:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+trigger:
+  image: registry.localhost:5001/data-proxy-jobs:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+proxy:
+  image: registry.localhost:5001/data-proxy-proxy:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+cnpg:
+  init:
+    image: registry.localhost:5001/data-proxy-jobs:{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+  image: registry.localhost:5001/data-proxy-postgres:17.0.0-{{ env "LOCAL_IMAGE_TAG" | default "local" }}
+console:
+  image: registry.localhost:5001/data-proxy-console:{{ env "LOCAL_IMAGE_TAG" | default "local" }}

@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: swagger-ui
 data:
   schemas.js: |
-    window.dataProxySchemas = {{ keys (.Values.syncConfig.schemas | default dict) | sortAlpha | toJson }};
+    window.dataProxySchemas = {{ keys (.Values.sync.config.schemas | default dict) | sortAlpha | toJson }};
 
     window.createSchemaSelector = function(schemas, selectedSchema, onChange) {
       var schemes = document.querySelector('.schemes-server-container');
@@ -63,11 +63,6 @@ data:
 
       var apiUrl = {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }};
       var openapiUrl = apiUrl;
-      {{- if eq .Values.cnpg.mode "per-schema" }}
-      if (selectedSchema) {
-        openapiUrl = apiUrl + 'openapi/' + encodeURIComponent(selectedSchema);
-      }
-      {{- end }}
 
       var selectSchema = function(schema) {
         var url = new URL(window.location.href);

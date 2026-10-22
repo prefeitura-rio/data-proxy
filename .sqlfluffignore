@@ -1,33 +1,45 @@
 # Prepared psycopg SQL uses %s parameters; validate through execution tests.
-src/dp/sql/postgres/column_types.sql
-src/dp/sql/postgres/delete_partition_freshness.sql
-src/dp/sql/postgres/delete_table_freshness.sql
-src/dp/sql/postgres/json_columns.sql
-src/dp/sql/postgres/replicas_replayed.sql
-src/dp/sql/postgres/table_exists.sql
-src/dp/sql/postgres/upsert_freshness.sql
+sync/src/sync/templates/postgres/insert_error.sql
+sync/src/sync/templates/postgres/read_state.sql
+sync/src/sync/templates/postgres/upsert_state.sql
+sync/src/sync/templates/postgres/insert_scope.sql
 
 # These templates need multiple Jinja contexts or are SQL fragments.
-src/dp/sql/postgres/create_bq_function.sql
-src/dp/sql/postgres/cast_json_to_jsonb.sql
-src/dp/sql/postgres/create_index.sql
-src/dp/sql/postgres/delete_partitions.sql
-src/dp/sql/postgres/rls_where_clause.sql
-src/dp/sql/postgres/macros.sql
+sync/src/sync/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
-src/dp/sql/duckdb/describe_table.sql
-src/dp/sql/duckdb/setup.sql
-
-# Dynamic Jinja projection renders a long line for SQLFluff's static parser.
-src/dp/sql/duckdb/write_all.sql
-src/dp/sql/duckdb/write_partition.sql
-src/dp/sql/duckdb/write_remainder.sql
+sync/src/sync/templates/duckdb/describe_source.sql
+sync/src/sync/templates/duckdb/setup.sql
 
 # Jinja macro source and imports are validated through rendering.
-src/dp/sql/duckdb/macros.sql
-helm/files/sql/macros.sql
-helm/files/sql/grant_migration_access.sql
-helm/files/sql/grant_rls_usage.sql
-helm/files/sql/grant_schema_usage_backup.sql
-src/dp/sql/postgres/access_policy_check.sql
+sync/src/sync/templates/duckdb/macros.sql
+helm/files/templates/postgres/grant_app_usage.sql
+helm/files/templates/postgres/grant_console_usage.sql
+helm/files/templates/postgres/create_rbac.sql
+helm/files/templates/postgres/set_db_schemas.sql
+helm/files/templates/postgres/reset_db_schemas.sql
+sync/src/sync/templates/postgres/drop_view_objects.sql
+sync/src/sync/templates/postgres/write_view_signature.sql
+
+# Test templates with prepared parameters; validated through execution tests.
+sync/tests/templates/bigquery/partitions.sql
+sync/tests/templates/bigquery/table_metadata.sql
+sync/tests/templates/duckdb/write_evolved_parquet.sql
+sync/tests/templates/postgres/call_cleanup_stale_objects.sql
+sync/tests/templates/postgres/delete_workflows.sql
+sync/tests/templates/postgres/function_exists.sql
+sync/tests/templates/postgres/has_schema_usage.sql
+sync/tests/templates/postgres/has_table_select.sql
+sync/tests/templates/postgres/insert_access_log.sql
+sync/tests/templates/postgres/insert_access_policy.sql
+sync/tests/templates/postgres/insert_aged_workflow.sql
+sync/tests/templates/postgres/insert_workflow.sql
+sync/tests/templates/postgres/relation_exists.sql
+sync/tests/templates/postgres/role_memberships.sql
+sync/tests/templates/postgres/schema_names.sql
+sync/tests/templates/postgres/select_changes.sql
+sync/tests/templates/postgres/select_table_files.sql
+sync/tests/templates/postgres/select_plan_sources.sql
+sync/tests/templates/postgres/select_workflows.sql
+sync/tests/templates/postgres/view_columns.sql
+helm/files/templates/postgres/create_roles.sql

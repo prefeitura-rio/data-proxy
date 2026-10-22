@@ -1,39 +1,3 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
-rules:
-  - apiGroups: ["batch"]
-    resources: ["cronjobs", "jobs"]
-    verbs: ["get", "list", "watch", "create"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["keda.sh"]
-    resources: ["scaledobjects", "scaledjobs"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: data-proxy-k6
-subjects:
-  - kind: ServiceAccount
-    name: data-proxy-k6
-    namespace: data-proxy
----
 apiVersion: k6.io/v1alpha1
 kind: TestRun
 metadata:
@@ -41,44 +5,56 @@ metadata:
   namespace: data-proxy
 spec:
   parallelism: 1
+  paused: "false"
   script:
-    configMap:
-      name: data-proxy-e2e
-      file: e2e.ts
+    localFile: /scripts/e2e.js
   runner:
-    image: localhost/k6:local
-    serviceAccountName: data-proxy-k6
+    image: registry.localhost:5001/k6:local
+    serviceAccountName: manifests-k6-e2e
     automountServiceAccountToken: "true"
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        cpu: "3"
+        memory: 4Gi
     env:
       - name: BASE_URL
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
         value: data-proxy.local
-      - name: WEBDIS_WRITE_URL
-        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/write
-      - name: WEBDIS_READ_URL
-        value: http://istio-ingressgateway.istio-ingress.svc.cluster.local/webdis/read
       - name: NAMESPACE
         value: data-proxy
-      - name: PRODUCER_CRONJOB
-        value: data-proxy-producer
+      - name: PIPELINE
+        value: data-proxy-sync
+      - name: E2E_SCRIPT_CONFIGMAP
+        value: data-proxy-e2e
       - name: POSTGREST_URL
-        value: http://data-proxy-postgrest-ro.data-proxy.svc.cluster.local:3000
+        value: http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000
+      - name: OIDC_TOKEN_URL
+        value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
+      - name: OIDC_USER_CLIENT_ID
+        value: api
+      - name: OIDC_NO_POLICY_CLIENT_ID
+        value: api_no_policy
       - name: PG_IMAGE
-        value: localhost/data-proxy-postgres:17.0.0-local
+        value: registry.localhost:5001/data-proxy-postgres:17.0.0-local
       - name: CACHE_TTL_SECONDS
         value: "5"
-      - name: FALLBACK_CACHE_REDIS_DB
-        value: "1"
       - name: POLICY_REPLICATION_TIMEOUT_SECONDS
         value: "120"
       - name: POLICY_REPLICATION_POLL_INTERVAL_SECONDS
         value: "2"
+      - name: TOPOLOGY_TIMEOUT_SECONDS
+        value: "900"
       - name: MAX_DURATION
-        value: "25m"
-      - name: PARTITIONED_SOURCE
-        value: rj-ia-desenvolvimento.dev.protocolo_estado_diario
+        value: 40m
+      - name: E2E_SCENARIOS
+        value: ""
       - name: K8S_SA_TOKEN_PATH
         value: /var/run/secrets/kubernetes.io/serviceaccount/token
-      - name: FULL_SOURCE
-        value: rj-ia-desenvolvimento.dev.endpoint_participante_listagem
+      - name: PARTITIONED_SOURCE
+        value: rj-ia-desenvolvimento.dev.partitioned_table
+      - name: SNAPSHOT_SOURCE
+        value: rj-ia-desenvolvimento.dev.snapshot_table

@@ -1,0 +1,50 @@
+{{- if .Values.notebooks.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-notebooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notebooks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: notebooks
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: notebooks
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
+    spec:
+      containers:
+        - name: notebooks
+          image: {{ .Values.console.image | quote }}
+          imagePullPolicy: {{ .Values.console.imagePullPolicy }}
+          command: [node, notebooks/server.ts]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CSP
+              value: {{ include "data-proxy.notebooksCsp" . | quote }}
+            - name: CONSOLE_ORIGIN
+              value: {{ include "data-proxy.consoleOrigin" . | quote }}
+          readinessProbe:
+            httpGet:
+              path: /config.js
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /config.js
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.notebooks.resources | nindent 12 }}
+{{- end }}

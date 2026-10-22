@@ -1,148 +1,165 @@
 suite: Backup CronJob
 templates:
-  - cronjob-backup.yaml
+  - jobs.yaml
 tests:
-  - it: does not render when backup is disabled
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: renders one schema backup with the configured schedule and image
+  - it: renders one backup for every schema with the configured schedule and image
     set:
-      backup.enabled: true
-      backup.schedule: "30 4 * * *"
-      backup.image: postgres:17-alpine
-      backup.prefix: backups/access_policy
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.schedule: "30 4 * * *"
+      jobs.image: postgres:17-alpine
+      jobs.backup.prefix: backups/access_policy
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         isKind:
           of: CronJob
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         equal:
           path: metadata.name
-          value: data-proxy-bcadastro-backup
+          value: data-proxy-backup
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         equal:
           path: spec.schedule
           value: "30 4 * * *"
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
           value: postgres:17-alpine
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[0]
           pattern: '^nu$'
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].command[1]
           value: /scripts/backup.nu
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         equal:
           path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.name
           value: data-proxy-scripts
 
-  - it: connects as the shared jobs role
+  - it: renders one backup even when the values name several schemas, because the job reads them from the database
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      sync.config.schemas:
+        alpha:
+          tables: []
+        beta:
+          tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: backup
+        equal:
+          path: metadata.name
+          value: data-proxy-backup
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
+        notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: SCHEMA
+            value: alpha
+
+  - it: connects as the ops role
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: PGUSER
-            value: jobs
+            value: ops
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: PGPASSWORD
             valueFrom:
               secretKeyRef:
-                name: data-proxy-jobs
-                key: JOBS_PASSWORD
+                name: data-proxy-cnpg-ops
+                key: password
 
   - it: mounts GCP credentials so rclone can reach GCS
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      gcp.existingSecret: gcp-key
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+      gcp.existingSecret: gcp
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: GOOGLE_APPLICATION_CREDENTIALS
             value: /gcp/key.json
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.volumes
           content:
-            name: gcp-key
+            name: gcp
             secret:
-              secretName: gcp-key
+              secretName: gcp
 
   - it: omits GCP credentials when no GCP Secret is set
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: http://seaweedfs-s3:8333
-      backup.s3.existingSecret: backup-s3-creds
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: http://seaweedfs-s3:8333
+      jobs.backup.s3.existingSecret: backup-s3-creds
       gcp.existingSecret: ""
-      syncConfig.schemas.bcadastro.tables: []
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         notContains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
             name: GOOGLE_APPLICATION_CREDENTIALS
 
-  - it: uses backup S3 credentials from backup.s3.existingSecret
+  - it: uses backup S3 credentials from jobs.backup.s3.existingSecret
     set:
-      backup.enabled: true
-      backup.s3.bucket: backup-bucket
-      backup.s3.endpointURL: https://storage.googleapis.com
-      backup.s3.existingSecret: backup-s3-creds
-      syncConfig.schemas.bcadastro.tables: []
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
     asserts:
       - documentSelector:
-          path: kind
-          value: CronJob
+          path: metadata.name
+          value: data-proxy-backup
         contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
           content:
@@ -151,3 +168,142 @@ tests:
               secretKeyRef:
                 name: backup-s3-creds
                 key: S3_ACCESS_KEY
+
+  - it: mounts the backup script and its library from the scripts ConfigMap
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: https://storage.googleapis.com
+      jobs.backup.s3.existingSecret: backup-s3-creds
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: backup.nu
+            path: backup.nu
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: lib.nu
+            path: lib.nu
+
+  - it: mounts the maintenance script and its library from the scripts ConfigMap
+    set:
+      jobs.maintenance.enabled: true
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: maintenance.nu
+            path: maintenance.nu
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: lib.nu
+            path: lib.nu
+
+  - it: tells the maintenance job how many days to keep a finished workflow
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: WORKFLOW_RETENTION_DAYS
+            value: "90"
+        template: jobs.yaml
+
+  - it: takes the workflow retention from the value
+    set:
+      jobs.maintenance.enabled: true
+      jobs.maintenance.workflowRetentionDays: 30
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: WORKFLOW_RETENTION_DAYS
+            value: "30"
+        template: jobs.yaml
+
+  - it: mounts the call of the workflow pruning in the maintenance job
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: postgres_call_prune_workflows.sql
+            path: postgres/call_prune_workflows.sql
+        template: jobs.yaml
+
+  - it: gives the maintenance job the password that its database URL expands
+    set:
+      jobs.maintenance.enabled: true
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-maintenance
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-ops
+                key: password
+
+  - it: gives the backup job the database URL that execute-sql reads
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backup-bucket
+      jobs.backup.s3.endpointURL: http://storage:8333
+      jobs.backup.s3.existingSecret: backup-s3-creds
+    asserts:
+      - documentSelector:
+          path: metadata.name
+          value: data-proxy-backup
+        contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PG_DATABASE_URL
+            value: postgresql://ops@data-proxy-rw:5432/data-proxy
+
+  - it: gives the maintenance job no object store, catalog volume, or DuckLake settings
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+        template: jobs.yaml
+      - lengthEqual:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          count: 5
+        template: jobs.yaml
+      - lengthEqual:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          count: 1
+        template: jobs.yaml

@@ -1,87 +1,91 @@
 suite: PostgREST
 templates:
-  - deployment-postgrest-ro.yaml
+  - deployment-postgrest.yaml
 tests:
+  - it: keeps serving while the mesh drops a stopping pod
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 5
+  - it: sets the stop delay from the values
+    set:
+      postgrest.preStopSleepSeconds: 12
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 12
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs
-      postgrest.jwksFetch.image: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
+      jobs.image: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-nushell:latest
+          value: ghcr.io/prefeitura-rio/data-proxy-jobs:latest
       - equal:
           path: spec.template.spec.initContainers[0].command
-          value: [/usr/bin/nu, -c]
+          value: [/usr/local/bin/nu, /scripts/fetch-jwks.nu]
       - equal:
           path: spec.template.spec.initContainers[0].env[0]
           value:
             name: JWKS_URI
             value: https://auth.example.com/certs
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'http get'
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'to json'
-      - matchRegex:
-          path: spec.template.spec.initContainers[0].args[0]
-          pattern: 'save --force'
       - equal:
           path: spec.template.spec.initContainers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
       - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts[1].mountPath
+          value: /scripts
+      - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
           value: /etc/postgrest
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value: [/usr/local/bin/nu, /scripts/wait-for-postgres.nu]
+      - equal:
+          path: spec.template.spec.initContainers[1].volumeMounts[0].mountPath
+          value: /scripts
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: data-proxy-configure-db-script
 
-  - it: uses HTTP readiness probe for shared PostgREST-ro
+  - it: uses TCP readiness probe for authenticated PostgREST
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
-          value: /
-        template: deployment-postgrest-ro.yaml
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
           value: http
-        template: deployment-postgrest-ro.yaml
+        template: deployment-postgrest.yaml
       - notExists:
           path: spec.replicas
+        template: deployment-postgrest.yaml
 
-  - it: rolls PostgREST when syncConfig changes
+  - it: starts PostgREST with the console schema, and the provision job adds the others
     set:
-      syncConfig.schemas.bcadastro.tables:
-        - name: proj.dataset.cpf
-          strategy: full
+      sync.config.schemas.test.tables: []
     asserts:
-      - matchRegex:
-          path: spec.template.metadata.annotations["checksum/sync-config"]
-          pattern: "^[0-9a-f]{64}$"
-
-  - it: derives PGRST_DB_SCHEMAS from syncConfig.schemas
-    set:
-      syncConfig.schemas:
-        zeta_schema:
-          tables:
-            - name: proj.dataset.z
-              strategy: full
-        alpha_schema:
-          tables:
-            - name: proj.dataset.a
-              strategy: full
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[4]
-          value:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: PGRST_DB_SCHEMAS
-            value: "alpha_schema,zeta_schema,rls"
+            value: console
 
-  - it: PGRST_DB_SCHEMAS always includes auth.rlsSchema even with no configured schemas
+  - it: configures a bounded and persistent PostgREST database pool
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].env[4]
-          value:
-            name: PGRST_DB_SCHEMAS
-            value: "rls"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL
+            value: "24"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
+            value: "3"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_DB_POOL_MAX_IDLETIME
+            value: "300"
 
   - it: enables PostgREST aggregate functions by default
     asserts:
@@ -123,7 +127,7 @@ tests:
           path: spec.template.metadata.labels["sidecar.istio.io/inject"]
           value: "true"
 
-  - it: waits for the CNPG authenticator role before PostgREST starts
+  - it: logs PostgREST in as the serving login and waits for it
     set:
       postgrest.jwtSecret: test-secret
     asserts:
@@ -131,7 +135,7 @@ tests:
           path: spec.template.spec.initContainers[0].env
           content:
             name: PGUSER
-            value: authenticator
+            value: serving
       - contains:
           path: spec.template.spec.initContainers[0].env
           content:
@@ -139,4 +143,55 @@ tests:
             valueFrom:
               secretKeyRef:
                 key: password
-                name: data-proxy-cnpg-authenticator
+                name: data-proxy-cnpg-serving
+
+  - it: labels the Deployment so the sync workflow can restart it
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: deployment-postgrest.yaml
+      - equal:
+          path: metadata.labels["data-proxy.io/serving"]
+          value: postgrest
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.selector.matchLabels["data-proxy.io/serving"]
+        template: deployment-postgrest.yaml
+      - notExists:
+          path: spec.template.metadata.labels["data-proxy.io/serving"]
+        template: deployment-postgrest.yaml
+  - it: serves Prometheus metrics on an admin port that the scrape annotations name
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_ADMIN_SERVER_PORT
+            value: "3001"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: admin
+            containerPort: 3001
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/port"]
+          value: "3001"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/path"]
+          value: /metrics
+  - it: leaves the admin port and the scrape annotations out when metrics are off
+    set:
+      postgrest.metrics.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGRST_ADMIN_SERVER_PORT
+            value: "3001"
+      - notExists:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1

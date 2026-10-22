@@ -1,0 +1,20 @@
+# Shared nu-lint exceptions for this repository and the global LSP configuration.
+[rules]
+block_brace_spacing = "off"
+check_typed_flag_before_use = "off"
+nu_parse_error = "off"
+dont_mix_different_effects = "off"
+max_positional_params = "off"
+print_and_return_data = "off"
+redundant_ignore = "off"
+string_may_be_bare = "off"
+unhandled_external_error = "off"
+
+# The rule does not see a doc comment above an @example attribute, and every exported command has one there.
+add_doc_comment_exported_fn = "off"
+# The test runner runs each test in its own Nushell, so that one test cannot change the state of another.
+redundant_nu_subprocess = "off"
+# The signed request to the object store needs curl, because `http` has no AWS signature.
+curl_to_http = "off"
+# A named parameter of a pure function reads better than input from a pipeline.
+positional_to_pipeline = "off"
