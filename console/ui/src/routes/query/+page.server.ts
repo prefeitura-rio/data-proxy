@@ -2,7 +2,7 @@ import * as v from 'valibot';
 import { error } from '@sveltejs/kit';
 import { can } from '#lib/permissions.js';
 import { api, need } from '#lib/server/api.js';
-import { TTL_SECONDS } from '#lib/server/grant.js';
+import { queryView } from '#lib/server/query-view.js';
 import { querySettings } from '#lib/server/settings.js';
 import { SchemaFlags, TableName } from '#lib/types.js';
 import type { PageServerLoad } from './$types';
@@ -23,7 +23,6 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	return {
 		schemas: need(schemas),
 		tables: need(tables),
-		notebookOrigin: querySettings()?.notebookOrigin ?? null,
-		grantTtlSeconds: querySettings()?.signer.ttlSeconds ?? TTL_SECONDS
+		...queryView(querySettings())
 	};
 };
