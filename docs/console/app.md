@@ -44,6 +44,12 @@ The Config page edits a row in a dialog:
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
 
+## Theme
+
+The app has the DaisyUI themes `light` and `dark`. It uses the theme of the system until the user selects the button in the navigation bar. The button saves the choice in the browser under the key `theme` in `localStorage`. A small script in `src/app.html` sets `data-theme` before the first paint, so the page doesn't flash. The notebook in the Query tab keeps its own theme.
+
+New pages use the theme colors of DaisyUI, such as `bg-base-100` and `text-base-content`, and not fixed colors. Use `StatusBadge` for a status, `PageHeader` for the title and `Section` for a block with a heading.
+
 The Access page lists the access policy of one schema and its access log, which the same `read_policy` permission opens. A sync run is visible to the user who started it from the first second. `console.start_sync` records the schemas of the sync run in the same transaction that queues it.
 
 The route `/healthz` answers 200 without a session and calls nothing else. The chart uses it for the probes of the Deployment, and it sets resource requests and limits from `console.resources` and `notebooks.resources`.

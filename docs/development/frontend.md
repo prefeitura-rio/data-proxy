@@ -43,7 +43,7 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 - The Vitest tests and the unit tests of the notebooks are the tasks `test:console` and `test:nb`, which `test:all` runs.
 - Set `EXPECTED_ROWS_FILE` and the other variables in the `env` of the console profile.
 - The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend.
-- The test stack sets `GRANT_TTL_SECONDS` to 30, so the scenario that renews the links takes about 40 seconds. The 81 scenarios run on four workers, one feature file for each worker, in about 50 seconds.
+- The test stack sets `GRANT_TTL_SECONDS` to 30, so the scenario that renews the links takes about 40 seconds. The 83 scenarios run on four workers, one feature file for each worker, in about 50 seconds.
 - Feature files run side by side, so two files must not change the same data. Only `config.feature` creates the schema `other`. A scenario that does it has the tag `@other-schema`, and a hook deletes the rows afterwards. The tag `@import-ttl` restores the cache TTL of the `test` tables.
 - A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `E2E_DATABASE_URL`.
 - The scenario that shortens the token lifespan (`@short-token`) changes the client `console-web` in Keycloak through the admin API. A hook restores the old value.
