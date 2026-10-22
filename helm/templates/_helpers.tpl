@@ -440,7 +440,7 @@ jwtRules:
 {{ include "data-proxy.redisConfigEnv" . }}
 {{ include "data-proxy.s3Env" . }}
 - name: S3_SCRATCH_PREFIX
-  value: tmp
+  value: {{ .Values.s3.scratchPrefix | quote }}
 {{- if and .Values.console.enabled .Values.console.storage.perSchemaIdentities }}
 - name: S3_IDENTITIES
   value: "true"

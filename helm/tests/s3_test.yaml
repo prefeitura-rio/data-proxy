@@ -61,3 +61,21 @@ tests:
           content:
             name: S3_ENDPOINT
             value: minio.example.com:9000
+
+  - it: keeps the default scratch prefix
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SCRATCH_PREFIX
+            value: tmp
+
+  - it: sets the scratch prefix from the chart value
+    set:
+      s3.scratchPrefix: preview/tmp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SCRATCH_PREFIX
+            value: preview/tmp
