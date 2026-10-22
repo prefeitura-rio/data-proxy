@@ -15,6 +15,7 @@ on:
       - k6/**
       - scripts/**
       - Containerfile.sync
+      - Containerfile.jobs
       - Containerfile.postgres
       - Containerfile.proxy
       - Containerfile.console
