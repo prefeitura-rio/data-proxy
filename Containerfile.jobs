@@ -3,9 +3,9 @@ FROM docker.io/debian:trixie-slim
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl=8.14.1-2+deb13u5 \
-    ca-certificates=20250419 \
-    xz-utils=5.8.1-1+deb13u1 \
+    curl=8.14.1-2+deb13u7 \
+    ca-certificates=20250419+deb13u1 \
+    xz-utils=5.8.1-1+deb13u2 \
     postgresql-client-17=17.11-0+deb13u1 \
     rclone=1.60.1+dfsg-4 \
     && curl -fsSL https://github.com/mitsuhiko/minijinja/releases/download/2.24.0/minijinja-cli-x86_64-unknown-linux-gnu.tar.xz | tar xJ -C /usr/local/bin --strip-components=1 \
