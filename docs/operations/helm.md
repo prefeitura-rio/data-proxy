@@ -21,7 +21,7 @@ The chart creates these main objects. Each name starts with the release name.
 
 ## Prerequisites
 
-Install [KEDA](https://keda.sh/docs/latest/deploy/). Install Istio when `ingress.enabled` is `true`.
+Install [KEDA](https://keda.sh/docs/latest/deploy/). Install Istio when `ingress.enabled` is `true`. Install the CloudNativePG operator 1.26 or newer, because the cluster uses `probes.readiness.type` and `maximumLag`. The k3d stack tests chart 0.29.1 of the operator, which is operator 1.30.1.
 
 ## Install
 
