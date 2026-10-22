@@ -34,7 +34,9 @@ export def "test code-is-not-a-heading-or-a-link" []: nothing -> nothing {
         title
         second-part
     ]
-    assert equal (links-of $text) [{number: 2, target: a.md}]
+    assert equal (links-of $text) [
+        {number: 2, target: a.md}
+    ]
 }
 
 # Verify each kind of broken link and each kind of link that passes.
