@@ -267,6 +267,21 @@ in
           execIfModified = notebookInputs;
         };
 
+      "console:open" = lib.mkIf (!config.devenv.isTesting) (
+        utils.mkTask {
+          command = [
+            opener
+            urls.console
+          ];
+          packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
+        }
+        // {
+          description = "Open the console in the browser.";
+          after = [ (utils.processTask "gateway") ];
+          wantedBy = [ (utils.processTask "gateway") ];
+        }
+      );
+
       "notebooks:check-site" =
         utils.mkTask {
           command = [
@@ -369,20 +384,5 @@ in
           path = "/config.js";
         };
       };
-
-    browser =
-      lib.mkIf (!config.devenv.isTesting)
-        (
-          utils.mkProcess {
-            command = [
-              opener
-              urls.console
-            ];
-            packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
-          }
-          // {
-            after = [ (utils.processTask "gateway") ];
-          }
-        );
   };
 }
