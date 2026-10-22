@@ -37,7 +37,7 @@ in
       "python"
     ];
     module =
-      { utils, ... }:
+      { lib, utils, ... }:
       let
         pnpmTask =
           description: dir: script: files:
@@ -107,6 +107,7 @@ in
         };
 
         tasks = {
+          "devenv:git-hooks:run".before = lib.mkForce [ ];
           "lint:console" =
             pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
               consoleFiles;
