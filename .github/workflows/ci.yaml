@@ -182,6 +182,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
         run: devenv --profile checks shell -- ci git update
@@ -216,17 +217,17 @@ jobs:
       - name: Package chart
         if: steps.guard.outputs.skip != 'true'
         run: devenv --profile checks shell -- ci chart package
+      - name: Publish chart
+        if: steps.guard.outputs.skip != 'true'
+        run: devenv --profile checks shell -- ci chart publish
+        env:
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Push the release commit and tag
         if: steps.guard.outputs.skip != 'true'
         run: devenv --profile checks shell -- ci release push "${{ steps.version.outputs.tag }}"
       - name: Write the release notes
         if: steps.guard.outputs.skip != 'true'
         run: devenv --profile checks shell -- ci release notes "${{ steps.version.outputs.tag }}"
-      - name: Publish chart
-        if: steps.guard.outputs.skip != 'true'
-        run: devenv --profile checks shell -- ci chart publish
-        env:
-          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create the GitHub release
         if: steps.guard.outputs.skip != 'true'
         run: gh release create "${{ steps.version.outputs.tag }}" --title "Helm chart ${{ steps.version.outputs.tag }}" --notes-file packaged/notes.md packaged/*.tgz
