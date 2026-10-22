@@ -338,6 +338,12 @@ in
       // {
         cwd = "${config.devenv.root}/console/ui";
         ports.main.allocate = 13004;
+        after = map utils.processTask [
+          "postgres"
+          "seaweedfs"
+          "keycloak"
+          "postgrest"
+        ];
         ready = utils.probes.http {
           port = appPort;
           path = "/healthz";
