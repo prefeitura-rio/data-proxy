@@ -19,6 +19,8 @@ The site is a static folder. It contains a marimo notebook, DuckDB compiled to W
 
 The Python helper is in the first cells of `console/notebooks/notebooks/query.py`. `q(sql, limit=100_000)` runs SQL in DuckDB-WASM and returns at most `limit` rows as a DataFrame, because the Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `q` raises an error that tells the user to open the notebook again.
 
+The last cell is an example. It lists the tables of the grant with their number of rows, and it shows the first 100 rows of the first table. When no table has data files, it says so and stops.
+
 ## Build
 
 `console/notebooks/build.nu` builds the notebook site into one folder. This command is the usual run.

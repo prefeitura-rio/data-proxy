@@ -49,10 +49,32 @@ async def _(json, run_js):
 
 
 @app.cell
-async def _(q, ready):
+async def _(mo, q, ready):
     await ready()
     tables = await q("SELECT view_name AS name FROM duckdb_views() WHERE NOT internal")
-    tables  # noqa: B018 -- marimo shows the last expression of a cell
+    mo.stop(
+        tables.empty,
+        mo.md(
+            "**No table has data files yet.** Sync the tables, then open the notebook again."
+        ),
+    )
+
+    counts = []
+    for name in tables.name:
+        counted = await q(f'SELECT count(*) AS n FROM "{name}"')
+        counts.append({"table": name, "rows": int(counted.n[0])})
+
+    first = tables.name[0]
+    preview = await q(f'SELECT * FROM "{first}"', limit=100)
+
+    mo.vstack(
+        [
+            mo.md("### Tables"),
+            mo.ui.table(counts, selection=None),
+            mo.md(f"### First rows of `{first}`"),
+            mo.ui.table(preview, selection=None),
+        ]
+    )
 
 
 if __name__ == "__main__":
