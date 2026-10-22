@@ -59,7 +59,7 @@ To use the console in a browser, start the same stack without the tests:
 devenv --profile console up
 ```
 
-Run the console in the background with `devenv --profile console up -d`, wait with `devenv processes wait`, and stop it with `devenv down`. The first start takes one to two minutes.
+Run the console in the background with `devenv --profile console up -d`, wait with `devenv processes wait`, and stop it with `devenv down`. The command first runs the builds of the console and the notebooks and shows their output. Then it starts the processes. The first start takes one to two minutes. A shell in the `console` profile runs the same builds, and later runs skip them until a source changes.
 
 The console is at `http://console.localhost:13001`. If the port is busy, devenv uses the next free port and shows it in the process list.
 
