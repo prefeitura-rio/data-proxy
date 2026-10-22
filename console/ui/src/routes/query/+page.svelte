@@ -53,7 +53,7 @@
 		};
 
 		window.addEventListener('message', listener);
-		const timer = setInterval(() => void send(target), 4 * 60 * 1000);
+		const timer = setInterval(() => void send(target), data.grantTtlSeconds * 800);
 
 		return () => {
 			window.removeEventListener('message', listener);

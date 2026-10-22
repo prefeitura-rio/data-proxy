@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildGrant, createGrant, prefixOf, resolvePath, TTL_SECONDS, type FileRow } from './grant';
+import { buildGrant, createGrant, prefixOf, resolvePath, ttlFrom, TTL_SECONDS, type FileRow } from './grant';
 import type { Result } from './postgrest';
 
 const row = (overrides: Partial<FileRow> = {}): FileRow => ({
@@ -53,6 +53,10 @@ describe('buildGrant', () => {
 	it('expires the links after five minutes', async () => {
 		expect(TTL_SECONDS).toBe(300);
 		expect((await buildGrant({ ...options, rows: [row()] })).expiresAt).toBe(1_000_000 + 300_000);
+	});
+
+	it('expires the links after the lifetime that the caller gives', async () => {
+		expect((await buildGrant({ ...options, ttlSeconds: 30, rows: [row()] })).expiresAt).toBe(1_000_000 + 30_000);
 	});
 
 	it('signs a data file without a delete file', async () => {
@@ -168,5 +172,24 @@ describe('createGrant', () => {
 
 	it('refuses a request without tables', async () => {
 		expect(await createGrant('sales', [], deps())).toMatchObject({ ok: false, status: 400 });
+	});
+});
+
+describe('ttlFrom', () => {
+	it.each([
+		{ name: 'no value', raw: undefined, ttl: 300 },
+		{ name: 'an empty value', raw: '', ttl: 300 },
+		{ name: 'a whole number of seconds', raw: '30', ttl: 30 }
+	])('reads $name', ({ raw, ttl }) => {
+		expect(ttlFrom(raw)).toBe(ttl);
+	});
+
+	it.each([
+		{ name: 'zero', raw: '0' },
+		{ name: 'a negative number', raw: '-5' },
+		{ name: 'a fraction', raw: '1.5' },
+		{ name: 'text', raw: 'soon' }
+	])('refuses $name', ({ raw }) => {
+		expect(() => ttlFrom(raw)).toThrow('GRANT_TTL_SECONDS');
 	});
 });

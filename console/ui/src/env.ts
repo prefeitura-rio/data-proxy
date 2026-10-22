@@ -32,5 +32,9 @@ export const variables = defineEnvVars({
 		description: 'The admin access key of the storage. With it, each schema gets its own identity'
 	},
 	S3_ADMIN_SECRET_KEY: { schema: optional, description: 'The admin secret key of the storage' },
-	S3_IAM_ENDPOINT: { schema: optional, description: 'The IAM endpoint of the storage, the S3 endpoint by default' }
+	S3_IAM_ENDPOINT: { schema: optional, description: 'The IAM endpoint of the storage, the S3 endpoint by default' },
+	GRANT_TTL_SECONDS: {
+		schema: optional,
+		description: 'The lifetime of the signed links in seconds, 300 by default'
+	}
 });

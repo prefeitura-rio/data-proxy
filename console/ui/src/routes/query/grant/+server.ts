@@ -50,7 +50,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			return signWith(signer, credentials);
 		},
 		bucket: settings.signer.bucket,
-		now: Date.now()
+		now: Date.now(),
+		ttlSeconds: settings.signer.ttlSeconds
 	});
 
 	return result.ok ? Response.json(result.data) : Response.json({ message: result.message }, { status: result.status });
