@@ -21,6 +21,28 @@ When('I load more log lines {int} times', async ({ page }, count: number) => {
 	}
 });
 
+Then('the page has no {string} switch', async ({ page }, name: string) => {
+	await expect(page.getByRole('checkbox', { name })).toHaveCount(0);
+});
+
+Then('the {string} switch is on', async ({ page }, name: string) => {
+	await expect(page.getByRole('checkbox', { name })).toBeChecked();
+});
+
+When('I turn the {string} switch off', async ({ page }, name: string) => {
+	await page.getByRole('checkbox', { name }).uncheck();
+});
+
+When('I turn the {string} switch on', async ({ page }, name: string) => {
+	await page.getByRole('checkbox', { name }).check();
+});
+
+Then('the log does not show the line {string}', async ({ page }, text: string) => {
+	// The stream reads every second, so a line that would arrive shows within this wait.
+	await page.waitForTimeout(3000);
+	await expect(log(page)).not.toContainText(text);
+});
+
 Then('the log shows the line {string}', async ({ page }, text: string) => {
 	await expect(log(page)).toContainText(text, { timeout: 20_000 });
 });

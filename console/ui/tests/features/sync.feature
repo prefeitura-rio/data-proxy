@@ -86,6 +86,7 @@ Feature: Sync runs
     Given I sign in as "web_admin"
     When I open the seeded run
     Then the run shows the status "SUCCESS"
+    And the page has no "Live logs" switch
     And the list with the column "Task" says "1 to 50 of 61"
     And the list with the column "Step" says "1 to 50 of 64"
     And the log shows 500 lines
@@ -145,3 +146,15 @@ Feature: Sync runs
     And I open the first run of the list
     And a log line "live line one" is added to the run
     Then the log shows the line "live line one"
+
+  Scenario: The user can pause the live logs and start them again
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I set "Status" to "ENQUEUED" in the form "Filter the runs" and submit it
+    And I open the first run of the list
+    Then the "Live logs" switch is on
+    When I turn the "Live logs" switch off
+    And a log line "paused line" is added to the run
+    Then the log does not show the line "paused line"
+    When I turn the "Live logs" switch on
+    Then the log shows the line "paused line"

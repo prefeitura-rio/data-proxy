@@ -1,7 +1,8 @@
 <script lang="ts">
-	import * as v from 'valibot';
+	import { untrack } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { followRun } from '#lib/follow.js';
 	import { lastLoggedAt, mergeLogs } from '#lib/logs.js';
 	import { controlsFor } from '#lib/runs.js';
 	import PageHeader from '#lib/components/PageHeader.svelte';
@@ -9,50 +10,67 @@
 	import Section from '#lib/components/Section.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
-	import { LogsAnswer } from '#lib/types.js';
 	import type { PageProps } from './$types';
 	import RunControls from './RunControls.svelte';
 	import { ArrowLeft } from '@lucide/svelte';
 
 	let { data, form }: PageProps = $props();
 
-	let polled = $state<{ runId: string; logs: typeof data.logs; status: string } | null>(null);
+	let streamed = $state<{ runId: string; logs: typeof data.logs; status: string } | null>(null);
 
-	const current = $derived(polled?.runId === data.run.id ? polled : null);
+	const current = $derived(streamed?.runId === data.run.id ? streamed : null);
 	const logs = $derived(current?.logs ?? data.logs);
 	const status = $derived(current?.status ?? data.run.status);
-	let watching = $state(false);
-
 	const running = $derived(['PENDING', 'ENQUEUED', 'DELAYED'].includes(status));
 	const controls = $derived(controlsFor(status, data.permissions));
 
+	let live = $derived(['PENDING', 'ENQUEUED', 'DELAYED'].includes(data.run.status));
+	let settling = false;
+	let box = $state<HTMLPreElement>();
+
+	/** After a control action, follow the run even while it still shows a finished status. */
 	function watch() {
-		watching = true;
-		setTimeout(() => {
-			watching = false;
-		}, 30_000);
-	}
-
-	async function refresh() {
-		const after = lastLoggedAt(logs);
-		const response = await fetch(`/sync/runs/${data.run.id}/logs${after ? `?after=${encodeURIComponent(after)}` : ''}`);
-
-		if (response.ok) {
-			const body = v.parse(LogsAnswer, await response.json());
-			polled = { runId: data.run.id, logs: mergeLogs(logs, body.logs), status: body.status };
-		}
+		settling = true;
+		live = true;
 	}
 
 	$effect(() => {
-		if (!running && !watching) {
+		if (!live) {
 			return;
 		}
 
-		const timer = setInterval(() => void refresh(), 3000);
+		const runId = data.run.id;
+		const settle = untrack(() => settling);
 
-		return () => {
-			clearInterval(timer);
-		};
+		return followRun(
+			runId,
+			{ after: untrack(() => lastLoggedAt(logs)), settle },
+			{
+				onLines: (fresh) => {
+					streamed = {
+						runId,
+						logs: mergeLogs(
+							untrack(() => logs),
+							fresh
+						),
+						status: untrack(() => status)
+					};
+				},
+				onStatus: (next) => {
+					streamed = { runId, logs: untrack(() => logs), status: next };
+				},
+				onEnd: () => {
+					live = false;
+					settling = false;
+				}
+			}
+		);
+	});
+
+	$effect(() => {
+		if (live && logs.length > 0 && box) {
+			box.scrollTop = box.scrollHeight;
+		}
 	});
 </script>
 
@@ -113,7 +131,14 @@
 </Section>
 
 <Section title="Log">
+	{#if running || live}
+		<label class="flex cursor-pointer items-center gap-2 self-start text-sm">
+			<input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={live} />
+			Live logs
+		</label>
+	{/if}
 	<pre
+		bind:this={box}
 		class="max-h-96 overflow-auto rounded-box border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed">{#each logs as line (`${line.workflow_id}:${line.position}`)}{line.logged_at} {line.level} {line.message}
 		{/each}</pre>
 	{#if data.logsTotal !== null && data.logsTotal > logs.length}
