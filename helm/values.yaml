@@ -168,6 +168,9 @@ s3:
   endpoint: ""
   useSsl: "false"
   existingSecret: ""
+  ## The folder of the scratch Parquet files in the bucket. The sync worker deletes everything under it when a run ends,
+  ## so each install that shares a bucket needs its own prefix.
+  scratchPrefix: tmp
   bootstrap:
     createIfMissing: false
     ## The origins that the CORS rule of the bucket allows, for the notebooks. The bootstrap Job sets the rule through the
