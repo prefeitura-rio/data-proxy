@@ -155,10 +155,12 @@ tests:
 
   - it: sends the policy of the notebook origin with the console as the only frame parent
     template: deployment-notebooks.yaml
+    set:
+      console.image: ghcr.io/example/console:test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-console:dev
+          value: ghcr.io/example/console:test
       - equal:
           path: spec.template.spec.containers[0].command
           value: [node, notebooks/server.ts]

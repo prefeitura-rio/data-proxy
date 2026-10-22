@@ -3,6 +3,8 @@ templates:
   - jobs.yaml
 tests:
   - it: runs the DBOS and console migrations in the sync image
+    set:
+      sync.image: ghcr.io/example/sync:test
     asserts:
       - isKind:
           of: Job
@@ -12,7 +14,7 @@ tests:
         template: jobs.yaml
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/prefeitura-rio/data-proxy-sync:caa0da9
+          value: ghcr.io/example/sync:test
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: migrate-db
