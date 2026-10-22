@@ -601,12 +601,14 @@ Then('the grant has a delete file', async ({ world }) => {
 });
 
 When('I run the cells of the notebook', async ({ page }) => {
-	const buttons = frameOf(page).locator('[data-testid="run-button"]');
-	await expect(buttons.first()).toBeAttached({ timeout: 120_000 });
+	const frame = frameOf(page);
+	const cells = frame.locator('[data-status]').filter({ has: frame.locator('[data-testid="run-button"]') });
+	await expect(cells).toHaveCount(3, { timeout: 120_000 });
 
+	// The third cell ends when the first grant has arrived and the query has run.
 	for (const index of [0, 1, 2]) {
-		await buttons.nth(index).dispatchEvent('click');
-		await page.waitForTimeout(1500);
+		await cells.nth(index).locator('[data-testid="run-button"]').first().dispatchEvent('click');
+		await expect(cells.nth(index)).toHaveAttribute('data-status', 'idle', { timeout: 180_000 });
 	}
 });
 
@@ -651,7 +653,6 @@ When('the first grant has expired', async ({ page, world }) => {
 When('I save the notebook', async ({ page }) => {
 	await frameOf(page).locator('.cm-content').last().click();
 	await page.keyboard.press('Control+S');
-	await page.waitForTimeout(1500);
 });
 
 When('I download the notebook as Python', async ({ page, world }) => {
