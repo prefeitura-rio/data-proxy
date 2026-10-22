@@ -6,6 +6,7 @@ use lib.nu [
     latest-helm-tag
     make-dir
     preview-tags
+    preview-version
     read-data
     read-text
     release-tag
@@ -212,6 +213,17 @@ def 'main preview pin' []: nothing -> nothing {
     git push origin HEAD:preview | complete | check-result 'git push' | ignore
 
     log info 'Pinned the preview images and pushed the commit.'
+}
+
+# Publish the chart of this commit as a preview version, such as 2.0.0-preview.12. It makes no commit, no tag and no release.
+def 'main chart preview' []: nothing -> nothing {
+    let tag = cog bump --auto --dry-run | complete | check-result 'cog bump --dry-run' | release-tag
+    let version = preview-version $tag (read-data helm/Chart.yaml | get version) (required-env GITHUB_RUN_NUMBER)
+
+    log info $'Packaging the preview chart ($version)...'
+    make-dir packaged
+    helm package helm/ --destination packaged --version $version | complete | check-result 'helm package' | ignore
+    main chart publish
 }
 
 # Update the checkout from main.

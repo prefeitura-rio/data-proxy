@@ -358,3 +358,15 @@ export def preview-tags [commit: string]: nothing -> record {
     | each {|image| {($image.sha_env): $'($image.tag_prefix)($short)'} }
     | into record
 }
+
+# Return the version of a preview chart: the version of the next release, or the version of the chart when no release
+# is due, followed by `-preview.` and the number of the run. The number makes each preview version newer than the last.
+export def preview-version [
+    tag: oneof<string, nothing> # The tag of the next release, such as helm-v2.0.0, or null.
+    current: string # The version in Chart.yaml.
+    run: string # The number of the CI run.
+]: nothing -> string {
+    let base = if $tag == null { $current } else { $tag | str replace helm-v '' }
+
+    $'($base)-preview.($run)'
+}
