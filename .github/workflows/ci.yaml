@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - preview
     paths: &ci_paths
       - .github/workflows/**
       - .github/actions/**
@@ -52,7 +53,7 @@ jobs:
       - id: filter
         env:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
-          FORCE_FULL: ${{ inputs.force_full || false }}
+          FORCE_FULL: ${{ inputs.force_full || github.ref == 'refs/heads/preview' || false }}
           CI_REPOSITORY: ${{ github.repository }}
         run: devenv --profile checks shell -- ci changes
   checks:
@@ -137,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
-    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -163,6 +164,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+  pin-preview:
+    name: Pin the preview images
+    needs: build-images
+    if: github.ref == 'refs/heads/preview' && needs.build-images.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-devenv
+      - name: Pin the images that this commit built and push the pin commit
+        run: devenv --profile checks shell -- ci preview pin
   helm:
     defaults:
       run:

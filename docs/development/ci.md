@@ -57,6 +57,14 @@ The `pre_bump_hooks` of `cog.toml` call `ci images pin`, so the release commit c
 | `ci chart login` | Logs in to the Open Container Initiative (OCI) registry with `helm registry login`. |
 | `ci chart bump <version>` | Sets `version` in `helm/Chart.yaml`. The `pre_bump_hooks` of `cog.toml` call it. |
 
+## Preview branch
+
+A push to `preview` runs the same checks as `main`. Then `build-images` builds all five images, because the workflow sets `FORCE_FULL` on that branch. The tag of each image is the first seven characters of the commit, and the PostgreSQL image keeps its `17-` prefix.
+
+The job `pin-preview` runs `ci preview pin` after the build. The command writes those tags into `helm/values.yaml`, commits the file as `chore(preview): pin the images to <commit> [skip ci]`, and pushes the commit to `preview`. The `helm` job never runs on this branch, so a push to `preview` makes no release and no tag.
+
+The cluster reads the branch with a Flux GitRepository and renders `./helm` from it. The pin commit therefore rolls the preview to the new images.
+
 ## SAST
 
 `sast.yaml` runs on a push to `main`, on a pull request to `main`, and on a manual start. The job calls the shared action `prefeitura-rio/actions/sast`. The action sends the code to SonarQube and the findings to DefectDojo.

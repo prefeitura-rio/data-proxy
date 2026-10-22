@@ -1,5 +1,5 @@
 use std/assert
-use ../lib.nu [latest-helm-tag release-tag]
+use ../lib.nu [latest-helm-tag preview-tags release-tag]
 
 # Verify that the newest Helm tag wins and that other tags do not count.
 export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
@@ -24,4 +24,13 @@ export def "test release-tag-is-null-without-a-release" []: nothing -> nothing {
 
     assert equal ($message | release-tag) null
     assert equal ("" | release-tag) null
+}
+
+# Verify that each preview tag is the first seven characters of the commit and that the PostgreSQL tag keeps its prefix.
+export def "test preview-tags-use-the-short-commit" []: nothing -> nothing {
+    let tags = preview-tags abcdef0123456789
+
+    assert equal $tags.PIPELINE_SHA 'abcdef0'
+    assert equal $tags.PG_SHA '17-abcdef0'
+    assert equal ($tags | columns | length) 5
 }

@@ -5,6 +5,7 @@ use lib.nu [
     IMAGES
     latest-helm-tag
     make-dir
+    preview-tags
     read-data
     read-text
     release-tag
@@ -192,6 +193,25 @@ def 'main chart bump' [
     | write-text helm/Chart.yaml
 
     log info 'Helm chart version updated.'
+}
+
+# Pin the images that this commit built in helm/values.yaml, commit the change and push it to the preview branch.
+def 'main preview pin' []: nothing -> nothing {
+    let short = required-env GITHUB_SHA | str substring 0..<7
+    let tags = preview-tags (required-env GITHUB_SHA)
+
+    log info $'Pinning the preview images to ($short)...'
+
+    with-env $tags { main images pin }
+
+    git config user.name $ci.bot_name
+    git config user.email $ci.bot_email
+    git add helm/values.yaml
+    git commit --message ('chore(preview): pin the images to ' + $short + ' [skip ci]') | complete | check-result 'git commit' | ignore
+    git pull --rebase origin preview | complete | check-result 'git pull' | ignore
+    git push origin HEAD:preview | complete | check-result 'git push' | ignore
+
+    log info 'Pinned the preview images and pushed the commit.'
 }
 
 # Update the checkout from main.
