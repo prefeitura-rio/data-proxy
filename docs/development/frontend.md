@@ -43,7 +43,10 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 - The Vitest tests and the unit tests of the notebooks are the tasks `test:console` and `test:nb`, which `test:all` runs.
 - Set `EXPECTED_ROWS_FILE` and the other variables in the `env` of the console profile.
 - The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend.
-- The scenario that renews the links waits for the real timer of four minutes, so a full run takes about ten minutes.
+- The test stack sets `GRANT_TTL_SECONDS` to 30, so the scenario that renews the links takes about 40 seconds. The 81 scenarios run on four workers, one feature file for each worker, in about 50 seconds.
+- Feature files run side by side, so two files must not change the same data. Only `config.feature` creates the schema `other`. A scenario that does it has the tag `@other-schema`, and a hook deletes the rows afterwards. The tag `@import-ttl` restores the cache TTL of the `test` tables.
+- A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `E2E_DATABASE_URL`.
+- The scenario that shortens the token lifespan (`@short-token`) changes the client `console-web` in Keycloak through the admin API. A hook restores the old value.
 - The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set. `@playwright/test` and the Python `playwright` package therefore stay at the versions of that package.
 
 To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. Keycloak imports the realm at every start, which takes about 40 seconds.
@@ -68,7 +71,7 @@ Sign in as `admin` (role `dp_admin`, schema `test`, password `admin`). The tests
 - `web_policy`: role `dp_policy`, the Access tab only.
 - `web_other`: role `dp_admin`, schema `other`.
 
-The seed adds 30 enqueued sync runs, one finished sync run (`00000000-0000-4000-8000-0000000000f1`), 60 access policies, 15 errors, and a `test` table of 5000 rows. The finished sync run has 61 tasks, 64 steps and 600 log lines.
+The seed adds 30 enqueued sync runs, two finished sync runs, 60 access policies, 15 errors and 32 history rows. It also adds two `test` tables with 5000 and 300 rows. The first finished sync run (`00000000-0000-4000-8000-0000000000f1`) has 61 tasks, 64 steps and 600 log lines. The second (`00000000-0000-4000-8000-0000000000f2`) has 5200 log lines, for the limit of 5000 lines.
 
 No sync worker runs, so a sync run that you start stays `ENQUEUED`. The worker `control-worker` handles only the queue `control`, so cancel, resume and the schedule actions work.
 

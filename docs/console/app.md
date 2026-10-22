@@ -57,6 +57,7 @@ The route `/healthz` answers 200 without a session and calls nothing else. The c
 | `ORIGIN` | The public origin of the console. |
 | `PROTOCOL_HEADER` | The header that contains the scheme to the Node adapter, `x-forwarded-proto` behind the gateway. Without it, the adapter assumes `https` and refuses every form post from an `http` site. |
 | `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. |
+| `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |
 | `S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`, `S3_IAM_ENDPOINT` | Optional. They turn on one storage identity for each schema. The IAM endpoint is the storage endpoint by default. |
 
 The chart sets these settings ([Helm chart](../operations/ingress.md#console-and-notebooks)). In the k3d cluster, the realm `dev` has the client `console-web` with the secret `test-secret`. It has these users:
