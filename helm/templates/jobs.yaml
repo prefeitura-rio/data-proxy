@@ -262,6 +262,8 @@ spec:
                   value: {{ include "data-proxy.appPgDsn" $root | quote }}
                 - name: DBOS_APP_SCHEMA
                   value: {{ $root.Values.sync.dbos.appSchema | quote }}
+                - name: WORKFLOW_RETENTION_DAYS
+                  value: {{ $root.Values.jobs.maintenance.workflowRetentionDays | quote }}
                 - name: SQL_TEMPLATE_DIR
                   value: /scripts
               volumeMounts:

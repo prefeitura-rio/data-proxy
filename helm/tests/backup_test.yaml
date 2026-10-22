@@ -214,6 +214,49 @@ tests:
             key: lib.nu
             path: lib.nu
 
+  - it: tells the maintenance job how many days to keep a finished workflow
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: WORKFLOW_RETENTION_DAYS
+            value: "90"
+        template: jobs.yaml
+
+  - it: takes the workflow retention from the value
+    set:
+      jobs.maintenance.enabled: true
+      jobs.maintenance.workflowRetentionDays: 30
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: WORKFLOW_RETENTION_DAYS
+            value: "30"
+        template: jobs.yaml
+
+  - it: mounts the call of the workflow pruning in the maintenance job
+    set:
+      jobs.maintenance.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-maintenance
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes[0].configMap.items
+          content:
+            key: postgres_call_prune_workflows.sql
+            path: postgres/call_prune_workflows.sql
+        template: jobs.yaml
+
   - it: gives the maintenance job the password that its database URL expands
     set:
       jobs.maintenance.enabled: true
@@ -258,7 +301,7 @@ tests:
         template: jobs.yaml
       - lengthEqual:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
-          count: 4
+          count: 5
         template: jobs.yaml
       - lengthEqual:
           path: spec.jobTemplate.spec.template.spec.volumes

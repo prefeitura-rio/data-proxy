@@ -290,6 +290,8 @@ jobs:
     enabled: true
     schedule: 0 4 * * *
     startingDeadlineSeconds: 600
+    ## The job deletes the DBOS workflows that finished more than this many days ago.
+    workflowRetentionDays: 90
 ## Role names, JWT claim, and schema configuration for row-level security.
 auth:
   anonRole: anon

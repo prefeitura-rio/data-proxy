@@ -20,5 +20,9 @@ def main []: nothing -> nothing {
         } --vars {config: ($config | to json)}
     }
 
+    execute-sql postgres/call_prune_workflows.sql {schema: (app-schema)} --vars {
+        retention: $"($env.WORKFLOW_RETENTION_DAYS) days"
+    }
+
     log info 'Database maintenance completed'
 }

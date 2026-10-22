@@ -91,7 +91,7 @@ in
           };
           "test:nu" = utils.nuTask {
             description = "Run the Nushell tests.";
-            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu";
+            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu";
             execIfModified = [
               "helm/files/scripts"
               "scripts"
@@ -173,6 +173,16 @@ in
             exec = "nu scripts/docs.nu nav check";
             execIfModified = [
               "docs"
+              "scripts/docs.nu"
+            ];
+          };
+          "lint:links" = utils.nuTask {
+            description = "Check that the links of the docs, the README and the style guide point to a file and a heading.";
+            exec = "nu scripts/docs.nu links";
+            execIfModified = [
+              "docs"
+              "README.md"
+              "STYLEGUIDE.md"
               "scripts/docs.nu"
             ];
           };

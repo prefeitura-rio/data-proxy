@@ -252,6 +252,12 @@ tests:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
+      - isNotNull:
+          path: data["postgres_prune_workflows.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
 
   - it: mounts templates at /templates
     asserts:
