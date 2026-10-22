@@ -39,15 +39,21 @@ in
     module =
       { lib, utils, ... }:
       let
+        installTask =
+          dir:
+          utils.nuTask {
+            description = "Install the locked dependencies of ${dir}.";
+            cwd = dir;
+            exec = "pnpm install --frozen-lockfile";
+          };
+
         pnpmTask =
           description: dir: script: files:
           utils.nuTask {
             inherit description;
             cwd = dir;
-            exec = ''
-              pnpm install --frozen-lockfile
-              ${script}
-            '';
+            after = [ "console:install:${lib.last (lib.splitString "/" dir)}" ];
+            exec = script;
             execIfModified = files;
           };
       in
@@ -109,6 +115,8 @@ in
 
         tasks = {
           "devenv:git-hooks:run".before = lib.mkForce [ ];
+          "console:install:ui" = installTask "console/ui";
+          "console:install:notebooks" = installTask "console/notebooks";
           "lint:console" =
             pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
               consoleFiles;
