@@ -6,6 +6,7 @@
 	import EditButton from '#lib/components/EditButton.svelte';
 	import Field from '#lib/components/Field.svelte';
 	import Modal from '#lib/components/Modal.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import type { Can } from '#lib/permissions.js';
 	import type { RlsRow } from '#lib/types.js';
@@ -22,39 +23,40 @@
 		};
 </script>
 
-<h2 class="mt-6 mb-2 text-lg font-semibold">Row rules</h2>
-<Table head={['Table', 'Column', 'Unit type', '']}>
-	{#each rules as rule (rule.id)}
-		<tr>
-			<td>{rule.table_name}</td>
-			<td>{rule.column_name}</td>
-			<td>{rule.unit_type}</td>
-			<td class="whitespace-nowrap">
-				{#if can.edit}<EditButton onclick={() => (editing = rule)} />{/if}
-				{#if can.delete}
-					<form method="POST" action="?/deleteRls" use:enhance class="inline">
-						<input type="hidden" name="id" value={rule.id} />
-						<DeleteButton type="submit" />
-					</form>
-				{/if}
-			</td>
-		</tr>
-	{/each}
-</Table>
+<Section title="Row rules">
+	<Table head={['Table', 'Column', 'Unit type', '']}>
+		{#each rules as rule (rule.id)}
+			<tr>
+				<td>{rule.table_name}</td>
+				<td>{rule.column_name}</td>
+				<td>{rule.unit_type}</td>
+				<td class="whitespace-nowrap">
+					{#if can.edit}<EditButton onclick={() => (editing = rule)} />{/if}
+					{#if can.delete}
+						<form method="POST" action="?/deleteRls" use:enhance class="inline">
+							<input type="hidden" name="id" value={rule.id} />
+							<DeleteButton type="submit" />
+						</form>
+					{/if}
+				</td>
+			</tr>
+		{/each}
+	</Table>
 
-{#if can.create}
-	<form method="POST" action="?/createRls" use:enhance class="my-2 flex flex-wrap items-end gap-2">
-		<label class="flex flex-col gap-1 text-sm">
-			<span>Table</span>
-			<select class="select select-sm" name="table_name" required>
-				{#each tables as table (table.name)}<option>{table.name}</option>{/each}
-			</select>
-		</label>
-		<Field label="Column" name="column_name" placeholder="column" required />
-		<Field label="Unit type" name="unit_type" placeholder="unit type" required />
-		<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add rule</button>
-	</form>
-{/if}
+	{#if can.create}
+		<form method="POST" action="?/createRls" use:enhance class="toolbar">
+			<label class="flex flex-col gap-1 text-sm">
+				<span>Table</span>
+				<select class="select select-sm" name="table_name" required>
+					{#each tables as table (table.name)}<option>{table.name}</option>{/each}
+				</select>
+			</label>
+			<Field label="Column" name="column_name" placeholder="column" required />
+			<Field label="Unit type" name="unit_type" placeholder="unit type" required />
+			<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add rule</button>
+		</form>
+	{/if}
+</Section>
 
 <Modal open={editing !== null} onclose={() => (editing = null)}>
 	{#if editing}

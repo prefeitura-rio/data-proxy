@@ -7,6 +7,7 @@
 	import EditButton from '#lib/components/EditButton.svelte';
 	import Field from '#lib/components/Field.svelte';
 	import Modal from '#lib/components/Modal.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import type { Can } from '#lib/permissions.js';
 	import type { Health, SchemaRow } from '#lib/types.js';
@@ -32,39 +33,49 @@
 		};
 </script>
 
-<h2 class="mb-2 text-lg font-semibold">Schemas</h2>
-<Table head={['Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}>
-	{#each schemas as schema (schema.name)}
-		<tr>
-			<td>{schema.name}</td>
-			<td>{schema.source}</td>
-			<td>{schema.claim ?? ''}</td>
-			<td>{schema.encrypted ? 'yes' : 'no'}</td>
-			<td>{statusOf(schema.name)}</td>
-			<td class="whitespace-nowrap">
-				{#if can.edit}<EditButton onclick={() => (editing = schema)} />{/if}
-				{#if can.delete}
-					<DeleteButton
-						onclick={() => {
-							typed = '';
-							removing = schema;
-						}}
-					/>
-				{/if}
-			</td>
-		</tr>
-	{/each}
-</Table>
+<Section title="Schemas">
+	<Table head={['Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}>
+		{#each schemas as schema (schema.name)}
+			<tr>
+				<td>{schema.name}</td>
+				<td>{schema.source}</td>
+				<td>{schema.claim ?? ''}</td>
+				<td>
+					{#if schema.encrypted}<span class="badge badge-soft badge-sm badge-warning">yes</span>{:else}no{/if}
+				</td>
+				<td>
+					<span
+						class={[
+							'badge badge-soft badge-sm',
+							statusOf(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
+						]}>{statusOf(schema.name)}</span
+					>
+				</td>
+				<td class="whitespace-nowrap">
+					{#if can.edit}<EditButton onclick={() => (editing = schema)} />{/if}
+					{#if can.delete}
+						<DeleteButton
+							onclick={() => {
+								typed = '';
+								removing = schema;
+							}}
+						/>
+					{/if}
+				</td>
+			</tr>
+		{/each}
+	</Table>
 
-{#if can.create}
-	<form method="POST" action="?/createSchema" use:enhance class="my-2 flex flex-wrap items-end gap-2">
-		<Field label="Name" name="name" placeholder="name" required />
-		<Field label="Source" name="source" placeholder="source (bigquery)" />
-		<Field label="Claim" name="claim" placeholder="claim" />
-		<Check label="encrypted" name="encrypted" />
-		<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add schema</button>
-	</form>
-{/if}
+	{#if can.create}
+		<form method="POST" action="?/createSchema" use:enhance class="toolbar">
+			<Field label="Name" name="name" placeholder="name" required />
+			<Field label="Source" name="source" placeholder="source (bigquery)" />
+			<Field label="Claim" name="claim" placeholder="claim" />
+			<Check label="encrypted" name="encrypted" />
+			<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add schema</button>
+		</form>
+	{/if}
+</Section>
 
 <Modal open={editing !== null} onclose={() => (editing = null)}>
 	{#if editing}

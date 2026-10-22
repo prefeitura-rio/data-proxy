@@ -5,4 +5,4 @@
 	let { ...rest }: HTMLButtonAttributes = $props();
 </script>
 
-<button class="btn btn-ghost btn-xs" type="button" {...rest}><Trash size={14} /> Delete</button>
+<button class="btn btn-ghost text-error btn-xs" type="button" {...rest}><Trash size={14} /> Delete</button>

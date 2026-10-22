@@ -12,6 +12,16 @@
 	}
 </script>
 
-<dialog class="modal" {@attach sync} {onclose}>
+<!-- A click on the backdrop is a click on the dialog itself, and a click in the box is not. -->
+<dialog
+	class="modal"
+	{@attach sync}
+	{onclose}
+	onclick={(event) => {
+		if (event.target === event.currentTarget) {
+			onclose();
+		}
+	}}
+>
 	<div class="modal-box">{@render children()}</div>
 </dialog>

@@ -10,8 +10,8 @@
 	const visible = $derived(changes.filter((change) => change.action !== 'unchanged'));
 </script>
 
-<section class="card mb-4 bg-base-100 card-border" aria-label="Import preview">
-	<div class="card-body">
+<section class="card mb-8 bg-base-100 card-border" aria-label="Import preview">
+	<div class="card-body gap-3">
 		<h2 class="card-title">Import preview</h2>
 		<p data-testid="preview-summary">{summaryText(changes)}</p>
 		{#if visible.length > 0}

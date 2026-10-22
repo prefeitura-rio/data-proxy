@@ -6,7 +6,7 @@
 	let { params, schemas }: { params: { get(name: string): string | null }; schemas: string[] } = $props();
 </script>
 
-<form method="GET" action={resolve('/sync')} class="mb-2 flex flex-wrap items-end gap-2" aria-label="Filter the runs">
+<form method="GET" action={resolve('/sync')} class="toolbar" aria-label="Filter the runs">
 	<label class="flex flex-col gap-1 text-sm">
 		<span>Status</span>
 		<select class="select select-sm" name="status" value={params.get('status') ?? ''}>

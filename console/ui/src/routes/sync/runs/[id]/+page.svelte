@@ -4,11 +4,15 @@
 	import { page } from '$app/state';
 	import { lastLoggedAt, mergeLogs } from '#lib/logs.js';
 	import { controlsFor } from '#lib/runs.js';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pager from '#lib/components/Pager.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import { LogsAnswer } from '#lib/types.js';
 	import type { PageProps } from './$types';
 	import RunControls from './RunControls.svelte';
+	import { ArrowLeft } from '@lucide/svelte';
 
 	let { data, form }: PageProps = $props();
 
@@ -52,63 +56,73 @@
 	});
 </script>
 
-<a class="link" href={resolve('/sync')}>Back to runs</a>
-<h1 class="my-2 text-2xl font-semibold">Run {data.run.id}</h1>
-<p>Status: <strong>{status}</strong>. Started by {data.run.started_by ?? data.run.schedule_name ?? 'unknown'}.</p>
+<a class="mb-3 inline-flex link items-center gap-1 text-sm link-hover" href={resolve('/sync')}
+	><ArrowLeft size={14} /> Back to runs</a
+>
+<PageHeader title="Run {data.run.id}" />
+<p class="mb-4 flex flex-wrap items-center gap-1">
+	Status: <StatusBadge {status} /> Started by {data.run.started_by ?? data.run.schedule_name ?? 'unknown'}.
+</p>
 <RunControls {controls} {form} onsent={watch} />
 
-<h2 class="mt-4 mb-2 text-lg font-semibold">Tasks</h2>
-<Table head={['Task', 'Schema', 'Status', 'Created']} small>
-	{#each data.tasks as task (task.id)}
-		<tr><td>{task.name}</td><td>{task.schema_name ?? ''}</td><td>{task.status}</td><td>{task.created_at}</td></tr>
-	{/each}
-</Table>
-<Pager
-	page={data.tasksPage}
-	shown={data.tasks.length}
-	total={data.tasksTotal}
-	action={resolve('/sync/runs/[id]', { id: data.run.id })}
-	params={page.url.searchParams}
-	pageKey="tasks_page"
-	pageKeys={['tasks_page']}
-/>
-
-<h2 class="mt-4 mb-2 text-lg font-semibold">Steps</h2>
-<Table head={['Step', 'Function', 'Failed', 'Started', 'Completed']} small>
-	{#each data.steps as step (`${step.workflow_id}:${step.function_id}`)}
-		<tr>
-			<td>{step.function_id}</td>
-			<td>{step.function_name}</td>
-			<td>{step.failed ? 'yes' : 'no'}</td>
-			<td>{step.started_at ?? ''}</td>
-			<td>{step.completed_at ?? ''}</td>
-		</tr>
-	{/each}
-</Table>
-<Pager
-	page={data.stepsPage}
-	shown={data.steps.length}
-	total={data.stepsTotal}
-	action={resolve('/sync/runs/[id]', { id: data.run.id })}
-	params={page.url.searchParams}
-	pageKey="steps_page"
-	pageKeys={['steps_page']}
-/>
-
-<h2 class="mt-4 mb-2 text-lg font-semibold">Log</h2>
-<pre
-	class="max-h-96 overflow-auto bg-base-200 p-2 text-xs">{#each logs as line (`${line.workflow_id}:${line.position}`)}{line.logged_at} {line.level} {line.message}
-	{/each}</pre>
-{#if data.logsTotal !== null && data.logsTotal > logs.length}
-	<form
-		method="GET"
-		action={resolve('/sync/runs/[id]', { id: data.run.id })}
-		class="mt-2 flex items-center gap-2 text-sm"
-	>
-		{#each [...page.url.searchParams].filter(([key]) => key !== 'lines') as [key, value] (key)}
-			<input type="hidden" name={key} {value} />
+<Section title="Tasks">
+	<Table head={['Task', 'Schema', 'Status', 'Created']} small>
+		{#each data.tasks as task (task.id)}
+			<tr>
+				<td>{task.name}</td>
+				<td>{task.schema_name ?? ''}</td>
+				<td><StatusBadge status={task.status} /></td>
+				<td>{task.created_at}</td>
+			</tr>
 		{/each}
-		<span>Showing {logs.length} of {data.logsTotal} lines.</span>
-		<button class="btn btn-sm" type="submit" name="lines" value={data.lines + 500}>Load more lines</button>
-	</form>
-{/if}
+	</Table>
+	<Pager
+		page={data.tasksPage}
+		shown={data.tasks.length}
+		total={data.tasksTotal}
+		action={resolve('/sync/runs/[id]', { id: data.run.id })}
+		params={page.url.searchParams}
+		pageKey="tasks_page"
+		pageKeys={['tasks_page']}
+	/>
+</Section>
+
+<Section title="Steps">
+	<Table head={['Step', 'Function', 'Failed', 'Started', 'Completed']} small>
+		{#each data.steps as step (`${step.workflow_id}:${step.function_id}`)}
+			<tr>
+				<td>{step.function_id}</td>
+				<td>{step.function_name}</td>
+				<td
+					>{#if step.failed}<span class="badge badge-soft badge-sm badge-error">yes</span>{:else}no{/if}</td
+				>
+				<td>{step.started_at ?? ''}</td>
+				<td>{step.completed_at ?? ''}</td>
+			</tr>
+		{/each}
+	</Table>
+	<Pager
+		page={data.stepsPage}
+		shown={data.steps.length}
+		total={data.stepsTotal}
+		action={resolve('/sync/runs/[id]', { id: data.run.id })}
+		params={page.url.searchParams}
+		pageKey="steps_page"
+		pageKeys={['steps_page']}
+	/>
+</Section>
+
+<Section title="Log">
+	<pre
+		class="max-h-96 overflow-auto rounded-box border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed">{#each logs as line (`${line.workflow_id}:${line.position}`)}{line.logged_at} {line.level} {line.message}
+		{/each}</pre>
+	{#if data.logsTotal !== null && data.logsTotal > logs.length}
+		<form method="GET" action={resolve('/sync/runs/[id]', { id: data.run.id })} class="flex items-center gap-2 text-sm">
+			{#each [...page.url.searchParams].filter(([key]) => key !== 'lines') as [key, value] (key)}
+				<input type="hidden" name={key} {value} />
+			{/each}
+			<span>Showing {logs.length} of {data.logsTotal} lines.</span>
+			<button class="btn btn-sm" type="submit" name="lines" value={data.lines + 500}>Load more lines</button>
+		</form>
+	{/if}
+</Section>

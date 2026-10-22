@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { Download, Upload } from '@lucide/svelte';
 	import FormAlert from '#lib/components/FormAlert.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import type { PageProps } from './$types';
 	import HistorySection from './HistorySection.svelte';
 	import ImportPreview from './ImportPreview.svelte';
@@ -36,14 +37,10 @@
 	});
 </script>
 
-<h1 class="mb-4 text-2xl font-semibold">Config</h1>
-
-<FormAlert {form} />
-
-<div class="mb-4 flex gap-2">
+<PageHeader title="Config">
 	<a class="btn btn-sm" href={resolve('/config/export')} data-sveltekit-reload><Download size={16} /> Export</a>
 	{#if data.can.import}
-		<form method="POST" action="?/preview" enctype="multipart/form-data" use:enhance class="flex gap-2">
+		<form method="POST" action="?/preview" enctype="multipart/form-data" use:enhance class="flex items-center gap-2">
 			<input
 				class="file-input file-input-sm"
 				type="file"
@@ -54,7 +51,9 @@
 			<button class="btn btn-sm" type="submit"><Upload size={16} /> Preview import</button>
 		</form>
 	{/if}
-</div>
+</PageHeader>
+
+<FormAlert {form} />
 
 {#if form?.preview}
 	<ImportPreview changes={form.preview} documentText={form.documentText} />
