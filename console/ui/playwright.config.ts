@@ -8,7 +8,7 @@ export default defineConfig({
 	}),
 	grep: process.env.PLAYWRIGHT_GREP ? new RegExp(process.env.PLAYWRIGHT_GREP) : undefined,
 	timeout: 600_000,
-	workers: 1,
+	workers: 4,
 	use: {
 		baseURL: process.env.CONSOLE_URL,
 		actionTimeout: 15_000,

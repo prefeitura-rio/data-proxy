@@ -104,3 +104,44 @@ Feature: Sync runs
     Given I sign in as "web_other"
     When I open the seeded run
     Then I see the error "No such run"
+
+  Scenario: The runs list filters by the dates
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I set "From" to "2099-01-01" in the form "Filter the runs" and submit it
+    Then the list with the column "Started by" says "No rows"
+    When I set "From" to "2000-01-01" in the form "Filter the runs" and submit it
+    And I set "To" to "2000-12-31" in the form "Filter the runs" and submit it
+    Then the list with the column "Started by" says "No rows"
+    When I set "To" to "2099-12-31" in the form "Filter the runs" and submit it
+    Then the list with the column "Started by" says "1 to 25 of"
+
+  Scenario: The runs list filters by the start of the run id
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I set "Run id starts with" to "00000000-0000-4000-8000-0000000000f1" in the form "Filter the runs" and submit it
+    Then the list with the column "Started by" has 1 rows
+
+  Scenario: The runs list filters by schema
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I set "Schema" to "test" in the form "Filter the runs" and submit it
+    Then the list with the column "Started by" says "1 to 25 of"
+
+  Scenario: The log stops at 5000 lines
+    Given I sign in as "web_admin"
+    When I open the run "00000000-0000-4000-8000-0000000000f2"
+    Then the log shows 500 lines
+    When I load more log lines 9 times
+    Then the log shows 5000 lines
+    And the log says "Showing 5000 of 5200 lines."
+    When I load more log lines
+    Then the log shows 5000 lines
+
+  Scenario: A queued run shows a new log line while the page is open
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I set "Status" to "ENQUEUED" in the form "Filter the runs" and submit it
+    And I open the first run of the list
+    And a log line "live line one" is added to the run
+    Then the log shows the line "live line one"

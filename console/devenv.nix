@@ -66,6 +66,7 @@ in
           KEYCLOAK_URL = utils.urls.keycloak;
           KEYCLOAK_USER_PASSWORD = "web-test";
           EXPECTED_ROWS_FILE = utils.stateFile "expected-rows";
+          E2E_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
           PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";

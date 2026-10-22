@@ -17,11 +17,23 @@ export type World = {
 	exported: string;
 	file: string;
 	runId: string;
+	/** The lifespan that the identity provider had before a scenario changed it. */
+	lifespan: string | null | undefined;
+	cookies: string;
 };
 
 export const test = base.extend<{ world: World }>({
 	world: async ({ page }, use) => {
-		const world: World = { lastStatus: 0, grant: null, grants: [], exported: '', file: '', runId: '' };
+		const world: World = {
+			lastStatus: 0,
+			grant: null,
+			grants: [],
+			exported: '',
+			file: '',
+			runId: '',
+			lifespan: undefined,
+			cookies: ''
+		};
 
 		page.on('response', (response) => {
 			if (response.url().endsWith('/query/grant') && response.ok()) {
@@ -37,4 +49,4 @@ export const test = base.extend<{ world: World }>({
 	}
 });
 
-export const { Given, When, Then } = createBdd(test);
+export const { Given, When, Then, After } = createBdd(test);
