@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { refreshAll } from '$app/navigation';
 	import { Pause, Play } from '@lucide/svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import type { Schedule } from '#lib/types.js';
 
@@ -36,7 +37,7 @@
 		<tr>
 			<td>{schedule.name}</td>
 			<td>{schedule.schedule}</td>
-			<td>{schedule.status}</td>
+			<td><StatusBadge status={schedule.status} /></td>
 			{#if canControl}
 				<td>
 					<form

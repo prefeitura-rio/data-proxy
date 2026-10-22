@@ -8,6 +8,7 @@
 	import Field from '#lib/components/Field.svelte';
 	import Modal from '#lib/components/Modal.svelte';
 	import Pager from '#lib/components/Pager.svelte';
+	import Section from '#lib/components/Section.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import type { PageQuery } from '#lib/list.js';
 	import type { Can } from '#lib/permissions.js';
@@ -46,65 +47,70 @@
 		};
 </script>
 
-<h2 class="mt-6 mb-2 text-lg font-semibold">Tables</h2>
-<form method="GET" action={paging.action} class="mb-2 flex items-end gap-2" aria-label="Filter the tables">
-	{#each [...new URLSearchParams(paging.params.toString())].filter(([key]) => !['table_schema', 'table_q', 'tables_page'].includes(key)) as [key, value] (key)}
-		<input type="hidden" name={key} {value} />
-	{/each}
-	<label class="flex flex-col gap-1 text-sm">
-		<span>Schema</span>
-		<select class="select select-sm" name="table_schema" value={paging.params.get('table_schema') ?? ''}>
-			<option value="">Any</option>
-			{#each schemas as schema (schema.name)}<option value={schema.name}>{schema.name}</option>{/each}
-		</select>
-	</label>
-	<Field label="Name contains" name="table_q" value={paging.params.get('table_q') ?? ''} />
-	<button class="btn btn-primary btn-sm" type="submit">Filter</button>
-</form>
-<Table head={['Name', 'Schema', 'Strategy', 'Cache TTL', 'Sort', 'Synced', '']}>
-	{#each tables as table (table.name)}
-		{@const row = syncedOf(table.name)}
-		<tr>
-			<td>{table.name}</td>
-			<td>{table.schema}</td>
-			<td>{table.strategy}{table.n ? `, n=${table.n}` : ''}{table.fallback ? ', fallback' : ''}</td>
-			<td>{table.cache_ttl ?? ''}</td>
-			<td>{table.sort?.join(', ') ?? ''}</td>
-			<td title={row?.signature ?? ''}>{row?.synced ? `yes, ${row.partition_count} partitions` : 'no'}</td>
-			<td class="whitespace-nowrap">
-				{#if can.edit}<EditButton onclick={() => (editing = table)} />{/if}
-				{#if can.delete}<DeleteButton onclick={() => (removing = table)} />{/if}
-			</td>
-		</tr>
-	{/each}
-</Table>
-<Pager
-	page={paging.page}
-	shown={tables.length}
-	total={paging.total}
-	action={paging.action}
-	params={paging.params}
-	pageKey="tables_page"
-	pageKeys={['tables_page']}
-/>
-
-{#if can.create}
-	<form method="POST" action="?/createTable" use:enhance class="my-2 flex flex-wrap items-end gap-2">
-		<Field label="Table" name="name" placeholder="project.dataset.table" required />
+<Section title="Tables">
+	<form method="GET" action={paging.action} class="toolbar" aria-label="Filter the tables">
+		{#each [...new URLSearchParams(paging.params.toString())].filter(([key]) => !['table_schema', 'table_q', 'tables_page'].includes(key)) as [key, value] (key)}
+			<input type="hidden" name={key} {value} />
+		{/each}
 		<label class="flex flex-col gap-1 text-sm">
 			<span>Schema</span>
-			<select class="select select-sm" name="schema" required>
-				{#each schemas as schema (schema.name)}<option>{schema.name}</option>{/each}
+			<select class="select select-sm" name="table_schema" value={paging.params.get('table_schema') ?? ''}>
+				<option value="">Any</option>
+				{#each schemas as schema (schema.name)}<option value={schema.name}>{schema.name}</option>{/each}
 			</select>
 		</label>
-		<label class="flex flex-col gap-1 text-sm">
-			<span>Strategy</span>
-			<select class="select select-sm" name="strategy"><option>full</option><option>partitioned</option></select>
-		</label>
-		<Check label="fallback" name="fallback" />
-		<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add table</button>
+		<Field label="Name contains" name="table_q" value={paging.params.get('table_q') ?? ''} />
+		<button class="btn btn-primary btn-sm" type="submit">Filter</button>
 	</form>
-{/if}
+	<Table head={['Name', 'Schema', 'Strategy', 'Cache TTL', 'Sort', 'Synced', '']}>
+		{#each tables as table (table.name)}
+			{@const row = syncedOf(table.name)}
+			<tr>
+				<td>{table.name}</td>
+				<td>{table.schema}</td>
+				<td>{table.strategy}{table.n ? `, n=${table.n}` : ''}{table.fallback ? ', fallback' : ''}</td>
+				<td>{table.cache_ttl ?? ''}</td>
+				<td>{table.sort?.join(', ') ?? ''}</td>
+				<td title={row?.signature ?? ''}>
+					{#if row?.synced}<span class="badge badge-soft badge-sm badge-success"
+							>yes, {row.partition_count} partitions</span
+						>{:else}<span class="badge badge-soft badge-sm badge-neutral">no</span>{/if}
+				</td>
+				<td class="whitespace-nowrap">
+					{#if can.edit}<EditButton onclick={() => (editing = table)} />{/if}
+					{#if can.delete}<DeleteButton onclick={() => (removing = table)} />{/if}
+				</td>
+			</tr>
+		{/each}
+	</Table>
+	<Pager
+		page={paging.page}
+		shown={tables.length}
+		total={paging.total}
+		action={paging.action}
+		params={paging.params}
+		pageKey="tables_page"
+		pageKeys={['tables_page']}
+	/>
+
+	{#if can.create}
+		<form method="POST" action="?/createTable" use:enhance class="toolbar">
+			<Field label="Table" name="name" placeholder="project.dataset.table" required />
+			<label class="flex flex-col gap-1 text-sm">
+				<span>Schema</span>
+				<select class="select select-sm" name="schema" required>
+					{#each schemas as schema (schema.name)}<option>{schema.name}</option>{/each}
+				</select>
+			</label>
+			<label class="flex flex-col gap-1 text-sm">
+				<span>Strategy</span>
+				<select class="select select-sm" name="strategy"><option>full</option><option>partitioned</option></select>
+			</label>
+			<Check label="fallback" name="fallback" />
+			<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add table</button>
+		</form>
+	{/if}
+</Section>
 
 <Modal open={editing !== null} onclose={() => (editing = null)}>
 	{#if editing}

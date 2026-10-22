@@ -15,7 +15,7 @@
 	<form
 		method="POST"
 		aria-label="Control the run"
-		class="my-2 flex gap-2"
+		class="mb-6 flex flex-wrap gap-2"
 		use:enhance={() =>
 			async ({ update }) => {
 				await update();
@@ -33,5 +33,7 @@
 		{/if}
 	</form>
 {/if}
-{#if form?.control}<p role="status" class="text-success">{form.control}</p>{/if}
-{#if form?.message}<p role="alert" class="text-error">{form.message}</p>{/if}
+{#if form?.control}<p role="status" class="mb-4 alert alert-soft alert-success text-base-content">
+		{form.control}
+	</p>{/if}
+{#if form?.message}<p role="alert" class="mb-4 alert alert-soft alert-error text-base-content">{form.message}</p>{/if}

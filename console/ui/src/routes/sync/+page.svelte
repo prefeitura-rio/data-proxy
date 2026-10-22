@@ -5,7 +5,10 @@
 	import { Play } from '@lucide/svelte';
 	import Check from '#lib/components/Check.svelte';
 	import Field from '#lib/components/Field.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pager from '#lib/components/Pager.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import RunFilters from './RunFilters.svelte';
 	import ScheduleSection from './ScheduleSection.svelte';
@@ -14,16 +17,21 @@
 	let { data, form }: PageProps = $props();
 </script>
 
-<h1 class="mb-4 text-2xl font-semibold">Sync</h1>
+<PageHeader title="Sync" />
 
-<section class="mb-6 grid gap-4 md:grid-cols-3">
+<section class="mb-8 grid gap-4 md:grid-cols-3">
 	{#each data.overview as card (card.name)}
 		<div class="card bg-base-100 card-border">
-			<div class="card-body">
+			<div class="card-body gap-2">
 				<h2 class="card-title">{card.name}</h2>
-				<p>{card.synced_tables} of {card.tables} tables synced</p>
-				<p>Last run: {card.last_run_status ?? 'none'}</p>
-				<p>
+				<p class="text-sm text-base-content/70">{card.synced_tables} of {card.tables} tables synced</p>
+				<progress class="progress progress-primary" value={card.synced_tables} max={Math.max(card.tables, 1)}
+				></progress>
+				<p class="flex items-center gap-2 text-sm">
+					Last run:
+					{#if card.last_run_status}<StatusBadge status={card.last_run_status} />{:else}none{/if}
+				</p>
+				<p class="text-sm text-base-content/70">
 					{card.runs_24h}
 					{card.runs_24h === 1 ? 'run' : 'runs'}, {card.failed_runs_24h} failed, {card.errors_24h}
 					{card.errors_24h === 1 ? 'error' : 'errors'} in 24 hours
@@ -34,9 +42,8 @@
 </section>
 
 {#if data.canStart}
-	<section class="mb-6">
-		<h2 class="mb-2 text-lg font-semibold">Start run</h2>
-		<form method="POST" action="?/start" use:enhance class="flex flex-col gap-2">
+	<Section title="Start run">
+		<form method="POST" action="?/start" use:enhance class="toolbar flex-col items-stretch">
 			<fieldset class="flex flex-wrap gap-4">
 				{#each data.overview as card (card.name)}
 					<Check label={card.name} name="schemas" value={card.name} />
@@ -54,17 +61,16 @@
 			{#if form?.message}<p role="alert" class="text-error">{form.message}</p>{/if}
 			{#if form?.started}<p role="status" class="text-success">Run {form.started} started.</p>{/if}
 		</form>
-	</section>
+	</Section>
 {/if}
 
-<section class="mb-6">
-	<h2 class="mb-2 text-lg font-semibold">Runs</h2>
+<Section title="Runs">
 	<RunFilters params={page.url.searchParams} schemas={data.overview.map((card) => card.name)} />
 	<Table head={['Run', 'Status', 'Started by', 'Created', 'Tasks']}>
 		{#each data.runs as run (run.id)}
 			<tr>
 				<td><a class="link" href={resolve('/sync/runs/[id]', { id: run.id })}>{run.id.slice(0, 8)}</a></td>
-				<td>{run.status}</td>
+				<td><StatusBadge status={run.status} /></td>
 				<td>{run.started_by ?? run.schedule_name ?? ''}</td>
 				<td>{run.created_at}</td>
 				<td>{run.task_count} ({run.failed_task_count} failed)</td>
@@ -78,11 +84,11 @@
 		action={resolve('/sync')}
 		params={page.url.searchParams}
 	/>
-</section>
+</Section>
 
-<section class="mb-6 grid gap-6 md:grid-cols-2">
+<section class="mb-8 grid gap-6 md:grid-cols-2">
 	<div>
-		<h2 class="mb-2 text-lg font-semibold">Queues</h2>
+		<h2 class="mb-3 text-lg font-semibold">Queues</h2>
 		<Table head={['Name', 'Enqueued', 'Pending', 'Delayed']} small>
 			{#each data.queues as queue (queue.name)}
 				<tr><td>{queue.name}</td><td>{queue.enqueued}</td><td>{queue.pending}</td><td>{queue.delayed}</td></tr>
@@ -90,7 +96,7 @@
 		</Table>
 	</div>
 	<div>
-		<h2 class="mb-2 text-lg font-semibold">Schedules</h2>
+		<h2 class="mb-3 text-lg font-semibold">Schedules</h2>
 		<ScheduleSection
 			schedules={data.schedules}
 			canControl={data.canControl}
@@ -100,9 +106,8 @@
 	</div>
 </section>
 
-<section>
-	<h2 class="mb-2 text-lg font-semibold">Errors</h2>
-	<form method="GET" action={resolve('/sync')} class="mb-2 flex items-end gap-2" aria-label="Filter the errors">
+<Section title="Errors">
+	<form method="GET" action={resolve('/sync')} class="toolbar" aria-label="Filter the errors">
 		{#each [...page.url.searchParams].filter(([key]) => key !== 'reason' && key !== 'errors_page') as [key, value] (key)}
 			<input type="hidden" name={key} {value} />
 		{/each}
@@ -123,4 +128,4 @@
 		pageKey="errors_page"
 		pageKeys={['errors_page']}
 	/>
-</section>
+</Section>

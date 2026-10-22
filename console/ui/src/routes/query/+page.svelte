@@ -1,6 +1,8 @@
 <script lang="ts">
 	import * as v from 'valibot';
 	import { Grant } from '#lib/types.js';
+	import { NotebookText } from '@lucide/svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
 	import type { PageProps } from './$types';
 
 	const Ready = v.object({ type: v.literal('ready') });
@@ -62,32 +64,34 @@
 	});
 </script>
 
-<h1 class="mb-4 text-2xl font-semibold">Query</h1>
+<PageHeader title="Query" />
 
 {#if !data.notebookOrigin}
-	<p class="alert alert-warning">The query tab is not set up. Set the notebook origin, the catalog and the storage.</p>
+	<p class="alert alert-soft alert-warning text-base-content">
+		The query tab is not set up. Set the notebook origin, the catalog and the storage.
+	</p>
 {:else}
-	<div role="alert" class="mb-4 alert alert-info">
+	<div role="alert" class="mb-4 alert alert-soft alert-info text-base-content">
 		Row policies do not apply to files. The notebook reads every row of the tables that you open.
 	</div>
 
 	<form
-		class="mb-4 flex flex-wrap items-end gap-4"
+		class="mb-4 toolbar gap-4"
 		onsubmit={(event) => {
 			event.preventDefault();
 			open = { schema, tables: chosen };
 		}}
 	>
-		<label class="label gap-2">
-			Schema
-			<select class="select" bind:value={schema} onchange={() => (chosen = [])}>
+		<label class="flex flex-col gap-1 text-sm">
+			<span class="text-base-content/70">Schema</span>
+			<select class="select select-sm" bind:value={schema} onchange={() => (chosen = [])}>
 				<option value="" disabled>Choose a schema</option>
 				{#each data.schemas as row (row.name)}<option value={row.name}>{row.name}</option>{/each}
 			</select>
 		</label>
-		<fieldset class="flex flex-wrap gap-3">
+		<fieldset class="flex flex-wrap gap-3 pb-1">
 			{#each options as table (table.name)}
-				<label class="label gap-1"
+				<label class="flex cursor-pointer items-center gap-2 text-sm"
 					><input
 						type="checkbox"
 						class="checkbox checkbox-sm"
@@ -97,8 +101,8 @@
 				>
 			{/each}
 		</fieldset>
-		<button class="btn btn-primary" type="submit" disabled={!schema || chosen.length === 0 || encrypted}
-			>Open notebook</button
+		<button class="btn btn-primary btn-sm" type="submit" disabled={!schema || chosen.length === 0 || encrypted}
+			><NotebookText size={16} /> Open notebook</button
 		>
 	</form>
 
@@ -113,7 +117,7 @@
 			title="Notebook"
 			src={data.notebookOrigin}
 			sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"
-			class="h-[80vh] w-full rounded border"
+			class="h-[80vh] w-full rounded-box border border-base-300 bg-base-100 shadow-sm"
 		></iframe>
 	{/if}
 {/if}

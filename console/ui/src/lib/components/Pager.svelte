@@ -23,8 +23,8 @@
 	const fields = (target: number) => [...paramsWith(params, { [pageKey]: String(target) }, pageKeys)];
 </script>
 
-<nav class="mt-2 flex items-center gap-2 text-sm" aria-label="Pages">
-	<span data-testid="range">{rangeText(page, shown, total)}</span>
+<nav class="mt-3 flex items-center gap-2 text-sm" aria-label="Pages">
+	<span class="text-base-content/70" data-testid="range">{rangeText(page, shown, total)}</span>
 	{#if page.page > 0}
 		<form method="GET" {action}>
 			{#each fields(page.page - 1) as [name, value] (name)}<input type="hidden" {name} {value} />{/each}
