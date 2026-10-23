@@ -130,7 +130,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{- define "data-proxy.s3SecretName" -}}
-{{- include "data-proxy.fullname" . }}-s3
+{{- .Values.s3.existingSecret | default (printf "%s-s3" (include "data-proxy.fullname" .)) }}
 {{- end }}
 
 {{- define "data-proxy.s3CredentialsChecksum" -}}

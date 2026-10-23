@@ -20,15 +20,18 @@ tests:
           path: metadata.name
           value: data-proxy-s3
 
-  - it: omits the S3 secret when an existing secret is set
+  - it: renders one document fewer when an existing secret is set
     set:
       s3.existingSecret: my-s3-secret
     asserts:
-      - notContains:
-          path: items
-          content:
-            metadata:
-              name: data-proxy-s3
+      - hasDocuments:
+          count: 5
+        template: secrets.yaml
+
+  - it: renders the S3 secret document next to the others by default
+    asserts:
+      - hasDocuments:
+          count: 6
         template: secrets.yaml
 
 ---
@@ -51,6 +54,19 @@ tests:
           content:
             name: S3_ENDPOINT
             value: RELEASE-NAME-seaweedfs-s3:8333
+
+  - it: reads the S3 credentials of the sync service from an existing secret
+    set:
+      s3.existingSecret: my-s3-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-s3-secret
+                key: S3_ACCESS_KEY
 
   - it: points the sync service at an explicit endpoint when one is set
     set:
