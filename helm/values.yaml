@@ -26,6 +26,13 @@ sync:
   dumpQueueRateLimit: 0
   ## Per-process concurrency for the DBOS dump queue.
   dumpQueueWorkerConcurrency: 4
+  ## The limits of each DuckDB connection of a sync worker. Without them, one connection takes 80% of the memory
+  ## of the pod and every thread of the node, and the connections of a pod together fill the pod. The memory limit
+  ## times (dumpQueueWorkerConcurrency + 2) must stay below resources.limits.memory. DuckDB spills to the disk
+  ## beyond the memory limit.
+  duckdb:
+    memoryLimit: 768MB
+    threads: 2
   ## Recovery of DBOS workflows owned by terminated sync pods.
   recovery:
     enabled: true

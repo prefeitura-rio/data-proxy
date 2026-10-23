@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     DUCKLAKE_REWRITE_DELETE_THRESHOLD: float = Field(default=0.95, gt=0, le=1)
     DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
     DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
+    DUCKDB_MEMORY_LIMIT: str = "768MB"
+    DUCKDB_TEMP_DIRECTORY: str = "/tmp/duckdb"  # ruff: ignore[hardcoded-temp-file]
+    DUCKDB_THREADS: int = Field(default=2, gt=0)
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=4, gt=0)

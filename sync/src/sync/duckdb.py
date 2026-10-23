@@ -41,6 +41,9 @@ class DuckDB:
                 "s3_secret_key": Literal(settings.S3_SECRET_KEY),
                 "s3_endpoint": Literal(settings.S3_ENDPOINT),
                 "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
+                "memory_limit": Literal(settings.DUCKDB_MEMORY_LIMIT),
+                "threads": Literal(settings.DUCKDB_THREADS),
+                "temp_directory": Literal(settings.DUCKDB_TEMP_DIRECTORY),
                 "source_extensions": sorted(
                     {
                         extension

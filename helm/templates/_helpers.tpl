@@ -490,6 +490,10 @@ jwtRules:
   value: {{ .Values.sync.schedule | quote }}
 - name: DUMP_QUEUE_WORKER_CONCURRENCY
   value: {{ .Values.sync.dumpQueueWorkerConcurrency | quote }}
+- name: DUCKDB_MEMORY_LIMIT
+  value: {{ .Values.sync.duckdb.memoryLimit | quote }}
+- name: DUCKDB_THREADS
+  value: {{ .Values.sync.duckdb.threads | quote }}
 - name: SYNC_QUEUE_CONCURRENCY
   value: {{ .Values.sync.queueConcurrency | quote }}
 - name: AUTH_ANON_ROLE

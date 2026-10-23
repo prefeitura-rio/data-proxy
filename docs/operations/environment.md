@@ -61,6 +61,9 @@ These variables set the first values of the DBOS queues and of the sync schedule
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Initial dump worker concurrency. |
+| `DUCKDB_MEMORY_LIMIT` | `768MB` | Memory of each DuckDB connection of a sync worker. DuckDB spills to the disk beyond it. |
+| `DUCKDB_THREADS` | `2` | Threads of each DuckDB connection. |
+| `DUCKDB_TEMP_DIRECTORY` | `/tmp/duckdb` | Folder where a DuckDB connection spills to the disk. |
 | `DUMP_QUEUE_RATE_LIMIT` | `0` | Initial dump tasks per minute. `0` turns the limit off. |
 | `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
 
