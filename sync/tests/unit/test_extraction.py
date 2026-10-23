@@ -1,3 +1,4 @@
+import asyncio
 from typing import Final
 from unittest.mock import AsyncMock
 
@@ -73,10 +74,38 @@ class TestExtractionStatements:
     async def test_propagates_failure_from_one_selection(self) -> None:
         """Stop extraction when one output cannot be written."""
         connection = AsyncMock(spec=DuckDB)
-        connection.execute.side_effect = [None, RuntimeError("write failed")]
+        connection.execute.side_effect = [None, None, RuntimeError("write failed")]
         task = dump_task(selections=[AllSelection(), AllSelection()])
 
         with pytest.raises(RuntimeError, match="write failed"):
             await run_extraction(connection, task)
 
-        assert connection.execute.await_count == 2
+        assert connection.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_first_requests_of_concurrent_tasks_never_overlap(self) -> None:
+        """The BigQuery extension fails with CURL error 77 when connections of one process send their first request at once."""
+        running = 0
+        most = 0
+
+        async def execute(sql: str, *, params: object = None) -> None:
+            nonlocal running, most
+            if "DESCRIBE" not in sql:
+                await asyncio.sleep(0.01)
+                return
+            running += 1
+            most = max(most, running)
+            await asyncio.sleep(0.05)
+            running -= 1
+
+        connections: list[AsyncMock] = []
+        for _ in range(4):
+            connection = AsyncMock(spec=DuckDB)
+            connection.execute.side_effect = execute
+            connections.append(connection)
+
+        await asyncio.gather(
+            *(run_extraction(connection, dump_task()) for connection in connections)
+        )
+
+        assert most == 1

@@ -105,7 +105,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DUMP_QUEUE_WORKER_CONCURRENCY
-            value: "4"
+            value: "2"
         template: deployment-sync.yaml
       - contains:
           path: spec.template.spec.containers[0].env

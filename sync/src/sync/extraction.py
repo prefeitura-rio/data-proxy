@@ -1,7 +1,9 @@
 """Source-to-Parquet extraction statement builders and runner."""
 
+import threading
 from typing import TYPE_CHECKING, assert_never
 
+from asyncer import asyncify
 from psycopg.sql import Identifier, Literal
 
 from .executor import Executor
@@ -56,9 +58,21 @@ def build_extraction_query(
             assert_never(selection)
 
 
+# The BigQuery extension fails with CURL error 77 (a problem with the CA certificates) when several connections of one
+# process send their first request at the same time. A connection that has made one request works.
+_FIRST_REQUEST = threading.Lock()
+
+
 async def run_extraction(duckdb_conn: DuckDB, task: DumpTask) -> None:
     """Extract each selection to its own scratch Parquet file."""
     executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb_conn)
+    scan = sources.configure(task.source, task.source_settings).scan(task.table)
+    await asyncify(_FIRST_REQUEST.acquire)()
+    try:
+        await executor.execute("duckdb/describe_source", {"source": scan})
+    finally:
+        _FIRST_REQUEST.release()
+
     for selection, path in zip(task.selections, task.output_paths, strict=True):
         template, mapping = build_extraction_query(task, selection, path)
         await executor.execute(template, mapping)

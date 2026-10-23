@@ -28,7 +28,7 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 | `sync.autoscaling.cooldownPeriod` | `60` | Seconds before scale-down. |
 | `sync.autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
 | `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
-| `sync.dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
+| `sync.dumpQueueWorkerConcurrency` | `2` | Dump concurrency per sync process. |
 | `sync.duckdb.memoryLimit` | `1GB` | Memory of each DuckDB connection. |
 | `sync.duckdb.threads` | `2` | Threads of each DuckDB connection. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
@@ -41,6 +41,14 @@ A DuckDB connection takes 80% of the memory of the pod and every thread of the n
 `sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Each connection has its own spill folder, because two connections in one folder overwrite the files of each other and DuckDB crashes. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
 
 A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 3 GB for a table with wide JSON columns. The dump and the publish both write row groups of 10000 rows, and then every table of the `app_pequenos_cariocas` schema fits in 1 GB. The publish of the two widest tables used 4.3 GB with the default row group and 1.5 GB with 10000 rows. It took 3 seconds instead of 17.
+
+A worker takes small batches: two dumps at a time. Four connections of 1 GB (two dumps, a publish and a maintenance run) use 4 GB of the 6 GiB of a pod. KEDA adds pods when more dumps wait.
+
+The queue stores its limits when it starts for the first time, and a restart keeps them. A change of `sync.dumpQueueWorkerConcurrency` therefore changes only a new installation. To change an installed queue, update the row in the system database. The workers read the row again within seconds, so they need no restart.
+
+```sql
+UPDATE dbos.queues SET worker_concurrency = 2 WHERE name = 'dump';
+```
 
 ## Catalogs
 
@@ -56,7 +64,7 @@ This example shows the Helm values that set the schedule, the retries and the KE
 sync:
   schedule: "0 2 * * *"
   dumpStepMaxAttempts: 3
-  dumpQueueWorkerConcurrency: 4
+  dumpQueueWorkerConcurrency: 2
   # DBOS workers use the shared data-proxy-duckdb PVC.
   autoscaling:
     minReplicaCount: 3

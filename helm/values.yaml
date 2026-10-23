@@ -24,8 +24,9 @@ sync:
   stepMaxAttempts: 3
   ## Maximum dump tasks enqueued per 60 seconds.
   dumpQueueRateLimit: 0
-  ## Per-process concurrency for the DBOS dump queue.
-  dumpQueueWorkerConcurrency: 4
+  ## Per-process concurrency for the DBOS dump queue. Small batches fit in the memory of a pod, and KEDA adds pods
+  ## when more dumps wait. This is the first value: the queue keeps the value that it stored on its first start.
+  dumpQueueWorkerConcurrency: 2
   ## The limits of each DuckDB connection of a sync worker. Without them, one connection takes 80% of the memory
   ## of the pod and every thread of the node, and the connections of a pod together fill the pod. The memory limit
   ## times (dumpQueueWorkerConcurrency + 2) must stay below resources.limits.memory. DuckDB spills to the disk

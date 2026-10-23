@@ -60,7 +60,7 @@ These variables set the first values of the DBOS queues and of the sync schedule
 | `LISTEN_QUEUES` | empty | Queue names, separated by commas, that this worker listens to. Empty means every queue. An unknown name stops the worker. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
-| `DUMP_QUEUE_WORKER_CONCURRENCY` | `4` | Initial dump worker concurrency. |
+| `DUMP_QUEUE_WORKER_CONCURRENCY` | `2` | Initial dump worker concurrency. |
 | `DUCKDB_MEMORY_LIMIT` | `1GB` | Memory of each DuckDB connection of a sync worker. DuckDB spills to the disk beyond it. |
 | `DUCKDB_THREADS` | `2` | Threads of each DuckDB connection. |
 | `DUCKDB_TEMP_DIRECTORY` | `/tmp/duckdb` | Parent folder of the spill of the DuckDB connections. Each connection spills to a folder of its own in it, and removes the folder when it closes. |
