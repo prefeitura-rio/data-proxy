@@ -80,6 +80,22 @@ export def partial-import [
     }
 }
 
+# Return the attribute that a realm with the declarative user profile needs for the claim `schemas`. Without it Keycloak
+# drops the user attribute, and the mapper puts nothing in the token. Add it to the `attributes` of the user profile.
+export def schemas-attribute []: nothing -> record {
+    {
+        name: schemas
+        displayName: 'Data proxy schemas'
+        validations: {}
+        annotations: {}
+        permissions: {
+            view: [admin]
+            edit: [admin]
+        }
+        multivalued: true
+    }
+}
+
 # Return a claim as a list, whether the token has one text value or a list of them.
 def as-list [claim: oneof<string, list<string>, nothing>]: nothing -> list<string> {
     [$claim] | flatten | compact
@@ -136,6 +152,11 @@ def "main client" [
     }
 
     partial-import (read-data $RULES) {id: $client_id, host: $host, audience: $audience} | to json --indent 2 | print
+}
+
+# Print the attribute to add to the user profile of the realm, as JSON.
+def "main user-profile-attribute" []: nothing -> nothing {
+    schemas-attribute | to json --indent 2 | print
 }
 
 # Check the claims of an access token against the roles of rbac.toml. It fails with the list of the problems.

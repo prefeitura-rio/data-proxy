@@ -60,7 +60,7 @@ Then do these steps in the realm:
 
 1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
 2. Open *Clients*, *console-web*, *Credentials*, and copy the client secret.
-3. Give each person one client role of `console-web`, and set the user attribute `schemas` to their schemas.
+3. Give each person one client role of `console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/keycloak.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
 4. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
 
 ```bash

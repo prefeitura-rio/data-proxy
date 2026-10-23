@@ -1,5 +1,5 @@
 use std/assert
-use ../keycloak.nu [claims-of partial-import role-names token-problems]
+use ../keycloak.nu [claims-of partial-import role-names schemas-attribute token-problems]
 
 const RULES = {
     roles: [
@@ -83,4 +83,13 @@ export def "test claims-of-reads-the-payload" []: nothing -> nothing {
     let token = $'e30.($payload).signature'
 
     assert equal (claims-of $token) {role: dp_api, aud: [data-proxy]}
+}
+
+# Verify that the attribute is for admins only and takes several values, like the mapper of the client expects.
+export def "test schemas-attribute-takes-several-values-and-only-admins-edit-it" []: nothing -> nothing {
+    let attribute = schemas-attribute
+
+    assert equal $attribute.name schemas
+    assert equal $attribute.multivalued true
+    assert equal $attribute.permissions {view: [admin], edit: [admin]}
 }
