@@ -48,6 +48,28 @@ curl --request POST \
 
 The access policy subject must equal the configured identity claim in the end-user JSON Web Token (JWT).
 
+## Create the console client with a script
+
+`scripts/keycloak.nu` prints the document for the Keycloak partial import. It reads the roles from `rbac.toml`, so the client roles always match the rules.
+
+```bash
+nu scripts/keycloak.nu client --host data-proxy-preview-console.staging.example.com > console-client.json
+```
+
+Then do these steps in the realm:
+
+1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
+2. Open *Clients*, *console-web*, *Credentials*, and copy the client secret.
+3. Give each person one client role of `console-web`, and set the user attribute `schemas` to their schemas.
+4. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
+
+```bash
+nu scripts/token.nu --issuer <issuer> --client-id console-web --client-secret <secret> --username <user> --password <password>
+nu scripts/keycloak.nu check <access_token> --issuer <issuer>
+```
+
+The `check` command fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of `rbac.toml`, a `schemas` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
+
 ## Use another identity provider
 
 The gateway, PostgREST and the proxy need the same three claims from any provider that issues JWTs and publishes a JWKS. Set these values, and then give each client the claims:

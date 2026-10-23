@@ -91,7 +91,7 @@ in
           };
           "test:nu" = utils.nuTask {
             description = "Run the Nushell tests.";
-            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu";
+            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/keycloak.nu";
             execIfModified = [
               "helm/files/scripts"
               "scripts"
