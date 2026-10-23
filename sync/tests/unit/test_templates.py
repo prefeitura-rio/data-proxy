@@ -10,6 +10,7 @@ from random import Random
 from time import perf_counter, time
 from typing import Final, LiteralString, cast
 
+import duckdb as duckdb_module
 import psycopg
 import pytest
 from hypothesis import HealthCheck, given
@@ -494,6 +495,45 @@ class TestBigQueryTemplates:
             )
             for partition_id in ("0", "20")
         }
+
+
+@pytest.mark.parametrize(
+    ("memory_limit", "threads", "temp_directory"),
+    [
+        pytest.param("512MB", 1, "spill-a", id="small"),
+        pytest.param("2GB", 4, "spill-b", id="large"),
+    ],
+)
+def test_limits_template_sets_the_limits_of_a_duckdb_connection(
+    memory_limit: str, threads: int, temp_directory: str
+) -> None:
+    """Run the limits template on a plain connection and read the settings back."""
+    sql = render_template(
+        "duckdb/limits",
+        {
+            "memory_limit": Literal(memory_limit),
+            "threads": Literal(threads),
+            "temp_directory": Literal(temp_directory),
+        },
+    )
+    reference = duckdb_module.connect(":memory:")
+    reference.execute(f"SET memory_limit = '{memory_limit}'")
+    expected = reference.execute("SELECT current_setting('memory_limit')").fetchone()
+    reference.close()
+
+    connection = duckdb_module.connect(":memory:")
+    connection.execute(sql)
+    rows = connection.execute(
+        """
+        SELECT
+            current_setting('memory_limit'),
+            current_setting('threads'),
+            current_setting('temp_directory')
+        """
+    ).fetchall()
+    connection.close()
+
+    assert rows == [(expected[0] if expected else None, threads, temp_directory)]
 
 
 def test_every_template_has_a_test_or_a_reason_to_skip() -> None:

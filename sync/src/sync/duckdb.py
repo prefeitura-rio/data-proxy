@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     from .types import DatabaseRow, DuckDBParams
 
 
+def limits_sql() -> str:
+    """Render the statements that limit one connection, from the settings."""
+    return render_template(
+        "duckdb/limits",
+        {
+            "memory_limit": Literal(settings.DUCKDB_MEMORY_LIMIT),
+            "threads": Literal(settings.DUCKDB_THREADS),
+            "temp_directory": Literal(settings.DUCKDB_TEMP_DIRECTORY),
+        },
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DuckDB:
     """An async view of one synchronous DuckDB connection."""
@@ -41,9 +53,6 @@ class DuckDB:
                 "s3_secret_key": Literal(settings.S3_SECRET_KEY),
                 "s3_endpoint": Literal(settings.S3_ENDPOINT),
                 "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
-                "memory_limit": Literal(settings.DUCKDB_MEMORY_LIMIT),
-                "threads": Literal(settings.DUCKDB_THREADS),
-                "temp_directory": Literal(settings.DUCKDB_TEMP_DIRECTORY),
                 "source_extensions": sorted(
                     {
                         extension
@@ -54,7 +63,10 @@ class DuckDB:
             },
         )
 
+        limits = limits_sql()
+
         def bootstrap() -> None:
+            connection.execute(limits)
             connection.execute(setup)
 
         try:

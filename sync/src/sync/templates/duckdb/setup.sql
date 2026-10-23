@@ -7,23 +7,11 @@
     "s3_secret_key": "S3 secret key used by DuckDB.",
     "s3_endpoint": "S3-compatible endpoint used by DuckDB.",
     "s3_use_ssl": "Whether DuckDB uses TLS for S3.",
-    "source_extensions": "DuckDB extension names required by configured sources.",
-    "memory_limit": "Memory that the connection may use before it spills to disk, optional.",
-    "threads": "Number of threads of the connection, optional.",
-    "temp_directory": "Folder where the connection spills to disk, optional."
+    "source_extensions": "DuckDB extension names required by configured sources."
   }
 }
 #}
 -- noqa: PRS
-{% if memory_limit %}
-SET memory_limit = {{ memory_limit }};
-{% endif %}
-{% if threads %}
-SET threads = {{ threads }};
-{% endif %}
-{% if temp_directory %}
-SET temp_directory = {{ temp_directory }};
-{% endif %}
 LOAD httpfs;
 LOAD ducklake;
 {% for extension in source_extensions | default([]) %}
