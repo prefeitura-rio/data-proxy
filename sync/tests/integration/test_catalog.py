@@ -11,6 +11,7 @@ from sync.ducklake import (
     DuckLakePaths,
     apply_maintenance,
     attach_catalog,
+    configure_catalog,
     current_snapshot_id,
 )
 from sync.settings import settings
@@ -55,6 +56,19 @@ async def test_each_schema_writes_to_its_own_metadata_schema(tmp_path: Path) -> 
                 SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(Identifier(name))
             )
         await catalog.close()
+
+
+async def test_configure_catalog_sets_small_row_groups(
+    duckdb: DuckDB, catalog_paths: DuckLakePaths
+) -> None:
+    """DuckLake writes the rows of a table in row groups, and a table with wide JSON columns needs more than 3 GB for the default of 122880 rows."""
+    await configure_catalog(duckdb, catalog_paths, encrypted=False)
+
+    rows = await duckdb.query(
+        "SELECT value FROM dl.options() WHERE option_name = 'parquet_row_group_size'"
+    )
+
+    assert rows == [("10000",)]
 
 
 class TestApplyMaintenance:

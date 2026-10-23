@@ -168,6 +168,9 @@ def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
             assert_never(selection)
 
 
+PARQUET_ROW_GROUP_SIZE: Final = 10_000
+"""Rows in one row group. A row group is in memory while DuckDB writes it. The same size is in the macro parquet_options."""
+
 _GEOMETRY_CRS: Final = re.compile(r"GEOMETRY\s*\(\s*'(?:[^']|'')*'\s*\)", re.IGNORECASE)
 
 
@@ -464,13 +467,20 @@ async def attach_catalog(
 async def configure_catalog(
     duckdb_conn: DuckDB, paths: DuckLakePaths, encrypted: bool
 ) -> None:
-    """Attach one per-schema DuckLake catalog and set its file-size option."""
+    """Attach one per-schema DuckLake catalog and set its file-size and row-group options."""
     await attach_catalog(duckdb_conn, paths, encrypted)
     await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
         "duckdb/set_option",
         mapping={
             "option": "target_file_size",
             "value": Literal(settings.DUCKLAKE_TARGET_FILE_SIZE),
+        },
+    )
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/set_option",
+        mapping={
+            "option": "parquet_row_group_size",
+            "value": Literal(PARQUET_ROW_GROUP_SIZE),
         },
     )
 

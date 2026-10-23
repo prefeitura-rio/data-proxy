@@ -120,7 +120,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DUCKDB_MEMORY_LIMIT
-            value: "768MB"
+            value: "1GB"
         template: deployment-sync.yaml
       - contains:
           path: spec.template.spec.containers[0].env

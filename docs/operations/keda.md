@@ -29,16 +29,18 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 | `sync.autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
 | `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `sync.dumpQueueWorkerConcurrency` | `4` | Dump concurrency per sync process. |
-| `sync.duckdb.memoryLimit` | `768MB` | Memory of each DuckDB connection. |
+| `sync.duckdb.memoryLimit` | `1GB` | Memory of each DuckDB connection. |
 | `sync.duckdb.threads` | `2` | Threads of each DuckDB connection. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
 | `sync.dumpStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
 ## Memory
 
-A DuckDB connection takes 80% of the memory of the pod and every thread of the node. A pod has one connection for each dump task and one for each publish. Without a limit, the connections of one pod fill the pod and Kubernetes kills it (`OOMKilled`). A scan of 2.7 million rows used 2 GB while it published, and 0.5 GB with a limit of 768 MB, in the same time.
+A DuckDB connection takes 80% of the memory of the pod and every thread of the node. A pod has one connection for each dump task and one for each publish. Without a limit, the connections of one pod fill the pod and Kubernetes kills it (`OOMKilled`).
 
 `sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Each connection has its own spill folder, because two connections in one folder overwrite the files of each other and DuckDB crashes. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
+
+A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 3 GB for a table with wide JSON columns. The dump and the publish both write row groups of 10000 rows, and then every table of the `app_pequenos_cariocas` schema fits in 1 GB. The publish of the two widest tables used 4.3 GB with the default row group and 1.5 GB with 10000 rows. It took 3 seconds instead of 17.
 
 ## Catalogs
 

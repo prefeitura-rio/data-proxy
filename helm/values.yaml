@@ -31,7 +31,7 @@ sync:
   ## times (dumpQueueWorkerConcurrency + 2) must stay below resources.limits.memory. DuckDB spills to the disk
   ## beyond the memory limit.
   duckdb:
-    memoryLimit: 768MB
+    memoryLimit: 1GB
     threads: 2
   ## Recovery of DBOS workflows owned by terminated sync pods.
   recovery:
