@@ -457,6 +457,41 @@ class TestDuckdbTemplates:
         ] == [5, 5, 5, 0]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("template", "lower", "upper"),
+        [
+            pytest.param("duckdb/write_all", 0, 25_000, id="all"),
+            pytest.param("duckdb/write_partition", 0, 25_000, id="partition"),
+            pytest.param("duckdb/write_remainder", 25_000, 30_000, id="remainder"),
+        ],
+    )
+    async def test_every_write_template_makes_small_row_groups(
+        self, duckdb: DuckDB, tmp_path: Path, template: str, lower: int, upper: int
+    ) -> None:
+        """A row group is in memory while DuckDB writes it. A table with wide JSON columns needs more than 2 GB for the default of 122880 rows. DuckDB rounds the size of 10000 up to whole vectors of 2048 rows, so a group has at most 10240 rows."""
+        target = tmp_path / "groups.parquet"
+        mapping: dict[str, TemplateValue] = {
+            "json_columns": [],
+            "source": "range(25000) AS t(n)",
+            "column": "n",
+            "lower": Literal(lower),
+            "upper": Literal(upper),
+            "path": f"'{target}'",
+        }
+
+        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).execute(
+            template, mapping=mapping
+        )
+        rows = await duckdb.query(
+            f"SELECT count(*), max(row_group_num_rows) FROM parquet_metadata('{target}')"
+        )
+
+        assert rows[0][0] == 3
+        largest = rows[0][1]
+        assert isinstance(largest, int)
+        assert largest <= 10_240
+
+    @pytest.mark.asyncio
     async def test_write_all_copies_every_row_of_the_source(
         self, duckdb: DuckDB, tmp_path: Path
     ) -> None:

@@ -9,10 +9,8 @@
   }
 }
 #}
-{% from "duckdb/macros.sql" import select_projection %}
+{% from "duckdb/macros.sql" import parquet_options, select_projection %}
 COPY (
     {{ select_projection(json_columns) }}
     FROM {{ source }}
-) TO {{ path }} (
-    FORMAT PARQUET
-)
+) TO {{ path }} ({{ parquet_options() }})
