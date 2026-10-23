@@ -21,6 +21,10 @@ on:
       - Containerfile.proxy
       - Containerfile.console
       - cog.toml
+      - .sqlfluff
+      - .sqlfluffignore
+      - .hadolint.yaml
+      - .nu-lint.toml
       - devenv.nix
       - devenv.lock
       - devenv.yaml
