@@ -6,7 +6,7 @@ description = "Sync service: copies source tables into DuckLake with DBOS workfl
 requires-python = ">=3.14"
 dependencies = [
   "duckdb==1.5.4",
-  "dbos>=3.0.0",
+  "dbos[otel]>=3.0.0",
   "httpx2>=2.13.0",
   "google-cloud-bigquery>=3.42.3",
   "psycopg[binary]>=3.3.4",

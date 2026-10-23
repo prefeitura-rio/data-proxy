@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import ClassVar
@@ -950,3 +951,8 @@ class TestCleanupS3CredentialsStep:
         assert await workflow_body(steps.cleanup_s3_credentials)(document) == []
 
         remove.assert_not_awaited()
+
+
+def test_dbos_can_send_logs_to_otlp() -> None:
+    """DBOS imports this module when OTLP is on, and the sync image starts only with it."""
+    importlib.import_module("opentelemetry.instrumentation.logging.handler")
