@@ -8,7 +8,7 @@ The app signs in people with OpenID Connect: the authorization code flow with PK
 
 The token is too long for one cookie, so the server splits the sealed value into pieces of 3500 characters. The server refreshes the token 60 seconds before it expires, and a failed refresh sends the user back to the sign-in page. Every request that changes data must come from the origin of the console, or the server answers 403.
 
-`GET /rpc/permissions` decides which tabs and buttons the user sees, and the database still checks every call. The routes are `/sync`, `/sync/runs/<id>`, `/config`, `/access` and `/query`.
+`GET /rpc/permissions` decides which tabs and buttons the user sees, and the database still checks every call. A token with no `role` claim shows the no-access page. The database takes it for an anonymous request, and a new sign-in would give the same token. The routes are `/sync`, `/sync/runs/<id>`, `/config`, `/access` and `/query`.
 
 Each tab needs one permission to open, and it shows an action only if the user has its permission:
 

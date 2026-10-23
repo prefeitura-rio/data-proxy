@@ -68,6 +68,11 @@ Feature: Who sees and does what
     Then I am on the no-access page
     And I do not see the "Sync" tab
 
+  Scenario: A token without a role sees the no-access page and does not loop
+    Given I sign in as "web_norole"
+    Then I am on the no-access page
+    And I do not see the "Sync" tab
+
   Scenario: A policy role sees only the Access tab
     Given I sign in as "web_policy"
     Then I see the "Access" tab

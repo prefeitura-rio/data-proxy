@@ -1418,6 +1418,27 @@ realm:
           "requiredActions": []
         },
         {
+          "username": "web_norole",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_norole@example.test",
+          "firstName": "web_norole",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "test"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "requiredActions": []
+        },
+        {
           "username": "web_api",
           "enabled": true,
           "emailVerified": true,
