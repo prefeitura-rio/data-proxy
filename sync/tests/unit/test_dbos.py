@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import inspect
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import ClassVar
@@ -37,6 +38,25 @@ from tests.helpers import (
     sync_config,
     workflow_body,
 )
+
+WORKFLOWS = [
+    name
+    for name, workflow in vars(workflows).items()
+    if callable(workflow) and workflow.__module__ == workflows.__name__
+]
+
+
+class TestWorkflowAnnotations:
+    """DBOS reads the annotations of a workflow when it runs the workflow."""
+
+    @pytest.mark.parametrize("name", WORKFLOWS)
+    def test_every_annotation_names_something_that_exists_at_run_time(
+        self, name: str
+    ) -> None:
+        """An import that only a type checker sees makes the run fail with a NameError."""
+        body = workflow_body(getattr(workflows, name))
+
+        assert inspect.get_annotations(body, eval_str=True) is not None
 
 
 class TestTransientRetryClassification:
