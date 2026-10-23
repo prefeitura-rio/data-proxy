@@ -197,3 +197,4 @@ Hurl
 goose
 cocogitto
 Tailscale
+[Pp]olars

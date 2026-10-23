@@ -17,9 +17,11 @@ The site is a static folder. It contains a marimo notebook, DuckDB compiled to W
 - `src/helper.ts`, which starts DuckDB-WASM in the Python worker and applies each grant. For each table, it registers the signed links and creates a view. A data file with a delete file becomes an anti join on the row number, so a count matches the database. A new grant replaces the registered files, so a notebook that stays open keeps working after the links of the first grant expire.
 - `src/bridge.ts`, which runs in the page. It accepts a grant only from the origin of the console and only from the parent window, and it passes the grant to the worker. Both scripts check a grant with the valibot schema of `src/messages.ts`, which also contains the type of each status message. The worker and the page tell the console what happens (`ready`, `applied`, `error` and a violation of the policy).
 
-The Python helper is in the first cells of `console/notebooks/notebooks/query.py`. `q(sql, limit=100_000)` runs SQL in DuckDB-WASM and returns at most `limit` rows as a DataFrame, because the Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `q` raises an error that tells the user to open the notebook again.
+The Python helper is in `console/notebooks/notebooks/query.py`. The notebook has a setup block with the imports (`marimo`, `polars` and `pyodide.code.run_js`) and the number of preview rows. `sql(query, limit=100_000)` runs SQL in DuckDB-WASM and returns at most `limit` rows as a Polars DataFrame, because the Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `sql` raises an error that tells the user to open the notebook again.
 
-The last cell is an example. It lists the tables of the grant with their number of rows, and it shows the first 100 rows of the first table. When no table has data files, it says so and stops.
+The notebook uses no pandas. DuckDB-WASM in the page does the work and polars stores the result. The Python package `duckdb` also runs in Pyodide, but it can't see the signed links that the helper registers, and it doesn't apply the delete files.
+
+The first cell starts DuckDB-WASM and waits for the grant. It lists the tables of the grant, and when no table has data files, it says so and stops. The last cell shows the first 50 rows of each table that the user chose, with one section for each table. A notebook has a fixed list of cells, so one cell makes the sections in a loop.
 
 ## Build
 

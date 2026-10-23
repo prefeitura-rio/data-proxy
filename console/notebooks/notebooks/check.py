@@ -1,5 +1,5 @@
 # /// script
-# dependencies = ["marimo", "pandas"]
+# dependencies = ["marimo", "polars"]
 # ///
 
 # The notebook of the browser test. It runs the helper and reports each check to the page.
@@ -28,12 +28,12 @@ async def _(json, run_js):
         await run_js("globalThis.dataProxy.first")
 
     async def q(sql, limit=100_000):
-        import pandas as pd
+        import polars as pl
 
         rows = json.loads(
             await run_js(f"globalThis.dataProxy.query({json.dumps(sql)}, {int(limit)})")
         )
-        return pd.DataFrame(rows)
+        return pl.DataFrame(rows, infer_schema_length=None)
 
     def report(check, value):
         run_js(
@@ -49,7 +49,7 @@ async def _(json, run_js):
 async def _(q, ready, report):
     await ready()
     counted = await q("SELECT count(*) AS n FROM people")
-    report("rows", int(counted.n[0]))
+    report("rows", int(counted["n"][0]))
     capped = await q("SELECT * FROM range(200000) t(i)")
     report("default_limit", len(capped))
     raised = await q("SELECT * FROM range(200000) t(i)", limit=150_000)
