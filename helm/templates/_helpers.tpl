@@ -210,6 +210,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   value: {{ .Values.s3.bootstrap.timeout | quote }}
 - name: S3_BOOTSTRAP_RETRY
   value: {{ .Values.s3.bootstrap.retry | quote }}
+{{- if .Values.gcp.existingSecret }}
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: {{ .Values.gcp.mountPath | quote }}
+{{- end }}
 {{- end }}
 
 {{- define "data-proxy.s3BootstrapVolume" -}}
@@ -229,6 +233,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - name: s3-bootstrap
       mountPath: /s3-bootstrap
       readOnly: true
+    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
 {{- end }}
 
 {{- define "data-proxy.backupS3WaitInitContainer" -}}
@@ -632,6 +637,7 @@ containers:
         readOnly: true
 volumes:
   {{- include "data-proxy.s3BootstrapVolume" . | nindent 2 }}
+  {{- include "data-proxy.gcpVolume" . | nindent 2 }}
   - name: configure-db-script
     configMap:
       name: {{ include "data-proxy.fullname" . }}-configure-db-script

@@ -122,8 +122,10 @@ spec:
             - name: s3-bootstrap
               mountPath: /s3-bootstrap
               readOnly: true
+            {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
       volumes:
         {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+        {{- include "data-proxy.gcpVolume" . | nindent 8 }}
 
 ---
 {{- if .Values.jobs.backup.enabled }}
