@@ -60,7 +60,7 @@ The route `/healthz` answers 200 without a session and calls nothing else. The c
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | A confidential client with the redirect URI `<origin>/auth/callback`. |
 | `COOKIE_SECRET` | The secret that seals the cookie. |
 | `POSTGREST_URL` | The address of PostgREST. |
-| `ORIGIN` | The public origin of the console. |
+| `ORIGIN` | The public origin of the console. The server compares the `Origin` header of every change with it. The server sets the `Secure` flag on its cookies when it starts with `https`. |
 | `PROTOCOL_HEADER` | The header that contains the scheme to the Node adapter, `x-forwarded-proto` behind the gateway. Without it, the adapter assumes `https` and refuses every form post from an `http` site. |
 | `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. |
 | `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |

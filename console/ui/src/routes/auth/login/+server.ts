@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { oidcConfig, provider } from '#lib/server/auth.js';
 import { authorizeUrl, pkce, randomState } from '#lib/server/oidc.js';
+import { isSecure } from '#lib/server/origin.js';
 import { sealText } from '#lib/server/session.js';
 import { settings } from '#lib/server/settings.js';
 import type { RequestHandler } from './$types';
@@ -14,7 +15,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 		path: '/auth',
 		httpOnly: true,
 		sameSite: 'lax',
-		secure: url.protocol === 'https:',
+		secure: isSecure(settings().origin),
 		maxAge: 600
 	});
 

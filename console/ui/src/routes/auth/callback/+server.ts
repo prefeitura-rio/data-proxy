@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { oidcConfig, provider, writeSession } from '#lib/server/auth.js';
 import { exchangeCode } from '#lib/server/oidc.js';
+import { isSecure } from '#lib/server/origin.js';
 import { unsealText } from '#lib/server/session.js';
 import { settings } from '#lib/server/settings.js';
 import type { RequestHandler } from './$types';
@@ -27,7 +28,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	}
 
 	const session = await exchangeCode(await provider(), oidcConfig(), code, login.verifier);
-	writeSession(cookies, session, url.protocol === 'https:');
+	writeSession(cookies, session, isSecure(settings().origin));
 
 	redirect(303, login.next.startsWith('/') && !login.next.startsWith('//') ? login.next : '/sync');
 };

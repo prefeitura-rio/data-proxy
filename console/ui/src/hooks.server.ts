@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
 import { freshSession } from '#lib/server/auth.js';
-import { sameOrigin } from '#lib/server/origin.js';
+import { isSecure, sameOrigin } from '#lib/server/origin.js';
 import { settings } from '#lib/server/settings.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -10,7 +10,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	if (event.url.pathname !== '/healthz' && !event.url.pathname.startsWith('/auth/')) {
-		const session = await freshSession(event.cookies, event.url.protocol === 'https:');
+		const session = await freshSession(event.cookies, isSecure(settings().origin));
 
 		if (session === null) {
 			redirect(303, `/auth/login?next=${encodeURIComponent(event.url.pathname + event.url.search)}`);

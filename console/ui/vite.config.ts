@@ -11,7 +11,10 @@ export default defineConfig({
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			// The hook in src/hooks.server.ts checks the origin against ORIGIN. The built-in check compares with the
+			// request address, which is http behind the gateway.
+			csrf: { trustedOrigins: ['*'] }
 		})
 	],
 	test: { include: ['src/**/*.test.ts'] }
