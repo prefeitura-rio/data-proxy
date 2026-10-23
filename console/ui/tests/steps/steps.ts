@@ -603,10 +603,11 @@ Then('the grant has a delete file', async ({ world }) => {
 When('I run the cells of the notebook', async ({ page }) => {
 	const frame = frameOf(page);
 	const cells = frame.locator('[data-status]').filter({ has: frame.locator('[data-testid="run-button"]') });
-	await expect(cells).toHaveCount(3, { timeout: 120_000 });
+	// The setup block, the function that queries, the cell that waits for the grant, and the cell that shows the tables.
+	await expect(cells).toHaveCount(4, { timeout: 120_000 });
 
-	// The third cell ends when the first grant has arrived and the query has run.
-	for (const index of [0, 1, 2]) {
+	// The third cell waits for the first grant, so it ends when the grant has arrived and the query has run.
+	for (const index of [0, 1, 2, 3]) {
 		await cells.nth(index).locator('[data-testid="run-button"]').first().dispatchEvent('click');
 		await expect(cells.nth(index)).toHaveAttribute('data-status', 'idle', { timeout: 180_000 });
 	}
@@ -620,7 +621,7 @@ When('I count the rows of the table {string} in the notebook', async ({ page }, 
 	const view = table.replace(/^.*\./, '');
 	await frameOf(page).locator('.cm-content').last().click();
 	await page.keyboard.press('Control+A');
-	await page.keyboard.insertText(`df = await q('SELECT count(*) AS n FROM "${view}"')\nprint(f"ROWS={int(df.n[0])}")`);
+	await page.keyboard.insertText(`df = await sql('SELECT count(*) AS n FROM "${view}"')\nprint(f"ROWS={df['n'][0]}")`);
 	await page.keyboard.press('Shift+Enter');
 });
 
