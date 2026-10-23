@@ -23,6 +23,8 @@ Add a second mapper for the `schemas` claim (a user attribute with several value
 
 A user who needs two roles takes a role that inherits both in `rbac.toml`, because a token has one.
 
+An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role`, and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/keycloak.nu check` reports this case.
+
 The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
 - the client roles `dp_api` and `dp_console`

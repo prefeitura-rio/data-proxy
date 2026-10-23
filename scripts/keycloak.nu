@@ -112,7 +112,13 @@ export def token-problems [
 
     let role_problem = match ($role | describe) {
         'nothing' => 'role is missing'
-        'string' => (if $role not-in $expected.roles { $'role ($role) is not a role of rbac.toml: ($expected.roles | str join ", ")' })
+        'string' => (if $role not-in $expected.roles {
+            if $role =~ '^\[.*\]$' {
+                $'role ($role) is a list that Keycloak wrote as text. Map the role from a user attribute, not from a client role'
+            } else {
+                $'role ($role) is not a role of rbac.toml: ($expected.roles | str join ", ")'
+            }
+        })
         _ => 'role is not one text value'
     }
 

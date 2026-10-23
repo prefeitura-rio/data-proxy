@@ -25,6 +25,8 @@ const GOOD = {
     preferred_username: ana
 }
 
+const LIST_AS_TEXT = 'role [dp_admin] is a list that Keycloak wrote as text. Map the role from a user attribute, not from a client role'
+
 const EXPECTED = {
     issuer: 'https://sso.example.test/realms/prod'
     audience: data-proxy
@@ -68,6 +70,7 @@ export def "test token-problems-names-each-wrong-claim" []: nothing -> nothing {
         ['no role' ($GOOD | reject role) ['role is missing']]
         ['unknown role' ($GOOD | update role dp_root) ['role dp_root is not a role of rbac.toml: dp_api, dp_admin']]
         ['two roles' ($GOOD | update role [dp_api dp_admin]) ['role is not one text value']]
+        ['list as text' ($GOOD | update role '[dp_admin]') [$LIST_AS_TEXT]]
         ['no schemas' ($GOOD | update schemas []) ['schemas is missing or empty, so the token reads nothing']]
         ['no user name' ($GOOD | reject preferred_username) ['preferred_username is missing']]
     ]
