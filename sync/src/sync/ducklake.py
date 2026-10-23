@@ -1,7 +1,8 @@
 """Publish scratch Parquet files into per-schema DuckLake catalogs."""
 
+import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Final, assert_never
 from urllib.parse import quote
 
 from psycopg.sql import Composable, Identifier, Literal
@@ -167,6 +168,21 @@ def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
             assert_never(selection)
 
 
+_GEOMETRY_CRS: Final = re.compile(r"GEOMETRY\s*\(\s*'(?:[^']|'')*'\s*\)", re.IGNORECASE)
+
+
+def same_column_type(existing: str, source: str) -> bool:
+    """Tell whether two DuckDB column types are the same type.
+
+    DuckLake keeps no CRS for a GEOMETRY column, so the catalog says GEOMETRY while a Parquet file says GEOMETRY('OGC:CRS84').
+    """
+
+    def canonical(type_name: str) -> str:
+        return _GEOMETRY_CRS.sub("GEOMETRY", type_name).upper()
+
+    return canonical(existing) == canonical(source)
+
+
 async def evolve_table_schema(
     duckdb_conn: DuckDB, table_name: str, parquet_path: str
 ) -> None:
@@ -216,7 +232,7 @@ async def evolve_table_schema(
             )
             continue
 
-        if existing_type.upper() == source_type.upper():
+        if same_column_type(existing_type, source_type):
             continue
 
         alterations.append(

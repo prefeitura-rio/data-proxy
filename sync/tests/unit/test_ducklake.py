@@ -10,6 +10,7 @@ from sync.ducklake import (
     commit_table,
     drop_tables_except,
     evolve_table_schema,
+    same_column_type,
     table_prefix,
 )
 from sync.executor import Executor
@@ -84,6 +85,36 @@ class TestDucklakePartitionCommit:
         await commit_table(duckdb, table, [], removed)
 
         assert await ducklake_row_count(duckdb, "people") == 0
+
+
+@pytest.mark.parametrize(
+    ("existing", "source", "expected"),
+    [
+        pytest.param("DOUBLE", "DOUBLE", True, id="same-type"),
+        pytest.param("double", "DOUBLE", True, id="case-differs"),
+        pytest.param("BIGINT", "DOUBLE", False, id="another-type"),
+        pytest.param("DECIMAL(18,3)", "DECIMAL(18,3)", True, id="same-decimal"),
+        pytest.param("DECIMAL(18,3)", "DECIMAL(10,2)", False, id="another-decimal"),
+        pytest.param(
+            "GEOMETRY", "GEOMETRY('OGC:CRS84')", True, id="catalog-keeps-no-crs"
+        ),
+        pytest.param(
+            "GEOMETRY('OGC:CRS84')", "GEOMETRY('OGC:CRS84')", True, id="same-crs"
+        ),
+        pytest.param("GEOMETRY", "VARCHAR", False, id="geometry-is-not-text"),
+        pytest.param(
+            "STRUCT(g GEOMETRY)",
+            "STRUCT(g GEOMETRY('OGC:CRS84'))",
+            True,
+            id="geometry-inside-a-struct",
+        ),
+    ],
+)
+def test_same_column_type_ignores_the_crs_that_the_catalog_drops(
+    existing: str, source: str, expected: bool
+) -> None:
+    """DuckLake keeps no CRS for a GEOMETRY column, so a table that was just published would look changed."""
+    assert same_column_type(existing, source) is expected
 
 
 class TestDucklakeEvolveSchema:
