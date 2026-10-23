@@ -171,6 +171,9 @@ def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
 PARQUET_ROW_GROUP_SIZE: Final = 10_000
 """Rows in one row group. A row group is in memory while DuckDB writes it. The same size is in the macro parquet_options."""
 
+PARQUET_ROW_GROUP_BYTES: Final = "32MB"
+"""Size of one row group before DuckDB starts the next one. Wide rows reach this size long before they reach the rows limit."""
+
 _GEOMETRY_CRS: Final = re.compile(r"GEOMETRY\s*\(\s*'(?:[^']|'')*'\s*\)", re.IGNORECASE)
 
 
@@ -481,6 +484,13 @@ async def configure_catalog(
         mapping={
             "option": "parquet_row_group_size",
             "value": Literal(PARQUET_ROW_GROUP_SIZE),
+        },
+    )
+    await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+        "duckdb/set_option",
+        mapping={
+            "option": "parquet_row_group_size_bytes",
+            "value": Literal(PARQUET_ROW_GROUP_BYTES),
         },
     )
 

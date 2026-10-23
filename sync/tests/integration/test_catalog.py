@@ -71,6 +71,31 @@ async def test_configure_catalog_sets_small_row_groups(
     assert rows == [("10000",)]
 
 
+async def test_wide_rows_are_written_in_row_groups_of_limited_size(
+    catalog_paths: DuckLakePaths,
+) -> None:
+    """A row group is in memory while DuckDB writes it, so 10000 rows of 16 KB each need more than 1 GB. 8000 rows of 10 KB stay under the rows limit and go over the bytes limit."""
+    async with DuckDB.connect() as duckdb_conn:
+        await configure_catalog(duckdb_conn, catalog_paths, encrypted=False)
+        duckdb_conn.connection.execute(
+            "CREATE TABLE dl.wide (id INTEGER, body VARCHAR)"
+        )
+        duckdb_conn.connection.execute(
+            "INSERT INTO dl.wide SELECT i, repeat('x', 10000) || i FROM range(8000) t(i)"
+        )
+
+        rows = await duckdb_conn.query(
+            f"""
+            SELECT count(DISTINCT row_group_id)
+            FROM parquet_metadata('{catalog_paths.data}/**/*.parquet')
+            """
+        )
+
+    groups = rows[0][0]
+    assert isinstance(groups, int)
+    assert groups > 1
+
+
 class TestApplyMaintenance:
     """Maintenance runs on a real catalog and keeps the table readable."""
 

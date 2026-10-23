@@ -40,7 +40,7 @@ A DuckDB connection takes 80% of the memory of the pod and every thread of the n
 
 `sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Each connection has its own spill folder, because two connections in one folder overwrite the files of each other and DuckDB crashes. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
 
-A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 3 GB for a table with wide JSON columns. The dump and the publish both write row groups of 10000 rows, and then every table of the `app_pequenos_cariocas` schema fits in 1 GB. The publish of the two widest tables used 4.3 GB with the default row group and 1.5 GB with 10000 rows. It took 3 seconds instead of 17.
+A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 3 GB for a table with wide JSON columns. The dump writes row groups of 10000 rows. The publish also stops a row group at 32 MB. With the limit in bytes, the two widest tables took 1.1 GB. Without it, they ran out of memory at 1 GB.
 
 A worker takes small batches: two dumps at a time. Four connections of 1 GB (two dumps, a publish and a maintenance run) use 4 GB of the 6 GiB of a pod. KEDA adds pods when more dumps wait.
 
