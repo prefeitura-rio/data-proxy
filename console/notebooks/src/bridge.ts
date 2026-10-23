@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { GrantMessage, type Status } from './messages.ts';
+import { GrantMessage, type Status, ThemeMessage } from './messages.ts';
 
 // Runs in the notebook page. It accepts a grant only from the console that embeds this page,
 // and it passes it to the Python worker. The server sends the origin of the console in config.js.
@@ -25,6 +25,13 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 
 	if (message.success) {
 		grants.postMessage(message.output);
+	}
+
+	const theme = v.safeParse(ThemeMessage, event.data);
+
+	if (theme.success) {
+		// marimo reads this attribute, which its VS Code extension sets, and it follows a change at once.
+		document.body.dataset.vscodeThemeKind = theme.output.theme === 'dark' ? 'vscode-dark' : 'vscode-light';
 	}
 });
 

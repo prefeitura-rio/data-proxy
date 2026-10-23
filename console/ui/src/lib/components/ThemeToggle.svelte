@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Moon, Sun } from '@lucide/svelte';
-	import { THEME_KEY, themeOf, toggled, type Theme } from '#lib/theme.js';
+	import { currentTheme, THEME_KEY, toggled, type Theme } from '#lib/theme.js';
 
 	let theme = $state<Theme>('light');
 
 	/** The server cannot know the theme, so the button reads it when it appears. */
 	function read() {
-		theme = themeOf(document.documentElement.dataset.theme ?? null, matchMedia('(prefers-color-scheme: dark)').matches);
+		theme = currentTheme();
 	}
 
 	function toggle() {

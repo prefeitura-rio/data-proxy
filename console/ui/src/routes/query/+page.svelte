@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as v from 'valibot';
+	import { currentTheme } from '#lib/theme.js';
 	import { Grant } from '#lib/types.js';
 	import { NotebookText } from '@lucide/svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
@@ -41,6 +42,10 @@
 		frame?.contentWindow?.postMessage({ type: 'grant', grant }, data.notebookOrigin ?? '');
 	}
 
+	function sendTheme() {
+		frame?.contentWindow?.postMessage({ type: 'theme', theme: currentTheme() }, data.notebookOrigin ?? '');
+	}
+
 	$effect(() => {
 		const target = open;
 
@@ -50,15 +55,19 @@
 
 		const listener = (event: MessageEvent) => {
 			if (event.origin === data.notebookOrigin && event.source === frame?.contentWindow && v.is(Ready, event.data)) {
+				sendTheme();
 				void send(target);
 			}
 		};
+		const themes = new MutationObserver(sendTheme);
 
+		themes.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 		window.addEventListener('message', listener);
 		const timer = setInterval(() => void send(target), data.grantTtlSeconds * 800);
 
 		return () => {
 			window.removeEventListener('message', listener);
+			themes.disconnect();
 			clearInterval(timer);
 		};
 	});

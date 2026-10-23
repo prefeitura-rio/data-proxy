@@ -10,3 +10,7 @@ export const themeOf = (stored: string | null, prefersDark: boolean): Theme =>
 	isTheme(stored) ? stored : prefersDark ? 'dark' : 'light';
 
 export const toggled = (theme: Theme): Theme => (theme === 'dark' ? 'light' : 'dark');
+
+/** The theme that the page shows now, from the attribute that the toggle and the first script of the page set. */
+export const currentTheme = (): Theme =>
+	themeOf(document.documentElement.dataset.theme ?? null, matchMedia('(prefers-color-scheme: dark)').matches);

@@ -13,6 +13,8 @@ export const Grant = v.object({
 
 export const GrantMessage = v.object({ type: v.literal('grant'), grant: Grant });
 
+export const ThemeMessage = v.object({ type: v.literal('theme'), theme: v.picklist(['light', 'dark']) });
+
 export type Grant = v.InferOutput<typeof Grant>;
 
 export type Status =
