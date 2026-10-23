@@ -322,6 +322,9 @@ cnpg:
   existingSecret: ""
   ## A standby that replays more bytes behind the primary than this leaves the read Service until it catches up.
   maxReplicaLag: 16Mi
+  ## How CNPG updates the primary after a change of the pod: switchover moves the primary to a standby first.
+  ## A restart of the only primary leaves the standbys unready, because their readiness probe needs streaming.
+  primaryUpdateMethod: switchover
   ## The cluster always has a primary and at least one standby, and KEDA adds standbys under load.
   ## The floor is at least 2.
   ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.

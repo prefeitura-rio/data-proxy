@@ -13,6 +13,7 @@ metadata:
     cnpg.io/podPatch: {{ include "data-proxy.cnpgPodPatch" $root | quote }}
   {{- end }}
 spec:
+  primaryUpdateMethod: {{ $root.Values.cnpg.primaryUpdateMethod }}
   imageName: {{ $root.Values.cnpg.image | quote }}
   env:
     - name: HOME

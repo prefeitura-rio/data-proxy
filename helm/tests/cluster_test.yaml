@@ -8,6 +8,22 @@ templates:
 set:
   redis.host: redis-writer
 tests:
+  - it: rolls the primary by a switchover, because a restart waits for a standby that waits for the primary
+    asserts:
+      - equal:
+          path: spec.primaryUpdateMethod
+          value: switchover
+        template: cluster-cnpg.yaml
+
+  - it: takes the update method of the primary from the values
+    set:
+      cnpg.primaryUpdateMethod: restart
+    asserts:
+      - equal:
+          path: spec.primaryUpdateMethod
+          value: restart
+        template: cluster-cnpg.yaml
+
   - it: leaves the number of instances to the cluster autoscaler
     asserts:
       - notExists:

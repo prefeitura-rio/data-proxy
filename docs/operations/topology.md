@@ -20,6 +20,7 @@ PgDog finds the standbys through the `-ro` Service of the cluster, so it sees th
 The lag of a standby works like this:
 
 - CNPG takes a standby that's more than `cnpg.maxReplicaLag` behind out of the `-ro` Service until it catches up.
+- After a change of the pod, CNPG updates the standbys first and then moves the primary to a standby by a switchover (`cnpg.primaryUpdateMethod`). A restart of the primary leaves every standby unready, because their readiness probe needs a streaming connection, and the update then waits.
 - A standby that stops answering leaves the Service within about six seconds.
 - PgDog doesn't measure the lag. Its time-based lag limit counts an idle primary as lag.
 - A pool that can't connect gets no requests for 10 seconds, and the next read goes to the primary.
