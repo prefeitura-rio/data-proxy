@@ -36,7 +36,11 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
     SELECT coalesce(
         schema_name <> ''
         AND strpos(schema_name, ',') = 0
-        AND strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ',') > 0,
+        AND (
+            strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ',') > 0
+            -- The element * stands for every schema. rbac.mine('*') asks whether the claim has it.
+            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',*,') > 0
+        ),
         FALSE
     )
 $$;

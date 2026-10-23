@@ -16,6 +16,12 @@ The client must select the same schema:
 Accept-Profile: test
 ```
 
+The schema name `*` stands for every schema. Use it only for a debugging account in staging. The token then reads and changes every schema, and it also reads every row, as the next section describes.
+
+```json
+"schemas": ["*"]
+```
+
 ## Row condition
 
 For a table with this configuration:
@@ -32,6 +38,8 @@ an active access policy row must match the user's subject and the row's unit:
 subject   = JWT preferred_username (or configured claim)
 OR unit_type/unit_id matches the row
 ```
+
+A token whose `schemas` claim has `*` skips this condition and reads every row.
 
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 

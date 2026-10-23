@@ -66,7 +66,8 @@
 }
 #}
 {% macro rls_where_clause(schema, has_rls, rls_mappings) -%}
-  IF NOT {{ has_rls }} THEN
+  -- A token whose schemas claim has * reads every row, so it needs no grant in the access policy.
+  IF NOT {{ has_rls }} OR rbac.mine('*') THEN
     v_where := '';
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where

@@ -1102,6 +1102,28 @@ class TestPostgresTemplates:
             ("ducklake", RLS_WHERE, "7"),
         ]
 
+    async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
+        self, table_function: Postgres
+    ) -> None:
+        """A token for every schema reads every row, with no grant in the access policy."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+
+        rows, _ = await call_table_function(table_function, schemas="*")
+
+        assert rows == [("ducklake", "", "7")]
+
+    async def test_view_function_returns_no_row_without_a_grant_or_the_wildcard(
+        self, table_function: Postgres
+    ) -> None:
+        """A token for one schema still needs a grant for the rows of a table with row rules."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+
+        rows, _ = await call_table_function(table_function)
+
+        assert rows == []
+
     async def test_view_function_passes_an_empty_predicate_without_rls(
         self, table_function: Postgres
     ) -> None:
@@ -2780,6 +2802,13 @@ class TestRbacTemplate:
             pytest.param("s1,s2", "s1,", False, id="trailing-comma"),
             pytest.param("s1,s2", ",s2", False, id="leading-comma"),
             pytest.param("s1,s2", ",", False, id="only-a-comma"),
+            pytest.param("*", "s1", True, id="wildcard-reaches-any-schema"),
+            pytest.param("s1,*", "other", True, id="wildcard-after-a-name"),
+            pytest.param("*", "", False, id="wildcard-still-needs-a-name"),
+            pytest.param("*", "s1,s2", False, id="wildcard-does-not-span-two-names"),
+            pytest.param("s1", "*", False, id="name-is-not-the-wildcard"),
+            pytest.param("s*", "s1", False, id="star-inside-a-name-is-no-wildcard"),
+            pytest.param("s1,*", "*", True, id="wildcard-asks-for-itself"),
         ],
     )
     async def test_mine_answers_whether_the_schema_is_in_the_claim(
@@ -3012,7 +3041,7 @@ DESCRIPTION: Final = st.one_of(
     ).map("".join),
 )
 
-CLAIM_PART: Final = st.text(alphabet="abc0_\u00e9 ,", max_size=3)
+CLAIM_PART: Final = st.text(alphabet="abc0_\u00e9 ,*", max_size=3)
 
 PROPERTIES: Final = hypothesis_settings(
     max_examples=EXAMPLES,
@@ -3296,8 +3325,11 @@ class TestRbacProperties:
                 "SELECT rbac.mine(%s)", (schema,)
             ).fetchone()
 
+        elements = claim.split(",")
         assert answer == (
-            bool(schema) and "," not in schema and schema in claim.split(","),
+            bool(schema)
+            and "," not in schema
+            and (schema in elements or "*" in elements),
         )
 
     @PROPERTIES
