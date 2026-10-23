@@ -4,7 +4,7 @@ sync:
   ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
   replicas: 1
   ## Container image for the DBOS sync workers.
-  image: ghcr.io/prefeitura-rio/data-proxy-sync:1908640
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:7044db5
   imagePullPolicy: IfNotPresent
   ## Mount the local manifests sync-trigger ConfigMap in sync workers.
   trigger:
@@ -265,7 +265,7 @@ redis:
 ## Maintenance jobs: backup and maintenance.
 jobs:
   ## Shared image for maintenance jobs.
-  image: ghcr.io/prefeitura-rio/data-proxy-jobs:1908640
+  image: ghcr.io/prefeitura-rio/data-proxy-jobs:7044db5
   ## Provision template: a suspended CronJob that never runs on a clock. A Job is made from it when an
   ## editor adds or removes a schema, and at the start of every sync run. It creates each schema and its
   ## access policy, serves the list, and removes what the console dropped.
@@ -338,7 +338,7 @@ cnpg:
     limits:
       cpu: "8"
       memory: 8Gi
-  image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-1908640
+  image: ghcr.io/prefeitura-rio/data-proxy-postgres:17-7044db5
   storage:
     size: 20Gi
     storageClass: ""
@@ -363,7 +363,7 @@ cnpg:
 ## The web console. It signs in people with OIDC, calls PostgREST with their token, and runs the query tab.
 console:
   enabled: false
-  image: ghcr.io/prefeitura-rio/data-proxy-console:1908640
+  image: ghcr.io/prefeitura-rio/data-proxy-console:7044db5
   imagePullPolicy: IfNotPresent
   ## One replica is enough. The server keeps no state, so more replicas also work.
   resources:
@@ -438,7 +438,7 @@ proxy:
   maxCacheBodyBytes: 262144
   ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
   maxInflight: 32
-  image: ghcr.io/prefeitura-rio/data-proxy-proxy:1908640
+  image: ghcr.io/prefeitura-rio/data-proxy-proxy:7044db5
   resources:
     requests:
       ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.
