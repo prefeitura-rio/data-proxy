@@ -4,9 +4,12 @@ A DuckDB connection serves one query at a time, so concurrent calls on one
 instance serialize. Open one instance per concurrent task to run in parallel.
 """
 
+import shutil
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import duckdb
 from asyncer import asyncify
@@ -23,14 +26,22 @@ if TYPE_CHECKING:
     from .types import DatabaseRow, DuckDBParams
 
 
-def limits_sql() -> str:
+def spill_directory() -> Path:
+    """Return a new folder for the spill of one connection.
+
+    Connections that spill to the same folder overwrite the files of each other, and DuckDB crashes.
+    """
+    return Path(settings.DUCKDB_TEMP_DIRECTORY) / uuid4().hex
+
+
+def limits_sql(spill: Path) -> str:
     """Render the statements that limit one connection, from the settings."""
     return render_template(
         "duckdb/limits",
         {
             "memory_limit": Literal(settings.DUCKDB_MEMORY_LIMIT),
             "threads": Literal(settings.DUCKDB_THREADS),
-            "temp_directory": Literal(settings.DUCKDB_TEMP_DIRECTORY),
+            "temp_directory": Literal(str(spill)),
         },
     )
 
@@ -63,9 +74,11 @@ class DuckDB:
             },
         )
 
-        limits = limits_sql()
+        spill = spill_directory()
+        limits = limits_sql(spill)
 
         def bootstrap() -> None:
+            spill.parent.mkdir(parents=True, exist_ok=True)
             connection.execute(limits)
             connection.execute(setup)
 
@@ -74,6 +87,7 @@ class DuckDB:
             yield cls(connection=connection)
         finally:
             await asyncify(connection.close)()
+            await asyncify(shutil.rmtree)(spill, ignore_errors=True)
 
     async def execute(self, sql: str, *, params: DuckDBParams | None = None) -> None:
         """Run one statement."""

@@ -38,7 +38,7 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 
 A DuckDB connection takes 80% of the memory of the pod and every thread of the node. A pod has one connection for each dump task and one for each publish. Without a limit, the connections of one pod fill the pod and Kubernetes kills it (`OOMKilled`). A scan of 2.7 million rows used 2 GB while it published, and 0.5 GB with a limit of 768 MB, in the same time.
 
-`sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
+`sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Each connection has its own spill folder, because two connections in one folder overwrite the files of each other and DuckDB crashes. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
 
 ## Catalogs
 
