@@ -158,7 +158,7 @@ console:
   enabled: true
   oidc:
     issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
-    clientId: console-web
+    clientId: data-proxy-console-web
     clientSecret: test-secret
   storage:
     endpoint: http://data-proxy-seaweedfs-all-in-one.data-proxy.svc.cluster.local:8333

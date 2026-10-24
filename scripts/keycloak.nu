@@ -151,7 +151,7 @@ export def claims-of [token: string]: nothing -> record {
 def "main client" [
     --host: string # The public host of the API and the console, such as preview.data-proxy.dados.rio
     --audience: string = data-proxy # The audience of the gateway (ingress.auth.audience)
-    --client-id: string = console-web # The client ID that the console uses (console.oidc.clientId)
+    --client-id: string = data-proxy-console-web # The client ID that the console uses (console.oidc.clientId)
 ]: nothing -> nothing {
     if $host == null {
         fail '--host is required'

@@ -66,7 +66,7 @@ The route `/healthz` answers 200 without a session and calls nothing else. The c
 | `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |
 | `S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`, `S3_IAM_ENDPOINT` | Optional. They turn on one storage identity for each schema. The IAM endpoint is the storage endpoint by default. |
 
-The chart sets these settings ([Helm chart](../operations/ingress.md#console-and-notebooks)). In the k3d cluster, the realm `dev` has the client `console-web` with the secret `test-secret`. It has these users:
+The chart sets these settings ([Helm chart](../operations/ingress.md#console-and-notebooks)). In the k3d cluster, the realm `dev` has the client `data-proxy-console-web` with the secret `test-secret`. It has these users:
 
 - `admin` (`dp_admin`), with the password `admin`.
 - `web_viewer` (`dp_console`), `web_admin` (`dp_admin`), `web_api` (`dp_api`), `web_policy` (`dp_policy`), and `web_other` (`dp_admin` for the schema `other`), with the password `web-test`.

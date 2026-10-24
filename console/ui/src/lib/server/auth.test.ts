@@ -4,7 +4,7 @@ import { oidcConfig } from './auth';
 vi.mock('./settings', () => ({
 	settings: () => ({
 		issuer: 'https://idp.example.test/realms/dev',
-		clientId: 'console-web',
+		clientId: 'data-proxy-console-web',
 		clientSecret: 'secret',
 		cookieSecret: 'cookie',
 		origin: 'https://data-proxy.dados.rio'

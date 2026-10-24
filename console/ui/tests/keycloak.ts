@@ -2,7 +2,7 @@ import * as v from 'valibot';
 
 const KEYCLOAK = process.env.KEYCLOAK_URL ?? '';
 const REALM = 'dev';
-const CLIENT = 'console-web';
+const CLIENT = 'data-proxy-console-web';
 const LIFESPAN = 'access.token.lifespan';
 
 const Token = v.object({ access_token: v.string() });

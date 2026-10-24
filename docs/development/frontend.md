@@ -46,7 +46,7 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 - The test stack sets `GRANT_TTL_SECONDS` to 30, so the scenario that renews the links takes about 40 seconds. The 83 scenarios run on four workers, one feature file for each worker, in about 50 seconds.
 - Feature files run side by side, so two files must not change the same data. Only `config.feature` creates the schema `other`. A scenario that does it has the tag `@other-schema`, and a hook deletes the rows afterwards. The tag `@import-ttl` restores the cache TTL of the `test` tables.
 - A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `E2E_DATABASE_URL`.
-- The scenario that shortens the token lifespan (`@short-token`) changes the client `console-web` in Keycloak through the admin API. A hook restores the old value.
+- The scenario that shortens the token lifespan (`@short-token`) changes the client `data-proxy-console-web` in Keycloak through the admin API. A hook restores the old value.
 - The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set. `@playwright/test` and the Python `playwright` package therefore stay at the versions of that package.
 
 To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. Keycloak imports the realm at every start, which takes about 40 seconds.

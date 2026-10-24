@@ -35,9 +35,9 @@ const EXPECTED = {
 
 # Verify that the client roles are the roles of the rules, with their descriptions.
 export def "test partial-import-has-one-client-role-for-each-rule-role" []: nothing -> nothing {
-    let document = partial-import $RULES {id: console-web, host: api.example.test, audience: data-proxy}
+    let document = partial-import $RULES {id: data-proxy-console-web, host: api.example.test, audience: data-proxy}
 
-    assert equal $document.roles.client.console-web [
+    assert equal $document.roles.client.data-proxy-console-web [
         {name: dp_api, description: 'Read the data'}
         {name: dp_admin, description: 'Run schemas'}
     ]
@@ -46,7 +46,7 @@ export def "test partial-import-has-one-client-role-for-each-rule-role" []: noth
 
 # Verify the redirect addresses and the mappers of the client.
 export def "test partial-import-sets-the-callback-and-the-three-claims" []: nothing -> nothing {
-    let client = partial-import $RULES {id: console-web, host: api.example.test, audience: data-proxy}
+    let client = partial-import $RULES {id: data-proxy-console-web, host: api.example.test, audience: data-proxy}
     | get clients
     | first
 

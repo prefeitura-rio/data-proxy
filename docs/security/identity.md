@@ -60,13 +60,14 @@ nu scripts/keycloak.nu client --host preview.data-proxy.dados.rio > console-clie
 
 Then do these steps in the realm:
 
-1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
-2. Open *Clients*, *console-web*, *Credentials*, and copy the client secret.
-3. Give each person one client role of `console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/keycloak.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
-4. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
+1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `data-proxy-console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
+2. Open *Clients*, *data-proxy-console-web*, *Credentials*, and copy the client secret.
+3. Give each person one client role of `data-proxy-console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/keycloak.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
+4. If you rename an existing client, open its dedicated client scope. Set the *Client ID* of the mapper that makes the `role` claim to the new ID. The roles and the secret stay with the client.
+5. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
 
 ```bash
-nu scripts/token.nu --issuer <issuer> --client-id console-web --client-secret <secret> --username <user> --password <password>
+nu scripts/token.nu --issuer <issuer> --client-id data-proxy-console-web --client-secret <secret> --username <user> --password <password>
 nu scripts/keycloak.nu check <access_token> --issuer <issuer>
 ```
 

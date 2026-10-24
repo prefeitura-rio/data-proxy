@@ -389,7 +389,7 @@ console:
     ## The issuer of the identity provider.
     issuer: ""
     ## A confidential client with the redirect URI <scheme>://<host>/auth/callback.
-    clientId: console-web
+    clientId: data-proxy-console-web
     clientSecret: ""
     ## A Secret with the keys OIDC_CLIENT_SECRET and COOKIE_SECRET. The chart makes one when this is empty.
     existingSecret: ""

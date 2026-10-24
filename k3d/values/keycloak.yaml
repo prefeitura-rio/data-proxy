@@ -1183,8 +1183,8 @@ realm:
           ]
         },
         {
-          "clientId": "console-web",
-          "name": "console-web",
+          "clientId": "data-proxy-console-web",
+          "name": "data-proxy-console-web",
           "enabled": true,
           "protocol": "openid-connect",
           "publicClient": false,
@@ -1215,7 +1215,7 @@ realm:
               "protocol": "openid-connect",
               "protocolMapper": "oidc-usermodel-client-role-mapper",
               "config": {
-                "usermodel.clientRoleMapping.clientId": "console-web",
+                "usermodel.clientRoleMapping.clientId": "data-proxy-console-web",
                 "claim.name": "role",
                 "jsonType.label": "String",
                 "multivalued": "false",
@@ -1265,7 +1265,7 @@ realm:
               "description": "People who watch the system"
             }
           ],
-          "console-web": [
+          "data-proxy-console-web": [
             {
               "name": "dp_api",
               "description": "Clients that read the synced data"
@@ -1359,7 +1359,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_console"
             ]
           },
@@ -1385,7 +1385,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_admin"
             ]
           },
@@ -1411,7 +1411,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_admin"
             ]
           },
@@ -1458,7 +1458,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_api"
             ]
           },
@@ -1484,7 +1484,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_policy"
             ]
           },
@@ -1510,7 +1510,7 @@ realm:
             }
           ],
           "clientRoles": {
-            "console-web": [
+            "data-proxy-console-web": [
               "dp_admin"
             ]
           },

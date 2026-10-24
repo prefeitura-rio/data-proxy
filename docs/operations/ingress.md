@@ -38,7 +38,14 @@ Only the preview has notebooks. They use their own host, `notebooks.data-proxy.d
 
 A wildcard certificate and a wildcard DNS record for `*.data-proxy.dados.rio` cover every name, because each name has one label before `data-proxy.dados.rio`. A table named `docs` or `console` in a schema isn't reachable on the API host.
 
-The client of the console in the identity provider needs three addresses. The redirect address is `<origin>/console/auth/callback`. The post-logout address is `<origin>/console/auth/login`. The web origin is `<origin>`.
+The client `data-proxy-console-web` of the identity provider needs three addresses for each environment. The redirect address is `<origin>/console/auth/callback`. The post-logout address is `<origin>/console/auth/login`. The web origin is `<origin>`.
+
+Preview and staging share one Keycloak, `auth-idriohom`, so one client lists the origins of both. Production has its own Keycloak and lists only its own origin.
+
+| Keycloak | Origins |
+| --- | --- |
+| `auth-idriohom` | `https://preview.data-proxy.dados.rio` and `https://stg.data-proxy.dados.rio` |
+| `auth-idrio` | `https://data-proxy.dados.rio` |
 
 ## Istio ingress
 

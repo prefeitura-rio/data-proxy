@@ -169,7 +169,7 @@ let
     COOKIE_SECRET = "test-cookie-secret-test-cookie-secret";
     GRANT_TTL_SECONDS = "30";
     NOTEBOOK_ORIGIN = urls.notebooks;
-    OIDC_CLIENT_ID = "console-web";
+    OIDC_CLIENT_ID = "data-proxy-console-web";
     OIDC_CLIENT_SECRET = "test-secret";
     OIDC_ISSUER = urls.issuer;
     ORIGIN = urls.console;
