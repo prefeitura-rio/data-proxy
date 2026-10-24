@@ -4,3 +4,8 @@ k3d/
 k6/
 helm/ci/
 helm/tests/
+console/ui/tests/
+console/notebooks/tests/
+sync/tests/
+proxy/tests/
+tests/

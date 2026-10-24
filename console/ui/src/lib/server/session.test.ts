@@ -20,6 +20,10 @@ describe('seal and unseal', () => {
 		expect(unseal(changed, secret)).toBeNull();
 	});
 
+	it('refuses a value that is too short to hold a tag', () => {
+		expect(unseal(Buffer.alloc(20).toString('base64url'), secret)).toBeNull();
+	});
+
 	it('refuses a value that is not a session', () => {
 		expect(unseal('not a sealed value', secret)).toBeNull();
 	});
