@@ -52,13 +52,26 @@ function request.normalize_accept(value)
 	return media_type
 end
 
---- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read with a filter.
+--- Tell whether PostgREST can stop after the first rows that the table function returns.
+--- It cannot for a HEAD, a count, a range, or a media type of PostgREST (a single object, a plan),
+--- because each of them needs every row or checks the number of rows.
+---@param input NgxRequest
+---@return boolean
+local function can_limit(input)
+	local headers = input.headers_in
+	return input.method == "GET"
+		and headers.Range == nil
+		and not (headers.Prefer or ""):find("count=", 1, true)
+		and not (headers.Accept or ""):find("vnd.pgrst", 1, true)
+end
+
+--- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read.
 --- The function returns a new table and does not change the input.
 ---@param input NgxRequest
 ---@return HeaderMap headers Headers for the PostgREST request.
 function request.make_headers(input)
 	local is_read = constants.http.read_methods[input.method]
-	local filter = is_read and parser.parse(input.args or "") or nil
+	local filter = is_read and parser.parse(input.args or "", { limit = can_limit(input) }) or nil
 	local filter_json = filter and cjson.encode(filter) or nil
 
 	--- The value of one header of the PostgREST request.

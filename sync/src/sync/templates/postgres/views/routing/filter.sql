@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Read and render the proxy-pushed DuckLake WHERE filter."
+  "description": "Read and render what the proxy pushes in the X-DuckLake-Filter header: the WHERE filter, the columns, and the ORDER BY with the LIMIT."
 }
 #}
 -- noqa: disable=PRS,LT05
@@ -136,4 +136,98 @@ BEGIN
 
   RETURN {{ schema }}.render_filter_node(p_filter -> 'where', p_columns);
 END;
+$$;
+
+-- The columns that the request reads. NULL means every column.
+-- A name that is not a column is dropped, so PostgREST answers with its own error for it.
+CREATE OR REPLACE FUNCTION {{ schema }}.render_dl_columns(
+  p_filter jsonb,
+  p_columns text[]
+) RETURNS text[]
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+  IF p_filter IS NULL OR NOT p_filter ? 'columns' THEN
+    RETURN NULL;
+  END IF;
+
+  IF jsonb_typeof(p_filter -> 'columns') <> 'array' THEN
+    RAISE EXCEPTION 'filter columns must be a list' USING ERRCODE = 'PT400';
+  END IF;
+
+  RETURN coalesce(
+    (
+      SELECT array_agg(item.name ORDER BY item.position)
+      FROM jsonb_array_elements_text(p_filter -> 'columns') WITH ORDINALITY AS item(name, position)
+      WHERE item.name = ANY(p_columns)
+    ),
+    ARRAY[]::text[]
+  );
+END;
+$$;
+
+-- The ORDER BY and LIMIT that DuckDB can run, or NULL when PostgREST must read every row.
+-- The text order of DuckDB is by bytes and the order of PostgreSQL follows the collation, and every
+-- column that isn't a bigint, a date, or a boolean reaches PostgreSQL as text. DuckDB then picks other
+-- rows for a limit, so the order is pushed only when every order column is in p_sortable.
+-- PostgreSQL puts the nulls last for ASC and first for DESC, and DuckDB needs them in the text.
+CREATE OR REPLACE FUNCTION {{ schema }}.render_dl_tail(
+  p_filter jsonb,
+  p_sortable text[]
+) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_limit bigint;
+  v_order text;
+BEGIN
+  IF p_filter IS NULL OR NOT p_filter ? 'limit' THEN
+    RETURN NULL;
+  END IF;
+
+  v_limit := (p_filter ->> 'limit')::bigint;
+  IF v_limit < 0 THEN
+    RAISE EXCEPTION 'filter limit must not be negative' USING ERRCODE = 'PT400';
+  END IF;
+
+  IF p_filter ? 'order' THEN
+    IF EXISTS (
+      SELECT FROM jsonb_array_elements(p_filter -> 'order') AS item(entry)
+      WHERE NOT (item.entry ->> 'column') = ANY(p_sortable)
+    ) THEN
+      RETURN NULL;
+    END IF;
+
+    SELECT 'ORDER BY ' || string_agg(
+      '"' || replace(item.entry ->> 'column', '"', '""') || '" '
+      || CASE WHEN (item.entry ->> 'descending')::boolean THEN 'DESC' ELSE 'ASC' END
+      || ' NULLS '
+      || upper(coalesce(
+        item.entry ->> 'nulls',
+        CASE WHEN (item.entry ->> 'descending')::boolean THEN 'first' ELSE 'last' END
+      )),
+      ', ' ORDER BY item.position
+    ) || ' '
+    INTO v_order
+    FROM jsonb_array_elements(p_filter -> 'order') WITH ORDINALITY AS item(entry, position);
+  END IF;
+
+  RETURN coalesce(v_order, '') || 'LIMIT ' || v_limit;
+END;
+$$;
+
+-- The projection of the DuckLake view. A column that the request skips is a NULL, so DuckDB never reads it.
+-- A typed NULL, because DuckDB can't cast an untyped NULL to a date.
+CREATE OR REPLACE FUNCTION {{ schema }}.project_columns(
+  p_names text[],
+  p_wanted text[]
+) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT string_agg(
+    CASE
+      WHEN p_wanted IS NULL OR item.name = ANY(p_wanted)
+        THEN '"' || replace(item.name, '"', '""') || '"'
+      ELSE 'CAST(NULL AS VARCHAR) AS "' || replace(item.name, '"', '""') || '"'
+    END,
+    ', ' ORDER BY item.position
+  )
+  FROM unnest(p_names) WITH ORDINALITY AS item(name, position)
 $$;

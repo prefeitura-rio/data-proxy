@@ -610,11 +610,14 @@ HOUR_MS: Final = 3_600_000
 
 
 PARSED_FILTERS: Final = [
-    pytest.param(json.dumps(case["expected"]), id=str(case["name"]))
+    pytest.param(
+        json.dumps({"where": cast("dict[str, object]", case["expected"])["where"]}),
+        id=str(case["name"]),
+    )
     for case in cast(
         "list[dict[str, object]]", json.loads(PROXY_FILTER_CASES.read_text())
     )
-    if case["expected"]
+    if case["expected"] and "where" in cast("dict[str, object]", case["expected"])
 ]
 
 
@@ -1437,6 +1440,237 @@ class TestPostgresTemplates:
         with pytest.raises(psycopg.Error) as error:
             await postgres.connection.execute("SELECT data_proxy.request_filter()")
         assert error.value.sqlstate == "PT400"
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param(None, None, id="no-document"),
+            pytest.param({}, None, id="no-columns"),
+            pytest.param({"columns": ["id"]}, ["id"], id="one-column"),
+            pytest.param(
+                {"columns": ["name", "id"]}, ["name", "id"], id="keeps-the-order"
+            ),
+            pytest.param(
+                {"columns": ["id", "nope"]}, ["id"], id="drops-an-unknown-column"
+            ),
+            pytest.param({"columns": ["nope"]}, [], id="only-unknown-columns"),
+        ],
+    )
+    async def test_filter_renders_the_columns_that_the_table_has(
+        self, postgres: Postgres, document: dict[str, object] | None, expected: object
+    ) -> None:
+        """Keeps the requested names that are columns, and returns null when the request reads all."""
+        await self._install_filter(postgres)
+
+        rendered = await scalar(
+            postgres,
+            "SELECT data_proxy.render_dl_columns(%s::jsonb, ARRAY['id', 'name']::text[])",
+            None if document is None else json.dumps(document),
+        )
+
+        assert rendered == expected
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param(None, None, id="no-document"),
+            pytest.param({"columns": ["id"]}, None, id="no-limit"),
+            pytest.param({"limit": 5}, "LIMIT 5", id="limit-only"),
+            pytest.param({"limit": 0}, "LIMIT 0", id="limit-zero"),
+            pytest.param(
+                {"limit": 5, "order": [{"column": "id", "descending": False}]},
+                'ORDER BY "id" ASC NULLS LAST LIMIT 5',
+                id="ascending-puts-nulls-last-like-postgresql",
+            ),
+            pytest.param(
+                {"limit": 5, "order": [{"column": "id", "descending": True}]},
+                'ORDER BY "id" DESC NULLS FIRST LIMIT 5',
+                id="descending-puts-nulls-first-like-postgresql",
+            ),
+            pytest.param(
+                {
+                    "limit": 3,
+                    "order": [
+                        {"column": "id", "descending": True, "nulls": "last"},
+                        {"column": "day", "descending": False, "nulls": "first"},
+                    ],
+                },
+                'ORDER BY "id" DESC NULLS LAST, "day" ASC NULLS FIRST LIMIT 3',
+                id="several-columns-with-nulls",
+            ),
+            pytest.param(
+                {"limit": 5, "order": [{"column": "name", "descending": False}]},
+                None,
+                id="text-order-is-not-pushed",
+            ),
+            pytest.param(
+                {"limit": 5, "order": [{"column": "nope", "descending": False}]},
+                None,
+                id="unknown-order-column-is-not-pushed",
+            ),
+            pytest.param(
+                {
+                    "limit": 5,
+                    "order": [
+                        {"column": "id", "descending": False},
+                        {"column": "name", "descending": False},
+                    ],
+                },
+                None,
+                id="one-text-order-column-stops-the-push",
+            ),
+            pytest.param(
+                {"order": [{"column": "id", "descending": False}]},
+                None,
+                id="order-without-limit",
+            ),
+        ],
+    )
+    async def test_filter_renders_the_order_and_limit_that_the_database_can_push(
+        self, postgres: Postgres, document: dict[str, object] | None, expected: object
+    ) -> None:
+        """Pushes the limit with an order only when DuckDB sorts the same rows as PostgreSQL."""
+        await self._install_filter(postgres)
+
+        rendered = await scalar(
+            postgres,
+            "SELECT data_proxy.render_dl_tail(%s::jsonb, ARRAY['id', 'day']::text[])",
+            None if document is None else json.dumps(document),
+        )
+
+        assert rendered == expected
+
+    async def test_filter_rejects_a_negative_limit(self, postgres: Postgres) -> None:
+        """Rejects a negative limit."""
+        await self._install_filter(postgres)
+
+        with pytest.raises(psycopg.Error) as error:
+            await scalar(
+                postgres,
+                "SELECT data_proxy.render_dl_tail(%s::jsonb, ARRAY['id']::text[])",
+                json.dumps({"limit": -1}),
+            )
+
+        assert error.value.sqlstate == "PT400"
+
+    async def test_pushed_columns_and_limit_return_the_same_rows_as_the_full_read(
+        self, postgres: Postgres
+    ) -> None:
+        """A column that the request skips comes back null, and the rest equals the full read."""
+        await self._install_filter(postgres)
+        await postgres.connection.execute(
+            """
+            SELECT duckdb.raw_query(
+                'CREATE OR REPLACE VIEW pushed_source AS '
+                || 'SELECT i::BIGINT AS id, ''n'' || i AS name, '
+                || 'DATE ''2026-01-01'' + i::INTEGER AS day, i % 2 = 0 AS flag '
+                || 'FROM range(1, 7) AS t(i)'
+            )
+            """
+        )
+
+        async def read(
+            filter_document: dict[str, object] | None,
+        ) -> list[tuple[object, ...]]:
+            cursor = await postgres.connection.execute(
+                """
+                SELECT duckdb.raw_query(
+                    'CREATE OR REPLACE VIEW pushed_view AS SELECT '
+                    || data_proxy.project_columns(
+                        ARRAY['id', 'name', 'day', 'flag']::text[],
+                        data_proxy.render_dl_columns(
+                            %(doc)s::jsonb, ARRAY['id', 'name', 'day', 'flag']::text[]
+                        )
+                    )
+                    || ' FROM pushed_source '
+                    || coalesce(
+                        data_proxy.render_dl_tail(
+                            %(doc)s::jsonb, ARRAY['id', 'day', 'flag']::text[]
+                        ),
+                        ''
+                    )
+                )
+                """,
+                {
+                    "doc": None
+                    if filter_document is None
+                    else json.dumps(filter_document)
+                },
+            )
+            await cursor.fetchall()
+            cursor = await postgres.connection.execute(
+                """
+                SELECT r['id']::bigint, r['name']::text, r['day']::date, r['flag']::boolean
+                FROM duckdb.query('SELECT id, name, day, flag FROM pushed_view') AS r
+                ORDER BY 1
+                """
+            )
+            return list(await cursor.fetchall())
+
+        full = await read(None)
+        projected = await read({"columns": ["id", "day"]})
+        top = await read(
+            {
+                "columns": ["id"],
+                "limit": 2,
+                "order": [{"column": "id", "descending": True}],
+            }
+        )
+
+        assert len(full) == 6
+        assert [(row[0], row[2]) for row in projected] == [
+            (row[0], row[2]) for row in full
+        ]
+        assert [(row[1], row[3]) for row in projected] == [(None, None)] * 6
+        assert [row[0] for row in top] == [5, 6]
+        assert [(row[1], row[2], row[3]) for row in top] == [(None, None, None)] * 2
+
+    @pytest.mark.parametrize(
+        ("document", "columns", "tail"),
+        [
+            pytest.param(None, "<all>", "<none>", id="no-document"),
+            pytest.param(
+                {"columns": ["source", "arg1"]},
+                "source,arg1",
+                "<none>",
+                id="columns-only",
+            ),
+            pytest.param({"limit": 3}, "<all>", "LIMIT 3", id="limit-without-an-order"),
+            pytest.param(
+                {
+                    "columns": ["source"],
+                    "limit": 3,
+                    "order": [{"column": "source", "descending": False}],
+                },
+                "source",
+                "<none>",
+                id="a-text-order-stops-the-limit",
+            ),
+        ],
+    )
+    async def test_view_function_passes_the_columns_and_the_tail_to_the_ducklake_helper(
+        self,
+        table_function: Postgres,
+        document: dict[str, object] | None,
+        columns: str,
+        tail: str,
+    ) -> None:
+        """Passes the requested columns and the tail that DuckDB can run."""
+        await install_table_function(table_function, has_rls=False, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        if document is not None:
+            await set_request_headers(
+                table_function, {"x-ducklake-filter": json.dumps(document)}
+            )
+
+        await call_table_function(table_function)
+
+        assert [
+            await scalar(
+                table_function, "SELECT current_setting('test.columns', true)"
+            ),
+            await scalar(table_function, "SELECT current_setting('test.tail', true)"),
+        ] == [columns, tail]
 
     async def test_cleanup_stale_objects_drops_only_views_missing_from_the_config(
         self, postgres: Postgres, psql: Psql
@@ -2389,7 +2623,7 @@ class TestPostgresTemplates:
             await relation_exists(postgres, schema, "people"),
             await function_exists(postgres, schema, "people_fn()"),
             await function_exists(
-                postgres, schema, "people_dl_fn(text, text, boolean)"
+                postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
             await function_exists(
                 postgres, schema, "dl_changes_people(bigint, bigint)"
@@ -2451,7 +2685,7 @@ class TestPostgresTemplates:
             await relation_exists(postgres, schema, "people"),
             await function_exists(postgres, schema, "people_fn()"),
             await function_exists(
-                postgres, schema, "people_dl_fn(text, text, boolean)"
+                postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
             await function_exists(
                 postgres, schema, "dl_changes_people(bigint, bigint)"

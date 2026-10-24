@@ -85,6 +85,9 @@
 ---@class FilterConstants
 ---@field group_keys table<string, boolean> Parameter keys that start a group: and, or, not.and, not.or.
 ---@field non_filter_keys table<string, boolean> Query keys that are not filters (PostgREST uses them for other tasks).
+---@field reserved_keys table<string, boolean> The query keys that the parser pushes: select, order, limit, and offset.
+---@field max_limit_digits integer Most digits of a limit or an offset that the parser pushes.
+---@field order_modifiers table<string, table> The fields that each word after a column in an order item sets.
 ---@field scalar_operators string[] Operators that take one scalar value, longest name first.
 ---@field is_keywords string[]
 ---@field query_parameter_separator string

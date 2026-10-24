@@ -25,3 +25,32 @@ HTTP 200
 [Asserts]
 jsonpath "$.where.column" == "id"
 jsonpath "$.where.value" == "43"
+
+# The columns, the order and the limit cross to PostgREST too, when the proxy reads the whole query.
+GET http://{{host}}/echo?select=id,name&id=eq.1&order=id.desc&limit=5&offset=2
+
+HTTP 200
+[Asserts]
+jsonpath "$.where.column" == "id"
+jsonpath "$.columns" count == 2
+jsonpath "$.columns[0]" == "id"
+jsonpath "$.columns[1]" == "name"
+jsonpath "$.limit" == 7
+jsonpath "$.order[0].column" == "id"
+jsonpath "$.order[0].descending" == true
+
+# A count needs every row, so the proxy keeps the columns and drops the limit.
+GET http://{{host}}/echo?select=id&limit=5
+Prefer: count=exact
+
+HTTP 200
+[Asserts]
+jsonpath "$.columns[0]" == "id"
+jsonpath "$.limit" not exists
+
+# A parameter that the proxy does not read stops the push of the columns and the limit.
+GET http://{{host}}/echo?select=id&limit=5&name=fts.x
+
+HTTP 200
+[Asserts]
+body == "none"

@@ -38,6 +38,14 @@ def pg_scalar_type(duckdb_type: str) -> str:
             return "text"
 
 
+def is_sortable(duckdb_type: str) -> bool:
+    """Return true when DuckDB and PostgreSQL sort the type the same way.
+
+    Every other scalar type reaches PostgreSQL as text, which sorts by the collation.
+    """
+    return duckdb_type.upper() in {"BIGINT", "INTEGER", "INT", "DATE", "BOOLEAN"}
+
+
 def quoted_identifier(identifier: str) -> str:
     """Quote an identifier for PostgreSQL and DuckDB SQL."""
     return Identifier(identifier).as_string(None)
@@ -62,6 +70,7 @@ def function_columns(
             "raw_json": raw_json,
             "pg_type": pg_scalar_type(duckdb_type),
             "return_type": return_type_for(duckdb_type),
+            "sortable": is_sortable(duckdb_type),
         }
         for column, duckdb_type in columns
     ]

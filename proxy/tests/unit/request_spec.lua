@@ -54,9 +54,48 @@ check("request.make_headers", function(case) return request.make_headers(case.in
 		expected = {},
 	},
 	{
-		name = "does not add the filter header when the query has no filter",
-		input = { method = "GET", args = "select=id", headers_in = {} },
+		name = "does not add the filter header when the query selects every column and has no filter",
+		input = { method = "GET", args = "select=*", headers_in = {} },
 		expected = {},
+	},
+	{
+		name = "adds the filter header for a read that selects columns",
+		input = { method = "GET", args = "select=id", headers_in = {} },
+		expected = { ["X-DuckLake-Filter"] = cjson.encode(parser.parse("select=id")) },
+	},
+	{
+		name = "pushes the limit of a GET",
+		input = { method = "GET", args = "limit=5", headers_in = {} },
+		expected = { ["X-DuckLake-Filter"] = cjson.encode(parser.parse("limit=5", { limit = true })) },
+	},
+	{
+		name = "does not push the limit of a HEAD",
+		input = { method = "HEAD", args = "limit=5", headers_in = {} },
+		expected = {},
+	},
+	{
+		name = "does not push the limit when the client asks for a count",
+		input = { method = "GET", args = "limit=5", headers_in = { Prefer = "count=exact" } },
+		expected = { Prefer = "count=exact" },
+	},
+	{
+		name = "does not push the limit when the Prefer header lists a count among other preferences",
+		input = { method = "GET", args = "limit=5", headers_in = { Prefer = "tx=commit, count=estimated" } },
+		expected = { Prefer = "tx=commit, count=estimated" },
+	},
+	{
+		name = "does not push the limit for a range request",
+		input = { method = "GET", args = "limit=5", headers_in = { Range = "0-4" } },
+		expected = { Range = "0-4" },
+	},
+	{
+		name = "does not push the limit when the client asks for a single object",
+		input = {
+			method = "GET",
+			args = "limit=5",
+			headers_in = { Accept = "application/vnd.pgrst.object+json" },
+		},
+		expected = { Accept = "application/vnd.pgrst.object+json" },
 	},
 	{ name = "accepts a missing query string", input = { method = "GET", headers_in = {} }, expected = {} },
 })

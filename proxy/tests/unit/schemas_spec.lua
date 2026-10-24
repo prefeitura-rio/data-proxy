@@ -208,6 +208,35 @@ check("schemas.filter_document", function(case) return schemas.filter_document:v
 		},
 	},
 	{
+		name = "accepts columns, an order and a limit without a filter",
+		valid = true,
+		value = {
+			columns = { "id", "name" },
+			order = { { column = "id", descending = true, nulls = "last" }, { column = "name", descending = false } },
+			limit = 10,
+		},
+	},
+	{ name = "accepts a limit of zero", valid = true, value = { limit = 0 } },
+	{ name = "rejects an empty list of columns", value = { columns = {} }, reason = 'field "columns"' },
+	{
+		name = "rejects a column that is not a column name in the list",
+		value = { columns = { "2id" } },
+		reason = 'field "columns"',
+	},
+	{ name = "rejects a negative limit", value = { limit = -1 }, reason = 'field "limit"' },
+	{ name = "rejects a limit that is not a whole number", value = { limit = 1.5 }, reason = 'field "limit"' },
+	{ name = "rejects an empty order", value = { order = {} }, reason = 'field "order"' },
+	{
+		name = "rejects a nulls placement that the grammar does not know",
+		value = { order = { { column = "id", descending = false, nulls = "middle" } } },
+		reason = 'field "order"',
+	},
+	{
+		name = "rejects an order without the direction",
+		value = { order = { { column = "id" } } },
+		reason = 'field "order"',
+	},
+	{
 		name = "rejects an operator that the grammar does not know",
 		value = { where = comparison({ operator = "nope" }) },
 		reason = reason,

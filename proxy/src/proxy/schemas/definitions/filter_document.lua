@@ -1,4 +1,5 @@
--- The fields of the filter_document schema: the filter that the proxy sends to PostgreSQL.
+-- The fields of the filter_document schema: what the proxy pushes to PostgreSQL.
+-- The filter, the columns that the request reads, and the order and limit of a request that PostgREST can truncate.
 
 local constants = require("proxy.constants")
 local regex = require("proxy.regex")
@@ -51,6 +52,16 @@ node = types
 	})
 	:describe("a comparison or a group")
 
+--- The shape of one order entry: a column, a direction, and where the nulls go.
+local order_entry = types.shape({
+	column = column,
+	descending = types.boolean,
+	nulls = types.one_of({ "first", "last" }):is_optional(),
+})
+
 return {
-	where = node,
+	where = node:is_optional(),
+	columns = types.array_of(column, { length = at_least_one }):is_optional(),
+	order = types.array_of(order_entry, { length = at_least_one }):is_optional(),
+	limit = (types.integer * types.range(0, math.huge)):is_optional(),
 }

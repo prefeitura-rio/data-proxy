@@ -18,9 +18,18 @@
 --- A comparison or a group.
 ---@alias FilterNode FilterComparison|FilterGroup
 
---- The filter that the proxy sends to PostgreSQL.
+--- One column of the order that the proxy pushes.
+---@class FilterOrder
+---@field column string Column name.
+---@field descending boolean true for desc.
+---@field nulls "first"|"last"|nil Where the nulls go. Absent means the PostgreSQL default.
+
+--- What the proxy sends to PostgreSQL in the X-DuckLake-Filter header.
 ---@class FilterDocument
----@field where FilterNode The filter sent to PostgreSQL in the X-DuckLake-Filter header.
+---@field where FilterNode|nil The filter.
+---@field columns string[]|nil The columns that the request reads. Absent means every column.
+---@field order FilterOrder[]|nil The order of the rows. Only sent with a limit.
+---@field limit integer|nil The number of rows that PostgREST can return at most, with the offset added.
 
 --- The schema of the filter that the proxy sends to PostgreSQL.
 ---@class SchemasModule

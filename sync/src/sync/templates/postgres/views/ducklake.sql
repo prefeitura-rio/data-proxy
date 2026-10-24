@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the private helper that prepares a DuckLake view at a snapshot.",
+  "description": "Render the private helper that prepares a DuckLake view at a snapshot. The view has only the columns that the request reads, and the ORDER BY with the LIMIT that the request allows.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "app_schema": "PostgreSQL schema that holds the routing functions.",
@@ -14,8 +14,10 @@
 }
 #}
 -- noqa: disable=CP02,PRS,LT05
-{% from "postgres/macros.sql" import column_projection, ducklake_attach %}
-CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text, p_validate_snapshot boolean)
+{% from "postgres/macros.sql" import ducklake_attach %}
+CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(
+  p_where text, p_arg text, p_validate_snapshot boolean, p_columns text[], p_tail text
+)
 RETURNS void AS $$
 DECLARE
   v_snapshot bigint;
@@ -30,12 +32,16 @@ BEGIN
 
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW {{ duckdb_view }} AS ' ||
-    'SELECT {{ column_projection(columns) }} ' ||
+    'SELECT ' || {{ app_schema }}.project_columns(
+      ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[],
+      p_columns
+    ) || ' ' ||
     'FROM {{ source }} AT (VERSION => ' || v_snapshot || ') ' ||
-    coalesce(p_where, '')
+    coalesce(p_where, '') || ' ' ||
+    coalesce(p_tail, '')
   );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
-REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text, boolean) FROM PUBLIC
+REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text, boolean, text[], text) FROM PUBLIC

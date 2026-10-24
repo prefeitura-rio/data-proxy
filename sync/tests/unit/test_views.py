@@ -33,6 +33,28 @@ class TestSourceMappings:
         assert columns[1]["is_json"] is False
         assert columns[1]["pg_type"] == "bigint"
 
+    @pytest.mark.parametrize(
+        ("duckdb_type", "sortable"),
+        [
+            pytest.param("BIGINT", True, id="bigint"),
+            pytest.param("INTEGER", True, id="integer"),
+            pytest.param("DATE", True, id="date"),
+            pytest.param("BOOLEAN", True, id="boolean"),
+            pytest.param("VARCHAR", False, id="text-sorts-by-collation"),
+            pytest.param("DOUBLE", False, id="double-reaches-postgresql-as-text"),
+            pytest.param("TIMESTAMP", False, id="timestamp-reaches-postgresql-as-text"),
+            pytest.param("STRUCT(id BIGINT)", False, id="json"),
+            pytest.param("INTERVAL", False, id="interval"),
+        ],
+    )
+    def test_marks_the_columns_that_both_engines_sort_the_same_way(
+        self, duckdb_type: str, sortable: bool
+    ) -> None:
+        """Mark a column sortable only when PostgreSQL receives a bigint, a date, or a boolean."""
+        columns = utils.function_columns([("c", duckdb_type)], raw_json=True)
+
+        assert columns[0]["sortable"] is sortable
+
     def test_desires_one_view_per_table(self) -> None:
         """Serve every table through one view, with or without fallback."""
         config = SyncConfig(

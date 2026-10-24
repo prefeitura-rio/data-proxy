@@ -35,9 +35,9 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. Query filters run in PostgreSQL after the scan, so they reduce the response, not the data that DuckDB reads.
+Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Proxy](proxy.md#query-pushdown).
 
-Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`.
+Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
 
 ## DuckLake change feed
 

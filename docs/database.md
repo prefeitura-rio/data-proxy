@@ -56,7 +56,7 @@ Each configured schema contains metadata and views:
 | `<schema>.access_log` | Append-only audit trail of grant changes. |
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks row-level security (RLS), plans the sources, and reads them. |
-| `<schema>.<table>_dl_fn(text, text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot. |
+| `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 
 Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers, and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy.md).
@@ -82,6 +82,8 @@ The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLak
 The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
 
 The table function builds the access policy predicate once and passes it to each source helper. See [Security](security/index.md).
+
+The DuckLake helper also receives the columns and the `ORDER BY` with the `LIMIT` that the proxy pushed. It writes a null for each column that the request skips, so DuckDB doesn't read it. See [Proxy](proxy.md#query-pushdown). A sync run replaces the helper and the table function of each table with the new definitions.
 
 ## S3 access
 

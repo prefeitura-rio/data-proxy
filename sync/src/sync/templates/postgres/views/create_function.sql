@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Render the function behind a table view: check RLS, plan the sources, and read them.",
+  "description": "Render the function behind a table view: check RLS, plan the sources, and read them. The DuckLake source gets the columns and the ORDER BY with the LIMIT that the request allows.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
@@ -9,7 +9,7 @@
     "function": "PostgreSQL function being created.",
     "dl_function": "Private DuckLake helper function.",
     "dl_view": "DuckDB view name prepared by the DuckLake helper.",
-    "columns": "Structured SQL-safe column metadata.",
+    "columns": "Structured SQL-safe column metadata. A column with sortable set has a type that DuckDB and PostgreSQL sort the same way.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
@@ -31,6 +31,8 @@ DECLARE
   v_subject text;
   v_where text;
   v_filter jsonb;
+  v_columns text[];
+  v_tail text;
   v_pinned bigint;
   v_snapshot bigint;
   v_plan record;
@@ -51,6 +53,14 @@ BEGIN
       ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
     )
   );
+  v_columns := {{ app_schema }}.render_dl_columns(
+    v_filter,
+    ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+  );
+  v_tail := {{ app_schema }}.render_dl_tail(
+    v_filter,
+    ARRAY[{% for column in columns if column.sortable %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+  );
   v_pinned := {{ app_schema }}.requested_snapshot();
 
   FOR v_plan IN
@@ -69,7 +79,7 @@ BEGIN
     IF v_plan.name = 'ducklake' THEN
       v_snapshot := coalesce(v_pinned, {{ schema }}.dl_latest_snapshot());
       PERFORM {{ schema }}.{{ dl_function }}(
-        v_where, v_snapshot::text, v_pinned IS NOT NULL
+        v_where, v_snapshot::text, v_pinned IS NOT NULL, v_columns, v_tail
       );
       RETURN QUERY EXECUTE $ducklake_query$
 {{ return_query_select(columns) }}

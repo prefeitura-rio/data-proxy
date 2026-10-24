@@ -13,6 +13,7 @@
 DROP VIEW IF EXISTS {{ schema }}.{{ view }};
 DROP FUNCTION IF EXISTS {{ schema }}.{{ function }}();
 {% for helper in helpers %}
+DROP FUNCTION IF EXISTS {{ schema }}.{{ helper }}(text, text, boolean, text[], text);
 DROP FUNCTION IF EXISTS {{ schema }}.{{ helper }}(text, text, text, boolean);
 DROP FUNCTION IF EXISTS {{ schema }}.{{ helper }}(text, text, boolean);
 DROP FUNCTION IF EXISTS {{ schema }}.{{ helper }}(text, text, text);
