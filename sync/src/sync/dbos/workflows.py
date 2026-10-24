@@ -20,6 +20,7 @@ from .steps import (
     finalize_run,
     load_sync_config,
     notify_proxies,
+    reconcile_idle_schemas,
     record_dump_failure,
     record_dump_metrics,
     record_publish_metrics,
@@ -107,11 +108,12 @@ async def run_sync(
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         loaded = await load_sync_config()
-        work = await build_sync_work(
-            run_id, loaded.document, SyncScope.model_validate(context or {})
-        )
+        scope = SyncScope.model_validate(context or {})
+        work = await build_sync_work(run_id, loaded.document, scope)
         if not work.plans:
             await logs.info("Sync planning completed", changes="none")
+            if await reconcile_idle_schemas(loaded.document, scope):
+                await reload_postgrest()
             return
 
         dump_handles: list[WorkflowHandleAsync[DumpResult]] = []

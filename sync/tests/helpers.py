@@ -301,6 +301,9 @@ def stub_sync_run(
         "seed_schemas",
         AsyncMock(return_value=postgrest_reload_required),
     )
+    monkeypatch.setattr(
+        workflows, "reconcile_idle_schemas", AsyncMock(return_value=False)
+    )
     monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
     monkeypatch.setattr(workflows, "record_scope", AsyncMock())
     monkeypatch.setattr(workflows, "run_provision", AsyncMock())

@@ -10,10 +10,13 @@ Each row of the table names one workflow or step, its work, and its result.
 | --- | --- | --- |
 | `run_sync` | Plans changed tables and partitions. | Enqueues dump and publish workflows. |
 | `dump_task` | Extracts source data. | Writes independent scratch Parquet files. |
-| `seed_schemas` | Reconciles the PostgreSQL functions and views. | Returns whether the view set changed. |
+| `seed_schemas` | Reconciles the PostgreSQL functions and views of the planned tables. | Returns whether the view set changed. |
+| `reconcile_idle_schemas` | Reconciles the PostgreSQL functions and views of the scope when the plan has no change. | Returns whether the view set changed. |
 | `publish_schema` | Inserts scratch Parquet into the schema catalog. | The commit creates a snapshot that every instance sees after replication. |
 | `apply_ducklake_maintenance` | Runs inside `publish_schema` after a publication. | Expires old snapshots, merges files, and removes old and orphaned Parquet files. |
 | `finalize_run` | Clears the scratch objects and the cache. | Keeps the DuckLake data prefix intact. |
+
+A run without a data change still reconciles the views of its scope. Each view stores the signature of its generated definition, so the step rebuilds only a table whose definition changed. This is how a new release reaches a table that didn't change. The step reads the column types of each table from the source, so an idle run costs one lookup for each table. It doesn't dump, publish or clear the cache.
 
 Seed and publish run concurrently. When a view is added or removed, the workflow tells PostgREST to reload its schema after every publisher finishes. The database first waits until every standby replayed the change. A new snapshot alone reloads nothing.
 

@@ -2670,6 +2670,50 @@ class TestPostgresTemplates:
 
         assert [row[0] for row in rows] == ["cpf", "name", "active"]
 
+    async def test_reconcile_of_one_table_leaves_the_other_tables_of_the_schema_alone(
+        self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A source change reaches only the table that the reconcile names, and the others stay."""
+        schema = postgres.namespace.schema
+        config = SyncConfig(
+            schemas={
+                schema: SchemaConfig(
+                    tables=[
+                        FullTable(name=f"p.{schema}.people"),
+                        FullTable(name=f"p.{schema}.pets"),
+                    ]
+                )
+            }
+        )
+        columns = [("cpf", "BIGINT")]
+
+        async def source_columns(
+            _pg_conn: PgBackend, _table: TableConfig
+        ) -> list[tuple[str, str]]:
+            return columns
+
+        monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
+        await initialize_schemas(postgres.backend, config)
+        await reconcile_views(postgres.backend, config)
+        columns = [("cpf", "BIGINT"), ("name", "VARCHAR")]
+
+        await reconcile_views(
+            postgres.backend, config, [schema], {schema: {f"p.{schema}.people"}}
+        )
+
+        names = {
+            view: [
+                row[0]
+                for row in await fetch_all(
+                    postgres,
+                    "postgres/view_columns",
+                    params={"schema_name": schema, "table_name": view},
+                )
+            ]
+            for view in ("people", "pets")
+        }
+        assert names == {"people": ["cpf", "name"], "pets": ["cpf"]}
+
     async def test_reconcile_drops_the_views_and_functions_that_the_config_dropped(
         self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
     ) -> None:

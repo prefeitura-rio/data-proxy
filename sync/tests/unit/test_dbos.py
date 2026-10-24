@@ -3,7 +3,7 @@ import importlib
 import inspect
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import ClassVar
+from typing import ClassVar, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,6 +19,8 @@ from sync.ducklake import DuckLakePaths, table_prefix
 from sync.models import (
     FullTable,
     LoadedConfig,
+    SchemaConfig,
+    SyncConfig,
     SyncPlan,
     SyncScope,
     SyncWork,
@@ -353,6 +355,105 @@ class TestRunSyncUsesOneConfig:
         await run_sync()
 
         assert publishes == [(PUBLISH_QUEUE, "one"), (PUBLISH_QUEUE, "two")]
+
+
+class TestRunSyncWithoutChanges:
+    """A run that plans nothing still reconciles the serving views of its scope."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reload_required", [True, False])
+    async def test_reconciles_the_views_and_reloads_postgrest_only_when_they_changed(
+        self, monkeypatch: pytest.MonkeyPatch, reload_required: bool
+    ) -> None:
+        """Reconcile with the loaded document and the scope, and skip dump, publish and finalize."""
+        calls, events = stub_sync_run(
+            monkeypatch, postgrest_reload_required=False, snapshot_id=None
+        )
+        monkeypatch.setattr(
+            workflows,
+            "build_sync_work",
+            AsyncMock(return_value=SyncWork(plans=[], tasks=[])),
+        )
+        reconcile = AsyncMock(return_value=reload_required)
+        finalize = AsyncMock()
+        monkeypatch.setattr(workflows, "reconcile_idle_schemas", reconcile)
+        monkeypatch.setattr(workflows, "finalize_run", finalize)
+
+        await run_sync({"schemas": ["app"]})
+
+        reconcile.assert_awaited_once_with(DOCUMENT, SyncScope(schemas=["app"]))
+        assert calls == (["reload_postgrest"] if reload_required else [])
+        assert events == []
+        finalize.assert_not_awaited()
+
+
+class TestReconcileIdleSchemasStep:
+    """The step reconciles the scope of the run against the whole config."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("scope", "schemas", "tables"),
+        [
+            pytest.param(
+                SyncScope(),
+                ["app", "other"],
+                {"app": {"p.app.a", "p.app.b"}, "other": {"p.other.c"}},
+                id="every-table",
+            ),
+            pytest.param(
+                SyncScope(schemas=["app"]),
+                ["app"],
+                {"app": {"p.app.a", "p.app.b"}},
+                id="one-schema",
+            ),
+            pytest.param(
+                SyncScope(tables=["app.a"]),
+                ["app"],
+                {"app": {"p.app.a"}},
+                id="one-table",
+            ),
+        ],
+    )
+    async def test_reconciles_only_the_scope_and_keeps_the_full_config(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        scope: SyncScope,
+        schemas: list[str],
+        tables: dict[str, set[str]],
+    ) -> None:
+        """Hand the full config to the reconcile, so the cleanup never drops a table outside the scope."""
+        config = SyncConfig(
+            schemas={
+                "app": SchemaConfig(
+                    tables=[FullTable(name="p.app.a"), FullTable(name="p.app.b")]
+                ),
+                "other": SchemaConfig(tables=[FullTable(name="p.other.c")]),
+            }
+        )
+        connection = object()
+
+        @asynccontextmanager
+        async def connect(_dsn: str) -> AsyncGenerator[object]:
+            yield connection
+
+        reconcile = AsyncMock(return_value=True)
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "reconcile_views", reconcile)
+
+        result = await workflow_body(steps.reconcile_idle_schemas)(
+            config.model_dump_json(), scope
+        )
+
+        reconcile.assert_awaited_once()
+        call = reconcile.await_args
+        assert call is not None
+        pg_conn, passed, schema_names, table_names = call.args
+        config_passed = cast("SyncConfig", passed)
+        assert pg_conn is connection
+        assert sorted(config_passed.schemas) == ["app", "other"]
+        assert schema_names == schemas
+        assert table_names == tables
+        assert result is True
 
 
 CONNECTION = object()

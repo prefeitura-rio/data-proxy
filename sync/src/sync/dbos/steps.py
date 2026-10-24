@@ -176,6 +176,38 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
     max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
     should_retry=retry_transient,
 )
+async def reconcile_idle_schemas(document: str, scope: SyncScope) -> bool:
+    """Reconcile the serving views of a run that planned no change, and report a PostgREST reload need.
+
+    A new release can change the generated definitions without a change in the data.
+    The stored signatures tell which table needs a rebuild. The reconcile gets the full config,
+    so its cleanup never drops a table outside the scope of the run.
+    """
+    config = SyncConfig.model_validate_json(document)
+    scoped = config.scoped(scope)
+    table_names = {
+        name: {table.name for table in schema.tables}
+        for name, schema in scoped.schemas.items()
+    }
+
+    await logs.info("Idle reconcile started", schemas=len(table_names))
+
+    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+        postgrest_reload_required = await reconcile_views(
+            pg_conn, config, sorted(table_names), table_names
+        )
+
+    await logs.info(
+        "Idle reconcile completed", postgrest_reload_required=postgrest_reload_required
+    )
+    return postgrest_reload_required
+
+
+@DBOS.step(
+    retries_allowed=True,
+    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+    should_retry=retry_transient,
+)
 async def record_scope(
     run_id: str, schemas: list[str], dumps: list[tuple[str, str, str]]
 ) -> None:
