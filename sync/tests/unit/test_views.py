@@ -55,6 +55,27 @@ class TestSourceMappings:
 
         assert columns[0]["sortable"] is sortable
 
+    @pytest.mark.parametrize(
+        ("table_name", "expected"),
+        [
+            pytest.param("people", "dl_changes_people", id="short-name"),
+            pytest.param(
+                "t" * 52, "dl_changes_" + "t" * 52, id="exactly-63-bytes-is-kept"
+            ),
+            pytest.param(
+                "t" * 60, ("dl_changes_" + "t" * 60)[:63], id="longer-name-is-cut"
+            ),
+        ],
+    )
+    def test_cuts_the_change_feed_name_where_postgresql_cuts_it(
+        self, table_name: str, expected: str
+    ) -> None:
+        """PostgreSQL stores an identifier of at most 63 bytes, so the reconcile must look for that name."""
+        table = FullTable(name=f"p.app.{table_name}")
+
+        assert utils.changes_function_name(table) == expected
+        assert len(expected.encode()) <= 63
+
     def test_desires_one_view_per_table(self) -> None:
         """Serve every table through one view, with or without fallback."""
         config = SyncConfig(

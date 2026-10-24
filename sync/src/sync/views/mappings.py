@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from psycopg.sql import Identifier, Literal
 
-from sync.constants import DUCKDB_VIEW_PREFIX
+from sync.constants import DUCKDB_VIEW_PREFIX, MAX_IDENTIFIER_BYTES
 from sync.executor import Executor
 from sync.models import PartitionedTable, TableConfig
 from sync.schema import schema as app_schema
@@ -44,6 +44,17 @@ def is_sortable(duckdb_type: str) -> bool:
     Every other scalar type reaches PostgreSQL as text, which sorts by the collation.
     """
     return duckdb_type.upper() in {"BIGINT", "INTEGER", "INT", "DATE", "BOOLEAN"}
+
+
+def changes_function_name(table: TableConfig) -> str:
+    """Return the name of the change-feed function of one table, as PostgreSQL stores it.
+
+    PostgreSQL cuts an identifier at 63 bytes without an error. The reconcile compares this name with
+    the stored one, so it must cut the same way.
+    """
+    return f"dl_changes_{table.table_name}".encode()[:MAX_IDENTIFIER_BYTES].decode(
+        errors="ignore"
+    )
 
 
 def quoted_identifier(identifier: str) -> str:
@@ -257,7 +268,7 @@ def table_changes_function_mapping(
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),
-        "function": Identifier(f"dl_changes_{table.table_name}"),
+        "function": Identifier(changes_function_name(table)),
         "table_name": table.table_name,
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),

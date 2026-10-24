@@ -41,7 +41,7 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 ## DuckLake change feed
 
-Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
+Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
 
 ```bash
 curl \

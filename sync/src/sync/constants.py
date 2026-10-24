@@ -34,3 +34,5 @@ PROJECT_PATH: Final = "/data_proxy/"
 LOCATION_FRAMES: Final = 3
 
 PUBLISH_QUEUE: Final = "publish"
+
+MAX_IDENTIFIER_BYTES: Final = 63

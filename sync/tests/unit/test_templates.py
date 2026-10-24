@@ -2714,6 +2714,28 @@ class TestPostgresTemplates:
         }
         assert names == {"people": ["cpf", "name"], "pets": ["cpf"]}
 
+    async def test_reconcile_of_a_table_with_a_long_name_needs_no_reload_the_second_time(
+        self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PostgreSQL cuts the change-feed name at 63 bytes, and the second reconcile must still find it."""
+        schema = postgres.namespace.schema
+        config = SyncConfig(
+            schemas={
+                schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.{'t' * 60}")])
+            }
+        )
+
+        async def source_columns(
+            _pg_conn: PgBackend, _table: TableConfig
+        ) -> list[tuple[str, str]]:
+            return [("cpf", "BIGINT")]
+
+        monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
+        await initialize_schemas(postgres.backend, config)
+        assert await reconcile_views(postgres.backend, config) is True
+
+        assert await reconcile_views(postgres.backend, config) is False
+
     async def test_reconcile_drops_the_views_and_functions_that_the_config_dropped(
         self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
     ) -> None:

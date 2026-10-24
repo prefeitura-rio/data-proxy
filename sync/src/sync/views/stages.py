@@ -14,6 +14,7 @@ from sync.types import PostgresParams
 
 from .mappings import (
     boundary_view_mapping,
+    changes_function_name,
     column_types_from_duckdb,
     ducklake_function_mapping,
     serving_definition_signature,
@@ -24,11 +25,6 @@ from .mappings import (
 
 if TYPE_CHECKING:
     from sync.postgres import Postgres
-
-
-def changes_function_name(table: TableConfig) -> str:
-    """Return the managed change-feed function name for one table."""
-    return f"dl_changes_{table.table_name}"
 
 
 def desired_functions(
