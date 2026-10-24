@@ -1,0 +1,49 @@
+{{- if .Values.cnpg.backup.enabled }}
+{{- $backup := .Values.cnpg.backup }}
+{{- $name := printf "%s-backup" (include "data-proxy.fullname" .) }}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  retentionPolicy: {{ $backup.retention | quote }}
+  configuration:
+    destinationPath: {{ printf "s3://%s/%s" (required "cnpg.backup.bucket is required when cnpg.backup.enabled is true" $backup.bucket) $backup.destinationPath | trimSuffix "/" | quote }}
+    {{- with $backup.endpointURL }}
+    endpointURL: {{ . | quote }}
+    {{- end }}
+    s3Credentials:
+      accessKeyId:
+        name: {{ required "cnpg.backup.existingSecret is required when cnpg.backup.enabled is true" $backup.existingSecret }}
+        key: S3_ACCESS_KEY
+      secretAccessKey:
+        name: {{ $backup.existingSecret }}
+        key: S3_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ $backup.schedule | quote }}
+  immediate: true
+  backupOwnerReference: self
+  method: plugin
+  cluster:
+    name: {{ include "data-proxy.fullname" . }}
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+{{- end }}

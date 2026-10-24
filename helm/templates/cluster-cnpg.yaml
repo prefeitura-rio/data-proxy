@@ -39,6 +39,13 @@ spec:
       maximumLag: {{ $root.Values.cnpg.maxReplicaLag | quote }}
       periodSeconds: 3
       failureThreshold: 2
+  {{- if $root.Values.cnpg.backup.enabled }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ include "data-proxy.fullname" $root }}-backup
+  {{- end }}
   resources:
     requests:
       cpu: {{ $root.Values.cnpg.resources.requests.cpu | quote }}

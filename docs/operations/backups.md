@@ -62,13 +62,27 @@ pg_restore --list access_policy.dump
 
 Don't load an unreviewed backup into a live access policy table.
 
-## Catalog recovery
+## Database backup
 
-CloudNativePG (CNPG) backs up the DuckLake catalogs with the rest of the cluster, because they live in the `ducklake` database. This chart doesn't back them up, and the backup CronJob dumps only `access_policy` and `access_log`.
+The whole database, with the DuckLake catalogs and the console data, has its own backup. Set `cnpg.backup.enabled` to turn it on. CloudNativePG (CNPG) then archives the write-ahead log (WAL) and takes a base backup each day, through the Barman Cloud plugin.
 
-Restore the catalogs with the CNPG recovery of the whole cluster.
+The plugin must run in the cluster before you turn the backup on, because the chart creates an `ObjectStore` that the plugin owns. The plugin has its own Helm chart, `plugin-barman-cloud`, in the namespace of the CNPG operator.
 
----
+| Value | Holds |
+| --- | --- |
+| `cnpg.backup.bucket`, `cnpg.backup.destinationPath` | The bucket and the prefix of the backups. |
+| `cnpg.backup.endpointURL` | The S3-compatible endpoint. For GCS, use `https://storage.googleapis.com`. |
+| `cnpg.backup.existingSecret` | A Secret with `S3_ACCESS_KEY` and `S3_SECRET_KEY`. |
+| `cnpg.backup.schedule` | The schedule of the base backups, with six fields. The first one is the seconds. |
+| `cnpg.backup.retention` | The age after which the plugin deletes a backup and its WAL files. |
+
+The chart takes the first base backup when it creates the schedule. `kubectl get backup` lists the backups, and `kubectl get cluster -o jsonpath='{.status.firstRecoverabilityPoint}'` shows the oldest point that you can restore.
+
+A replica that falls behind catches up from the archive. The chart also limits what a replication slot keeps with `max_slot_wal_keep_size`, which is 8 GB by default. Without a limit, a slot that stops could fill the disk of the primary. Set a larger value in `cnpg.postgresql.parameters` for a larger disk.
+
+## Restore the database
+
+Restore the database with the recovery of the whole cluster. Create a new cluster with `bootstrap.recovery` that names the object store as its source. Check the new cluster before you point any workload at it, and keep the old cluster until the check ends.
 
 <!-- nav:start -->
 ---

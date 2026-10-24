@@ -558,6 +558,7 @@ jwtRules:
   "effective_io_concurrency" "200"
   "max_connections" "200"
   "max_wal_size" "4GB"
+  "max_slot_wal_keep_size" "8GB"
   "min_wal_size" "1GB"
   "wal_compression" "on"
   "checkpoint_timeout" "15min"
