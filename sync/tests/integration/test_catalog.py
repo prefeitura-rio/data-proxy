@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-import duckdb
+import duckdb as duckdb_module
 import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier
@@ -13,8 +13,14 @@ from sync.ducklake import (
     attach_catalog,
     configure_catalog,
     current_snapshot_id,
+    publish_tables,
 )
+from sync.models import FullTable, SyncPlan
+from sync.postgres import Postgres
 from sync.settings import settings
+from sync.state import read_table_signature
+from tests.constants import PARQUET
+from tests.helpers import attach_ducklake, sync_config
 
 pytestmark = pytest.mark.postgres
 
@@ -22,7 +28,7 @@ pytestmark = pytest.mark.postgres
 async def test_each_schema_writes_to_its_own_metadata_schema(tmp_path: Path) -> None:
     """Keep the metadata of two schemas apart in one catalog database."""
     names = [f"catalog_{uuid4().hex[:8]}" for _ in range(2)]
-    connection = duckdb.connect()
+    connection = duckdb_module.connect()
     duckdb_conn = DuckDB(connection=connection)
     catalog = await psycopg.AsyncConnection.connect(
         settings.DUCKLAKE_CATALOG_URL, autocommit=True
@@ -92,6 +98,36 @@ async def test_wide_rows_are_written_in_row_groups_of_limited_size(
     groups = rows[0][0]
     assert isinstance(groups, int)
     assert groups > 1
+
+
+async def test_a_failed_publish_keeps_the_state_of_the_tables_that_committed(
+    duckdb: DuckDB, dbos_conn: psycopg.AsyncConnection, tmp_path: Path
+) -> None:
+    """Skip the committed tables in the next run: their signature stays although the third table fails."""
+    names = ["p.d.a", "p.d.b", "p.d.c"]
+    config = sync_config(
+        [FullTable(name=name, resolved_schema="app") for name in names]
+    )
+    plan = SyncPlan(
+        schema_name="app",
+        signatures={name: f"sig-{name}" for name in names},
+        paths={
+            "p.d.a": [PARQUET],
+            "p.d.b": [PARQUET],
+            "p.d.c": [str(tmp_path / "missing.parquet")],
+        },
+    )
+    pg_conn = Postgres(connection=dbos_conn)
+    await attach_ducklake(duckdb, tmp_path)
+
+    with pytest.raises(duckdb_module.Error):
+        await publish_tables(duckdb, pg_conn, config, plan, set(names))
+
+    assert [await read_table_signature(pg_conn, name) for name in names] == [
+        "sig-p.d.a",
+        "sig-p.d.b",
+        None,
+    ]
 
 
 class TestApplyMaintenance:

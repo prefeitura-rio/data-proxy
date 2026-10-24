@@ -16,7 +16,6 @@ from .steps import (
     build_sync_work,
     cleanup_s3_credentials,
     commit_ducklake_snapshot,
-    commit_table_state,
     extract_task,
     finalize_run,
     load_sync_config,
@@ -72,7 +71,6 @@ async def publish_schema(
     outcome = await commit_ducklake_snapshot(plan, failed_paths, document)
 
     await record_publish_metrics(outcome, plan.schema_name)
-    await commit_table_state(plan, outcome, document)
     await logs.info(
         "Publish completed",
         run_id=run_id,

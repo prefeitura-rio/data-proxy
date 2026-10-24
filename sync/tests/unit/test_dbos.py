@@ -420,16 +420,15 @@ class TestApplyDucklakeMaintenanceStep:
 class TestPublishSchemaOrder:
     """publish_schema workflow behavior tests."""
 
-    async def test_commits_state_after_the_snapshot_and_returns_it(
+    async def test_records_the_metrics_after_the_snapshot_and_returns_it(
         self, calls: Calls
     ) -> None:
-        """Commits state after the snapshot and returns it."""
+        """Records the metrics after the snapshot and returns it."""
         snapshot_id = await publish(SyncPlan(schema_name="app"))
 
         assert calls.names == [
             "commit_ducklake_snapshot",
             "record_publish_metrics",
-            "commit_table_state",
             "apply_ducklake_maintenance",
         ]
         assert snapshot_id == 45

@@ -25,7 +25,7 @@ from .sources.partitions import (
     RemainderSelection,
     TimeRangeSelection,
 )
-from .state import emit_error
+from .state import build_table_states, emit_error, write_table_states
 from .types import DatabaseRow, DuckDBParams
 
 if TYPE_CHECKING:
@@ -524,11 +524,15 @@ async def emit_blocked_errors(
 
 async def publish_tables(
     duckdb_conn: DuckDB,
+    pg_conn: Postgres,
     config: SyncConfig,
     plan: SyncPlan,
     eligible: set[str],
 ) -> set[str]:
-    """Commit eligible tables into one attached DuckLake catalog."""
+    """Commit eligible tables into one attached DuckLake catalog.
+
+    Each table gets its state right after its commit, so a failure later in the schema keeps the tables that committed.
+    """
     tables = {table.name: table for table in config.tables}
     published: set[str] = set()
 
@@ -541,6 +545,8 @@ async def publish_tables(
             planned_paths(plan, name, partitioned),
             partitioned,
         )
+        committed = PublicationResult(plan=plan, published_tables={name})
+        await write_table_states(pg_conn, build_table_states(committed, config))
         published.add(name)
     return published
 
@@ -574,7 +580,9 @@ async def publish_schema(
         DuckLakePaths.for_schema(plan.schema_name),
         config.schemas[plan.schema_name].ducklake.encrypted,
     )
-    published = await publish_tables(duckdb_conn, config, reduced_plan, eligible)
+    published = await publish_tables(
+        duckdb_conn, pg_conn, config, reduced_plan, eligible
+    )
 
     return PublicationResult(
         plan=reduced_plan,

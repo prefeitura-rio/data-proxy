@@ -37,12 +37,10 @@ from sync.schema import notify_postgrest, wait_for_standbys
 from sync.settings import settings
 from sync.state import (
     ScopeRow,
-    build_table_states,
     delete_removed_state,
     emit_error,
     read_sync_config,
     write_scope,
-    write_table_states,
 )
 from sync.utils import sha256_hex
 from sync.views.reconcile import reconcile_views
@@ -364,23 +362,6 @@ async def reload_postgrest() -> None:
         await notify_postgrest(pg_conn)
 
     await logs.info("PostgREST reload requested")
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
-async def commit_table_state(
-    plan: SyncPlan, result: PublicationResult, document: str
-) -> None:
-    """Persist committed table state for one published schema."""
-    config = schema_config(document, plan.schema_name)
-    states = build_table_states(result, config)
-    await logs.info("State commit started", tables=len(states))
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
-        await write_table_states(pg_conn, states)
-    await logs.info("State commit completed", tables=len(states))
 
 
 @DBOS.step(
