@@ -613,10 +613,6 @@ When('I run the cells of the notebook', async ({ page }) => {
 	}
 });
 
-Then('the notebook uses the {string} theme', async ({ page }, theme: string) => {
-	await expect(frameOf(page).locator('body')).toHaveClass(new RegExp(`(^|\\s)${theme}(\\s|$)`), { timeout: 180_000 });
-});
-
 Then('the notebook has applied the grant', async ({ page }) => {
 	await expect.poll(() => messages(page), { timeout: 180_000 }).toContain('applied');
 });
