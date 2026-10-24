@@ -1193,13 +1193,13 @@ realm:
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
           "redirectUris": [
-            "http://console.localhost/auth/callback"
+            "http://data-proxy.local/console/auth/callback"
           ],
           "webOrigins": [
-            "http://console.localhost"
+            "http://data-proxy.local"
           ],
           "attributes": {
-            "post.logout.redirect.uris": "http://console.localhost/auth/login"
+            "post.logout.redirect.uris": "http://data-proxy.local/console/auth/login"
           },
           "defaultClientScopes": [
             "basic",

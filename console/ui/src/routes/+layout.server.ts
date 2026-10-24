@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { resolve } from '$app/paths';
 import { error, redirect } from '@sveltejs/kit';
 import { identityOf } from '#lib/identity.js';
 import { tabsFor } from '#lib/permissions.js';
@@ -12,8 +13,8 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 	// PostgREST takes a token without a role for an anonymous request and answers 401. Signing in again gives the same
 	// token, so the page would loop between the console and the identity provider.
 	if (identity?.role === '') {
-		if (url.pathname !== '/no-access') {
-			redirect(303, '/no-access');
+		if (url.pathname !== resolve('/no-access')) {
+			redirect(303, resolve('/no-access'));
 		}
 
 		return { permissions: [], tabs: [], identity };
@@ -23,7 +24,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 
 	if (!result.ok && result.status === 401) {
 		clearSession(cookies);
-		redirect(303, `/auth/login?next=${encodeURIComponent(url.pathname)}`);
+		redirect(303, `${resolve('/auth/login')}?next=${encodeURIComponent(url.pathname)}`);
 	}
 
 	if (!result.ok) {

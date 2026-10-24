@@ -19,12 +19,12 @@ Each tab needs one permission to open, and it shows an action only if the user h
 | Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access_policy` and `access_log` of one schema. |
 | Query | `/query` | `read_files` | None | The file lists of a table and the signed links. |
 
-The app has these routes besides the tab pages. Every request that changes data also needs the console origin, as described above.
+The app has these routes besides the tab pages. Every route sits under the path `/console` of the API host, so `/healthz` is `/console/healthz`. Every request that changes data also needs the console origin, as described above.
 
 | Route | Method | Sign-in | Work |
 | --- | --- | --- | --- |
 | `/auth/login` | GET | No | Makes a PKCE pair and a `state`, stores them in a cookie for ten minutes, and redirects to the identity provider. The query `next` names the page to open after the sign-in. The default is `/sync`. |
-| `/auth/callback` | GET | No | Checks the `state`, exchanges the code, writes the session cookie, and redirects to `next`. It accepts only a path on the console. It answers 400 when the answer doesn't match the request. |
+| `/auth/callback` | GET | No | Checks the `state`, exchanges the code, writes the session cookie, and redirects to `next`. The cookies use the path `/console`, so the browser doesn't send them to the API. It accepts only a path on the console. It answers 400 when the answer doesn't match the request. |
 | `/auth/logout` | POST | No | Deletes the session cookie. It redirects to the end-session address of the identity provider, or to `/auth/login` when the provider has none. |
 | `/config/export` | GET | Yes | Downloads `sync.json`, which `console.sync_config()` builds from the rows that the user may read. |
 | `/query/grant` | POST | Yes | Takes `{schema, tables}` and returns the signed links for the files of those tables. It needs `read_files` and the schema, which `console.table_files()` checks. It answers 503 when the query tab isn't set up. |
@@ -57,10 +57,10 @@ The route `/healthz` answers 200 without a session and calls nothing else. The c
 | Setting | Holds |
 | --- | --- |
 | `OIDC_ISSUER` | The address of the identity provider. |
-| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | A confidential client with the redirect URI `<origin>/auth/callback`. |
+| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | A confidential client with the redirect URI `<origin>/console/auth/callback`. |
 | `COOKIE_SECRET` | The secret that seals the cookie. |
 | `POSTGREST_URL` | The address of PostgREST. |
-| `ORIGIN` | The public origin of the console. The server compares the `Origin` header of every change with it. The server sets the `Secure` flag on its cookies when it starts with `https`. |
+| `ORIGIN` | The public origin of the API host, with no path. The server compares the `Origin` header of every change with it. The server sets the `Secure` flag on its cookies when it starts with `https`. |
 | `PROTOCOL_HEADER` | The header that contains the scheme to the Node adapter, `x-forwarded-proto` behind the gateway. Without it, the adapter assumes `https` and refuses every form post from an `http` site. |
 | `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. |
 | `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |

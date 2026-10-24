@@ -9,6 +9,9 @@ declare global {
 	}
 }
 
+/** The path of the console on the host of the API. */
+export const BASE = '/console';
+
 /** What the steps of one scenario hand to each other. */
 export type World = {
 	lastStatus: number;

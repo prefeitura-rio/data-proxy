@@ -271,7 +271,7 @@ in
         utils.mkTask {
           command = [
             opener
-            urls.console
+            "${urls.console}/console"
           ];
           packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
         }
@@ -346,7 +346,7 @@ in
         ];
         ready = utils.probes.http {
           port = appPort;
-          path = "/healthz";
+          path = "/console/healthz";
         };
       };
 
@@ -365,7 +365,7 @@ in
         ports.main.allocate = 13001;
         ready = utils.probes.http {
           port = gatewayPort;
-          path = "/healthz";
+          path = "/console/healthz";
         };
         after = [ (utils.processTask "console") ];
       };

@@ -40,9 +40,9 @@ export def partial-import [
                 serviceAccountsEnabled: false
                 standardFlowEnabled: true
                 directAccessGrantsEnabled: false
-                redirectUris: [$'($origin)/auth/callback']
+                redirectUris: [$'($origin)/console/auth/callback']
                 webOrigins: [$origin]
-                attributes: {'post.logout.redirect.uris': $'($origin)/auth/login'}
+                attributes: {'post.logout.redirect.uris': $'($origin)/console/auth/login'}
                 defaultClientScopes: [basic web-origins acr roles profile email]
                 protocolMappers: [
                     (mapper role oidc-usermodel-client-role-mapper {
@@ -149,7 +149,7 @@ export def claims-of [token: string]: nothing -> record {
 
 # Print the partial import document for the console client. The roles come from rbac.toml.
 def "main client" [
-    --host: string # The public host of the console, such as data-proxy-preview-console.staging.example.com
+    --host: string # The public host of the API and the console, such as preview.data-proxy.dados.rio
     --audience: string = data-proxy # The audience of the gateway (ingress.auth.audience)
     --client-id: string = console-web # The client ID that the console uses (console.oidc.clientId)
 ]: nothing -> nothing {

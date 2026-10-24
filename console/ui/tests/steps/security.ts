@@ -1,9 +1,9 @@
 import { expect, type BrowserContext } from '@playwright/test';
 import { setTokenLifespan } from '../keycloak';
-import { After, Given, Then, When } from '../fixtures';
+import { After, BASE, Given, Then, When } from '../fixtures';
 
 When('I post a run request from the origin {string}', async ({ page, world }, origin: string) => {
-	const response = await page.request.post('/sync?/start', {
+	const response = await page.request.post(`${BASE}/sync?/start`, {
 		headers: { Origin: origin, 'Content-Type': 'application/x-www-form-urlencoded' },
 		data: 'schemas=test&tables='
 	});
@@ -12,7 +12,7 @@ When('I post a run request from the origin {string}', async ({ page, world }, or
 });
 
 When('I open the address {string} directly', async ({ page, world }, address: string) => {
-	const response = await page.goto(address);
+	const response = await page.goto(`${BASE}${address}`);
 
 	world.lastStatus = response?.status() ?? 0;
 });
@@ -21,7 +21,7 @@ Then('an address without a session leads to the sign-in page', async ({ browser,
 	const context = await browser.newContext({ baseURL });
 	const page = await context.newPage();
 
-	await page.goto('/sync');
+	await page.goto(`${BASE}/sync`);
 	await expect(page.locator('#username')).toBeVisible();
 	await context.close();
 });

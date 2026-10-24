@@ -55,7 +55,7 @@ The access policy subject must equal the configured identity claim in the end-us
 `scripts/keycloak.nu` prints the document for the Keycloak partial import. It reads the roles from `rbac.toml`, so the client roles always match the rules.
 
 ```bash
-nu scripts/keycloak.nu client --host data-proxy-preview-console.staging.example.com > console-client.json
+nu scripts/keycloak.nu client --host preview.data-proxy.dados.rio > console-client.json
 ```
 
 Then do these steps in the realm:

@@ -35,7 +35,7 @@ const EXPECTED = {
 
 # Verify that the client roles are the roles of the rules, with their descriptions.
 export def "test partial-import-has-one-client-role-for-each-rule-role" []: nothing -> nothing {
-    let document = partial-import $RULES {id: console-web, host: console.example.test, audience: data-proxy}
+    let document = partial-import $RULES {id: console-web, host: api.example.test, audience: data-proxy}
 
     assert equal $document.roles.client.console-web [
         {name: dp_api, description: 'Read the data'}
@@ -46,13 +46,13 @@ export def "test partial-import-has-one-client-role-for-each-rule-role" []: noth
 
 # Verify the redirect addresses and the mappers of the client.
 export def "test partial-import-sets-the-callback-and-the-three-claims" []: nothing -> nothing {
-    let client = partial-import $RULES {id: console-web, host: console.example.test, audience: data-proxy}
+    let client = partial-import $RULES {id: console-web, host: api.example.test, audience: data-proxy}
     | get clients
     | first
 
-    assert equal $client.redirectUris ['https://console.example.test/auth/callback']
-    assert equal $client.webOrigins ['https://console.example.test']
-    assert equal $client.attributes.'post.logout.redirect.uris' 'https://console.example.test/auth/login'
+    assert equal $client.redirectUris ['https://api.example.test/console/auth/callback']
+    assert equal $client.webOrigins ['https://api.example.test']
+    assert equal $client.attributes.'post.logout.redirect.uris' 'https://api.example.test/console/auth/login'
     assert equal ($client.protocolMappers | get name) [role schemas audience]
     assert equal ($client.protocolMappers | where name == audience | first | get config.'included.custom.audience') data-proxy
     assert equal ($client.protocolMappers | where name == role | first | get config.'claim.name') role

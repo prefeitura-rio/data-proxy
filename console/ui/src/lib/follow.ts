@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { resolve } from '$app/paths';
 import { LogLine } from './types';
 
 export type Follower = {
@@ -26,7 +27,7 @@ export function followRun(runId: string, options: { after: string | null; settle
 		query.set('settle', '1');
 	}
 
-	const source = new EventSource(`/sync/runs/${runId}/logs?${query}`);
+	const source = new EventSource(`${resolve('/sync/runs/[id]/logs', { id: runId })}?${query}`);
 
 	source.addEventListener('lines', (event: MessageEvent<string>) => {
 		follower.onLines(v.parse(v.array(LogLine), JSON.parse(event.data)));

@@ -1,3 +1,4 @@
+import { resolve } from '$app/paths';
 import * as v from 'valibot';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { pageOf, rangeQuery } from '#lib/list.js';
@@ -83,6 +84,6 @@ export const actions: Actions = {
 			return fail(result.status, { message: controlMessage(result) ?? result.message });
 		}
 
-		redirect(303, `/sync/runs/${encodeURIComponent(result.data)}`);
+		redirect(303, resolve('/sync/runs/[id]', { id: result.data }));
 	}
 };

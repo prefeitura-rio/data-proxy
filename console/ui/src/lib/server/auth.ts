@@ -1,11 +1,13 @@
+import { resolve } from '$app/paths';
 import type { Cookies } from '@sveltejs/kit';
+import { BASE } from '../base';
 import { discover, refreshSession, type Discovery, type OidcConfig } from './oidc';
 import { settings } from './settings';
 import { chunk, isExpired, needsRefresh, seal, unchunk, unseal, type Session } from './session';
 
 const COOKIE = 'session';
 const PIECE = 3500;
-const OPTIONS = { path: '/', httpOnly: true, sameSite: 'lax', secure: false } as const;
+const OPTIONS = { path: BASE, httpOnly: true, sameSite: 'lax', secure: false } as const;
 
 let discovery: Promise<Discovery> | null = null;
 
@@ -21,7 +23,7 @@ export function provider(): Promise<Discovery> {
 export function oidcConfig(): OidcConfig {
 	const { issuer, clientId, clientSecret, origin } = settings();
 
-	return { issuer, clientId, clientSecret, redirectUri: `${origin}/auth/callback` };
+	return { issuer, clientId, clientSecret, redirectUri: `${origin}${resolve('/auth/callback')}` };
 }
 
 const pieceNames = (cookies: Cookies) =>
@@ -45,7 +47,7 @@ function readSession(cookies: Cookies): Session | null {
 
 export function clearSession(cookies: Cookies): void {
 	for (const name of pieceNames(cookies)) {
-		cookies.delete(name, { path: '/' });
+		cookies.delete(name, { path: BASE });
 	}
 }
 

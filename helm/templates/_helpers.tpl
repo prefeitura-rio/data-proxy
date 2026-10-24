@@ -812,11 +812,11 @@ spec:
 {{- end }}
 
 {{- define "data-proxy.consoleOrigin" -}}
-{{- printf "%s://%s" .Values.console.scheme .Values.console.host }}
+{{- printf "%s://%s" .Values.ingress.scheme (required "ingress.host is required when the console is enabled" .Values.ingress.host) }}
 {{- end }}
 
 {{- define "data-proxy.notebooksOrigin" -}}
-{{- printf "%s://%s" .Values.notebooks.scheme .Values.notebooks.host }}
+{{- printf "%s://%s" .Values.ingress.scheme .Values.notebooks.host }}
 {{- end }}
 
 {{- /* The Content Security Policy of the notebook origin. notebooks/csp.ts builds the same string for the browser test. */ -}}

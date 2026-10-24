@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
-import { Given, Then, When, type World } from '../fixtures';
+import { BASE, Given, Then, When, type World } from '../fixtures';
 
 /** Read the first bytes of a link. The link is signed for its own host, so the request keeps that host. */
 async function statusOf(link: string | URL): Promise<number> {
@@ -26,7 +26,7 @@ function firstLink(world: World): string {
 const PASSWORD = process.env.KEYCLOAK_USER_PASSWORD ?? 'web-test';
 
 Given('I sign in as {string}', async ({ page }, user: string) => {
-	await page.goto('/');
+	await page.goto(BASE);
 	await page.fill('#username', user);
 	await page.fill('#password', PASSWORD);
 	await page.click('#kc-login');
@@ -67,7 +67,7 @@ async function post(
 }
 
 When('I post a run request directly', async ({ page, world }) => {
-	const response = await post(page, '/sync?/start', {
+	const response = await post(page, `${BASE}/sync?/start`, {
 		body: 'schemas=test&tables=',
 		type: 'application/x-www-form-urlencoded'
 	});
@@ -89,13 +89,13 @@ Then('I see that a run started', async ({ page, world }) => {
 
 When('I open the run that started', async ({ page, world }) => {
 	await page.getByRole('link', { name: world.runId.slice(0, 8) }).click();
-	await page.waitForURL(new RegExp(`/sync/runs/${world.runId}$`));
+	await page.waitForURL(new RegExp(`${BASE}/sync/runs/${world.runId}$`));
 });
 
 const SEEDED_RUN = '00000000-0000-4000-8000-0000000000f1';
 
 When('I open the seeded run', async ({ page }) => {
-	await page.goto(`/sync/runs/${SEEDED_RUN}`);
+	await page.goto(`${BASE}/sync/runs/${SEEDED_RUN}`);
 });
 
 const log = (page: Page) => page.locator('pre');
@@ -197,7 +197,7 @@ When('I open the first run of the list', async ({ page, world }) => {
 
 	world.runId = runIdOf((await link.getAttribute('href')) ?? '');
 	await link.click();
-	await page.waitForURL(new RegExp(`/sync/runs/${world.runId}$`));
+	await page.waitForURL(new RegExp(`${BASE}/sync/runs/${world.runId}$`));
 });
 
 When('I cancel the run', async ({ page }) => {
@@ -221,7 +221,7 @@ Then('the run shows the status {string}', async ({ page }, status: string) => {
 });
 
 When('I post a cancel request for this run directly', async ({ page, world }) => {
-	const response = await post(page, `/sync/runs/${world.runId}?/cancel`, {
+	const response = await post(page, `${BASE}/sync/runs/${world.runId}?/cancel`, {
 		body: '',
 		type: 'application/x-www-form-urlencoded'
 	});
@@ -250,7 +250,7 @@ Then('the schedule {string} shows the status {string}', async ({ page }, name: s
 });
 
 When('I post a pause request for the schedule {string} directly', async ({ page, world }, name: string) => {
-	const response = await post(page, '/sync?/pause', {
+	const response = await post(page, `${BASE}/sync?/pause`, {
 		body: `name=${name}`,
 		type: 'application/x-www-form-urlencoded'
 	});
@@ -279,9 +279,9 @@ Then('the answer is {int}', ({ world }, status: number) => {
 
 Then('the health check answers without a session', async ({ browser, baseURL }) => {
 	const page = await (await browser.newContext({ baseURL })).newPage();
-	await page.goto('/healthz');
+	await page.goto(`${BASE}/healthz`);
 
-	expect(new URL(page.url()).pathname).toBe('/healthz');
+	expect(new URL(page.url()).pathname).toBe(`${BASE}/healthz`);
 	await expect(page.locator('body')).toHaveText('ok');
 });
 
@@ -335,7 +335,7 @@ When('I add the schema {string}', async ({ page }, name: string) => {
 When(
 	'I request a grant for the schema {string} and the table {string}',
 	async ({ page, world }, schema: string, table: string) => {
-		const response = await post(page, '/query/grant', {
+		const response = await post(page, `${BASE}/query/grant`, {
 			body: JSON.stringify({ schema, tables: [table] }),
 			type: 'application/json'
 		});

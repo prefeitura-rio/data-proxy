@@ -22,8 +22,11 @@
 		</a>
 		<div role="tablist" class="tabs tabs-border order-last w-full overflow-x-auto sm:order-none sm:w-auto">
 			{#each data.tabs as tab (tab.id)}
-				<a role="tab" class="tab" class:tab-active={page.url.pathname.startsWith(tab.href)} href={resolve(tab.href)}
-					>{tab.label}</a
+				<a
+					role="tab"
+					class="tab"
+					class:tab-active={page.url.pathname.startsWith(resolve(tab.href))}
+					href={resolve(tab.href)}>{tab.label}</a
 				>
 			{/each}
 		</div>
@@ -35,7 +38,7 @@
 						>{data.identity.name}{data.identity.role ? ` (${data.identity.role})` : ''}</span
 					>
 				{/if}
-				<form method="POST" action="/auth/logout">
+				<form method="POST" action={resolve('/auth/logout')}>
 					<button class="btn btn-ghost btn-sm" type="submit"><LogOut size={16} /> Sign out</button>
 				</form>
 			{/if}

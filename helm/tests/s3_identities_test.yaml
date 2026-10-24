@@ -7,7 +7,7 @@ templates:
 set:
   redis.host: redis-writer
   console.enabled: true
-  console.host: console.example.test
+  ingress.host: api.example.test
   console.oidc.issuer: https://idp.example.test/realms/dev
   console.oidc.clientSecret: client-secret
 tests:

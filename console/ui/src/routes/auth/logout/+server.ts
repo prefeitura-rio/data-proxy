@@ -1,3 +1,4 @@
+import { resolve } from '$app/paths';
 import { redirect } from '@sveltejs/kit';
 import { clearSession, oidcConfig, provider } from '#lib/server/auth.js';
 import { settings } from '#lib/server/settings.js';
@@ -10,12 +11,12 @@ export const POST: RequestHandler = async ({ cookies }) => {
 	const { clientId } = oidcConfig();
 
 	if (!end_session_endpoint) {
-		redirect(303, '/auth/login');
+		redirect(303, resolve('/auth/login'));
 	}
 
 	const url = new URL(end_session_endpoint);
 	url.searchParams.set('client_id', clientId);
-	url.searchParams.set('post_logout_redirect_uri', `${settings().origin}/auth/login`);
+	url.searchParams.set('post_logout_redirect_uri', `${settings().origin}${resolve('/auth/login')}`);
 
 	redirect(303, url.toString(), { external: [url.origin] });
 };

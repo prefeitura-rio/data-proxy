@@ -61,7 +61,7 @@ devenv --profile console up
 
 Run the console in the background with `devenv --profile console up -d`, wait with `devenv processes wait`, and stop it with `devenv down`. The command first runs the builds of the console and the notebooks and shows their output. Then it starts the processes. The first start takes one to two minutes. A shell in the `console` profile runs the same builds, and later runs skip them until a source changes.
 
-The console is at `http://console.localhost:13001`. When the gateway is ready, `up` opens that address in your browser, with `open` on macOS and `xdg-open` on Linux. The tests don't open it. If the port is busy, devenv uses the next free port and shows it in the process list.
+The console is at `http://console.localhost:13001/console`. When the gateway is ready, `up` opens that address in your browser, with `open` on macOS and `xdg-open` on Linux. The tests don't open it. If the port is busy, devenv uses the next free port and shows it in the process list.
 
 Sign in as `admin` (role `dp_admin`, schema `test`, password `admin`). The tests use five more users with the password `web-test`:
 

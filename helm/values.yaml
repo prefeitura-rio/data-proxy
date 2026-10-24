@@ -384,9 +384,7 @@ console:
     limits:
       cpu: 500m
       memory: 384Mi
-  ## The public host of the console and its scheme. They make the origin that the browser sees.
-  host: ""
-  scheme: https
+  ## The console answers on the /console path of ingress.host, so its origin is the origin of the API.
   oidc:
     ## The issuer of the identity provider.
     issuer: ""
@@ -413,8 +411,8 @@ console:
 ## It uses the image of the console, with another command.
 notebooks:
   enabled: false
+  ## The notebooks keep their own host, so a notebook never shares an origin with the console.
   host: ""
-  scheme: https
   resources:
     requests:
       cpu: 10m
@@ -428,6 +426,8 @@ ingress:
   enabled: false
   gateway: istio-system/istio-gateway
   host: ""
+  ## The scheme of the public addresses: the API, the console and the notebooks.
+  scheme: https
   timeout: ""
   retries:
     attempts: 0

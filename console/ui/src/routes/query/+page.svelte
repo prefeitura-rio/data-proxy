@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as v from 'valibot';
+	import { resolve } from '$app/paths';
 	import { currentTheme } from '#lib/theme.js';
 	import { Grant } from '#lib/types.js';
 	import { NotebookText } from '@lucide/svelte';
@@ -20,7 +21,7 @@
 	const encrypted = $derived(data.schemas.find((row) => row.name === schema)?.encrypted ?? false);
 
 	async function send(target: { schema: string; tables: string[] }) {
-		const response = await fetch('/query/grant', {
+		const response = await fetch(resolve('/query/grant'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(target)

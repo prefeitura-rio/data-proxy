@@ -2,12 +2,12 @@ import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
-import { After, Then, When } from '../fixtures';
+import { After, BASE, Then, When } from '../fixtures';
 
 const log = (page: Page) => page.locator('pre');
 
 When('I open the run {string}', async ({ page }, id: string) => {
-	await page.goto(`/sync/runs/${id}`);
+	await page.goto(`${BASE}/sync/runs/${id}`);
 });
 
 When('I load more log lines {int} times', async ({ page }, count: number) => {
@@ -64,8 +64,8 @@ When(
 	'I request a grant for the schema {string} and the tables {string}',
 	async ({ page, world }, schema: string, tables: string) => {
 		const response = await page.evaluate(
-			async (body) => {
-				const answer = await fetch('/query/grant', {
+			async ({ body, base }) => {
+				const answer = await fetch(`${base}/query/grant`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify(body)
@@ -73,7 +73,7 @@ When(
 
 				return { status: answer.status, text: await answer.text() };
 			},
-			{ schema, tables: tables.split(',') }
+			{ body: { schema, tables: tables.split(',') }, base: BASE }
 		);
 
 		world.lastStatus = response.status;

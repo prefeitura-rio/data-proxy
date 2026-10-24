@@ -143,6 +143,7 @@ ingress:
   enabled: true
   gateway: istio-system/data-proxy-gateway
   host: data-proxy.local
+  scheme: http
   timeout: 60s
   retries:
     attempts: 2
@@ -155,8 +156,6 @@ ingress:
     audience: dev
 console:
   enabled: true
-  host: console.localhost
-  scheme: http
   oidc:
     issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
     clientId: console-web
@@ -167,4 +166,3 @@ console:
 notebooks:
   enabled: true
   host: notebooks.localhost
-  scheme: http

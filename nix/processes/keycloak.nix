@@ -6,7 +6,7 @@ let
         mkdir $env.out
         open ${../../k3d/values/keycloak.yaml}
         | get realm.configFile
-        | str replace --all 'http://console.localhost' '${utils.urls.console}'
+        | str replace --all 'http://data-proxy.local' '${utils.urls.console}'
         | save $"($env.out)/dev-realm.json"
       ''}";
 in

@@ -11,15 +11,14 @@ templates:
 set:
   redis.host: redis-writer
   ingress.enabled: true
+  ingress.host: api.example.test
+  ingress.scheme: https
   console.enabled: true
-  console.host: console.example.test
-  console.scheme: https
   console.oidc.issuer: https://idp.example.test/realms/dev
   console.oidc.clientSecret: client-secret
   console.storage.endpoint: https://storage.example.test
   notebooks.enabled: true
   notebooks.host: notebooks.example.test
-  notebooks.scheme: https
 tests:
   - it: runs nothing of either when both are off
     set:
@@ -40,7 +39,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: ORIGIN
-            value: https://console.example.test
+            value: https://api.example.test
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -168,12 +167,12 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: CSP
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://storage.example.test; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors https://console.example.test"
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://storage.example.test; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors https://api.example.test"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: CONSOLE_ORIGIN
-            value: https://console.example.test
+            value: https://api.example.test
 
   - it: checks the health of the console and takes its limits from the values
     template: deployment-console.yaml
@@ -184,10 +183,10 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
-          value: /healthz
+          value: /console/healthz
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.httpGet.path
-          value: /healthz
+          value: /console/healthz
       - equal:
           path: spec.template.spec.containers[0].resources.limits.memory
           value: 300Mi
@@ -216,21 +215,51 @@ tests:
           path: spec.ports[0].port
           value: 8080
 
-  - it: routes each host to its Service
+  - it: routes the console path of the API host to the console Service before the catch-all route
     template: istio.yaml
     documentSelector:
       path: metadata.name
-      value: data-proxy-console
+      value: data-proxy
     asserts:
       - equal:
           path: spec.hosts[0]
-          value: console.example.test
+          value: api.example.test
+      - equal:
+          path: spec.http[0].match[0].uri.regex
+          value: ^/console(/.*)?$
       - equal:
           path: spec.http[0].route[0].destination.host
           value: data-proxy-console
       - equal:
           path: spec.http[0].route[0].destination.port.number
           value: 3000
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: data-proxy-proxy
+
+  - it: keeps the docs routes before the console route
+    template: istio.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - equal:
+          path: spec.http[1].route[0].destination.host
+          value: data-proxy-swagger-ui
+      - equal:
+          path: spec.http[2].route[0].destination.host
+          value: data-proxy-console
+      - equal:
+          path: spec.http[3].route[0].destination.host
+          value: data-proxy-proxy
+
+  - it: makes no VirtualService for a host of the console
+    template: istio.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
 
   - it: routes the notebook host to the notebooks Service
     template: istio.yaml

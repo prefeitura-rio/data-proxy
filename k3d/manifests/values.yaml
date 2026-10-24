@@ -12,7 +12,6 @@ gateway:
   selector: ingressgateway
   host: data-proxy.local
   extraHosts:
-    - console.localhost
     - notebooks.localhost
 k6:
   enabled: false

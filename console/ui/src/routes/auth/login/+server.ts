@@ -1,4 +1,6 @@
+import { resolve } from '$app/paths';
 import { redirect } from '@sveltejs/kit';
+import { BASE } from '#lib/base.js';
 import { oidcConfig, provider } from '#lib/server/auth.js';
 import { authorizeUrl, pkce, randomState } from '#lib/server/oidc.js';
 import { isSecure } from '#lib/server/origin.js';
@@ -9,10 +11,10 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, cookies }) => {
 	const { verifier, challenge } = pkce();
 	const state = randomState();
-	const next = url.searchParams.get('next') ?? '/sync';
+	const next = url.searchParams.get('next') ?? resolve('/sync');
 
 	cookies.set('oidc', sealText(JSON.stringify({ state, verifier, next }), settings().cookieSecret), {
-		path: '/auth',
+		path: `${BASE}/auth`,
 		httpOnly: true,
 		sameSite: 'lax',
 		secure: isSecure(settings().origin),

@@ -1,8 +1,9 @@
+import { resolve } from '$app/paths';
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { tabs } = await parent();
 
-	redirect(303, tabs[0]?.href ?? '/no-access');
+	redirect(303, resolve(tabs[0]?.href ?? '/no-access'));
 };
