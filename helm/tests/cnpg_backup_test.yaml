@@ -70,6 +70,38 @@ tests:
             name: backup-keys
             key: S3_SECRET_KEY
 
+  - it: stops the client from adding checksum trailers that GCS and other S3-compatible storage refuse
+    set:
+      cnpg.backup.enabled: true
+      cnpg.backup.bucket: backups
+      cnpg.backup.endpointURL: https://storage.example.test
+      cnpg.backup.existingSecret: backup-keys
+    template: backup-cnpg.yaml
+    documentSelector:
+      path: kind
+      value: ObjectStore
+    asserts:
+      - equal:
+          path: spec.instanceSidecarConfiguration.env
+          value:
+            - name: AWS_REQUEST_CHECKSUM_CALCULATION
+              value: when_required
+            - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+              value: when_required
+
+  - it: leaves the client of AWS S3 as it is when no endpoint is set
+    set:
+      cnpg.backup.enabled: true
+      cnpg.backup.bucket: backups
+      cnpg.backup.existingSecret: backup-keys
+    template: backup-cnpg.yaml
+    documentSelector:
+      path: kind
+      value: ObjectStore
+    asserts:
+      - notExists:
+          path: spec.instanceSidecarConfiguration
+
   - it: schedules a backup of the cluster by the plugin, and takes the first one at once
     set:
       cnpg.backup.enabled: true

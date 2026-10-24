@@ -78,7 +78,15 @@ The plugin must run in the cluster before you turn the backup on, because the ch
 
 The chart takes the first base backup when it creates the schedule. `kubectl get backup` lists the backups, and `kubectl get cluster -o jsonpath='{.status.firstRecoverabilityPoint}'` shows the oldest point that you can restore.
 
-A replica that falls behind catches up from the archive. The chart also limits what a replication slot keeps with `max_slot_wal_keep_size`, which is 8 GB by default. Without a limit, a slot that stops could fill the disk of the primary. Set a larger value in `cnpg.postgresql.parameters` for a larger disk.
+The chart tells the AWS client to add checksums only when the storage requires them, because GCS refuses the default. A replica that falls behind catches up from the archive. The chart also limits what a replication slot keeps with `max_slot_wal_keep_size`, which is 8 GB by default. Without a limit, a slot that stops could fill the disk of the primary. Set a larger value in `cnpg.postgresql.parameters` for a larger disk.
+
+## Turn the backup on in a running cluster
+
+The plugin adds a sidecar to each instance pod, and CNPG restarts the primary in place, because a primary without the sidecar can't switch over. With two instances, the standby can't become ready while the primary is down. The cluster then stays in the phase `Primary instance is being restarted without a switchover`.
+
+To end the wait, set `status.targetPrimary` of the Cluster to the standby, with the phase `Switchover in progress`. CNPG then starts the pods again. Recreate each instance pod once afterward, so that it reads a change in `instanceSidecarConfiguration`.
+
+CNPG also refuses to change the image and a PostgreSQL parameter in one release when `primaryUpdateMethod` is `switchover`. Roll out a new parameter first with the image that runs now, and then roll out the new image.
 
 ## Restore the database
 

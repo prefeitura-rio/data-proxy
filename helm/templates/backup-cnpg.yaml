@@ -28,6 +28,15 @@ spec:
       compression: gzip
     data:
       compression: gzip
+  {{- if $backup.endpointURL }}
+  {{- /* The AWS client adds checksum trailers by default, and GCS answers SignatureDoesNotMatch. */}}
+  instanceSidecarConfiguration:
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required
+  {{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
