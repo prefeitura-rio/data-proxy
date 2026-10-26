@@ -24,9 +24,11 @@ spec:
         sidecar.istio.io/inject: "false"
     spec:
       automountServiceAccountToken: false
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       containers:
         - name: pgdog
           image: {{ .Values.pgdog.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "pgdog") | nindent 10 }}
           command: [/usr/local/bin/pgdog]
           args: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
           ports:

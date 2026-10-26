@@ -21,9 +21,11 @@ spec:
         app.kubernetes.io/component: console
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       containers:
         - name: console
           image: {{ .Values.console.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "console") | nindent 10 }}
           imagePullPolicy: {{ .Values.console.imagePullPolicy }}
           ports:
             - name: http

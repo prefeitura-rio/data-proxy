@@ -20,9 +20,11 @@ spec:
         app.kubernetes.io/component: recovery
     spec:
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       initContainers:
         - name: wait-for-postgres
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/wait-for-postgres.nu]
           env:
@@ -48,6 +50,7 @@ spec:
       containers:
         - name: recovery
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/recover-workflows.nu]
           env:

@@ -1,0 +1,213 @@
+suite: Pod hardening
+templates:
+  - deployment-console.yaml
+  - deployment-notebooks.yaml
+  - configmap-pgdog.yaml
+  - deployment-pgdog.yaml
+  - deployment-postgrest.yaml
+  - deployment-proxy.yaml
+  - deployment-recovery.yaml
+  - deployment-swagger-ui.yaml
+  - deployment-sync.yaml
+  - jobs.yaml
+set:
+  redis.host: redis-writer
+  ingress.enabled: true
+  ingress.host: api.example.test
+  console.enabled: true
+  console.oidc.issuer: https://idp.example.test/realms/dev
+  console.oidc.clientSecret: client-secret
+  console.storage.endpoint: https://storage.example.test
+  notebooks.enabled: true
+  notebooks.host: notebooks.example.test
+  swaggerUi.enabled: true
+  postgrest.jwtSecret: shared-secret
+  proxy.image: ghcr.io/example/proxy:test
+tests:
+  - it: hardens the console pod and its container
+    template: deployment-console.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            runAsUser: 1000
+            runAsGroup: 1000
+
+  - it: hardens the notebooks pod and its container
+    template: deployment-notebooks.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            runAsUser: 1000
+            runAsGroup: 1000
+
+  - it: hardens the pgdog pod and its container
+    template: deployment-pgdog.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            runAsUser: 1000
+            runAsGroup: 1000
+
+  - it: hardens the postgrest pod and its container
+    template: deployment-postgrest.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            runAsUser: 1000
+            runAsGroup: 1000
+
+  - it: hardens the proxy pod and its container
+    template: deployment-proxy.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            runAsUser: 10001
+            runAsGroup: 10001
+
+  - it: hardens the sync pod and its container
+    template: deployment-sync.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+            runAsUser: 10001
+            runAsGroup: 10001
+
+  - it: hardens the recovery pod and its container
+    template: deployment-recovery.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+            runAsUser: 1000
+            runAsGroup: 1000
+
+  - it: lets the Swagger UI start nginx as root with only the capabilities that it needs
+    template: deployment-swagger-ui.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+
+  - it: runs an init container with the user of its own image
+    template: deployment-sync.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "wait-for-postgres")].securityContext.runAsUser
+          value: 1000
+
+  - it: hardens the migration Job, the backup CronJob and the maintenance CronJob
+    template: jobs.yaml
+    set:
+      jobs.backup.enabled: true
+      jobs.backup.s3.bucket: backups
+      jobs.backup.s3.endpointURL: storage.example.test
+      jobs.backup.s3.existingSecret: backup-s3
+      jobs.maintenance.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 10001
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-migrate-db-0
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-migrate-db-0
+
+  - it: replaces a default with the value of a component
+    template: deployment-console.yaml
+    set:
+      securityContext.components.console.readOnlyRootFilesystem: false
+      securityContext.components.console.runAsUser: 2000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 2000

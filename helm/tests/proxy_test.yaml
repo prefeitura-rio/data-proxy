@@ -96,7 +96,22 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.volumes
-          count: 1
+          count: 2
+        template: deployment-proxy.yaml
+
+  - it: gives nginx a writable folder, because the root file system is read-only
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
         template: deployment-proxy.yaml
 
   - it: exposes the admin port that reloads the settings

@@ -62,9 +62,11 @@ spec:
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       initContainers:
         - name: wait-for-state
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [nu, /scripts/wait-for-relation.nu]
           workingDir: /scripts
@@ -79,6 +81,7 @@ spec:
       containers:
         - name: migrate-db
           image: {{ .Values.sync.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "sync") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command:
             - sh
@@ -108,9 +111,11 @@ spec:
         app.kubernetes.io/component: s3-bootstrap
     spec:
       restartPolicy: Never
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       containers:
         - name: bootstrap
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, {{ if .Values.s3.bootstrap.createIfMissing }}--create{{ else }}--wait{{ end }}]
           env:
             {{- include "data-proxy.s3BootstrapEnv" . | nindent 12 }}
@@ -158,11 +163,13 @@ spec:
             app.kubernetes.io/component: backup
         spec:
           restartPolicy: Never
+          {{- include "data-proxy.podSecurity" $ | nindent 10 }}
           initContainers:
             {{- include "data-proxy.backupS3WaitInitContainer" $root | nindent 12 }}
           containers:
             - name: backup
               image: {{ $root.Values.jobs.image | quote }}
+              {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 14 }}
               command: [nu, /scripts/backup.nu]
               workingDir: /scripts
               env:
@@ -248,9 +255,11 @@ spec:
             app.kubernetes.io/component: maintenance
         spec:
           restartPolicy: Never
+          {{- include "data-proxy.podSecurity" $ | nindent 10 }}
           containers:
             - name: maintenance
               image: {{ $root.Values.jobs.image | quote }}
+              {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 14 }}
               imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
               command: [nu, /scripts/maintenance.nu]
               workingDir: /scripts

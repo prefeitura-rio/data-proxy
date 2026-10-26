@@ -38,4 +38,6 @@ COPY --from=build /opt/data-proxy/rocks/ /opt/data-proxy/rocks/
 COPY --from=build /opt/data-proxy/lib/ /opt/data-proxy/lib/
 COPY proxy/src/proxy/ /usr/local/openresty/site/lualib/proxy/
 
+USER 10001:10001
+
 EXPOSE 8080

@@ -22,10 +22,12 @@ spec:
     spec:
       restartPolicy: Always
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       initContainers:
         {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
         - name: wait-for-postgres
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: [sh, -c, 'until pg_isready --quiet; do sleep 2; done']
           env:
@@ -38,6 +40,7 @@ spec:
       containers:
         - name: sync
           image: "{{ .Values.sync.image }}"
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "sync") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           resources:
             {{- toYaml .Values.sync.resources | nindent 12 }}

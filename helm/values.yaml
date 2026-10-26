@@ -459,3 +459,31 @@ proxy:
     pollingInterval: 30
     cooldownPeriod: 300
     triggers: []
+## The security settings of every pod and container. The defaults apply to all of them, and a component
+## can set its own values under `components`. A container needs a numeric user, so that Kubernetes can check it.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  components:
+    console: { runAsUser: 1000, runAsGroup: 1000 }
+    notebooks: { runAsUser: 1000, runAsGroup: 1000 }
+    pgdog: { runAsUser: 1000, runAsGroup: 1000 }
+    postgrest: { runAsUser: 1000, runAsGroup: 1000 }
+    proxy: { runAsUser: 10001, runAsGroup: 10001 }
+    ## DuckDB, Python and the sync tools write to the home folder and to the temporary folder.
+    sync: { runAsUser: 10001, runAsGroup: 10001, readOnlyRootFilesystem: false }
+    ## Nushell writes its history and its configuration to the home folder.
+    jobs: { runAsUser: 1000, runAsGroup: 1000, readOnlyRootFilesystem: false }
+    ## The image starts nginx as root. nginx writes its configuration and its cache, and then it runs the workers as its own user.
+    swaggerUi:
+      runAsNonRoot: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]

@@ -153,3 +153,17 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
           value: 500m
+
+  - it: keeps the pid file and the temporary files of nginx in the writable folder
+    templates:
+      - configmap-proxy.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "(?m)^pid /tmp/nginx.pid;$"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "client_body_temp_path /tmp/client_temp;"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "proxy_temp_path /tmp/proxy_temp;"

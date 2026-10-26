@@ -27,10 +27,12 @@ spec:
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
       automountServiceAccountToken: false
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       initContainers:
         {{- if not .Values.postgrest.jwtSecret }}
         - name: fetch-jwks
           image: {{ .Values.jobs.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           command: ["/usr/local/bin/nu", "/scripts/fetch-jwks.nu"]
           workingDir: /scripts
           env:
@@ -45,6 +47,7 @@ spec:
         {{- end }}
         - name: wait-for-postgres
           image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
           command: ["/usr/local/bin/nu", "/scripts/wait-for-postgres.nu"]
           env:
@@ -79,6 +82,7 @@ spec:
       containers:
         - name: postgrest
           image: {{ .Values.postgrest.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "postgrest") | nindent 10 }}
           ports:
             - name: http
               containerPort: 3000

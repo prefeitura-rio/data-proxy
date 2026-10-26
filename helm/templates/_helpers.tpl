@@ -226,6 +226,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.s3WaitInitContainer" -}}
 - name: wait-for-s3
   image: {{ .Values.jobs.image | quote }}
+  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
   command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
   env:
     {{- include "data-proxy.s3BootstrapEnv" . | nindent 4 }}
@@ -239,6 +240,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "data-proxy.backupS3WaitInitContainer" -}}
 - name: wait-for-backup-s3
   image: {{ .Values.jobs.image | quote }}
+  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
   command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
   env:
     - name: S3_BUCKET
@@ -586,11 +588,13 @@ jwtRules:
 {{- define "data-proxy.configureDbPodSpec" -}}
 restartPolicy: OnFailure
 automountServiceAccountToken: false
+{{- include "data-proxy.podSecurity" $ | nindent 0 }}
 initContainers:
   {{- include "data-proxy.s3WaitInitContainer" . | nindent 2 }}
 containers:
   - name: configure-db
     image: {{ .Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 4 }}
     imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
     command: [nu, /scripts/configure-db.nu]
     workingDir: /scripts
@@ -659,9 +663,11 @@ volumes:
 {{- $root := .root -}}
 restartPolicy: OnFailure
 automountServiceAccountToken: false
+{{- include "data-proxy.podSecurity" $root | nindent 0 }}
 initContainers:
   - name: wait-for-config
     image: {{ $root.Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
     imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
     command: [nu, /scripts/wait-for-relation.nu]
     workingDir: /scripts
@@ -676,6 +682,7 @@ initContainers:
 containers:
   - name: provision
     image: {{ $root.Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
     imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
     command: [nu, /scripts/provision.nu]
     workingDir: /scripts
@@ -824,3 +831,18 @@ spec:
 {{- define "data-proxy.notebooksCsp" -}}
 {{- printf "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: %s; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors %s" .Values.console.storage.endpoint (include "data-proxy.consoleOrigin" .) }}
 {{- end }}
+
+{{- /* The pod settings. They are the same for every pod. */ -}}
+{{- define "data-proxy.podSecurity" -}}
+securityContext:
+  {{- toYaml .Values.securityContext.pod | nindent 2 }}
+{{- end }}
+
+{{- /* The container settings of a component: the defaults, with the settings of the component on top. */ -}}
+{{- define "data-proxy.containerSecurity" -}}
+{{- $defaults := .root.Values.securityContext -}}
+{{- $own := dig "components" .component (dict) $defaults -}}
+securityContext:
+  {{- mergeOverwrite (deepCopy $defaults.container) $own | toYaml | nindent 2 }}
+{{- end }}
+
