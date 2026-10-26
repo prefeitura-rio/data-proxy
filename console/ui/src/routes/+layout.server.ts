@@ -7,11 +7,10 @@ import { api } from '#lib/server/api.js';
 import { clearSession } from '#lib/server/auth.js';
 import type { LayoutServerLoad } from './$types';
 
+/** A token without a role gets 401 from PostgREST, and signing in again gives the same token, so this page ends the loop. */
 export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 	const identity = identityOf(locals.session.accessToken);
 
-	// PostgREST takes a token without a role for an anonymous request and answers 401. Signing in again gives the same
-	// token, so the page would loop between the console and the identity provider.
 	if (identity?.role === '') {
 		if (url.pathname !== resolve('/no-access')) {
 			redirect(303, resolve('/no-access'));

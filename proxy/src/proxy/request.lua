@@ -74,17 +74,12 @@ function request.make_headers(input)
 	local filter = is_read and parser.parse(input.args or "", { limit = can_limit(input) }) or nil
 	local filter_json = filter and cjson.encode(filter) or nil
 
-	--- The value of one header of the PostgREST request.
-	---@param name string
-	---@return string|nil
-	local function value_of(name)
-		if name == constants.headers.filter then return filter_json end
-		return input.headers_in[name]
-	end
-
 	local names = List(tablex.copy(constants.headers.forwarded))
 	if filter_json then names:append(constants.headers.filter) end
-	return tablex.pairmap(function(_, name) return value_of(name), name end, names)
+	return tablex.pairmap(function(_, name)
+		if name == constants.headers.filter then return filter_json, name end
+		return input.headers_in[name], name
+	end, names)
 end
 
 --- Tell whether a request asks for the internal profile, which only the cluster may use.
