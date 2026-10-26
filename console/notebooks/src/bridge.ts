@@ -16,6 +16,7 @@ const tell = (message: Status): void => {
 	window.parent.postMessage(message, consoleOrigin);
 };
 
+// marimo reads data-vscode-theme-kind, which its VS Code extension sets, and it follows a change at once.
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	if (event.origin !== consoleOrigin || event.source !== window.parent) {
 		return;
@@ -30,7 +31,6 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	const theme = v.safeParse(ThemeMessage, event.data);
 
 	if (theme.success) {
-		// marimo reads this attribute, which its VS Code extension sets, and it follows a change at once.
 		document.body.dataset.vscodeThemeKind = theme.output.theme === 'dark' ? 'vscode-dark' : 'vscode-light';
 	}
 });

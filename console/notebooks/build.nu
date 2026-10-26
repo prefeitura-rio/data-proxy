@@ -61,12 +61,6 @@ def main [
         }
     }
 
-    try {
-        cp ($notebook | path dirname | path join lib.py) ([$output lib.py] | path join)
-    } catch {|err|
-        fail $'Cannot copy lib.py: ($err.msg)'
-    }
-
     let extension = 'parquet.duckdb_extension.wasm'
     try {
         http get $'https://extensions.duckdb.org/($EXTENSION_VERSION)/wasm_eh/($extension)'

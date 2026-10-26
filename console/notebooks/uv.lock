@@ -5,9 +5,12 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
 [options]
@@ -131,12 +134,22 @@ dependencies = [
     { name = "polars" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pyodide-py", version = "0.27.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "pyodide-py", version = "0.29.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.13.*'" },
+    { name = "pyodide-py", version = "314.0.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "marimo", specifier = "==0.25.1" },
     { name = "playwright", specifier = "==1.61.0" },
     { name = "polars", specifier = ">=1.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pyodide-py", specifier = ">=0.27.8" }]
 
 [[package]]
 name = "docutils"
@@ -564,6 +577,48 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ad/17/2db4b414de89659144488e0d9c6c0bf0c8395841dc12d81d0532cc6ef310/pymdown_extensions-11.0.2.tar.gz", hash = "sha256:9506fcbe66fa355a775b768084334238dd6805020ac4b92bea0c0dda6f8f223d", size = 855419, upload-time = "2026-08-22T19:28:47.236Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/43/9f45ec4d14e596efc32c925a78104934790438b0c0628b70d741016734ad/pymdown_extensions-11.0.2-py3-none-any.whl", hash = "sha256:259910762019732caa1dfd76f3faa62c59f191d46573e80bcb1d13c0f675bbe5", size = 269929, upload-time = "2026-08-22T19:28:45.389Z" },
+]
+
+[[package]]
+name = "pyodide-py"
+version = "0.27.8"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/c5/5bb1dec62d9362d3c362cf20a889c4eac26a89e3d6323d24705b66e33bef/pyodide_py-0.27.8.tar.gz", hash = "sha256:d106c3e9a1278a3040992b3d87f4681a65d32d8248eee22c5b229df8424e3f96", size = 52229, upload-time = "2026-09-17T19:39:53.548Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/f5/f4957c14fdfe0a9e2a379406b1cbcf177beb5695079e9bc9f49744b0069c/pyodide_py-0.27.8-py3-none-any.whl", hash = "sha256:a35ff355ef78264df4b8c2e9ed3006951da08d3ccece04020a123e7d274eb011", size = 57927, upload-time = "2026-09-17T19:39:52.515Z" },
+]
+
+[[package]]
+name = "pyodide-py"
+version = "0.29.5"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.13.*' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1d/85/d89ea2de12b8da5e82d5d8c2c8a03f2aebd0830416d22d654b5cfe05c6d9/pyodide_py-0.29.5.tar.gz", hash = "sha256:a38d410aec95e2e2b3d59bdd93176b207db32952953bc3e9df81406a5ee3facd", size = 58799, upload-time = "2026-09-15T22:04:04.018Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/b3/137eb4fcd365e1442e38e3470572cac2ec9eeadbf7a4c9c25bd791f6c757/pyodide_py-0.29.5-py3-none-any.whl", hash = "sha256:9d6d62c5167df01b1d8a94c762197f1fd89a5771fd78bbd07393c812d979352b", size = 66017, upload-time = "2026-09-15T22:04:02.68Z" },
+]
+
+[[package]]
+name = "pyodide-py"
+version = "314.0.7"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f9/98/df30f080ce2ec52bbb02c3db039edd60fe85d977f6afbf90e09abeb34804/pyodide_py-314.0.7.tar.gz", hash = "sha256:a33774c96f9c51c138e3ef2295ae7b524064d9501e896ceb1a0aa6d4da55f9e5", size = 62895, upload-time = "2026-09-14T05:07:35.015Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/ec/f2848eda90e7b8571376a846bed27bff3f0d5b10bfd87792f1ac6e7d794d/pyodide_py-314.0.7-py3-none-any.whl", hash = "sha256:75377c696639863ea966330f2eff4a3b6bd1c58a95fbd339859e6949c4be35e3", size = 70473, upload-time = "2026-09-14T05:07:33.664Z" },
 ]
 
 [[package]]

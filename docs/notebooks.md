@@ -19,9 +19,9 @@ The site is a static folder. It contains a marimo notebook, DuckDB compiled to W
 
 The notebook follows the theme of the console. The console sends the message `theme` (`light` or `dark`) when the notebook is ready and each time that the user switches the theme. The bridge sets the attribute `data-vscode-theme-kind` on the body. marimo reads this attribute for its VS Code extension, and it changes the theme immediately without a reload. The notebook starts in the light theme until the first message arrives.
 
-The Python helper is `console/notebooks/notebooks/lib.py`, and the site serves it at `/lib.py`. It starts DuckDB-WASM when a notebook imports it, and it has one function. `query(sql, limit=100_000)` waits for the first grant, runs SQL in DuckDB-WASM and returns at most `limit` rows as a Polars DataFrame. The Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `query` raises an error that tells the user to open the notebook again. When a table has no data files yet, it raises an error that tells the user to sync the table.
+The notebook (`notebooks/query.py`) has a hidden setup block and one template cell. The setup block starts DuckDB-WASM when the notebook loads, and it defines one function. `query(sql, limit=100_000)` waits for the first grant, runs SQL in DuckDB-WASM and returns at most `limit` rows as a Polars DataFrame. The Python heap is the weak point of the page, so a scan of a large table stays in DuckDB-WASM.
 
-The notebook (`notebooks/query.py`) keeps almost no code. It has a hidden setup block that loads `lib.py` and binds `query`, and one template cell. A cell needs `await`, because DuckDB-WASM runs in another worker, and a cell shows the DataFrame as a table.
+If the links expire, `query` raises an error that tells the user to open the notebook again. If a table has no data files yet, it raises an error that tells the user to sync the table. A cell needs `await`, because DuckDB-WASM runs in another worker, and a cell shows the DataFrame as a table.
 
 ```python
 await query('select * from "people" limit 15')
@@ -44,7 +44,7 @@ The script does these things:
 - It installs the locked dependencies and exports the notebook.
 - It bundles the two TypeScript scripts with DuckDB-WASM (`bundle.ts`, esbuild).
 - It downloads the Parquet extension for the pinned DuckDB version.
-- It adds the two scripts to `index.html`, and it copies `lib.py` to the site.
+- It adds the two scripts to `index.html`.
 
 The build pins the versions: marimo and Playwright in `pyproject.toml`, DuckDB-WASM in `package.json`. The export needs a Chromium. `Containerfile.console` builds the site in a first stage that has one, and copies it into the image of the console.
 
