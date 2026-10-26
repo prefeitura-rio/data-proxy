@@ -12,9 +12,9 @@ When('I post a run request from the origin {string}', async ({ page, world }, or
 });
 
 When('I open the address {string} directly', async ({ page, world }, address: string) => {
-	const response = await page.goto(`${BASE}${address}`);
+	const response = await page.request.get(`${BASE}${address}`);
 
-	world.lastStatus = response?.status() ?? 0;
+	world.lastStatus = response.status();
 });
 
 Then('an address without a session leads to the sign-in page', async ({ browser, baseURL }) => {

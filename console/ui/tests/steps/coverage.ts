@@ -2,12 +2,13 @@ import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
-import { After, BASE, Then, When } from '../fixtures';
+import { After, BASE, hydrated, Then, When } from '../fixtures';
 
 const log = (page: Page) => page.locator('pre');
 
 When('I open the run {string}', async ({ page }, id: string) => {
 	await page.goto(`${BASE}/sync/runs/${id}`);
+	await hydrated(page);
 });
 
 When('I load more log lines {int} times', async ({ page }, count: number) => {
@@ -153,6 +154,36 @@ Then('the button {string} is disabled', async ({ page }, name: string) => {
 	await expect(page.getByRole('button', { name })).toBeDisabled();
 });
 
+Then('the dialog stays open with an alert', async ({ page }) => {
+	await expect(page.locator('dialog[open]').getByRole('alert')).toBeVisible();
+});
+
+Then('the button {string} is enabled', async ({ page }, name: string) => {
+	await expect(page.getByRole('button', { name })).toBeEnabled();
+});
+
+Then('I see the hint {string}', async ({ page }, text: string) => {
+	await expect(page.locator('#query-hint')).toHaveText(text);
+});
+
+When('I select all the tables', async ({ page }) => {
+	await page.getByRole('button', { name: 'Select all' }).click();
+});
+
+Then('the schema {string} is chosen', async ({ page }, schema: string) => {
+	await expect(page.locator('select')).toHaveValue(schema);
+});
+
+When('I filter the log by the level {string}', async ({ page }, level: string) => {
+	await hydrated(page);
+	await page.getByLabel('Level').selectOption(level);
+});
+
+When('I filter the log by the text {string}', async ({ page }, text: string) => {
+	await hydrated(page);
+	await page.getByLabel('Message contains').fill(text);
+});
+
 Then('I see the alert {string}', async ({ page }, text: string) => {
 	await expect(page.getByRole('alert')).toContainText(text);
 });
@@ -178,7 +209,6 @@ When('I preview the import of a file with the text {string}', async ({ page }, t
 	await page
 		.locator('input[type=file]')
 		.setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from(text) });
-	await page.getByRole('button', { name: 'Preview import' }).click();
 });
 
 When('I remember the exported file', ({ world }) => {
@@ -189,11 +219,17 @@ When('I use the remembered file', ({ world }) => {
 	world.exported = world.file;
 });
 
-After({ tags: '@other-schema' }, async () => {
+After({ tags: '@new-schema' }, async ({ world }) => {
+	const names = world.schemas.filter((name) => /^[a-z][a-z0-9_]*$/.test(name)).map((name) => `'${name}'`);
+
+	if (names.length === 0) {
+		return;
+	}
+
 	await sql(`
-		DELETE FROM console.rls WHERE table_name IN (SELECT name FROM console.tables WHERE schema = 'other');
-		DELETE FROM console.tables WHERE schema = 'other';
-		DELETE FROM console.schemas WHERE name = 'other'`);
+		DELETE FROM console.rls WHERE table_name IN (SELECT name FROM console.tables WHERE schema IN (${names.join(', ')}));
+		DELETE FROM console.tables WHERE schema IN (${names.join(', ')});
+		DELETE FROM console.schemas WHERE name IN (${names.join(', ')})`);
 });
 
 After({ tags: '@import-ttl' }, async () => {

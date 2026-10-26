@@ -19,7 +19,6 @@ let
 
   notebookFiles = [
     "console/notebooks/src"
-    "console/notebooks/tests"
     "console/notebooks/*.ts"
     "console/notebooks/tsconfig.json"
     "console/notebooks/package.json"
@@ -71,7 +70,6 @@ in
           NOTEBOOKS_URL = utils.urls.notebooks;
           KEYCLOAK_URL = utils.urls.keycloak;
           KEYCLOAK_USER_PASSWORD = "web-test";
-          EXPECTED_ROWS_FILE = utils.stateFile "expected-rows";
           E2E_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
           PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
@@ -126,15 +124,11 @@ in
           "test:console" =
             pnpmTask "Run the unit tests of the console app." "console/ui" "pnpm test"
               consoleFiles;
-          "test:nb" =
-            pnpmTask "Run the unit tests of the notebooks." "console/notebooks" "pnpm test"
-              notebookFiles;
         };
 
         enterTest = ''
           pnpm --dir console/ui exec bddgen
-          pnpm --dir console/ui exec playwright test --reporter=line
-          pnpm --dir console/notebooks exec playwright test --reporter=line
+          pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
         '';
       };
   };

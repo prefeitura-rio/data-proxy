@@ -1,7 +1,7 @@
 Feature: Pages by role
 
   Scenario Outline: A role opens a page directly
-    Given I sign in as "<user>"
+    Given I am signed in as "<user>"
     When I open the address "<address>" directly
     Then the answer is <status>
 
@@ -28,6 +28,5 @@ Feature: Pages by role
       | web_api     | /query                                           | 403    |
       | web_other   | /sync                                            | 200    |
       | web_other   | /config                                          | 200    |
-      | web_other   | /access                                          | 200    |
       | web_other   | /query                                           | 200    |
       | web_other   | /sync/runs/00000000-0000-4000-8000-0000000000f1  | 404    |

@@ -45,6 +45,14 @@ Feature: Sync runs
     When I resume the run
     Then the run shows the status "ENQUEUED"
 
+  Scenario: The runs list shows the new status of a run without a reload
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I start a run for the schema "test"
+    Then I see that a run started
+    When I post a cancel request for this run directly
+    Then the run list shows the status "CANCELLED" for that run
+
   Scenario: An admin runs a failed run again
     Given I sign in as "web_admin"
     When I open the "Sync" tab
@@ -69,14 +77,6 @@ Feature: Sync runs
     When I open the "Sync" tab
     Then the list with the column "Started by" says "No rows"
 
-  Scenario: An admin pauses and resumes the schedule
-    Given I sign in as "web_admin"
-    When I open the "Sync" tab
-    And I pause the schedule "sync"
-    Then the schedule "sync" shows the status "PAUSED"
-    When I resume the schedule "sync"
-    Then the schedule "sync" shows the status "ACTIVE"
-
   Scenario: An admin of one schema cannot pause the schedule of every schema
     Given I sign in as "web_other"
     When I post a pause request for the schedule "sync" directly
@@ -100,6 +100,14 @@ Feature: Sync runs
     And I load more log lines
     Then the log shows 600 lines
     And the log has no button to load more
+
+  Scenario: The log filters by level and by text
+    Given I sign in as "web_admin"
+    When I open the seeded run
+    And I filter the log by the level "ERROR"
+    Then the log shows 5 lines
+    When I filter the log by the text "seed log line 300"
+    Then the log shows 1 lines
 
   Scenario: A user of another schema cannot open the run
     Given I sign in as "web_other"

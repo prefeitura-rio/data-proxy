@@ -1392,6 +1392,32 @@ realm:
           "requiredActions": []
         },
         {
+          "username": "web_root",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "web_root@example.test",
+          "firstName": "web_root",
+          "lastName": "Test",
+          "attributes": {
+            "schemas": [
+              "*"
+            ]
+          },
+          "credentials": [
+            {
+              "type": "password",
+              "value": "web-test",
+              "temporary": false
+            }
+          ],
+          "clientRoles": {
+            "data-proxy-console-web": [
+              "dp_admin"
+            ]
+          },
+          "requiredActions": []
+        },
+        {
           "username": "admin",
           "enabled": true,
           "emailVerified": true,
@@ -1499,7 +1525,16 @@ realm:
           "lastName": "Test",
           "attributes": {
             "schemas": [
-              "other"
+              "other",
+              "other_delete",
+              "other_life",
+              "other_history",
+              "other_dup",
+              "other_part",
+              "other_full",
+              "other_sort",
+              "other_encrypted",
+              "other_claim"
             ]
           },
           "credentials": [

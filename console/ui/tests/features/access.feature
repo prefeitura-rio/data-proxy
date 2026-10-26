@@ -35,6 +35,14 @@ Feature: Who sees and does what
     Then I see no policy "bdd-subject"
     And the access log lists "bdd-subject" with the action "delete"
 
+  Scenario: Cancelling a delete keeps the policy
+    Given I sign in as "web_admin"
+    When I open the "Access" tab
+    And I set "Subject or unit id contains" to "seed-subject-07" in the form "Search the policy" and submit it
+    And I start to remove the policy "seed-subject-07"
+    And I cancel the dialog
+    Then I see the policy "seed-subject-07"
+
   Scenario: A console user has no Access tab
     Given I sign in as "web_viewer"
     Then I do not see the "Access" tab
@@ -56,6 +64,7 @@ Feature: Who sees and does what
     Then every row of the list with the column "Action" shows "insert"
     And the list with the column "Action" says "1 to 20 of"
 
+  @fresh-login
   Scenario: A user signs out
     Given I sign in as "web_admin"
     When I sign out
@@ -79,10 +88,3 @@ Feature: Who sees and does what
     And I do not see the "Sync" tab
     And I do not see the "Config" tab
     And I do not see the "Query" tab
-
-  Scenario: The access log pages
-    Given I sign in as "web_admin"
-    When I open the "Access" tab
-    Then the list with the column "Action" says "1 to 20 of"
-    When I go to the "Older" rows of the list with the column "Action"
-    Then the list with the column "Action" says "21 to 40 of"

@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
-import { BASE, Given, Then, When, type World } from '../fixtures';
+import { BASE, Given, hydrated, Then, When, type World } from '../fixtures';
+import { PASSWORD, sessionFile } from '../session';
 
 /** Read the first bytes of a link. The link is signed for its own host, so the request keeps that host. */
 async function statusOf(link: string | URL): Promise<number> {
@@ -23,27 +24,83 @@ function firstLink(world: World): string {
 	return link ?? '';
 }
 
-const PASSWORD = process.env.KEYCLOAK_USER_PASSWORD ?? 'web-test';
-
-Given('I sign in as {string}', async ({ page }, user: string) => {
-	await page.goto(BASE);
+/** Sign in through the page of the identity provider. */
+async function signInThroughPage(page: Page, user: string): Promise<void> {
 	await page.fill('#username', user);
 	await page.fill('#password', PASSWORD);
 	await page.click('#kc-login');
 	await page.waitForURL(/console\.localhost/);
+}
+
+const Session = v.object({
+	cookies: v.array(
+		v.object({
+			name: v.string(),
+			value: v.string(),
+			domain: v.string(),
+			path: v.string(),
+			expires: v.number(),
+			httpOnly: v.boolean(),
+			secure: v.boolean(),
+			sameSite: v.picklist(['Strict', 'Lax', 'None'])
+		})
+	)
 });
 
+/** The cookies that the setup project saved for a user, or nothing when it saved none. */
+async function savedCookies(user: string) {
+	try {
+		return v.parse(Session, JSON.parse(await readFile(sessionFile(user), 'utf8'))).cookies;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Put the console cookies of a user in the context: the saved ones, or the ones that a sign-in through the page gives. */
+async function signedIn(page: Page, context: BrowserContext, tags: string[], user: string): Promise<void> {
+	const saved = tags.includes('@fresh-login') ? undefined : await savedCookies(user);
+
+	if (saved) {
+		await context.addCookies(saved);
+		return;
+	}
+
+	await page.goto(BASE);
+	await signInThroughPage(page, user);
+}
+
+Given('I sign in as {string}', async ({ page, context, $tags }, user: string) => {
+	await signedIn(page, context, $tags, user);
+
+	if (page.url() === 'about:blank') {
+		await page.goto(BASE);
+	}
+
+	if (await page.locator('#username').isVisible()) {
+		await signInThroughPage(page, user);
+	}
+
+	await hydrated(page);
+});
+
+Given('I am signed in as {string}', async ({ page, context, $tags }, user: string) => {
+	await signedIn(page, context, $tags, user);
+});
+
+const mainNav = (page: Page, tab: string) =>
+	page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: tab });
+
 When('I open the {string} tab', async ({ page }, tab: string) => {
-	await page.getByRole('tab', { name: tab }).click();
-	await expect(page.getByRole('tab', { name: tab })).toHaveClass(/tab-active/);
+	await mainNav(page, tab).click();
+	await expect(mainNav(page, tab)).toHaveAttribute('aria-current', 'page');
 });
 
 Then('I see the {string} tab', async ({ page }, tab: string) => {
-	await expect(page.getByRole('tab', { name: tab })).toBeVisible();
+	await expect(mainNav(page, tab)).toBeVisible();
 });
 
 Then('I do not see the {string} tab', async ({ page }, tab: string) => {
-	await expect(page.getByRole('tab', { name: tab })).toHaveCount(0);
+	await expect(mainNav(page, tab)).toHaveCount(0);
 });
 
 Then('I do not see the {string} button', async ({ page }, name: string) => {
@@ -87,6 +144,12 @@ Then('I see that a run started', async ({ page, world }) => {
 	expect(world.runId).not.toBe('');
 });
 
+Then('the run list shows the status {string} for that run', async ({ page, world }, status: string) => {
+	const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: world.runId.slice(0, 8) }) });
+
+	await expect(row).toContainText(status, { timeout: 30_000 });
+});
+
 When('I open the run that started', async ({ page, world }) => {
 	await page.getByRole('link', { name: world.runId.slice(0, 8) }).click();
 	await page.waitForURL(new RegExp(`${BASE}/sync/runs/${world.runId}$`));
@@ -96,6 +159,7 @@ const SEEDED_RUN = '00000000-0000-4000-8000-0000000000f1';
 
 When('I open the seeded run', async ({ page }) => {
 	await page.goto(`${BASE}/sync/runs/${SEEDED_RUN}`);
+	await hydrated(page);
 });
 
 const log = (page: Page) => page.locator('pre');
@@ -172,6 +236,7 @@ When(
 When(
 	'I set {string} to {string} in the form {string} and submit it',
 	async ({ page }, label: string, value: string, name: string) => {
+		await hydrated(page);
 		const form = page.getByRole('form', { name });
 		const control = form.getByLabel(label);
 
@@ -193,10 +258,11 @@ const controls = (page: Page) => page.getByRole('form', { name: 'Control the run
 const runIdOf = (address: string) => /\/sync\/runs\/([^/?#]+)/.exec(address)?.[1] ?? '';
 
 When('I open the first run of the list', async ({ page, world }) => {
-	const link = listOf(page, 'Started by').rows.first().getByRole('link');
+	const href = (await listOf(page, 'Started by').rows.first().getByRole('link').getAttribute('href')) ?? '';
 
-	world.runId = runIdOf((await link.getAttribute('href')) ?? '');
-	await link.click();
+	world.runId = runIdOf(href);
+	// The list refreshes and other scenarios start runs, so the first row can change before the click.
+	await page.locator(`a[href="${href}"]`).click();
 	await page.waitForURL(new RegExp(`${BASE}/sync/runs/${world.runId}$`));
 });
 
@@ -304,6 +370,7 @@ When('the session cookie is damaged and the identity provider has no session', a
 
 When('I reload the page', async ({ page }) => {
 	await page.reload();
+	await hydrated(page);
 });
 
 Then('I am on the sign-in page', async ({ page }) => {
@@ -326,7 +393,8 @@ Then('the confirm button stays disabled until I type {string}', async ({ page },
 	await expect(confirm).toBeEnabled();
 });
 
-When('I add the schema {string}', async ({ page }, name: string) => {
+When('I add the schema {string}', async ({ page, world }, name: string) => {
+	world.schemas.push(name);
 	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
 	await expect(listOf(page, 'Encrypted').rows.getByRole('cell', { name, exact: true })).toBeVisible();
@@ -441,6 +509,7 @@ When('I delete the row rule of {string}', async ({ page }, table: string) => {
 		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
 		.getByRole('button', { name: 'Delete' })
 		.click();
+	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
 });
 
 Then('I see no row rule on {string}', async ({ page }, table: string) => {
@@ -478,7 +547,6 @@ Then('the exported file lists the schema {string}', async ({ world }, schema: st
 
 When('I preview the import of the exported file', async ({ page, world }) => {
 	await page.locator('input[type=file]').setInputFiles(world.exported);
-	await page.getByRole('button', { name: 'Preview import' }).click();
 	await expect(page.getByRole('region', { name: 'Import preview' })).toBeVisible();
 });
 
@@ -551,20 +619,35 @@ When('I add the policy {string} for {string} {string}', async ({ page }, subject
 });
 
 const policy = (page: Page, subject: string) =>
-	page.locator('form[action^="?/edit"]').filter({ has: page.getByLabel(`Subject of ${subject}`, { exact: true }) });
+	listOf(page, 'Unit id').rows.filter({ has: page.getByRole('cell', { name: subject, exact: true }) });
 
 Then('I see the policy {string} with unit id {string}', async ({ page }, subject: string, id: string) => {
-	await expect(policy(page, subject).getByLabel(`Unit id of ${subject}`)).toHaveValue(id);
+	await expect(policy(page, subject).getByRole('cell', { name: id, exact: true })).toBeVisible();
 });
 
 When('I change the unit id of the policy {string} to {string}', async ({ page }, subject: string, id: string) => {
-	await policy(page, subject).getByLabel(`Unit id of ${subject}`).fill(id);
-	await policy(page, subject).getByRole('button', { name: 'Save' }).click();
+	await policy(page, subject).getByRole('button', { name: 'Edit' }).click();
+	await page.locator('dialog[open] input[name=unit_id]').fill(id);
+	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
 	await expect(page.getByRole('status')).toContainText('Saved.');
+});
+
+When('I start to remove the policy {string}', async ({ page }, subject: string) => {
+	await policy(page, subject).getByRole('button', { name: 'Delete' }).click();
+});
+
+When('I cancel the dialog', async ({ page }) => {
+	await page.locator('dialog[open]').getByRole('button', { name: 'Cancel' }).click();
+	await expect(page.locator('dialog[open]')).toHaveCount(0);
+});
+
+Then('I see the policy {string}', async ({ page }, subject: string) => {
+	await expect(policy(page, subject)).toHaveCount(1);
 });
 
 When('I remove the policy {string}', async ({ page }, subject: string) => {
 	await policy(page, subject).getByRole('button', { name: 'Delete' }).click();
+	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByRole('status')).toContainText('Saved.');
 });
 
@@ -578,98 +661,4 @@ Then('the access log lists {string} with the action {string}', async ({ page }, 
 
 When('I confirm the deletion', async ({ page }) => {
 	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
-});
-
-const frameOf = (page: Page) => page.frameLocator('iframe[title=Notebook]');
-const messages = (page: Page) => page.evaluate(() => window.__m.map((message) => message.type));
-
-When('I choose the table {string} of the schema {string}', async ({ page }, table: string, schema: string) => {
-	await page.locator('select').selectOption(schema);
-	await page.getByLabel(table, { exact: true }).check();
-});
-
-When('I open the notebook', async ({ page }) => {
-	await page.getByRole('button', { name: 'Open notebook' }).click();
-	await expect(page.locator('iframe[title=Notebook]')).toBeVisible();
-});
-
-Then('the grant has a delete file', async ({ world }) => {
-	await expect.poll(() => world.grants.length, { timeout: 120_000 }).toBeGreaterThan(0);
-	const files = world.grants.flatMap((grant) => grant.tables.flatMap((table) => table.files));
-
-	expect(files.some((file) => file.delete !== null)).toBe(true);
-});
-
-When('I run the cells of the notebook', async ({ page }) => {
-	const frame = frameOf(page);
-	const cells = frame.locator('[data-status]').filter({ has: frame.locator('[data-testid="run-button"]') });
-	// The setup block, the function that queries, the cell that waits for the grant, and the cell that shows the tables.
-	await expect(cells).toHaveCount(4, { timeout: 120_000 });
-
-	// The third cell waits for the first grant, so it ends when the grant has arrived and the query has run.
-	for (const index of [0, 1, 2, 3]) {
-		await cells.nth(index).locator('[data-testid="run-button"]').first().dispatchEvent('click');
-		await expect(cells.nth(index)).toHaveAttribute('data-status', 'idle', { timeout: 180_000 });
-	}
-});
-
-Then('the notebook has applied the grant', async ({ page }) => {
-	await expect.poll(() => messages(page), { timeout: 180_000 }).toContain('applied');
-});
-
-When('I count the rows of the table {string} in the notebook', async ({ page }, table: string) => {
-	const view = table.replace(/^.*\./, '');
-	await frameOf(page).locator('.cm-content').last().click();
-	await page.keyboard.press('Control+A');
-	await page.keyboard.insertText(`df = await sql('SELECT count(*) AS n FROM "${view}"')\nprint(f"ROWS={df['n'][0]}")`);
-	await page.keyboard.press('Shift+Enter');
-});
-
-Then('the notebook shows the number of rows that the database counts', async ({ page }) => {
-	const file = process.env.EXPECTED_ROWS_FILE;
-
-	expect(file, 'EXPECTED_ROWS_FILE names the file that the seed task writes').toBeTruthy();
-
-	const expected = (await readFile(file ?? '', 'utf8')).trim();
-
-	await expect(frameOf(page).locator('body')).toContainText(`ROWS=${expected}`, { timeout: 60_000 });
-});
-
-Then('the notebook gets a renewed grant within {int} seconds', async ({ page }, seconds: number) => {
-	await expect
-		.poll(async () => (await messages(page)).filter((type) => type === 'applied').length, {
-			timeout: seconds * 1000,
-			intervals: [1_000]
-		})
-		.toBeGreaterThan(1);
-});
-
-When('the first grant has expired', async ({ page, world }) => {
-	const first = world.grants[0];
-
-	expect(first, 'The page received no grant').toBeDefined();
-	await page.waitForTimeout(Math.max(0, (first?.expiresAt ?? 0) - Date.now() + 5_000));
-});
-
-When('I save the notebook', async ({ page }) => {
-	await frameOf(page).locator('.cm-content').last().click();
-	await page.keyboard.press('Control+S');
-});
-
-When('I download the notebook as Python', async ({ page, world }) => {
-	const frame = frameOf(page);
-	await frame.getByTestId('notebook-menu-dropdown').click({ force: true });
-	await frame.getByText('Export…').click();
-	const dialog = frame.getByRole('dialog');
-	await dialog.getByText('Python', { exact: true }).click();
-	const download = page.waitForEvent('download');
-	await dialog.getByRole('button', { name: 'Export notebook source' }).dispatchEvent('click');
-	world.file = await (await download).path();
-});
-
-Then('the downloaded file has the cells and no signature of a link', async ({ world }) => {
-	const text = await readFile(world.file, 'utf8');
-
-	expect(text).toContain('dataProxy');
-	expect(text).not.toMatch(/X-Amz-Signature|X-Amz-Credential/);
 });

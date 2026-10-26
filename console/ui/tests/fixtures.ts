@@ -1,13 +1,6 @@
+import type { Page } from '@playwright/test';
 import { test as base, createBdd } from 'playwright-bdd';
-import * as v from 'valibot';
 import { Grant } from '../src/lib/types';
-
-declare global {
-	interface Window {
-		/** The messages that the page received from its frames. */
-		__m: { type: string }[];
-	}
-}
 
 /** The path of the console on the host of the API. */
 export const BASE = '/console';
@@ -16,37 +9,45 @@ export const BASE = '/console';
 export type World = {
 	lastStatus: number;
 	grant: Grant | null;
-	grants: Grant[];
 	exported: string;
 	file: string;
 	runId: string;
 	/** The lifespan that the identity provider had before a scenario changed it. */
 	lifespan: string | null | undefined;
 	cookies: string;
+	/** The schemas that the scenario added, so its hook deletes them and no others. */
+	schemas: string[];
 };
+
+/** The refresh interval of the Sync pages in the tests, in seconds. The default of the console is slower. */
+const REFRESH_SECONDS = '2';
+
+/**
+ * Wait until the page runs its scripts. A field that a step fills before this point loses its value or its handler.
+ * The sign-in page of the identity provider has no scripts to wait for, so it counts as ready too.
+ */
+export const hydrated = (page: Page) => page.locator('html[data-hydrated]').or(page.locator('#username')).waitFor();
 
 export const test = base.extend<{ world: World }>({
 	world: async ({ page }, use) => {
+		await page.addInitScript((seconds) => {
+			try {
+				localStorage.setItem('refresh-interval', seconds);
+			} catch {
+				// The storage is blocked, so the page keeps its default.
+			}
+		}, REFRESH_SECONDS);
+
 		const world: World = {
 			lastStatus: 0,
 			grant: null,
-			grants: [],
 			exported: '',
 			file: '',
 			runId: '',
 			lifespan: undefined,
-			cookies: ''
+			cookies: '',
+			schemas: []
 		};
-
-		page.on('response', (response) => {
-			if (response.url().endsWith('/query/grant') && response.ok()) {
-				void response.json().then((body: unknown) => world.grants.push(v.parse(Grant, body)));
-			}
-		});
-		await page.addInitScript(() => {
-			window.__m = [];
-			window.addEventListener('message', (event: MessageEvent<{ type: string }>) => window.__m.push(event.data));
-		});
 
 		await use(world);
 	}
