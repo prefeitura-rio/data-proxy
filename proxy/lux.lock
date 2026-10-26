@@ -201,6 +201,30 @@
           "source": "sha256-jjdB95Vr5iVsh5T7E84WwZMW6/5H2k2R/ny2VBs2l3I="
         }
       },
+      "492e98b7348dc202d033de2ac35076c132b4721e5449ffe71c0adba0c7a8894c": {
+        "name": "luacov",
+        "version": "0.17.0-1",
+        "pinned": false,
+        "opt": false,
+        "dependencies": [
+          "e496d4ec14c0feec0b3eac3f622f59eb3777d6e63b24469fdb464841e6ab4e63"
+        ],
+        "constraint": "==0.17.0",
+        "binaries": [
+          "luacov",
+          "luacov"
+        ],
+        "source": "luarocks_rockspec+https://luarocks.org/",
+        "source_url": {
+          "type": "git",
+          "url": "https://github.com/lunarmodules/luacov.git",
+          "ref": "v0.17.0"
+        },
+        "hashes": {
+          "rockspec": "sha256-XmLWV0w2cnJNMPgU/d7M/fZU85TkOsr9sgwO7yy4UhA=",
+          "source": "sha256-rHwkXkJ6GsV11f4iEeXVEsIDXmHEEWZOyKQZp1WYFSU="
+        }
+      },
       "4e9592a499c9ced4f8ce366db9db7d9c0dd1424ea8d4c8c16c1550ea3a61a696": {
         "name": "say",
         "version": "1.4.1-3",
@@ -314,6 +338,25 @@
           "source": "sha256-ZSfnbsDiaIo/abVpwb/LV5Ktp5wFSZQNO0OdbnjqVSs="
         }
       },
+      "e496d4ec14c0feec0b3eac3f622f59eb3777d6e63b24469fdb464841e6ab4e63": {
+        "name": "datafile",
+        "version": "0.11-1",
+        "pinned": false,
+        "opt": false,
+        "dependencies": [],
+        "constraint": null,
+        "binaries": [],
+        "source": "luarocks_rockspec+https://luarocks.org/",
+        "source_url": {
+          "type": "git",
+          "url": "https://github.com/hishamhm/datafile.git",
+          "ref": "v0.11"
+        },
+        "hashes": {
+          "rockspec": "sha256-2DDuPfJZustlH90MsItOvpTv2+weKIyFE2SwPxX2ICY=",
+          "source": "sha256-aHdxFJ2IB9v9UMK7vqk7tUA0rLmfvRd0nzhc9JO8AlQ="
+        }
+      },
       "f7cec82a33fe7c2969cbb994410bff9c9505850b6e99a71bac1a3a9554b42db7": {
         "name": "lua-cjson",
         "version": "2.1.0.10-1",
@@ -322,8 +365,8 @@
         "dependencies": [],
         "constraint": "==2.1.0",
         "binaries": [
-          "json2lua",
-          "lua2json"
+          "lua2json",
+          "json2lua"
         ],
         "source": "luarocks_rockspec+https://luarocks.org/",
         "source_url": {
@@ -357,6 +400,7 @@
       }
     },
     "entrypoints": [
+      "492e98b7348dc202d033de2ac35076c132b4721e5449ffe71c0adba0c7a8894c",
       "aa700d6a934caa749d578927c97e22211ffabf97234705d63e95dc6403f6aafe",
       "f7cec82a33fe7c2969cbb994410bff9c9505850b6e99a71bac1a3a9554b42db7"
     ]

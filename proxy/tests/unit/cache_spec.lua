@@ -19,6 +19,7 @@ local function context_with(changes)
 		disabled_endpoints = { "/access_policy" },
 		max_body = 0,
 		cache_ttl = "60",
+		started = ngx.now(),
 	}
 	return tablex.update(context, changes or {})
 end
@@ -419,3 +420,45 @@ describe("cache.fetch with concurrent requests", function()
 		assert.same(constants.locks.options, outcome.calls.options)
 	end)
 end)
+
+--- Run cache.fetch with a lock module and give the lines that the proxy wrote to the nginx error log.
+---@param case table
+---@return string[] lines
+local function lock_log_lines(case)
+	local lines = {}
+	local nginx = _G.ngx
+	local original = nginx.log
+	nginx.log = function(_, line) lines[#lines + 1] = line end
+	local ok, failure = pcall(fetch_with_locks, case)
+	nginx.log = original
+	assert(ok, failure)
+	return lines
+end
+
+check("cache.fetch lock logs", lock_log_lines, {
+	{
+		name = "logs a lock dictionary that is missing as an error with the request and the reason",
+		context = context_with(),
+		new_fails = true,
+		response = response_with(),
+		expected = {
+			"Proxy lock is not available: method=GET path=/people duration_ms=0 error=dictionary not found",
+		},
+	},
+	{
+		name = "logs a lock that fails for another reason than a timeout",
+		context = context_with(),
+		waited = nil,
+		lock_error = "no memory",
+		response = response_with(),
+		expected = { "Proxy lock failed: method=GET path=/people duration_ms=0 error=no memory" },
+	},
+	{
+		name = "does not log a lock that timed out, because the request then asks PostgREST itself",
+		context = context_with(),
+		waited = nil,
+		lock_error = "timeout",
+		response = response_with(),
+		expected = {},
+	},
+})

@@ -42,6 +42,15 @@ function sync.parse(text)
 	}
 end
 
+--- Give the settings of an empty sync.json, for a worker that has no valid document yet.
+--- The function builds a new table on each call, so no caller shares it.
+---
+--- ```lua
+--- sync.empty()  --> { tables = {}, disabled_endpoints = { "/access_policy" } }
+--- ```
+---@return SyncConfig config
+function sync.empty() return { tables = {}, disabled_endpoints = constants.disabled_endpoints } end
+
 --- Read sync.json from a file and return the table settings that the proxy uses.
 --- The function raises an error if the file cannot be opened or the text is not valid.
 ---@param path string Path of sync.json, for example /config/sync.json.

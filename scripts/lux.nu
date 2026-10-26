@@ -85,3 +85,29 @@ def "main format" []: nothing -> nothing {
 
     lx --lua-version jit fmt
 }
+
+# Run the unit tests of the proxy with luacov and print the lines that no test runs. Run it from the repository root.
+def "main coverage" []: nothing -> nothing {
+    with-lock {||
+        lx --lua-version jit test -- --coverage
+
+        let tree = pwd | path join .lux jit test_dependencies jit
+        let source = glob ($tree | path join '*luacov*' src) | first
+        with-env {LUA_PATH: $'($source)/?.lua;($source)/?/init.lua;;'} {
+            ^($tree | path join bin unwrapped luacov)
+        }
+
+        let report = try {
+            open luacov.report.out
+        } catch {|err|
+            fail $'Cannot read luacov.report.out: ($err.msg)'
+        }
+
+        $report
+        | lines
+        | skip until {|line| $line | str starts-with 'Summary' }
+        | each {|line| $line | str replace --regex '^.*/src/proxy/' 'proxy/' }
+        | to text
+        | print
+    }
+}

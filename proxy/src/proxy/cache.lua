@@ -1,6 +1,7 @@
 -- Cache JSON responses in Redis, so a hit never reaches PostgREST.
 
 local constants = require("proxy.constants")
+local log = require("proxy.log")
 local tablex = require("pl.tablex") --[[@as pl.tablex]]
 local utils = require("proxy.utils")
 
@@ -35,10 +36,13 @@ local function outcome(response, source, failure)
 	return { response = response, source = source, error = failure, leading = true }
 end
 
+--- The status of a good answer.
+local ok_status = constants.http.ok_status
+
 --- Make the response of a cache hit.
 ---@param hit CachedEntry
 ---@return Response
-local function cached_response(hit) return { status = 200, body = hit.body, headers = hit.headers } end
+local function cached_response(hit) return { status = ok_status, body = hit.body, headers = hit.headers } end
 
 --- One check for each condition of a cacheable response. All checks must pass.
 --- A check reads its arguments only, so each one could live in utils.
@@ -46,7 +50,7 @@ local function cached_response(hit) return { status = 200, body = hit.body, head
 local rules = {
 	function(_, context) return may_read(context) end,
 	function(_, context) return not context.headers.Range end,
-	function(response) return response.status == 200 end,
+	function(response) return response.status == ok_status end,
 	function(response) return not utils.is_empty_body(response.body) end,
 	function(response) return utils.is_json_or_untyped(response.headers["Content-Type"]) end,
 	function(response, context) return not utils.exceeds_body_limit(response.body, context.max_body) end,
@@ -83,7 +87,8 @@ end
 ---@return boolean changed
 function cache.changes_policy(context, response)
 	if not response or constants.http.read_methods[context.method] then return false end
-	if response.status < 200 or response.status >= 300 then return false end
+	local http = constants.http
+	if response.status < http.success_from or response.status >= http.success_before then return false end
 
 	return utils.matches_path_prefix(context.uri, constants.policy_endpoints)
 end
@@ -95,19 +100,20 @@ end
 --- followers don't wait for each other. A request that couldn't get the lock is alone and asks PostgREST itself.
 ---@param key string Cache key.
 ---@param locks table The lock module, resty.lock.
+---@param context RequestContext The request that asks for the lock. The log line names it.
 ---@return "leader"|"follower"|"alone" role
 ---@return table|nil lock The lock that the leader holds.
-local function take_lock(key, locks)
+local function take_lock(key, locks, context)
 	local settings = constants.locks
 	local lock, new_error = locks:new(settings.dict, settings.options)
 	if not lock then
-		ngx.log(ngx.ERR, "Proxy lock is not available: ", new_error)
+		log.write(ngx.ERR, "lock-unavailable", context, { error = new_error })
 		return "alone", nil
 	end
 
 	local waited, lock_error = lock:lock(key)
 	if not waited then
-		if lock_error ~= "timeout" then ngx.log(ngx.ERR, "Proxy lock failed: ", lock_error) end
+		if lock_error ~= "timeout" then log.write(ngx.ERR, "lock-failed", context, { error = lock_error }) end
 		return "alone", nil
 	end
 	if waited == 0 then return "leader", lock end
@@ -131,7 +137,7 @@ local function look_up(context, key, store, locks)
 	local hit = store:read(key)
 	if hit or not locks then return hit, nil end
 
-	local role, lock = take_lock(key, locks)
+	local role, lock = take_lock(key, locks, context)
 	if role == "alone" then return nil, nil end
 
 	hit = store:read(key)

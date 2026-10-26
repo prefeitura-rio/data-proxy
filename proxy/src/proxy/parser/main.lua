@@ -85,7 +85,7 @@ local function parse_parameter(parameter)
 	end
 
 	if not patterns.whole_column_name:match(key) then return SKIPPED end
-	return make_parameter_result(patterns.filter_grammar:match(key .. "." .. value))
+	return make_parameter_result(patterns.filter_grammar:match(key .. constants.filter.part_separator .. value))
 end
 
 --- Join filter nodes into one filter document. One node is used as it is.
@@ -121,7 +121,7 @@ local function is_column_name(name) return name:match(regex.column_name) ~= nil 
 ---@return string[]|nil columns nil if the request reads every column or the value is not supported.
 ---@return boolean supported false if the value has an alias, a cast, an embed, an aggregate, or anything else.
 local function read_select(value)
-	local names = List(stringx.split(value, ","))
+	local names = List(stringx.split(value, constants.filter.list_separator))
 	local supported = tablex.find_if(names, function(name) return name ~= "*" and not is_column_name(name) end) == nil
 	if not supported or names:contains("*") then return nil, supported end
 	return names, true
@@ -131,7 +131,7 @@ end
 ---@param item string
 ---@return FilterOrder|nil entry nil if the column or a modifier is not supported.
 local function read_order_item(item)
-	local parts = stringx.split(item, ".")
+	local parts = stringx.split(item, constants.filter.part_separator)
 	local entry = { column = parts[1], descending = false }
 	if not is_column_name(entry.column) then return nil end
 
@@ -154,7 +154,7 @@ end
 ---@return FilterOrder[]|nil entries nil if any item is not a column with the known modifiers.
 local function read_order(value)
 	local entries = List()
-	for _, item in ipairs(stringx.split(value, ",")) do
+	for _, item in ipairs(stringx.split(value, constants.filter.list_separator)) do
 		local entry = read_order_item(item)
 		if entry == nil then return nil end
 		entries:append(entry)

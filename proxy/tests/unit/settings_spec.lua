@@ -105,6 +105,11 @@ check("settings.current", current_with, {
 		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
 	},
 	{
+		name = "gives the defaults when the stored document is not valid",
+		stored = { document = "not json", version = 1 },
+		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
+	},
+	{
 		name = "parses the stored document",
 		stored = { document = PEOPLE_JSON, version = 1 },
 		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },

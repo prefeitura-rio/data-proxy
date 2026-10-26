@@ -74,6 +74,28 @@ check("sync.parse", function(case) return sync.parse(case.content) end, {
 	},
 })
 
+describe("the document that console.config() writes", function()
+	-- The file is the golden output of console.config() for fixed rows. A pytest case in sync/tests checks that the
+	-- database still writes it, so the proxy and the database cannot drift apart.
+	local path = "tests/unit/fixtures/console_config.json"
+
+	it("is a document that the proxy takes", function()
+		local config = sync.load(path)
+		assert.is_not_nil(config)
+	end)
+
+	it("gives the cache time of each table by its short name, and none for a table that has no time", function()
+		local config = sync.load(path)
+		assert.same({ staff = {}, events = {}, orders = { cache_ttl = 60 } }, config.tables)
+	end)
+
+	it("carries the revision of the rules and keeps the default paths that are never cached", function()
+		local config = sync.load(path)
+		assert.equal(7, config.revision)
+		assert.same({ "/access_policy" }, config.disabled_endpoints)
+	end)
+end)
+
 describe("sync module state", function()
 	it("loads into the returned value, not into the module", function()
 		sync_from(PEOPLE_JSON)
@@ -108,3 +130,13 @@ end, {
 	{ name = "ignores deeper path segments", uri = "/people/1", expected = 42 },
 	{ name = "gives nil for an unknown table", uri = "/unknown", expected = helpers.NULL },
 })
+
+describe("sync.empty", function()
+	it("gives the settings of an empty document", function() assert.same(sync.parse("{}"), sync.empty()) end)
+
+	it("gives a new table on each call, so a caller cannot change the next one", function()
+		local first = sync.empty()
+		first.tables.people = { cache_ttl = 1 }
+		assert.same({}, sync.empty().tables)
+	end)
+end)

@@ -27,3 +27,4 @@ flags = [
 
 [test_dependencies]
 lua-cjson = "2.1.0.10-1"
+luacov = "0.17.0-1"

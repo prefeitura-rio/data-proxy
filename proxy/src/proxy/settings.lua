@@ -28,7 +28,7 @@ end
 function settings.reload(store, url, fetch)
 	local response, failure = fetch(url)
 	if response == nil then return nil, failure end
-	if response.status ~= 200 then return nil, "The console answered " .. response.status end
+	if response.status ~= constants.http.ok_status then return nil, "The console answered " .. response.status end
 
 	local revision = response.etag or ""
 	local same_revision = revision ~= "" and revision == store:get("revision")
@@ -49,7 +49,7 @@ end
 function settings.current(store, cache)
 	local version = store:get("version") or 0
 	if cache.version ~= version then
-		cache.value = sync.parse(store:get("document") or "{}") or assert(sync.parse("{}"))
+		cache.value = sync.parse(store:get("document") or "{}") or sync.empty()
 		cache.version = version
 	end
 	return cache.value --[[@as SyncConfig]]
@@ -62,7 +62,8 @@ end
 function settings.fetch(url)
 	local client, client_error = require("resty.http").new()
 	if client == nil then return nil, client_error end
-	client:set_timeouts(2000, 5000, 5000)
+	local limits = constants.settings
+	client:set_timeouts(limits.connect_ms, limits.send_ms, limits.read_ms)
 	local response, reason = client:request_uri(url, {
 		headers = { Accept = "application/json", ["Accept-Profile"] = constants.internal_profile },
 	})

@@ -86,7 +86,7 @@ end
 ---@return string|nil error The reason for the last failure.
 function postgrest.query(context, sender, sleeper)
 	sender = sender or send
-	sleeper = sleeper or function(ms) return ngx.sleep(ms / 1000) end
+	sleeper = sleeper or function(ms) return ngx.sleep(ms / constants.time.milliseconds_per_second) end
 
 	local response, response_error = sender(context, context.postgrest)
 	for attempt = 1, constants.postgrest.retries do

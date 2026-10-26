@@ -38,6 +38,9 @@ return {
 		overloaded_status = 503,
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
+		ok_status = 200,
+		success_from = 200,
+		success_before = 300,
 	},
 	limiter = {
 		dict = "proxy_inflight",
@@ -60,6 +63,8 @@ return {
 		messages = {
 			request = "Proxy request completed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
+			["lock-unavailable"] = "Proxy lock is not available",
+			["lock-failed"] = "Proxy lock failed",
 		},
 		fallback_message = "Proxy request state changed",
 		leading_fields = { "status", "source" },
@@ -80,6 +85,14 @@ return {
 	jwt = {
 		anonymous_sub = "anon",
 	},
+	time = {
+		milliseconds_per_second = 1000,
+	},
+	settings = {
+		connect_ms = 2000,
+		send_ms = 5000,
+		read_ms = 5000,
+	},
 	filter = {
 		group_keys = {
 			["and"] = true,
@@ -99,6 +112,8 @@ return {
 		scalar_operators = { "neq", "eq", "gte", "gt", "lte", "lt", "ilike", "like" },
 		is_keywords = { "null", "not_null", "true", "false", "unknown" },
 		query_parameter_separator = "&",
+		list_separator = ",",
+		part_separator = ".",
 	},
 	config = {
 		env_prefix = "PROXY_",

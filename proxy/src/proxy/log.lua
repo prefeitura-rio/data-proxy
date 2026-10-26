@@ -34,7 +34,7 @@ end
 ---@return string line For example Proxy request completed: method=GET path=/people duration_ms=3.
 function log.format(event, context, fields, now)
 	fields = fields or {}
-	local elapsed_ms = math.floor((now - context.started) * 1000)
+	local elapsed_ms = math.floor((now - context.started) * constants.time.milliseconds_per_second)
 
 	local texts = List({ "method=" .. context.method, "path=" .. context.uri })
 		:extend(log.render_fields(fields, constants.log.leading_fields))

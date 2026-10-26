@@ -13,6 +13,8 @@
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
 ---@field jwt JwtConstants Reading the bearer token.
+---@field time TimeConstants Units of time.
+---@field settings SettingsConstants Limits for the call to the console that gives sync.json.
 ---@field filter FilterConstants Reading the filter parameters of a query.
 ---@field config ConfigConstants Reading the config from the environment.
 
@@ -37,6 +39,9 @@
 ---@field overloaded_status integer
 ---@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
+---@field ok_status integer The status of a good answer.
+---@field success_from integer The first status of the success range.
+---@field success_before integer The first status above the success range.
 
 --- The lock that lets one request ask PostgREST for a cache key, while the other requests for it wait.
 ---@class LockConstants
@@ -77,6 +82,16 @@
 ---@field retries integer How many times a read that failed is sent again.
 ---@field backoff_ms integer Wait before the first retry, in milliseconds. It doubles for each retry.
 
+--- Units of time.
+---@class TimeConstants
+---@field milliseconds_per_second integer
+
+--- Limits for the call to the console that gives sync.json, in milliseconds.
+---@class SettingsConstants
+---@field connect_ms integer
+---@field send_ms integer
+---@field read_ms integer
+
 --- Values for reading the bearer token.
 ---@class JwtConstants
 ---@field anonymous_sub string
@@ -91,6 +106,8 @@
 ---@field scalar_operators string[] Operators that take one scalar value, longest name first.
 ---@field is_keywords string[]
 ---@field query_parameter_separator string
+---@field list_separator string Separates the items of a list in a value, for example in select and order.
+---@field part_separator string Separates the parts of a value, for example id.desc, and the key from the value.
 
 --- Values for reading the config from the environment.
 ---@class ConfigConstants
