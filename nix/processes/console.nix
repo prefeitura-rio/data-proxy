@@ -56,7 +56,6 @@ let
     DUCKLAKE_ADMIN_URL = utils.postgresUrl { database = catalogDatabase; };
     DUCKLAKE_CATALOG_PATH = "ducklake";
     DUCKLAKE_CATALOG_URL = utils.postgresUrl { database = catalogDatabase; };
-    EXPECTED_ROWS_FILE = utils.stateFile "expected-rows";
     PGDATABASE = appDatabase;
     PGHOST = "127.0.0.1";
     PGPASSWORD = postgres.password;
@@ -267,7 +266,7 @@ in
           execIfModified = notebookInputs;
         };
 
-      "console:open" = lib.mkIf (!config.devenv.isTesting) (
+      "console:open" =
         utils.mkTask {
           command = [
             opener
@@ -276,29 +275,8 @@ in
           packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
         }
         // {
-          description = "Open the console in the browser.";
+          description = "Open the console in the browser. Run it with `devenv tasks run console:open`.";
           after = [ (utils.processTask "gateway") ];
-          wantedBy = [ (utils.processTask "gateway") ];
-        }
-      );
-
-      "notebooks:check-site" =
-        utils.mkTask {
-          command = [
-            "nu"
-            "build.nu"
-            "notebooks/check.py"
-            "dist-check"
-            "--mode"
-            "run"
-          ];
-        }
-        // {
-          description = "Build the notebook site that the browser test opens.";
-          cwd = "${config.devenv.root}/console/notebooks";
-          after = [ "notebooks:build" ];
-          before = [ "devenv:enterTest" ];
-          execIfModified = notebookInputs;
         };
     };
 

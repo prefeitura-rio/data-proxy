@@ -4,7 +4,7 @@ import globals from 'globals';
 import ts from 'typescript-eslint';
 
 export default defineConfig(
-	globalIgnores(['dist/', 'dist-check/', 'site/', 'test-results/', '.venv/', 'node_modules/']),
+	globalIgnores(['dist/', 'site/', '.venv/', 'node_modules/']),
 	js.configs.recommended,
 	ts.configs.strictTypeChecked,
 	ts.configs.stylisticTypeChecked,

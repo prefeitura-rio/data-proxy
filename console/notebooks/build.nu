@@ -30,7 +30,7 @@ def main [
     $env.UV_PROJECT_ENVIRONMENT = ($env.FILE_PWD | path join .venv)
 
     pnpm install --frozen-lockfile
-    uv sync --frozen --group test
+    uv sync --frozen
 
     try {
         rm --recursive --force $output
@@ -59,6 +59,12 @@ def main [
         } catch {|err|
             fail $'Cannot copy ($file): ($err.msg)'
         }
+    }
+
+    try {
+        cp ($notebook | path dirname | path join lib.py) ([$output lib.py] | path join)
+    } catch {|err|
+        fail $'Cannot copy lib.py: ($err.msg)'
     }
 
     let extension = 'parquet.duckdb_extension.wasm'

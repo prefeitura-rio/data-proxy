@@ -4,7 +4,7 @@
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { csp } from './csp.ts';
-import { serveFile } from './serve.ts';
+import { servePage } from './src/page.ts';
 
 const { CSP, CONSOLE_ORIGIN, STORAGE_ORIGIN, PORT = '8080' } = process.env;
 
@@ -28,7 +28,7 @@ createServer((request, response) => {
 		return;
 	}
 
-	serveFile(root, request, response, headers);
+	void servePage(root, request, response, headers);
 }).listen(Number(PORT));
 
 // Node as the first process of a container ignores SIGTERM unless the program handles it.

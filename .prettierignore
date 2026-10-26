@@ -4,7 +4,6 @@
 **/test-results
 **/playwright-report
 **/dist
-**/dist-check
 **/node_modules
 **/pnpm-lock.yaml
 **/.venv
