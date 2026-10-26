@@ -14,14 +14,10 @@ template = "scripts/changelog.tera"
 
 # Only a feature, a fix and a breaking change reach the changelog.
 [commit_types]
-build = { omit_from_changelog = true }
 chore = { omit_from_changelog = true }
-ci = { omit_from_changelog = true }
 docs = { omit_from_changelog = true }
-perf = { omit_from_changelog = true }
 refactor = { omit_from_changelog = true }
 revert = { omit_from_changelog = true }
-style = { omit_from_changelog = true }
 test = { omit_from_changelog = true }
 feat = { changelog_title = "Features" }
 fix = { changelog_title = "Fixes" }

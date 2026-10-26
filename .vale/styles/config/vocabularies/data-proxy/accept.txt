@@ -19,7 +19,6 @@ SeaweedFS
 Valkey
 Webdis
 asyncer
-basedpyright
 devenv
 docstrings
 docstring

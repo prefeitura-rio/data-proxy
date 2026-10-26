@@ -33,3 +33,7 @@ sync/.env.test
 packaged/
 site/
 mkdocs.nav.yml
+
+# luacov output of nu scripts/lux.nu coverage
+luacov.stats.out
+luacov.report.out

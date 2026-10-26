@@ -43,7 +43,7 @@ devenv --profile proxy test
 devenv --profile console test
 ```
 
-`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite. `devenv --profile console test` starts the whole console stack and runs the browser tests. It takes about 10 minutes, because one scenario waits for the real timer of four minutes.
+`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite. `devenv --profile console test` starts the whole console stack and runs the browser tests. It takes about one minute.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
@@ -54,8 +54,8 @@ A unit test checks one unit exhaustively: a function, a class, a method, or an S
 | Unit        | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/`  | Mocks, local files, in-memory DuckDB, and for the PostgreSQL templates the real test server (`postgres` marker) | Every behavior of a function, class, method or template: pure logic, SQL templates, workflow order, proxy, Helm manifests |
 | Integration | `sync/tests/integration/`                               | devenv processes: PostgreSQL (built from `Containerfile.postgres`, via Podman), SeaweedFS                       | Scenarios across units: DuckLake catalog, state, S3, and flows that cross database, cache or storage                      |
 | Integration | `proxy/tests/integration/`                              | devenv processes: OpenResty, Valkey, a mock PostgREST                                                           | Proxy request path: routing, retry, cache, filter pushdown                                                                |
-| Unit        | `console/ui/src/**/*.test.ts`, `console/notebooks/src/` | Vitest, with no service and no `$app` or `$env` import                                                          | Every behavior of a module in `lib/` and `lib/server/`                                                                    |
-| Integration | `console/ui/tests/`, `console/notebooks/tests/`         | devenv processes: PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, a browser                            | The console as a user sees it: sign-in, tabs, forms, run control, the notebook                                            |
+| Unit        | `console/ui/src/**/*.test.ts`                           | Vitest, with no service and no `$app` or `$env` import                                                          | Every behavior of a module in `lib/` and `lib/server/`                                                                    |
+| Integration | `console/ui/tests/`                                      | devenv processes: PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, a browser                            | The console as a user sees it: sign-in, tabs, forms, run control                                                         |
 | E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
 
 - A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
@@ -64,6 +64,7 @@ A unit test checks one unit exhaustively: a function, a class, a method, or an S
 - In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file contains only its steps, and `load.js` contains only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
 - Test modules contain only tests. Fixtures go in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`.
 - Merge small test files that cover one module.
+- Test your own code, and no code of a third party. Don't write a test of DBOS, PostgREST, Keycloak, Kubernetes, Redis, a cloud SDK or a browser engine. Stub the call at the edge of your code, and test what your code does with the answer.
 - Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants across generated inputs.
 - Use `pytest-bdd` for integration behavior that crosses database, cache, or storage boundaries. Put feature files in `sync/tests/integration/features/` and step definitions in `sync/tests/integration/steps/`.
 - Assert exact values. Don't use substring checks, except a regex assertion against generated text when an exact whole-document assertion would be brittle.
@@ -91,7 +92,7 @@ def test_renders_exact_predicate(selection, expected):
 - Use dataclasses for plain data. Use Pydantic models only for validation at boundaries.
 - Model closed alternatives as tagged unions. Match every case. Use `_` only for open sets.
 - Don't prefix internal names with `_`. Use `_` only for a required but unused parameter.
-- Keep `__init__.py` empty. Import from submodules.
+- Keep `__init__.py` to one docstring line, because `ruff` requires it. Import from submodules.
 - Inline a one-line helper that has one caller.
 - Put a function in the module of its domain. Use `utils.py` only when no domain fits.
 - Write multi-stage flows as a context dataclass with one method per stage, like `PlanningContext` in `planning.py`.
@@ -123,7 +124,7 @@ logger.info("DuckLake commit completed: published_tables=%d", len(published_tabl
 
 ### Tooling
 
-`devenv --profile default tasks run lint:sync` runs `ruff` with `select = ["ALL"]`, `basedpyright`, `pyrefly`, `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any` or `cast`. `basedpyright` refuses implicit string concatenation, so write one long string. `E501` is off.
+`devenv --profile default tasks run lint:sync` runs `ruff` with `select = ["ALL"]`, `pyrefly` (with `preset = "all"`), `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any`. Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. Don't use implicit string concatenation. Write one long string. `E501` is off.
 
 ## Lua and OpenResty
 
@@ -245,7 +246,7 @@ Nushell scripts run the Helm jobs and the local commands.
 
 ### Logs
 
-- Use `std/log` directly. Don't use `print` for service output.
+- Use `std/log` directly. Don't use `print` for service output. A command in `scripts/` may use `print` for machine output, such as a CI output line, or for a log stream that it shows to a person.
 
 ### Tests
 
@@ -421,6 +422,9 @@ The console is a SvelteKit app in `console/ui/`. The sources are the [Svelte bes
 - Pass every internal `href` through `resolve()` from `$app/paths`. For a query string, use a `GET` form.
 - Write each repeated piece of markup once, as a component in `lib/components/`. A component that belongs to one page stays in the folder of that route. A `.svelte` file has at most 80 lines of script and 150 lines of template.
 - Use `use:enhance` on every POST form, except sign-out. A GET form (a filter or a pager) doesn't use it. Give every input a visible label (`Field` and `Check`). An input in a table row uses `aria-label`, because its column gives the visible name.
+- Give every POST form a `Submission` from `lib/enhance.svelte.ts` and a `SubmitButton`, so the form shows its pending state and sends one request. A form action returns `{ toast }` when it works. A dialog shows a refusal inside itself (`inline`), and the page shows the refusal of any other form.
+- Ask for a confirmation before a delete (`FormDialog` with `danger`), and hide the row until the answer comes (`begin` of the `Submission`).
+- Use `FilterForm` for the filters of a list and `Time` for a time. Don't write a timer in a page. Reload live data with `poll(key)` and `depends(key)` from `lib/poll.svelte.ts`.
 - Style with Tailwind and DaisyUI classes. Import icons by name from `@lucide/svelte`.
 
 ### Tooling
@@ -435,6 +439,9 @@ devenv --profile console tasks run lint:console
 
 - Test a unit with Vitest, in a `*.test.ts` file next to the module. Use a table of cases with a name for each case.
 - Write a browser test as a `playwright-bdd` scenario that a user could read. A step does one thing.
+- Keep scenarios independent, so they can run in parallel. A scenario creates the data that it needs, with a name that no other scenario uses. A scenario that changes data that others read goes to `tests/features/shared/`. A scenario that adds a schema uses a schema name of its own, and the claim of the user lists that name.
+- Wait for a condition, never for a time. Use a web-first assertion (`expect(...).toBeVisible()`), `expect.poll`, or the `hydrated` helper. A wait of a fixed time is allowed only to check that something doesn't happen.
+- Write no test for the notebooks (`console/notebooks/`): no unit test, no browser test, and no scenario that opens the notebook.
 - Hand state from one step to the next through the typed `world` fixture in `console/ui/tests/fixtures.ts`. Don't attach it to `page`.
 
 ## Notebooks
