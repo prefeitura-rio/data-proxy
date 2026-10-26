@@ -51,6 +51,8 @@ Preview and staging share one Keycloak, `auth-idriohom`, so one client lists the
 
 Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` to create JSON Web Token (JWT) authentication and authorization resources. Create the configured Gateway before installing the chart.
 
+The values `ingress.retries.attempts`, `perTryTimeout` and `retryOn` set the retries of the gateway. Don't put `503` in `retryOn`. The proxy answers `503` with `Retry-After` when it sheds a request, because too many requests wait for PostgREST. A retry sends the same request again and adds load to a system that's already full. The proxy already retries PostgREST itself, so use `reset,connect-failure`.
+
 <!-- nav:start -->
 ---
 
