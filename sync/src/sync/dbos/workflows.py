@@ -37,6 +37,7 @@ from .steps import (
 @DBOS.workflow()
 async def dump_task(task: DumpTask) -> DumpResult:
     """Dump one task, record its result, and return it to the parent workflow."""
+    SCHEMA.set(task.target_schema)
     TABLE.set(task.table)
 
     await logs.info("Dump started", task_id=task.task_id)
@@ -108,9 +109,9 @@ async def run_sync(
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         loaded = await load_sync_config()
-        scope = SyncScope.model_validate(context or {})
+        scope = SyncScope.model_validate({} if context is None else context)
         work = await build_sync_work(run_id, loaded.document, scope)
-        if not work.plans:
+        if len(work.plans) == 0:
             await logs.info("Sync planning completed", changes="none")
             if await reconcile_idle_schemas(loaded.document, scope):
                 await reload_postgrest()

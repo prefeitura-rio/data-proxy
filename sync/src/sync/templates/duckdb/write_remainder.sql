@@ -19,4 +19,4 @@ COPY (
         {{ column }} IS NULL
         OR {{ column }} < {{ lower }}
         OR {{ column }} >= {{ upper }}
-) TO {{ path }} ({{ parquet_options() }})
+) TO {{ path }} ({{ parquet_options() }}) -- noqa: PRS

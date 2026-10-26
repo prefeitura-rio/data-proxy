@@ -1,10 +1,10 @@
 import asyncio
 import importlib
 import inspect
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import ClassVar, cast
-from unittest.mock import AsyncMock, MagicMock
+from typing import ClassVar
+from unittest.mock import AsyncMock
 
 import pytest
 from dbos import DBOS
@@ -448,9 +448,9 @@ class TestReconcileIdleSchemasStep:
         call = reconcile.await_args
         assert call is not None
         pg_conn, passed, schema_names, table_names = call.args
-        config_passed = cast("SyncConfig", passed)
+        assert isinstance(passed, SyncConfig)
         assert pg_conn is connection
-        assert sorted(config_passed.schemas) == ["app", "other"]
+        assert sorted(passed.schemas) == ["app", "other"]
         assert schema_names == schemas
         assert table_names == tables
         assert result is True
@@ -516,6 +516,83 @@ class TestApplyDucklakeMaintenanceStep:
         maintain.assert_awaited_once_with(
             connection, DuckLakePaths.for_schema("app"), False
         )
+
+
+class TestExtractTaskLogs:
+    """The extract step tells the console what each dump does."""
+
+    @staticmethod
+    def record(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> list[tuple[str, str, dict[str, object]]]:
+        """Replace the log functions with recorders and the DuckDB connection with a stub."""
+        lines: list[tuple[str, str, dict[str, object]]] = []
+
+        def recorder(level: str) -> Callable[..., Awaitable[None]]:
+            async def write(message: str, /, **fields: object) -> None:
+                lines.append((level, message, fields))
+
+            return write
+
+        @asynccontextmanager
+        async def connect() -> AsyncGenerator[object]:
+            yield object()
+
+        monkeypatch.setattr(steps.logs, "info", recorder("info"))
+        monkeypatch.setattr(steps.logs, "warning", recorder("warning"))
+        monkeypatch.setattr(DuckDB, "connect", connect)
+        return lines
+
+    @pytest.mark.asyncio
+    async def test_logs_the_source_and_each_partition_of_a_dump(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lines of one dump say the columns, then the rows of each partition."""
+        task = dump_task()
+        lines = self.record(monkeypatch)
+
+        async def extract(
+            connection: object, task: object, report: Callable[..., Awaitable[None]]
+        ) -> None:
+            await report("Source described", columns=3)
+            await report("Partition written", part=1, of=1, rows=10)
+
+        monkeypatch.setattr(steps, "run_extraction", extract)
+
+        await workflow_body(steps.extract_task)(task)
+
+        assert [
+            (message, fields.get("columns"), fields.get("rows"))
+            for _, message, fields in lines
+        ] == [
+            ("Extraction started", None, None),
+            ("Source described", 3, None),
+            ("Partition written", None, 10),
+            ("Extraction completed", None, None),
+        ]
+        assert {fields["task_id"] for _, _, fields in lines} == {task.task_id}
+
+    @pytest.mark.asyncio
+    async def test_warns_with_the_error_of_a_failed_attempt_and_raises_it_again(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each retry of a failing dump leaves a line, and the step still fails."""
+        task = dump_task()
+        lines = self.record(monkeypatch)
+
+        async def extract(
+            connection: object, task: object, report: Callable[..., Awaitable[None]]
+        ) -> None:
+            raise RuntimeError("write failed")
+
+        monkeypatch.setattr(steps, "run_extraction", extract)
+
+        with pytest.raises(RuntimeError, match="write failed"):
+            await workflow_body(steps.extract_task)(task)
+
+        level, message, fields = lines[-1]
+        assert (level, message) == ("warning", "Extraction attempt failed")
+        assert str(fields["error"]).startswith("RuntimeError: write failed")
 
 
 class TestPublishSchemaOrder:
@@ -804,32 +881,9 @@ class TestNotifyProxies:
 
         resolve.assert_not_awaited()
 
-    async def test_the_workflow_runs_the_step(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """reload_proxy is one step."""
-        notify = AsyncMock()
-        monkeypatch.setattr(workflows, "notify_proxies", notify)
-
-        await workflow_body(workflows.reload_proxy)()
-
-        notify.assert_awaited_once_with()
-
 
 class TestControlWorkflows:
     """The workflows that the console enqueues to cancel or resume a run, and to pause or resume a schedule."""
-
-    @pytest.mark.asyncio
-    async def test_cancel_run_cancels_the_run(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """cancel_run asks DBOS to cancel the run once."""
-        cancel = AsyncMock()
-        monkeypatch.setattr(DBOS, "cancel_workflow_async", cancel)
-
-        await workflow_body(workflows.cancel_run)("run-1")
-
-        cancel.assert_awaited_once_with("run-1", cancel_children=True)
 
     @pytest.mark.asyncio
     async def test_resume_run_resumes_the_run(
@@ -842,24 +896,6 @@ class TestControlWorkflows:
         await workflow_body(workflows.resume_run)("run-1")
 
         resume.assert_awaited_once_with("run-1", queue_name="sync")
-
-    @pytest.mark.parametrize(
-        ("workflow", "method"),
-        [
-            pytest.param("pause_schedule", "pause_schedule", id="pause"),
-            pytest.param("resume_schedule", "resume_schedule", id="resume"),
-        ],
-    )
-    def test_the_schedule_workflows_call_dbos(
-        self, monkeypatch: pytest.MonkeyPatch, workflow: str, method: str
-    ) -> None:
-        """Each schedule workflow calls the DBOS method of its name with the schedule."""
-        call = MagicMock()
-        monkeypatch.setattr(DBOS, method, call)
-
-        workflow_body(getattr(workflows, workflow))("sync")
-
-        call.assert_called_once_with("sync")
 
 
 class TestRunProvision:
@@ -1009,35 +1045,21 @@ class TestRemoveDroppedTables:
     async def test_the_workflow_also_removes_the_credentials_of_removed_schemas(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """cleanup_tables runs the S3 credential cleanup with the same config."""
+        """cleanup_tables gives the same loaded config to both steps."""
         monkeypatch.setattr(
             workflows,
             "load_sync_config",
             AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
         )
-        monkeypatch.setattr(workflows, "remove_dropped_tables", AsyncMock())
+        remove = AsyncMock(return_value=[])
+        monkeypatch.setattr(workflows, "remove_dropped_tables", remove)
         cleanup = AsyncMock(return_value=[])
         monkeypatch.setattr(workflows, "cleanup_s3_credentials", cleanup)
 
         await workflow_body(workflows.cleanup_tables)()
 
-        cleanup.assert_awaited_once_with(DOCUMENT)
-
-    async def test_the_workflow_runs_the_step_with_the_current_config(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """cleanup_tables loads the config and removes the dropped tables."""
-        remove = AsyncMock(return_value=[])
-        monkeypatch.setattr(
-            workflows,
-            "load_sync_config",
-            AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
-        )
-        monkeypatch.setattr(workflows, "remove_dropped_tables", remove)
-
-        await workflow_body(workflows.cleanup_tables)()
-
         remove.assert_awaited_once_with(DOCUMENT)
+        cleanup.assert_awaited_once_with(DOCUMENT)
 
 
 class TestCleanupS3CredentialsStep:

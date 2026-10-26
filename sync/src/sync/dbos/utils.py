@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 def endpoint_list(endpoint: str) -> list[str]:
     """Return one configured endpoint or an empty list."""
-    return [endpoint] if endpoint else []
+    return [endpoint] if len(endpoint) > 0 else []
 
 
 def otlp_enabled(application_settings: Settings) -> bool:
@@ -26,14 +26,14 @@ def otlp_enabled(application_settings: Settings) -> bool:
 
 def listened_queues(queues: list[str], configured: str) -> list[str]:
     """Return the queues that one worker listens to: every queue, or the ones that the setting names."""
-    names = {name.strip() for name in configured.split(",") if name.strip()}
+    names = {name.strip() for name in configured.split(",") if len(name.strip()) > 0}
 
-    if not names:
+    if len(names) == 0:
         return queues
 
     unknown = sorted(names - set(queues))
 
-    if unknown:
+    if len(unknown) > 0:
         message = f"Unknown queues: {', '.join(unknown)}"
         raise ValueError(message)
 

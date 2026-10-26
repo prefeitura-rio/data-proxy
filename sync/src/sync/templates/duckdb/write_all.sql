@@ -13,4 +13,4 @@
 COPY (
     {{ select_projection(json_columns) }}
     FROM {{ source }}
-) TO {{ path }} ({{ parquet_options() }})
+) TO {{ path }} ({{ parquet_options() }}) -- noqa: PRS

@@ -21,7 +21,7 @@ RESERVED_FIELDS = frozenset(vars(LogRecord("", 0, "", 0, "", (), None))) | {
 
 def render(message: str, fields: dict[str, LogField]) -> str:
     """Return the readable text of a log line: the message, then the fields."""
-    if not fields:
+    if len(fields) == 0:
         return message
 
     pairs = " ".join(f"{name}={value}" for name, value in fields.items())
@@ -36,7 +36,7 @@ async def write(level: int, message: str, /, **fields: LogField) -> None:
     which suits an API.
     """
     clashes = sorted(RESERVED_FIELDS & fields.keys())
-    if clashes:
+    if len(clashes) > 0:
         raise ValueError(f"Reserved log field names: {clashes}")
 
     schema = SCHEMA.get()

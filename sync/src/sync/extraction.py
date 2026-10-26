@@ -1,6 +1,7 @@
 """Source-to-Parquet extraction statement builders and runner."""
 
 import threading
+from time import monotonic
 from typing import TYPE_CHECKING, assert_never
 
 from asyncer import asyncify
@@ -17,9 +18,15 @@ from .sources.partitions import (
 from .sources.registry import sources
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from .duckdb import DuckDB
     from .models import DumpTask
     from .types import DatabaseRow, DuckDBParams, TemplateValue
+
+
+type Report = Callable[..., Awaitable[None]]
+"""Say what an extraction did: the dump workflow passes its log function, which takes a message and fields."""
 
 
 def build_extraction_query(
@@ -60,19 +67,44 @@ def build_extraction_query(
 
 # The BigQuery extension fails with CURL error 77 (a problem with the CA certificates) when several connections of one
 # process send their first request at the same time. A connection that has made one request works.
-_FIRST_REQUEST = threading.Lock()
+FIRST_REQUEST = threading.Lock()
 
 
-async def run_extraction(duckdb_conn: DuckDB, task: DumpTask) -> None:
-    """Extract each selection to its own scratch Parquet file."""
+# DESCRIBE returns the name, the type, null, key, default and extra of each column. A COPY with RETURN_STATS returns
+# the file name, the rows, the file size, the footer size, the column statistics and the partition keys of each file.
+async def run_extraction(duckdb_conn: DuckDB, task: DumpTask, report: Report) -> None:
+    """Extract each selection to its own scratch Parquet file, and report each step."""
     executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb_conn)
     scan = sources.configure(task.source, task.source_settings).scan(task.table)
-    await asyncify(_FIRST_REQUEST.acquire)()
+    await asyncify(FIRST_REQUEST.acquire)()
     try:
-        await executor.execute("duckdb/describe_source", {"source": scan})
+        columns = await executor.query(
+            "duckdb/describe_source",
+            {"source": scan},
+            expect=tuple[str, str, object, object, object, object],
+        )
     finally:
-        _FIRST_REQUEST.release()
+        FIRST_REQUEST.release()
 
-    for selection, path in zip(task.selections, task.output_paths, strict=True):
+    await report("Source described", columns=len(columns))
+
+    total = len(task.selections)
+    for index, (selection, path) in enumerate(
+        zip(task.selections, task.output_paths, strict=True), start=1
+    ):
         template, mapping = build_extraction_query(task, selection, path)
-        await executor.execute(template, mapping)
+        started = monotonic()
+        written = await executor.query(
+            template,
+            mapping,
+            expect=tuple[str, int, int, int, object, object],
+        )
+        await report(
+            "Partition written",
+            path=path,
+            part=index,
+            of=total,
+            rows=sum(rows for _, rows, _, _, _, _ in written),
+            bytes=sum(size for _, _, size, _, _, _ in written),
+            seconds=round(monotonic() - started, 1),
+        )

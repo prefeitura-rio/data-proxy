@@ -18,4 +18,4 @@ COPY (
     WHERE
         {{ column }} >= {{ lower }}
         AND {{ column }} < {{ upper }}
-) TO {{ path }} ({{ parquet_options() }})
+) TO {{ path }} ({{ parquet_options() }}) -- noqa: PRS

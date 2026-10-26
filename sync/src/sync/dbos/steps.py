@@ -18,7 +18,7 @@ from sync.ducklake import (
 from sync.extraction import run_extraction
 from sync.identities import remove_stale_identities
 from sync.kubernetes import create_job, k8s_client, wait_for_job
-from sync.log import SCHEMA
+from sync.log import SCHEMA, TABLE, summarize_exception
 from sync.metrics import metrics
 from sync.models import (
     DumpTask,
@@ -131,13 +131,13 @@ async def record_dump_metrics(
 async def record_publish_metrics(result: PublicationResult, schema_name: str) -> None:
     """Record publication success and error metrics."""
     success_count = len(result.published_tables)
-    if success_count:
+    if success_count != 0:
         metrics.publish_tables_total.add(
             success_count, {"schema": schema_name, "status": "success"}
         )
 
     failure_count = len(result.plan.signatures) - success_count
-    if failure_count:
+    if failure_count != 0:
         metrics.publish_tables_total.add(
             failure_count, {"schema": schema_name, "status": "error"}
         )
@@ -238,8 +238,21 @@ async def extract_task(task: DumpTask) -> None:
     await logs.info(
         "Extraction started", task_id=task.task_id, paths=len(task.output_paths)
     )
-    async with DuckDB.connect() as duckdb_conn:
-        await run_extraction(duckdb_conn, task)
+
+    async def report(message: str, /, **fields: str | float | bool) -> None:
+        await logs.info(message, task_id=task.task_id, **fields)
+
+    try:
+        async with DuckDB.connect() as duckdb_conn:
+            await run_extraction(duckdb_conn, task, report)
+    except Exception as error:
+        await logs.warning(
+            "Extraction attempt failed",
+            task_id=task.task_id,
+            error=summarize_exception(error),
+        )
+        raise
+
     await logs.info("Extraction completed", task_id=task.task_id)
 
 
@@ -290,8 +303,17 @@ async def commit_ducklake_snapshot(
             failed_paths,
         )
 
+    for table in sorted(result.published_tables):
+        token = TABLE.set(table)
+        await logs.info("Table published")
+        TABLE.reset(token)
+
+    snapshot = {} if result.snapshot_id is None else {"snapshot_id": result.snapshot_id}
     await logs.info(
-        "DuckLake commit completed", published_tables=len(result.published_tables)
+        "DuckLake commit completed",
+        published_tables=len(result.published_tables),
+        failed_paths=len(failed_paths),
+        **snapshot,
     )
 
     return result
