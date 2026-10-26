@@ -1,0 +1,178 @@
+suite: Network policies
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - networkpolicy.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders one policy for the proxy, PostgREST and PgDog
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: data-proxy-proxy
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: data-proxy-postgrest
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: data-proxy-pgdog
+        documentIndex: 2
+
+  - it: lets the gateway reach the proxy and the sync pods reach its admin port
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: istio-ingress
+              ports:
+                - port: 8080
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: data-proxy
+                      app.kubernetes.io/instance: data-proxy
+                      app.kubernetes.io/component: sync
+              ports:
+                - port: 8081
+        documentIndex: 0
+
+  - it: lets only the proxy and the console reach PostgREST, and only PostgREST reach PgDog
+    set:
+      networkPolicy.enabled: true
+      console.enabled: true
+      console.oidc.issuer: https://idp.example.test/realms/dev
+      console.oidc.clientSecret: client-secret
+      console.storage.endpoint: https://storage.example.test
+      ingress.host: api.example.test
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: proxy
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0].from[1].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: console
+        documentIndex: 1
+      - lengthEqual:
+          path: spec.ingress[0].from
+          count: 2
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: 3000
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: postgrest
+        documentIndex: 2
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: 6432
+        documentIndex: 2
+
+  - it: lets the monitoring namespace read the metrics ports
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.monitoringNamespace: monitoring
+      postgrest.metrics.enabled: true
+      postgrest.metrics.port: 3001
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+            ports:
+              - port: 3001
+        documentIndex: 1
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+            ports:
+              - port: 9090
+        documentIndex: 2
+
+  - it: adds the extra peers to every rule that serves a request
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.extraPeers:
+        - podSelector:
+            matchLabels:
+              runner: "true"
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                runner: "true"
+        documentIndex: 0
+      - contains:
+          path: spec.ingress[1].from
+          content:
+            podSelector:
+              matchLabels:
+                runner: "true"
+        documentIndex: 0
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                runner: "true"
+        documentIndex: 1
+
+  - it: renders a policy for each web page that the chart enables
+    set:
+      networkPolicy.enabled: true
+      swaggerUi.enabled: true
+      console.enabled: true
+      console.oidc.issuer: https://idp.example.test/realms/dev
+      console.oidc.clientSecret: client-secret
+      console.storage.endpoint: https://storage.example.test
+      notebooks.enabled: true
+      notebooks.host: notebooks.example.test
+      ingress.host: api.example.test
+    asserts:
+      - hasDocuments:
+          count: 6
+      - equal:
+          path: metadata.name
+          value: data-proxy-console
+        documentIndex: 3
+      - equal:
+          path: metadata.name
+          value: data-proxy-notebooks
+        documentIndex: 4
+      - equal:
+          path: metadata.name
+          value: data-proxy-swagger-ui
+        documentIndex: 5

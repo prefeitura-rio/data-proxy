@@ -846,3 +846,24 @@ securityContext:
   {{- mergeOverwrite (deepCopy $defaults.container) $own | toYaml | nindent 2 }}
 {{- end }}
 
+{{- /* A network peer: the pods of one component of this release. */ -}}
+{{- define "data-proxy.podPeer" -}}
+podSelector:
+  matchLabels:
+    {{- include "data-proxy.selectorLabels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{- /* A network peer: every pod of one namespace. */ -}}
+{{- define "data-proxy.namespacePeer" -}}
+namespaceSelector:
+  matchLabels:
+    kubernetes.io/metadata.name: {{ . }}
+{{- end }}
+
+{{- /* The from list of a rule that serves requests: the peers, then the extra peers of the values. */ -}}
+{{- define "data-proxy.allowFrom" -}}
+from:
+  {{- concat .peers .root.Values.networkPolicy.extraPeers | toYaml | nindent 2 }}
+{{- end }}
+

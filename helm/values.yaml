@@ -487,3 +487,14 @@ securityContext:
       readOnlyRootFilesystem: false
       capabilities:
         add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID]
+## NetworkPolicy objects that limit which pods reach the proxy, PostgREST, PgDog and the web pages. The policies cover
+## ingress only, and they need a network plugin that enforces them. Redis and the database are outside the policies.
+networkPolicy:
+  enabled: false
+  ## The namespace of the pods of the Istio ingress gateway.
+  gatewayNamespace: istio-ingress
+  ## The namespace of Prometheus. Empty means that no pod outside the release reads the metrics ports.
+  monitoringNamespace: ""
+  ## More peers that may call the proxy and PostgREST, for example the pods of the load test.
+  extraPeers: []
+
