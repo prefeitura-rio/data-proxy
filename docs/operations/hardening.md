@@ -51,7 +51,7 @@ Every browser scenario fails if the browser reports a refusal under the policy.
 
 The chart pins PostgREST, PgDog and Swagger UI by tag and digest. Each `Containerfile` pins its base images the same way. The digest decides which image runs, and the tag tells you the version.
 
-Dependabot updates the GitHub Actions, the npm packages and the Python packages every week. It doesn't read a `Containerfile` or `helm/values.yaml`. To update an image, read the digest of the new tag from its registry, and change the tag and the digest in one commit.
+To update an image, read the digest of the new tag from its registry, and change the tag and the digest in one commit.
 
 CI signs each image that it pushes with a keyless cosign signature. It also attaches a provenance record and a software bill of materials. To check a signature, run:
 
