@@ -72,5 +72,5 @@ Redis has no autoscaler unless you supply custom triggers.
 <!-- nav:start -->
 ---
 
-[Previous: Ingress](ingress.md) | [Next: Environment Variables](environment.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Ingress](ingress.md) | [Next: Hardening](hardening.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

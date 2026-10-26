@@ -14,6 +14,8 @@ PostgreSQL applies PostgREST query filters, such as `?id=eq.1`, after DuckDB ret
 - [Tokens](tokens.md) — Token lifetime and revoking access.
 - [Troubleshooting](troubleshooting.md) — Common failures and their causes.
 
+The chart also limits the pods, the network paths and the images. See [Hardening](../operations/hardening.md).
+
 ## Configure the access model
 
 The following values must agree:

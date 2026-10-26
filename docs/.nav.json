@@ -185,6 +185,9 @@
           "page": "operations/topology.md"
         },
         {
+          "page": "operations/hardening.md"
+        },
+        {
           "page": "operations/environment.md"
         },
         {

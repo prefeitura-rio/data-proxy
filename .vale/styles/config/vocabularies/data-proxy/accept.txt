@@ -197,3 +197,7 @@ goose
 cocogitto
 Tailscale
 [Pp]olars
+seccomp
+Dependabot
+npm
+keyless
