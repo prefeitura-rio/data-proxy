@@ -6,6 +6,8 @@ export type Follower = {
 	/** Fresh log lines. */
 	onLines: (lines: LogLine[]) => void;
 	onStatus: (status: string) => void;
+	/** The connection opened, dropped and is trying again, or is over. */
+	onState?: (state: 'live' | 'reconnecting') => void;
 	/** The stream is over: the run finished, or the server refused the stream. */
 	onEnd: () => void;
 };
@@ -39,9 +41,14 @@ export function followRun(runId: string, options: { after: string | null; settle
 		source.close();
 		follower.onEnd();
 	});
+	source.onopen = () => {
+		follower.onState?.('live');
+	};
 	source.onerror = () => {
 		if (source.readyState === EventSource.CLOSED) {
 			follower.onEnd();
+		} else {
+			follower.onState?.('reconnecting');
 		}
 	};
 

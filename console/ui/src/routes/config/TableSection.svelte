@@ -1,15 +1,18 @@
 <script lang="ts">
-	import { enhance, type SubmitFunction } from '$app/forms';
+	import { enhance } from '$app/forms';
 	import { Plus } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import Check from '#lib/components/Check.svelte';
 	import DeleteButton from '#lib/components/DeleteButton.svelte';
-	import DialogActions from '#lib/components/DialogActions.svelte';
 	import EditButton from '#lib/components/EditButton.svelte';
 	import Field from '#lib/components/Field.svelte';
-	import Modal from '#lib/components/Modal.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
+	import FormDialog from '#lib/components/FormDialog.svelte';
 	import Pager from '#lib/components/Pager.svelte';
 	import Section from '#lib/components/Section.svelte';
+	import SubmitButton from '#lib/components/SubmitButton.svelte';
 	import Table from '#lib/components/Table.svelte';
+	import { Submission } from '#lib/enhance.svelte.js';
 	import type { PageQuery } from '#lib/list.js';
 	import type { Can } from '#lib/permissions.js';
 	import type { SchemaRow, Synced, TableRow } from '#lib/types.js';
@@ -38,20 +41,38 @@
 
 	const syncedOf = (name: string) => synced.find((row) => row.name === name);
 
-	const close: SubmitFunction =
-		() =>
-		async ({ update }) => {
+	const gone = new SvelteSet<string>();
+	const rows = $derived(tables.filter((table) => !gone.has(table.name)));
+	const create = new Submission();
+	const update = new Submission({
+		inline: true,
+		onsuccess: () => {
 			editing = null;
+		}
+	});
+	const remove = new Submission({
+		inline: true,
+		begin: () => {
+			const name = removing?.name ?? '';
+
+			gone.add(name);
+
+			return () => gone.delete(name);
+		},
+		onsuccess: () => {
 			removing = null;
-			await update();
-		};
+		}
+	});
 </script>
 
 <Section title="Tables">
-	<form method="GET" action={paging.action} class="toolbar" aria-label="Filter the tables">
-		{#each [...new URLSearchParams(paging.params.toString())].filter(([key]) => !['table_schema', 'table_q', 'tables_page'].includes(key)) as [key, value] (key)}
-			<input type="hidden" name={key} {value} />
-		{/each}
+	<FilterForm
+		action={paging.action}
+		label="Filter the tables"
+		params={paging.params}
+		own={['table_schema', 'table_q']}
+		pages={['tables_page']}
+	>
 		<label class="flex flex-col gap-1 text-sm">
 			<span>Schema</span>
 			<select class="select select-sm" name="table_schema" value={paging.params.get('table_schema') ?? ''}>
@@ -59,11 +80,15 @@
 				{#each schemas as schema (schema.name)}<option value={schema.name}>{schema.name}</option>{/each}
 			</select>
 		</label>
-		<Field label="Name contains" name="table_q" value={paging.params.get('table_q') ?? ''} />
-		<button class="btn btn-primary btn-sm" type="submit">Filter</button>
-	</form>
-	<Table head={['Name', 'Schema', 'Strategy', 'Cache TTL', 'Sort', 'Synced', '']}>
-		{#each tables as table (table.name)}
+		<Field label="Name contains" name="table_q" defaultValue={paging.params.get('table_q') ?? ''} />
+	</FilterForm>
+	<Table
+		head={['Name', 'Schema', 'Strategy', 'Cache TTL', 'Sort', 'Synced', '']}
+		caption="Tables"
+		count={rows.length}
+		empty="No table matches these filters."
+	>
+		{#each rows as table (table.name)}
 			{@const row = syncedOf(table.name)}
 			<tr>
 				<td>{table.name}</td>
@@ -85,7 +110,7 @@
 	</Table>
 	<Pager
 		page={paging.page}
-		shown={tables.length}
+		shown={rows.length}
 		total={paging.total}
 		action={paging.action}
 		params={paging.params}
@@ -94,7 +119,7 @@
 	/>
 
 	{#if can.create}
-		<form method="POST" action="?/createTable" use:enhance class="toolbar">
+		<form method="POST" action="?/createTable" use:enhance={create.submit} class="toolbar">
 			<Field label="Table" name="name" placeholder="project.dataset.table" required />
 			<label class="flex flex-col gap-1 text-sm">
 				<span>Schema</span>
@@ -107,50 +132,56 @@
 				<select class="select select-sm" name="strategy"><option>full</option><option>partitioned</option></select>
 			</label>
 			<Check label="fallback" name="fallback" />
-			<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add table</button>
+			<SubmitButton class="btn-primary btn-sm" pending={create.pending}><Plus size={14} /> Add table</SubmitButton>
 		</form>
 	{/if}
 </Section>
 
-<Modal open={editing !== null} onclose={() => (editing = null)}>
+<FormDialog
+	open={editing !== null}
+	title="Edit table {editing?.name ?? ''}"
+	action="?/updateTable"
+	submission={update}
+	onclose={() => (editing = null)}
+>
 	{#if editing}
-		<h3 class="text-lg font-bold">Edit table {editing.name}</h3>
-		<form method="POST" action="?/updateTable" use:enhance={close} class="flex flex-col gap-2 py-2">
-			<input type="hidden" name="name" value={editing.name} />
-			<label class="flex flex-col gap-1 text-sm">
-				<span>Strategy</span>
-				<select class="select w-full" name="strategy" value={editing.strategy}>
-					<option>full</option><option>partitioned</option>
-				</select>
-			</label>
-			<Field label="n" name="n" placeholder="n" value={editing.n ?? ''} />
-			<Field
-				label="Cache TTL in seconds"
-				name="cache_ttl"
-				placeholder="cache TTL in seconds"
-				value={editing.cache_ttl ?? ''}
-			/>
-			<Field
-				label="Sort columns, separated by commas"
-				name="sort"
-				placeholder="sort columns, separated by commas"
-				value={editing.sort?.join(', ') ?? ''}
-			/>
-			<Check label="fallback" name="fallback" checked={editing.fallback} />
-			<DialogActions onCancel={() => (editing = null)} />
-		</form>
+		<input type="hidden" name="name" value={editing.name} />
+		<label class="flex flex-col gap-1 text-sm">
+			<span>Strategy</span>
+			<select class="select w-full" name="strategy" value={editing.strategy}>
+				<option>full</option><option>partitioned</option>
+			</select>
+		</label>
+		<Field label="n" name="n" type="number" min="1" placeholder="n" value={editing.n ?? ''} />
+		<Field
+			label="Cache TTL in seconds"
+			name="cache_ttl"
+			type="number"
+			min="0"
+			placeholder="cache TTL in seconds"
+			value={editing.cache_ttl ?? ''}
+		/>
+		<Field
+			label="Sort columns, separated by commas"
+			name="sort"
+			placeholder="sort columns, separated by commas"
+			value={editing.sort?.join(', ') ?? ''}
+		/>
+		<Check label="fallback" name="fallback" checked={editing.fallback} />
 	{/if}
-</Modal>
+</FormDialog>
 
-<Modal open={removing !== null} onclose={() => (removing = null)}>
+<FormDialog
+	open={removing !== null}
+	title="Delete table {removing?.name ?? ''}"
+	action="?/deleteTable"
+	submission={remove}
+	onclose={() => (removing = null)}
+	confirm="Delete"
+	danger
+>
 	{#if removing}
-		<h3 class="text-lg font-bold">Delete table {removing.name}</h3>
-		<p class="py-2">
-			This deletes the view of the table, its data in DuckLake and S3, and its sync state. Nobody can undo it.
-		</p>
-		<form method="POST" action="?/deleteTable" use:enhance={close}>
-			<input type="hidden" name="name" value={removing.name} />
-			<DialogActions onCancel={() => (removing = null)} confirm="Delete" danger />
-		</form>
+		<p>This deletes the view of the table, its data in DuckLake and S3, and its sync state. Nobody can undo it.</p>
+		<input type="hidden" name="name" value={removing.name} />
 	{/if}
-</Modal>
+</FormDialog>

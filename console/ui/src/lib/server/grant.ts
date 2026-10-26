@@ -1,3 +1,4 @@
+import { destination } from '#lib/tables.js';
 import type { Grant } from '#lib/types.js';
 import type { Result } from './postgrest';
 
@@ -105,8 +106,6 @@ type Deps = {
 	now: number;
 	ttlSeconds?: number;
 };
-
-const destination = (table: string) => table.replace(/^.*\./, '');
 
 /** Authorize each table with the token of the user, then list and sign only what that allows. */
 export async function createGrant(schema: string, tables: string[], deps: Deps): Promise<Result<Grant>> {

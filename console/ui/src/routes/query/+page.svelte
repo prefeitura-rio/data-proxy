@@ -1,77 +1,57 @@
 <script lang="ts">
-	import * as v from 'valibot';
-	import { resolve } from '$app/paths';
-	import { currentTheme } from '#lib/theme.js';
-	import { Grant } from '#lib/types.js';
-	import { NotebookText } from '@lucide/svelte';
+	import { NotebookText, RotateCw } from '@lucide/svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
+	import { notebookBridge } from '#lib/notebook.svelte.js';
+	import { destination } from '#lib/tables.js';
 	import type { PageProps } from './$types';
 
-	const Ready = v.object({ type: v.literal('ready') });
+	const SCHEMA_KEY = 'query-schema';
 
 	let { data }: PageProps = $props();
 
 	let schema = $state('');
 	let chosen = $state<string[]>([]);
 	let open = $state<{ schema: string; tables: string[] } | null>(null);
-	let message = $state('');
 	let frame = $state<HTMLIFrameElement>();
+	let attempt = $state(0);
 
+	/** The notebook writes one cell for each table in the address. */
+	const address = $derived(
+		`${data.notebookOrigin ?? ''}/?${(open?.tables ?? []).map((table) => `tables=${encodeURIComponent(destination(table))}`).join('&')}`
+	);
 	const options = $derived(data.tables.filter((table) => table.schema === schema));
 	const encrypted = $derived(data.schemas.find((row) => row.name === schema)?.encrypted ?? false);
-
-	async function send(target: { schema: string; tables: string[] }) {
-		const response = await fetch(resolve('/query/grant'), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(target)
-		});
-
-		if (!response.ok) {
-			const body = v.safeParse(v.object({ message: v.string() }), await response.json().catch(() => null));
-			message =
-				response.status === 409
-					? 'The files of this schema are encrypted, so the notebook can not read them.'
-					: body.success
-						? body.output.message
-						: 'The grant failed.';
-			return;
-		}
-
-		message = '';
-		const grant = v.parse(Grant, await response.json());
-		frame?.contentWindow?.postMessage({ type: 'grant', grant }, data.notebookOrigin ?? '');
-	}
-
-	function sendTheme() {
-		frame?.contentWindow?.postMessage({ type: 'theme', theme: currentTheme() }, data.notebookOrigin ?? '');
-	}
-
-	$effect(() => {
-		const target = open;
-
-		if (!target || !data.notebookOrigin) {
-			return;
-		}
-
-		const listener = (event: MessageEvent) => {
-			if (event.origin === data.notebookOrigin && event.source === frame?.contentWindow && v.is(Ready, event.data)) {
-				sendTheme();
-				void send(target);
-			}
-		};
-		const themes = new MutationObserver(sendTheme);
-
-		themes.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-		window.addEventListener('message', listener);
-		const timer = setInterval(() => void send(target), data.grantTtlSeconds * 800);
-
-		return () => {
-			window.removeEventListener('message', listener);
-			themes.disconnect();
-			clearInterval(timer);
-		};
+	const hint = $derived(schema === '' ? 'Choose a schema.' : chosen.length === 0 ? 'Choose at least one table.' : '');
+	const bridge = notebookBridge({
+		origin: () => data.notebookOrigin,
+		ttlSeconds: () => data.grantTtlSeconds,
+		frame: () => frame,
+		target: () => open,
+		attempt: () => attempt
 	});
+
+	/** The reader gets the schema of the last visit back. */
+	$effect(() => {
+		try {
+			const stored = localStorage.getItem(SCHEMA_KEY);
+
+			if (stored !== null && data.schemas.some((row) => row.name === stored)) {
+				schema = stored;
+			}
+		} catch {
+			schema = '';
+		}
+	});
+
+	function remember() {
+		chosen = [];
+
+		try {
+			localStorage.setItem(SCHEMA_KEY, schema);
+		} catch {
+			return;
+		}
+	}
 </script>
 
 <PageHeader title="Query" />
@@ -94,12 +74,21 @@
 	>
 		<label class="flex flex-col gap-1 text-sm">
 			<span class="text-base-content/70">Schema</span>
-			<select class="select select-sm" bind:value={schema} onchange={() => (chosen = [])}>
+			<select class="select select-sm" bind:value={schema} onchange={remember}>
 				<option value="" disabled>Choose a schema</option>
 				{#each data.schemas as row (row.name)}<option value={row.name}>{row.name}</option>{/each}
 			</select>
 		</label>
-		<fieldset class="flex flex-wrap gap-3 pb-1">
+		<fieldset class="flex flex-wrap items-center gap-3 pb-1">
+			{#if options.length > 0}
+				<button
+					class="btn btn-ghost btn-xs"
+					type="button"
+					onclick={() => {
+						chosen = chosen.length === options.length ? [] : options.map((table) => table.name);
+					}}>{chosen.length === options.length ? 'Clear' : 'Select all'}</button
+				>
+			{/if}
 			{#each options as table (table.name)}
 				<label class="flex cursor-pointer items-center gap-2 text-sm"
 					><input
@@ -111,23 +100,51 @@
 				>
 			{/each}
 		</fieldset>
-		<button class="btn btn-primary btn-sm" type="submit" disabled={!schema || chosen.length === 0 || encrypted}
-			><NotebookText size={16} /> Open notebook</button
+		<button
+			class="btn btn-primary btn-sm"
+			type="submit"
+			disabled={!schema || chosen.length === 0 || encrypted}
+			aria-describedby="query-hint"><NotebookText size={16} /> Open notebook</button
 		>
 	</form>
+
+	<p id="query-hint" class="mb-4 text-sm text-base-content/70">{hint}</p>
 
 	{#if encrypted}<p class="text-warning">
 			The files of this schema are encrypted, so the notebook can not read them.
 		</p>{/if}
-	{#if message}<p role="alert" class="text-error">{message}</p>{/if}
+	{#if bridge.message}<p role="alert" class="text-error">{bridge.message}</p>{/if}
 
 	{#if open}
-		<iframe
-			bind:this={frame}
-			title="Notebook"
-			src={data.notebookOrigin}
-			sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"
-			class="h-[80vh] w-full rounded-box border border-base-300 bg-base-100 shadow-sm"
-		></iframe>
+		<div class="relative">
+			{#key attempt}
+				<iframe
+					bind:this={frame}
+					title="Notebook"
+					src={address}
+					sandbox="allow-scripts allow-same-origin allow-downloads allow-forms"
+					class="h-[80vh] w-full rounded-box border border-base-300 bg-base-100 shadow-sm"
+				></iframe>
+			{/key}
+			{#if !bridge.ready}
+				<div
+					class="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-box bg-base-100/80 backdrop-blur-sm"
+				>
+					{#if bridge.timedOut}
+						<p role="alert" class="text-error">The notebook did not answer.</p>
+						<button
+							class="btn btn-sm"
+							type="button"
+							onclick={() => {
+								attempt += 1;
+							}}><RotateCw size={14} /> Reload</button
+						>
+					{:else}
+						<span class="loading loading-md loading-spinner" aria-hidden="true"></span>
+						<p class="text-sm text-base-content/70">Starting the notebook…</p>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	{/if}
 {/if}

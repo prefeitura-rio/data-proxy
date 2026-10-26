@@ -1,23 +1,32 @@
 <script lang="ts">
+	import Time from '#lib/components/Time.svelte';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { Play } from '@lucide/svelte';
 	import Check from '#lib/components/Check.svelte';
 	import Field from '#lib/components/Field.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pager from '#lib/components/Pager.svelte';
+	import RefreshControl from '#lib/components/RefreshControl.svelte';
 	import Section from '#lib/components/Section.svelte';
+	import SubmitButton from '#lib/components/SubmitButton.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
+	import { poll } from '#lib/poll.svelte.js';
+	import { Submission } from '#lib/enhance.svelte.js';
 	import RunFilters from './RunFilters.svelte';
 	import ScheduleSection from './ScheduleSection.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+
+	const start = new Submission();
+	const refresher = poll('app:sync');
 </script>
 
-<PageHeader title="Sync" />
+<PageHeader title="Sync"><RefreshControl {refresher} /></PageHeader>
 
 <section class="mb-8 grid gap-4 md:grid-cols-3">
 	{#each data.overview as card (card.name)}
@@ -43,7 +52,7 @@
 
 {#if data.canStart}
 	<Section title="Start run">
-		<form method="POST" action="?/start" use:enhance class="toolbar flex-col items-stretch">
+		<form method="POST" action="?/start" use:enhance={start.submit} class="toolbar flex-col items-stretch">
 			<fieldset class="flex flex-wrap gap-4">
 				{#each data.overview as card (card.name)}
 					<Check label={card.name} name="schemas" value={card.name} />
@@ -56,23 +65,27 @@
 				placeholder="Tables, one on each line. Empty means every table."
 				aria-label="Tables"></textarea>
 			<div>
-				<button class="btn btn-primary" type="submit"><Play size={16} /> Start run</button>
+				<SubmitButton pending={start.pending}><Play size={16} /> Start run</SubmitButton>
 			</div>
 			{#if form?.message}<p role="alert" class="text-error">{form.message}</p>{/if}
-			{#if form?.started}<p role="status" class="text-success">Run {form.started} started.</p>{/if}
 		</form>
 	</Section>
 {/if}
 
 <Section title="Runs">
 	<RunFilters params={page.url.searchParams} schemas={data.overview.map((card) => card.name)} />
-	<Table head={['Run', 'Status', 'Started by', 'Created', 'Tasks']}>
+	<Table
+		head={['Run', 'Status', 'Started by', 'Created', 'Tasks']}
+		caption="Runs"
+		count={data.runs.length}
+		empty="No run matches these filters."
+	>
 		{#each data.runs as run (run.id)}
 			<tr>
 				<td><a class="link" href={resolve('/sync/runs/[id]', { id: run.id })}>{run.id.slice(0, 8)}</a></td>
 				<td><StatusBadge status={run.status} /></td>
 				<td>{run.started_by ?? run.schedule_name ?? ''}</td>
-				<td>{run.created_at}</td>
+				<td><Time value={run.created_at} /></td>
 				<td>{run.task_count} ({run.failed_task_count} failed)</td>
 			</tr>
 		{/each}
@@ -97,26 +110,32 @@
 	</div>
 	<div>
 		<h2 class="mb-3 text-lg font-semibold">Schedules</h2>
-		<ScheduleSection
-			schedules={data.schedules}
-			canControl={data.canControl}
-			scheduled={form?.scheduled}
-			problem={form?.scheduleMessage}
-		/>
+		<ScheduleSection schedules={data.schedules} canControl={data.canControl} problem={form?.scheduleMessage} />
 	</div>
 </section>
 
 <Section title="Errors">
-	<form method="GET" action={resolve('/sync')} class="toolbar" aria-label="Filter the errors">
-		{#each [...page.url.searchParams].filter(([key]) => key !== 'reason' && key !== 'errors_page') as [key, value] (key)}
-			<input type="hidden" name={key} {value} />
-		{/each}
-		<Field label="Reason contains" name="reason" value={page.url.searchParams.get('reason') ?? ''} />
-		<button class="btn btn-primary btn-sm" type="submit">Filter</button>
-	</form>
-	<Table head={['Time', 'Reason', 'Fields']} small>
+	<FilterForm
+		action={resolve('/sync')}
+		label="Filter the errors"
+		params={page.url.searchParams}
+		own={['reason']}
+		pages={['errors_page']}
+	>
+		<Field label="Reason contains" name="reason" defaultValue={page.url.searchParams.get('reason') ?? ''} />
+	</FilterForm>
+	<Table
+		head={['Time', 'Reason', 'Fields']}
+		small
+		caption="Errors"
+		count={data.errors.length}
+		empty="No error matches this filter."
+	>
 		{#each data.errors as row (row.id)}
-			<tr><td>{row.recorded_at}</td><td>{row.reason}</td><td><code>{JSON.stringify(row.fields)}</code></td></tr>
+			<tr
+				><td><Time value={row.recorded_at} /></td><td>{row.reason}</td><td><code>{JSON.stringify(row.fields)}</code></td
+				></tr
+			>
 		{/each}
 	</Table>
 	<Pager

@@ -23,6 +23,9 @@ const sleep = (signal: AbortSignal) =>
 		);
 	});
 
+/** The token ran out or PostgREST failed. The stream ends, and the browser reconnects with a fresh token. */
+const endStream = (): void => undefined;
+
 /** Stream the status and the new log lines of a run as server-sent events, until the run finishes or the client leaves. */
 export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 	const client = api(locals.session);
@@ -73,7 +76,7 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 					controller.enqueue(encoder.encode(frame(event)));
 				}
 			} catch {
-				// The token ran out or PostgREST failed. The stream ends, and the browser reconnects with a fresh token.
+				endStream();
 			} finally {
 				clearInterval(ping);
 				controller.close();

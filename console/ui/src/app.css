@@ -9,3 +9,13 @@
 @utility toolbar {
 	@apply flex flex-wrap items-end gap-3 rounded-box border border-base-300 bg-base-100 p-3;
 }
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	::before,
+	::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

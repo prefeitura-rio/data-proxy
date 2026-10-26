@@ -1,3 +1,5 @@
+<svelte:head><title>No access · Data Proxy</title></svelte:head>
+
 <div class="card mx-auto mt-16 max-w-md bg-base-100 card-border">
 	<div class="card-body items-center text-center">
 		<h1 class="card-title text-xl">No access</h1>

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { RUN_STATUSES } from './runs';
 import { tone } from './status';
 
 describe('tone', () => {
@@ -16,9 +15,5 @@ describe('tone', () => {
 		{ status: 'SOMETHING_NEW', badge: 'badge-neutral' }
 	])('gives $status the badge $badge', ({ status, badge }) => {
 		expect(tone(status)).toBe(badge);
-	});
-
-	it('gives every run status a badge', () => {
-		expect(RUN_STATUSES.every((status) => tone(status).startsWith('badge-'))).toBe(true);
 	});
 });

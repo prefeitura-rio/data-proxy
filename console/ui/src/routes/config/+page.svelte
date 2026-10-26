@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import { refreshAll } from '$app/navigation';
+	import { invalidate } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { Download, Upload } from '@lucide/svelte';
+	import { Download } from '@lucide/svelte';
 	import FormAlert from '#lib/components/FormAlert.svelte';
+	import SectionNav from '#lib/components/SectionNav.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import type { PageProps } from './$types';
 	import HistorySection from './HistorySection.svelte';
+	import ImportPicker from './ImportPicker.svelte';
 	import ImportPreview from './ImportPreview.svelte';
 	import RuleSection from './RuleSection.svelte';
 	import SchemaSection from './SchemaSection.svelte';
@@ -27,7 +28,7 @@
 			if (Date.now() > stop) {
 				clearInterval(timer);
 			} else {
-				void refreshAll();
+				void invalidate('app:config');
 			}
 		}, 5000);
 
@@ -39,19 +40,17 @@
 
 <PageHeader title="Config">
 	<a class="btn btn-sm" href={resolve('/config/export')} data-sveltekit-reload><Download size={16} /> Export</a>
-	{#if data.can.import}
-		<form method="POST" action="?/preview" enctype="multipart/form-data" use:enhance class="flex items-center gap-2">
-			<input
-				class="file-input file-input-sm"
-				type="file"
-				name="document"
-				accept="application/json"
-				aria-label="Document to import"
-			/>
-			<button class="btn btn-sm" type="submit"><Upload size={16} /> Preview import</button>
-		</form>
-	{/if}
+	{#if data.can.import}<ImportPicker />{/if}
 </PageHeader>
+
+<SectionNav
+	sections={[
+		{ id: 'schemas', label: 'Schemas' },
+		{ id: 'tables', label: 'Tables' },
+		{ id: 'row-rules', label: 'Row rules' },
+		{ id: 'history', label: 'History' }
+	]}
+/>
 
 <FormAlert {form} />
 

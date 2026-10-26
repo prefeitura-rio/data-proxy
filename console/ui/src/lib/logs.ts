@@ -52,3 +52,70 @@ export async function collectLines<T>(
 
 	return { rows, total };
 }
+
+export type LogFilter = { level: string; table: string; text: string };
+
+const valueText = (value: unknown): string => (typeof value === 'string' ? value : JSON.stringify(value));
+
+/** The pieces of one line: the time, the level, the schema and the table, and the message with its fields as `key=value`. */
+export function lineParts(line: LogLine) {
+	const context = [line.schema_name, line.table_name].filter((part) => part !== null && part !== '').join('.');
+	const pairs = Object.entries(line.fields ?? {})
+		.map(([name, value]) => `${name}=${valueText(value)}`)
+		.join(' ');
+
+	return {
+		time: line.logged_at,
+		level: line.level,
+		context,
+		message: pairs === '' ? line.message : `${line.message}: ${pairs}`
+	};
+}
+
+/** The text of one line: its pieces in a row, without the empty ones. */
+export const lineText = (line: LogLine): string =>
+	Object.values(lineParts(line))
+		.filter((part) => part !== '')
+		.join(' ');
+
+/** Keep the lines of one level and one table, or of every one when the filter is empty, whose text contains the text. */
+export function filterLogs(lines: LogLine[], { level, table, text }: LogFilter): LogLine[] {
+	const needle = text.trim().toLowerCase();
+
+	return lines.filter(
+		(line) =>
+			(level === '' || line.level === level) &&
+			(table === '' || line.table_name === table) &&
+			(needle === '' || lineText(line).toLowerCase().includes(needle))
+	);
+}
+
+export const levelsOf = (lines: LogLine[]): string[] => [...new Set(lines.map((line) => line.level))].sort();
+
+/** The tables that the lines name, each once, in order. */
+export const tablesOf = (lines: LogLine[]): string[] =>
+	[
+		...new Set(lines.flatMap((line) => (line.table_name === null || line.table_name === '' ? [] : [line.table_name])))
+	].sort();
+
+/** The text of the lines, as the page shows them. */
+export const logText = (lines: LogLine[]): string => lines.map(lineText).join('\n');
+
+/** The reader follows the end of the log when the box is scrolled to its bottom, within a small slack. */
+export const atBottom = (box: { scrollTop: number; clientHeight: number; scrollHeight: number }, slack = 24): boolean =>
+	box.scrollHeight - box.scrollTop - box.clientHeight <= slack;
+
+/** The text color of a log level. */
+export function levelTone(level: string): string {
+	switch (level.toUpperCase()) {
+		case 'ERROR':
+		case 'CRITICAL':
+			return 'text-error';
+		case 'WARNING':
+			return 'text-warning';
+		case 'DEBUG':
+			return 'text-base-content/50';
+		default:
+			return '';
+	}
+}

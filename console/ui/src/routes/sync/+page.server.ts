@@ -12,7 +12,8 @@ import type { Actions, PageServerLoad } from './$types';
 const PAGE = 25;
 const ERRORS_PAGE = 10;
 
-export const load: PageServerLoad = async ({ locals, parent, url }) => {
+export const load: PageServerLoad = async ({ locals, parent, url, depends }) => {
+	depends('app:sync');
 	const { permissions } = await parent();
 
 	if (!can(permissions, 'read_sync')) {
@@ -57,7 +58,7 @@ const schedule =
 			schedule_name: text(await request.formData(), 'name')
 		});
 
-		return result.ok ? { scheduled: done } : fail(result.status, { scheduleMessage: result.message });
+		return result.ok ? { toast: done } : fail(result.status, { scheduleMessage: result.message });
 	};
 
 export const actions: Actions = {
@@ -74,7 +75,7 @@ export const actions: Actions = {
 		const result = await api(locals.session).rpc('start_sync', v.string(), { schemas, tables });
 
 		return result.ok
-			? { started: result.data }
+			? { toast: `Run ${result.data} started.`, run: result.data }
 			: fail(result.status, { message: startRunMessage(result) ?? result.message });
 	}
 };

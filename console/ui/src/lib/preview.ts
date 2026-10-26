@@ -15,3 +15,17 @@ export function summaryText(changes: { action: string }[]): string {
 
 	return `${plural(inserts, 'insert')}, ${plural(updates, 'update')}, ${plural(deletes, 'delete')}, ${same} the same.`;
 }
+
+/** The badge color of the action of one change of an import. */
+export function actionTone(action: string): string {
+	switch (action) {
+		case 'insert':
+			return 'badge-success';
+		case 'update':
+			return 'badge-warning';
+		case 'delete':
+			return 'badge-error';
+		default:
+			return 'badge-neutral';
+	}
+}

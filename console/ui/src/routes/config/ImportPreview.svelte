@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { Check } from '@lucide/svelte';
+	import SubmitButton from '#lib/components/SubmitButton.svelte';
 	import Table from '#lib/components/Table.svelte';
-	import { summaryText } from '#lib/preview.js';
+	import { Submission } from '#lib/enhance.svelte.js';
+	import { actionTone, summaryText } from '#lib/preview.js';
 	import type { ImportChange } from '#lib/types.js';
 
 	let { changes, documentText }: { changes: ImportChange[]; documentText: string } = $props();
 
+	const apply = new Submission();
 	const visible = $derived(changes.filter((change) => change.action !== 'unchanged'));
 </script>
 
@@ -17,13 +20,17 @@
 		{#if visible.length > 0}
 			<Table head={['Action', 'Object', 'Schema', 'Key']} small>
 				{#each visible as change (`${change.object}|${change.key}|${change.action}`)}
-					<tr><td>{change.action}</td><td>{change.object}</td><td>{change.schema_name}</td><td>{change.key}</td></tr>
+					<tr
+						><td><span class={['badge badge-soft badge-sm', actionTone(change.action)]}>{change.action}</span></td><td
+							>{change.object}</td
+						><td>{change.schema_name}</td><td>{change.key}</td></tr
+					>
 				{/each}
 			</Table>
 		{/if}
-		<form method="POST" action="?/import" use:enhance>
+		<form method="POST" action="?/import" use:enhance={apply.submit}>
 			<input type="hidden" name="document_text" value={documentText} />
-			<button class="btn btn-primary btn-sm" type="submit"><Check size={16} /> Apply import</button>
+			<SubmitButton class="btn-primary btn-sm" pending={apply.pending}><Check size={16} /> Apply import</SubmitButton>
 		</form>
 	</div>
 </section>

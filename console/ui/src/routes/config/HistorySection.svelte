@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Time from '#lib/components/Time.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
 	import Pager from '#lib/components/Pager.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import Table from '#lib/components/Table.svelte';
@@ -19,19 +21,16 @@
 			params: { toString(): string; get(name: string): string | null };
 		};
 	} = $props();
-
-	const keep = $derived(
-		[...new URLSearchParams(paging.params.toString())].filter(
-			([key]) => !['history_schema', 'history_object', 'history_page'].includes(key)
-		)
-	);
 </script>
 
 <Section title="History">
-	<form method="GET" action={paging.action} class="toolbar" aria-label="Filter the history">
-		{#each keep as [key, value] (key)}
-			<input type="hidden" name={key} {value} />
-		{/each}
+	<FilterForm
+		action={paging.action}
+		label="Filter the history"
+		params={paging.params}
+		own={['history_schema', 'history_object']}
+		pages={['history_page']}
+	>
 		<label class="flex flex-col gap-1 text-sm">
 			<span>History of schema</span>
 			<select class="select select-sm" name="history_schema" value={paging.params.get('history_schema') ?? ''}>
@@ -48,12 +47,17 @@
 				<option value="rls">rls</option>
 			</select>
 		</label>
-		<button class="btn btn-primary btn-sm" type="submit">Filter</button>
-	</form>
-	<Table head={['Time', 'User', 'Action', 'Object', 'Schema', 'Key']} small>
+	</FilterForm>
+	<Table
+		head={['Time', 'User', 'Action', 'Object', 'Schema', 'Key']}
+		small
+		caption="History"
+		count={rows.length}
+		empty="No change matches these filters."
+	>
 		{#each rows as row (row.id)}
 			<tr>
-				<td>{row.changed_at}</td>
+				<td><Time value={row.changed_at} /></td>
 				<td>{row.changed_by ?? ''}</td>
 				<td>{row.action}</td>
 				<td>{row.object}</td>

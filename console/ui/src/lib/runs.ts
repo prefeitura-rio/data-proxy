@@ -1,3 +1,5 @@
+import { isActive } from './status';
+
 export const RUN_STATUSES = [
 	'PENDING',
 	'ENQUEUED',
@@ -8,7 +10,6 @@ export const RUN_STATUSES = [
 	'MAX_RECOVERY_ATTEMPTS_EXCEEDED'
 ];
 
-const ACTIVE = ['PENDING', 'ENQUEUED', 'DELAYED'];
 const RESUMABLE = ['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'];
 const FINISHED = ['SUCCESS', 'ERROR', ...RESUMABLE];
 
@@ -19,7 +20,7 @@ export function controlsFor(status: string, permissions: string[]): Controls {
 	const control = permissions.includes('control_sync');
 
 	return {
-		cancel: control && ACTIVE.includes(status),
+		cancel: control && isActive(status),
 		resume: control && RESUMABLE.includes(status),
 		retry: control && permissions.includes('start_sync') && FINISHED.includes(status)
 	};

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Moon, Sun } from '@lucide/svelte';
-	import { currentTheme, THEME_KEY, toggled, type Theme } from '#lib/theme.js';
+	import { currentTheme, saveTheme, toggled, type Theme } from '#lib/theme.js';
 
 	let theme = $state<Theme>('light');
 
@@ -12,12 +12,7 @@
 	function toggle() {
 		theme = toggled(theme);
 		document.documentElement.dataset.theme = theme;
-
-		try {
-			localStorage.setItem(THEME_KEY, theme);
-		} catch {
-			// The browser blocks storage. The choice then lasts until the page closes.
-		}
+		saveTheme(theme, localStorage);
 	}
 </script>
 

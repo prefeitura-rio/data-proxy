@@ -21,5 +21,8 @@ export default defineConfig({
 			csrf: { trustedOrigins: ['*'] }
 		})
 	],
-	test: { include: ['src/**/*.test.ts'] }
+	test: {
+		include: ['src/**/*.test.ts'],
+		coverage: { provider: 'v8', include: ['src/lib/**/*.ts'], exclude: ['src/**/*.test.ts'], reporter: ['text'] }
+	}
 });

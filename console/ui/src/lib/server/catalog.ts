@@ -1,6 +1,34 @@
 import pg from 'pg';
 import type { FileRow } from './grant';
 
+/** A row of the DuckLake catalog: a data file of a table, with the delete file that hides some of its rows. */
+export type CatalogRow = {
+	table_name: string;
+	schema_path: string;
+	schema_relative: boolean;
+	table_path: string;
+	table_relative: boolean;
+	file_path: string;
+	file_relative: boolean;
+	delete_path: string | null;
+	delete_relative: boolean | null;
+};
+
+/** Turn the rows of the catalog into the rows of a grant. A table with no delete file is not relative to one. */
+export function rowsToFiles(rows: CatalogRow[]): FileRow[] {
+	return rows.map((row) => ({
+		table: row.table_name,
+		schemaPath: row.schema_path,
+		schemaRelative: row.schema_relative,
+		tablePath: row.table_path,
+		tableRelative: row.table_relative,
+		filePath: row.file_path,
+		fileRelative: row.file_relative,
+		deletePath: row.delete_path,
+		deleteRelative: row.delete_relative ?? false
+	}));
+}
+
 /** List the data files and the delete files of tables at the latest snapshot, as the role of one schema. */
 export async function listFiles(
 	catalogUrl: string,
@@ -18,17 +46,7 @@ export async function listFiles(
 		const location = await client.query<{ value: string }>(
 			`SELECT value FROM ${meta}.ducklake_metadata WHERE key = 'data_path' AND scope IS NULL`
 		);
-		const files = await client.query<{
-			table_name: string;
-			schema_path: string;
-			schema_relative: boolean;
-			table_path: string;
-			table_relative: boolean;
-			file_path: string;
-			file_relative: boolean;
-			delete_path: string | null;
-			delete_relative: boolean | null;
-		}>(
+		const files = await client.query<CatalogRow>(
 			`SELECT t.table_name, s.path AS schema_path, s.path_is_relative AS schema_relative,
 				t.path AS table_path, t.path_is_relative AS table_relative,
 				f.path AS file_path, f.path_is_relative AS file_relative,
@@ -50,20 +68,7 @@ export async function listFiles(
 			throw new Error(`The catalog of ${schema} has no data path`);
 		}
 
-		return {
-			dataPath,
-			rows: files.rows.map((row) => ({
-				table: row.table_name,
-				schemaPath: row.schema_path,
-				schemaRelative: row.schema_relative,
-				tablePath: row.table_path,
-				tableRelative: row.table_relative,
-				filePath: row.file_path,
-				fileRelative: row.file_relative,
-				deletePath: row.delete_path,
-				deleteRelative: row.delete_relative ?? false
-			}))
-		};
+		return { dataPath, rows: rowsToFiles(files.rows) };
 	} finally {
 		await client.end();
 	}

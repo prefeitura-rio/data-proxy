@@ -17,3 +17,8 @@ export function tone(status: string): string {
 			return 'badge-neutral';
 	}
 }
+
+const ACTIVE = ['PENDING', 'ENQUEUED', 'DELAYED'];
+
+/** A run in one of these statuses still has work to do. */
+export const isActive = (status: string): boolean => ACTIVE.includes(status);

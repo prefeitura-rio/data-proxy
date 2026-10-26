@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { CircleAlert, CircleCheck } from '@lucide/svelte';
+	import { CircleAlert } from '@lucide/svelte';
 
-	let { form }: { form: { message?: string | null; saved?: boolean } | null | undefined } = $props();
+	let { form }: { form: { message?: string | null; toast?: string } | null | undefined } = $props();
 </script>
 
 {#if form?.message}
@@ -9,6 +9,7 @@
 		<CircleAlert size={18} />{form.message}
 	</p>
 {/if}
-{#if form?.saved}
-	<p role="status" class="mb-4 alert alert-soft alert-success text-base-content"><CircleCheck size={18} />Saved.</p>
-{/if}
+<!-- A browser without JavaScript gets no toast, so the page says what happened. -->
+<noscript
+	>{#if form?.toast}<p class="mb-4 alert alert-soft alert-success text-base-content">{form.toast}</p>{/if}</noscript
+>

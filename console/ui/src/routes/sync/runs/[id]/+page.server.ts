@@ -13,7 +13,8 @@ const PAGE = 50;
 const LINES = 500;
 const MAX_LINES = 5000;
 
-export const load: PageServerLoad = async ({ locals, parent, params, url }) => {
+export const load: PageServerLoad = async ({ locals, parent, params, url, depends }) => {
+	depends('app:run');
 	const { permissions } = await parent();
 
 	if (!can(permissions, 'read_sync')) {
@@ -71,7 +72,7 @@ const control =
 	async ({ locals, params }) => {
 		const result = await api(locals.session).rpc(name, v.unknown(), { run: params.id });
 
-		return result.ok ? { control: done } : fail(result.status, { message: controlMessage(result) ?? result.message });
+		return result.ok ? { toast: done } : fail(result.status, { message: controlMessage(result) ?? result.message });
 	};
 
 export const actions: Actions = {

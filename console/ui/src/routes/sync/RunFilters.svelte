@@ -2,11 +2,19 @@
 	import { resolve } from '$app/paths';
 	import { RUN_STATUSES } from '#lib/runs.js';
 	import Field from '#lib/components/Field.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
 
-	let { params, schemas }: { params: { get(name: string): string | null }; schemas: string[] } = $props();
+	let { params, schemas }: { params: { get(name: string): string | null; toString(): string }; schemas: string[] } =
+		$props();
 </script>
 
-<form method="GET" action={resolve('/sync')} class="toolbar" aria-label="Filter the runs">
+<FilterForm
+	action={resolve('/sync')}
+	label="Filter the runs"
+	{params}
+	own={['status', 'schema', 'from', 'to', 'id']}
+	pages={['page']}
+>
 	<label class="flex flex-col gap-1 text-sm">
 		<span>Status</span>
 		<select class="select select-sm" name="status" value={params.get('status') ?? ''}>
@@ -21,9 +29,7 @@
 			{#each schemas as schema (schema)}<option value={schema}>{schema}</option>{/each}
 		</select>
 	</label>
-	<Field label="From" name="from" type="date" value={params.get('from') ?? ''} />
-	<Field label="To" name="to" type="date" value={params.get('to') ?? ''} />
-	<Field label="Run id starts with" name="id" value={params.get('id') ?? ''} />
-	<button class="btn btn-primary btn-sm" type="submit">Filter</button>
-	<a class="btn btn-sm" href={resolve('/sync')}>Clear</a>
-</form>
+	<Field label="From" name="from" type="date" defaultValue={params.get('from') ?? ''} />
+	<Field label="To" name="to" type="date" defaultValue={params.get('to') ?? ''} />
+	<Field label="Run id starts with" name="id" defaultValue={params.get('id') ?? ''} />
+</FilterForm>

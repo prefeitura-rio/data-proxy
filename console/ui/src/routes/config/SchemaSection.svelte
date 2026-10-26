@@ -1,14 +1,16 @@
 <script lang="ts">
-	import { enhance, type SubmitFunction } from '$app/forms';
+	import { enhance } from '$app/forms';
 	import { Plus } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import Check from '#lib/components/Check.svelte';
 	import DeleteButton from '#lib/components/DeleteButton.svelte';
-	import DialogActions from '#lib/components/DialogActions.svelte';
 	import EditButton from '#lib/components/EditButton.svelte';
 	import Field from '#lib/components/Field.svelte';
-	import Modal from '#lib/components/Modal.svelte';
+	import FormDialog from '#lib/components/FormDialog.svelte';
 	import Section from '#lib/components/Section.svelte';
+	import SubmitButton from '#lib/components/SubmitButton.svelte';
 	import Table from '#lib/components/Table.svelte';
+	import { Submission } from '#lib/enhance.svelte.js';
 	import type { Can } from '#lib/permissions.js';
 	import type { Health, SchemaRow } from '#lib/types.js';
 
@@ -17,25 +19,45 @@
 	let editing = $state<SchemaRow | null>(null);
 	let removing = $state<SchemaRow | null>(null);
 	let typed = $state('');
+	const gone = new SvelteSet<string>();
+
+	const rows = $derived(schemas.filter((schema) => !gone.has(schema.name)));
+	const create = new Submission();
+	const update = new Submission({
+		inline: true,
+		onsuccess: () => {
+			editing = null;
+		}
+	});
+	const remove = new Submission({
+		inline: true,
+		begin: () => {
+			const name = removing?.name ?? '';
+
+			gone.add(name);
+
+			return () => gone.delete(name);
+		},
+		onsuccess: () => {
+			removing = null;
+		}
+	});
 
 	const statusOf = (name: string) => {
 		const row = health.find((item) => item.name === name);
 
 		return row?.schema_exists && row.access_policy ? `ready, ${row.view_count} views` : 'provisioning';
 	};
-
-	const close: SubmitFunction =
-		() =>
-		async ({ update }) => {
-			editing = null;
-			removing = null;
-			await update();
-		};
 </script>
 
 <Section title="Schemas">
-	<Table head={['Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}>
-		{#each schemas as schema (schema.name)}
+	<Table
+		head={['Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}
+		caption="Schemas"
+		count={rows.length}
+		empty="No schema yet."
+	>
+		{#each rows as schema (schema.name)}
 			<tr>
 				<td>{schema.name}</td>
 				<td>{schema.source}</td>
@@ -48,8 +70,14 @@
 						class={[
 							'badge badge-soft badge-sm',
 							statusOf(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
-						]}>{statusOf(schema.name)}</span
+						]}
 					>
+						{#if statusOf(schema.name) === 'provisioning'}<span
+								class="loading loading-xs loading-spinner"
+								aria-hidden="true"
+							></span>{/if}
+						{statusOf(schema.name)}
+					</span>
 				</td>
 				<td class="whitespace-nowrap">
 					{#if can.edit}<EditButton onclick={() => (editing = schema)} />{/if}
@@ -67,45 +95,46 @@
 	</Table>
 
 	{#if can.create}
-		<form method="POST" action="?/createSchema" use:enhance class="toolbar">
+		<form method="POST" action="?/createSchema" use:enhance={create.submit} class="toolbar">
 			<Field label="Name" name="name" placeholder="name" required />
 			<Field label="Source" name="source" placeholder="source (bigquery)" />
 			<Field label="Claim" name="claim" placeholder="claim" />
 			<Check label="encrypted" name="encrypted" />
-			<button class="btn btn-primary btn-sm" type="submit"><Plus size={14} /> Add schema</button>
+			<SubmitButton class="btn-primary btn-sm" pending={create.pending}><Plus size={14} /> Add schema</SubmitButton>
 		</form>
 	{/if}
 </Section>
 
-<Modal open={editing !== null} onclose={() => (editing = null)}>
+<FormDialog
+	open={editing !== null}
+	title="Edit schema {editing?.name ?? ''}"
+	action="?/updateSchema"
+	submission={update}
+	onclose={() => (editing = null)}
+>
 	{#if editing}
-		<h3 class="text-lg font-bold">Edit schema {editing.name}</h3>
-		<form method="POST" action="?/updateSchema" use:enhance={close} class="flex flex-col gap-2 py-2">
-			<input type="hidden" name="name" value={editing.name} />
-			<Field label="Claim" name="claim" placeholder="claim" value={editing.claim ?? ''} />
-			<Check label="encrypted" name="encrypted" checked={editing.encrypted} />
-			<DialogActions onCancel={() => (editing = null)} />
-		</form>
+		<input type="hidden" name="name" value={editing.name} />
+		<Field label="Claim" name="claim" placeholder="claim" value={editing.claim ?? ''} />
+		<Check label="encrypted" name="encrypted" checked={editing.encrypted} />
 	{/if}
-</Modal>
+</FormDialog>
 
-<Modal open={removing !== null} onclose={() => (removing = null)}>
+<FormDialog
+	open={removing !== null}
+	title="Delete schema {removing?.name ?? ''}"
+	action="?/deleteSchema"
+	submission={remove}
+	onclose={() => (removing = null)}
+	confirm="Delete"
+	danger
+	disabled={typed !== removing?.name}
+>
 	{#if removing}
-		<h3 class="text-lg font-bold">Delete schema {removing.name}</h3>
-		<p class="py-2">
+		<p>
 			This deletes the data files of the schema in S3, its schema in the catalog, and its schema in the database. Nobody
 			can undo it. Type the name of the schema to confirm.
 		</p>
-		<form method="POST" action="?/deleteSchema" use:enhance={close}>
-			<input type="hidden" name="name" value={removing.name} />
-			<input
-				class="input w-full"
-				name="confirm"
-				bind:value={typed}
-				autocomplete="off"
-				aria-label="Name of the schema"
-			/>
-			<DialogActions onCancel={() => (removing = null)} confirm="Delete" danger disabled={typed !== removing.name} />
-		</form>
+		<input type="hidden" name="name" value={removing.name} />
+		<input class="input w-full" name="confirm" bind:value={typed} autocomplete="off" aria-label="Name of the schema" />
 	{/if}
-</Modal>
+</FormDialog>

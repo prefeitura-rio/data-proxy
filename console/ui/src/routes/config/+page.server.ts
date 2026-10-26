@@ -13,7 +13,8 @@ const TABLES_PAGE = 25;
 const HISTORY_PAGE = 25;
 const OBJECTS = ['schemas', 'tables', 'rls'];
 
-export const load: PageServerLoad = async ({ locals, parent, url }) => {
+export const load: PageServerLoad = async ({ locals, parent, url, depends }) => {
+	depends('app:config');
 	const { permissions } = await parent();
 
 	if (!can(permissions, 'read_config')) {
@@ -39,18 +40,18 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 		(schemaRows.some((row) => row.name === historySchema)
 			? `&schema_name=eq.${encodeURIComponent(historySchema)}`
 			: '') + (OBJECTS.includes(historyObject) ? `&object=eq.${historyObject}` : '');
-	const history = need(
-		await client.page(
+	const [historyAnswer, shownAnswer] = await Promise.all([
+		client.page(
 			`/config_history?order=changed_at.desc,id.desc&${rangeQuery(historyPage)}${historyFilter}`,
 			v.array(HistoryRow)
-		)
-	);
-	const shown = need(
-		await client.page(
+		),
+		client.page(
 			`/tables?order=schema,name&${rangeQuery(tablesPage)}${schemaFilter}${containsFilter(['name'], url.searchParams.get('table_q') ?? '')}`,
 			v.array(TableRow)
 		)
-	);
+	]);
+	const history = need(historyAnswer);
+	const shown = need(shownAnswer);
 	const synced =
 		shown.rows.length === 0
 			? []
@@ -83,7 +84,7 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 };
 
 const done = (result: Result<unknown>) =>
-	result.ok ? { saved: true } : fail(result.status, { message: writeMessage(result) });
+	result.ok ? { toast: 'Saved.' } : fail(result.status, { message: writeMessage(result) });
 
 /** Read the document of an import from the uploaded file, or from the text that the preview kept. */
 async function documentText(form: FormData): Promise<string | null> {

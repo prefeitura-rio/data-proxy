@@ -14,3 +14,12 @@ export const toggled = (theme: Theme): Theme => (theme === 'dark' ? 'light' : 'd
 /** The theme that the page shows now, from the attribute that the toggle and the first script of the page set. */
 export const currentTheme = (): Theme =>
 	themeOf(document.documentElement.dataset.theme ?? null, matchMedia('(prefers-color-scheme: dark)').matches);
+
+/** Save the choice of the user. A browser that blocks its storage keeps the choice until the page closes. */
+export const saveTheme = (theme: Theme, storage: Pick<Storage, 'setItem'>): void => {
+	try {
+		storage.setItem(THEME_KEY, theme);
+	} catch {
+		return;
+	}
+};

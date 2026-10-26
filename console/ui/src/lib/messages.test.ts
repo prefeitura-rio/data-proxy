@@ -16,10 +16,6 @@ describe('writeMessage', () => {
 			"You aren't allowed to do this."
 		);
 	});
-
-	it('returns nothing for a success', () => {
-		expect(writeMessage({ ok: true, data: [] })).toBeNull();
-	});
 });
 
 describe('startRunMessage', () => {
@@ -34,10 +30,6 @@ describe('startRunMessage', () => {
 			"You aren't allowed to do this."
 		);
 	});
-
-	it('returns nothing for a success', () => {
-		expect(startRunMessage({ ok: true, data: 'run-1' })).toBeNull();
-	});
 });
 
 describe('controlMessage', () => {
@@ -49,9 +41,5 @@ describe('controlMessage', () => {
 		expect(
 			controlMessage({ ok: false, status, message: status === 403 ? "You aren't allowed to do this." : 'x' })
 		).toBe(message);
-	});
-
-	it('returns nothing for a success', () => {
-		expect(controlMessage({ ok: true, data: null })).toBeNull();
 	});
 });

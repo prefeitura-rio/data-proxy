@@ -24,15 +24,15 @@
 </script>
 
 <nav class="mt-3 flex items-center gap-2 text-sm" aria-label="Pages">
-	<span class="text-base-content/70" data-testid="range">{rangeText(page, shown, total)}</span>
+	<span class="text-base-content/70" data-testid="range" aria-live="polite">{rangeText(page, shown, total)}</span>
 	{#if page.page > 0}
-		<form method="GET" {action}>
+		<form method="GET" {action} data-sveltekit-noscroll data-sveltekit-keepfocus>
 			{#each fields(page.page - 1) as [name, value] (name)}<input type="hidden" {name} {value} />{/each}
 			<button class="btn btn-sm" type="submit">Newer</button>
 		</form>
 	{/if}
 	{#if older}
-		<form method="GET" {action}>
+		<form method="GET" {action} data-sveltekit-noscroll data-sveltekit-keepfocus>
 			{#each fields(page.page + 1) as [name, value] (name)}<input type="hidden" {name} {value} />{/each}
 			<button class="btn btn-sm" type="submit">Older</button>
 		</form>

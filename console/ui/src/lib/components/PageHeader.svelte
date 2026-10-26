@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	let { title, children }: { title: string; children?: Snippet } = $props();
+	let { title, label = title, children }: { title: string; label?: string; children?: Snippet } = $props();
 </script>
+
+<svelte:head><title>{label} · Data Proxy</title></svelte:head>
 
 <header class="mb-6 flex flex-wrap items-center justify-between gap-3">
 	<h1 class="text-2xl font-semibold tracking-tight">{title}</h1>

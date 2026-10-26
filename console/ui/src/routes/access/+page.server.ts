@@ -75,7 +75,7 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 };
 
 const done = (result: Result<unknown>) =>
-	result.ok ? { saved: true } : fail(result.status, { message: writeMessage(result) });
+	result.ok ? { toast: 'Saved.' } : fail(result.status, { message: writeMessage(result) });
 
 const match = (form: FormData, prefix: string) =>
 	['subject', 'unit_type', 'unit_id']
