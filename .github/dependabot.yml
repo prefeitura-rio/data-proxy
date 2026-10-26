@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-devenv
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: npm
+    directories:
+      - /console/ui
+      - /console/notebooks
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: uv
+    directories:
+      - /sync
+      - /console/notebooks
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
