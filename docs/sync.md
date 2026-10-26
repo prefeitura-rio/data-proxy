@@ -124,7 +124,7 @@ Set `fallback: true` on a partitioned table to let its configured schema source 
 }
 ```
 
-`fallback` is invalid on full tables. It's also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy.md).
+`fallback` is invalid on full tables. It's also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy/index.md).
 
 ## Adding a source
 

@@ -38,66 +38,35 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 | `processes/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control`, so the browser tests run cancel, resume and the schedule actions without a sync run |
 | `processes/console` (notebooks) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin |
 
-`enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/` and then the browser test of `console/notebooks/`. The task `notebooks:check-site` runs first. It builds the variant of the site that the browser test opens (`dist-check`, with `--mode run`).
+`enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/`. The notebooks have no tests.
 
-- The Vitest tests and the unit tests of the notebooks are the tasks `test:console` and `test:nb`, which `test:all` runs.
-- Set `EXPECTED_ROWS_FILE` and the other variables in the `env` of the console profile.
+- The Vitest tests are the task `test:console`, which `test:all` runs.
+- Set the variables of the tests in the `env` of the console profile.
 - The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend.
-- The test stack sets `GRANT_TTL_SECONDS` to 30, so the scenario that renews the links takes about 40 seconds. The 83 scenarios run on four workers, one feature file for each worker, in about 50 seconds.
-- Feature files run side by side, so two files must not change the same data. Only `config.feature` creates the schema `other`. A scenario that does it has the tag `@other-schema`, and a hook deletes the rows afterwards. The tag `@import-ttl` restores the cache TTL of the `test` tables.
+- The 83 scenarios run in about 25 seconds on half of the cores, after about 25 seconds for the processes to start. More workers don't help, because the machine is busy with the stack and the browsers. `playwright.config.ts` has three projects. The project `auth` signs each test user in once (`tests/setup/auth.setup.ts`) and saves the cookies in `test-results/.auth/`. The project `parallel` runs every scenario in parallel (`fullyParallel`). The project `shared` runs last, on one worker, and it has the scenarios that change data that every other scenario reads: the schedule, the token lifespan and the sync document (`tests/features/shared/`).
+- Each scenario of `new-schema.feature` adds a schema of its own (`other_delete` and `other_life`, for example), so the scenarios run in parallel. The user `web_other` has all these names in its `schemas` claim. The hook of the tag `@new-schema` deletes the schemas that its scenario added, and no others. The tag `@import-ttl` restores the cache TTL of the `test` tables.
+- The steps `I sign in as` and `I am signed in as` add the saved cookies of the user to the context of the scenario, so a scenario needs no round trip to the identity provider. A scenario with the tag `@fresh-login` signs in through the page, because it signs out or changes the token lifespan. `I am signed in as` opens no page, for a scenario that only sends requests.
+- The layout sets `data-hydrated` on `<html>` when the page runs its scripts. A step that types or selects waits for it (`hydrated` in `tests/fixtures.ts`). Without it, a field that a step fills before the scripts run loses its value.
+- The fixture `world` sets the refresh interval of the Sync pages to 2 seconds, so a scenario that waits for a live update takes about 2 seconds. The config asks the browser for reduced motion. The console and DaisyUI then turn their animations off, and Playwright doesn't wait for an animation to end before it selects.
+- The test stack sets `GRANT_TTL_SECONDS` to 30.
 - A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `E2E_DATABASE_URL`.
 - The scenario that shortens the token lifespan (`@short-token`) changes the client `data-proxy-console-web` in Keycloak through the admin API. A hook restores the old value.
 - The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set. `@playwright/test` and the Python `playwright` package therefore stay at the versions of that package.
 
-To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. Keycloak imports the realm at every start, which takes about 40 seconds.
-
-### Run the console locally
-
-To use the console in a browser, start the same stack without the tests:
-
-```bash
-devenv --profile console up
-```
-
-Run the console in the background with `devenv --profile console up -d`, wait with `devenv processes wait`, and stop it with `devenv down`. The command first runs the builds of the console and the notebooks and shows their output. Then it starts the processes. The first start takes one to two minutes. A shell in the `console` profile runs the same builds, and later runs skip them until a source changes.
-
-The console is at `http://console.localhost:13001/console`. When the gateway is ready, `up` opens that address in your browser, with `open` on macOS and `xdg-open` on Linux. The tests don't open it. If the port is busy, devenv uses the next free port and shows it in the process list.
-
-Sign in as `admin` (role `dp_admin`, schema `test`, password `admin`). The tests use five more users with the password `web-test`:
-
-- `web_admin`: role `dp_admin`, schema `test`.
-- `web_viewer`: role `dp_console`.
-- `web_api`: role `dp_api`, no console permission.
-- `web_policy`: role `dp_policy`, the Access tab only.
-- `web_other`: role `dp_admin`, schema `other`.
-
-The seed adds 30 enqueued sync runs, two finished sync runs, 60 access policies, 15 errors and 32 history rows. It also adds two `test` tables with 5000 and 300 rows. The first finished sync run (`00000000-0000-4000-8000-0000000000f1`) has 61 tasks, 64 steps and 600 log lines. The second (`00000000-0000-4000-8000-0000000000f2`) has 5200 log lines, for the limit of 5000 lines.
-
-No sync worker runs, so a sync run that you start stays `ENQUEUED`. The worker `control-worker` handles only the queue `control`, so cancel, resume and the schedule actions work.
+To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='health check' devenv --profile console test`. `PLAYWRIGHT_ARGS` passes other options to `playwright test`, such as `--fail-on-flaky-tests`. Keycloak starts in about 12 seconds and imports the realm at every start. `--repeat-each` doesn't suit the project `shared`, because it runs the copies on different workers. Run the command several times to look for a flaky scenario. The report of the last run is `console/ui/test-results/report.json`.
 
 ## Notebooks
 
-`console/notebooks/` builds the static site of the query tab ([Notebooks](../notebooks.md)). `devenv --profile console tasks run test:nb` runs its unit tests. The browser test of the built site runs in `devenv --profile console test`. To run it alone:
-
-```bash
-cd console/notebooks
-nu build.nu notebooks/check.py dist-check --mode run
-pnpm exec playwright test
-```
-
-The test serves the built site under the real policy, with a stub of the console on another origin. It checks four things:
-
-- The policy blocks no request.
-- The delete files apply (2700 of 3000 rows).
-- The page ignores a message from another origin.
-- Python gets at most 100000 rows.
+`console/notebooks/` builds the static site of the query tab ([Notebooks](../notebooks.md)). `devenv --profile console tasks run lint:nb` checks and lints its TypeScript. The notebooks have no tests.
 
 ## Develop
 
 The section [Console](#console) lists the commands of the `console` profile and of the tests. The migrations are in [Migrations](migrations.md).
 
+See [Run the console locally](stack.md) to start the console in a browser.
+
 <!-- nav:start -->
 ---
 
-[Previous: Checks](checks.md) | [Next: Nix setup](nix.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Proxy rocks](rocks.md) | [Next: Run the console locally](stack.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

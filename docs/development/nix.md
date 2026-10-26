@@ -32,5 +32,5 @@ A file that Nix builds from values is a `files` entry. The entries are `sync/.en
 <!-- nav:start -->
 ---
 
-[Previous: Frontend](frontend.md) | [Next: Database migrations](migrations.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Run the console locally](stack.md) | [Next: Database migrations](migrations.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

@@ -35,7 +35,7 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Proxy](proxy.md#query-pushdown).
+Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Query pushdown](proxy/pushdown.md).
 
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
 
@@ -101,5 +101,5 @@ See [Security](security/index.md) for token and access-policy setup.
 <!-- nav:start -->
 ---
 
-[Previous: Sync](sync.md) | [Next: Proxy](proxy.md) | [Home](index.md)
+[Previous: Sync](sync.md) | [Next: Proxy](proxy/index.md) | [Home](index.md)
 <!-- nav:end -->

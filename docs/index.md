@@ -19,7 +19,7 @@ Read these four pages in this order:
   - [Console layer](architecture/console.md) — The web app, its sign-in and the run control.
 - [Sync](sync.md) — The `sync.json` settings, table strategies, partitions and DuckLake sort keys.
 - [Using the API](using.md) — PostgREST profiles, queries and response headers.
-- [Proxy](proxy.md) — Routing headers and identity-aware caching.
+- [Proxy](proxy/index.md) — Routing headers and identity-aware caching.
 - [Database Schema](database.md) — PostgreSQL roles, tables, access policies and S3 access.
 - [Data model](model.md) — Diagrams of the tables, columns and keys.
 - [Glossary](glossary.md) — The terms and the tools that the pages use.

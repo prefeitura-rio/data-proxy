@@ -82,5 +82,5 @@ DBOS deduplicates the scheduled workflow across orchestrator replicas. The sync 
 <!-- nav:start -->
 ---
 
-[Previous: Environment Variables](environment.md) | [Next: Metrics](metrics.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Proxy variables](proxy.md) | [Next: Metrics](metrics.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

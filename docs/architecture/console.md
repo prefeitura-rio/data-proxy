@@ -13,7 +13,7 @@ The console shows the system to people and changes its configuration. It's a web
 | `console` schema | The views, the functions and the configuration tables. The database checks every permission. |
 | Sync worker | Takes the workflows that the console queues. A worker that listens to the `control` queue runs the control actions. |
 | `ducklake` database | The console reads the file lists, and it stores the sealed storage secrets in `signer.keys`. |
-| SeaweedFS | Holds the Parquet files. The console creates one storage identity for each schema. |
+| SeaweedFS | Stores the Parquet files. The console creates one storage identity for each schema. |
 
 ## Console sequence
 

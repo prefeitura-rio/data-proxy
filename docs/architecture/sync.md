@@ -20,6 +20,23 @@ A run without a data change still reconciles the views of its scope. Each view s
 
 Seed and publish run concurrently. When a view is added or removed, the workflow tells PostgREST to reload its schema after every publisher finishes. The database first waits until every standby replayed the change. A new snapshot alone reloads nothing.
 
+## Run log
+
+Each workflow writes its log lines to a DBOS stream, and the console shows the lines of every workflow of a run in one list. A line carries the schema and the table of its workflow, so the console filters by table.
+
+A dump task writes these lines:
+
+| Line | Fields |
+| --- | --- |
+| `Dump started` | `task_id` |
+| `Extraction started` | `task_id`, `paths` |
+| `Source described` | `task_id`, `columns` |
+| `Partition written` | `task_id`, `path`, `part`, `of`, `rows`, `bytes`, `seconds` |
+| `Extraction attempt failed` | `task_id`, `error`. It's a warning, and each retry of the step writes one. |
+| `Extraction completed`, `Dump completed` | `task_id`, and `status` for the second line. |
+
+A publish writes `Publish started`, `DuckLake commit started`, one `Table published` for each table, and `DuckLake commit completed` with `published_tables`, `failed_paths` and `snapshot_id`.
+
 ## Scaling and access
 
 KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. It has no other rights. The workflow recovery needs the pod list, and the provision step needs the CronJob and the Jobs.

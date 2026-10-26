@@ -36,7 +36,7 @@ cluster
 
 `sync/` is one flat Python project: `sync/pyproject.toml`, the lock file `sync/uv.lock`, the environment `sync/.venv`, the code in `sync/src/sync`, and the tests in `sync/tests`.
 
-`ruff`, `basedpyright`, `pyrefly`, `complexipy`, `vulture` and `pytest` all read their settings from that one `pyproject.toml`.
+`ruff`, `pyrefly`, `complexipy`, `vulture` and `pytest` all read their settings from that one `pyproject.toml`.
 
 `uv sync` prepares the environment. The sync image runs `uv sync --frozen --no-dev --no-install-project` and sets `PYTHONPATH=/app/src`. The chart starts the worker with `python -m sync.dbos.main`.
 

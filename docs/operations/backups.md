@@ -68,7 +68,7 @@ The whole database, with the DuckLake catalogs and the console data, has its own
 
 The plugin must run in the cluster before you turn the backup on, because the chart creates an `ObjectStore` that the plugin owns. The plugin has its own Helm chart, `plugin-barman-cloud`, in the namespace of the CNPG operator.
 
-| Value | Holds |
+| Value | Contains |
 | --- | --- |
 | `cnpg.backup.bucket`, `cnpg.backup.destinationPath` | The bucket and the prefix of the backups. |
 | `cnpg.backup.endpointURL` | The S3-compatible endpoint. For GCS, use `https://storage.googleapis.com`. |

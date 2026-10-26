@@ -11,7 +11,7 @@ The documentation is a wiki of linked Markdown files in `docs/`. Start at [docs/
 - [Architecture](docs/architecture/index.md) — components, DuckLake pieces, and the serving, sync and console layers.
 - [Sync](docs/sync.md) — `sync.json`, table strategies, partition batches, and DuckLake sort keys.
 - [Using the API](docs/using.md) — PostgREST profiles, queries, and response headers.
-- [Proxy](docs/proxy.md) — routing headers and identity-aware caching.
+- [Proxy](docs/proxy/index.md) — routing headers and identity-aware caching.
 - [Database Schema](docs/database.md) — PostgreSQL roles, tables, policies, and S3 access.
 - [Notebooks](docs/notebooks.md) — the notebook site of the query tab.
 - [SQL Templates](docs/sql.md) — how the SQL templates are named, written, and rendered.

@@ -10,7 +10,7 @@ The console answers on the `/console` path of `ingress.host`, the host of the AP
 
 Both use the image `console.image`, and the notebooks Deployment starts it with another command.
 
-| Value | Holds |
+| Value | Contains |
 | --- | --- |
 | `ingress.host`, `ingress.scheme` | The public origin of the API, the docs and the console. |
 | `console.oidc.issuer`, `console.oidc.clientId`, `console.oidc.clientSecret` | The confidential client of the identity provider. `console.oidc.existingSecret` names a Secret with `OIDC_CLIENT_SECRET` and `COOKIE_SECRET` instead. |

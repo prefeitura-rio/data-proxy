@@ -15,7 +15,7 @@ curl \
 
 The proxy sends every request to PostgREST, and PgDog sends a `GET` to a standby. Rows from the source follow the same authentication and row-level security (RLS) rules as DuckLake rows. [Request sequence](../architecture/serving.md#request-sequence) shows the whole read.
 
-See [Proxy](../proxy.md) for the routing and cache rules. `/access_policy` is never response-cached.
+See [Proxy](../proxy/index.md) for the routing and cache rules. `/access_policy` is never response-cached.
 
 ## Expected results
 

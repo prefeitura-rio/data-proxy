@@ -13,7 +13,7 @@
 | Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`. Every source uses the same JWT and row-level security (RLS) rules. |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |
 
-See [Using the API](../using.md), [Database Schema](../database.md), and [Proxy](../proxy.md) for related details.
+See [Using the API](../using.md), [Database Schema](../database.md), and [Proxy](../proxy/index.md) for related details.
 
 ---
 

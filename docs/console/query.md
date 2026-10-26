@@ -6,7 +6,7 @@ The query tab lets a user query the synced data in a notebook. These sections de
 
 A role with `read_files` queries the synced data in a notebook in the browser. The notebook is a marimo export that runs Python (Pyodide) and DuckDB compiled to WebAssembly. The files stay in object storage, and the browser reads them directly.
 
-The notebook runs on its own origin, `notebooks.<domain>`, which is a different site from the console, and the console page embeds it in an `iframe`. The notebook has no token and no cookie of the console.
+The notebook runs on its own origin, `notebooks.<domain>`, which is a different site from the console, and the console page embeds it in an `iframe`. The notebook has no token and no cookie of the console. The page opens it with the chosen tables in the address, and the notebook shows one cell for each table ([Notebooks](../notebooks.md)).
 
 The grant that the console server builds for one schema has four steps:
 

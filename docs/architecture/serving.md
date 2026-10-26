@@ -7,7 +7,7 @@ The serving layer answers API reads. It checks the token, uses the cache, and re
 | Part | Work |
 | --- | --- |
 | Istio gateway | Checks the JSON Web Token (JWT) signature, issuer and audience. |
-| Proxy | Looks up the cache, sends the filter to the database, and retries a failed read. See [Proxy](../proxy.md). |
+| Proxy | Looks up the cache, sends the filter to the database, and retries a failed read. See [Proxy](../proxy/index.md). |
 | Redis | Stores the cached answers. Redis is a cache and never a source of truth. |
 | PostgREST | Switches to the database role of the token, runs `pre_request`, and reads one view for each table. |
 | PgDog | Pools the connections and routes each transaction. See [What PgDog does](#what-pgdog-does). |

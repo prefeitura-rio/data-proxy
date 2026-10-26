@@ -22,7 +22,21 @@
       "page": "using.md"
     },
     {
-      "page": "proxy.md"
+      "page": "proxy/index.md",
+      "children": [
+        {
+          "page": "proxy/pushdown.md"
+        },
+        {
+          "page": "proxy/cache.md"
+        },
+        {
+          "page": "proxy/limits.md"
+        },
+        {
+          "page": "proxy/reload.md"
+        }
+      ]
     },
     {
       "page": "database.md"
@@ -78,6 +92,9 @@
           "page": "console/app.md"
         },
         {
+          "page": "console/theme.md"
+        },
+        {
           "page": "console/views.md"
         },
         {
@@ -110,7 +127,13 @@
           "page": "development/checks.md"
         },
         {
+          "page": "development/rocks.md"
+        },
+        {
           "page": "development/frontend.md"
+        },
+        {
+          "page": "development/stack.md"
         },
         {
           "page": "development/nix.md"
@@ -163,6 +186,9 @@
         },
         {
           "page": "operations/environment.md"
+        },
+        {
+          "page": "operations/proxy.md"
         },
         {
           "page": "operations/keda.md"

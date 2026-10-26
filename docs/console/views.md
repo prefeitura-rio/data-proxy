@@ -47,5 +47,5 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 <!-- nav:start -->
 ---
 
-[Previous: Application](app.md) | [Next: Control a run and a schedule](runs.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Theme](theme.md) | [Next: Control a run and a schedule](runs.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

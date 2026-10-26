@@ -19,11 +19,17 @@ The site is a static folder. It contains a marimo notebook, DuckDB compiled to W
 
 The notebook follows the theme of the console. The console sends the message `theme` (`light` or `dark`) when the notebook is ready and each time that the user switches the theme. The bridge sets the attribute `data-vscode-theme-kind` on the body. marimo reads this attribute for its VS Code extension, and it changes the theme immediately without a reload. The notebook starts in the light theme until the first message arrives.
 
-The Python helper is in `console/notebooks/notebooks/query.py`. The notebook has a setup block with the imports (`marimo`, `polars` and `pyodide.code.run_js`) and the number of preview rows. `sql(query, limit=100_000)` runs SQL in DuckDB-WASM and returns at most `limit` rows as a Polars DataFrame. The Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `sql` raises an error that tells the user to open the notebook again.
+The Python helper is `console/notebooks/notebooks/lib.py`, and the site serves it at `/lib.py`. It starts DuckDB-WASM when a notebook imports it, and it has one function. `query(sql, limit=100_000)` waits for the first grant, runs SQL in DuckDB-WASM and returns at most `limit` rows as a Polars DataFrame. The Python heap is the weak point of the page. A scan of a large table stays in DuckDB-WASM. When the links expire, `query` raises an error that tells the user to open the notebook again. When a table has no data files yet, it raises an error that tells the user to sync the table.
+
+The notebook (`notebooks/query.py`) keeps almost no code. It has a hidden setup block that loads `lib.py` and binds `query`, and one template cell. A cell needs `await`, because DuckDB-WASM runs in another worker, and a cell shows the DataFrame as a table.
+
+```python
+await query('select * from "people" limit 15')
+```
+
+The notebook is a static export, so the server writes the cells. The console opens the notebook with the tables that the user chose in the address, `/?tables=people&tables=orders`. For the page of the notebook, `server.ts` decodes the code in `<marimo-code>`, repeats the template cell once for each table, and encodes the code again. A name with a character other than a letter, a digit, `_` or `-` is dropped, so a link can't add code. The names are the ones that the grant uses: the part of the table name after its last dot.
 
 The notebook uses no pandas. DuckDB-WASM in the page does the work and polars stores the result. The Python package `duckdb` also runs in Pyodide. It can't see the signed links that the helper registers, and it doesn't apply the delete files.
-
-The first cell starts DuckDB-WASM and waits for the grant. It lists the tables of the grant, and when no table has data files, it says so and stops. The last cell shows the first 50 rows of each table that the user chose, with one section for each table. A notebook has a fixed list of cells, so one cell makes the sections in a loop.
 
 ## Build
 
@@ -38,7 +44,7 @@ The script does these things:
 - It installs the locked dependencies and exports the notebook.
 - It bundles the two TypeScript scripts with DuckDB-WASM (`bundle.ts`, esbuild).
 - It downloads the Parquet extension for the pinned DuckDB version.
-- It adds the two scripts to `index.html`.
+- It adds the two scripts to `index.html`, and it copies `lib.py` to the site.
 
 The build pins the versions: marimo and Playwright in `pyproject.toml`, DuckDB-WASM in `package.json`. The export needs a Chromium. `Containerfile.console` builds the site in a first stage that has one, and copies it into the image of the console.
 
@@ -55,17 +61,6 @@ default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe
 ```
 
 `console/notebooks/csp.ts` builds it for the browser test, and the chart builds the same string for the Deployment. `console/notebooks/server.ts` sends it from the setting `CSP`. The server also answers `/config.js` with the origin of the console, which `bridge.ts` reads. The page needs `unsafe-eval` and `unsafe-inline` because Pyodide and marimo use them. The policy limits where the page can send data: only to itself and to the storage host.
-
-## How a test checks it
-
-The test in `console/notebooks/tests/` builds a notebook that runs checks. It serves the notebook with the policy, and it loads the notebook in an `iframe` of a stub console on another origin.
-
-The stub sends a grant for a table with 3000 rows and a delete file for 300 of them. The test passes when all these points are true:
-
-- The policy blocks no request.
-- The count is 2700.
-- The page ignores a grant that it posts to itself.
-- Python gets 100000 rows by default and 150000 when the call asks for them.
 
 <!-- nav:start -->
 ---

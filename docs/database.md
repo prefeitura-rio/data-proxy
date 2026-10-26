@@ -8,7 +8,7 @@ CloudNativePG (CNPG) creates and maintains the core roles. Init-db installs exte
 
 A schema is an API that PostgREST serves, a rule that the APIs share, or private. The application database `data-proxy` contains:
 
-| Schema | Kind | Holds |
+| Schema | Kind | Contains |
 | --- | --- | --- |
 | `rbac` | Shared rule | The table `roles` that the `configure-db` job fills from `rbac.toml`, and the functions `load()`, `can()` and `mine()`. Every other schema calls it. PostgREST doesn't serve it. |
 | `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
@@ -59,7 +59,7 @@ Each configured schema contains metadata and views:
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 
-Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers, and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy.md).
+Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers, and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy/index.md).
 
 PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the catalog of its own PostgreSQL instance and scans Parquet in SeaweedFS.
 
@@ -83,7 +83,7 @@ The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using t
 
 The table function builds the access policy predicate once and passes it to each source helper. See [Security](security/index.md).
 
-The DuckLake helper also receives the columns and the `ORDER BY` with the `LIMIT` that the proxy pushed. It writes a null for each column that the request skips, so DuckDB doesn't read it. See [Proxy](proxy.md#query-pushdown). A sync run replaces the helper and the table function of each table with the new definitions.
+The DuckLake helper also receives the columns and the `ORDER BY` with the `LIMIT` that the proxy pushed. It writes a null for each column that the request skips, so DuckDB doesn't read it. See [Query pushdown](proxy/pushdown.md). A sync run replaces the helper and the table function of each table with the new definitions.
 
 ## S3 access
 
@@ -96,5 +96,5 @@ The chart projects production GCP credentials into every CNPG instance through `
 <!-- nav:start -->
 ---
 
-[Previous: Proxy](proxy.md) | [Next: Data model](model.md) | [Home](index.md)
+[Previous: Table settings](proxy/reload.md) | [Next: Data model](model.md) | [Home](index.md)
 <!-- nav:end -->

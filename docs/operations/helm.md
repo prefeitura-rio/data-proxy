@@ -50,7 +50,7 @@ The chart pins repository images in `helm/values.yaml`. Released chart values do
 
 Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `maxInflight`, `configUrl`, and `configRefreshSeconds`.
 
-The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly. See [Proxy](../proxy.md) for request flow and cache behavior.
+The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly. See [Proxy](../proxy/index.md) for request flow and cache behavior.
 
 ## Serving values
 

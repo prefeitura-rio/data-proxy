@@ -21,7 +21,7 @@ curl --request DELETE \
   "${BASE_URL}/access_policy?subject=eq.test_user_1&unit_type=eq.region&unit_id=eq.region_1"
 ```
 
-The database removes the row from `test.access_policy` and writes its previous state to `test.access_log` with `action = 'delete'`. To grant access again, insert the row again. You need no resync or token refresh. Every change of an access policy row makes the cached answers outdated, whether it passed the proxy or not. A trigger on the revision counter queues a reload of the proxy ([Proxy](../proxy.md#cache)).
+The database removes the row from `test.access_policy` and writes its previous state to `test.access_log` with `action = 'delete'`. To grant access again, insert the row again. You need no resync or token refresh. Every change of an access policy row makes the cached answers outdated, whether it passed the proxy or not. A trigger on the revision counter queues a reload of the proxy ([Cache](../proxy/cache.md)).
 
 <!-- nav:start -->
 ---

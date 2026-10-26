@@ -18,7 +18,7 @@ Every line that the k6 scripts write has the same shape: `scenario=<name> step=<
 | --- | --- | --- |
 | `run_started`, `run_done`, `run_failed_checks` | The start and the end of `e2e.js`. The end lists the names of every failed check. | `scenarios`, `steps`, `count`, `checks` |
 | `step_started`, `step_done`, `step_failed` | Around each step. A step that throws logs the error. | `seconds`, `error` |
-| `check_failed` | At once, when a check fails. | `check`, and the last request that the suite sent before the check: `last_request`, `last_status`, `last_body` |
+| `check_failed` | Immediately, when a check fails. | `check`, and the last request that the suite sent before the check: `last_request`, `last_status`, `last_body` |
 | `wait_started`, `waiting`, `wait_done`, `wait_timed_out` | A labelled `waitUntil`. `waiting` repeats every 30 seconds. | `label`, `timeout`, `elapsed`, `seconds` |
 | `job_started`, `job_waiting`, `job_done`, `job_failed` | A Kubernetes Job. `job_waiting` repeats every 30 seconds. | `job`, `elapsed`, `seconds` |
 | `kill_pod`, `reads_during_outage` | The resilience scenarios. | `pod`, `role`, `down`, `failed`, `samples` |
