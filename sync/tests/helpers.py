@@ -650,7 +650,7 @@ def publish_people_catalog(metadata_schema: str, data_path: str) -> None:
     script = render_template(
         "duckdb/publish_people_snapshots",
         {
-            "catalog_url": settings.DUCKLAKE_CATALOG_URL,
+            "catalog_url": settings.DUCKLAKE_CATALOG_URL.get_secret_value(),
             "metadata_schema": metadata_schema,
             "data_path": data_path,
             **S3_SECRET_INPUTS,

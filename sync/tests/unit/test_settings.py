@@ -5,6 +5,26 @@ from pydantic import ValidationError
 
 from sync.settings import Settings
 
+SECRETS = {
+    "PG_DATABASE_URL": "postgresql://app:pg-p4ss@db.test/app",
+    "DBOS_SYSTEM_DATABASE_URL": "postgresql://dbos:dbos-p4ss@db.test/dbos",
+    "DUCKLAKE_CATALOG_URL": "postgresql://lake:lake-p4ss@db.test/lake",
+    "S3_ACCESS_KEY": "s3-key-id",
+    "S3_SECRET_KEY": "s3-s3cret",
+    "REDIS_READ": "redis://reader:read-p4ss@cache.test:6379/1",
+    "REDIS_WRITE": "redis://writer:write-p4ss@cache.test:6379/0",
+}
+
+
+PASSWORDS = [
+    "pg-p4ss",
+    "dbos-p4ss",
+    "lake-p4ss",
+    "s3-s3cret",
+    "read-p4ss",
+    "write-p4ss",
+]
+
 
 class TestSnapshotExpiration:
     """DUCKLAKE_SNAPSHOT_EXPIRATION is a number of days, and nothing else."""
@@ -109,3 +129,36 @@ class TestRedisClient:
 
         assert plain.connection_pool.connection_class.__name__ == "Connection"
         assert secure.connection_pool.connection_class.__name__ == "SSLConnection"
+
+
+class TestSecrets:
+    """A password never reaches a log line or a traceback through the settings."""
+
+    def test_shows_no_secret_in_the_text_of_the_settings(self) -> None:
+        """Hide every password and key from repr and str."""
+        settings = Settings.model_validate(SECRETS)
+
+        shown = repr(settings) + str(settings)
+
+        assert [word for word in PASSWORDS if word in shown] == []
+
+    @pytest.mark.parametrize(
+        "name",
+        ["PG_DATABASE_URL", "DUCKLAKE_CATALOG_URL", "S3_ACCESS_KEY", "S3_SECRET_KEY"],
+    )
+    def test_has_no_default_for_a_credential(
+        self, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail at start if the environment lacks the credential."""
+        for key, value in SECRETS.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.delenv(name)
+
+        with pytest.raises(ValidationError, match=name):
+            Settings(_env_file=None)
+
+    def test_gives_the_clear_value_only_on_request(self) -> None:
+        """Unwrap a secret where the code connects."""
+        settings = Settings.model_validate(SECRETS)
+
+        assert settings.PG_DATABASE_URL.get_secret_value() == SECRETS["PG_DATABASE_URL"]

@@ -31,12 +31,12 @@ async def test_each_schema_writes_to_its_own_metadata_schema(tmp_path: Path) -> 
     connection = duckdb_module.connect()
     duckdb_conn = DuckDB(connection=connection)
     catalog = await psycopg.AsyncConnection.connect(
-        settings.DUCKLAKE_CATALOG_URL, autocommit=True
+        settings.DUCKLAKE_CATALOG_URL.get_secret_value(), autocommit=True
     )
     try:
         for index, name in enumerate(names):
             paths = DuckLakePaths(
-                catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+                catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
                 data=str(tmp_path / name),
                 metadata_schema=name,
             )

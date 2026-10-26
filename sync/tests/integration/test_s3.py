@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pytest
+from pydantic import SecretStr
 
 from sync.s3 import clear_s3_prefix
 from sync.settings import settings
@@ -21,7 +22,7 @@ async def test_clearing_an_s3_prefix_removes_the_objects_under_it(
     monkeypatch.setattr(settings, "S3_ENDPOINT", f"{storage.host}:{storage.port}")
     monkeypatch.setattr(settings, "S3_USE_SSL", False)
     monkeypatch.setattr(settings, "S3_ACCESS_KEY", S3_ACCESS_KEY)
-    monkeypatch.setattr(settings, "S3_SECRET_KEY", S3_SECRET_KEY)
+    monkeypatch.setattr(settings, "S3_SECRET_KEY", SecretStr(S3_SECRET_KEY))
 
     await clear_s3_prefix("tmp/test")
 

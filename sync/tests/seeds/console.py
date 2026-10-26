@@ -26,7 +26,7 @@ db.execute(
         "duckdb/setup",
         {
             "s3_key_id": Literal(settings.S3_ACCESS_KEY),
-            "s3_secret_key": Literal(settings.S3_SECRET_KEY),
+            "s3_secret_key": Literal(settings.S3_SECRET_KEY.get_secret_value()),
             "s3_endpoint": Literal(settings.S3_ENDPOINT),
             "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
             "source_extensions": [],
@@ -56,7 +56,9 @@ db.execute(
     "CREATE TABLE dl.snapshot_table AS SELECT i AS n, 'unit_' || (i % 5 + 1) AS unit_id FROM range(300) AS t(i)"
 )
 
-with connect(settings.PG_DATABASE_URL, autocommit=True) as connection:
+with connect(
+    settings.PG_DATABASE_URL.get_secret_value(), autocommit=True
+) as connection:
     connection.execute(
         render_template(
             "postgres/create_table_files_function",

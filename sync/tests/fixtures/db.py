@@ -7,6 +7,7 @@ import psycopg
 import pytest
 from dbos._migration import ensure_dbos_schema, run_dbos_migrations
 from psycopg.sql import SQL, Identifier, Literal
+from pydantic import SecretStr
 from sqlalchemy import create_engine
 
 from sync.duckdb import DuckDB
@@ -64,7 +65,7 @@ async def postgres(storage: Storage) -> AsyncIterator[Postgres]:
             root=TEST_SQL_DIR,
         ).encode()
     )
-    settings.DBOS_SYSTEM_DATABASE_URL = dsn
+    settings.DBOS_SYSTEM_DATABASE_URL = SecretStr(dsn)
     await create_state_tables(connection)
     await connection.set_autocommit(False)
     try:
@@ -97,7 +98,7 @@ def duckdb_connection() -> Iterator[DuckDB]:
 async def drop_catalog_schema(name: str) -> None:
     """Remove one metadata schema from the catalog database."""
     catalog = await psycopg.AsyncConnection.connect(
-        settings.DUCKLAKE_CATALOG_URL, autocommit=True
+        settings.DUCKLAKE_CATALOG_URL.get_secret_value(), autocommit=True
     )
     try:
         await catalog.execute(
@@ -113,7 +114,7 @@ async def catalog_paths(tmp_path: Path) -> AsyncIterator[DuckLakePaths]:
     await drop_catalog_schema("app")
     try:
         yield DuckLakePaths(
-            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
             data=str(tmp_path / "data"),
             metadata_schema="app",
         )

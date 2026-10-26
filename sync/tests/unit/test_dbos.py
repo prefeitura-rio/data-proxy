@@ -481,7 +481,7 @@ class TestReloadPostgrestStep:
 
         await workflow_body(steps.reload_postgrest)()
 
-        assert connections == [settings.PG_DATABASE_URL]
+        assert connections == [settings.PG_DATABASE_URL.get_secret_value()]
         notify.assert_awaited_once_with(connection)
 
 

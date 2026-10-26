@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier
-from pydantic import JsonValue
+from pydantic import JsonValue, SecretStr
 
 from sync import extraction
 from sync.dbos import steps, workflows
@@ -147,10 +147,10 @@ async def pipeline(
         pg=postgres, schema=schema, config=config, reloads=reloads, load=load
     )
 
-    monkeypatch.setattr(settings, "PG_DATABASE_URL", postgres.dsn)
+    monkeypatch.setattr(settings, "PG_DATABASE_URL", SecretStr(postgres.dsn))
     monkeypatch.setattr(settings, "S3_ENDPOINT", S3_ENDPOINT)
     monkeypatch.setattr(settings, "S3_ACCESS_KEY", S3_ACCESS_KEY)
-    monkeypatch.setattr(settings, "S3_SECRET_KEY", S3_SECRET_KEY)
+    monkeypatch.setattr(settings, "S3_SECRET_KEY", SecretStr(S3_SECRET_KEY))
 
     async def source_columns(pg_conn: object, table: object) -> list[tuple[str, str]]:
         return [("cpf", "BIGINT"), ("name", "VARCHAR")]

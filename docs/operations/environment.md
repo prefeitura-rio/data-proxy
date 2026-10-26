@@ -1,12 +1,12 @@
 # Environment Variables
 
-Application defaults apply outside Helm. Helm sets the same values through the chart templates. The Default column contains the default of the application. A row names the chart value where the chart sets another one.
+Application defaults apply outside Helm. Helm sets the same values through the chart templates. The Default column contains the default of the application. A row names the chart value where the chart sets another one. The worker doesn't print a password or a key. It stops at start if a required variable is missing.
 
 ## Connections
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PG_DATABASE_URL` | `postgresql://test:test@localhost:5432/test` | PostgreSQL data source name (DSN) for the target database. |
+| `PG_DATABASE_URL` | required | PostgreSQL data source name (DSN) for the target database. |
 | `REDIS_READ` | `redis://localhost:6379/1` | Redis address for cache reads. |
 | `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for cache writes. |
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database address. |
@@ -24,11 +24,11 @@ These variables set the object store and the DuckLake catalogs.
 | `S3_ENDPOINT` | `localhost:8333` | S3 endpoint host and port. |
 | `S3_REGION` | `us-east-1` | S3 region name. |
 | `S3_USE_SSL` | `false` | Use TLS for S3. |
-| `S3_ACCESS_KEY` | `seaweedfs` | S3 access key. |
-| `S3_SECRET_KEY` | `seaweedfs-local` | S3 secret key. |
+| `S3_ACCESS_KEY` | required | S3 access key. |
+| `S3_SECRET_KEY` | required | S3 secret key. |
 | `S3_SCRATCH_PREFIX` | `tmp` | The folder of the temporary extraction Parquet files. The sync worker deletes everything under it when a run ends, so each install that shares a bucket needs its own. The chart sets it with `s3.scratchPrefix`. |
 | `S3_IDENTITIES` | `false` | Delete the S3 identities of schemas that the console no longer lists (the step `cleanup_s3_credentials`). The chart turns it on with `console.storage.perSchemaIdentities`. |
-| `DUCKLAKE_CATALOG_URL` | `postgresql://test:test@localhost:5432/ducklake` | Connection URI of the catalog database, with the `ops` role. The chart builds it from the password Secret of `ops`. Each schema writes to its own metadata schema. |
+| `DUCKLAKE_CATALOG_URL` | required | Connection URI of the catalog database, with the `ops` role. The chart builds it from the password Secret of `ops`. Each schema writes to its own metadata schema. |
 | `DUCKLAKE_CATALOG_PATH` | `ducklake` | S3 prefix for the per-schema Parquet data. |
 | `DUCKLAKE_TARGET_FILE_SIZE` | `512MB` | Target Parquet file size for DuckLake writes. |
 | `DUCKLAKE_SNAPSHOT_EXPIRATION` | `7d` | Age at which old snapshots are expired and files become eligible for cleanup. |

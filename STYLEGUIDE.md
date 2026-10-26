@@ -89,6 +89,7 @@ def test_renders_exact_predicate(selection, expected):
 
 ### Code
 
+- Type a password, a key or an address with a password as `SecretStr`, and call `get_secret_value()` only where the code connects. Give a credential no default.
 - Use dataclasses for plain data. Use Pydantic models only for validation at boundaries.
 - Model closed alternatives as tagged unions. Match every case. Use `_` only for open sets.
 - Don't prefix internal names with `_`. Use `_` only for a required but unused parameter.

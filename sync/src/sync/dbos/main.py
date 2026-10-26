@@ -25,7 +25,7 @@ async def serve() -> None:
     config: DBOSConfig = {
         "name": settings.DBOS_APPLICATION_NAME,
         "application_version": settings.DBOS_APPLICATION_VERSION,
-        "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL,
+        "system_database_url": settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value(),
         "dbos_system_schema": settings.DBOS_SYSTEM_SCHEMA,
         "enable_otlp": otlp_enabled(settings),
         "otlp_logs_endpoints": endpoint_list(settings.OTLP_LOGS_ENDPOINT),

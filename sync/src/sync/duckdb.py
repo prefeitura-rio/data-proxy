@@ -61,7 +61,7 @@ class DuckDB:
             "duckdb/setup",
             {
                 "s3_key_id": Literal(settings.S3_ACCESS_KEY),
-                "s3_secret_key": Literal(settings.S3_SECRET_KEY),
+                "s3_secret_key": Literal(settings.S3_SECRET_KEY.get_secret_value()),
                 "s3_endpoint": Literal(settings.S3_ENDPOINT),
                 "s3_use_ssl": "true" if settings.S3_USE_SSL else "false",
                 "source_extensions": sorted(

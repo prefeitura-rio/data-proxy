@@ -54,7 +54,7 @@ def test_each_schema_gets_its_own_metadata_schema_in_the_catalog_database(
     paths = DuckLakePaths.for_schema(schema)
 
     assert paths == DuckLakePaths(
-        catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+        catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
         data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
         metadata_schema=schema,
     )

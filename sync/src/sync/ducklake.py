@@ -45,7 +45,7 @@ class DuckLakePaths:
     def for_schema(cls, schema: str) -> DuckLakePaths:
         """Build locations for one schema: its own metadata schema in the catalog database."""
         return cls(
-            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL}",
+            catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
             data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
             metadata_schema=schema,
         )

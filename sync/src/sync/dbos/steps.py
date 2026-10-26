@@ -69,7 +69,9 @@ async def load_sync_config() -> LoadedConfig:
     The run keeps this document from start to end, so a change never reaches a run
     that already started.
     """
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(
+        settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()
+    ) as pg_conn:
         document = await read_sync_config(pg_conn)
 
     loaded = LoadedConfig(revision=sha256_hex(document)[:12], document=document)
@@ -92,7 +94,9 @@ async def build_sync_work(run_id: str, document: str, scope: SyncScope) -> SyncW
 
     async with (
         DuckDB.connect() as duckdb_conn,
-        Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
+        Postgres.connect(
+            settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()
+        ) as pg_conn,
     ):
         work = await run_planning(
             pg_conn,
@@ -158,7 +162,7 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
         for plan in plans
     }
 
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         postgrest_reload_required = await reconcile_views(
             pg_conn, SyncConfig.model_validate_json(document), schema_names, table_names
         )
@@ -192,7 +196,7 @@ async def reconcile_idle_schemas(document: str, scope: SyncScope) -> bool:
 
     await logs.info("Idle reconcile started", schemas=len(table_names))
 
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         postgrest_reload_required = await reconcile_views(
             pg_conn, config, sorted(table_names), table_names
         )
@@ -215,7 +219,7 @@ async def record_scope(
     rows = [ScopeRow(run_id, run_id, name, "") for name in schemas]
     rows += [ScopeRow(task, run_id, name, table) for task, name, table in dumps]
 
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         await write_scope(pg_conn, rows)
 
 
@@ -265,7 +269,9 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
     """Persist one dump error in the data_proxy.errors table."""
     await logs.error("Extraction failed", task_id=task.task_id, error=error)
 
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(
+        settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()
+    ) as pg_conn:
         await emit_error(
             pg_conn,
             "extraction_failed",
@@ -293,7 +299,9 @@ async def commit_ducklake_snapshot(
 
     async with (
         DuckDB.connect() as duckdb_conn,
-        Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn,
+        Postgres.connect(
+            settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()
+        ) as pg_conn,
     ):
         result = await publish_schema(
             duckdb_conn,
@@ -376,7 +384,9 @@ async def remove_dropped_tables(document: str) -> list[str]:
             await clear_s3_prefix(table_prefix(schema_name, table))
             removed.append(f"{schema_name}.{table}")
 
-    async with Postgres.connect(settings.DBOS_SYSTEM_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(
+        settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()
+    ) as pg_conn:
         await delete_removed_state(pg_conn, {table.name for table in config.tables})
 
     await logs.info("Removed tables", tables=",".join(removed))
@@ -412,7 +422,7 @@ async def cleanup_s3_credentials(document: str) -> list[str]:
 )
 async def reload_postgrest() -> None:
     """Tell PostgREST to read the schema again."""
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         await notify_postgrest(pg_conn)
 
     await logs.info("PostgREST reload requested")
@@ -467,7 +477,7 @@ async def notify_proxies() -> None:
         await logs.info("Proxy reload skipped", reason="PROXY_ADMIN_URL is not set")
         return
 
-    async with Postgres.connect(settings.PG_DATABASE_URL) as pg_conn:
+    async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         await wait_for_standbys(pg_conn)
 
     addresses = await proxy_addresses(url)

@@ -21,6 +21,8 @@
           DBOS_SYSTEM_DATABASE_URL=${utils.postgresUrl { database = "test"; }}
           STREAM_INTERVAL_SECONDS=0.01
           DUCKLAKE_CATALOG_URL=${utils.postgresUrl { database = "ducklake"; }}
+          S3_ACCESS_KEY=${utils.credentials.storage.admin.accessKey}
+          S3_SECRET_KEY=${utils.credentials.storage.admin.secretKey}
         '';
 
         packages = with pkgs; [ sqlfluff ];

@@ -7,6 +7,7 @@ import pytest
 from google.cloud.bigquery import Client, Table
 from minio import Minio
 from psycopg.sql import SQL, Identifier
+from pydantic import SecretStr
 
 from sync.settings import settings
 from sync.sources.bigquery.clients import BigQuery
@@ -31,7 +32,7 @@ async def dbos_conn(
 ) -> AsyncIterator[psycopg.AsyncConnection]:
     """Provide an async connection to the DBOS system database with the data_proxy schema initialized."""
     url = f"{POSTGRES_URL}/dbos_system"
-    monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", url)
+    monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", SecretStr(url))
     conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
     await create_state_tables(conn)
     await conn.execute(
