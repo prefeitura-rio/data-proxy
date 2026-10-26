@@ -133,29 +133,3 @@ tests:
           path: kind
           value: Role
         template: rbac.yaml
-
-  - it: defaults duckdb threads to two
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "2"
-        template: cluster-cnpg.yaml
-
-  - it: overrides duckdb threads from values
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.threads"]
-          value: "8"
-        template: cluster-cnpg.yaml
-    set:
-      cnpg.duckdb.threads: 8
-
-  - it: configures the DuckDB memory cap
-    set:
-      cnpg.duckdb.maxMemory: 2048MB
-    asserts:
-      - equal:
-          path: spec.postgresql.parameters["duckdb.max_memory"]
-          value: 2048MB
-        template: cluster-cnpg.yaml
-

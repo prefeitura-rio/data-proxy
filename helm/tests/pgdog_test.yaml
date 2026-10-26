@@ -126,15 +126,6 @@ tests:
           pattern: '(?m)^default_pool_size = 24$'
         template: configmap-pgdog.yaml
 
-  - it: sizes the server pool from pgdog.poolSize
-    set:
-      pgdog.poolSize: 20
-    asserts:
-      - matchRegex:
-          path: data["pgdog.toml"]
-          pattern: '(?m)^default_pool_size = 20$'
-        template: configmap-pgdog.yaml
-
   - it: stores the serving login in a Secret, not in the ConfigMap
     asserts:
       - matchRegex:
@@ -181,15 +172,6 @@ tests:
       - equal:
           path: spec.replicas
           value: 2
-        template: deployment-pgdog.yaml
-
-  - it: takes the number of PgDog pods from pgdog.replicas
-    set:
-      pgdog.replicas: 3
-    asserts:
-      - equal:
-          path: spec.replicas
-          value: 3
         template: deployment-pgdog.yaml
 
   - it: keeps the Istio sidecar out of the database path

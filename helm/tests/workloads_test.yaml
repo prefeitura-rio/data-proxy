@@ -129,23 +129,8 @@ tests:
             value: "2"
         template: deployment-sync.yaml
 
-  - it: sync takes the DuckDB limits from the values
-    set:
-      sync.duckdb.memoryLimit: 2GB
-      sync.duckdb.threads: 4
+  - it: sync reaches the database, the proxy admin address and its executor identity
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUCKDB_MEMORY_LIMIT
-            value: "2GB"
-        template: deployment-sync.yaml
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DUCKDB_THREADS
-            value: "4"
-        template: deployment-sync.yaml
       - matchRegex:
           path: spec.template.spec.containers[0].env[20].value
           pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy

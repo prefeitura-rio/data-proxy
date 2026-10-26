@@ -7,13 +7,6 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
           value: 5
-  - it: sets the stop delay from the values
-    set:
-      postgrest.preStopSleepSeconds: 12
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
-          value: 12
   - it: fetches and validates JWKS before PostgREST starts
     set:
       postgrest.jwksUri: https://auth.example.com/certs

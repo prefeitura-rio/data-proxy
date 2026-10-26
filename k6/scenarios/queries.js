@@ -92,11 +92,25 @@ export function filterPushdown(token, k8s) {
             name: "nested logical filters are preserved",
             query: `and=(or(id.eq.${ids[0]},id.eq.${ids[1]}),not.and(id.eq.${ids[0]},id.eq.${ids[0]}))&select=id,name,unit_id&order=id.asc`,
         },
+        {
+            name: "an order column that the request does not select still orders the page",
+            query: `select=name&order=id.desc&limit=2`,
+        },
+        {
+            name: "a count asks for every row, so the limit stays in PostgREST",
+            query: `select=id,name&order=id.asc&limit=2`,
+            headers: { Prefer: "count=exact" },
+        },
+        {
+            name: "select star reads every column of the page",
+            query: `select=*&order=id.asc&limit=2`,
+        },
     ];
 
-    cases.forEach(({ name, query }) => {
-        const direct = directPostgrest(`/${FULL_TABLE}?${query}`, token, snapshotHeaders);
-        const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, snapshotHeaders);
+    cases.forEach(({ name, query, headers }) => {
+        const caseHeaders = { ...snapshotHeaders, ...headers };
+        const direct = directPostgrest(`/${FULL_TABLE}?${query}`, token, caseHeaders);
+        const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, caseHeaders);
         expect(`${name}: direct request succeeds`, direct.status === 200);
         expect(`${name}: proxy request succeeds`, proxy.status === 200);
         expect(`${name}: proxy request is not served from cache`, cacheHeader(proxy) === "MISS");

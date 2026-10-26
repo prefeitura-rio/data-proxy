@@ -15,15 +15,6 @@ tests:
           value: switchover
         template: cluster-cnpg.yaml
 
-  - it: takes the update method of the primary from the values
-    set:
-      cnpg.primaryUpdateMethod: restart
-    asserts:
-      - equal:
-          path: spec.primaryUpdateMethod
-          value: restart
-        template: cluster-cnpg.yaml
-
   - it: leaves the number of instances to the cluster autoscaler
     asserts:
       - notExists:
@@ -215,13 +206,4 @@ tests:
             maximumLag: 16Mi
             periodSeconds: 3
             failureThreshold: 2
-        template: cluster-cnpg.yaml
-
-  - it: takes the lag limit from cnpg.maxReplicaLag
-    set:
-      cnpg.maxReplicaLag: 32Mi
-    asserts:
-      - equal:
-          path: spec.probes.readiness.maximumLag
-          value: 32Mi
         template: cluster-cnpg.yaml

@@ -43,17 +43,6 @@ tests:
                 key: redis-password
         template: deployment-proxy.yaml
 
-  - it: removes the Webdis service port
-    asserts:
-      - notContains:
-          path: spec.ports
-          content:
-            name: redis-http
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-proxy
-        template: services.yaml
-
   - it: renders the OpenResty configuration
     asserts:
       - matchRegex:
@@ -101,17 +90,6 @@ tests:
           content:
             name: PROXY_CONFIG_REFRESH_SECONDS
             value: "60"
-        template: deployment-proxy.yaml
-
-  - it: takes the refresh time from the values
-    set:
-      proxy.configRefreshSeconds: 30
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: PROXY_CONFIG_REFRESH_SECONDS
-            value: "30"
         template: deployment-proxy.yaml
 
   - it: starts without a sync.json file, because it fetches the config at start

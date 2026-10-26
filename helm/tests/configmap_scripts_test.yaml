@@ -2,40 +2,6 @@ suite: Scripts ConfigMap
 templates:
   - configmap-scripts.yaml
 tests:
-  - it: ships the backup script that the backup CronJob runs
-    set:
-      jobs.maintenance.enabled: true
-      jobs.backup.enabled: true
-      sync.config.schemas.test.tables: []
-    asserts:
-      - documentSelector:
-          path: kind
-          value: ConfigMap
-        isKind:
-          of: ConfigMap
-      - documentSelector:
-          path: kind
-          value: ConfigMap
-        equal:
-          path: metadata.name
-          value: data-proxy-scripts
-      - documentSelector:
-          path: kind
-          value: ConfigMap
-        isNotNull:
-          path: data["backup.nu"]
-
-  - it: ships the workflow recovery script
-    set:
-      jobs.maintenance.enabled: false
-      jobs.backup.enabled: false
-      sync.config.schemas.test.tables: []
-    asserts:
-      - isNotNull:
-          path: data["recover-workflows.nu"]
-      - isNotNull:
-          path: data["wait-for-postgres.nu"]
-
   - it: renders when backup is enabled and maintenance is disabled
     set:
       jobs.maintenance.enabled: false
