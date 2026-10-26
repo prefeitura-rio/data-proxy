@@ -3,8 +3,9 @@ import { error, redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
 import { BASE } from '#lib/base.js';
 import { freshSession } from '#lib/server/auth.js';
+import { securityHeaders, settingsSources } from '#lib/headers.js';
 import { isSecure, sameOrigin } from '#lib/server/origin.js';
-import { settings } from '#lib/server/settings.js';
+import { querySettings, settings } from '#lib/server/settings.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	if (!sameOrigin(event.request.method, event.request.headers.get('origin'), settings().origin)) {
@@ -21,5 +22,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event.locals.session = session;
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+
+	securityHeaders(response.headers, settingsSources(querySettings()?.notebookOrigin ?? null, settings().issuer));
+
+	return response;
 };

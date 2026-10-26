@@ -11,11 +11,28 @@ When('I post a run request from the origin {string}', async ({ page, world }, or
 	world.lastStatus = response.status();
 });
 
+When('I load the page {string}', async ({ page, world }, address: string) => {
+	const response = await page.request.get(`${BASE}${address}`);
+
+	world.headers = response.headers();
+});
+
 When('I open the address {string} directly', async ({ page, world }, address: string) => {
 	const response = await page.request.get(`${BASE}${address}`);
 
 	world.lastStatus = response.status();
 });
+
+Then('the page has the header {string} with the value {string}', ({ world }, name: string, value: string) => {
+	expect(world.headers[name]).toBe(value);
+});
+
+Then(
+	'the page has the header {string} with a value that contains {string}',
+	({ world }, name: string, part: string) => {
+		expect(world.headers[name]).toContain(part);
+	}
+);
 
 Then('an address without a session leads to the sign-in page', async ({ browser, baseURL }) => {
 	const context = await browser.newContext({ baseURL });

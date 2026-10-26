@@ -18,7 +18,24 @@ export default defineConfig({
 			paths: { base: BASE, relative: false },
 			// The hook in src/hooks.server.ts checks the origin against ORIGIN. The built-in check compares with the
 			// request address, which is http behind the gateway.
-			csrf: { trustedOrigins: ['*'] }
+			csrf: { trustedOrigins: ['*'] },
+			// The hook adds the frame source of the notebook and the sign-out address, because only the settings know them.
+			csp: {
+				mode: 'auto',
+				directives: {
+					'default-src': ['self'],
+					'script-src': ['self'],
+					'style-src': ['self', 'unsafe-inline'],
+					'img-src': ['self', 'data:'],
+					'font-src': ['self', 'data:'],
+					'connect-src': ['self'],
+					'frame-src': ['self'],
+					'object-src': ['none'],
+					'base-uri': ['self'],
+					'form-action': ['self'],
+					'frame-ancestors': ['none']
+				}
+			}
 		})
 	],
 	test: {

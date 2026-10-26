@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { test as base, createBdd } from 'playwright-bdd';
 import { Grant } from '../src/lib/types';
 
@@ -8,6 +8,8 @@ export const BASE = '/console';
 /** What the steps of one scenario hand to each other. */
 export type World = {
 	lastStatus: number;
+	/** The headers of the last page that a step loaded. */
+	headers: Record<string, string>;
 	grant: Grant | null;
 	exported: string;
 	file: string;
@@ -40,6 +42,7 @@ export const test = base.extend<{ world: World }>({
 
 		const world: World = {
 			lastStatus: 0,
+			headers: {},
 			grant: null,
 			exported: '',
 			file: '',
@@ -49,7 +52,15 @@ export const test = base.extend<{ world: World }>({
 			schemas: []
 		};
 
+		const violations: string[] = [];
+
+		page.on('console', (message) => {
+			if (message.text().includes('Content Security Policy')) violations.push(message.text());
+		});
+
 		await use(world);
+
+		expect(violations, 'The browser refused something under the security policy').toEqual([]);
 	}
 });
 
