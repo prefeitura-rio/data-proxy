@@ -75,7 +75,7 @@ These values tune the serving layer. The defaults are in [`helm/values.yaml`](..
 | Value | Default | Effect |
 | --- | --- | --- |
 | `pgdog.poolSize` | `24` | The connections that one PgDog pod opens to the primary, and as many to the standbys. Keep `pgdog.replicas` × `poolSize` well below `max_connections`. |
-| `redis.host`, `redis.port` | required, `6379` | The Redis address that the proxy uses for its cache. |
+| `redis.host`, `redis.port` | required, `6379` | The Redis address that the proxy uses for its cache. A host name with no dot gets the namespace of the release, because nginx doesn't use the search domains of the pod. |
 | `redis.readKey`, `redis.writeKey`, `redis.passwordKey` | `REDIS_READ`, `REDIS_WRITE`, `REDIS_PASSWORD` | The key names in the Secret `redis.existingSecret` that the sync workers read. |
 | `redis.writerAddress`, `redis.writerHost`, `redis.writerPort`, `redis.readerHost`, `redis.readerPort` | `redis-writer:6379`, `redis-writer`, `6379`, `redis-reader`, `6379` | The addresses that the chart writes into the Redis Secret. It makes the Secret only when `redis.existingSecret` is empty. The reader falls back to the writer. |
 

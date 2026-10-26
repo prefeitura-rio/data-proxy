@@ -28,7 +28,7 @@ A missing required variable, a value of the wrong type, or a value outside the l
 | --- | --- | --- |
 | `PROXY_CACHE_TTL` | `300` | Default cache lifetime in seconds, `0` or more. A table in `sync.json` can set its own `cache_ttl`. |
 | `PROXY_MAX_BODY` | `262144` | Largest response body in bytes that the proxy stores. `0` means no limit. |
-| `PROXY_REDIS_HOST` | required | Redis host for the cache. The operator provides one stable endpoint. |
+| `PROXY_REDIS_HOST` | required | Redis host for the cache. The operator provides one stable endpoint. Give nginx a name with a dot, such as `valkey.<namespace>.svc.cluster.local`, because its resolver doesn't use the search domains. The chart adds the namespace to a name with no dot. |
 | `PROXY_REDIS_PORT` | `6379` | Redis port for the cache, from `1` to `65535`. |
 | `PROXY_REDIS_DATABASE` | `1` | Redis database for cached responses, `0` or more. |
 | `PROXY_REDIS_PASSWORD` | unset | Redis password. Omit it for no login. |

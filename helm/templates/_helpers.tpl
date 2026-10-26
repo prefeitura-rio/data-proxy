@@ -336,6 +336,16 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 {{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/config/nginx.conf") -}}
 {{- end }}
 
+{{- /* nginx resolves a name without the search domains of the pod, so a name with no dot gets the namespace of the release. */ -}}
+{{- define "data-proxy.redisHost" -}}
+{{- $host := required "redis.host is required: the proxy stores its answers in this Redis" .Values.redis.host -}}
+{{- if contains "." $host -}}
+{{- $host -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" $host .Release.Namespace -}}
+{{- end -}}
+{{- end }}
+
 {{- define "data-proxy.proxyEnv" -}}
 {{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
 {{- $address := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
@@ -344,7 +354,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 - name: PROXY_MAX_BODY
   value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
 - name: PROXY_REDIS_HOST
-  value: {{ required "redis.host is required: the proxy stores its answers in this Redis" .Values.redis.host | quote }}
+  value: {{ include "data-proxy.redisHost" . | quote }}
 - name: PROXY_REDIS_PORT
   value: {{ toString .Values.redis.port | quote }}
 - name: PROXY_REDIS_DATABASE

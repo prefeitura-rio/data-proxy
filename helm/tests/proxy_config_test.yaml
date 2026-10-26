@@ -42,7 +42,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: PROXY_REDIS_HOST
-            value: redis-writer
+            value: redis-writer.default.svc.cluster.local
 
   - it: renders concrete OpenResty settings
     set:
@@ -167,3 +167,43 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: "proxy_temp_path /tmp/proxy_temp;"
+
+  - it: gives nginx a Redis host with the namespace, because its resolver does not use the search domains
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: valkey-master
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: valkey-master.default.svc.cluster.local
+
+  - it: keeps a Redis host that has a dot
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: redis.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: redis.example.test
+
+  - it: keeps a Redis address
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: 10.0.0.7
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: 10.0.0.7
+
