@@ -1,11 +1,11 @@
 # The image holds the console and the notebook site. The notebooks run as a second process on their own hostname:
 # the chart starts the same image with `node notebooks/server.ts`.
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble AS notebooks
+FROM mcr.microsoft.com/playwright/python:v1.61.0-noble@sha256:a9731514f24121d1dcd25d58d0a38146646d290a5998fd80d3e533e7b5e21c69 AS notebooks
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-COPY --from=docker.io/node:24.22.0-bookworm-slim /usr/local /usr/local
-COPY --from=ghcr.io/astral-sh/uv:0.9.30 /uv /usr/local/bin/uv
+COPY --from=docker.io/node:24.22.0-bookworm-slim@sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4 /usr/local /usr/local
+COPY --from=ghcr.io/astral-sh/uv:0.9.30@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
 
 # marimo needs the browser of the image to export a notebook that runs offline.
 RUN curl -fsSL https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin --strip-components=1 \
@@ -20,7 +20,7 @@ COPY console/notebooks/ ./
 
 RUN nu build.nu notebooks/query.py site
 
-FROM docker.io/node:24.22.0-alpine3.23 AS build
+FROM docker.io/node:24.22.0-alpine3.23@sha256:e44c87c7dd212720eb00469aeac89504ca2be77b8f0d6dbffb30665d5fcc59e1 AS build
 
 RUN npm install --global pnpm@11.25.0
 
@@ -35,7 +35,7 @@ COPY console/ui/ ./
 RUN OIDC_ISSUER=build OIDC_CLIENT_ID=build OIDC_CLIENT_SECRET=build COOKIE_SECRET=build \
     POSTGREST_URL=http://build ORIGIN=http://build pnpm build
 
-FROM docker.io/node:24.22.0-alpine3.23
+FROM docker.io/node:24.22.0-alpine3.23@sha256:e44c87c7dd212720eb00469aeac89504ca2be77b8f0d6dbffb30665d5fcc59e1
 
 RUN npm install --global pnpm@11.25.0
 

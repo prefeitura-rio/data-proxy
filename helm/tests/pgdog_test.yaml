@@ -156,7 +156,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/pgdogdev/pgdog:0.1.61
+          value: ghcr.io/pgdogdev/pgdog:0.1.61@sha256:611f2874dcf050a82243bb3291a68bcbf0825c02964bd83a0333d0aa4c2219b2
         template: deployment-pgdog.yaml
       - equal:
           path: spec.template.spec.containers[0].command

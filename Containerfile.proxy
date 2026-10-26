@@ -1,4 +1,4 @@
-FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm AS build
+FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm@sha256:8005b87dcb25df5e202e71dcc4b8a2c20a4845a75302b2bb6ee816b5392883e4 AS build
 
 ARG LUX_VERSION=0.43.5
 ARG LUX_SHA256_X86_64=cff7691b944a26d3becabb715bd0bf2dd2b6f91cc642ee139b5561e5bd9f2869
@@ -32,7 +32,7 @@ RUN cp lux.lock lux.lock.orig \
  && cp -r .lux/jit/*/src/. /opt/data-proxy/rocks/ \
  && cp -r .lux/jit/*/lib/. /opt/data-proxy/lib/
 
-FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm AS runtime
+FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm@sha256:8005b87dcb25df5e202e71dcc4b8a2c20a4845a75302b2bb6ee816b5392883e4 AS runtime
 
 COPY --from=build /opt/data-proxy/rocks/ /opt/data-proxy/rocks/
 COPY --from=build /opt/data-proxy/lib/ /opt/data-proxy/lib/

@@ -1,4 +1,4 @@
-FROM docker.io/debian:trixie-slim
+FROM docker.io/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin --strip-components=1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY --from=registry.k8s.io/kubectl:v1.34.7 /bin/kubectl /usr/local/bin/kubectl
+COPY --from=registry.k8s.io/kubectl:v1.34.7@sha256:e77b87f5471e9f2c3f0c4a55bb9279e9ccd1734f7814b766b7ac099fd3ae9bfa /bin/kubectl /usr/local/bin/kubectl
 
 RUN useradd --create-home --uid 1000 nushell
 USER nushell

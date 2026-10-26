@@ -98,7 +98,7 @@ serviceAccount:
 ## PostgREST read API. One workload serves all schemas.
 postgrest:
   ## PostgREST container image.
-  image: postgrest/postgrest:v16.1
+  image: postgrest/postgrest:v16.1@sha256:5922bde07147b82b1c9d8f749e48c1e5b99ebb233f3888bb7ab65f07cf4ac82d
   ## External URL that PostgREST uses in the OpenAPI specification.
   proxyUri: ""
   ## JWKS URI for JWT validation. PostgREST fetches and caches the public keys at startup.
@@ -138,7 +138,7 @@ postgrest:
 ## PgDog sits between PostgREST and PostgreSQL. It sends read-only transactions to a standby and every other
 ## transaction to the primary. It pools transactions, so many PostgREST connections share a few backends.
 pgdog:
-  image: ghcr.io/pgdogdev/pgdog:0.1.61
+  image: ghcr.io/pgdogdev/pgdog:0.1.61@sha256:611f2874dcf050a82243bb3291a68bcbf0825c02964bd83a0333d0aa4c2219b2
   ## A fixed number of pods, for availability. One pod serves far more than PostgREST sends (about 20000
   ## queries a second against 1200 for one PostgREST pod), and each extra pod opens its own pools.
   replicas: 2
@@ -156,7 +156,7 @@ pgdog:
 ## Rendered OpenAPI documentation page for PostgREST, reachable at <ingress.host>/docs.
 swaggerUi:
   enabled: false
-  image: swaggerapi/swagger-ui:v5.18.2
+  image: swaggerapi/swagger-ui:v5.18.2@sha256:bcac11f186d874111edc7ff2db7850eeb6bcbda383b5742a6cfc9b150e80e30d
 ## OpenTelemetry configuration for worker logs.
 observability:
   otlpLogsEndpoint: ""
