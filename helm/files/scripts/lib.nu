@@ -384,3 +384,48 @@ export def data-prefix [bucket: string, catalog_path: string, schema: string]: n
 
     $'store:($bucket)/($catalog_path)/($schema)'
 }
+
+# The fields that a JWKS key of each type needs, next to its kid.
+const KEY_FIELDS = {
+    RSA: [n e]
+    EC: [crv x y]
+    OKP: [crv x]
+}
+
+# Return whether a JWKS key has a kid, a known type, and every field of that type.
+@example "An RSA key with its fields" {
+    {kty: RSA, kid: a, n: x, e: AQAB} | jwks-key-valid
+} --result true
+export def jwks-key-valid []: record -> bool {
+    let key = $in
+    let fields = if $key.kty? == null { null } else { $KEY_FIELDS | get --optional $key.kty }
+
+    $fields != null and ([kid ...$fields] | all {|field| ($key | get --optional $field) not-in [null ''] })
+}
+
+# The UIDs of the sync pods that are running and not deleting, from the list that kubectl prints. They are the live executors of DBOS.
+export def live-executor-ids []: record -> list<string> {
+    get items
+    | where $it.status.phase == Running
+    | where $it.metadata.deletionTimestamp? == null
+    | get metadata.uid
+}
+
+# The two tables that a backup dumps for one schema, and the remote folder of the day.
+export def backup-plan [schema: string, bucket: string, prefix: string, date: string]: nothing -> record {
+    {
+        dumps: [
+            {table: access_policy, file: $'/tmp/($schema)-access_policy.dump'}
+            {table: access_log, file: $'/tmp/($schema)-access_log.dump'}
+        ]
+        remote_prefix: $'store:($bucket)/($prefix)/($schema)/($date)'
+    }
+}
+
+# The value of the PostgREST setting that lists the schemas it serves. The console comes last, because the first schema is the default profile.
+@example "The console after the data schemas" {
+    served-schemas b a
+} --result 'a,b,console'
+export def served-schemas [...names: string]: nothing -> string {
+    ($names | sort) ++ ['console'] | str join ','
+}

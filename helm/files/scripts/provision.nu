@@ -10,6 +10,7 @@ use ./lib.nu [
     quote-identifier
     quote-literal
     rclone-env
+    served-schemas
     sync-config
     wait-for-postgres
 ]
@@ -104,8 +105,7 @@ def record-db-schemas [schemas: string]: nothing -> nothing {
 # Serve every configured schema and tell PostgREST to reload only when the list changed.
 # A failed reload takes the new list back, so that the next run tries again.
 def publish-schemas [...names: string]: nothing -> nothing {
-    # The first schema is the default profile of PostgREST, so console comes last.
-    let desired = ($names | sort) ++ ['console'] | str join ','
+    let desired = served-schemas ...$names
     let current = current-db-schemas
 
     if $current == $desired {

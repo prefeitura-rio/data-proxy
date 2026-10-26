@@ -1,8 +1,11 @@
 use std/assert
 use ../lib.nu [
     app-schema
+    backup-plan
     check-result
     data-prefix
+    jwks-key-valid
+    live-executor-ids
     orphans
     postgres-ready-args
     quote-identifier
@@ -12,6 +15,7 @@ use ../lib.nu [
     remove-path
     role-literals
     schema-list
+    served-schemas
     sync-config
     wait-for-postgres
     wait-until
@@ -223,4 +227,57 @@ export def "test rclone-env-uses-the-given-keys-without-aws-variables" []: nothi
         assert equal $remote.RCLONE_CONFIG_STORE_ACCESS_KEY_ID key
         assert equal $remote.RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY secret
     }
+}
+
+# Verify that jwks-key-valid accepts the three key types that it knows, with all their fields.
+export def "test jwks-key-valid-accepts-each-known-type" []: nothing -> nothing {
+    assert equal ({kty: RSA, kid: a, n: x, e: AQAB} | jwks-key-valid) true
+    assert equal ({kty: EC, kid: a, crv: P-256, x: x, y: y} | jwks-key-valid) true
+    assert equal ({kty: OKP, kid: a, crv: Ed25519, x: x} | jwks-key-valid) true
+}
+
+# Verify that jwks-key-valid rejects a missing kid, a missing field, an empty field, an unknown type and no type.
+export def "test jwks-key-valid-rejects-an-incomplete-key" []: nothing -> nothing {
+    assert equal ({kty: RSA, n: x, e: AQAB} | jwks-key-valid) false
+    assert equal ({kty: RSA, kid: a, n: x} | jwks-key-valid) false
+    assert equal ({kty: RSA, kid: a, n: x, e: ''} | jwks-key-valid) false
+    assert equal ({kty: EC, kid: a, crv: P-256, x: x} | jwks-key-valid) false
+    assert equal ({kty: oct, kid: a, k: x} | jwks-key-valid) false
+    assert equal ({kid: a, n: x, e: AQAB} | jwks-key-valid) false
+}
+
+# Verify that live-executor-ids keeps the pods that run and are not deleting, and nothing else.
+export def "test live-executor-ids-keeps-only-running-pods-that-are-not-deleting" []: nothing -> nothing {
+    let pods = {
+        items: [
+            {metadata: {uid: running}, status: {phase: Running}}
+            {metadata: {uid: pending}, status: {phase: Pending}}
+            {metadata: {uid: failed}, status: {phase: Failed}}
+            {
+                metadata: {uid: deleting, deletionTimestamp: '2026-01-01T00:00:00Z'}
+                status: {phase: Running}
+            }
+            {metadata: {uid: other}, status: {phase: Running}}
+        ]
+    }
+
+    assert equal ($pods | live-executor-ids) [running other]
+    assert equal ({items: []} | live-executor-ids) []
+}
+
+# Verify that backup-plan names the two dumps of the schema and the dated folder of the bucket.
+export def "test backup-plan-names-the-dumps-and-the-folder-of-the-day" []: nothing -> nothing {
+    let plan = backup-plan sales bucket backups 2026-10-25
+
+    assert equal $plan.remote_prefix 'store:bucket/backups/sales/2026-10-25'
+    assert equal $plan.dumps [
+        {table: access_policy, file: '/tmp/sales-access_policy.dump'}
+        {table: access_log, file: '/tmp/sales-access_log.dump'}
+    ]
+}
+
+# Verify that served-schemas sorts the data schemas and puts the console last, whatever the order of the names.
+export def "test served-schemas-puts-the-console-last" []: nothing -> nothing {
+    assert equal (served-schemas b a) 'a,b,console'
+    assert equal (served-schemas) 'console'
 }

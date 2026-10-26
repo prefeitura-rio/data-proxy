@@ -1,21 +1,18 @@
 use std/log
-use ./lib.nu [check-result execute-sql parse-json quote-literal]
+use ./lib.nu [check-result execute-sql fail live-executor-ids parse-json quote-literal]
 
-# Return the UIDs of the sync pods that are running and not deleting, which are the live executors of DBOS.
-def live-executor-ids []: nothing -> list<string> {
+# The UIDs of the sync pods that are live executors of DBOS.
+def current-executor-ids []: nothing -> list<string> {
     kubectl get pods --namespace $env.KUBERNETES_NAMESPACE --selector app.kubernetes.io/component=sync --output json
     | complete
     | check-result 'Listing of the sync pods'
     | parse-json
-    | get items
-    | where $it.status.phase == Running
-    | where $it.metadata.deletionTimestamp? == null
-    | get metadata.uid
+    | live-executor-ids
 }
 
 # Run one orphaned-workflow recovery scan.
 def recover-orphaned-workflows []: nothing -> nothing {
-    let executor_ids = live-executor-ids
+    let executor_ids = current-executor-ids
     log info $'Workflow recovery scan started: live_executors=($executor_ids | length) executor_ids=($executor_ids | to json) grace=($env.DBOS_RECOVERY_GRACE_SECONDS)sec'
 
     execute-sql postgres/call_recover_orphaned_workflows.sql {
@@ -37,8 +34,7 @@ def main []: nothing -> nothing {
         try {
             recover-orphaned-workflows
         } catch {|err|
-            log error $'Workflow recovery failed: exiting=true error=($err.msg)'
-            error make $err.raw
+            fail $'Workflow recovery failed: exiting=true error=($err.msg)'
         }
         log info $'Workflow recovery is waiting: sleep=($interval)'
         sleep $interval

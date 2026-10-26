@@ -1,5 +1,14 @@
 use std/log
-use ./lib.nu [app-schema dump-table execute-sql fail rclone-env schema-list sync-config]
+use ./lib.nu [
+    app-schema
+    backup-plan
+    dump-table
+    execute-sql
+    fail
+    rclone-env
+    schema-list
+    sync-config
+]
 
 # Dump one PostgreSQL table and upload it to the configured object store.
 def backup-table [context: record<schema: string, remote_prefix: string>, dump: record<table: string, file: string>]: nothing -> nothing {
@@ -20,14 +29,10 @@ def backup-table [context: record<schema: string, remote_prefix: string>, dump: 
 
 # Back up the access policy and the access log of one schema, then prune the log.
 def backup-schema [schema: string]: nothing -> nothing {
-    let dumps = [
-        {table: access_policy, file: $'/tmp/($schema)-access_policy.dump'}
-        {table: access_log, file: $'/tmp/($schema)-access_log.dump'}
-    ]
-
     let object_date = date now | format date '%Y-%m-%d'
-    let object_prefix = $'($env.S3_BUCKET)/($env.BACKUP_PREFIX)/($schema)/($object_date)'
-    let remote_prefix = $'store:($object_prefix)'
+    let plan = backup-plan $schema $env.S3_BUCKET $env.BACKUP_PREFIX $object_date
+    let dumps = $plan.dumps
+    let remote_prefix = $plan.remote_prefix
 
     log info $'Backup started: schema=($schema)'
 
