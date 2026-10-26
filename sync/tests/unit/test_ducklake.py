@@ -8,14 +8,30 @@ from sync.duckdb import DuckDB
 from sync.ducklake import (
     DuckLakePaths,
     commit_table,
+    custom_partitioning_expression,
     drop_tables_except,
     evolve_table_schema,
     same_column_type,
+    source_partition_column,
     table_prefix,
+    table_sort,
+    validate_sort_columns,
 )
 from sync.executor import Executor
-from sync.models import FullTable, PartitionChange, PartitionedTablePlan
+from sync.models import (
+    DuckLakePartition,
+    DuckLakePartitionTransform,
+    DuckLakeTableConfig,
+    FullTable,
+    PartitionChange,
+    PartitionedTablePlan,
+)
 from sync.settings import settings
+from sync.sources.partitions import (
+    RangeSelection,
+    RemainderSelection,
+    TimeRangeSelection,
+)
 from sync.templates import render_template
 from sync.types import DatabaseRow, DuckDBParams
 from tests.constants import PARQUET, TEST_SQL_DIR
@@ -25,6 +41,8 @@ from tests.helpers import (
     ducklake_columns,
     ducklake_row_count,
     partition,
+    snapshot_count,
+    table_plan,
 )
 
 
@@ -145,14 +163,6 @@ class TestDucklakeEvolveSchema:
         assert columns["cpf"].upper() == "DOUBLE"
 
 
-async def snapshot_count(duckdb: DuckDB) -> int:
-    """Return how many snapshots the attached catalog holds."""
-    rows = await duckdb.query("SELECT count(*) FROM ducklake_snapshots('dl')")
-    count = rows[0][0]
-    assert isinstance(count, int)
-    return count
-
-
 class TestDucklakeMaintenance:
     """DuckLake maintenance against a real catalog and real data files."""
 
@@ -215,7 +225,7 @@ class TestDropTablesExcept:
         dropped = await drop_tables_except(duckdb, {"people"})
 
         assert dropped == ["items", "orders"]
-        assert await ducklake_columns(duckdb, "people")
+        assert len(await ducklake_columns(duckdb, "people")) > 0
 
     @pytest.mark.asyncio
     async def test_does_nothing_when_every_table_is_listed(
@@ -226,3 +236,126 @@ class TestDropTablesExcept:
         await create_ducklake_table(duckdb, "people")
 
         assert await drop_tables_except(duckdb, {"people"}) == []
+
+
+class TestCustomPartitioningExpression:
+    """custom_partitioning_expression writes the partition transforms of the configuration as DuckLake SQL."""
+
+    @pytest.mark.parametrize(
+        ("partitions", "expected"),
+        [
+            pytest.param(
+                [DuckLakePartition(column="cpf")], '"cpf"', id="identity-is-the-default"
+            ),
+            pytest.param(
+                [
+                    DuckLakePartition(
+                        column="cpf",
+                        transform=DuckLakePartitionTransform.BUCKET,
+                        buckets=8,
+                    )
+                ],
+                'bucket(8, "cpf")',
+                id="bucket-with-its-count",
+            ),
+            pytest.param(
+                [
+                    DuckLakePartition(
+                        column="at", transform=DuckLakePartitionTransform.YEAR
+                    ),
+                    DuckLakePartition(
+                        column="at", transform=DuckLakePartitionTransform.MONTH
+                    ),
+                    DuckLakePartition(
+                        column="at", transform=DuckLakePartitionTransform.DAY
+                    ),
+                    DuckLakePartition(
+                        column="at", transform=DuckLakePartitionTransform.HOUR
+                    ),
+                ],
+                'year("at"), month("at"), day("at"), hour("at")',
+                id="time-transforms-in-order",
+            ),
+            pytest.param(
+                [DuckLakePartition(column='we"ird')],
+                '"we""ird"',
+                id="quote-in-a-column-name",
+            ),
+        ],
+    )
+    def test_writes_each_transform_over_its_quoted_column(
+        self, partitions: list[DuckLakePartition], expected: str
+    ) -> None:
+        """Quote the column and join the transforms with a comma."""
+        assert custom_partitioning_expression(partitions) == expected
+
+
+class TestSourcePartitionColumn:
+    """source_partition_column takes the partition column from the partitions that the source has."""
+
+    @pytest.mark.parametrize(
+        "selection",
+        [
+            pytest.param(
+                TimeRangeSelection(column="dt", lower="2026-01-01", upper="2026-01-02"),
+                id="time-range",
+            ),
+            pytest.param(
+                RangeSelection(partition_id="10", column="dt", lower=10, upper=20),
+                id="range",
+            ),
+            pytest.param(
+                RemainderSelection(column="dt", start=0, end=100), id="remainder"
+            ),
+        ],
+    )
+    def test_names_the_column_of_the_first_partition(
+        self, selection: TimeRangeSelection | RangeSelection | RemainderSelection
+    ) -> None:
+        """Return the quoted column, whatever the kind of selection."""
+        plan = table_plan(current={"10": partition("10", selection)})
+
+        assert source_partition_column(plan) == '"dt"'
+
+    def test_names_no_column_when_the_source_has_no_partition(self) -> None:
+        """Leave the table unpartitioned."""
+        assert source_partition_column(table_plan()) is None
+
+
+class TestConfiguredSort:
+    """The sort columns of a table come from its configuration, and they must exist in the source."""
+
+    def test_has_no_sort_when_the_configuration_names_none(self) -> None:
+        """Give an empty list, not None."""
+        assert table_sort(FullTable(name="p.d.t", resolved_schema="app")) == []
+
+    def test_lists_the_configured_columns_in_order(self) -> None:
+        """Keep the order, because it is the sort order."""
+        table = FullTable(
+            name="p.d.t",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(sort=["b", "a"]),
+        )
+
+        assert table_sort(table) == ["b", "a"]
+
+    def test_refuses_a_sort_column_that_the_source_lacks_and_names_it(self) -> None:
+        """List every unknown column, sorted."""
+        table = FullTable(
+            name="p.d.t",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(sort=["z", "a", "y"]),
+        )
+
+        with pytest.raises(ValueError, match="Unknown DuckLake sort columns: y, z"):
+            validate_sort_columns(table, {"a", "b"})
+
+    def test_accepts_sort_columns_that_the_source_has(self) -> None:
+        """Raise nothing when every column exists."""
+        table = FullTable(
+            name="p.d.t",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(sort=["a"]),
+        )
+
+        validate_sort_columns(table, {"a", "b"})

@@ -2,7 +2,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from os import environ
-from typing import final
+from typing import TypedDict, final
 
 from minio import Minio
 from psycopg import AsyncConnection
@@ -139,9 +139,8 @@ class Psql:
 
     def run(self, script: str, variables: Mapping[str, str] | None = None) -> str:
         """Run one psql script, stop at the first error, and return its output."""
-        settings = [
-            f"--set={name}={value}" for name, value in (variables or {}).items()
-        ]
+        chosen: Mapping[str, str] = {} if variables is None else variables
+        settings = [f"--set={name}={value}" for name, value in chosen.items()]
         result = subprocess.run(
             [
                 "psql",
@@ -163,3 +162,10 @@ class Psql:
         output = result.stdout + result.stderr
         assert result.returncode == 0, output
         return output
+
+
+class FilterCase(TypedDict):
+    """One case of the shared fixture that the Lua parser specs and the filter tests read."""
+
+    name: str
+    expected: dict[str, JsonValue] | None

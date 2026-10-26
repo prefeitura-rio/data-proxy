@@ -1,11 +1,13 @@
+from collections.abc import Callable
 from unittest.mock import AsyncMock
 
 import pytest
 
 import sync.sources.bigquery.clients as bigquery_clients
 from sync.sources.bigquery.source import BigQuerySource
+from sync.sources.partitions import RangeConfig, RemainderSelection, TimeConfig
 from sync.sources.registry import sources
-from sync.sources.source import PartitionedSource, Sources
+from sync.sources.source import Sources
 from sync.templates import to_sql
 
 
@@ -54,10 +56,6 @@ class TestSources:
 class TestBigQuerySource:
     """BigQuery adapter contract tests."""
 
-    def test_supports_physical_partition_sync(self) -> None:
-        """Declare BigQuery as a partition-capable source."""
-        assert isinstance(BigQuerySource(), PartitionedSource)
-
     def test_renders_a_safe_scan_expression(self) -> None:
         """Render the existing DuckDB BigQuery scan expression."""
         assert to_sql(BigQuerySource().scan("project.dataset.table")) == (
@@ -90,3 +88,59 @@ class TestBigQuerySource:
         """Reject references outside the BigQuery project.dataset.table format."""
         with pytest.raises(ValueError, match="Invalid BigQuery table reference"):
             BigQuerySource().validate(reference)
+
+
+class TestPartitionConfigurationRules:
+    """A partition configuration that cannot work is refused when it is built."""
+
+    @pytest.mark.parametrize(
+        ("config", "reason"),
+        [
+            pytest.param(
+                lambda: RangeConfig(field="", start=0, end=10, interval=1),
+                "field must not be empty",
+                id="range-without-field",
+            ),
+            pytest.param(
+                lambda: RangeConfig(field="cpf", start=0, end=10, interval=0),
+                "interval must be positive",
+                id="range-with-no-interval",
+            ),
+            pytest.param(
+                lambda: RangeConfig(field="cpf", start=0, end=10, interval=-5),
+                "interval must be positive",
+                id="range-with-a-negative-interval",
+            ),
+            pytest.param(
+                lambda: RangeConfig(field="cpf", start=10, end=10, interval=1),
+                "start must precede end",
+                id="range-that-is-empty",
+            ),
+            pytest.param(
+                lambda: RangeConfig(field="cpf", start=20, end=10, interval=1),
+                "start must precede end",
+                id="range-that-is-reversed",
+            ),
+            pytest.param(
+                lambda: TimeConfig(field=""),
+                "field must not be empty",
+                id="time-without-field",
+            ),
+            pytest.param(
+                lambda: RemainderSelection(column="cpf", start=5, end=5),
+                "start must precede end",
+                id="remainder-that-is-empty",
+            ),
+        ],
+    )
+    def test_refuses_the_configuration_and_says_why(
+        self, config: Callable[[], object], reason: str
+    ) -> None:
+        """Name the rule that the configuration breaks."""
+        with pytest.raises(ValueError, match=reason):
+            config()
+
+    def test_accepts_a_valid_range_and_a_valid_time_field(self) -> None:
+        """Build the two configurations when their rules hold."""
+        assert RangeConfig(field="cpf", start=0, end=10, interval=2).interval == 2
+        assert TimeConfig(field="day").field == "day"

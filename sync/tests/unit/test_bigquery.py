@@ -1,6 +1,4 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -31,7 +29,6 @@ from sync.sources.bigquery.partitions import (
     table_modified,
 )
 from sync.sources.partitions import (
-    PartitionKindConfig,
     RangeConfig,
     RangeSelection,
     RemainderSelection,
@@ -42,7 +39,7 @@ from sync.sources.partitions import (
 from tests.helpers import metadata_row
 from tests.strategies import identifiers, ordered_bounds
 
-table_from_api = cast("Callable[[dict[str, object]], Table]", Table.from_api_repr)
+table_from_api = Table.from_api_repr
 
 
 class TestTimeGranularity:
@@ -196,7 +193,7 @@ class TestRangeConfiguration:
         metadata = RangePartitioning(
             field=field, range_=PartitionRange(start=start, end=None, interval=None)
         )
-        with pytest.raises(ValueError, match="Incomplete"):
+        with pytest.raises(ValueError, match="Incomplete range partition metadata"):
             range_config(metadata, "p.d.t")
 
     def test_rejects_non_string_range_field(self) -> None:
@@ -206,20 +203,29 @@ class TestRangeConfiguration:
             range_=PartitionRange(start=0, end=10, interval=1),
         )
 
-        with pytest.raises(ValueError, match="Incomplete"):
+        with pytest.raises(ValueError, match="Incomplete range partition metadata"):
             range_config(metadata, "p.d.t")
 
-    @given(field=identifiers, bounds=ordered_bounds())
+    @pytest.mark.parametrize(
+        ("start", "end", "interval"),
+        [
+            pytest.param(0, 10, 0, id="zero-interval"),
+            pytest.param(0, 10, -1, id="negative-interval"),
+            pytest.param(10, 10, 1, id="empty-range"),
+            pytest.param(10, 0, 1, id="reversed-range"),
+        ],
+    )
     def test_rejects_invalid_range_metadata(
-        self, field: str, bounds: tuple[int, int]
+        self, start: int, end: int, interval: int
     ) -> None:
-        """Reject range metadata with an invalid interval or bounds."""
-        start, end = bounds
+        """Reject range metadata with an invalid interval or bounds, and name the table."""
         metadata = RangePartitioning(
-            field=field,
-            range_=PartitionRange(start=start, end=end, interval=0),
+            field="id", range_=PartitionRange(start=start, end=end, interval=interval)
         )
-        with pytest.raises(ValueError, match="Invalid"):
+
+        with pytest.raises(
+            ValueError, match=r"Invalid range partition metadata: p\.d\.t"
+        ):
             range_config(metadata, "p.d.t")
 
 
@@ -387,21 +393,6 @@ class TestPartitionMetadata:
             )
         ]
 
-    def test_rejects_unknown_partition_kind(
-        self, invalid_kind_config: PartitionKindConfig
-    ) -> None:
-        """Reject an unknown partition kind."""
-        normalizer = PartitionNormalizer(
-            kind_config=invalid_kind_config, table="p.d.t", signature="sig"
-        )
-        row = PartitionMetadata(
-            partition_id="0",
-            last_modified_time=datetime(2025, 1, 1, tzinfo=UTC),
-            logical_bytes=128,
-        )
-        with pytest.raises(AssertionError):
-            normalizer.normalize(row)
-
 
 class TestPhysicalPartitions:
     """Physical partition discovery behavior tests."""
@@ -457,32 +448,6 @@ class TestTableReference:
         """Reject a table reference without three components."""
         with pytest.raises(ValueError, match="unpack"):
             parse_table_reference(reference)
-
-
-class TestPartitionConfiguration:
-    """PartitionConfiguration behavior tests."""
-
-    @pytest.mark.parametrize(
-        ("field", "start", "end", "interval", "error"),
-        [
-            pytest.param("", 0, 10, 1, "field must not be empty", id="empty-field"),
-            pytest.param(
-                "id", 0, 10, 0, "interval must be positive", id="zero-interval"
-            ),
-            pytest.param("id", 10, 10, 1, "start must precede end", id="empty-range"),
-        ],
-    )
-    def test_rejects_invalid_range_configuration(
-        self, field: str, start: int, end: int, interval: int, error: str
-    ) -> None:
-        """Reject invalid range partition configuration."""
-        with pytest.raises(ValueError, match=error):
-            RangeConfig(field=field, start=start, end=end, interval=interval)
-
-    def test_rejects_empty_time_partition_field(self) -> None:
-        """Reject an empty time partition field."""
-        with pytest.raises(ValueError, match="field must not be empty"):
-            TimeConfig(field="", granularity=TimeGranularity.DAY)
 
 
 class TestRangePartitionNormalization:

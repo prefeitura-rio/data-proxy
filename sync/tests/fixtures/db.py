@@ -1,8 +1,6 @@
 import secrets
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 
 import duckdb
 import psycopg
@@ -14,7 +12,6 @@ from sqlalchemy import create_engine
 from sync.duckdb import DuckDB
 from sync.ducklake import DuckLakePaths
 from sync.models import (
-    DumpTask,
     FullTable,
     SchemaConfig,
     Strategy,
@@ -24,7 +21,6 @@ from sync.models import (
 )
 from sync.postgres import Postgres as Pg
 from sync.settings import settings
-from sync.sources.partitions import PartitionKindConfig, TaskSelection
 from sync.state import write_table_state
 from sync.templates import render_template
 from sync.views import stages
@@ -42,25 +38,6 @@ from tests.helpers import (
     initialize_schemas,
     publish_people_catalog,
 )
-
-
-@pytest.fixture
-def invalid_kind_config() -> PartitionKindConfig:
-    """Return an invalid partition kind config for guard tests."""
-    return cast("PartitionKindConfig", cast("object", SimpleNamespace(kind="invalid")))
-
-
-@pytest.fixture
-def invalid_selection() -> TaskSelection:
-    """Return an unknown task selection for guard tests."""
-    task = DumpTask.model_construct(
-        run_id="r",
-        table="p.d.t",
-        target_schema="d",
-        bucket_path="s3://b/t.parquet",
-        selections=[object()],
-    )
-    return task.selections[0]
 
 
 @pytest.fixture

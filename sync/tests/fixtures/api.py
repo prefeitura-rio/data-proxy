@@ -81,13 +81,13 @@ def bigquery() -> Iterator[BigQuery]:
         """Return validated partition rows for the requested preseeded table."""
         name = (
             job_config.query_parameters[0].value
-            if job_config is not None and job_config.query_parameters
+            if job_config is not None and len(job_config.query_parameters) > 0
             else ""
         )
 
         rows = database.execute(
             render_template("bigquery/partitions", {}, root=TEST_SQL_DIR),
-            [f"test.dataset.{name}" if name else ""],
+            [f"test.dataset.{name}" if len(name) > 0 else ""],
         ).fetchall()
 
         partitions = [BigQueryPartitionRow.model_validate(row[0]) for row in rows]

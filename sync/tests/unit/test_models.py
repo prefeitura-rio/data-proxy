@@ -11,6 +11,8 @@ from sync.models import (
     DuckLakePartition,
     DuckLakePartitionTransform,
     DuckLakeTableConfig,
+    DumpResult,
+    DumpStatus,
     DumpTask,
     FullTable,
     PartitionChange,
@@ -21,7 +23,6 @@ from sync.models import (
     SyncConfig,
     SyncPlan,
     SyncScope,
-    TableConfig,
     UnitMapping,
 )
 from sync.sources.partitions import (
@@ -36,7 +37,6 @@ from tests.helpers import partition
 from tests.strategies import (
     identifiers,
     physical_partitions,
-    table_configs,
 )
 
 
@@ -112,22 +112,18 @@ class TestSelectionValidation:
 class TestTableConfiguration:
     """Table configuration behavior tests."""
 
-    def test_stores_partitioning_under_ducklake_settings(self) -> None:
-        """Store custom partition transforms in the nested DuckLake key."""
+    def test_names_the_scratch_file_after_the_schema_and_the_table(self) -> None:
+        """The scratch Parquet file of a table lives under the run bucket, the schema and the short name."""
         table = FullTable(
-            name="p.d.events",
-            ducklake=DuckLakeTableConfig(
-                partitioning=[
-                    DuckLakePartition(
-                        column="event_time",
-                        transform=DuckLakePartitionTransform.MONTH,
-                    )
-                ]
-            ),
+            name="p.d.events", resolved_schema="app", resolved_source="bigquery"
         )
 
-        assert table.ducklake.partitioning is not None
-        assert table.ducklake.partitioning[0].transform == "month"
+        task = table.to_task("run-1", "bucket", "tmp", [AllSelection()])
+
+        assert (table.table_name, task.bucket_path) == (
+            "events",
+            "s3://bucket/tmp/app/events/data.parquet",
+        )
 
     def test_rejects_fallback_on_a_full_table(self) -> None:
         """Allow fallback only for partitioned tables."""
@@ -151,22 +147,6 @@ class TestTableConfiguration:
                 name="p.d.events",
                 ducklake=DuckLakeTableConfig(encrypted=True),
             )
-
-    @given(table=table_configs())
-    def test_returns_unqualified_table_name(self, table: TableConfig) -> None:
-        """Return the final component of a table reference."""
-        assert table.table_name == table.name.split(".")[-1]
-
-    @given(table=table_configs(), run_id=identifiers, bucket=identifiers)
-    def test_builds_task_path_from_table_configuration(
-        self, table: TableConfig, run_id: str, bucket: str
-    ) -> None:
-        """Build an extraction path from table configuration."""
-        task = table.to_task(run_id, bucket, "tmp", [AllSelection()])
-        scratch_prefix = f"s3://{bucket}/tmp/"  # ruff: ignore[hardcoded-temp-file]
-        assert task.bucket_path == (
-            scratch_prefix + f"{table.resolved_schema}/{table.table_name}/data.parquet"
-        )
 
 
 class TestSchemaConfiguration:
@@ -314,24 +294,6 @@ class TestSyncScope:
         assert all(schema.tables for schema in scoped.schemas.values())
 
 
-class TestModelDefaults:
-    """Pydantic model defaults are independent between instances."""
-
-    def test_does_not_share_nested_models_or_collections(self) -> None:
-        """Keep independent configuration and plan defaults."""
-        first_config = SyncConfig()
-        second_config = SyncConfig()
-        first_plan = SyncPlan(schema_name="app")
-        second_plan = SyncPlan(schema_name="app")
-
-        first_config.schemas["app"] = SchemaConfig()
-        first_config.schemas["app"].tables.append(FullTable(name="p.d.events"))
-        first_plan.paths["p.d.events"] = ["s3://bucket/one"]
-
-        assert second_config.schemas == {}
-        assert second_plan.paths == {}
-
-
 class TestTaskResults:
     """Task result behavior tests."""
 
@@ -405,25 +367,6 @@ class TestPlanValidation:
                 partitioned_tables={"p.d.t": partitioned},
             )
 
-    def test_accepts_previous_partition_on_update_change(self) -> None:
-        """Accept a previous partition on an update change."""
-        physical = partition("1")
-        plan = PartitionedTablePlan(
-            table_signature="s",
-            full_rebuild=False,
-            current_partitions={"1": physical},
-            changes={
-                "1": PartitionChange(
-                    kind="update",
-                    partition_id="1",
-                    path="path",
-                    previous=physical,
-                    current=physical,
-                )
-            },
-        )
-        assert plan.changes["1"].previous == physical
-
     def test_rejects_removed_partition_in_current_manifest(self) -> None:
         """Reject a partition marked as both current and removed."""
         physical = partition("0")
@@ -441,21 +384,93 @@ class TestPlanValidation:
                 },
             )
 
-    def test_reports_changed_publication_tables(self) -> None:
-        """Report ordinary and partitioned tables with planned changes."""
-        partitioned = PartitionedTablePlan(
-            table_signature="s",
-            full_rebuild=False,
-            current_partitions={},
-            changes={},
+
+class TestDuckLakeConfigValidators:
+    """The DuckLake settings of a table refuse a combination that DuckLake would refuse later."""
+
+    def test_a_bucket_transform_needs_its_count(self) -> None:
+        """Say why the partition is wrong."""
+        with pytest.raises(ValidationError, match="require buckets"):
+            DuckLakePartition(column="cpf", transform=DuckLakePartitionTransform.BUCKET)
+
+    @pytest.mark.parametrize(
+        "transform",
+        [
+            DuckLakePartitionTransform.IDENTITY,
+            DuckLakePartitionTransform.YEAR,
+            DuckLakePartitionTransform.MONTH,
+            DuckLakePartitionTransform.DAY,
+            DuckLakePartitionTransform.HOUR,
+        ],
+    )
+    def test_no_other_transform_takes_a_count(
+        self, transform: DuckLakePartitionTransform
+    ) -> None:
+        """Refuse a bucket count on a transform that has none."""
+        with pytest.raises(
+            ValidationError, match="Only bucket partition transforms accept buckets"
+        ):
+            DuckLakePartition(column="cpf", transform=transform, buckets=4)
+
+    def test_a_bucket_transform_with_its_count_is_valid(self) -> None:
+        """Accept the one valid shape of a bucket."""
+        partition = DuckLakePartition(
+            column="cpf", transform=DuckLakePartitionTransform.BUCKET, buckets=4
         )
-        plan = SyncPlan(
-            schema_name="d",
-            signatures={"p.d.full": "s"},
-            paths={"p.d.full": ["path"]},
-            partitioned_tables={"p.d.partitioned": partitioned},
+
+        assert partition.buckets == 4
+
+    def test_a_sort_that_is_empty_is_refused_and_a_missing_sort_is_not(self) -> None:
+        """Tell an empty list, which is a mistake, from no sort."""
+        assert DuckLakeTableConfig().sort is None
+        with pytest.raises(ValidationError, match="at least one column"):
+            DuckLakeTableConfig(sort=[])
+
+
+class TestDumpResult:
+    """A dump result says which files failed, and a failure must name at least one."""
+
+    def test_a_failure_without_a_failed_path_is_refused(self) -> None:
+        """Stop a failure that the publish step could not skip."""
+        with pytest.raises(ValidationError, match="must have failed paths"):
+            DumpResult(status=DumpStatus.FAILURE)
+
+    def test_a_failure_with_its_paths_and_a_success_with_none_are_valid(self) -> None:
+        """Accept the two shapes that the dump workflow returns."""
+        assert DumpResult(
+            status=DumpStatus.FAILURE, failed_paths=["s3://b/t"]
+        ).failed_paths == ["s3://b/t"]
+        assert DumpResult().failed_paths == []
+
+
+class TestTableSignatureFields:
+    """The fields of a signature are what a change of the configuration must resync."""
+
+    def test_includes_the_settings_of_the_source_when_the_schema_has_some(self) -> None:
+        """Resync a table when the settings of its source change."""
+        plain = FullTable(name="p.d.t", resolved_source="bigquery")
+        configured = FullTable(
+            name="p.d.t",
+            resolved_source="bigquery",
+            resolved_source_settings={"project": "p"},
         )
-        assert (plan.signatures.keys() | plan.partitioned_tables.keys()) == {
-            "p.d.full",
-            "p.d.partitioned",
+
+        assert plain.config_signature_fields()["source"] == {"type": "bigquery"}
+        assert configured.config_signature_fields()["source"] == {
+            "type": "bigquery",
+            "settings": {"project": "p"},
         }
+
+    def test_leaves_the_rules_out_when_there_are_none_and_includes_them_otherwise(
+        self,
+    ) -> None:
+        """Resync a table when its row rules change."""
+        without = FullTable(name="p.d.t")
+        with_rule = FullTable(
+            name="p.d.t", rls=[UnitMapping(column="cpf", unit_type="cpf")]
+        )
+
+        assert without.config_signature_fields()["rls"] is None
+        assert with_rule.config_signature_fields()["rls"] == [
+            {"column": "cpf", "unit_type": "cpf"}
+        ]

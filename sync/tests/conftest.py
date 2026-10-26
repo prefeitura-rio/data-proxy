@@ -23,7 +23,10 @@ def pytest_bdd_after_scenario(feature: object, scenario: object) -> None:
 
 pytest_plugins = [
     "tests.fixtures.api",
+    "tests.fixtures.console",
     "tests.fixtures.db",
     "tests.fixtures.dbos",
+    "tests.fixtures.pipeline",
+    "tests.fixtures.routing",
     "tests.integration.steps.state",
 ]

@@ -41,7 +41,7 @@ def test_limits_set_the_memory_the_threads_and_the_spill_folder_of_the_settings(
 
     assert rows == [
         (
-            memory[0] if memory else None,
+            memory[0] if memory is not None and len(memory) > 0 else None,
             settings.DUCKDB_THREADS,
             str(spill),
         )

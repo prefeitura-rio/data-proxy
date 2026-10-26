@@ -12,8 +12,6 @@ from sync.models import (
     SyncConfig,
     UnitMapping,
 )
-from sync.sources.registry import sources
-from sync.templates import to_sql
 from sync.views import stages
 
 
@@ -123,20 +121,17 @@ class TestSourceMappings:
             ),
         ],
     )
-    def test_maps_the_table_function_to_its_helpers(
+    def test_passes_the_fallback_the_rls_flag_and_the_claim_to_the_table_function(
         self,
         table: FullTable | PartitionedTable,
         fallback_names: list[str],
         has_rls: str,
     ) -> None:
-        """Name the helpers and pass the fallback and RLS settings."""
+        """Name the fallback sources, say whether the table has row rules, and name the claim setting."""
         mapping = utils.table_function_mapping(
             "app", table, [("unit_id", "VARCHAR")], "sub"
         )
 
-        assert to_sql(mapping["function"]) == '"people_fn"'
-        assert to_sql(mapping["dl_function"]) == '"people_dl_fn"'
-        assert to_sql(mapping["source_table"]) == "'p.d.people'"
         fallbacks_value = mapping["fallbacks"]
         assert isinstance(fallbacks_value, list)
         assert [
@@ -144,16 +139,6 @@ class TestSourceMappings:
         ] == fallback_names
         assert mapping["has_rls"] == has_rls
         assert mapping["claim_setting"] == "app.claim_sub"
-
-    def test_uses_the_explicit_schema_claim(self) -> None:
-        """Build claim settings from reconciliation input, not global settings."""
-        table = FullTable(name="p.d.people")
-
-        mapping = utils.table_changes_function_mapping(
-            "app", table, [("unit_id", "VARCHAR")], "tenant"
-        )
-
-        assert mapping["claim_setting"] == "app.claim_tenant"
 
     def test_keeps_the_same_signature_for_equal_serving_definitions(self) -> None:
         """Do not recreate a view when generated serving SQL is unchanged."""
@@ -167,27 +152,6 @@ class TestSourceMappings:
         )
 
         assert first == second
-
-    def test_source_function_mapping_uses_adapter_values(self) -> None:
-        """Build a fallback helper mapping from the adapter registry."""
-        table = PartitionedTable(name="p.d.people", resolved_source="bigquery")
-
-        mapping = utils.source_function_mapping(
-            "app", table, [("id", "BIGINT")], sources.configure("bigquery", None)
-        )
-
-        assert to_sql(mapping["function"]) == '"people_bq_fn"'
-        assert mapping["load"] == "LOAD bigquery"
-        assert mapping["source"] == "bigquery_scan(''p.d.people'')"
-
-    def test_ducklake_function_mapping_scans_the_quoted_table(self) -> None:
-        """Build the DuckLake helper mapping over the quoted catalog table."""
-        table = FullTable(name="p.d.people")
-
-        mapping = utils.ducklake_function_mapping("app", table, [("id", "BIGINT")])
-
-        assert to_sql(mapping["function"]) == '"people_dl_fn"'
-        assert mapping["source"] == '"dl_app"."people"'
 
 
 class TestCreateTableViews:

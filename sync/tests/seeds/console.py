@@ -1,7 +1,5 @@
 """Seed the test catalog and its table files function for the console tests."""
 
-from os import environ
-
 import duckdb
 from psycopg import connect
 from psycopg.sql import Identifier, Literal
@@ -56,10 +54,6 @@ db.execute("DELETE FROM dl.full_table WHERE n < 100")
 
 db.execute(
     "CREATE TABLE dl.snapshot_table AS SELECT i AS n, 'unit_' || (i % 5 + 1) AS unit_id FROM range(300) AS t(i)"
-)
-
-db.execute(
-    f"COPY (SELECT count(*) FROM dl.full_table) TO '{environ['EXPECTED_ROWS_FILE']}' (FORMAT csv, HEADER false)"
 )
 
 with connect(settings.PG_DATABASE_URL, autocommit=True) as connection:

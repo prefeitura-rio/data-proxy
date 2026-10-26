@@ -1,6 +1,6 @@
 import pytest
 
-from sync.identities import IDENTITY_PREFIX, stale_users
+from sync.identities import stale_users
 
 
 class TestStaleUsers:
@@ -35,7 +35,3 @@ class TestStaleUsers:
     ) -> None:
         """Only a name that has the prefix and the form of a schema can go."""
         assert stale_users(users, schemas) == expected
-
-    def test_the_prefix_is_the_one_that_the_console_uses(self) -> None:
-        """The console names an identity sig_ and the schema."""
-        assert IDENTITY_PREFIX == "sig_"

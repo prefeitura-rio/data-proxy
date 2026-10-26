@@ -2,18 +2,9 @@ import pytest
 from httpx2 import AsyncClient, MockTransport, Request, Response
 
 from sync.proxies import ProxyReloadError, proxy_addresses, reload_proxies
+from tests.helpers import client_answering
 
 URL = "http://proxy-admin.ns.svc:8081/reload"
-
-
-def client_answering(statuses: dict[str, int], seen: list[Request]) -> AsyncClient:
-    """Build a client whose pods answer with the given status, by address."""
-
-    def answer(request: Request) -> Response:
-        seen.append(request)
-        return Response(statuses.get(request.url.host, 200), json={"changed": True})
-
-    return AsyncClient(transport=MockTransport(answer))
 
 
 class TestReloadProxies:

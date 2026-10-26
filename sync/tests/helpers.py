@@ -6,15 +6,17 @@ from datetime import UTC, datetime
 from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, Final, Self, cast
+from typing import ClassVar, Final, Self
 from unittest.mock import AsyncMock
 
 import duckdb
+import psycopg
 import pytest
+from httpx2 import AsyncClient, MockTransport, Request, Response
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Composable, Identifier, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from sync.dbos import workflows
 from sync.duckdb import DuckDB
@@ -22,8 +24,10 @@ from sync.executor import Executor
 from sync.models import (
     DumpResult,
     DumpTask,
+    FullTable,
     LoadedConfig,
     PartitionChange,
+    PartitionedTable,
     PartitionedTablePlan,
     SchemaConfig,
     Strategy,
@@ -33,6 +37,7 @@ from sync.models import (
     TableConfig,
     TableState,
 )
+from sync.postgres import Postgres as PgBackend
 from sync.postgres import Postgres as PgConnection
 from sync.settings import settings
 from sync.sources.bigquery.partitions import PartitionMetadata
@@ -54,15 +59,20 @@ from sync.types import (
     PostgresParams,
     TemplateValue,
 )
+from sync.views import stages
+from sync.views.reconcile import reconcile_views
 from tests.constants import (
     HELM_SQL,
     PARQUET,
+    PROXY_FILTER_CASES,
     RBAC_RULES,
+    REQUEST_ROLES,
     ROUTED_TABLE,
     S3_SECRET_INPUTS,
+    SIGNER,
     TEST_SQL_DIR,
 )
-from tests.fixtures.types import Postgres
+from tests.fixtures.types import FilterCase, Postgres
 
 type Selection = RangeSelection | TimeRangeSelection | RemainderSelection
 type SqlParams = Mapping[str, DatabaseValue | list[str]]
@@ -194,7 +204,8 @@ def remove_change(partition_id: str, previous: PhysicalPartition) -> PartitionCh
 
 def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
     """Return the body of a DBOS workflow so it runs without the DBOS runtime."""
-    return cast("Callable[P, R]", unwrap(workflow))
+    body: Callable[P, R] = unwrap(workflow)
+    return body
 
 
 DOCUMENT = '{"schemas": {}}'
@@ -292,7 +303,10 @@ def stub_sync_run(
         "build_sync_work",
         AsyncMock(
             return_value=SyncWork(
-                plans=plans or [SyncPlan(schema_name="app")], tasks=tasks or []
+                plans=plans
+                if plans is not None and len(plans) > 0
+                else [SyncPlan(schema_name="app")],
+                tasks=[] if tasks is None else tasks,
             )
         ),
     )
@@ -371,7 +385,8 @@ async def execute_sql(
 ) -> AsyncCursor[DatabaseRow]:
     """Execute one SQL test template in the current transaction."""
     return await pg.connection.execute(
-        render_template(path, mapping or {}, root=TEST_SQL_DIR), params
+        render_template(path, {} if mapping is None else mapping, root=TEST_SQL_DIR),
+        params,
     )
 
 
@@ -406,7 +421,8 @@ async def scalar(
     cursor = await pg.connection.execute(sql.encode(), params)
     row = await cursor.fetchone()
     assert row is not None
-    return cast("DatabaseValue", row[0])
+    value: DatabaseValue = row[0]
+    return value
 
 
 async def set_setting(pg: Postgres, name: str, value: str) -> None:
@@ -425,7 +441,8 @@ async def response_headers(pg: Postgres) -> dict[str, str]:
     PostgREST reads response.headers as a JSON list of one-entry objects.
     """
     raw = await scalar(pg, "SELECT current_setting('response.headers', true)")
-    sent: list[dict[str, str]] = json.loads(str(raw)) if raw else []
+    text = "" if raw is None else str(raw)
+    sent: list[dict[str, str]] = json.loads(text) if len(text) > 0 else []
     return {name: value for header in sent for name, value in header.items()}
 
 
@@ -575,7 +592,7 @@ async def call_table_function(
 
 def helm_sql(name: str, mapping: Mapping[str, TemplateValue] | None = None) -> str:
     """Render one Helm SQL template as the init and maintenance jobs do."""
-    return render_template(name, mapping or {}, root=HELM_SQL)
+    return render_template(name, {} if mapping is None else mapping, root=HELM_SQL)
 
 
 def catalog_commit_error(reason: str) -> duckdb.TransactionException:
@@ -685,7 +702,7 @@ class RbacRules(BaseModel):
         """Return the permissions of a role and of every role that it inherits."""
         by_name = {candidate.name: candidate for candidate in self.roles}
         pending, seen, found = [role], set[str](), set[str]()
-        while pending:
+        while len(pending) > 0:
             name = pending.pop()
             if name in seen or name not in by_name:
                 continue
@@ -789,7 +806,7 @@ async def revision(pg: Postgres) -> int:
     return value
 
 
-async def plan_of(pg: Postgres, query: str) -> str:
+async def query_plan(pg: Postgres, query: str) -> str:
     """Return the verbose plan of a query as one text."""
     cursor = await pg.connection.execute(
         f"EXPLAIN (VERBOSE, COSTS OFF) {query}".encode()
@@ -826,3 +843,138 @@ async def verify_rbac(pg: Postgres, extra_roles: tuple[str, ...] = ()) -> None:
             },
         ).encode()
     )
+
+
+async def count_rows(duckdb: DuckDB, path: Path, where: str = "TRUE") -> int:
+    """Count the rows of one Parquet file that match a condition."""
+    rows = await duckdb.query(
+        f"SELECT count(*) FROM read_parquet('{path}') WHERE {where}"
+    )
+    count = rows[0][0]
+    assert isinstance(count, int)
+    return count
+
+
+async def reconcile_one_table(
+    postgres: Postgres,
+    monkeypatch: pytest.MonkeyPatch,
+    columns: list[tuple[str, str]],
+    *,
+    fallback: bool = False,
+) -> None:
+    """Reconcile the views of one table whose BigQuery source reports the given columns."""
+    schema = postgres.namespace.schema
+    table: TableConfig = (
+        PartitionedTable(name=f"p.{schema}.people", fallback=True)
+        if fallback
+        else FullTable(name=f"p.{schema}.people")
+    )
+
+    config = SyncConfig(schemas={schema: SchemaConfig(tables=[table])})
+
+    async def source_columns(
+        _pg_conn: PgBackend, _table: TableConfig
+    ) -> list[tuple[str, str]]:
+        return columns
+
+    monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
+    await initialize_schemas(postgres.backend, config)
+    await reconcile_views(postgres.backend, config)
+
+
+async def create_request_roles(pg: Postgres, password: str) -> None:
+    """Render create_roles for test role names and run it in the test transaction."""
+    await pg.connection.execute(
+        helm_sql(
+            "create_roles",
+            {
+                "roles": SQL(", ").join(Literal(role) for role in REQUEST_ROLES),
+                "baseline_role": Literal("dp_t_api"),
+                "anonymous_role": Literal("anon_t"),
+                "serving_role": Literal("auth_t"),
+                "serving_password": Literal(password),
+                "signer_role": Literal(SIGNER),
+                "signer_password": Literal(password),
+            },
+        ).encode()
+    )
+
+
+async def create_schema_reader(
+    pg: Postgres, name: str, template: str = "create_schema_reader"
+) -> None:
+    """Render one reader template for a schema of the test catalog and run it in the test transaction."""
+    await pg.connection.execute(
+        helm_sql(
+            template,
+            {
+                "name": Literal(name),
+                "signer": Literal(SIGNER),
+                "writer": Literal("test"),
+            },
+        ).encode()
+    )
+
+
+def install_rbac_sync(
+    connection: psycopg.Connection[TupleRow], rules: RbacRules
+) -> None:
+    """Install a rules file in the open transaction of a property test."""
+    connection.execute(
+        helm_sql(
+            "create_rbac",
+            {
+                "rules": rules.context(),
+                "anonymous_role": Identifier("anon"),
+                "source_hash": SOURCE_HASH,
+            },
+        ).encode()
+    )
+
+
+def stored_roles_sync(
+    connection: psycopg.Connection[TupleRow],
+) -> list[tuple[str, list[str]]]:
+    """Return the rows of rbac.roles."""
+    rows = connection.execute(
+        b"SELECT name, permissions FROM rbac.roles ORDER BY name"
+    ).fetchall()
+
+    return [(str(name), list(permissions)) for name, permissions in rows]
+
+
+def answers_for(
+    connection: psycopg.Connection[TupleRow], role: str, features: list[str]
+) -> dict[str, bool]:
+    """Ask rbac.can about every feature as a token with one role."""
+    connection.execute("SELECT set_config('app.claim_role', %s, true)", (role,))
+    connection.execute(b"SELECT rbac.load()")
+    rows = connection.execute(
+        "SELECT feature, rbac.can(feature) FROM unnest(%s::text[]) AS feature",
+        (features,),
+    ).fetchall()
+
+    return {str(feature): bool(answer) for feature, answer in rows}
+
+
+async def snapshot_count(duckdb: DuckDB) -> int:
+    """Return how many snapshots the attached catalog holds."""
+    rows = await duckdb.query("SELECT count(*) FROM ducklake_snapshots('dl')")
+    count = rows[0][0]
+    assert isinstance(count, int)
+    return count
+
+
+def client_answering(statuses: dict[str, int], seen: list[Request]) -> AsyncClient:
+    """Build a client whose pods answer with the given status, by address."""
+
+    def answer(request: Request) -> Response:
+        seen.append(request)
+        return Response(statuses.get(request.url.host, 200), json={"changed": True})
+
+    return AsyncClient(transport=MockTransport(answer))
+
+
+def proxy_filter_cases() -> list[FilterCase]:
+    """Read the cases that the Lua parser specs share with the PostgreSQL filter tests."""
+    return TypeAdapter(list[FilterCase]).validate_json(PROXY_FILTER_CASES.read_text())

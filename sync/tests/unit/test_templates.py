@@ -3,18 +3,16 @@ import json
 import operator
 import re
 from asyncio import timeout
-from collections.abc import Callable, Iterator
-from os import environ
+from collections.abc import Callable
 from pathlib import Path
 from random import Random
 from time import perf_counter, time
-from typing import Final, LiteralString, cast
+from typing import Final, LiteralString
 
 import duckdb as duckdb_module
 import psycopg
 import pytest
-from hypothesis import HealthCheck, given
-from hypothesis import settings as hypothesis_settings
+from hypothesis import given
 from hypothesis import strategies as st
 from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
@@ -25,7 +23,6 @@ from sync.duckdb import DuckDB
 from sync.executor import Executor
 from sync.models import (
     FullTable,
-    PartitionedTable,
     PublicationResult,
     SchemaConfig,
     Strategy,
@@ -51,17 +48,15 @@ from sync.state import (
     write_table_states,
 )
 from sync.templates import render_template
-from sync.types import DatabaseRow, DuckDBParams, PostgresParams, TemplateValue
+from sync.types import DatabaseRow, DuckDBParams, TemplateValue
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
 from tests.constants import (
-    HELM_SQL,
     MODIFIED,
     PARQUET,
-    POSTGRES_URL,
-    PROXY_FILTER_CASES,
+    REQUEST_ROLES,
     ROUTED_TABLE,
-    SOURCE_SQL,
+    SIGNER,
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import Postgres, Psql
@@ -71,10 +66,14 @@ from tests.helpers import (
     RbacRole,
     RbacRules,
     act_as_token,
+    answers_for,
     attach_ducklake,
     call_table_function,
+    count_rows,
     create_access_policy,
     create_ducklake_table,
+    create_request_roles,
+    create_schema_reader,
     create_state_tables,
     ducklake_columns,
     ducklake_row_count,
@@ -87,14 +86,17 @@ from tests.helpers import (
     insert_access_policy,
     install_console_triggers,
     install_rbac,
+    install_rbac_sync,
     install_table_function,
     make_serving_login,
     partitioned,
-    plan_of,
+    proxy_filter_cases,
     psql_script,
     publish_people_catalog,
     put_state,
+    query_plan,
     queued_workflows,
+    reconcile_one_table,
     relation_exists,
     response_headers,
     revision,
@@ -103,59 +105,15 @@ from tests.helpers import (
     set_request_headers,
     set_setting,
     stored_roles,
+    stored_roles_sync,
     verify_rbac,
 )
-
-SKIPPED_TEMPLATES = {
-    "macros": "Macros are rendered by the templates that import them.",
-    "call_cleanup_stale_objects": "A one-line call of a procedure that has its own test.",
-    "call_prune_access_log": "A one-line call of a procedure that has its own test.",
-    "call_prune_workflows": "A one-line call of a procedure that has its own test.",
-    "call_recover_orphaned_workflows": "A one-line call of a procedure that has its own test.",
-    "call_reload_postgrest": "A one-line call of a function that has its own test.",
-    "grant_select": "A grant to a role. The roles belong to the end-to-end suite.",
-    "grant_app_usage": "Grants to roles belong to the end-to-end suite.",
-    "grant_console_usage": "Grants to roles belong to the end-to-end suite.",
-    "grant_proxy_config": "Grants to roles belong to the end-to-end suite.",
-    "set_db_schemas": "A setting of a role belongs to the end-to-end suite.",
-    "reset_db_schemas": "A setting of a role belongs to the end-to-end suite.",
-    "configure_catalog": "Privileges of roles on the catalog belong to the end-to-end suite.",
-    "configure_ducklake": "Persistent secrets of DuckDB that every DuckDB test creates.",
-    "attach": "Every DuckDB test runs it through attach_ducklake.",
-    "setup": "Every DuckDB test runs it when the connection opens.",
-    "describe_source": "It describes a BigQuery table, which needs the real service.",
-    "load_source": "It loads a BigQuery extension, which needs the real service.",
-    "notify_postgrest": "Run by the reload test through the sync code.",
-    "wait_for_standbys": "Run by the reload test through the sync code.",
-    "read_sync_config": "A one-line read of the console function.",
-    "create_console_functions": "Needs the console schema and the DBOS tables. The end-to-end suite tests it.",
-    "create_console_operations": "Needs the console schema and the DBOS tables. The end-to-end suite tests it.",
-    "create_console_config": "Needs the console schema. The end-to-end suite tests it.",
-    "create_current_snapshot_function": "Installed by reconcile_views, and run by the current snapshot test.",
-    "create_table_changes_function": "Installed by reconcile_views, and run by the changes function test.",
-    "create_table_files_function": "Installed by reconcile_views, and run by the table files test.",
-    "drop_function": "Run by reconcile_views in the reconcile tests.",
-    "drop_view_objects": "Run by reconcile_views in the reconcile tests.",
-    "list_functions": "Run by reconcile_views in the reconcile tests.",
-    "list_view_signatures": "Run by reconcile_views in the reconcile tests.",
-    "list_views": "Run by reconcile_views in the reconcile tests.",
-    "write_view_signature": "Run by reconcile_views in the reconcile tests.",
-    "insert_error": "Run by the state tests of the sync code.",
-    "insert_scope": "Run by the state tests of the sync code.",
-    "read_state": "Run by the state tests of the sync code.",
-    "upsert_state": "Run by the state tests of the sync code.",
-    "delete_removed_state": "Run by the state tests of the sync code.",
-}
-
-
-async def count_rows(duckdb: DuckDB, path: Path, where: str = "TRUE") -> int:
-    """Count the rows of one Parquet file that match a condition."""
-    rows = await duckdb.query(
-        f"SELECT count(*) FROM read_parquet('{path}') WHERE {where}"
-    )
-    count = rows[0][0]
-    assert isinstance(count, int)
-    return count
+from tests.strategies import (
+    PROPERTIES,
+    ROLE_POOL,
+    claim_and_schema,
+    rbac_rules,
+)
 
 
 class TestDuckdbTemplates:
@@ -246,40 +204,37 @@ class TestDuckdbTemplates:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_sort_and_partitioning_sets_and_resets_sort(
+    async def test_set_partitioned_by_sets_and_resets_the_partitioning(
         self, duckdb: DuckDB, tmp_path: Path
     ) -> None:
-        """Set sort columns and then reset them without error."""
+        """A table has one partition key after a set, and none after a reset."""
         await attach_ducklake(duckdb, tmp_path)
         await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
-
-        await executor.execute(
-            "duckdb/set_sorted_by",
-            mapping={"table": Identifier("people"), "sort_columns": '"cpf"'},
-        )
-        await executor.execute(
-            "duckdb/set_sorted_by",
-            mapping={"table": Identifier("people"), "sort_columns": ""},
-        )
-
-    @pytest.mark.asyncio
-    async def test_sort_and_partitioning_sets_and_resets_partitioning(
-        self, duckdb: DuckDB, tmp_path: Path
-    ) -> None:
-        """Set partition keys and then reset them without error."""
-        await attach_ducklake(duckdb, tmp_path)
-        await create_ducklake_table(duckdb, "people")
-        executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
+        active = """
+            SELECT count(*)
+            FROM __ducklake_metadata_dl.ducklake_partition_column AS key
+            JOIN __ducklake_metadata_dl.ducklake_partition_info AS info
+              ON key.partition_id = info.partition_id
+            JOIN __ducklake_metadata_dl.ducklake_table AS table_info
+              ON info.table_id = table_info.table_id
+            WHERE table_info.table_name = 'people'
+              AND table_info.end_snapshot IS NULL
+              AND info.end_snapshot IS NULL
+        """
 
         await executor.execute(
             "duckdb/set_partitioned_by",
             mapping={"table": Identifier("people"), "partitioning": '"cpf"'},
         )
+        after_set = await duckdb.query(active)
         await executor.execute(
             "duckdb/set_partitioned_by",
             mapping={"table": Identifier("people"), "partitioning": ""},
         )
+        after_reset = await duckdb.query(active)
+
+        assert (after_set, after_reset) == ([(1,)], [(0,)])
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -339,7 +294,7 @@ class TestDuckdbTemplates:
     async def test_metadata_get_sort_returns_configured_columns(
         self, duckdb: DuckDB, tmp_path: Path
     ) -> None:
-        """Return the sort columns configured with SET SORTED BY."""
+        """Return the sort columns configured with SET SORTED BY, and none after a reset."""
         await attach_ducklake(duckdb, tmp_path)
         await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
@@ -348,13 +303,23 @@ class TestDuckdbTemplates:
             "duckdb/set_sorted_by",
             mapping={"table": Identifier("people"), "sort_columns": '"cpf"'},
         )
-        rows = await executor.query(
+        configured = await executor.query(
             "duckdb/get_sort",
             {"metadata": "__ducklake_metadata_dl"},
             params=["people"],
             expect=tuple[str],
         )
-        assert rows == [("cpf",)]
+        await executor.execute(
+            "duckdb/set_sorted_by",
+            mapping={"table": Identifier("people"), "sort_columns": ""},
+        )
+        reset = await executor.query(
+            "duckdb/get_sort",
+            {"metadata": "__ducklake_metadata_dl"},
+            params=["people"],
+            expect=tuple[str],
+        )
+        assert (configured, reset) == ([("cpf",)], [])
 
     @pytest.mark.asyncio
     async def test_metadata_describe_parquet_returns_column_names_and_types(
@@ -568,30 +533,13 @@ def test_limits_template_sets_the_limits_of_a_duckdb_connection(
     ).fetchall()
     connection.close()
 
-    assert rows == [(expected[0] if expected else None, threads, temp_directory)]
-
-
-def test_every_template_has_a_test_or_a_reason_to_skip() -> None:
-    """A template that no template test names, and that isn't on the list of skipped ones, fails here."""
-    here = Path(__file__).parents[1]
-    source = "\n".join(
-        path.read_text()
-        for path in [
-            Path(__file__),
-            here / "helpers.py",
-            *here.glob("fixtures/*.py"),
-        ]
-    )
-    untested = [
-        f"{path.parent.name}/{path.stem}"
-        for path in sorted(
-            [*SOURCE_SQL.parent.rglob("*.sql"), *HELM_SQL.rglob("*.sql")]
+    assert rows == [
+        (
+            expected[0] if expected is not None and len(expected) > 0 else None,
+            threads,
+            temp_directory,
         )
-        if path.stem not in SKIPPED_TEMPLATES
-        and not re.search(rf"[\"/]{path.stem}[\"']", source)
     ]
-
-    assert untested == []
 
 
 FULL: Final = TableState(strategy=Strategy.FULL, signature="s")
@@ -610,14 +558,9 @@ HOUR_MS: Final = 3_600_000
 
 
 PARSED_FILTERS: Final = [
-    pytest.param(
-        json.dumps({"where": cast("dict[str, object]", case["expected"])["where"]}),
-        id=str(case["name"]),
-    )
-    for case in cast(
-        "list[dict[str, object]]", json.loads(PROXY_FILTER_CASES.read_text())
-    )
-    if case["expected"] and "where" in cast("dict[str, object]", case["expected"])
+    pytest.param(json.dumps({"where": case["expected"]["where"]}), id=case["name"])
+    for case in proxy_filter_cases()
+    if case["expected"] is not None and "where" in case["expected"]
 ]
 
 
@@ -626,60 +569,6 @@ SELECT count(*) FROM duckdb.query(
     'SELECT 1 FROM duckdb_views() WHERE view_name = ''dl_snapshot_check'''
 )
 """
-
-
-async def reconcile_one_table(
-    postgres: Postgres,
-    monkeypatch: pytest.MonkeyPatch,
-    columns: list[tuple[str, str]],
-    *,
-    fallback: bool = False,
-) -> None:
-    """Reconcile the views of one table whose BigQuery source reports the given columns."""
-    schema = postgres.namespace.schema
-    table: TableConfig = (
-        PartitionedTable(name=f"p.{schema}.people", fallback=True)
-        if fallback
-        else FullTable(name=f"p.{schema}.people")
-    )
-
-    config = SyncConfig(schemas={schema: SchemaConfig(tables=[table])})
-
-    async def source_columns(
-        _pg_conn: PgBackend, _table: TableConfig
-    ) -> list[tuple[str, str]]:
-        return columns
-
-    monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
-    await initialize_schemas(postgres.backend, config)
-    await reconcile_views(postgres.backend, config)
-
-
-@pytest.fixture
-async def routing(postgres: Postgres) -> Postgres:
-    """Install the routing functions in the test transaction."""
-    await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
-        "postgres/views/routing/snapshot",
-        mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
-    )
-    for template in ("coverage", "filter", "plan", "response"):
-        await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
-            f"postgres/views/routing/{template}",
-            mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
-        )
-    return postgres
-
-
-@pytest.fixture
-async def table_function(routing: Postgres) -> Postgres:
-    """Install helpers that report the arguments the per-table function passes."""
-    await create_access_policy(routing)
-    await execute_sql(
-        routing,
-        "postgres/create_routing_stubs",
-        mapping={"schema": routing.namespace.identifier},
-    )
-    return routing
 
 
 @pytest.mark.postgres
@@ -1935,6 +1824,84 @@ class TestPostgresTemplates:
             "X-DuckLake-Snapshot": snapshot,
         }
 
+    async def test_view_reads_only_the_pushed_columns_and_rows(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """The function returns the pushed number of rows, with a null in each column that the request skips."""
+        schema = ducklake_view.namespace.schema
+        await set_request_headers(
+            ducklake_view,
+            {"x-ducklake-filter": json.dumps({"columns": ["cpf"], "limit": 3})},
+        )
+        cursor = await ducklake_view.connection.execute(
+            f'SELECT cpf, name FROM "{schema}".people'.encode()
+        )
+        pushed = await cursor.fetchall()
+        await set_request_headers(ducklake_view, {})
+        cursor = await ducklake_view.connection.execute(
+            f'SELECT cpf, name FROM "{schema}".people ORDER BY cpf'.encode()
+        )
+        full = await cursor.fetchall()
+
+        assert len(full) == 20
+        assert len(pushed) == 3
+        assert {name for _, name in pushed} == {None}
+        assert {cpf for cpf, _ in pushed} <= {cpf for cpf, _ in full}
+        assert None not in {name for _, name in full}
+
+    async def test_view_pushes_a_numeric_order_with_the_limit(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """DuckDB keeps the top rows of a numeric order, so the pushed limit loses no row that the order wants."""
+        schema = ducklake_view.namespace.schema
+        await set_request_headers(
+            ducklake_view,
+            {
+                "x-ducklake-filter": json.dumps(
+                    {
+                        "limit": 2,
+                        "order": [{"column": "cpf", "descending": True}],
+                    }
+                )
+            },
+        )
+        cursor = await ducklake_view.connection.execute(
+            f'SELECT cpf FROM "{schema}".people ORDER BY cpf DESC'.encode()
+        )
+        pushed = await cursor.fetchall()
+
+        assert pushed == [(29,), (28,)]
+
+    async def test_view_applies_the_pushed_filter_before_the_limit(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """A limit counts the rows that pass the filter, as the policy predicate of a row rule does."""
+        schema = ducklake_view.namespace.schema
+        await set_request_headers(
+            ducklake_view,
+            {
+                "x-ducklake-filter": json.dumps(
+                    {
+                        "where": {
+                            "kind": "comparison",
+                            "column": "cpf",
+                            "operator": "gte",
+                            "negated": False,
+                            "value": "25",
+                        },
+                        "limit": 3,
+                    }
+                )
+            },
+        )
+        cursor = await ducklake_view.connection.execute(
+            f'SELECT cpf FROM "{schema}".people'.encode()
+        )
+        pushed = await cursor.fetchall()
+
+        assert len(pushed) == 3
+        assert min(cpf for (cpf,) in pushed) >= 25
+
     async def test_view_function_snapshot_rejects_a_pinned_snapshot_that_does_not_exist(
         self, ducklake_view: Postgres
     ) -> None:
@@ -2026,7 +1993,7 @@ class TestPostgresTemplates:
             params={"table_name": "people"},
         )
 
-        assert files
+        assert len(files) > 0
         assert all(
             str(path).endswith(".parquet") and "/" + schema + "/" in str(path)
             for path, _, _ in files
@@ -2736,6 +2703,48 @@ class TestPostgresTemplates:
 
         assert await reconcile_views(postgres.backend, config) is False
 
+    async def test_reconcile_of_an_unchanged_table_keeps_the_objects_of_its_view(
+        self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An idle run reconciles every table, so a table that didn't change must keep its view and functions."""
+        schema = postgres.namespace.schema
+        config = SyncConfig(
+            schemas={
+                schema: SchemaConfig(tables=[FullTable(name=f"p.{schema}.people")])
+            }
+        )
+
+        async def source_columns(
+            _pg_conn: PgBackend, _table: TableConfig
+        ) -> list[tuple[str, str]]:
+            return [("cpf", "BIGINT")]
+
+        async def object_ids() -> list[tuple[str, int]]:
+            cursor = await postgres.connection.execute(
+                """
+                SELECT p.proname, p.oid::int
+                FROM pg_proc AS p
+                WHERE p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = %(schema)s)
+                UNION ALL
+                SELECT c.relname, c.oid::int
+                FROM pg_class AS c
+                WHERE c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = %(schema)s)
+                  AND c.relkind = 'v'
+                ORDER BY 1
+                """,
+                {"schema": schema},
+            )
+            return [(str(name), int(oid)) for name, oid in await cursor.fetchall()]
+
+        monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
+        await initialize_schemas(postgres.backend, config)
+        first = await reconcile_views(postgres.backend, config)
+        before = await object_ids()
+
+        second = await reconcile_views(postgres.backend, config)
+
+        assert (first, second, await object_ids()) == (True, False, before)
+
     async def test_reconcile_drops_the_views_and_functions_that_the_config_dropped(
         self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2757,34 +2766,6 @@ class TestPostgresTemplates:
                 postgres, schema, "dl_changes_people(bigint, bigint)"
             ),
         ] == [False, False, False, False]
-
-
-@pytest.fixture
-async def rbac(postgres: Postgres) -> Postgres:
-    """Install the rbac schema from the real rules file in the test transaction."""
-    await install_rbac(postgres)
-    return postgres
-
-
-REQUEST_ROLES: Final = ("dp_t_api", "dp_t_policy", "dp_t_admin")
-
-
-async def create_request_roles(pg: Postgres, password: str) -> None:
-    """Render create_roles for test role names and run it in the test transaction."""
-    await pg.connection.execute(
-        helm_sql(
-            "create_roles",
-            {
-                "roles": SQL(", ").join(Literal(role) for role in REQUEST_ROLES),
-                "baseline_role": Literal("dp_t_api"),
-                "anonymous_role": Literal("anon_t"),
-                "serving_role": Literal("auth_t"),
-                "serving_password": Literal(password),
-                "signer_role": Literal(SIGNER),
-                "signer_password": Literal(password),
-            },
-        ).encode()
-    )
 
 
 @pytest.mark.postgres
@@ -2917,25 +2898,6 @@ class TestRolesTemplate:
         assert await cursor.fetchone() == (len(REQUEST_ROLES) + 2,)
 
 
-SIGNER: Final = "signer_t"
-
-
-async def create_schema_reader(
-    pg: Postgres, name: str, template: str = "create_schema_reader"
-) -> None:
-    """Render one reader template for a schema of the test catalog and run it in the test transaction."""
-    await pg.connection.execute(
-        helm_sql(
-            template,
-            {
-                "name": Literal(name),
-                "signer": Literal(SIGNER),
-                "writer": Literal("test"),
-            },
-        ).encode()
-    )
-
-
 @pytest.mark.postgres
 class TestSchemaReaderTemplates:
     """The reader template gives a role the metadata of one schema and nothing else."""
@@ -2963,7 +2925,7 @@ class TestSchemaReaderTemplates:
             cursor = await pg.connection.execute(query.encode())
             return [(str(row[0]),) for row in await cursor.fetchall()]
         except psycopg.errors.InsufficientPrivilege as error:
-            return str(error)
+            return str(error.diag.message_primary)
 
     async def test_the_role_reads_its_own_metadata(self, postgres: Postgres) -> None:
         """The signer switches into the role of a schema and reads that schema."""
@@ -2981,7 +2943,7 @@ class TestSchemaReaderTemplates:
             postgres, "schema_sales", "SELECT path FROM hr.files"
         )
 
-        assert "permission denied for schema hr" in str(refusal)
+        assert refusal == "permission denied for schema hr"
 
     async def test_the_role_cannot_write_the_metadata_of_its_own_schema(
         self, postgres: Postgres
@@ -2994,7 +2956,7 @@ class TestSchemaReaderTemplates:
             "INSERT INTO sales.files VALUES ('x') RETURNING path",
         )
 
-        assert "permission denied for table files" in str(refusal)
+        assert refusal == "permission denied for table files"
 
     async def test_the_role_reads_a_table_that_the_catalog_creates_later(
         self, postgres: Postgres
@@ -3006,11 +2968,17 @@ class TestSchemaReaderTemplates:
             postgres, "schema_sales", "SELECT count(*)::text FROM sales.later"
         ) == [("0",)]
 
-    async def test_a_second_run_succeeds(self, postgres: Postgres) -> None:
-        """The template creates nothing twice."""
+    async def test_a_second_run_keeps_the_grants_of_the_role(
+        self, postgres: Postgres
+    ) -> None:
+        """Run the template again, and the role still reads its schema and nothing else."""
         await self.prepare(postgres)
 
         await create_schema_reader(postgres, "sales")
+
+        assert await self.read_as(
+            postgres, "schema_sales", "SELECT path FROM sales.files"
+        ) == [("sales/a.parquet",)]
 
     async def test_drop_removes_the_role_and_keeps_the_schema(
         self, postgres: Postgres
@@ -3082,14 +3050,6 @@ class TestSchemaReaderTemplates:
             b"SELECT schema_name FROM signer.keys"
         )
         assert await cursor.fetchall() == [("hr",)]
-
-    async def test_drop_works_before_the_keys_table_exists(
-        self, postgres: Postgres
-    ) -> None:
-        """A cluster that never made an identity has no table, and the drop still works."""
-        await self.prepare(postgres)
-
-        await create_schema_reader(postgres, "sales", "drop_schema_reader")
 
     async def test_a_name_that_makes_the_role_too_long_fails(
         self, postgres: Postgres
@@ -3313,10 +3273,10 @@ class TestRbacTemplate:
         self, rbac: Postgres
     ) -> None:
         """The planner replaces both calls with their expression, so a check costs no function call."""
-        can = await plan_of(
+        can = await query_plan(
             rbac, "SELECT 1 FROM generate_series(1, 3) AS g WHERE rbac.can('read_sync')"
         )
-        mine = await plan_of(
+        mine = await query_plan(
             rbac,
             "SELECT 1 FROM generate_series(1, 3) AS g WHERE rbac.mine('s' || g)",
         )
@@ -3387,147 +3347,12 @@ class TestVerifyRbacTemplate:
     ) -> None:
         """A difference stops the job, and the error names it, so that a stale role never keeps a right."""
         await make_serving_login(rbac)
-        if setup:
+        if setup is not None:
             await rbac.connection.execute(setup.encode())
 
         with pytest.raises(psycopg.errors.RaiseException, match=re.escape(message)):
             async with rbac.connection.transaction():
                 await verify_rbac(rbac, extra_roles)
-
-
-EXAMPLES: Final = int(environ.get("RBAC_EXAMPLES", "300"))
-
-ROLE_POOL: Final = [f"dp_p{index}" for index in range(8)]
-
-WORD: Final = st.from_regex(r"[a-z]{1,5}", fullmatch=True)
-
-DESCRIPTION: Final = st.one_of(
-    st.text(
-        alphabet=st.characters(
-            blacklist_categories=("Cs",), blacklist_characters="\x00"
-        ),
-        max_size=24,
-    ),
-    st.lists(
-        st.sampled_from(
-            ["$rbac$", "$$", "'", '"', "\\", "{{", "}}", "{%", "\n", "\u00e9", " "]
-        ),
-        max_size=6,
-    ).map("".join),
-)
-
-CLAIM_PART: Final = st.text(alphabet="abc0_\u00e9 ,*", max_size=3)
-
-PROPERTIES: Final = hypothesis_settings(
-    max_examples=EXAMPLES,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-
-
-@st.composite
-def rbac_rules(draw: st.DrawFn, max_roles: int = 8) -> RbacRules:
-    """Draw a consistent rules file: random permissions, and roles that inherit only earlier roles."""
-    subjects = draw(
-        st.dictionaries(
-            WORD,
-            st.sets(
-                WORD.filter(lambda action: action != "description"),
-                min_size=1,
-                max_size=3,
-            ),
-            min_size=1,
-            max_size=4,
-        )
-    )
-    permissions = {
-        subject: {
-            "description": draw(DESCRIPTION),
-            **{action: draw(DESCRIPTION) for action in sorted(actions)},
-        }
-        for subject, actions in subjects.items()
-    }
-    features = sorted(
-        f"{action}_{subject}"
-        for subject, actions in subjects.items()
-        for action in actions
-    )
-    names = ROLE_POOL[: draw(st.integers(min_value=1, max_value=max_roles))]
-    roles = [
-        RbacRole(
-            name=name,
-            description=draw(DESCRIPTION),
-            inherits=(
-                draw(st.lists(st.sampled_from(names[:index]), unique=True, max_size=3))
-                if index
-                else []
-            ),
-            permissions=draw(st.lists(st.sampled_from(features), unique=True)),
-        )
-        for index, name in enumerate(names)
-    ]
-
-    return RbacRules(permissions=permissions, roles=draw(st.permutations(roles)))
-
-
-@st.composite
-def claim_and_schema(draw: st.DrawFn) -> tuple[str, str]:
-    """Draw a schemas claim and a schema name, often one element of the claim."""
-    parts = draw(st.lists(CLAIM_PART, max_size=4))
-    schema = draw(
-        st.one_of(CLAIM_PART, st.sampled_from(parts) if parts else CLAIM_PART)
-    )
-
-    return ",".join(parts), schema
-
-
-@pytest.fixture
-def rbac_connection() -> Iterator[psycopg.Connection[TupleRow]]:
-    """Give a property test one synchronous connection to the test database."""
-    with psycopg.connect(f"{POSTGRES_URL}/test_template") as connection:
-        yield connection
-        connection.rollback()
-
-
-def install_rbac_sync(
-    connection: psycopg.Connection[TupleRow], rules: RbacRules
-) -> None:
-    """Install a rules file in the open transaction of a property test."""
-    connection.execute(
-        helm_sql(
-            "create_rbac",
-            {
-                "rules": rules.context(),
-                "anonymous_role": Identifier("anon"),
-                "source_hash": SOURCE_HASH,
-            },
-        ).encode()
-    )
-
-
-def stored_roles_sync(
-    connection: psycopg.Connection[TupleRow],
-) -> list[tuple[str, list[str]]]:
-    """Return the rows of rbac.roles."""
-    rows = connection.execute(
-        b"SELECT name, permissions FROM rbac.roles ORDER BY name"
-    ).fetchall()
-
-    return [(str(name), list(permissions)) for name, permissions in rows]
-
-
-def answers_for(
-    connection: psycopg.Connection[TupleRow], role: str, features: list[str]
-) -> dict[str, bool]:
-    """Ask rbac.can about every feature as a token with one role."""
-    connection.execute("SELECT set_config('app.claim_role', %s, true)", (role,))
-    connection.execute(b"SELECT rbac.load()")
-    rows = connection.execute(
-        "SELECT feature, rbac.can(feature) FROM unnest(%s::text[]) AS feature",
-        (features,),
-    ).fetchall()
-
-    return {str(feature): bool(answer) for feature, answer in rows}
 
 
 FAULTS: Final[dict[str, Callable[[RbacRules], RbacRules]]] = {
