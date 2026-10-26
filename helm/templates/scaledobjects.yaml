@@ -45,7 +45,7 @@ spec:
     name: {{ include "data-proxy.fullname" . }}-proxy
     kind: Deployment
     apiVersion: apps/v1
-  minReplicaCount: 1
+  minReplicaCount: {{ .Values.proxy.autoscaling.minReplicaCount }}
   maxReplicaCount: {{ .Values.proxy.autoscaling.maxReplicaCount }}
   pollingInterval: {{ .Values.proxy.autoscaling.pollingInterval }}
   cooldownPeriod: {{ .Values.proxy.autoscaling.cooldownPeriod }}
@@ -53,7 +53,7 @@ spec:
 {{- if gt (len (.Values.proxy.autoscaling.triggers | default list)) 0 }}
 {{ toYaml .Values.proxy.autoscaling.triggers | nindent 4 }}
 {{- else }}
-{{ include "data-proxy.defaultResourceTriggers" . | nindent 4 }}
+{{ include "data-proxy.cpuTrigger" . | nindent 4 }}
 {{- end }}
 
 {{- $cluster := .Values.cnpg.autoscaling }}

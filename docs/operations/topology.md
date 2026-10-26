@@ -38,8 +38,8 @@ Default scaling:
 | Workload | Default trigger | Minimum | Maximum | Wait before scale-down |
 | --- | --- | --- | --- | --- |
 | Cluster (CNPG instances) | Active PostgREST sessions per instance. The target comes from the CPU limit and the DuckDB threads. | 2 | 6 | 300 s |
-| PostgREST | CPU and memory. | 1 | 6 | 300 s |
-| Proxy | CPU and memory. | 1 | 3 | 300 s |
+| PostgREST | CPU at 70% and memory at 90% of the request. | 1 | 6 | 300 s |
+| Proxy | CPU at 70% of the request. | 1 | 6 | 300 s |
 | Sync workers | The count of active DBOS workflows. See [KEDA Scaling](keda.md). | 3 | 15 | 60 s |
 | PgDog | None. Helm sets `pgdog.replicas`. | 2 | 2 | Not applicable |
 | Redis | None, unless you supply custom triggers. | Not applicable | Not applicable | Not applicable |

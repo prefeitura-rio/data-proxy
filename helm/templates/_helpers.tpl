@@ -3,11 +3,19 @@
 - type: cpu
   metricType: Utilization
   metadata:
-    value: "90"
+    value: "70"
 - type: memory
   metricType: Utilization
   metadata:
     value: "90"
+{{- end }}
+
+{{- /* The proxy scales on CPU only. Its pods use a fixed amount of memory, so a memory trigger holds two pods after a spike. */ -}}
+{{- define "data-proxy.cpuTrigger" -}}
+- type: cpu
+  metricType: Utilization
+  metadata:
+    value: "70"
 {{- end }}
 
 {{- define "data-proxy.cnpgMinInstances" -}}

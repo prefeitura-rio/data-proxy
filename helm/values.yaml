@@ -129,6 +129,8 @@ postgrest:
     limits:
       memory: 512Mi
       ephemeral-storage: 512Mi
+  ## KEDA scales PostgREST on CPU at 70% and on memory at 90% of the request. A deployment that sets these values
+  ## replaces them, so a cap in the deployment also caps PostgREST.
   autoscaling:
     minReplicaCount: 1
     maxReplicaCount: 6
@@ -336,6 +338,7 @@ cnpg:
   ## The cluster always has a primary and at least one standby, and KEDA adds standbys under load.
   ## The floor is at least 2.
   ## Default trigger: active PostgREST sessions per instance, derived from the CPU limit and the DuckDB threads.
+  ## A deployment that sets minReplicaCount and maxReplicaCount to the same number turns this scaler off.
   autoscaling:
     minReplicaCount: 2
     maxReplicaCount: 6
@@ -453,9 +456,11 @@ proxy:
       ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.
       cpu: 500m
       memory: 64Mi
+  ## KEDA scales the proxy on CPU at 70% of the request. Each pod adds 32 in-flight slots. A deployment that sets
+  ## these values replaces them, so a cap in the deployment also caps the proxy.
   autoscaling:
     minReplicaCount: 1
-    maxReplicaCount: 3
+    maxReplicaCount: 6
     pollingInterval: 30
     cooldownPeriod: 300
     triggers: []
