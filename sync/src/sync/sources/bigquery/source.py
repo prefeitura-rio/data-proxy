@@ -44,7 +44,9 @@ class BigQuerySource:
         """Return a fresh source with validated non-secret settings."""
         return replace(
             self,
-            settings=BigQuerySourceSettings.model_validate(settings or {}),
+            settings=BigQuerySourceSettings.model_validate(
+                {} if settings is None else settings
+            ),
             clients={},
         )
 

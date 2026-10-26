@@ -159,7 +159,7 @@ class RangeConfig:
 
     def __post_init__(self) -> None:
         """Require a non-empty, increasing range with a positive interval."""
-        if not self.field:
+        if len(self.field) == 0:
             raise ValueError("Range partition field must not be empty")
         if self.interval <= 0:
             raise ValueError("Range partition interval must be positive")
@@ -177,7 +177,7 @@ class TimeConfig:
 
     def __post_init__(self) -> None:
         """Require an explicit partition field."""
-        if not self.field:
+        if len(self.field) == 0:
             raise ValueError("Time partition field must not be empty")
 
 

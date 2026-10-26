@@ -1,14 +1,14 @@
 """Remove the S3 identities that the console made for schemas that no longer exist."""
 
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 
 from .settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Collection, Iterable
+    from collections.abc import Collection, Iterable
 
     from types_aiobotocore_iam.client import IAMClient
 
@@ -21,7 +21,7 @@ def stale_users(users: Iterable[str], schemas: Collection[str]) -> list[str]:
     return sorted(
         user
         for user in users
-        if IDENTITY_NAME.fullmatch(user)
+        if IDENTITY_NAME.fullmatch(user) is not None
         and user.removeprefix(IDENTITY_PREFIX) not in schemas
     )
 
@@ -30,12 +30,7 @@ def create_iam_client(
     session: AioSession, endpoint: str
 ) -> ClientCreatorContext[IAMClient]:
     """Create a typed IAM client context."""
-    create = cast(
-        "Callable[..., ClientCreatorContext[IAMClient]]",
-        session.create_client,
-    )
-
-    return create(
+    return session.create_client(
         "iam",
         endpoint_url=endpoint,
         aws_access_key_id=settings.S3_ACCESS_KEY,

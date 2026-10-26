@@ -235,7 +235,7 @@ async def plan_partitioned_table(
     stored = await read_table_state(pg_conn, table.name)
     changes = find_partition_changes(current, stored, table_sig)
 
-    if not changes:
+    if len(changes) == 0:
         return None, []
 
     tasks: list[DumpTask] = []
@@ -388,7 +388,7 @@ class PlanningContext:
 
     def group(self) -> SyncWork:
         """Group full and partitioned table plans by resolved schema."""
-        if not self.signatures and not self.partitioned:
+        if len(self.signatures) == 0 and len(self.partitioned) == 0:
             logger.info("Sync plan completed: changes=none")
             return SyncWork(plans=[], tasks=[])
 

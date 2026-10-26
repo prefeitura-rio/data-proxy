@@ -2,20 +2,28 @@
 
 from asyncio import get_running_loop
 from socket import AF_INET, SOCK_STREAM
-from urllib.parse import urlsplit
+from typing import Final
+from urllib.parse import SplitResult, urlsplit
 
 from httpx2 import AsyncClient, HTTPError
+
+HTTP_PORT: Final = 80
 
 
 class ProxyReloadError(Exception):
     """One or more proxy pods did not take the reload request."""
 
 
+def proxy_port(parts: SplitResult) -> int:
+    """Return the port of the address, or the HTTP port if it has none."""
+    return HTTP_PORT if parts.port is None else parts.port
+
+
 async def proxy_addresses(url: str) -> list[str]:
     """Resolve the host of the URL to the sorted IPv4 address of each pod behind it."""
     parts = urlsplit(url)
     found = await get_running_loop().getaddrinfo(
-        parts.hostname, parts.port or 80, family=AF_INET, type=SOCK_STREAM
+        parts.hostname, proxy_port(parts), family=AF_INET, type=SOCK_STREAM
     )
 
     return sorted({str(address[4][0]) for address in found})
@@ -28,17 +36,17 @@ async def reload_proxies(client: AsyncClient, url: str, addresses: list[str]) ->
     a request that is safe to repeat.
     """
     parts = urlsplit(url)
-    path = parts.path or "/"
+    path = parts.path if len(parts.path) > 0 else "/"
     failed: list[str] = []
 
     for address in addresses:
         try:
             response = await client.post(
-                f"{parts.scheme}://{address}:{parts.port or 80}{path}"
+                f"{parts.scheme}://{address}:{proxy_port(parts)}{path}"
             )
             response.raise_for_status()
         except HTTPError, OSError:
             failed.append(address)
 
-    if failed:
+    if len(failed) > 0:
         raise ProxyReloadError(f"Proxy pods did not reload: {', '.join(failed)}")

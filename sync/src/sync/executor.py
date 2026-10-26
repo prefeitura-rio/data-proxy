@@ -27,7 +27,7 @@ class Executor[Params, Rows]:
         params: Params | None = None,
     ) -> None:
         """Render and execute one SQL statement."""
-        sql = render_template(path, mapping or {})
+        sql = render_template(path, {} if mapping is None else mapping)
         await self.conn.execute(sql, params=params)
 
     async def query[Expected](
@@ -39,6 +39,6 @@ class Executor[Params, Rows]:
         expect: type[Expected],
     ) -> list[Expected]:
         """Render, run, and validate one SQL query."""
-        sql = render_template(path, mapping or {})
+        sql = render_template(path, {} if mapping is None else mapping)
         rows = await self.conn.query(sql, params=params)
         return TypeAdapter(list[Expected]).validate_python(rows)

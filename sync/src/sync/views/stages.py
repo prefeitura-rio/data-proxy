@@ -262,7 +262,7 @@ async def create_table_views(
 
     Dropping first lets a source column change alter the returned row type.
     """
-    if not columns:
+    if len(columns) == 0:
         table_name = f"{table.resolved_schema}.{table.table_name}"
         raise RuntimeError(f"DuckDB returned no columns for table {table_name}")
 

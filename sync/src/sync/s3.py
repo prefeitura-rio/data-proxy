@@ -1,14 +1,12 @@
 """S3 bucket operations for temporary parquet artifacts."""
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 
 from .settings import settings
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
-
     from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
@@ -17,12 +15,7 @@ def create_s3_client(
     session: AioSession, endpoint: str
 ) -> ClientCreatorContext[S3Client]:
     """Create a typed S3 client context."""
-    create = cast(
-        "Callable[..., ClientCreatorContext[S3Client]]",
-        session.create_client,
-    )
-
-    return create(
+    return session.create_client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=settings.S3_ACCESS_KEY,
@@ -45,7 +38,7 @@ async def clear_s3_prefix(prefix: str) -> None:
                 for obj in page.get("Contents", [])
                 if (key := obj.get("Key")) is not None
             ]
-            if keys:
+            if len(keys) > 0:
                 await client.delete_objects(
                     Bucket=settings.S3_BUCKET, Delete={"Objects": keys}
                 )

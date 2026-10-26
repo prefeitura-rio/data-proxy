@@ -31,7 +31,7 @@ def summarize_exception(error: BaseException) -> str:
         for frame in project_frames[-LOCATION_FRAMES:]
     ]
 
-    if not path:
+    if len(path) == 0:
         return summary
 
     return f"{summary} ({' -> '.join(path)})"
@@ -60,7 +60,7 @@ class ContextFormatter(Formatter):
 
         parts: list[str] = []
 
-        if workflow_id:
+        if workflow_id is not None:
             parts.append(f"wf={workflow_id}")
 
         if schema != "-":
@@ -69,15 +69,15 @@ class ContextFormatter(Formatter):
         if table != "-":
             parts.append(f"table={table}")
 
-        prefix = f"[{' '.join(parts)}] " if parts else ""
+        prefix = f"[{' '.join(parts)}] " if len(parts) > 0 else ""
         message = (
             f"{self.formatTime(record, self.datefmt)} {record.levelname} "
             f"{prefix}{record.getMessage()}"
         )
 
-        if record.exc_info and record.levelno >= ERROR:
+        if record.exc_info is not None and record.levelno >= ERROR:
             message = f"{message}\n{self.formatException(record.exc_info)}"
-        elif record.exc_info and record.exc_info[1] is not None:
+        elif record.exc_info is not None and record.exc_info[1] is not None:
             message = f"{message}: {summarize_exception(record.exc_info[1])}"
 
         return message

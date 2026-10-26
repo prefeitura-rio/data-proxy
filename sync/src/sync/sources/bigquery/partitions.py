@@ -71,7 +71,7 @@ class PartitionNormalizer:
         partition_signature = sha256_hex(
             f"{partition_id}:{modified.isoformat()}:{self.signature}"
         )
-        logical_bytes = row.logical_bytes or 0
+        logical_bytes = row.logical_bytes if row.logical_bytes is not None else 0
 
         match self.kind_config:
             case TimeConfig() as config:
@@ -82,7 +82,7 @@ class PartitionNormalizer:
                 return self.normalize_range(
                     partition_id, partition_signature, config, logical_bytes
                 )
-            case _:
+            case _:  # pragma: no cover
                 assert_never(self.kind_config)
 
     def normalize_time(
@@ -233,7 +233,7 @@ async def physical_partitions(
     ):
         partition = normalizer.normalize(row)
 
-        if partition:
+        if partition is not None:
             partitions[partition.partition_id] = partition
 
     if n is not None:

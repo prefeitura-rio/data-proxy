@@ -25,7 +25,7 @@
 
         packages = with pkgs; [ sqlfluff ];
 
-        languages.python.lsp.package = pkgs.basedpyright;
+        languages.python.lsp.package = pkgs.pyrefly;
 
         scripts.seed = {
           description = "Seed synthetic BigQuery data for the sync service.";
@@ -63,7 +63,6 @@
             exec = ''
               uv run --frozen ruff check src tests
               uv run --frozen ruff format --check src tests
-              basedpyright
               uv run --frozen pyrefly check
               uv run --frozen complexipy src tests
               uv run --frozen vulture --min-confidence 60 src tests

@@ -34,6 +34,7 @@ dev = [
   "pytest-bdd==8.1.0",
   "pytest-env>=1.1.5",
   "pytest-gremlins>=1.9.0",
+  "pytest-cov>=6.0.0",
   "pytest>=8.0.0",
   "pyrefly>=0.1.0",
   "ruff>=0.9.3",
@@ -147,19 +148,6 @@ runtime-evaluated-decorators = ["dbos.DBOS.workflow"]
   "PLR6301",
 ] # validate implements the Source protocol
 
-[tool.basedpyright]
-typeCheckingMode = "all"
-venvPath = "."
-venv = ".venv"
-extraPaths = ["src", "."]
-reportUnusedCallResult = false # calls such as execute and set are made for their effect
-reportUnusedParameter = false # protocols, DBOS and pytest fixtures require parameters the body does not use
-
-[[tool.basedpyright.executionEnvironments]]
-root = "tests"
-reportAny = false          # tests read mock calls and decoded values
-reportPrivateUsage = false # tests read private state of the code under test
-
 [tool.pyrefly]
 project-includes = ["src", "tests"]
 search-path = ["src", "."]
@@ -168,7 +156,6 @@ python-interpreter-path = ".venv/bin/python"
 preset = "all"
 
 [tool.pyrefly.errors]
-implicit-bool = false      # truthiness checks are the code style
 unused-call-result = false # calls such as execute and set are made for their effect
 
 [tool.complexipy]

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 def configure_metrics() -> None:
     """Configure the OTLP metric exporter when an endpoint is set."""
     endpoint = settings.OTLP_METRICS_ENDPOINT
-    if not endpoint:
+    if len(endpoint) == 0:
         return
 
     reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint))

@@ -91,11 +91,16 @@ class Settings(BaseSettings):
         """Return a Redis client for the selected address."""
         urls = {"read": self.REDIS_READ, "write": self.REDIS_WRITE}
         url = urls[role]
-        default_db = int((url.path or "/0").lstrip("/") or 0)
+        db_text = (
+            url.path if url.path is not None and len(url.path) > 0 else "/0"
+        ).lstrip("/")
+        default_db = int(db_text) if len(db_text) > 0 else 0
 
         return Redis(
-            host=url.host or "localhost",
-            port=url.port or 6379,
+            host=url.host
+            if url.host is not None and len(url.host) > 0
+            else "localhost",
+            port=url.port if url.port is not None else 6379,
             db=db if db is not None else default_db,
             username=url.username,
             password=url.password,

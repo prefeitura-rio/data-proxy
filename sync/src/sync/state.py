@@ -76,7 +76,7 @@ async def read_table_state(pg_conn: Postgres, table: str) -> TableState | None:
         expect=tuple[str],
     )
 
-    if not rows:
+    if len(rows) == 0:
         return None
 
     return TableState.model_validate_json(rows[0][0])

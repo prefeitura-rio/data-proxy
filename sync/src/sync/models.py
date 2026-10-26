@@ -122,7 +122,9 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "source": source,
-            "rls": [r.model_dump() for r in self.rls] if self.rls else None,
+            "rls": [r.model_dump() for r in self.rls]
+            if self.rls is not None and len(self.rls) > 0
+            else None,
             "ducklake": self.ducklake.model_dump(),
         }
 
@@ -136,7 +138,11 @@ class Table(BaseModel):
         json_columns: list[str] | None = None,
     ) -> DumpTask:
         """Create one extraction task for the selected source rows."""
-        suffix = f"/{path_suffix}" if path_suffix else ""
+        suffix = (
+            f"/{path_suffix}"
+            if path_suffix is not None and len(path_suffix) > 0
+            else ""
+        )
 
         prefix = f"s3://{s3_bucket}/{scratch_prefix}/"
         return DumpTask(
@@ -150,7 +156,7 @@ class Table(BaseModel):
                 + f"{self.resolved_schema}/{self.table_name}{suffix}/data.parquet"
             ),
             selections=selections,
-            json_columns=json_columns or [],
+            json_columns=[] if json_columns is None else json_columns,
         )
 
 
@@ -233,13 +239,13 @@ class SyncConfig(BaseModel):
 
     def scoped(self, scope: SyncScope) -> SyncConfig:
         """Return the config reduced to the tables in scope, without schemas that have none."""
-        if not scope.schemas and not scope.tables:
+        if len(scope.schemas) == 0 and len(scope.tables) == 0:
             return self
 
         schemas = {
             name: schema.model_copy(update={"tables": tables})
             for name, schema in self.schemas.items()
-            if (
+            if len(
                 tables := [
                     table
                     for table in schema.tables
@@ -247,6 +253,7 @@ class SyncConfig(BaseModel):
                     or f"{name}.{table.table_name}" in scope.tables
                 ]
             )
+            > 0
         }
         return SyncConfig(schemas=schemas)
 
@@ -281,7 +288,7 @@ class SyncConfig(BaseModel):
         names = [table.name for table in self.tables]
         duplicates = sorted({name for name in names if names.count(name) > 1})
 
-        if duplicates:
+        if len(duplicates) > 0:
             raise ValueError(f"Duplicate configured table names: {duplicates}")
 
         return self
@@ -295,7 +302,7 @@ class SyncConfig(BaseModel):
         duplicates = sorted(
             {name for name in destinations if destinations.count(name) > 1}
         )
-        if duplicates:
+        if len(duplicates) > 0:
             raise ValueError(f"Duplicate destination table names: {duplicates}")
         return self
 
@@ -321,9 +328,13 @@ class SyncConfig(BaseModel):
             if schema.claim is not None:
                 continue
 
-            offenders = [table.name for table in schema.tables if table.rls]
+            offenders = [
+                table.name
+                for table in schema.tables
+                if table.rls is not None and len(table.rls) > 0
+            ]
 
-            if offenders:
+            if len(offenders) > 0:
                 message = (
                     f"Schema {name!r} has no claim but rls tables: {sorted(offenders)}"
                 )
@@ -382,7 +393,7 @@ class DumpResult(BaseModel):
     @model_validator(mode="after")
     def require_failed_paths_on_failure(self) -> Self:
         """Require at least one failed path when the status is failure."""
-        if self.status == DumpStatus.FAILURE and not self.failed_paths:
+        if self.status == DumpStatus.FAILURE and len(self.failed_paths) == 0:
             raise ValueError("Failed extraction must have failed paths")
         return self
 
@@ -434,10 +445,10 @@ class SyncPlan(BaseModel):
     def validate_paths(self) -> Self:
         """Require ordinary signatures and non-empty paths to match."""
         if self.signatures.keys() != self.paths.keys() or any(
-            not paths for paths in self.paths.values()
+            len(paths) == 0 for paths in self.paths.values()
         ):
             raise ValueError("Sync plan signatures and non-empty paths must match")
-        if self.signatures.keys() & self.partitioned_tables.keys():
+        if len(self.signatures.keys() & self.partitioned_tables.keys()) > 0:
             raise ValueError("Tables can't have ordinary and partitioned plans")
         return self
 

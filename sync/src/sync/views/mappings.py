@@ -6,7 +6,7 @@ from psycopg.sql import Identifier, Literal
 
 from sync.constants import DUCKDB_VIEW_PREFIX, MAX_IDENTIFIER_BYTES
 from sync.executor import Executor
-from sync.models import PartitionedTable, TableConfig
+from sync.models import PartitionedTable, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
@@ -221,7 +221,8 @@ def table_function_mapping(
 ) -> dict[str, TemplateValue]:
     """Return mappings for the function behind one table view."""
     table_name = table.table_name
-    claim_name = claim or "sub"
+    claim_name = claim if claim is not None and len(claim) > 0 else "sub"
+    rls: list[UnitMapping] = [] if table.rls is None else table.rls
 
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
 
@@ -246,10 +247,10 @@ def table_function_mapping(
         "dl_view": f"dl_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if table.rls else "false",
+        "has_rls": "true" if len(rls) > 0 else "false",
         "rls_mappings": [
             {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in (table.rls or [])
+            for mapping in rls
         ],
         "source_table": Literal(table.name),
         "fallbacks": fallback,
@@ -264,7 +265,8 @@ def table_changes_function_mapping(
     claim: str | None,
 ) -> dict[str, TemplateValue]:
     """Return mappings for one DuckLake table change-feed function."""
-    claim_name = claim or "sub"
+    claim_name = claim if claim is not None and len(claim) > 0 else "sub"
+    rls: list[UnitMapping] = [] if table.rls is None else table.rls
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),
@@ -273,10 +275,10 @@ def table_changes_function_mapping(
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if table.rls else "false",
+        "has_rls": "true" if len(rls) > 0 else "false",
         "rls_mappings": [
             {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in (table.rls or [])
+            for mapping in rls
         ],
         "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",

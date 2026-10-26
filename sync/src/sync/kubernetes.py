@@ -29,7 +29,8 @@ def job_from_cronjob(cronjob: CronJob, name: str) -> Job:
     owner_name: str | None = owner.name
     owner_uid: str | None = owner.uid
     template = cronjob.spec.jobTemplate
-    metadata = deepcopy(template.metadata) or ObjectMeta()
+    copied = deepcopy(template.metadata)
+    metadata = ObjectMeta() if copied is None else copied
     metadata.name = name
     metadata.annotations = {"cronjob.kubernetes.io/instantiate": "manual"}
     metadata.ownerReferences = [

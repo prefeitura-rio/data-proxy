@@ -1,10 +1,7 @@
 """BigQuery partition metadata configuration helpers."""
 
-from typing import cast
-
 from google.cloud.bigquery import (
     RangePartitioning,
-    SchemaField,
     Table,
     TimePartitioning,
 )
@@ -23,12 +20,12 @@ from sync.sources.partitions import (
 def range_config(partitioning: RangePartitioning, table: str) -> RangeConfig:
     """Return validated integer-range configuration from metadata."""
     field = partitioning.field
-    start = partitioning.range_.start or 0
+    start = partitioning.range_.start if partitioning.range_.start is not None else 0
     end = partitioning.range_.end
     interval = partitioning.range_.interval
 
     match field:
-        case str() if field and end is not None and interval is not None:
+        case str() if len(field) > 0 and end is not None and interval is not None:
             pass
         case _:
             raise ValueError(f"Incomplete range partition metadata: {table}")
@@ -47,10 +44,10 @@ def time_config(partitioning: TimePartitioning, table: str) -> TimeConfig:
             f"Ingestion-time partitioning without an explicit field is unsupported: {table}"
         )
 
-    if not isinstance(field, str) or not field:
+    if not isinstance(field, str) or len(field) == 0:
         raise ValueError(f"Invalid time partition field: {table}")
 
-    raw = partitioning.type_ or TimeGranularity.DAY
+    raw = partitioning.type_ if partitioning.type_ is not None else TimeGranularity.DAY
 
     try:
         return TimeConfig(field=field, granularity=TimeGranularity(raw))
@@ -84,5 +81,5 @@ def partitioned_table_signature(
     return source_partitioned_table_signature(
         config_json,
         kind_config,
-        repr(cast("list[SchemaField]", metadata.schema)),
+        repr(metadata.schema),
     )
