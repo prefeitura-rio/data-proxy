@@ -204,7 +204,7 @@ end
 
 ### Tests
 
-- Write one test file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main` and `handler` have no test file.
+- Write one test file for each module: `proxy/tests/unit/<module>_spec.lua`. Keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main`, `handler` and `log` have no test file.
 - Write table-driven Busted specs. Use one `describe` for each function and `it(case.name)` for each case.
 - Give each case a name that states the behavior, for example `retries a 503 on the retry service`.
 - Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, for example the 32 raw bytes that `resty.sha256` gives.
