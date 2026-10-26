@@ -45,6 +45,20 @@ function log.format(event, context, fields, now)
 	return message .. ": " .. texts:join(" ")
 end
 
+--- Build one log line for an event that has no request: a message, then name=value pairs.
+---
+--- ```lua
+--- log.format_note("redis-failed", { operation = "read", error = "timeout" })
+--- --> "Proxy Redis cache failed: operation=read error=timeout"
+--- ```
+---@param event string Event name. It is a key of constants.log.messages.
+---@param fields table<string, string|number|nil> Values: operation and error.
+---@return string line
+function log.format_note(event, fields)
+	local message = constants.log.messages[event] or constants.log.fallback_message
+	return message .. ": " .. log.render_fields(fields, constants.log.note_fields):join(" ")
+end
+
 --- Write one log line to the nginx error log.
 ---@param level integer nginx log level, for example ngx.INFO or ngx.WARN.
 ---@param event string Event name, see log.format.
@@ -53,6 +67,15 @@ end
 ---@return nil
 function log.write(level, event, context, fields)
 	ngx.log(level --[[@as ngx.log.level]], log.format(event, context, fields, ngx.now()))
+end
+
+--- Write one log line for an event that has no request to the nginx error log.
+---@param level integer nginx log level, for example ngx.ERR or ngx.WARN.
+---@param event string Event name, see log.format_note.
+---@param fields table<string, string|number|nil> Values, see log.format_note.
+---@return nil
+function log.note(level, event, fields)
+	ngx.log(level --[[@as ngx.log.level]], log.format_note(event, fields))
 end
 
 return log

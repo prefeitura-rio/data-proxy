@@ -3,6 +3,7 @@
 local cjson = require("cjson.safe")
 local class = require("pl.class") --[[@as pl.ClassModule]]
 local constants = require("proxy.constants")
+local log = require("proxy.log")
 local resty_redis = require("resty.redis")
 local schemas = require("proxy.schemas.main")
 
@@ -17,7 +18,7 @@ local function warn(operation, reason)
 	if now - last_warning < constants.redis.warning_interval_s then return end
 
 	last_warning = now
-	ngx.log(ngx.WARN, "Redis cache ", operation, " failed: ", tostring(reason))
+	log.note(ngx.WARN, "redis-failed", { operation = operation, error = tostring(reason) })
 end
 
 --- The Redis cache store, with one connection for each call.

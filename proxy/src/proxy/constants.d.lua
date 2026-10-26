@@ -33,6 +33,7 @@
 ---@field default_media_type string Media type assumed if the client sends no usable Accept.
 ---@field json_type string Content-Type written if PostgREST sent none.
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
+---@field reload_failed_body string JSON body of the answer if the reload fails.
 ---@field unavailable_status integer
 ---@field overloaded_body string Body of the 503 answer. The proxy sends it when too many requests wait for PostgREST.
 ---@field forbidden_body string Body of the 403 answer, for a request that asks for the console profile.
@@ -67,6 +68,7 @@
 ---@field fallback_message string Log message for an event that is not in messages.
 ---@field leading_fields string[] Fields that the log line shows before the duration, in this order.
 ---@field trailing_fields string[] Fields that the log line shows after the duration, in this order.
+---@field note_fields string[] Fields that a line without a request shows, in this order.
 
 --- Redis connection limits.
 ---@class RedisConstants

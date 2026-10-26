@@ -2,8 +2,10 @@
 -- The only module with state.
 
 local cjson = require("cjson.safe")
+local constants = require("proxy.constants")
 local file = require("pl.file") --[[@as pl.file]]
 local handler = require("proxy.handler")
+local log = require("proxy.log")
 local settings = require("proxy.settings")
 local sync = require("proxy.sync")
 
@@ -56,7 +58,7 @@ function main.start()
 	local function check(premature)
 		if premature then return end
 		local _, reason = settings.reload(store --[[@as SettingsStore]], url, settings.fetch)
-		if reason then ngx.log(ngx.ERR, "Could not load sync.json from the console: ", reason) end
+		if reason then log.note(ngx.ERR, "sync-load-failed", { error = reason }) end
 		ngx.timer.at(interval, check)
 	end
 
@@ -89,9 +91,9 @@ function main.reload()
 
 	local result, reason = settings.reload(store, config.config_url, settings.fetch)
 	if result == nil then
-		ngx.log(ngx.ERR, "Could not reload sync.json: ", reason)
+		log.note(ngx.ERR, "sync-reload-failed", { error = reason })
 		ngx.status = ngx.HTTP_BAD_GATEWAY
-		return ngx.print(cjson.encode({ error = reason }))
+		return ngx.print(constants.http.reload_failed_body)
 	end
 	ngx.print(cjson.encode(result))
 end

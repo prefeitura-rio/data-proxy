@@ -65,7 +65,7 @@ POST http://{{admin_reload}}/reload
 
 HTTP 502
 [Asserts]
-jsonpath "$.error" contains "503"
+jsonpath "$.error" == "Could not reload sync.json"
 
 GET http://{{host_reload}}/access_policy?case=after-failure
 
@@ -89,7 +89,7 @@ POST http://{{admin_reload}}/reload
 
 HTTP 502
 [Asserts]
-jsonpath "$.error" contains "Invalid sync.json"
+jsonpath "$.error" == "Could not reload sync.json"
 
 # The reload answers only to POST.
 GET http://{{admin_reload}}/reload
