@@ -1525,16 +1525,7 @@ realm:
           "lastName": "Test",
           "attributes": {
             "schemas": [
-              "other",
-              "other_delete",
-              "other_life",
-              "other_history",
-              "other_dup",
-              "other_part",
-              "other_full",
-              "other_sort",
-              "other_encrypted",
-              "other_claim"
+              "other"
             ]
           },
           "credentials": [

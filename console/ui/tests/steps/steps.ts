@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
-import { BASE, Given, hydrated, Then, When, type World } from '../fixtures';
+import { BASE, Given, hydrated, saved, Then, When, type World } from '../fixtures';
 import { PASSWORD, sessionFile } from '../session';
 
 /** Read the first bytes of a link. The link is signed for its own host, so the request keeps that host. */
@@ -370,7 +370,7 @@ Then('the health check answers without a session', async ({ browser, baseURL }) 
 	await expect(page.locator('body')).toHaveText('ok');
 });
 
-Then('I see no row of the schema {string}', async ({ page }, schema: string) => {
+Then('I see no row of the schema {name}', async ({ page }, schema: string) => {
 	const named = page.getByRole('cell', { name: schema, exact: true });
 
 	await expect(listOf(page, 'Encrypted').rows.filter({ has: named })).toHaveCount(0);
@@ -396,14 +396,14 @@ Then('I am on the sign-in page', async ({ page }) => {
 	await expect(page.locator('#username')).toBeVisible();
 });
 
-When('I ask to delete the schema {string}', async ({ page }, schema: string) => {
+When('I ask to delete the schema {name}', async ({ page }, schema: string) => {
 	await page
 		.getByRole('row', { name: new RegExp(schema) })
 		.getByRole('button', { name: 'Delete' })
 		.click();
 });
 
-Then('the confirm button stays disabled until I type {string}', async ({ page }, name: string) => {
+Then('the confirm button stays disabled until I type {name}', async ({ page }, name: string) => {
 	const confirm = page.locator('dialog').getByRole('button', { name: 'Delete' });
 	await expect(confirm).toBeDisabled();
 	await page.locator('dialog input[name=confirm]').fill('wrong');
@@ -412,7 +412,7 @@ Then('the confirm button stays disabled until I type {string}', async ({ page },
 	await expect(confirm).toBeEnabled();
 });
 
-When('I add the schema {string}', async ({ page, world }, name: string) => {
+When('I add the schema {name}', async ({ page, world }, name: string) => {
 	world.schemas.push(name);
 	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
@@ -466,7 +466,7 @@ Then('I see the message {string}', async ({ page }, message: string) => {
 	await expect(page.getByRole('status')).toContainText(message);
 });
 
-When('I edit the schema {string} with claim {string}', async ({ page }, schema: string, claim: string) => {
+When('I edit the schema {name} with claim {string}', async ({ page }, schema: string, claim: string) => {
 	await row(page, new RegExp(`^${schema} `))
 		.getByRole('button', { name: 'Edit' })
 		.click();
@@ -475,40 +475,38 @@ When('I edit the schema {string} with claim {string}', async ({ page }, schema: 
 	await expect(row(page, new RegExp(`^${schema} `))).toContainText(claim);
 });
 
-When('I add the table {string} to the schema {string}', async ({ page }, table: string, schema: string) => {
+When('I add the table {name} to the schema {name}', async ({ page }, table: string, schema: string) => {
 	await page.getByPlaceholder('project.dataset.table').fill(table);
 	await page.locator('form[action="?/createTable"] select[name=schema]').selectOption(schema);
 	await page.getByRole('button', { name: 'Add table' }).click();
 	await expect(listOf(page, 'Strategy').rows.getByRole('cell', { name: table, exact: true })).toBeVisible();
 });
 
-When('I edit the table {string} with cache TTL {string}', async ({ page }, table: string, ttl: string) => {
+When('I edit the table {name} with cache TTL {string}', async ({ page }, table: string, ttl: string) => {
 	await row(page, new RegExp(`^${table.replaceAll('.', '\\.')} `))
 		.getByRole('button', { name: 'Edit' })
 		.click();
 	await page.locator('dialog[open] input[name=cache_ttl]').fill(ttl);
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
 });
 
-Then('the table {string} shows cache TTL {string}', async ({ page }, table: string, ttl: string) => {
+Then('the table {name} shows cache TTL {string}', async ({ page }, table: string, ttl: string) => {
 	await expect(
 		row(page, new RegExp(`^${table.replaceAll('.', '\\.')} `)).getByRole('cell', { name: ttl, exact: true })
 	).toBeVisible();
 });
 
 When(
-	'I add a row rule for the table {string} on column {string} with unit type {string}',
+	'I add a row rule for the table {name} on column {string} with unit type {string}',
 	async ({ page }, table: string, column: string, unit: string) => {
 		await page.locator('form[action="?/createRls"] select[name=table_name]').selectOption(table);
 		await page.locator('form[action="?/createRls"] input[name=column_name]').fill(column);
 		await page.locator('form[action="?/createRls"] input[name=unit_type]').fill(unit);
-		await page.getByRole('button', { name: 'Add rule' }).click();
-		await expect(page.getByRole('status')).toContainText('Saved.');
+		await saved(page, () => page.getByRole('button', { name: 'Add rule' }).click());
 	}
 );
 
-When('I change the unit type of the rule on {string} to {string}', async ({ page }, table: string, unit: string) => {
+When('I change the unit type of the rule on {name} to {string}', async ({ page }, table: string, unit: string) => {
 	await page
 		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
 		.getByRole('button', { name: 'Edit' })
@@ -517,13 +515,13 @@ When('I change the unit type of the rule on {string} to {string}', async ({ page
 	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
 });
 
-Then('I see a row rule on {string} with unit type {string}', async ({ page }, table: string, unit: string) => {
+Then('I see a row rule on {name} with unit type {string}', async ({ page }, table: string, unit: string) => {
 	await expect(
 		page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id ${unit}`) })
 	).toBeVisible();
 });
 
-When('I delete the row rule of {string}', async ({ page }, table: string) => {
+When('I delete the row rule of {name}', async ({ page }, table: string) => {
 	await page
 		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
 		.getByRole('button', { name: 'Delete' })
@@ -531,22 +529,22 @@ When('I delete the row rule of {string}', async ({ page }, table: string) => {
 	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
 });
 
-Then('I see no row rule on {string}', async ({ page }, table: string) => {
+Then('I see no row rule on {name}', async ({ page }, table: string) => {
 	await expect(page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })).toHaveCount(0);
 });
 
-When('I delete the table {string}', async ({ page }, table: string) => {
+When('I delete the table {name}', async ({ page }, table: string) => {
 	await row(page, new RegExp(`^${table.replaceAll('.', '\\.')} `))
 		.getByRole('button', { name: 'Delete' })
 		.click();
 	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
 });
 
-Then('I see no table {string}', async ({ page }, table: string) => {
+Then('I see no table {name}', async ({ page }, table: string) => {
 	await expect(listOf(page, 'Strategy').rows.getByRole('cell', { name: table, exact: true })).toHaveCount(0);
 });
 
-When('I delete the schema {string} by typing its name', async ({ page }, schema: string) => {
+When('I delete the schema {name} by typing its name', async ({ page }, schema: string) => {
 	await row(page, new RegExp(`^${schema} `))
 		.getByRole('button', { name: 'Delete' })
 		.click();
@@ -608,7 +606,7 @@ Then('no table shows the cache TTL {string}', async ({ page }, ttl: string) => {
 });
 
 Then(
-	'the history lists {string} of {string} {string} by {string}',
+	'the history lists {string} of {string} {name} by {string}',
 	async ({ page }, action: string, object: string, key: string, user: string) => {
 		const row = page
 			.getByRole('row')
@@ -633,8 +631,7 @@ When('I add the policy {string} for {string} {string}', async ({ page }, subject
 	await form.locator('input[name=subject]').fill(subject);
 	await form.locator('input[name=unit_type]').fill(unit);
 	await form.locator('input[name=unit_id]').fill(id);
-	await form.getByRole('button', { name: 'Add' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => form.getByRole('button', { name: 'Add' }).click());
 });
 
 const policy = (page: Page, subject: string) =>
@@ -647,8 +644,7 @@ Then('I see the policy {string} with unit id {string}', async ({ page }, subject
 When('I change the unit id of the policy {string} to {string}', async ({ page }, subject: string, id: string) => {
 	await policy(page, subject).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open] input[name=unit_id]').fill(id);
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
 });
 
 When('I start to remove the policy {string}', async ({ page }, subject: string) => {
@@ -666,8 +662,7 @@ Then('I see the policy {string}', async ({ page }, subject: string) => {
 
 When('I remove the policy {string}', async ({ page }, subject: string) => {
 	await policy(page, subject).getByRole('button', { name: 'Delete' }).click();
-	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click());
 });
 
 Then('I see no policy {string}', async ({ page }, subject: string) => {

@@ -2,7 +2,7 @@
 Feature: Scenarios that add, change and delete a schema of their own
 
   Scenario: Schema delete needs the typed name
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_delete"
     And I ask to delete the schema "other_delete"
@@ -11,7 +11,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then I see no row of the schema "other_delete"
 
   Scenario: A schema, a table and a row rule go through their whole life
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_life"
     And I edit the schema "other_life" with claim "cpf"
@@ -29,17 +29,17 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then I see no row of the schema "other_life"
 
   Scenario: A change shows in the history with the user name
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_history"
     And I edit the schema "other_history" with claim "cpf"
-    Then the history lists "insert" of "schemas" "other_history" by "web_other"
-    And the history lists "update" of "schemas" "other_history" by "web_other"
+    Then the history lists "insert" of "schemas" "other_history" by "web_root"
+    And the history lists "update" of "schemas" "other_history" by "web_root"
     When I delete the schema "other_history" by typing its name
-    Then the history lists "delete" of "schemas" "other_history" by "web_other"
+    Then the history lists "delete" of "schemas" "other_history" by "web_root"
 
   Scenario: A table that exists cannot be added again
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_dup"
     And I add the table "p.d.dup" to the schema "other_dup"
@@ -47,7 +47,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then I see the alert "The row clashes"
 
   Scenario: The partitioned strategy keeps n and fallback
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_part"
     And I add the table "p.d.part" to the schema "other_part"
@@ -55,7 +55,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then the table "p.d.part" shows "partitioned, n=4, fallback"
 
   Scenario: A full table refuses n
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_full"
     And I add the table "p.d.full" to the schema "other_full"
@@ -63,7 +63,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then I see the alert "The value is wrong"
 
   Scenario: The sort columns show in the table list
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_sort"
     And I add the table "p.d.sorted" to the schema "other_sort"
@@ -71,7 +71,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then the table "p.d.sorted" shows "id, name"
 
   Scenario: An encrypted schema warns in the Query tab
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_encrypted"
     And I mark the schema "other_encrypted" as encrypted
@@ -81,7 +81,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     And the button "Open notebook" is disabled
 
   Scenario: A schema keeps its claim while a table has a rule
-    Given I sign in as "web_other"
+    Given I sign in as "web_root"
     When I open the "Config" tab
     And I add the schema "other_claim"
     And I edit the schema "other_claim" with claim "cpf"

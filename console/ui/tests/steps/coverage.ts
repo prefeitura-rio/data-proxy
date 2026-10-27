@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
-import { After, BASE, hydrated, Then, When } from '../fixtures';
+import { After, BASE, hydrated, saved, scenario, Then, When } from '../fixtures';
 
 const log = (page: Page) => page.locator('pre');
 
@@ -91,7 +91,7 @@ When('I try to add the schema {string}', async ({ page }, name: string) => {
 	await page.getByRole('button', { name: 'Add schema' }).click();
 });
 
-When('I try to add the table {string} to the schema {string}', async ({ page }, table: string, schema: string) => {
+When('I try to add the table {name} to the schema {name}', async ({ page }, table: string, schema: string) => {
 	await page.getByPlaceholder('project.dataset.table').fill(table);
 	await page.locator('form[action="?/createTable"] select[name=schema]').selectOption(schema);
 	await page.getByRole('button', { name: 'Add table' }).click();
@@ -101,7 +101,7 @@ const tableRow = (page: Page, table: string) =>
 	page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} `) });
 
 When(
-	'I edit the table {string} to be partitioned with n {string} and fallback',
+	'I edit the table {name} to be partitioned with n {string} and fallback',
 	async ({ page }, table: string, n: string) => {
 		await tableRow(page, table).getByRole('button', { name: 'Edit' }).click();
 
@@ -110,39 +110,36 @@ When(
 		await dialog.locator('select[name=strategy]').selectOption('partitioned');
 		await dialog.locator('input[name=n]').fill(n);
 		await dialog.getByLabel('fallback').check();
-		await dialog.getByRole('button', { name: 'Save' }).click();
-		await expect(page.getByRole('status')).toContainText('Saved.');
+		await saved(page, () => dialog.getByRole('button', { name: 'Save' }).click());
 	}
 );
 
-When('I try to edit the table {string} with n {string}', async ({ page }, table: string, n: string) => {
+When('I try to edit the table {name} with n {string}', async ({ page }, table: string, n: string) => {
 	await tableRow(page, table).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open] input[name=n]').fill(n);
 	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
 });
 
-When('I edit the table {string} with sort columns {string}', async ({ page }, table: string, sort: string) => {
+When('I edit the table {name} with sort columns {string}', async ({ page }, table: string, sort: string) => {
 	await tableRow(page, table).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open] input[name=sort]').fill(sort);
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
 });
 
-Then('the table {string} shows {string}', async ({ page }, table: string, text: string) => {
+Then('the table {name} shows {string}', async ({ page }, table: string, text: string) => {
 	await expect(tableRow(page, table)).toContainText(text);
 });
 
-When('I mark the schema {string} as encrypted', async ({ page }, schema: string) => {
+When('I mark the schema {name} as encrypted', async ({ page }, schema: string) => {
 	await page
 		.getByRole('row', { name: new RegExp(`^${schema} `) })
 		.getByRole('button', { name: 'Edit' })
 		.click();
 	await page.locator('dialog[open]').getByLabel('encrypted').check();
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
-	await expect(page.getByRole('status')).toContainText('Saved.');
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
 });
 
-When('I choose the schema {string}', async ({ page }, schema: string) => {
+When('I choose the schema {name}', async ({ page }, schema: string) => {
 	await page.locator('select').selectOption(schema);
 });
 
@@ -192,7 +189,7 @@ Then('I see an alert', async ({ page }) => {
 	await expect(page.getByRole('alert')).toBeVisible();
 });
 
-When('I try to clear the claim of the schema {string}', async ({ page }, schema: string) => {
+When('I try to clear the claim of the schema {name}', async ({ page }, schema: string) => {
 	await page
 		.getByRole('row', { name: new RegExp(`^${schema} `) })
 		.getByRole('button', { name: 'Edit' })
@@ -201,7 +198,7 @@ When('I try to clear the claim of the schema {string}', async ({ page }, schema:
 	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
 });
 
-Then('the schema {string} still has the claim {string}', async ({ page }, schema: string, claim: string) => {
+Then('the schema {name} still has the claim {string}', async ({ page }, schema: string, claim: string) => {
 	await expect(page.getByRole('row', { name: new RegExp(`^${schema} `) })).toContainText(claim);
 });
 
@@ -220,6 +217,8 @@ When('I use the remembered file', ({ world }) => {
 });
 
 After({ tags: '@new-schema' }, async ({ world }) => {
+	scenario.suffix = '';
+
 	const names = world.schemas.filter((name) => /^[a-z][a-z0-9_]*$/.test(name)).map((name) => `'${name}'`);
 
 	if (names.length === 0) {
