@@ -1,12 +1,14 @@
 """A sync run with its real steps, a fake source and the real PostgreSQL, S3 and DuckLake of the test stack."""
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import final
 from unittest.mock import AsyncMock
 
+import duckdb
 import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier
@@ -118,11 +120,20 @@ class Pipeline:
         await workflow_body(workflows.run_sync)(datetime.now(UTC), context)
 
 
+@pytest.fixture(scope="session")
+def duckdb_extensions() -> None:
+    """Install the extensions that `DuckDB.connect` loads. The image has them, and a machine without them gets them once."""
+    with closing(duckdb.connect()) as connection:
+        for extension in ("httpfs", "ducklake", "postgres_scanner"):
+            connection.install_extension(extension)
+
+
 @pytest.fixture
 async def pipeline(
-    postgres: Postgres, monkeypatch: pytest.MonkeyPatch
+    postgres: Postgres, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 ) -> AsyncIterator[Pipeline]:
     """Wire run_sync to its real steps, and clean the data that the run leaves behind."""
+    request.getfixturevalue("duckdb_extensions")
     schema = postgres.namespace.schema
     monkeypatch.setattr(registry.sources, "sources", {"range": RangeSource()})
     config = SyncConfig(
