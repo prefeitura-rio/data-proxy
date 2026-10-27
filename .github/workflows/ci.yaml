@@ -250,9 +250,9 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: devenv --profile checks shell -- ci release bump
         env:
-          PIPELINE_SHA: ${{ steps.shas.outputs.pipeline }}
+          PIPELINE_SHA: ${{ steps.shas.outputs.sync }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
-          NU_SHA: ${{ steps.shas.outputs.nushell }}
+          NU_SHA: ${{ steps.shas.outputs.jobs }}
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
           CONSOLE_SHA: ${{ steps.shas.outputs.console }}
       - name: Package chart

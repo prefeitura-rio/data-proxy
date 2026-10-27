@@ -34,11 +34,11 @@ def ci-repository-owner []: nothing -> string {
     $ci.repository | parse '{owner}/{repo}' | first | get owner
 }
 
-# Return the value of an environment variable, or fail when it is not set.
+# Return the value of an environment variable, or fail when it is not set or empty.
 def required-env [name: string]: nothing -> string {
     let value = $env | get --optional $name
 
-    if $value == null {
+    if ($value | is-empty) {
         fail $'The environment variable ($name) is not set'
     }
 
