@@ -203,6 +203,22 @@ class TestViewsAreScopedBySchema:
 
         assert state == (INSUFFICIENT if refused else None)
 
+    async def test_schedules_are_the_schedules_of_the_schemas_of_the_token(
+        self, console_api: Postgres
+    ) -> None:
+        """Show each schedule with its schema, and hide the schedules of the other schemas."""
+        await two_schemas(console_api)
+        await add_schedule(console_api, "sync-sales")
+        await add_schedule(console_api, "sync-hr")
+        await add_schedule(console_api, "sync")
+        await as_token(console_api, "dp_console", ["sales"], database_role=True)
+
+        cursor = await console_api.connection.execute(
+            b"SELECT name, schema FROM console.schedules ORDER BY name"
+        )
+
+        assert await cursor.fetchall() == [("sync-sales", "sales")]
+
     async def test_health_tells_a_schema_without_its_access_policy_from_one_that_has_it(
         self, console_api: Postgres
     ) -> None:
@@ -508,22 +524,35 @@ async def add_schedule(pg: Postgres, name: str) -> None:
 
 @pytest.mark.postgres
 class TestScheduleControl:
-    """A schedule serves every schema, so only a token for every schema controls it."""
+    """A schedule serves one schema, so a token needs that schema to see and control it."""
 
     @pytest.mark.parametrize(
-        ("function", "action"),
-        [("pause_schedule", "pause_schedule"), ("resume_schedule", "resume_schedule")],
+        ("function", "arguments", "action"),
+        [
+            pytest.param(
+                "pause_schedule", "'sync-sales'", "pause_schedule", id="pause"
+            ),
+            pytest.param(
+                "resume_schedule", "'sync-sales'", "resume_schedule", id="resume"
+            ),
+            pytest.param(
+                "set_schedule",
+                "'sync-sales', '30 3 * * 1'",
+                "set_schedule",
+                id="change-the-cron",
+            ),
+        ],
     )
-    async def test_queues_the_action_for_a_token_that_reaches_every_schema(
-        self, console_api: Postgres, function: str, action: str
+    async def test_queues_the_action_for_a_token_that_reaches_the_schema(
+        self, console_api: Postgres, function: str, arguments: str, action: str
     ) -> None:
         """Hand the action to the control queue."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync")
-        await as_token(console_api, "dp_admin", ["*"])
+        await add_schedule(console_api, "sync-sales")
+        await as_token(console_api, "dp_admin", ["sales"])
 
         await console_api.connection.execute(
-            f"SELECT console.{function}('sync')".encode()
+            f"SELECT console.{function}({arguments})".encode()
         )
 
         assert await values(
@@ -535,38 +564,87 @@ class TestScheduleControl:
     @pytest.mark.parametrize(
         ("role", "schemas", "expected"),
         [
-            pytest.param("dp_admin", ["sales", "hr"], None, id="every-schema-by-name"),
+            pytest.param("dp_admin", ["sales"], None, id="the-schema-of-the-schedule"),
             pytest.param("dp_admin", ["*"], None, id="every-schema-by-star"),
-            pytest.param("dp_admin", ["sales"], INSUFFICIENT, id="one-schema-of-two"),
-            pytest.param("dp_console", ["*"], INSUFFICIENT, id="no-control-permission"),
+            pytest.param("dp_admin", ["hr"], NOT_FOUND, id="another-schema"),
+            pytest.param(
+                "dp_console", ["sales"], INSUFFICIENT, id="no-control-permission"
+            ),
         ],
     )
-    async def test_needs_every_schema_and_the_permission_to_control(
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "SELECT console.pause_schedule('sync-sales')",
+            "SELECT console.set_schedule('sync-sales', '30 3 * * 1')",
+        ],
+    )
+    async def test_needs_the_schema_of_the_schedule_and_the_permission_to_control(
         self,
         console_api: Postgres,
         role: str,
         schemas: list[str],
         expected: str | None,
+        statement: str,
     ) -> None:
-        """Refuse a token with a narrower claim, or without control_sync."""
+        """Hide the schedule from a token for another schema, and refuse a token without control_sync."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync")
+        await add_schedule(console_api, "sync-sales")
         await as_token(console_api, role, schemas)
 
-        assert (
-            await refusal(console_api, "SELECT console.pause_schedule('sync')")
-            == expected
-        )
+        assert await refusal(console_api, statement) == expected
 
-    async def test_answers_not_found_for_a_schedule_that_does_not_exist(
-        self, console_api: Postgres
+    @pytest.mark.parametrize(
+        "name",
+        [
+            pytest.param("ghost", id="no-schedule"),
+            pytest.param("sync-ghost", id="a-schedule-of-no-schema"),
+            pytest.param("sync", id="the-old-global-schedule"),
+        ],
+    )
+    async def test_answers_not_found_for_a_schedule_that_the_schemas_do_not_have(
+        self, console_api: Postgres, name: str
     ) -> None:
-        """Name no schedule that DBOS lacks."""
+        """Name no schedule that DBOS lacks, that no schema owns, or that has no schema in its name."""
+        await two_schemas(console_api)
+        await add_schedule(console_api, "sync-ghost")
+        await add_schedule(console_api, "sync")
         await as_token(console_api, "dp_admin", ["*"])
 
         assert (
-            await refusal(console_api, "SELECT console.pause_schedule('ghost')")
+            await refusal(console_api, "SELECT console.pause_schedule(%s)", name)
             == NOT_FOUND
+        )
+
+    @pytest.mark.parametrize(
+        "cron",
+        [
+            pytest.param("30 3 *", id="three-fields"),
+            pytest.param("30 3 * * 1 1 1 1", id="eight-fields"),
+            pytest.param("", id="empty"),
+            pytest.param("30 3 * * ;", id="a-bad-character"),
+        ],
+    )
+    async def test_refuses_a_cron_that_is_not_a_cron(
+        self, console_api: Postgres, cron: str
+    ) -> None:
+        """Answer a bad request, and queue nothing."""
+        await two_schemas(console_api)
+        await add_schedule(console_api, "sync-sales")
+        await as_token(console_api, "dp_admin", ["sales"])
+
+        assert (
+            await refusal(
+                console_api, "SELECT console.set_schedule('sync-sales', %s)", cron
+            )
+            == BAD_REQUEST
+        )
+        assert (
+            await values(
+                console_api,
+                "SELECT queue_name FROM dbos.workflow_status WHERE name = 'set_schedule'",
+            )
+            == []
         )
 
 

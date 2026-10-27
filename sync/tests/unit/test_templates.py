@@ -2416,7 +2416,7 @@ class TestPostgresTemplates:
         [
             pytest.param(
                 "INSERT INTO console.schemas VALUES ('a')",
-                ["provision_schemas", "reload_proxy"],
+                ["provision_schemas", "reconcile_schedules", "reload_proxy"],
                 id="schema-added",
             ),
             pytest.param(
@@ -2426,7 +2426,7 @@ class TestPostgresTemplates:
             ),
             pytest.param(
                 "DELETE FROM console.schemas",
-                ["provision_schemas", "reload_proxy"],
+                ["provision_schemas", "reconcile_schedules", "reload_proxy"],
                 id="schema-removed",
             ),
             pytest.param(
@@ -2472,6 +2472,21 @@ class TestPostgresTemplates:
         queued = await queued_workflows(rbac, dbos_schema)
         assert sorted(set(queued) - set(before)) == expected
         assert len(queued) - len(before) == len(expected)
+
+    async def test_create_console_triggers_queues_the_reconcile_of_the_schedules_in_a_queue_of_its_own(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """The queue runs one reconcile at a time, so two changes never create the same schedule twice."""
+        await install_console_triggers(rbac)
+
+        await rbac.connection.execute(SQL("INSERT INTO console.schemas VALUES ('a')"))
+
+        cursor = await rbac.connection.execute(
+            SQL(
+                "SELECT queue_name FROM {}.workflow_status WHERE name = 'reconcile_schedules'"
+            ).format(Identifier(dbos_schema))
+        )
+        assert [queue for (queue,) in await cursor.fetchall()] == ["schedules"]
 
     async def test_create_console_triggers_queues_the_next_run_while_one_is_running(
         self, rbac: Postgres, dbos_schema: str

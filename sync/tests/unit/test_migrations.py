@@ -162,6 +162,63 @@ class TestMigrationsOnExistingData:
         )
         assert await cursor.fetchall() == [("update", "tables", "sales", "p.d.t")]
 
+    @pytest.mark.parametrize(
+        ("schedule_name", "expected"),
+        [
+            pytest.param("sync-hr", "hr", id="a-schedule-of-a-schema"),
+            pytest.param(
+                "sync-a_b-2", "a_b-2", id="the-rest-of-the-name-is-the-schema"
+            ),
+            pytest.param("sync", None, id="the-old-global-schedule"),
+            pytest.param("sync-", None, id="a-prefix-without-a-schema"),
+            pytest.param("nightly", None, id="another-schedule"),
+            pytest.param("Sync-hr", None, id="the-prefix-has-lower-case-letters"),
+        ],
+    )
+    async def test_00010_reads_the_schema_from_the_name_of_a_schedule(
+        self, rbac: Postgres, schedule_name: str, expected: str | None
+    ) -> None:
+        """The one function that knows the prefix gives the schema, or nothing."""
+        await migrate(rbac, migrations_until(10))
+
+        assert (
+            await scalar(rbac, "SELECT console.schedule_schema(%s)", schedule_name)
+            == expected
+        )
+
+    async def test_00010_shows_the_schedules_of_the_schemas_that_the_token_reaches(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """Before it, a token sees the global schedule. After it, the token sees one schedule for each of its schemas."""
+        await migrate(rbac, migrations_until(9))
+        await grant_console(rbac)
+        for name in ("sales", "hr"):
+            await add_schema(rbac, name, claim="cpf", provisioned=False)
+        for name in ("sync", "sync-sales", "sync-hr"):
+            await rbac.connection.execute(
+                "INSERT INTO dbos.workflow_schedules (schedule_id, schedule_name, workflow_name, schedule, context) VALUES (%s, %s, 'run_sync', '0 2 * * *', '{}')",
+                (f"id-{name}", name),
+            )
+        await as_token(rbac, "dp_console", ["sales"], database_role=True)
+
+        assert await names(
+            rbac, "SELECT name FROM console.schedules ORDER BY name"
+        ) == [
+            "sync",
+            "sync-hr",
+            "sync-sales",
+        ]
+
+        await rbac.connection.execute(b"RESET ROLE")
+        await migrate(rbac, [migration(10)])
+        await grant_console(rbac)
+        await as_token(rbac, "dp_console", ["sales"], database_role=True)
+
+        cursor = await rbac.connection.execute(
+            b"SELECT name, schema FROM console.schedules ORDER BY name"
+        )
+        assert await cursor.fetchall() == [("sync-sales", "sales")]
+
 
 @pytest.mark.postgres
 class TestMigrationOrder:

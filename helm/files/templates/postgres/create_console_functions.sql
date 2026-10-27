@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the start of a sync run, the control of a run (cancel, resume, run again) and of a schedule (pause, resume), and the list of the data files of a table. Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.",
+  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the start of a sync run, the control of a run (cancel, resume, run again) and of a schedule (pause, resume, change the cron), and the list of the data files of a table. Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.",
   "inputs": {}
 }
 #}
@@ -239,30 +239,42 @@ $$;
 
 REVOKE ALL ON FUNCTION console.retry_run(text) FROM PUBLIC;
 
-CREATE OR REPLACE FUNCTION console.control_schedule(action text, target text)
+CREATE OR REPLACE FUNCTION console.guard_schedule(target text)
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER
+LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    target_schema text := console.schedule_schema(target);
 BEGIN
     IF NOT rbac.can('control_sync') THEN
         RAISE EXCEPTION 'The token lacks the control_sync permission'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    IF target_schema IS NULL
+        OR NOT rbac.mine(target_schema)
+        OR NOT EXISTS (SELECT FROM console.schemas AS s WHERE s.name = target_schema)
+        OR NOT EXISTS (
+            SELECT FROM dbos.workflow_schedules AS w WHERE w.schedule_name = target
+        )
+    THEN
+        RAISE EXCEPTION 'No such schedule' USING ERRCODE = 'PT404';
+    END IF;
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.guard_schedule(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.control_schedule(action text, target text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
     IF action NOT IN ('pause_schedule', 'resume_schedule') THEN
         RAISE EXCEPTION 'Unknown action %', action USING ERRCODE = 'PT400';
     END IF;
 
-    IF EXISTS (SELECT FROM console.schemas AS s WHERE NOT rbac.mine(s.name)) THEN
-        RAISE EXCEPTION 'A schedule serves every schema, so the token needs every schema'
-            USING ERRCODE = 'insufficient_privilege';
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT FROM dbos.workflow_schedules AS w WHERE w.schedule_name = target
-    ) THEN
-        RAISE EXCEPTION 'No such schedule' USING ERRCODE = 'PT404';
-    END IF;
+    PERFORM console.guard_schedule(target);
 
     PERFORM dbos.enqueue_workflow(
         workflow_name => action,
@@ -292,3 +304,26 @@ SET search_path = pg_catalog, pg_temp AS $$
 $$;
 
 REVOKE ALL ON FUNCTION console.resume_schedule(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION console.set_schedule(schedule_name text, cron text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+    PERFORM console.guard_schedule(schedule_name);
+
+    IF cron !~ '^[0-9A-Za-z*/,?#-]+( [0-9A-Za-z*/,?#-]+){4,5}$' THEN
+        RAISE EXCEPTION 'The cron needs 5 or 6 fields, separated by spaces'
+            USING ERRCODE = 'PT400';
+    END IF;
+
+    PERFORM dbos.enqueue_workflow(
+        workflow_name => 'set_schedule',
+        queue_name => 'control',
+        positional_args => ARRAY[to_json(schedule_name), to_json(cron)],
+        authenticated_user => console.username()
+    );
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.set_schedule(text, text) FROM PUBLIC;

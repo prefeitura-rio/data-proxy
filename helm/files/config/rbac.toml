@@ -15,7 +15,7 @@ read = "Read them"
 description = "Sync runs"
 read = "Runs, tasks, steps, logs, errors and the overview"
 start = "Start a run"
-control = "Cancel, resume or run again a run, and pause or resume a schedule"
+control = "Cancel, resume or run again a run, and pause, resume or change the cron of a schedule"
 
 [permissions.config]
 description = "The sync configuration"

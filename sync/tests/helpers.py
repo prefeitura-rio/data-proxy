@@ -792,7 +792,7 @@ async def queued_workflows(pg: Postgres, dbos_schema: str) -> list[str]:
         SQL(
             """
             SELECT name FROM {}.workflow_status
-            WHERE status = 'ENQUEUED' AND name IN ('reload_proxy', 'provision_schemas', 'cleanup_tables')
+            WHERE status = 'ENQUEUED' AND name IN ('reload_proxy', 'provision_schemas', 'cleanup_tables', 'reconcile_schedules')
             """
         ).format(Identifier(dbos_schema))
     )
