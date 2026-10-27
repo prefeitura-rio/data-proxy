@@ -77,10 +77,15 @@ Feature: Sync runs
     When I open the "Sync" tab
     Then the list with the column "Started by" says "No rows"
 
-  Scenario: An admin of one schema cannot pause the schedule of every schema
+  Scenario: An admin of another schema cannot pause the schedule of a schema
     Given I sign in as "web_other"
-    When I post a pause request for the schedule "sync" directly
-    Then the answer is 403
+    When I post a pause request for the schedule "sync-test" directly
+    Then the answer is 404
+
+  Scenario: A user of another schema does not see the schedule of a schema
+    Given I sign in as "web_other"
+    When I open the "Sync" tab
+    Then I do not see the schedule "sync-test"
 
   Scenario: A finished run shows its tasks, steps and log
     Given I sign in as "web_admin"

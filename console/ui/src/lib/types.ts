@@ -83,7 +83,8 @@ export const Schedule = v.object({
 	status: v.string(),
 	queue_name: nullableString,
 	timezone: nullableString,
-	last_fired_at: nullableString
+	last_fired_at: nullableString,
+	schema: v.string()
 });
 
 export const ErrorRow = v.object({

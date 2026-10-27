@@ -7,7 +7,7 @@
 </script>
 
 <Table
-	head={canControl ? ['Name', 'Cron', 'Status', ''] : ['Name', 'Cron', 'Status']}
+	head={canControl ? ['Schema', 'Cron', 'Status', 'Last run', ''] : ['Schema', 'Cron', 'Status', 'Last run']}
 	small
 	caption="Schedules"
 	count={schedules.length}

@@ -4,7 +4,7 @@ import { text } from '#lib/forms.js';
 import { can } from '#lib/permissions.js';
 import { api, need } from '#lib/server/api.js';
 import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
-import { startRunMessage } from '#lib/messages.js';
+import { startRunMessage, writeMessage } from '#lib/messages.js';
 import { runFilters } from '#lib/runs.js';
 import { ErrorRow, Overview, Queue, Run, Schedule } from '#lib/types.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -64,6 +64,15 @@ const schedule =
 export const actions: Actions = {
 	pause: schedule('pause_schedule', 'Pause requested.'),
 	resume: schedule('resume_schedule', 'Resume requested.'),
+	set: async ({ locals, request }) => {
+		const form = await request.formData();
+		const result = await api(locals.session).rpc('set_schedule', v.unknown(), {
+			schedule_name: text(form, 'name'),
+			cron: text(form, 'cron').trim()
+		});
+
+		return result.ok ? { toast: 'Change requested.' } : fail(result.status, { message: writeMessage(result) });
+	},
 	start: async ({ locals, request }) => {
 		const form = await request.formData();
 		const schemas = form.getAll('schemas').filter((value) => typeof value === 'string');

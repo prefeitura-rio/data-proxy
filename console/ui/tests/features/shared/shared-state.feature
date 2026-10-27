@@ -36,13 +36,21 @@ Feature: Scenarios that change data that other scenarios read
     Then I see the "Sync" tab
     And the session cookies are not the remembered ones
 
-  Scenario: An admin of every schema pauses and resumes the schedule
-    Given I sign in as "web_root"
+  Scenario: An admin of a schema pauses and resumes the schedule of the schema
+    Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I pause the schedule "sync"
-    Then the schedule "sync" shows the status "PAUSED"
-    When I resume the schedule "sync"
-    Then the schedule "sync" shows the status "ACTIVE"
+    And I pause the schedule "sync-test"
+    Then the schedule "sync-test" shows the status "PAUSED"
+    When I resume the schedule "sync-test"
+    Then the schedule "sync-test" shows the status "ACTIVE"
+
+  Scenario: An admin of a schema changes the cron of its schedule
+    Given I sign in as "web_admin"
+    When I open the "Sync" tab
+    And I change the cron of the schedule "sync-test" to "30 3 * * 1"
+    Then the schedule "sync-test" shows the cron "30 3 * * 1"
+    When I change the cron of the schedule "sync-test" to "0 2 * * *"
+    Then the schedule "sync-test" shows the cron "0 2 * * *"
 
   # The Access page asks for the first schema of the user, and it answers 406 while a scenario adds or deletes one.
   # This file runs when no other scenario runs.

@@ -309,10 +309,29 @@ When('I resume the schedule {string}', async ({ page }, name: string) => {
 		.click();
 });
 
-Then('the schedule {string} shows the status {string}', async ({ page }, name: string, status: string) => {
-	const row = page.getByRole('row').filter({ has: page.getByRole('form', { name: `Control the schedule ${name}` }) });
+const scheduleRow = (page: Page, name: string) =>
+	page.getByRole('row').filter({ has: page.getByRole('form', { name: `Control the schedule ${name}` }) });
 
-	await expect(row).toContainText(status, { timeout: 30_000 });
+When('I change the cron of the schedule {string} to {string}', async ({ page }, name: string, cron: string) => {
+	await scheduleRow(page, name).getByRole('button', { name: 'Edit' }).click();
+
+	const dialog = page.getByRole('dialog');
+
+	await dialog.getByLabel('Cron').fill(cron);
+	await dialog.getByRole('button', { name: 'Save' }).click();
+	await expect(dialog).toBeHidden();
+});
+
+Then('the schedule {string} shows the cron {string}', async ({ page }, name: string, cron: string) => {
+	await expect(scheduleRow(page, name)).toContainText(cron, { timeout: 30_000 });
+});
+
+Then('I do not see the schedule {string}', async ({ page }, name: string) => {
+	await expect(page.getByRole('form', { name: `Control the schedule ${name}` })).toHaveCount(0);
+});
+
+Then('the schedule {string} shows the status {string}', async ({ page }, name: string, status: string) => {
+	await expect(scheduleRow(page, name)).toContainText(status, { timeout: 30_000 });
 });
 
 When('I post a pause request for the schedule {string} directly', async ({ page, world }, name: string) => {

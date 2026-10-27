@@ -1,69 +1,40 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidate } from '$app/navigation';
 	import { Pause, Play } from '@lucide/svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import SubmitButton from '#lib/components/SubmitButton.svelte';
+	import Time from '#lib/components/Time.svelte';
 	import { Submission } from '#lib/enhance.svelte.js';
 	import type { Schedule } from '#lib/types.js';
+	import { waitForChange } from '#lib/waiting.svelte.js';
+	import EditSchedule from './EditSchedule.svelte';
 
 	let { schedule, canControl }: { schedule: Schedule; canControl: boolean } = $props();
 
-	/** The status before the click. The worker changes a schedule a moment later, so the row looks for the change. */
-	let waitingFrom = $state<string | null>(null);
-
-	let before = '';
-	const control = new Submission({
-		begin: () => {
-			before = schedule.status;
-
-			return () => undefined;
-		},
-		onupdated: () => {
-			waitingFrom = before;
-		}
-	});
-
-	$effect(() => {
-		if (waitingFrom === null) {
-			return;
-		}
-
-		if (schedule.status !== waitingFrom) {
-			waitingFrom = null;
-			return;
-		}
-
-		const timer = setInterval(() => void invalidate('app:sync'), 1000);
-		const stop = setTimeout(() => {
-			waitingFrom = null;
-		}, 20_000);
-
-		return () => {
-			clearInterval(timer);
-			clearTimeout(stop);
-		};
-	});
+	const change = waitForChange('app:sync', () => `${schedule.status} ${schedule.schedule}`);
+	const control = new Submission(change.options);
 </script>
 
 <tr>
-	<td>{schedule.name}</td>
+	<td>{schedule.schema}</td>
 	<td>{schedule.schedule}</td>
 	<td><StatusBadge status={schedule.status} /></td>
+	<td><Time value={schedule.last_fired_at} /></td>
 	{#if canControl}
-		<td>
+		<td class="flex gap-1">
 			<form method="POST" aria-label="Control the schedule {schedule.name}" use:enhance={control.submit}>
 				<input type="hidden" name="name" value={schedule.name} />
 				{#if schedule.status === 'PAUSED'}
-					<SubmitButton class="btn-xs" pending={control.pending || waitingFrom !== null} formaction="?/resume"
+					<SubmitButton class="btn-xs" pending={control.pending || change.waiting} formaction="?/resume"
 						><Play size={12} /> Resume</SubmitButton
 					>
 				{:else}
-					<SubmitButton class="btn-xs" pending={control.pending || waitingFrom !== null} formaction="?/pause"
+					<SubmitButton class="btn-xs" pending={control.pending || change.waiting} formaction="?/pause"
 						><Pause size={12} /> Pause</SubmitButton
 					>
 				{/if}
 			</form>
+			<EditSchedule {schedule} options={change.options} />
 		</td>
 	{/if}
 </tr>
