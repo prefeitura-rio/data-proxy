@@ -60,7 +60,6 @@ class Settings(BaseSettings):
     SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
     SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
     SYNC_SCHEDULE: str = "0 2 * * *"
-    SYNC_SCHEDULE_NAME: str = "sync"
     SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     PROXY_ADMIN_URL: str | None = None
     PROVISION_CRONJOB: str | None = None

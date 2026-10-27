@@ -10,7 +10,8 @@ sync:
   trigger:
     enabled: false
     configMap: manifests-sync-trigger-script
-  ## Cron expression for the DBOS sync schedule. Only the first value: the console API changes it later.
+  ## Cron expression of the DBOS schedule that a new schema gets, one schedule for each schema. Only the first value:
+  ## the console changes the cron of a schedule later. A schedule doesn't backfill: a run that falls while no sync worker runs is skipped.
   ## Default: daily at 02:00 UTC.
   schedule: 0 2 * * *
   ## Maximum wall-clock time for one DBOS sync workflow.

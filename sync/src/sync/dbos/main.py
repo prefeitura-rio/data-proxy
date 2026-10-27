@@ -1,9 +1,11 @@
 """Start the DBOS sync application and run it until stopped."""
 
 from asyncio import Event
+from contextlib import suppress
 
 import uvloop
-from dbos import DBOS, DBOSConfig, ScheduleInput
+from dbos import DBOS, DBOSConfig, SetEnqueueOptions
+from dbos import error as dbos_error
 
 from sync.constants import (
     CONTROL_QUEUE,
@@ -11,13 +13,26 @@ from sync.constants import (
     PROVISION_QUEUE,
     PROXY_QUEUE,
     PUBLISH_QUEUE,
+    SCHEDULES_QUEUE,
     SYNC_QUEUE,
 )
 from sync.log import logger
 from sync.settings import settings
 
 from .utils import endpoint_list, listened_queues, otlp_enabled
-from .workflows import run_sync
+from .workflows import reconcile_schedules
+
+
+async def enqueue_reconcile() -> None:
+    """Queue a reconcile of the schedules, unless one waits.
+
+    The deduplication id lets DBOS refuse a second one while the first waits in the queue, also when two workers start together.
+    """
+    with (
+        SetEnqueueOptions(deduplication_id=reconcile_schedules.__name__),
+        suppress(dbos_error.DBOSQueueDeduplicatedError),
+    ):
+        await DBOS.enqueue_workflow_async(SCHEDULES_QUEUE, reconcile_schedules)
 
 
 async def serve() -> None:
@@ -41,6 +56,7 @@ async def serve() -> None:
         PROXY_QUEUE,
         PROVISION_QUEUE,
         CONTROL_QUEUE,
+        SCHEDULES_QUEUE,
     ]
     DBOS.listen_queues(listened_queues(queues, settings.LISTEN_QUEUES))
 
@@ -65,19 +81,11 @@ async def serve() -> None:
         PROVISION_QUEUE, concurrency=1, on_conflict="never_update"
     )
     await DBOS.register_queue_async(CONTROL_QUEUE, on_conflict="never_update")
+    await DBOS.register_queue_async(
+        SCHEDULES_QUEUE, concurrency=1, on_conflict="never_update"
+    )
 
-    if await DBOS.get_schedule_async(settings.SYNC_SCHEDULE_NAME) is None:
-        await DBOS.apply_schedules_async(
-            [
-                ScheduleInput(
-                    schedule_name=settings.SYNC_SCHEDULE_NAME,
-                    workflow_fn=run_sync,
-                    schedule=settings.SYNC_SCHEDULE,
-                    context=None,
-                    queue_name=SYNC_QUEUE,
-                )
-            ]
-        )
+    await enqueue_reconcile()
 
     logger.info("Sync application started")
     await Event().wait()

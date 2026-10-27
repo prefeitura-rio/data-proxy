@@ -289,7 +289,7 @@ in
           "sync.dbos.main"
         ];
         env = setupEnv // {
-          LISTEN_QUEUES = "control";
+          LISTEN_QUEUES = "control,schedules";
         };
       }
       // {

@@ -2,12 +2,26 @@
 
 from datetime import datetime
 
-from dbos import DBOS, SetEnqueueOptions, SetWorkflowTimeout, WorkflowHandleAsync
+from dbos import (
+    DBOS,
+    SetEnqueueOptions,
+    SetWorkflowTimeout,
+    WorkflowHandleAsync,
+)
+from dbos import error as dbos_error
 
 from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
 from sync.log import SCHEMA, TABLE
 from sync.metrics import observe
-from sync.models import DumpResult, DumpStatus, DumpTask, SyncPlan, SyncScope
+from sync.models import (
+    DumpResult,
+    DumpStatus,
+    DumpTask,
+    SyncConfig,
+    SyncPlan,
+    SyncScope,
+)
+from sync.schedules import is_cron, plan_schedules, schedule_name
 from sync.settings import settings
 
 from . import logs
@@ -209,3 +223,67 @@ def pause_schedule(name: str) -> None:
 def resume_schedule(name: str) -> None:
     """Let a paused schedule fire again, after a console user asked for it."""
     DBOS.resume_schedule(name)
+
+
+@DBOS.workflow()
+async def reconcile_schedules() -> None:
+    """Give each schema one schedule, and remove the schedule of a removed schema and the old global schedule."""
+    loaded = await load_sync_config()
+    schemas = SyncConfig.model_validate_json(loaded.document).schemas
+    stored = await DBOS.list_schedules_async()
+    plan = plan_schedules(schemas, [entry["schedule_name"] for entry in stored])
+
+    for name in plan.delete:
+        await DBOS.delete_schedule_async(name)
+
+    for schema in plan.create:
+        await DBOS.create_schedule_async(
+            schedule_name=schedule_name(schema),
+            workflow_fn=run_sync,
+            schedule=settings.SYNC_SCHEDULE,
+            context={"schemas": [schema], "tables": []},
+            queue_name=SYNC_QUEUE,
+        )
+
+    await logs.info(
+        "Schedules reconciled",
+        schedules_created=len(plan.create),
+        schedules_deleted=len(plan.delete),
+    )
+
+
+@DBOS.workflow()
+def set_schedule(name: str, cron: str) -> None:
+    """Change the cron of a schedule, after a console user asked for it.
+
+    The schedule keeps its context, its queue and its paused state. If DBOS refuses the new cron, the old schedule comes back.
+    """
+    if not is_cron(cron):
+        raise ValueError(f"Not a cron expression: {cron}")
+
+    current = DBOS.get_schedule(name)
+
+    if current is None:
+        raise ValueError(f"No such schedule: {name}")
+
+    def create(schedule: str) -> None:
+        DBOS.create_schedule(
+            schedule_name=name,
+            workflow_fn=run_sync,
+            schedule=schedule,
+            context=current["context"],
+            queue_name=current["queue_name"],
+            cron_timezone=current["cron_timezone"],
+            automatic_backfill=current["automatic_backfill"],
+        )
+
+    DBOS.delete_schedule(name)
+
+    try:
+        create(cron)
+    except dbos_error.DBOSException:
+        create(current["schedule"])
+        raise
+    finally:
+        if current["status"] == "PAUSED":
+            DBOS.pause_schedule(name)

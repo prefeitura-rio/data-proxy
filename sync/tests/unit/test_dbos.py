@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from dbos import DBOS
+from dbos import error as dbos_error
 from psycopg import OperationalError
 from pydantic import ValidationError
 
@@ -32,6 +33,7 @@ from sync.utils import sha256_hex
 from tests.fixtures.types import Calls
 from tests.helpers import (
     DOCUMENT,
+    RecordedOptions,
     catalog_commit_error,
     dump_task,
     publish,
@@ -637,9 +639,10 @@ class RecordingDbos:
 
     queues: ClassVar[list[tuple[str, str]]] = []
     concurrency: ClassVar[dict[str, object]] = {}
-    applied: ClassVar[list[str]] = []
+    enqueued: ClassVar[list[tuple[str, str]]] = []
     listened: ClassVar[list[str]] = []
-    existing: ClassVar[object | None] = None
+    deduplicated: ClassVar[bool] = False
+    options: ClassVar[list[dict[str, object]]] = []
 
     def __init__(self, **_: object) -> None:
         """Accept the configuration."""
@@ -667,14 +670,16 @@ class RecordingDbos:
         cls.concurrency[name] = concurrency
 
     @classmethod
-    async def get_schedule_async(cls, _name: str) -> object | None:
-        """Answer with the schedule that the test prepared, if any."""
-        return cls.existing
+    async def enqueue_workflow_async(
+        cls, queue: str, workflow: Callable[..., object]
+    ) -> None:
+        """Record the workflow that startup queued, and refuse it when the test says that one waits."""
+        cls.options.append(RecordedOptions.active)
 
-    @classmethod
-    async def apply_schedules_async(cls, schedules: list[dict[str, object]]) -> None:
-        """Record the names of the applied schedules."""
-        cls.applied.extend(str(entry["schedule_name"]) for entry in schedules)
+        if cls.deduplicated:
+            raise dbos_error.DBOSQueueDeduplicatedError("w", queue, "id")
+
+        cls.enqueued.append((queue, workflow.__name__))
 
 
 class ReturnsAtOnce:
@@ -693,10 +698,12 @@ class TestServe:
         """Replace DBOS, and reset what it recorded."""
         RecordingDbos.queues = []
         RecordingDbos.concurrency = {}
-        RecordingDbos.applied = []
+        RecordingDbos.enqueued = []
         RecordingDbos.listened = []
-        RecordingDbos.existing = None
+        RecordingDbos.deduplicated = False
+        RecordingDbos.options = []
         monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
+        monkeypatch.setattr(dbos_main, "SetEnqueueOptions", RecordedOptions)
         monkeypatch.setattr(dbos_main, "Event", ReturnsAtOnce)
 
     @pytest.mark.asyncio
@@ -711,6 +718,7 @@ class TestServe:
             ("proxy", "never_update"),
             ("provision", "never_update"),
             ("control", "never_update"),
+            ("schedules", "never_update"),
         ]
 
     @pytest.mark.asyncio
@@ -725,6 +733,7 @@ class TestServe:
             "proxy",
             "provision",
             "control",
+            "schedules",
         ]
 
     @pytest.mark.asyncio
@@ -746,20 +755,36 @@ class TestServe:
         assert RecordingDbos.concurrency["provision"] == 1
 
     @pytest.mark.asyncio
-    async def test_creates_the_schedule_when_it_is_missing(self) -> None:
-        """Create the nightly schedule on the first start."""
+    async def test_runs_one_reconcile_of_the_schedules_at_a_time(self) -> None:
+        """Two reconciles at once would both create the schedule of a new schema."""
         await dbos_main.serve()
 
-        assert RecordingDbos.applied == ["sync"]
+        assert RecordingDbos.concurrency["schedules"] == 1
 
     @pytest.mark.asyncio
-    async def test_leaves_the_stored_schedule_alone(self) -> None:
-        """Keep a schedule that exists, because the console may have changed it."""
-        RecordingDbos.existing = object()
+    async def test_queues_one_reconcile_of_the_schedules(self) -> None:
+        """Make one schedule for each schema, and drop the old global one, in a queue that runs one reconcile at a time."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.enqueued == [("schedules", "reconcile_schedules")]
+
+    @pytest.mark.asyncio
+    async def test_asks_dbos_to_queue_one_reconcile_at_a_time(self) -> None:
+        """The deduplication id lets DBOS refuse a second reconcile while the first waits."""
+        await dbos_main.serve()
+
+        assert RecordingDbos.options == [{"deduplication_id": "reconcile_schedules"}]
+
+    @pytest.mark.asyncio
+    async def test_starts_when_dbos_refuses_the_reconcile_because_one_waits(
+        self,
+    ) -> None:
+        """Two workers that start together queue one reconcile, and the second one goes on."""
+        RecordingDbos.deduplicated = True
 
         await dbos_main.serve()
 
-        assert RecordingDbos.applied == []
+        assert RecordingDbos.enqueued == []
 
 
 class TestListenedQueues:
@@ -896,6 +921,225 @@ class TestControlWorkflows:
         await workflow_body(workflows.resume_run)("run-1")
 
         resume.assert_awaited_once_with("run-1", queue_name="sync")
+
+
+class TestScheduleWorkflows:
+    """The workflows that keep one schedule for each schema, and that change the cron of one."""
+
+    @staticmethod
+    def schedule(name: str, **fields: object) -> dict[str, object]:
+        """Return a stored schedule the way DBOS gives it."""
+        stored: dict[str, object] = {
+            "schedule_name": name,
+            "schedule": "0 2 * * *",
+            "status": "ACTIVE",
+            "context": {"schemas": [name.removeprefix("sync-")], "tables": []},
+            "queue_name": "sync",
+            "cron_timezone": None,
+            "automatic_backfill": False,
+        }
+        return stored | fields
+
+    @staticmethod
+    def stub_dbos(
+        monkeypatch: pytest.MonkeyPatch,
+        stored: list[dict[str, object]],
+        refused_cron: str | None = None,
+    ) -> list[tuple[str, str | dict[str, object]]]:
+        """Replace the schedule calls of DBOS with a record of what the workflow asks.
+
+        A create with the refused cron raises, as DBOS does for a cron that it cannot read.
+        """
+        calls: list[tuple[str, str | dict[str, object]]] = []
+
+        async def list_schedules(**_: object) -> list[dict[str, object]]:
+            return stored
+
+        async def create_schedule(**fields: object) -> None:
+            calls.append(("create", fields))
+
+        async def delete_schedule(name: str) -> None:
+            calls.append(("delete", name))
+
+        monkeypatch.setattr(DBOS, "list_schedules_async", list_schedules)
+        monkeypatch.setattr(DBOS, "create_schedule_async", create_schedule)
+        monkeypatch.setattr(DBOS, "delete_schedule_async", delete_schedule)
+
+        def get_schedule(name: str) -> dict[str, object] | None:
+            return next((s for s in stored if s["schedule_name"] == name), None)
+
+        def create_schedule_sync(**fields: object) -> None:
+            calls.append(("create", fields))
+
+            if fields["schedule"] == refused_cron:
+                raise dbos_error.DBOSException("refused")
+
+        def delete_schedule_sync(name: str) -> None:
+            calls.append(("delete", name))
+
+        def pause_schedule(name: str) -> None:
+            calls.append(("pause", name))
+
+        monkeypatch.setattr(DBOS, "get_schedule", get_schedule)
+        monkeypatch.setattr(DBOS, "create_schedule", create_schedule_sync)
+        monkeypatch.setattr(DBOS, "delete_schedule", delete_schedule_sync)
+        monkeypatch.setattr(DBOS, "pause_schedule", pause_schedule)
+        return calls
+
+    @staticmethod
+    def stub_config(monkeypatch: pytest.MonkeyPatch, schemas: list[str]) -> None:
+        """Make the workflow read a configuration with these schemas."""
+        document = SyncConfig(
+            schemas={name: SchemaConfig() for name in schemas}
+        ).model_dump_json()
+        monkeypatch.setattr(
+            workflows,
+            "load_sync_config",
+            AsyncMock(return_value=LoadedConfig(revision="r", document=document)),
+        )
+
+    async def test_reconcile_makes_a_schedule_for_a_schema_that_has_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A new schema runs at the default cron, for its own tables, in the queue of the sync runs."""
+        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr")])
+        self.stub_config(monkeypatch, ["hr", "sales"])
+        monkeypatch.setattr(settings, "SYNC_SCHEDULE", "30 3 * * *")
+
+        await workflow_body(workflows.reconcile_schedules)()
+
+        assert calls == [
+            (
+                "create",
+                {
+                    "schedule_name": "sync-sales",
+                    "workflow_fn": workflows.run_sync,
+                    "schedule": "30 3 * * *",
+                    "context": {"schemas": ["sales"], "tables": []},
+                    "queue_name": "sync",
+                },
+            )
+        ]
+
+    async def test_reconcile_removes_the_old_global_schedule_and_that_of_a_removed_schema(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Delete what no schema needs, and keep the schedule that matches."""
+        calls = self.stub_dbos(
+            monkeypatch,
+            [
+                self.schedule("sync"),
+                self.schedule("sync-hr"),
+                self.schedule("sync-gone"),
+            ],
+        )
+        self.stub_config(monkeypatch, ["hr"])
+
+        await workflow_body(workflows.reconcile_schedules)()
+
+        assert calls == [("delete", "sync"), ("delete", "sync-gone")]
+
+    async def test_reconcile_changes_nothing_when_the_schedules_match(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keep the cron and the paused state that a user set."""
+        calls = self.stub_dbos(
+            monkeypatch,
+            [self.schedule("sync-hr", schedule="1 1 * * *", status="PAUSED")],
+        )
+        self.stub_config(monkeypatch, ["hr"])
+
+        await workflow_body(workflows.reconcile_schedules)()
+
+        assert calls == []
+
+    async def test_reconcile_fails_when_a_schedule_cannot_be_created(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real error is not a warning, so the workflow shows it."""
+        self.stub_dbos(monkeypatch, [])
+        self.stub_config(monkeypatch, ["hr"])
+
+        async def refuse(**_: object) -> None:
+            raise RuntimeError("Invalid cron schedule")
+
+        monkeypatch.setattr(DBOS, "create_schedule_async", refuse)
+
+        with pytest.raises(RuntimeError, match="Invalid cron schedule"):
+            await workflow_body(workflows.reconcile_schedules)()
+
+    def test_set_schedule_replaces_the_cron_and_keeps_the_rest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The new schedule has the same name, context and queue, and the new cron."""
+        stored = self.schedule("sync-hr", cron_timezone="America/Sao_Paulo")
+        calls = self.stub_dbos(monkeypatch, [stored])
+
+        workflow_body(workflows.set_schedule)("sync-hr", "30 3 * * 1")
+
+        assert calls == [
+            ("delete", "sync-hr"),
+            (
+                "create",
+                {
+                    "schedule_name": "sync-hr",
+                    "workflow_fn": workflows.run_sync,
+                    "schedule": "30 3 * * 1",
+                    "context": {"schemas": ["hr"], "tables": []},
+                    "queue_name": "sync",
+                    "cron_timezone": "America/Sao_Paulo",
+                    "automatic_backfill": False,
+                },
+            ),
+        ]
+
+    def test_set_schedule_keeps_a_paused_schedule_paused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A new schedule starts active, so the workflow pauses it again."""
+        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr", status="PAUSED")])
+
+        workflow_body(workflows.set_schedule)("sync-hr", "30 3 * * 1")
+
+        assert [kind for kind, _ in calls] == ["delete", "create", "pause"]
+
+    def test_set_schedule_puts_the_old_schedule_back_when_dbos_refuses_the_cron(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A refused create must not leave the schema without a schedule, or without its pause."""
+        calls = self.stub_dbos(
+            monkeypatch,
+            [self.schedule("sync-hr", status="PAUSED")],
+            refused_cron="30 3 * * 1",
+        )
+
+        with pytest.raises(dbos_error.DBOSException, match="refused"):
+            workflow_body(workflows.set_schedule)("sync-hr", "30 3 * * 1")
+
+        assert [kind for kind, _ in calls] == ["delete", "create", "create", "pause"]
+        assert [
+            fields["schedule"] for _, fields in calls if isinstance(fields, dict)
+        ] == ["30 3 * * 1", "0 2 * * *"]
+
+    @pytest.mark.parametrize(
+        ("name", "cron", "reason"),
+        [
+            pytest.param("sync-hr", "30 3 *", "Not a cron expression", id="bad-cron"),
+            pytest.param(
+                "sync-gone", "30 3 * * 1", "No such schedule", id="no-schedule"
+            ),
+        ],
+    )
+    def test_set_schedule_refuses_before_it_deletes(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, cron: str, reason: str
+    ) -> None:
+        """A refusal leaves the stored schedule alone, because the workflow checks first."""
+        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr")])
+
+        with pytest.raises(ValueError, match=reason):
+            workflow_body(workflows.set_schedule)(name, cron)
+
+        assert calls == []
 
 
 class TestRunProvision:

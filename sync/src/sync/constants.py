@@ -29,6 +29,12 @@ SYNC_QUEUE = "sync"
 PROXY_QUEUE = "proxy"
 PROVISION_QUEUE = "provision"
 CONTROL_QUEUE = "control"
+SCHEDULES_QUEUE = "schedules"
+
+# Migration 00010 and `console.guard_schedule` repeat the prefix, because DBOS pickles the context and SQL cannot read it.
+SCHEDULE_PREFIX: Final = "sync-"
+# The global schedule of the old design. Remove it after every deployment has run one reconcile.
+LEGACY_SCHEDULE: Final = "sync"
 
 PROJECT_PATH: Final = "/data_proxy/"
 LOCATION_FRAMES: Final = 3
