@@ -440,7 +440,8 @@ devenv --profile console tasks run lint:console
 
 - Test a unit with Vitest, in a `*.test.ts` file next to the module. Use a table of cases with a name for each case.
 - Write a browser test as a `playwright-bdd` scenario that a user could read. A step does one thing.
-- Keep scenarios independent, so they can run in parallel. A scenario creates the data that it needs, with a name that no other scenario uses. A scenario that changes data that others read goes to `tests/features/shared/`. A scenario that adds a schema uses a schema name of its own, and the claim of the user lists that name.
+- Keep scenarios independent, so they can run in parallel. A scenario creates the data that it needs, with a name that no other scenario uses. A scenario that changes data that others read goes to `tests/features/shared/`. A scenario that adds a schema or a table has the tag `@new-schema`, writes each name with the step parameter `{name}`, and signs in as `web_root`. The parameter adds a random suffix, so the scenario and its repeats run in parallel.
+- A toast that an earlier step left on screen matches a later wait for the same text. Wait for "Saved." with `saved()`, or wait for the row that the action creates.
 - Wait for a condition, never for a time. Use a web-first assertion (`expect(...).toBeVisible()`), `expect.poll`, or the `hydrated` helper. A wait of a fixed time is allowed only to check that something doesn't happen.
 - Write no test for the notebooks (`console/notebooks/`): no unit test, no browser test, and no scenario that opens the notebook.
 - Hand state from one step to the next through the typed `world` fixture in `console/ui/tests/fixtures.ts`. Don't attach it to `page`.

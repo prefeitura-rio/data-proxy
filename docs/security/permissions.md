@@ -13,7 +13,7 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | `delete_config` | Delete on the three tables. | The delete row policies. |
 | `import_config` | `import_config()`. The import also inserts, updates, and deletes rows, so the role needs the other configuration permissions too. | A check at the start of the function. |
 | `start_sync` | `start_sync()` and `start_scope()`. | A check at the start of `start_scope()`. |
-| `control_sync` | `cancel_run()`, `resume_run()`, `retry_run()`, `pause_schedule()` and `resume_schedule()`. Running a run again also needs `start_sync`. | A check at the start of each function. |
+| `control_sync` | `cancel_run()`, `resume_run()`, `retry_run()`, `pause_schedule()`, `resume_schedule()` and `set_schedule()`. Running a run again also needs `start_sync`. | A check at the start of each function. |
 | `read_files` | `table_files()`, the Parquet files for the query tab. | A check at the start of the function. |
 | `read_api` | The synced views of the data API. | A check at the start of the function behind each view. |
 | `read_ducklake` | The change feed of the catalog. | A check at the start of the function. |
@@ -36,7 +36,7 @@ Every role sees only the schemas in the `schemas` claim, and a token without the
 - The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
 - When a sync run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. `runs`, `tasks`, and `steps` show a user the sync runs and tasks that cover one of its schemas. The counts of tasks in a sync run count only the tasks that the user sees.
 - `GET /rpc/sync_config` returns the schemas of the claim.
-- Queues and schedules serve every schema. Any role with `read_sync` reads them. Only a token that covers every schema pauses or resumes a schedule, and no token changes a queue: change a queue in the deployment.
+- Queues serve every schema. Any role with `read_sync` reads them, and no token changes a queue: change a queue in the deployment. A schedule belongs to one schema. A token reads, pauses, resumes and changes the cron of the schedules of the schemas in its claim.
 
 `GET /rpc/permissions` returns the permissions of the role of the token, so the console can show only the controls that work. The pre-request function sets a statement timeout of 30 seconds, and the data API has 15 seconds. `rbac` contains the rules that the data schemas share, and `console` contains what the web app calls: [Database](../database.md#schemas) lists the schemas.
 
@@ -55,7 +55,7 @@ This table lists what a client sees and why. A status can come from the gateway,
 | `200 []` | The token has no `schemas` claim, no enabled access policy row matches its subject, or a row policy hides every row. A delete that a row policy hides also returns it. | Database |
 | `400` | The claim names an unknown schema, a function gets an unknown action, or the token has an unknown role. | Database or PostgREST |
 | `401` | The signature, issuer, audience or expiry of the token isn't valid. | Gateway |
-| `403` | The role lacks the permission, a row policy refuses a write, the schema or table is outside the claim (or doesn't exist), or a schedule action needs every schema. | Database |
+| `403` | The role lacks the permission, a row policy refuses a write, or the schema or table is outside the claim (or doesn't exist). | Database |
 | `404` | The sync run or the schedule doesn't exist for this token, or the schema profile is unknown. | Database or PostgREST |
 | `409` | A sync run is in the wrong status for the action, or the provision job hasn't created the schema yet. | Database |
 | `503` | `PROXY_MAX_INFLIGHT` requests already wait for PostgREST. | Proxy |
