@@ -47,6 +47,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=build /app/build ./build
 COPY --from=notebooks /app/site ./notebooks/site
 COPY console/notebooks/server.ts console/notebooks/serve.ts console/notebooks/csp.ts ./notebooks/
+COPY console/notebooks/src/page.ts ./notebooks/src/
 
 USER node
 
