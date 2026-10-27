@@ -96,14 +96,22 @@ def 'main changes' []: nothing -> nothing {
     write-output build_matrix ({include: $images} | to json --raw)
 }
 
-# Resolve the latest image tag from the OCI registry for one image.
+# Resolve the tag of the image that the latest tag of the registry points to.
 def resolve-image [image: record]: nothing -> string {
     let name = image-name $image
     let fallback = $image.fallback
 
     log info $'Resolving latest tag for image ($name)...'
 
-    let tag = crane ls $'($ci.registry)/(ci-repository-owner)/($name)' | lines | where $it !~ latest | get --optional 0
+    let repository = $'($ci.registry)/(ci-repository-owner)/($name)'
+    let latest = crane digest $'($repository):latest' | complete | check-result 'crane digest'
+    let tag = crane ls $repository
+    | lines
+    | where $it =~ '^([0-9]+-)?[0-9a-f]{7}$'
+    | par-each {|candidate| if (crane digest $'($repository):($candidate)' | str trim) == ($latest | str trim) { $candidate } }
+    | compact
+    | sort
+    | get --optional 0
 
     if ($tag | is-not-empty) and $tag != '{}' {
         log info $'Resolved tag ($tag) for image ($name).'
