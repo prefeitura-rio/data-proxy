@@ -21,19 +21,12 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
             plan=plan, published_tables=set(), snapshot_id=recorded.snapshot_id
         )
 
-    async def record_publish_metrics(result: PublicationResult, name: str) -> None:
-        recorded.names.append("record_publish_metrics")
-
     async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
         recorded.names.append("apply_ducklake_maintenance")
         if recorded.maintenance_error is not None:
             raise recorded.maintenance_error
         return recorded.maintained_snapshot_id
 
-    for step in (
-        commit_ducklake_snapshot,
-        record_publish_metrics,
-        apply_ducklake_maintenance,
-    ):
+    for step in (commit_ducklake_snapshot, apply_ducklake_maintenance):
         monkeypatch.setattr(workflows, step.__name__, step)
     return recorded

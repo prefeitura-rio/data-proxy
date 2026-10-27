@@ -208,7 +208,9 @@ def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
     return body
 
 
-DOCUMENT = '{"schemas": {}}'
+DOCUMENT = SyncConfig(
+    schemas={name: SchemaConfig() for name in ("app", "one", "other", "two")}
+).model_dump_json()
 
 
 class RecordedOptions:
@@ -318,7 +320,6 @@ def stub_sync_run(
     monkeypatch.setattr(
         workflows, "reconcile_idle_schemas", AsyncMock(return_value=False)
     )
-    monkeypatch.setattr(workflows, "record_seed_metrics", AsyncMock())
     monkeypatch.setattr(workflows, "record_scope", AsyncMock())
     monkeypatch.setattr(workflows, "run_provision", AsyncMock())
     monkeypatch.setattr(workflows, "reload_postgrest", restart)

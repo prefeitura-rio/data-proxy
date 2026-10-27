@@ -3,6 +3,7 @@ import importlib
 import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import AsyncMock
 
@@ -18,8 +19,11 @@ from sync.dbos import steps, utils, workflows
 from sync.duckdb import DuckDB
 from sync.ducklake import DuckLakePaths, table_prefix
 from sync.models import (
+    DumpResult,
+    DumpStatus,
     FullTable,
     LoadedConfig,
+    PublicationResult,
     SchemaConfig,
     SyncConfig,
     SyncPlan,
@@ -36,6 +40,7 @@ from tests.helpers import (
     RecordedOptions,
     catalog_commit_error,
     dump_task,
+    enqueue_label,
     publish,
     run_sync,
     stub_sync_run,
@@ -66,10 +71,23 @@ class TestWorkflowAnnotations:
 class TestTransientRetryClassification:
     """TransientRetryClassification behavior tests."""
 
-    def test_classifies_runtime_errors_as_transient(self) -> None:
-        """Classify runtime errors as transient."""
-        assert utils.retry_transient(RuntimeError("temporary"))
-        assert not utils.retry_transient(ValueError("invalid"))
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            pytest.param(RuntimeError("temporary"), True, id="a-runtime-error"),
+            pytest.param(ConnectionError("reset"), True, id="a-lost-connection"),
+            pytest.param(OperationalError("closed"), True, id="a-database-error"),
+            pytest.param(ValueError("invalid"), False, id="invalid-input"),
+            pytest.param(KeyError("app"), False, id="a-missing-key-is-a-bug"),
+            pytest.param(TypeError("bad"), False, id="a-wrong-type-is-a-bug"),
+            pytest.param(AttributeError("bad"), False, id="a-missing-attribute"),
+        ],
+    )
+    def test_retries_a_backend_failure_and_not_a_bug(
+        self, error: Exception, expected: bool
+    ) -> None:
+        """Retry what can pass at the next attempt, and fail at once on what cannot."""
+        assert utils.retry_transient(error) is expected
 
     def test_classifies_cancellation_as_permanent(self) -> None:
         """Classify cancellation as permanent."""
@@ -320,6 +338,53 @@ class TestRunSyncUsesOneConfig:
         load.assert_awaited_once_with()
         build.assert_awaited_once_with("run", DOCUMENT, SyncScope())
         seed.assert_awaited_once_with([plan], DOCUMENT)
+
+    @pytest.mark.asyncio
+    async def test_gives_each_publisher_only_its_own_schema_and_failed_paths(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A schema with many tables must not make the input of every other publisher big."""
+        stub_sync_run(
+            monkeypatch,
+            postgrest_reload_required=False,
+            plans=[SyncPlan(schema_name="one"), SyncPlan(schema_name="two")],
+            tasks=[
+                dump_task(table="one.t").model_copy(update={"target_schema": "one"}),
+                dump_task(table="two.t").model_copy(update={"target_schema": "two"}),
+            ],
+        )
+        published: dict[str, tuple[object, object]] = {}
+
+        async def enqueue(
+            queue: str, workflow: object, *args: object
+        ) -> SimpleNamespace:
+            label = enqueue_label(workflow, args)
+            outcome: DumpResult | None = None
+
+            if workflow is workflows.publish_schema:
+                published[label] = (args[2], args[3])
+            elif label == "one.t":
+                outcome = DumpResult(
+                    status=DumpStatus.FAILURE, failed_paths={"s3://b/one"}
+                )
+            else:
+                outcome = DumpResult()
+
+            return SimpleNamespace(
+                get_result=AsyncMock(return_value=outcome), workflow_id=label
+            )
+
+        monkeypatch.setattr(workflows.DBOS, "enqueue_workflow_async", enqueue)
+
+        await run_sync()
+
+        assert {name: failed for name, (failed, _) in published.items()} == {
+            "one": {"s3://b/one"},
+            "two": set(),
+        }
+        document = published["one"][1]
+        assert isinstance(document, str)
+        assert set(SyncConfig.model_validate_json(document).schemas) == {"one"}
 
     @pytest.mark.asyncio
     async def test_plans_only_the_scope_of_an_on_demand_run(
@@ -597,18 +662,127 @@ class TestExtractTaskLogs:
         assert str(fields["error"]).startswith("RuntimeError: write failed")
 
 
+class Counted:
+    """Stand-in for an OpenTelemetry counter that remembers each increase."""
+
+    def __init__(self) -> None:
+        """Start with no increase."""
+        self.adds: list[tuple[int, dict[str, str]]] = []
+
+    def add(self, amount: int, attributes: dict[str, str]) -> None:
+        """Remember one increase."""
+        self.adds.append((amount, attributes))
+
+
+class TestStepMetrics:
+    """The step that does the work counts it, once, when the work ends."""
+
+    @pytest.fixture
+    def counter(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Counted]:
+        """Replace the counters of the steps, and the connections that the steps open."""
+        counters = {
+            name: Counted()
+            for name in ("dump_tasks_total", "publish_tables_total", "seed_runs_total")
+        }
+        for name, counted in counters.items():
+            monkeypatch.setattr(steps.metrics, name, counted)
+
+        @asynccontextmanager
+        async def connect(*_: object) -> AsyncGenerator[object]:
+            yield object()
+
+        monkeypatch.setattr(DuckDB, "connect", connect)
+        monkeypatch.setattr(Postgres, "connect", connect)
+        return counters
+
+    @pytest.mark.asyncio
+    async def test_counts_a_dump_when_it_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+    ) -> None:
+        """Count the dump after the extraction, so a retry counts once."""
+        monkeypatch.setattr(steps, "run_extraction", AsyncMock())
+
+        await workflow_body(steps.extract_task)(dump_task(table="p.d.t"))
+
+        assert counter["dump_tasks_total"].adds == [
+            (1, {"table": "p.d.t", "schema": "app", "status": "success"})
+        ]
+
+    @pytest.mark.asyncio
+    async def test_counts_nothing_for_a_failed_attempt(
+        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+    ) -> None:
+        """The failure is counted by the step that records it, not by each attempt."""
+        monkeypatch.setattr(
+            steps, "run_extraction", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await workflow_body(steps.extract_task)(dump_task())
+
+        assert counter["dump_tasks_total"].adds == []
+
+    @pytest.mark.asyncio
+    async def test_counts_a_dump_that_failed(
+        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+    ) -> None:
+        """Count the failure where the step records it."""
+        monkeypatch.setattr(steps, "emit_error", AsyncMock())
+
+        await workflow_body(steps.record_dump_failure)(dump_task(table="p.d.t"), "boom")
+
+        assert counter["dump_tasks_total"].adds == [
+            (1, {"table": "p.d.t", "schema": "app", "status": "error"})
+        ]
+
+    @pytest.mark.asyncio
+    async def test_counts_a_seed_for_each_schema_plan(
+        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+    ) -> None:
+        """One count for each plan that the seed reconciled."""
+        monkeypatch.setattr(steps, "reconcile_views", AsyncMock(return_value=False))
+
+        await workflow_body(steps.seed_schemas)(
+            [SyncPlan(schema_name="app"), SyncPlan(schema_name="one")], DOCUMENT
+        )
+
+        assert counter["seed_runs_total"].adds == [
+            (1, {"schema": "app", "status": "success"}),
+            (1, {"schema": "one", "status": "success"}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_counts_the_tables_that_published_and_the_ones_that_did_not(
+        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+    ) -> None:
+        """Two tables in the plan and one published give one success and one error."""
+        plan = SyncPlan(
+            schema_name="app",
+            signatures={"a": "s", "b": "s"},
+            paths={"a": ["a.parquet"], "b": ["b.parquet"]},
+        )
+        result = PublicationResult(plan=plan, published_tables={"a"}, snapshot_id=3)
+        monkeypatch.setattr(steps, "publish_schema", AsyncMock(return_value=result))
+
+        await workflow_body(steps.commit_ducklake_snapshot)(plan, set(), DOCUMENT)
+
+        assert counter["publish_tables_total"].adds == [
+            (1, {"schema": "app", "status": "success"}),
+            (1, {"schema": "app", "status": "error"}),
+        ]
+
+
 class TestPublishSchemaOrder:
     """publish_schema workflow behavior tests."""
 
-    async def test_records_the_metrics_after_the_snapshot_and_returns_it(
+    async def test_maintains_the_schema_after_the_snapshot_and_returns_it(
         self, calls: Calls
     ) -> None:
-        """Records the metrics after the snapshot and returns it."""
+        """Maintain the schema after the snapshot, and return the snapshot that the maintenance gives."""
         snapshot_id = await publish(SyncPlan(schema_name="app"))
 
         assert calls.names == [
             "commit_ducklake_snapshot",
-            "record_publish_metrics",
             "apply_ducklake_maintenance",
         ]
         assert snapshot_id == 45

@@ -21,6 +21,7 @@ from sync.kubernetes import create_job, k8s_client, wait_for_job
 from sync.log import SCHEMA, TABLE, summarize_exception
 from sync.metrics import metrics
 from sync.models import (
+    DumpStatus,
     DumpTask,
     LoadedConfig,
     PublicationResult,
@@ -49,7 +50,29 @@ from . import logs
 from .utils import retry_catalog_locked, retry_transient
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sync.types import RunStatus
+
+
+def transient_step[**P, R](step: Callable[P, R]) -> Callable[P, R]:
+    """Make a durable step that retries a backend failure, but not a bug."""
+    return DBOS.step(
+        retries_allowed=True,
+        max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
+        should_retry=retry_transient,
+    )(step)
+
+
+def catalog_step[**P, R](step: Callable[P, R]) -> Callable[P, R]:
+    """Make a durable step that waits and retries while another process holds the DuckLake catalog lock."""
+    return DBOS.step(
+        retries_allowed=True,
+        interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
+        backoff_rate=1.0,
+        max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
+        should_retry=retry_catalog_locked,
+    )(step)
 
 
 def schema_config(document: str, schema: str) -> SyncConfig:
@@ -58,11 +81,7 @@ def schema_config(document: str, schema: str) -> SyncConfig:
     return SyncConfig(schemas={schema: schemas[schema]})
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def load_sync_config() -> LoadedConfig:
     """Load the sync.json that one run uses, from the admin tables.
 
@@ -83,11 +102,7 @@ async def load_sync_config() -> LoadedConfig:
     return loaded
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def build_sync_work(run_id: str, document: str, scope: SyncScope) -> SyncWork:
     """Plan one run: detect changes and build dump tasks and schema plans."""
     await logs.info("Sync planning started")
@@ -119,39 +134,7 @@ async def record_run_status(status: RunStatus) -> None:
     await logs.info("Sync workflow reached terminal state", status=status)
 
 
-@DBOS.step()
-async def record_dump_metrics(
-    task_id: str, table: str, schema: str, status: str
-) -> None:
-    """Record dump task count metric."""
-    metrics.dump_tasks_total.add(
-        1, {"table": table, "schema": schema, "status": status}
-    )
-
-    await logs.info("Dump completed", task_id=task_id, status=status)
-
-
-@DBOS.step()
-async def record_publish_metrics(result: PublicationResult, schema_name: str) -> None:
-    """Record publication success and error metrics."""
-    success_count = len(result.published_tables)
-    if success_count != 0:
-        metrics.publish_tables_total.add(
-            success_count, {"schema": schema_name, "status": "success"}
-        )
-
-    failure_count = len(result.plan.signatures) - success_count
-    if failure_count != 0:
-        metrics.publish_tables_total.add(
-            failure_count, {"schema": schema_name, "status": "error"}
-        )
-
-
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
     """Reconcile planned serving schemas and report a PostgREST reload need."""
     await logs.info("Schema seeding started", plans=len(plans))
@@ -167,6 +150,11 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
             pg_conn, SyncConfig.model_validate_json(document), schema_names, table_names
         )
 
+    for plan in plans:
+        metrics.seed_runs_total.add(
+            1, {"schema": plan.schema_name, "status": "success"}
+        )
+
     await logs.info(
         "Schema seeding completed",
         plans=len(plans),
@@ -175,11 +163,7 @@ async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
     return postgrest_reload_required
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def reconcile_idle_schemas(document: str, scope: SyncScope) -> bool:
     """Reconcile the serving views of a run that planned no change, and report a PostgREST reload need.
 
@@ -207,11 +191,7 @@ async def reconcile_idle_schemas(document: str, scope: SyncScope) -> bool:
     return postgrest_reload_required
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def record_scope(
     run_id: str, schemas: list[str], dumps: list[tuple[str, str, str]]
 ) -> None:
@@ -221,15 +201,6 @@ async def record_scope(
 
     async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         await write_scope(pg_conn, rows)
-
-
-@DBOS.step()
-async def record_seed_metrics(plans: list[SyncPlan]) -> None:
-    """Record one successful serving-schema reconciliation per schema plan."""
-    for plan in plans:
-        metrics.seed_runs_total.add(
-            1, {"schema": plan.schema_name, "status": "success"}
-        )
 
 
 @DBOS.step(
@@ -257,16 +228,28 @@ async def extract_task(task: DumpTask) -> None:
         )
         raise
 
+    metrics.dump_tasks_total.add(
+        1,
+        {
+            "table": task.table,
+            "schema": task.target_schema,
+            "status": DumpStatus.SUCCESS.value,
+        },
+    )
     await logs.info("Extraction completed", task_id=task.task_id)
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def record_dump_failure(task: DumpTask, error: str) -> None:
     """Persist one dump error in the data_proxy.errors table."""
+    metrics.dump_tasks_total.add(
+        1,
+        {
+            "table": task.table,
+            "schema": task.target_schema,
+            "status": DumpStatus.FAILURE.value,
+        },
+    )
     await logs.error("Extraction failed", task_id=task.task_id, error=error)
 
     async with Postgres.connect(
@@ -281,13 +264,7 @@ async def record_dump_failure(task: DumpTask, error: str) -> None:
         )
 
 
-@DBOS.step(
-    retries_allowed=True,
-    interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
-    backoff_rate=1.0,
-    max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
-    should_retry=retry_catalog_locked,
-)
+@catalog_step
 async def commit_ducklake_snapshot(
     plan: SyncPlan, failed_paths: set[str], document: str
 ) -> PublicationResult:
@@ -311,6 +288,15 @@ async def commit_ducklake_snapshot(
             failed_paths,
         )
 
+    published = len(result.published_tables)
+    failed = len(plan.signatures) - published
+
+    for status, count in (("success", published), ("error", failed)):
+        if count != 0:
+            metrics.publish_tables_total.add(
+                count, {"schema": plan.schema_name, "status": status}
+            )
+
     for table in sorted(result.published_tables):
         token = TABLE.set(table)
         await logs.info("Table published")
@@ -327,13 +313,7 @@ async def commit_ducklake_snapshot(
     return result
 
 
-@DBOS.step(
-    retries_allowed=True,
-    interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
-    backoff_rate=1.0,
-    max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
-    should_retry=retry_catalog_locked,
-)
+@catalog_step
 async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     """Apply DuckLake maintenance to one schema and return its snapshot."""
     SCHEMA.set(schema_name)
@@ -353,13 +333,7 @@ async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
     return snapshot_id
 
 
-@DBOS.step(
-    retries_allowed=True,
-    interval_seconds=settings.DUCKLAKE_COMMIT_RETRY_SECONDS,
-    backoff_rate=1.0,
-    max_attempts=settings.DUCKLAKE_COMMIT_MAX_ATTEMPTS,
-    should_retry=retry_catalog_locked,
-)
+@catalog_step
 async def remove_dropped_tables(document: str) -> list[str]:
     """Remove the tables that the console no longer lists: the catalog entry, the data files and the state.
 
@@ -394,11 +368,7 @@ async def remove_dropped_tables(document: str) -> list[str]:
     return removed
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def cleanup_s3_credentials(document: str) -> list[str]:
     """Delete the S3 identities that the console made for schemas that the config no longer lists."""
     if not settings.S3_IDENTITIES:
@@ -415,11 +385,7 @@ async def cleanup_s3_credentials(document: str) -> list[str]:
     return removed
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def reload_postgrest() -> None:
     """Tell PostgREST to read the schema again."""
     async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
@@ -428,11 +394,7 @@ async def reload_postgrest() -> None:
     await logs.info("PostgREST reload requested")
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def finalize_run() -> None:
     """Flush scratch Parquet files and the response cache."""
     await logs.info("Sync finalization started")
@@ -443,11 +405,7 @@ async def finalize_run() -> None:
     await logs.info("Sync finalization completed")
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def run_provision() -> None:
     """Make a Job from the provision CronJob and wait for it."""
     cronjob = settings.PROVISION_CRONJOB
@@ -464,11 +422,7 @@ async def run_provision() -> None:
     await logs.info("Provision completed", job=job)
 
 
-@DBOS.step(
-    retries_allowed=True,
-    max_attempts=settings.SYNC_STEP_MAX_ATTEMPTS,
-    should_retry=retry_transient,
-)
+@transient_step
 async def notify_proxies() -> None:
     """Ask every proxy pod to read the configuration again."""
     url = settings.PROXY_ADMIN_URL

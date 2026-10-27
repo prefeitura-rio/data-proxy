@@ -50,9 +50,16 @@ def retry_catalog_locked(error: BaseException) -> bool:
 
 
 def retry_transient(error: BaseException) -> bool:
-    """Retry backend failures but not input validation errors."""
+    """Retry a failure of a backend, but not a bug or invalid input, which fail the same way each time."""
     match error:
-        case ValueError():
+        case (
+            ValueError()
+            | LookupError()
+            | TypeError()
+            | AttributeError()
+            | AssertionError()
+            | NotImplementedError()
+        ):
             return False
         case Exception():
             return True

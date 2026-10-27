@@ -70,13 +70,10 @@ REAL_STEPS = (
     "build_sync_work",
     "record_scope",
     "seed_schemas",
-    "record_seed_metrics",
     "reconcile_idle_schemas",
     "extract_task",
     "record_dump_failure",
-    "record_dump_metrics",
     "commit_ducklake_snapshot",
-    "record_publish_metrics",
     "apply_ducklake_maintenance",
 )
 

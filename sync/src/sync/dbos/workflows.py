@@ -36,14 +36,12 @@ from .steps import (
     notify_proxies,
     reconcile_idle_schemas,
     record_dump_failure,
-    record_dump_metrics,
-    record_publish_metrics,
     record_run_status,
     record_scope,
-    record_seed_metrics,
     reload_postgrest,
     remove_dropped_tables,
     run_provision,
+    schema_config,
     seed_schemas,
 )
 
@@ -63,9 +61,6 @@ async def dump_task(task: DumpTask) -> DumpResult:
         await record_dump_failure(task, str(error))
         result = DumpResult(status=DumpStatus.FAILURE, failed_paths=task.output_paths)
 
-    await record_dump_metrics(
-        task.task_id, task.table, task.target_schema, result.status.value
-    )
     await logs.info(
         "Dump completed",
         task_id=task.task_id,
@@ -86,7 +81,6 @@ async def publish_schema(
 
     outcome = await commit_ducklake_snapshot(plan, failed_paths, document)
 
-    await record_publish_metrics(outcome, plan.schema_name)
     await logs.info(
         "Publish completed",
         run_id=run_id,
@@ -145,13 +139,13 @@ async def run_sync(
             ],
         )
 
-        failed_paths: set[str] = set()
-        for handle in dump_handles:
-            failed_paths.update((await handle.get_result()).failed_paths)
+        failed_paths: dict[str, set[str]] = {}
+        for handle, task in zip(dump_handles, work.tasks, strict=True):
+            failed_paths.setdefault(task.target_schema, set()).update(
+                (await handle.get_result()).failed_paths
+            )
 
         postgrest_reload_required = await seed_schemas(work.plans, loaded.document)
-
-        await record_seed_metrics(work.plans)
 
         publish_handles: list[WorkflowHandleAsync[int | None]] = []
         for plan in work.plans:
@@ -161,8 +155,8 @@ async def run_sync(
                     publish_schema,
                     run_id,
                     plan,
-                    failed_paths,
-                    loaded.document,
+                    failed_paths.get(plan.schema_name, set()),
+                    schema_config(loaded.document, plan.schema_name).model_dump_json(),
                 )
             publish_handles.append(handle)
 
