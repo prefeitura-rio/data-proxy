@@ -266,7 +266,7 @@ in
           execIfModified = notebookInputs;
         };
 
-      "console:open" =
+      "console:open" = lib.mkIf (!config.devenv.isTesting) (
         utils.mkTask {
           command = [
             opener
@@ -277,7 +277,8 @@ in
         // {
           description = "Open the console in the browser. Run it with `devenv tasks run console:open`.";
           after = [ (utils.processTask "gateway") ];
-        };
+        }
+      );
     };
 
   processes = {
