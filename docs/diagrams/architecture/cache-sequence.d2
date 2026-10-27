@@ -1,0 +1,30 @@
+shape: sequence_diagram
+
+a: "Request A"
+b: "Request B (same key)"
+n: Proxy
+r: Redis
+pr: PostgREST
+
+a -> n: "GET"
+n -> n: "build the key"
+n -> r: "look up the key"
+r -> n: "miss" {style.stroke-dash: 3}
+n -> n: "A takes the lock"
+b -> n: "GET"
+n -> r: "look up the key"
+r -> n: "miss" {style.stroke-dash: 3}
+n -> n: "B waits (up to 30 s)"
+n -> pr: "A asks PostgREST"
+pr -> n: "answer" {style.stroke-dash: 3}
+store: "alt: 200 and not empty" {
+  n -> r: "store the entry"
+  n -> n: "A frees the lock"
+  n -> r: "B reads the entry"
+  r -> n: "entry" {style.stroke-dash: 3}
+}
+other: "else: nothing stored, or B timed out" {
+  n -> pr: "B asks PostgREST itself"
+}
+n -> a: "answer" {style.stroke-dash: 3}
+n -> b: "answer" {style.stroke-dash: 3}

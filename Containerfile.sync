@@ -1,0 +1,25 @@
+FROM docker.io/library/golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS goose
+
+RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@v3.28.0
+
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:d8e732839dfc4225a1ff698803b478b2223c05636c055d3add41ab9dbec0f315
+
+WORKDIR /app
+
+RUN useradd --create-home --uid 10001 appuser
+
+COPY --from=goose /go/bin/goose /usr/local/bin/goose
+
+COPY sync/pyproject.toml sync/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project \
+  && chown -R appuser:appuser /app
+
+USER appuser
+
+RUN .venv/bin/python -c "from duckdb import connect; c = connect(); c.execute('INSTALL httpfs'); c.execute('LOAD httpfs'); c.execute('INSTALL ducklake'); c.execute('LOAD ducklake'); c.execute('INSTALL postgres_scanner'); c.execute('LOAD postgres_scanner'); c.execute('INSTALL bigquery FROM community'); c.execute('LOAD bigquery')"
+
+COPY --chown=appuser:appuser sync/src/ src/
+COPY --chown=appuser:appuser console/migrations/ migrations/
+
+ENV PATH=/app/.venv/bin:$PATH
+ENV PYTHONPATH=/app/src

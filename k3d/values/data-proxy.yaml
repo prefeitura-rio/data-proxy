@@ -1,0 +1,168 @@
+sync:
+  replicas: 2
+  image: registry.localhost:5001/data-proxy-sync:local
+  imagePullPolicy: Always
+  trigger:
+    enabled: true
+  recovery:
+    enabled: true
+    intervalSeconds: 30
+    graceSeconds: 120
+  config:
+    schemas:
+      test:
+        source:
+          type: bigquery
+        claim: preferred_username
+        tables:
+          - name: rj-ia-desenvolvimento.dev.full_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.snapshot_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.big_table
+            strategy: partitioned
+            "n": 30
+            rls:
+              - column: unit_id
+                unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.multi_rls_table
+            strategy: full
+            rls:
+              - column: region_id
+                unit_type: region
+              - column: group_id
+                unit_type: group
+          - name: rj-ia-desenvolvimento.dev.failing_table
+            strategy: full
+            rls:
+              - column: unit_id
+                unit_type: unit
+          - name: rj-ia-desenvolvimento.dev.partitioned_table
+            strategy: partitioned
+            fallback: true
+            "n": 4
+            cache_ttl: 600
+            rls:
+              - column: unit_id
+                unit_type: unit
+jobs:
+  image: registry.localhost:5001/data-proxy-jobs:local
+  backup:
+    enabled: true
+    s3:
+      bucket: test-bucket
+      endpointURL: http://data-proxy-seaweedfs-all-in-one:8333
+      existingSecret: data-proxy-s3
+serviceAccount:
+  create: true
+  name: data-proxy
+postgrest:
+  proxyUri: http://localhost:3111
+  jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
+s3:
+  bucket: test-bucket
+  useSsl: "false"
+  accessKey: seaweedfs
+  secretKey: seaweedfs
+  bootstrap:
+    createIfMissing: true
+    corsOrigins:
+      - http://notebooks.localhost
+seaweedfs:
+  allInOne:
+    enabled: true
+    extraArgs:
+      - -s3.iam.readOnly=false
+    data:
+      type: persistentVolumeClaim
+      size: 2Gi
+    s3:
+      enabled: true
+  master:
+    enabled: false
+  volume:
+    enabled: false
+  filer:
+    enabled: false
+  s3:
+    enabled: false
+    enableAuth: true
+    credentials:
+      admin:
+        accessKey: seaweedfs
+        secretKey: seaweedfs
+redis:
+  existingSecret: data-proxy-redis
+  host: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
+  writerAddress: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local:6379
+  writerHost: data-proxy-valkey-0.data-proxy-valkey-headless.data-proxy.svc.cluster.local
+  writerPort: 6379
+  readerHost: data-proxy-valkey.data-proxy.svc.cluster.local
+  readerPort: 6379
+gcp:
+  existingSecret: gcp
+swaggerUi:
+  enabled: true
+ducklake:
+  secrets:
+    storage:
+      storageClass: k3d-rwx
+proxy:
+  cacheTtl: 5
+  image: registry.localhost:5001/data-proxy-proxy:local
+cnpg:
+  db:
+    name: data-proxy
+    user: ops
+  password: test-pg-pass
+  servingPassword: test-auth-pass
+  init:
+    image: registry.localhost:5001/data-proxy-jobs:local
+  mode: shared
+  image: registry.localhost:5001/data-proxy-postgres:17.0.0-local
+  storage:
+    size: 2Gi
+  autoscaling:
+    minReplicaCount: 2
+    maxReplicaCount: 3
+  resources:
+    requests:
+      cpu: 4
+      memory: 1Gi
+    limits:
+      cpu: "8"
+      memory: 8Gi
+ingress:
+  sidecarInject: true
+  enabled: true
+  gateway: istio-system/data-proxy-gateway
+  host: data-proxy.local
+  scheme: http
+  timeout: 60s
+  retries:
+    attempts: 2
+    perTryTimeout: 30s
+    retryOn: "503"
+  auth:
+    enabled: true
+    issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
+    jwksUri: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/certs
+    audience: dev
+console:
+  enabled: true
+  oidc:
+    issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev
+    clientId: data-proxy-console-web
+    clientSecret: test-secret
+  storage:
+    endpoint: http://data-proxy-seaweedfs-all-in-one.data-proxy.svc.cluster.local:8333
+    perSchemaIdentities: true
+notebooks:
+  enabled: true
+  host: notebooks.localhost

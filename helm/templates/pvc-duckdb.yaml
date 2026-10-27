@@ -1,0 +1,19 @@
+{{- with .Values.ducklake.secrets.storage.storageClass }}
+{{- $storageClass := . -}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-duckdb" (include "data-proxy.fullname" $) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: duckdb-storage
+spec:
+  accessModes:
+    - {{ $.Values.ducklake.secrets.storage.accessMode | quote }}
+  storageClassName: {{ $storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ $.Values.ducklake.secrets.storage.size | quote }}
+{{- end }}

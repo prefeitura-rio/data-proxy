@@ -1,0 +1,10 @@
+**/build
+**/.svelte-kit
+**/.features-gen
+**/test-results
+**/playwright-report
+**/dist
+**/node_modules
+**/pnpm-lock.yaml
+**/.venv
+**/site

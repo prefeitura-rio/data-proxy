@@ -1,18 +1,22 @@
 # Sync
 
-Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQuery tables.
+The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. The field `source.type` names the source adapter, and `bigquery` is the only adapter today. Each sync run loads the document once, at its start, so a change never reaches a sync run that already started.
+
+The tables of the `console` schema contain the configuration ([Console](console/configuration.md#configuration-tables)), and the engine reads it with `console.sync_config()`. An empty configuration means there is nothing to sync.
 
 ```json
 {
   "schemas": {
     "my_schema": {
+      "source": { "type": "bigquery" },
       "claim": "preferred_username",
+      "ducklake": { "encrypted": false },
       "tables": [
         {
           "name": "project.dataset.events",
           "strategy": "partitioned",
           "n": 7,
-          "indexes": [{ "name": "idx_events_unit", "columns": ["unit_id"] }],
+          "ducklake": { "sort": ["event_time", "unit_id"] },
           "rls": [{ "column": "unit_id", "unit_type": "unit" }]
         }
       ]
@@ -25,80 +29,134 @@ Set `SYNC_CONFIG_PATH` to a JSON file that declares PostgreSQL schemas and BigQu
 
 | Field    | Required                | Meaning                                             |
 | -------- | ----------------------- | --------------------------------------------------- |
-| `claim`  | When a table uses `rls` | JWT claim matched against `access_policy.subject`.  |
+| `source` | No | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
+| `claim`  | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access_policy.subject`.  |
 | `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
+| `ducklake` | No                    | Schema-level DuckLake settings, including `encrypted`. |
 
-The schema key is the target PostgreSQL schema. Do not add a schema field to a table entry.
+The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
 ## Table fields
 
-| Field       | Required | Meaning                                                                                                                                         |
-| ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`      | Yes      | BigQuery reference: `project.dataset.table`.                                                                                                    |
-| `strategy`  | Yes      | `full` replaces the table; `partitioned` updates physical partitions.                                                                           |
-| `n`         | No       | Keep the newest `n` time partitions.                                                                                                            |
-| `fallback`  | No       | Enables the `_bq` fallback view for this table when chart fallback is enabled. Set `false` to disable fallback for this table. Default: `true`. |
-| `cache_ttl` | No       | Fallback cache lifetime in seconds.                                                                                                             |
-| `rls`       | No       | Unit column and unit type pairs. See [Security](security.md).                                                                                   |
-| `indexes`   | No       | Index definitions created after publication.                                                                                                    |
-| `fallback`  | No       | Enable BigQuery fallback for the table                                                                                                          |
+These fields describe one table of a schema in `sync.json`. The table says which fields are required.
 
-`indexes.expressions` contains raw SQL. Use it only in trusted configuration. Expressions are inserted into `CREATE INDEX` DDL.
+| Field       | Required | Meaning                                                                               |
+| ----------- | -------- | ------------------------------------------------------------------------------------- |
+| `name`      | Yes      | Reference validated by the schema source. BigQuery uses `project.dataset.table`. |
+| `strategy`  | Yes      | `full` replaces the DuckLake table, and `partitioned` updates physical partitions.        |
+| `n`         | No       | Keep the newest `n` time partitions.                                                  |
+| `fallback` | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
+| `cache_ttl` | No       | Proxy cache lifetime in seconds.                                                      |
+| `rls`       | No       | Unit column and unit type pairs. See [Security](security/index.md).                         |
+| `ducklake` | No | Table-level DuckLake settings, including `sort` and `partitioning`. |
+| `ducklake` | No | Table-level DuckLake settings, including custom partition transforms. |
 
-## Fallback per table
+## Pipeline
 
-Fallback has two gates. The chart-level fallback configuration must be enabled, and the table must have `fallback: true` (the default). Use `fallback: false` for tables that must never query BigQuery when the local table is empty.
+The scheduled `run_sync` workflow performs these steps:
+
+1. Build the changed-table and changed-partition plan.
+2. Enqueue source dump tasks.
+3. Write independent scratch Parquet files to the S3 scratch path. Extraction doesn't merge files.
+4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
+5. Enqueue one `publish_schema` workflow per schema.
+6. DBOS sync workers insert scratch Parquet into DuckLake and commit a snapshot to the schema catalog in the `ducklake` database. Streaming replication copies the catalog to every standby.
+7. After all publishers finish, tell PostgREST to reload its schema, only when seed added or removed views.
+8. Flush scratch objects and Redis.
+
+Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
+
+### DuckLake maintenance
+
+After a publication commits, the same `publish_schema` workflow runs `apply_ducklake_maintenance` on the schema writer on the schema writer. It does the following in order:
+
+1. Expire snapshots older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
+2. Merge up to `DUCKLAKE_MAX_COMPACTED_FILES` adjacent files per table.
+3. Rewrite files whose deleted fraction reaches `DUCKLAKE_REWRITE_DELETE_THRESHOLD`.
+4. Clean old and orphaned files older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
+
+Merging and rewriting create new snapshots, so the step returns the current snapshot, and the reader check waits for that one. The workflow logs a maintenance error and doesn't stop the sync run. The published snapshot still reaches the readers, and the next publication retries the maintenance. Schemas that publish nothing aren't maintained.
+
+The maintenance CronJob only cleans outdated PostgreSQL objects.
+
+## DuckLake partitioning and encryption
+
+DuckLake partitioning follows the source partition column by default. A table can override it with transforms such as:
 
 ```json
-{
-  "name": "project.dataset.internal_table",
-  "strategy": "full",
-  "fallback": false
+"ducklake": {
+  "partitioning": [
+    { "column": "event_time", "transform": "month" },
+    { "column": "unit_id", "transform": "bucket", "buckets": 16 }
+  ]
 }
 ```
 
-When fallback is disabled for a table, the Publisher does not create its `_bq` view and nginx returns the local PostgREST response without a BigQuery fallback request. See [Fallback](fallback.md).
+Changing a table transform triggers a full table rewrite before the writer publishes the new layout. Configure encryption only under the schema-level `ducklake.encrypted` setting. The engine rejects table-level encryption, because DuckLake encryption is catalog scoped.
 
-## Batching
+## Schema evolution
 
-A `full` table creates one Dumper task. Changed physical partitions are grouped into Dumper tasks. Each task writes one Parquet file.
+Before publication, the writer compares each incoming Parquet schema with the existing DuckLake table. It adds new nullable columns and applies only lossless type promotions.
 
-```yaml
-dumper:
-  batchMegaBytes: 600
-  batchMaxPartitions: 256
+It rejects removed columns, renames, and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files aren't rewritten for these schema changes.
+
+## Catalog lifecycle
+
+Each schema uses these locations:
+
+```text
+catalog:         database ducklake, schema <schema> (DuckLake metadata, written by the sync workers)
+secrets:         data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at ~/.duckdb/stored_secrets)
+DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
 ```
 
-`batchMegaBytes` is the uncompressed source-data target in MiB. `batchMaxPartitions` limits the number of partitions in one task. A batch closes before adding a partition that would exceed either limit.
+The DBOS sync workers write the catalog as the `ops` role, through the primary. PostgreSQL pods read it as the `duckdb` role, from their own instance, so a standby never reads from the primary. A PostgreSQL backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers. See [Serving layer](architecture/serving.md#ducklake-read-path).
 
-## Partition behavior
+## Partition fallback
 
-| Source type       | `n`       | `__NULL__`                         |
-| ----------------- | --------- | ---------------------------------- |
-| Time partitioned  | Supported | Ignored.                           |
-| Range partitioned | Rejected  | Synced as the remainder partition. |
+Set `fallback: true` on a partitioned table to let its configured schema source serve data that DuckLake doesn't store. For a BigQuery schema, the table function reads published partitions from DuckLake and every other partition from BigQuery.
+
+```json
+{
+  "name": "project.dataset.events",
+  "strategy": "partitioned",
+  "fallback": true
+}
+```
+
+`fallback` is invalid on full tables. It's also invalid when the configured source has no fallback metadata. Without it, the table function reads DuckLake only. See [Proxy](proxy/index.md).
+
+## Adding a source
+
+A source is responsible for synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions.
+
+Register the source in `sync/src/sync/sources/registry.py`.
+
+Each PostgreSQL schema has exactly one source. Add `source.settings` only when a source requires non-secret settings. Put credentials in environment variables or Kubernetes Secrets, not in `sync.json`.
+
+DuckLake is the fixed local primary source. The configured schema source is the only possible partition fallback.
+
+## Partitions
+
+A `full` table creates one dump task. A partitioned table creates one extraction task for its changed physical partitions. Each selection writes one Parquet file.
+
+| Source type       | `n`       | `__NULL__`                        |
+| ----------------- | --------- | --------------------------------- |
+| Time partitioned  | Supported | Ignored                           |
+| Range partitioned | Rejected  | Synced as the remainder partition |
 
 `__UNPARTITIONED__` is unsupported and stops planning.
 
 ## Schema initialization
 
-The sync workflow creates configured schemas, `access_policy` tables, `access_log` audit tables, policies, triggers, and `policy_writer_<schema>` roles when needed. Do not create them manually.
+The provision job creates configured schemas, `access_policy`, `access_log`, row policies, and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
 
-## JSON and geometry
-
-BigQuery `STRUCT` and `RECORD` columns are extracted as JSON, loaded as PostgreSQL `json`, and converted to `jsonb` in the publication transaction. Use a GIN expression index for JSON paths.
-
-```json
-{
-  "name": "idx_status",
-  "columns": ["indicadores"],
-  "method": "gin",
-  "expressions": ["(indicadores->'status')"]
-}
-```
-
-BigQuery `GEOGRAPHY` columns map to PostgreSQL `geometry`. The database image enables PostGIS.
+Application table names are PostgreSQL views over DuckLake functions.
 
 ---
 
-[← Previous](architecture.md) · [Home](../README.md) · [Next →](using.md)
+<!-- nav:start -->
+---
+
+[Previous: Console layer](architecture/console.md) | [Next: Using the API](using.md) | [Home](index.md)
+<!-- nav:end -->

@@ -1,0 +1,70 @@
+direction: right
+
+signer: "signer schema" {
+  keys: {
+    shape: sql_table
+    schema_name: text {constraint: primary_key}
+    access_key: text
+    secret_sealed: text
+    created_at: timestamptz
+  }
+}
+
+metadata: "one metadata schema for each source schema (DuckLake tables)" {
+  ducklake_metadata: {
+    shape: sql_table
+    key: text
+    value: text
+    scope: text
+  }
+  ducklake_schema: {
+    shape: sql_table
+    schema_id: bigint
+    schema_name: text
+    path: text
+    path_is_relative: boolean
+    end_snapshot: bigint
+  }
+  ducklake_table: {
+    shape: sql_table
+    table_id: bigint
+    schema_id: bigint
+    table_name: text
+    path: text
+    path_is_relative: boolean
+    end_snapshot: bigint
+  }
+  ducklake_data_file: {
+    shape: sql_table
+    data_file_id: bigint
+    table_id: bigint
+    path: text
+    path_is_relative: boolean
+    file_order: bigint
+    end_snapshot: bigint
+  }
+  ducklake_delete_file: {
+    shape: sql_table
+    data_file_id: bigint
+    path: text
+    path_is_relative: boolean
+    end_snapshot: bigint
+  }
+  ducklake_sort_info: {
+    shape: sql_table
+    sort_id: bigint
+    table_id: bigint
+    end_snapshot: bigint
+  }
+  ducklake_sort_expression: {
+    shape: sql_table
+    sort_id: bigint
+    sort_key_index: bigint
+    expression: text
+  }
+  ducklake_table.schema_id -> ducklake_schema.schema_id
+  ducklake_data_file.table_id -> ducklake_table.table_id
+  ducklake_delete_file.data_file_id -> ducklake_data_file.data_file_id
+  ducklake_sort_info.table_id -> ducklake_table.table_id
+  ducklake_sort_expression.sort_id -> ducklake_sort_info.sort_id
+}

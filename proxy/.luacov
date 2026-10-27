@@ -1,0 +1,8 @@
+-- Settings of luacov. `nu scripts/lux.nu coverage` reads them.
+return {
+  statsfile = "luacov.stats.out",
+  reportfile = "luacov.report.out",
+  -- The tests run the copy of the package that lux installs, so the path has the folder of the rock.
+  include = { "data%-proxy@[^/]*/src/proxy/" },
+  exclude = { "%.d$" },
+}

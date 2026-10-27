@@ -1,0 +1,36 @@
+suite: Cleanup of S3 identities
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - deployment-sync.yaml
+set:
+  redis.host: redis-writer
+  console.enabled: true
+  ingress.host: api.example.test
+  console.oidc.issuer: https://idp.example.test/realms/dev
+  console.oidc.clientSecret: client-secret
+tests:
+  - it: tells the sync worker to remove the identities of removed schemas when the console makes them
+    set:
+      console.storage.perSchemaIdentities: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_IDENTITIES
+            value: "true"
+
+  - it: leaves the cleanup off when the console makes no identity
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_IDENTITIES
+            value: "true"

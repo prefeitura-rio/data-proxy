@@ -1,5 +1,10 @@
 # Development and test-only paths
 scripts/
+k3d/
 k6/
 helm/ci/
 helm/tests/
+console/ui/tests/
+sync/tests/
+proxy/tests/
+tests/

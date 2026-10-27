@@ -1,0 +1,69 @@
+suite: Google credentials for the bucket check
+templates:
+  - jobs.yaml
+  - deployment-sync.yaml
+set:
+  gcp.existingSecret: gcp-credentials
+tests:
+  - it: gives the S3 bootstrap Job the key file, because the GCS remote of rclone reads it
+    template: jobs.yaml
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: s3-bootstrap
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: gcp
+            mountPath: /gcp
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gcp
+            secret:
+              secretName: gcp-credentials
+
+  - it: gives the wait-for-s3 init container of the sync Deployment the key file
+    template: deployment-sync.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: gcp
+            mountPath: /gcp
+            readOnly: true
+
+  - it: gives the configure-db Job a volume for the key file that its wait-for-s3 init container mounts
+    template: jobs.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-configure-db-0
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gcp
+            secret:
+              secretName: gcp-credentials
+
+  - it: adds no key file without the secret
+    set:
+      gcp.existingSecret: ""
+    template: deployment-sync.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: GOOGLE_APPLICATION_CREDENTIALS
+            value: /gcp/key.json

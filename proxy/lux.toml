@@ -1,0 +1,30 @@
+package = "data-proxy"
+version = "1.0.0"
+lua = "==5.1"
+
+[description]
+summary = "Data Proxy OpenResty proxy"
+maintainer = "iplanrio"
+labels = ["openresty"]
+license = "Apache-2.0"
+
+[dependencies]
+lua-resty-http = "==0.18.0"
+lpeg = "1.1.0-2"
+penlight = "1.15.0-1"
+tableshape = "2.8.0-1"
+
+[build]
+type = "builtin"
+
+[test]
+type = "busted"
+flags = [
+  "--helper=tests.unit.helpers",
+  "--lpath=?.lua;?/init.lua",
+  "tests/unit",
+]
+
+[test_dependencies]
+lua-cjson = "2.1.0.10-1"
+luacov = "0.17.0-1"

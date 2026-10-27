@@ -1,0 +1,29 @@
+shape: sequence_diagram
+
+wk: "Publish worker"
+dd: "DuckDB (ducklake)"
+s3: SeaweedFS
+cat: "ducklake database"
+app: "Application database"
+sb: "Standby"
+
+attach: "Commit the snapshot" {
+  wk -> dd: "attach the catalog"
+  dd -> cat: "read the metadata"
+  wk -> dd: "create tables, set partitions and sort"
+  dd -> s3: "read scratch Parquet"
+  dd -> s3: "write DuckLake data files"
+  dd -> cat: "commit one snapshot"
+}
+state: "Record the state" {
+  wk -> app: "write data_proxy.state"
+}
+replicate: "Reach the readers" {
+  cat -> sb: "WAL replication"
+  sb -> sb: "next query sees the snapshot"
+}
+maintain: "opt: a snapshot was committed" {
+  wk -> dd: "run maintenance"
+  dd -> cat: "expire snapshots"
+  dd -> s3: "merge files, remove old files"
+}

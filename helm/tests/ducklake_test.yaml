@@ -1,0 +1,139 @@
+suite: DuckLake PostgreSQL catalog
+templates:
+  - cluster-cnpg.yaml
+  - deployment-proxy.yaml
+  - deployment-postgrest.yaml
+  - deployment-sync.yaml
+  - pvc-duckdb.yaml
+  - rbac.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: renders one CNPG cluster with DuckLake PostgreSQL parameters
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: cluster-cnpg.yaml
+      - notExists:
+          path: spec.instances
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters.shared_buffers
+          value: 1GB
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters.work_mem
+          value: 64MB
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.resources.limits.memory
+          value: 8Gi
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.threads"]
+          value: "2"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.max_memory"]
+          value: 1GB
+        template: cluster-cnpg.yaml
+
+  - it: prepares the secret folder with the PostgreSQL image
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"image":"ghcr.io/prefeitura-rio/data-proxy-postgres:[^"]*","imagePullPolicy":"IfNotPresent","name":"prepare-duckdb-secrets"'
+        template: cluster-cnpg.yaml
+
+  - it: shares the DuckDB secrets volume even when the values name no schema, because editors add them later
+    set:
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pvc-duckdb.yaml
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"claimName":"data-proxy-duckdb"'
+        template: cluster-cnpg.yaml
+
+  - it: leaves the volume out until a storage class is set
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: pvc-duckdb.yaml
+      - notExists:
+          path: metadata.annotations["cnpg.io/podPatch"]
+        template: cluster-cnpg.yaml
+
+  - it: restarts sync pods when Secret data changes
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/s3-credentials"]
+          pattern: "^[0-9a-f]{64}$"
+        template: deployment-sync.yaml
+
+  - it: gives DBOS sync workers no shared volume
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: duckdb
+            persistentVolumeClaim:
+              claimName: data-proxy-duckdb
+        template: deployment-sync.yaml
+      - isNullOrEmpty:
+          path: spec.template.spec.containers[0].volumeMounts
+        template: deployment-sync.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_CATALOG_LOCAL_PATH
+            value: /var/lib/ducklake/catalogs
+        template: deployment-sync.yaml
+
+  - it: keeps the shared RWX volume for the DuckDB secrets only
+    set:
+      sync.config:
+        schemas:
+          app:
+            tables: []
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: pvc-duckdb.yaml
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteMany
+        template: pvc-duckdb.yaml
+      - equal:
+          path: spec.storageClassName
+          value: k3d-rwx
+        template: pvc-duckdb.yaml
+      - equal:
+          path: metadata.name
+          value: data-proxy-duckdb
+        documentIndex: 0
+        template: pvc-duckdb.yaml
+
+  - it: does not configure empty response caching
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EMPTY_CACHE_TTL
+            value: "3600"
+        template: deployment-proxy.yaml

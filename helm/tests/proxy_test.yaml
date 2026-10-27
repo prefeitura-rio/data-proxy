@@ -1,0 +1,224 @@
+suite: Proxy
+templates:
+  - configmap-proxy.yaml
+  - deployment-proxy.yaml
+  - scaledobjects.yaml
+  - services.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: renders one OpenResty proxy container
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+        template: deployment-proxy.yaml
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: proxy
+        template: deployment-proxy.yaml
+
+  - it: mounts the OpenResty configuration
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /usr/local/openresty/nginx/conf/nginx.conf
+            subPath: nginx.conf
+        template: deployment-proxy.yaml
+
+  - it: passes the Redis password to OpenResty
+    set:
+      redis.existingSecret: redis-credentials
+      redis.passwordKey: redis-password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: redis-credentials
+                key: redis-password
+        template: deployment-proxy.yaml
+
+  - it: renders the OpenResty configuration
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "lua_shared_dict proxy_locks"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "content_by_lua_block"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: "webdis|js_import|js_content"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+
+  - it: scales the proxy on CPU only, because a memory trigger keeps it at two pods after a spike
+    asserts:
+      - equal:
+          path: spec.triggers
+          value:
+            - type: cpu
+              metricType: Utilization
+              metadata:
+                value: "70"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+
+  - it: scales the proxy from one pod to six by default
+    asserts:
+      - equal:
+          path: spec.minReplicaCount
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 6
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+
+  - it: takes the minimum of the proxy pods from the value
+    set:
+      proxy.autoscaling.minReplicaCount: 2
+    asserts:
+      - equal:
+          path: spec.minReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+
+  - it: keeps the limits that a deployment sets, so an override of the infra repo wins over the defaults
+    set:
+      proxy.autoscaling.maxReplicaCount: 2
+      cnpg.autoscaling.maxReplicaCount: 2
+    asserts:
+      - equal:
+          path: spec.maxReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+      - equal:
+          path: spec.maxReplicaCount
+          value: 2
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cluster-autoscaler
+        template: scaledobjects.yaml
+
+  - it: replaces the proxy trigger with the triggers of the values
+    set:
+      proxy.autoscaling.triggers:
+        - type: memory
+          metricType: Utilization
+          metadata:
+            value: "70"
+    asserts:
+      - equal:
+          path: spec.triggers
+          value:
+            - type: memory
+              metricType: Utilization
+              metadata:
+                value: "70"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+
+  - it: tells OpenResty where to ask for the config and how often to check it
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_URL
+            value: http://data-proxy-postgrest.NAMESPACE.svc.cluster.local:3000/rpc/config
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CONFIG_REFRESH_SECONDS
+            value: "60"
+        template: deployment-proxy.yaml
+
+  - it: starts without a sync.json file, because it fetches the config at start
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 2
+        template: deployment-proxy.yaml
+
+  - it: gives nginx a writable folder, because the root file system is read-only
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+        template: deployment-proxy.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+        template: deployment-proxy.yaml
+
+  - it: exposes the admin port that reloads the settings
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: admin
+            containerPort: 8081
+        template: deployment-proxy.yaml
+
+  - it: renders a headless service that names every proxy pod, so the engine can reload each one
+    asserts:
+      - hasDocuments:
+          count: 4
+        template: services.yaml
+      - equal:
+          path: spec.clusterIP
+          value: None
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8081
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy-admin
+        template: services.yaml

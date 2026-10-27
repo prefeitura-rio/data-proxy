@@ -1,34 +1,45 @@
 suite: S3 secret
 templates:
-  - secret.yaml
+  - secrets.yaml
 tests:
   - it: renders a generated S3 secret by default
     asserts:
       - isKind:
           of: Secret
-        documentIndex: 0
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3
       - exists:
           path: stringData.S3_ACCESS_KEY
-        documentIndex: 0
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3
       - exists:
           path: stringData.S3_SECRET_KEY
-        documentIndex: 0
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-s3
 
-  - it: omits the S3 secret when an existing secret is set
+  - it: renders one document fewer when an existing secret is set
     set:
       s3.existingSecret: my-s3-secret
     asserts:
       - hasDocuments:
-          count: 1
-      - equal:
-          path: metadata.name
-          value: data-proxy-jobs
+          count: 5
+        template: secrets.yaml
+
+  - it: renders the S3 secret document next to the others by default
+    asserts:
+      - hasDocuments:
+          count: 6
+        template: secrets.yaml
+
 ---
 suite: S3 wiring
 templates:
-  - deployment-dumper.yaml
+  - deployment-sync.yaml
 tests:
-  - it: points the dumper at the in-chart SeaweedFS gateway
+  - it: points the sync service at the in-chart SeaweedFS gateway
     set:
       s3.bucket: data-proxy
       seaweedfs.enabled: true
@@ -44,7 +55,20 @@ tests:
             name: S3_ENDPOINT
             value: RELEASE-NAME-seaweedfs-s3:8333
 
-  - it: points the dumper at an explicit endpoint when one is set
+  - it: reads the S3 credentials of the sync service from an existing secret
+    set:
+      s3.existingSecret: my-s3-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-s3-secret
+                key: S3_ACCESS_KEY
+
+  - it: points the sync service at an explicit endpoint when one is set
     set:
       s3.endpoint: minio.example.com:9000
     asserts:
@@ -53,3 +77,21 @@ tests:
           content:
             name: S3_ENDPOINT
             value: minio.example.com:9000
+
+  - it: keeps the default scratch prefix
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SCRATCH_PREFIX
+            value: tmp
+
+  - it: sets the scratch prefix from the chart value
+    set:
+      s3.scratchPrefix: preview/tmp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SCRATCH_PREFIX
+            value: preview/tmp

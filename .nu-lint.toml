@@ -1,0 +1,29 @@
+# Shared nu-lint exceptions for this repository and the global LSP configuration.
+[rules]
+# Topiary, the formatter of the repository, sets the spacing of braces, so the rule disagrees with its output.
+block_brace_spacing = "off"
+# The commands give each typed flag a value in every call, so the null check adds noise.
+check_typed_flag_before_use = "off"
+# The rule reports an internal error or an extra argument on code that `nu --ide-check` accepts.
+nu_parse_error = "off"
+# A command that reads data and then writes it is common in the scripts, and a split adds a helper for no gain.
+dont_mix_different_effects = "off"
+# Three positional parameters read clearly where the order is natural, and flags make the calls longer.
+max_positional_params = "off"
+# A command prints for a person and returns the data for the next step by design.
+print_and_return_data = "off"
+# The pipeline discards the output of an external command on purpose.
+redundant_ignore = "off"
+# The quotes mark a text that has a dash, a slash or a colon, so it reads as text.
+string_may_be_bare = "off"
+# The error of an external command stops the script, and the style guide forbids a `try` that only repeats it.
+unhandled_external_error = "off"
+
+# The rule does not see a doc comment above an @example attribute, and every exported command has one there.
+add_doc_comment_exported_fn = "off"
+# The test runner runs each test in its own Nushell, so that one test cannot change the state of another.
+redundant_nu_subprocess = "off"
+# The signed request to the object store needs curl, because `http` has no AWS signature.
+curl_to_http = "off"
+# A named parameter of a pure function reads better than input from a pipeline.
+positional_to_pipeline = "off"

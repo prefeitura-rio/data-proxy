@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: proxy
+  template:
+    metadata:
+      annotations:
+        checksum/proxy-config: {{ include "data-proxy.nginxProxyConfig" . | sha256sum }}
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: proxy
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
+    spec:
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
+      containers:
+        - name: proxy
+          image: {{ required "proxy.image must reference an image built from Containerfile.proxy" .Values.proxy.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "proxy") | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: admin
+              containerPort: 8081
+          env:
+            {{- include "data-proxy.proxyEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/openresty/nginx/conf/nginx.conf
+              subPath: nginx.conf
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          {{- with .Values.proxy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-proxy
+        - name: tmp
+          emptyDir: {}

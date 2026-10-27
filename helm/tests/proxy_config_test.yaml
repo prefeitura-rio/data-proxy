@@ -1,0 +1,209 @@
+suite: Proxy config
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - configmap-proxy.yaml
+  - deployment-proxy.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: passes the proxy settings as environment variables
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      proxy.cacheRedisDb: 2
+      proxy.cacheTtl: 42
+      proxy.maxCacheBodyBytes: 1000
+      proxy.maxInflight: 10
+    templates:
+      - deployment-proxy.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_INFLIGHT
+            value: "10"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_CACHE_TTL
+            value: "42"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_DATABASE
+            value: "2"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_BODY
+            value: "1000"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: redis-writer.default.svc.cluster.local
+
+  - it: renders concrete OpenResty settings
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      proxy.largeClientHeaderBuffers: "8 128k"
+    templates:
+      - configmap-proxy.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_CACHE_TTL;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_REDIS_PASSWORD;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_POSTGREST;$'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'set \$|__[A-Z_]+__'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'large_client_header_buffers 8 128k'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_shared_dict proxy_locks'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_package_path "/usr/local/openresty/site/lualib/\?\.lua;/opt/data-proxy/rocks/\?\.lua;/opt/data-proxy/rocks/\?/init\.lua;;"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_package_cpath "/opt/data-proxy/lib/\?\.so;;"'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'webdis|js_import|js_content|\$\{'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+
+  - it: uses the OpenResty image and config path
+    templates:
+      - deployment-proxy.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: proxy
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[?(@.name=="config")].mountPath
+          value: /usr/local/openresty/nginx/conf/nginx.conf
+
+  - it: fails to render when the Redis host is not set
+    template: deployment-proxy.yaml
+    set:
+      redis.host: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "redis.host is required: the proxy stores its answers in this Redis"
+
+  - it: limits the requests that wait for PostgREST by default
+    template: deployment-proxy.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_MAX_INFLIGHT
+            value: "32"
+
+  - it: lets nginx pass the limit to the proxy and keeps a counter for it
+    template: configmap-proxy.yaml
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-proxy
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?m)^env PROXY_MAX_INFLIGHT;$'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'lua_shared_dict proxy_inflight 1m;'
+
+  - it: gives the proxy enough CPU to keep serving cached answers next to PostgreSQL
+    template: deployment-proxy.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 500m
+
+  - it: keeps the pid file and the temporary files of nginx in the writable folder
+    templates:
+      - configmap-proxy.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "(?m)^pid /tmp/nginx.pid;$"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "client_body_temp_path /tmp/client_temp;"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "proxy_temp_path /tmp/proxy_temp;"
+
+  - it: gives nginx a Redis host with the namespace, because its resolver does not use the search domains
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: valkey-master
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: valkey-master.default.svc.cluster.local
+
+  - it: keeps a Redis host that has a dot
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: redis.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: redis.example.test
+
+  - it: keeps a Redis address
+    templates:
+      - deployment-proxy.yaml
+    set:
+      proxy.image: example.invalid/data-proxy-proxy:test
+      redis.host: 10.0.0.7
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROXY_REDIS_HOST
+            value: 10.0.0.7
+

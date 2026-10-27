@@ -1,58 +1,48 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
-rules:
-  - apiGroups: ["batch"]
-    resources: ["cronjobs", "jobs"]
-    verbs: ["get", "list", "watch", "create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: data-proxy-k6
-  namespace: data-proxy
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: data-proxy-k6
-subjects:
-  - kind: ServiceAccount
-    name: data-proxy-k6
-    namespace: data-proxy
----
 apiVersion: k6.io/v1alpha1
 kind: TestRun
 metadata:
-  name: data-proxy-load
+  name: data-proxy-perf
   namespace: data-proxy
 spec:
   parallelism: 1
+  paused: "false"
   script:
-    configMap:
-      name: data-proxy-k6
-      file: load.ts
+    localFile: /scripts/load.js
   runner:
-    image: localhost/k6:local
-    serviceAccountName: data-proxy-k6
+    image: registry.localhost:5001/k6:local
+    serviceAccountName: manifests-k6-perf
     automountServiceAccountToken: "true"
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        cpu: "3"
+        memory: 4Gi
     env:
       - name: BASE_URL
         value: http://istio-ingressgateway.istio-ingress.svc.cluster.local
       - name: API_HOST
         value: data-proxy.local
-      - name: ACCEPT_PROFILE
-        value: pic
+      - name: OIDC_TOKEN_URL
+        value: http://keycloak.keycloak.svc.cluster.local:8080/realms/dev/protocol/openid-connect/token
+      - name: OIDC_USER_CLIENT_ID
+        value: api
+      - name: OIDC_NO_POLICY_CLIENT_ID
+        value: api_no_policy
+      - name: OIDC_POLICY_WRITER_CLIENT_ID
+        value: policy
+      - name: OIDC_CLIENT_SECRET
+        value: test-secret
       - name: K6_PROFILE
         value: load
-      - name: VUS
-        value: "2"
-      - name: DURATION
-        value: 30s
+      - name: K6_PEAK_RATE
+        value: "25"
+      - name: K6_BOTTLENECK_SHARE
+        value: "0.0"
+      - name: K6_FALLBACK_SHARE
+        value: "0.01"
+      - name: K6_THRESHOLD_MODE
+        value: strict
+      - name: K6_MAX_VUS_MULTIPLIER
+        value: "3"

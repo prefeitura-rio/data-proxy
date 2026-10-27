@@ -1,0 +1,64 @@
+{{- $name := include "data-proxy.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-pgdog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgdog
+spec:
+  replicas: {{ .Values.pgdog.replicas }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgdog
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-pgdog.yaml") . | sha256sum }}
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pgdog
+        sidecar.istio.io/inject: "false"
+    spec:
+      automountServiceAccountToken: false
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
+      containers:
+        - name: pgdog
+          image: {{ .Values.pgdog.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "pgdog") | nindent 10 }}
+          command: [/usr/local/bin/pgdog]
+          args: [--config, /etc/pgdog/pgdog.toml, --users, /etc/pgdog-users/users.toml]
+          ports:
+            - name: pgdog
+              containerPort: 6432
+            - name: health
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgdog
+              readOnly: true
+            - name: users
+              mountPath: /etc/pgdog-users
+              readOnly: true
+          {{- with .Values.pgdog.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-pgdog
+        - name: users
+          secret:
+            secretName: {{ $name }}-pgdog-users

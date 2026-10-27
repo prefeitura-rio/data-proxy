@@ -1,0 +1,64 @@
+#:schema ./rbac.schema.json
+[permissions.api]
+description = "The synced data, read through the API"
+read = "Read it"
+
+[permissions.ducklake]
+description = "The DuckLake catalog. No token changes it: data changes through the configuration and a sync run"
+read = "Read its snapshots and the changes between them"
+
+[permissions.files]
+description = "The raw data files of a table"
+read = "Read them"
+
+[permissions.sync]
+description = "Sync runs"
+read = "Runs, tasks, steps, logs, errors and the overview"
+start = "Start a run"
+control = "Cancel, resume or run again a run, and pause, resume or change the cron of a schedule"
+
+[permissions.config]
+description = "The sync configuration"
+read = "Read it"
+create = "Add a schema, a table or a row rule"
+edit = "Change it"
+delete = "Delete from it"
+import = "Import a whole document"
+
+[permissions.policy]
+description = "The access policy of a schema"
+read = "Read it"
+create = "Add a rule"
+edit = "Change it"
+delete = "Delete a rule"
+
+[[roles]]
+name = "dp_api"
+description = "Clients that read the synced data"
+permissions = ["read_api"]
+
+[[roles]]
+name = "dp_policy"
+description = "APIs that register their own access policies"
+permissions = ["read_policy", "create_policy", "edit_policy", "delete_policy"]
+
+[[roles]]
+name = "dp_console"
+description = "People who watch the system: runs, errors and the sync configuration"
+inherits = ["dp_api"]
+permissions = ["read_sync", "read_config"]
+
+[[roles]]
+name = "dp_admin"
+description = "People who run schemas"
+inherits = ["dp_console", "dp_policy"]
+permissions = [
+  "start_sync",
+  "control_sync",
+  "create_config",
+  "edit_config",
+  "delete_config",
+  "import_config",
+  "read_files",
+  "read_ducklake",
+]

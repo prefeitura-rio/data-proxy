@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/sync/ducklake.py",
+    "file_name": "ducklake.py",
+    "functions": [
+      {
+        "name": "plan_publication",
+        "complexity": 13
+      }
+    ]
+  }
+]

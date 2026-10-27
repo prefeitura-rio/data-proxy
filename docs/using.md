@@ -1,19 +1,19 @@
 # Using the API
 
-Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JWT and select the target schema with `Accept-Profile`.
+Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and select the target schema with `Accept-Profile`.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/participants?select=id_cras,name&limit=20"
+  "${BASE_URL}/participants?select=region_id,name&limit=20"
 ```
 
-## Read and write routing
+## Request routing
 
-nginx routes `GET` and `HEAD` requests to PostgREST-ro, which uses the CNPG read Pooler. POST, PUT, PATCH, and DELETE requests route to PostgREST-rw, which connects directly to the current CNPG writer. This separation keeps reads replica-friendly while writes use the primary.
+The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Topology](operations/topology.md).
 
-The read and write deployments are refreshed by the Publisher after replica replay. A PostgREST deployment is not Ready until its HTTP readiness probe serves `/`.
+Sync tells PostgREST to reload its schema once when generated serving PostgreSQL objects change. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel. No pod restarts. The workflow requires its sync metric checkpoints. A failure to record a metric fails the related workflow, so operators never treat an unobserved run as successful.
 
 ## OpenAPI
 
@@ -23,7 +23,7 @@ When `swaggerUi.enabled` is true, the OpenAPI page is available at:
 ${BASE_URL}/docs
 ```
 
-The page can list table and column names without exposing data. Use its Authorize control with the token value only; the page adds `Bearer `.
+The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
 ## Querying
 
@@ -35,36 +35,71 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. RLS filters rows before query filters.
+Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Query pushdown](proxy/pushdown.md).
 
-Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`.
+Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
 
-## Response source and cache
+## DuckLake change feed
 
-When fallback is enabled, read responses include:
-
-| Header     | Values                                   |
-| ---------- | ---------------------------------------- |
-| `X-Source` | `cache`, `postgrest`, `bigquery`, `none` |
-| `X-Cache`  | `HIT`, `MISS`                            |
-
-Use these headers for troubleshooting, not authorization.
-
-## Freshness
-
-Each schema exposes `freshness`:
+Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/freshness?table=eq.participants"
+  --get "${BASE_URL}/rpc/dl_changes_participants" \
+  --data-urlencode "start_snapshot=12" \
+  --data-urlencode "end_snapshot=15"
 ```
 
-`updated_at` is the last successful publication time. `attempted_at` is the latest attempt. `status` is `success` or `failure`. A failed existing partition keeps its old data and `updated_at`; a failed new partition has no `updated_at`.
+Use the schema RPC `dl_latest_snapshot` to get the current cursor before or after reading a range:
 
-See [Security](security.md) for token and access-policy setup.
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  --request POST \
+  "${BASE_URL}/rpc/dl_latest_snapshot"
+```
+
+Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
+
+## Response source and cache
+
+Read responses include:
+
+| Header                | Values                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `X-Source`            | `ducklake`, `bigquery`, `ducklake+bigquery`               |
+| `X-DuckLake-Snapshot` | The DuckLake snapshot the response was read from          |
+| `X-Cache`             | `HIT`, `MISS`                                             |
+
+`X-Source` lists the sources the request queried, not the sources that returned rows. The value names the source adapter, and `bigquery` is the only adapter today. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only the source was queried. Rows from the source are always current, so they carry no snapshot.
+
+A cache hit returns the headers of the answer it stored. Use `X-Cache` to tell a hit from a miss.
+
+### Pin a snapshot
+
+Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request reads DuckLake only and never the source:
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --header "Accept-Profile: my_schema" \
+  --header "X-DuckLake-Snapshot: 42" \
+  "${BASE_URL}/my_table?limit=20"
+```
+
+An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. DuckLake keeps the snapshot history for seven days. A table that has no published data and no fallback also returns `404`.
+
+Use these headers for troubleshooting, not authorization.
+
+See [Security](security/index.md) for token and access-policy setup.
 
 ---
 
-[← Previous](sync.md) · [Home](../README.md) · [Next →](security.md)
+<!-- nav:start -->
+---
+
+[Previous: Sync](sync.md) | [Next: Proxy](proxy/index.md) | [Home](index.md)
+<!-- nav:end -->

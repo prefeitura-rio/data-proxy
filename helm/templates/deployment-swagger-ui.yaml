@@ -20,9 +20,11 @@ spec:
         app.kubernetes.io/component: swagger-ui
         sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
     spec:
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       containers:
         - name: swagger-ui
           image: {{ .Values.swaggerUi.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "swaggerUi") | nindent 10 }}
           ports:
             - name: http
               containerPort: 8080

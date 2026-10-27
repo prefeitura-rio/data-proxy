@@ -1,0 +1,1 @@
+"""BigQuery data source."""

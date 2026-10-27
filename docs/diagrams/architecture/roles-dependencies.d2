@@ -1,0 +1,29 @@
+direction: up
+
+dp_api: "dp_api" {
+  read_api
+}
+dp_policy: "dp_policy" {
+  read_policy
+  create_policy
+  edit_policy
+  delete_policy
+}
+dp_console: "dp_console" {
+  read_sync
+  read_config
+}
+dp_admin: "dp_admin" {
+  start_sync
+  control_sync
+  create_config
+  edit_config
+  delete_config
+  import_config
+  read_files
+  read_ducklake
+}
+
+dp_console -> dp_api: "inherits"
+dp_admin -> dp_console: "inherits"
+dp_admin -> dp_policy: "inherits"

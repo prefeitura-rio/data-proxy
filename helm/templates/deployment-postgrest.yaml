@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-postgrest
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgrest
+    data-proxy.io/serving: postgrest
+spec:
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgrest
+  template:
+    metadata:
+      annotations:
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
+        {{- if .Values.postgrest.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.postgrest.metrics.port | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgrest
+        sidecar.istio.io/inject: {{ .Values.ingress.sidecarInject | quote }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
+      initContainers:
+        {{- if not .Values.postgrest.jwtSecret }}
+        - name: fetch-jwks
+          image: {{ .Values.jobs.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
+          command: ["/usr/local/bin/nu", "/scripts/fetch-jwks.nu"]
+          workingDir: /scripts
+          env:
+            - name: JWKS_URI
+              value: {{ .Values.postgrest.jwksUri | quote }}
+          volumeMounts:
+            - name: jwks
+              mountPath: /etc/postgrest
+            - name: configure-db-script
+              mountPath: /scripts
+              readOnly: true
+        {{- end }}
+        - name: wait-for-postgres
+          image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: ["/usr/local/bin/nu", "/scripts/wait-for-postgres.nu"]
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
+            - name: PGDATABASE
+              value: {{ .Values.cnpg.db.name | quote }}
+            - name: PGUSER
+              value: {{ .Values.auth.servingRole | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.servingSecretName" . }}
+                  key: password
+          volumeMounts:
+            - name: configure-db-script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: configure-db-script
+          configMap:
+            name: {{ include "data-proxy.fullname" . }}-configure-db-script
+            defaultMode: 0555
+        {{- if not .Values.postgrest.jwtSecret }}
+        - name: jwks
+          emptyDir: {}
+        {{- end }}
+      containers:
+        - name: postgrest
+          image: {{ .Values.postgrest.image }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "postgrest") | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 3000
+            {{- if .Values.postgrest.metrics.enabled }}
+            - name: admin
+              containerPort: {{ .Values.postgrest.metrics.port }}
+            {{- end }}
+          env:
+            {{- if .Values.postgrest.metrics.enabled }}
+            - name: PGRST_ADMIN_SERVER_PORT
+              value: {{ .Values.postgrest.metrics.port | quote }}
+            {{- end }}
+            - name: PGRST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.servingSecretName" . }}
+                  key: password
+            - name: PGRST_DB_URI
+              value: {{ include "data-proxy.postgrestDsn" . | quote }}
+            - name: PGRST_DB_POOL
+              value: {{ .Values.postgrest.dbPool | quote }}
+            - name: PGRST_DB_POOL_ACQUISITION_TIMEOUT
+              value: {{ .Values.postgrest.dbPoolAcquisitionTimeout | quote }}
+            - name: PGRST_DB_POOL_MAX_IDLETIME
+              value: {{ .Values.postgrest.dbPoolMaxIdleTime | quote }}
+            - name: PGRST_DB_PREPARED_STATEMENTS
+              value: "false"
+            - name: PGRST_DB_CHANNEL_ENABLED
+              value: "true"
+            - name: PGRST_DB_SCHEMAS
+              value: console
+            - name: PGRST_DB_ANON_ROLE
+              value: {{ .Values.auth.anonRole | quote }}
+            - name: PGRST_JWT_ROLE_CLAIM_KEY
+              value: {{ .Values.auth.jwtRoleClaim | quote }}
+            - name: PGRST_DB_PRE_REQUEST
+              value: {{ printf "%s.pre_request" .Values.sync.dbos.appSchema | quote }}
+            - name: PGRST_JWT_SECRET
+              {{- if .Values.postgrest.jwtSecret }}
+              value: {{ .Values.postgrest.jwtSecret | quote }}
+              {{- else }}
+              value: "@/etc/postgrest/jwks.json"
+              {{- end }}
+            - name: PGRST_DB_MAX_ROWS
+              value: {{ .Values.postgrest.maxRows | quote }}
+            - name: PGRST_DB_AGGREGATES_ENABLED
+              value: {{ .Values.postgrest.aggregatesEnabled | quote }}
+            - name: PGRST_OPENAPI_SERVER_PROXY_URI
+              value: {{ .Values.postgrest.proxyUri | quote }}
+            - name: PGRST_OPENAPI_SECURITY_ACTIVE
+              value: "true"
+            {{- if .Values.swaggerUi.enabled }}
+            - name: PGRST_OPENAPI_MODE
+              value: ignore-privileges
+            {{- end }}
+          volumeMounts:
+            {{- if not .Values.postgrest.jwtSecret }}
+            - name: jwks
+              mountPath: /etc/postgrest
+              readOnly: true
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ .Values.postgrest.preStopSleepSeconds }}
+          {{- with .Values.postgrest.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

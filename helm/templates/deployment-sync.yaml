@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sync
+spec:
+  replicas: {{ .Values.sync.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "data-proxy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sync
+  template:
+    metadata:
+      annotations:
+        checksum/s3-credentials: {{ include "data-proxy.s3CredentialsChecksum" . }}
+      labels:
+        {{- include "data-proxy.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sync
+    spec:
+      restartPolicy: Always
+      serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
+      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
+      initContainers:
+        {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
+        - name: wait-for-postgres
+          image: {{ .Values.jobs.image | quote }}
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          command: [sh, -c, 'until pg_isready --quiet; do sleep 2; done']
+          env:
+            - name: PGHOST
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "2"
+      containers:
+        - name: sync
+          image: "{{ .Values.sync.image }}"
+          {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "sync") | nindent 10 }}
+          imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.sync.resources | nindent 12 }}
+          command: ["python", "-m", "sync.dbos.main"]
+          env:
+            {{- include "data-proxy.appEnv" . | nindent 12 }}
+            - name: DUCKLAKE_CATALOG_URL
+              value: {{ printf "postgresql://%s:$(PASSWORD)@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+            - name: PROXY_ADMIN_URL
+              value: {{ printf "http://%s-proxy-admin:8081/reload" (include "data-proxy.fullname" .) | quote }}
+            - name: DBOS__VMID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: PROVISION_CRONJOB
+              value: {{ printf "%s-provision" (include "data-proxy.fullname" .) | quote }}
+          volumeMounts:
+            {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
+            {{ if .Values.sync.trigger.enabled }}
+            - name: sync-trigger
+              mountPath: /scripts
+              readOnly: true
+            {{ end }}
+      volumes:
+        {{- include "data-proxy.gcpVolume" . | nindent 8 }}
+        {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
+        {{ if .Values.sync.trigger.enabled }}
+        - name: sync-trigger
+          configMap:
+            name: {{ .Values.sync.trigger.configMap }}
+            defaultMode: 0555
+        {{ end }}

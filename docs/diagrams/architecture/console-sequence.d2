@@ -1,0 +1,48 @@
+shape: sequence_diagram
+
+u: Browser
+app: "Console server"
+idp: "Identity provider"
+api: PostgREST
+db: PostgreSQL
+w: "Sync worker"
+s3: SeaweedFS
+
+signin: "Sign in" {
+  u -> app: "open the console"
+  app -> u: "redirect to sign-in" {style.stroke-dash: 3}
+  u -> idp: "sign in"
+  idp -> u: "redirect with a code" {style.stroke-dash: 3}
+  u -> app: "GET /auth/callback"
+  app -> idp: "exchange code for tokens"
+  app -> app: "seal tokens in a cookie"
+}
+page: "Load a page" {
+  u -> app: "GET /sync"
+  app -> api: "views, with user token"
+  api -> db: "switch role, check rights"
+  db -> api: "rows" {style.stroke-dash: 3}
+  api -> app: "rows" {style.stroke-dash: 3}
+  app -> u: "page" {style.stroke-dash: 3}
+}
+run: "Start a run" {
+  u -> app: "press Start run"
+  app -> api: "POST /rpc/start_sync"
+  api -> db: "enqueue run_sync"
+  w -> db: "take the run"
+}
+edit: "Edit the configuration" {
+  u -> app: "save a change"
+  app -> api: "write a row"
+  api -> db: "check schemas, run triggers"
+  w -> db: "take queued workflows"
+}
+query: "Query tab" {
+  u -> app: "choose a table"
+  app -> api: "table_files (read_files)"
+  api -> app: "table is allowed" {style.stroke-dash: 3}
+  app -> db: "read file lists"
+  app -> app: "sign 5-minute links"
+  app -> u: "grant with signed links" {style.stroke-dash: 3}
+  u -> s3: "read Parquet (signed link)"
+}

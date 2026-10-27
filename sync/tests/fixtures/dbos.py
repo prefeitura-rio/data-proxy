@@ -1,0 +1,32 @@
+import pytest
+
+from sync.dbos import workflows
+from sync.models import (
+    PublicationResult,
+    SyncPlan,
+)
+from tests.fixtures.types import Calls
+
+
+@pytest.fixture
+def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
+    """Replace the publish workflow steps with recorders."""
+    recorded = Calls()
+
+    async def commit_ducklake_snapshot(
+        plan: SyncPlan, failed_paths: set[str], document: str
+    ) -> PublicationResult:
+        recorded.names.append("commit_ducklake_snapshot")
+        return PublicationResult(
+            plan=plan, published_tables=set(), snapshot_id=recorded.snapshot_id
+        )
+
+    async def apply_ducklake_maintenance(schema_name: str, document: str) -> int:
+        recorded.names.append("apply_ducklake_maintenance")
+        if recorded.maintenance_error is not None:
+            raise recorded.maintenance_error
+        return recorded.maintained_snapshot_id
+
+    for step in (commit_ducklake_snapshot, apply_ducklake_maintenance):
+        monkeypatch.setattr(workflows, step.__name__, step)
+    return recorded

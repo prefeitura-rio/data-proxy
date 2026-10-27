@@ -1,0 +1,48 @@
+shape: sequence_diagram
+
+c: Client
+gw: Istio gateway
+n: Proxy
+r: Redis
+api: PostgREST
+db: "PostgreSQL standby"
+s3: SeaweedFS
+src: Source
+
+c -> gw: "GET with Bearer JWT"
+gw -> gw: "check the JWT"
+bad: "alt: JWT not valid" {
+  gw -> c: "401" {style.stroke-dash: 3}
+}
+good: "else: JWT valid" {
+  gw -> n: "forward the request"
+  n -> r: "look up the cache key"
+  hit: "alt: cache hit" {
+    r -> n: "cached answer" {style.stroke-dash: 3}
+    n -> c: "response (HIT)" {style.stroke-dash: 3}
+  }
+  miss: "else: cache miss" {
+    n -> api: "forward the JWT"
+    api -> api: "switch to the role"
+    api -> db: "read-only transaction (PgDog)"
+    db -> db: "pre_request, checks"
+    refused: "alt: not allowed" {
+      db -> c: "403" {style.stroke-dash: 3}
+    }
+    empty: "else: no policy match" {
+      db -> api: "empty list" {style.stroke-dash: 3}
+    }
+    allowed: "else: allowed" {
+      db -> s3: "scan Parquet (RLS)"
+      s3 -> db: "rows" {style.stroke-dash: 3}
+      fallback: "opt: fallback" {
+        db -> src: "read other partitions"
+        src -> db: "rows" {style.stroke-dash: 3}
+      }
+      db -> api: "rows" {style.stroke-dash: 3}
+    }
+    api -> n: "rows, X-Source" {style.stroke-dash: 3}
+    n -> r: "store if not empty"
+    n -> c: "response (MISS)" {style.stroke-dash: 3}
+  }
+}

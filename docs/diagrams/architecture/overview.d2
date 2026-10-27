@@ -1,0 +1,59 @@
+direction: down
+
+clients: Clients {
+  label.near: outside-top-center
+  api: "API client"
+  browser: Browser
+}
+idp: Identity provider
+gateway: Istio gateway
+
+serving: Serving layer {
+  label.near: outside-top-center
+  proxy: "Proxy (OpenResty)"
+  redis: "Redis cache"
+  postgrest: PostgREST
+  pgdog: PgDog
+}
+
+pg: "PostgreSQL" {
+  label.near: outside-top-center
+  appdb: "Application database"
+  catalog: "ducklake database"
+}
+s3: "SeaweedFS (S3): Parquet files"
+
+sync: Sync layer {
+  label.near: outside-top-center
+  workers: "Sync workers (DBOS)"
+  duckdb: "DuckDB (ducklake extension)"
+  workers -> duckdb
+}
+source: Source
+
+console: Console layer {
+  label.near: outside-top-center
+  app: "Console server"
+  notebooks: "Notebook"
+}
+
+clients.api -> gateway
+clients.browser -> console
+gateway -> serving.proxy
+gateway -> idp: "signing keys (JWKS)"
+serving.proxy -> serving.redis
+serving.proxy -> serving.postgrest
+serving.postgrest -> idp: "signing keys (JWKS)"
+serving.postgrest -> serving.pgdog
+serving.pgdog -> pg.appdb: "reads to standbys, writes to primary"
+pg -> s3: "pg_duckdb reads Parquet"
+sync.workers -> pg.appdb: "DBOS state"
+sync.duckdb -> pg.catalog: "commits snapshots"
+sync.duckdb -> s3: "writes Parquet"
+sync.workers -> source
+sync.workers -> serving.redis: "flush"
+console.app -> serving.postgrest
+console.app -> idp: "sign in (OpenID Connect)"
+console.app -> pg.catalog: "file lists"
+console.app -> s3: "storage identities"
+console.notebooks -> s3: "signed links"

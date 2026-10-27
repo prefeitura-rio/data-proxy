@@ -4,20 +4,36 @@ __pycache__/
 *$py.class
 .env
 *.egg-info/
+node_modules/
 dist/
 build/
 .ruff_cache/
 credentials.json
 *.parquet
-!tests/files/*.parquet
+!sync/tests/files/*.parquet
 .devenv/
 .kube/
-.kubeconfig
+k3d/.kubeconfig
 gke_gcloud_auth_plugin_cache
 .pre-commit-config.yaml
 todo.txt
 .coverage*
 .testmondata*
-/nginx/build
-node_modules
 .githooks
+.hypothesis/
+
+# Vale synced style packages (installed by vale sync)
+.vale/styles/Microsoft/
+.vale/styles/alex/
+k3d/.tmp/
+
+# Lux project tree
+proxy/.lux/
+sync/.env.test
+packaged/
+site/
+mkdocs.nav.yml
+
+# luacov output of nu scripts/lux.nu coverage
+luacov.stats.out
+luacov.report.out

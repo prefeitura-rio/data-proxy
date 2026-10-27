@@ -1,0 +1,13 @@
+INHERIT: mkdocs.nav.yml
+site_name: Data Proxy
+docs_dir: docs
+theme:
+  name: readthedocs
+exclude_docs: |
+  .nav.json
+  *.d2
+validation:
+  links:
+    not_found: info
+    absolute_links: info
+    unrecognized_links: info

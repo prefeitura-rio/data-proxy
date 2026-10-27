@@ -1,0 +1,87 @@
+suite: Safety resources
+templates:
+  - cluster-cnpg.yaml
+  - pdbs.yaml
+  - scaledobjects.yaml
+  - rbac.yaml
+tests:
+  - it: renders the proxy disruption budget
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: pdbs.yaml
+
+  - it: renders the PostgREST disruption budget
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: pdbs.yaml
+
+  - it: renders the PgDog disruption budget
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-pgdog
+        template: pdbs.yaml
+
+  - it: renders PostgREST KEDA scaler
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-postgrest
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-postgrest
+        template: scaledobjects.yaml
+
+  - it: renders proxy KEDA scaler
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: data-proxy-proxy
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: scaledobjects.yaml
+
+  - it: limits the sync ServiceAccount to listing pods and to making Jobs from the CronJob templates
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list"]
+        template: rbac.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["cronjobs"]
+            verbs: ["get"]
+        template: rbac.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["create", "get", "watch"]
+        template: rbac.yaml
+      - lengthEqual:
+          path: rules
+          count: 3
+        template: rbac.yaml

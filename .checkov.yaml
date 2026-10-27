@@ -4,3 +4,8 @@ skip-path:
   - k6
   - helm/ci
   - helm/tests
+  - k3d
+
+# CKV_SECRET_6 fires on template functions and on the names of secrets in the chart. ripsecrets and Sonar scan for real secrets.
+skip-check:
+  - CKV_SECRET_6

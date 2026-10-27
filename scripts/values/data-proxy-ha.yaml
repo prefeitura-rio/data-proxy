@@ -1,8 +1,0 @@
-cnpg:
-  mode: per-schema
-  schemas:
-    pic:
-      instances: 2
-
-ha:
-  enabled: true

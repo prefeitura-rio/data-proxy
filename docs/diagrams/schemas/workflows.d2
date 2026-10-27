@@ -1,0 +1,68 @@
+direction: right
+
+dbos: "dbos schema (private to DBOS)" {
+  workflow_status: {
+    shape: sql_table
+    workflow_uuid: text {constraint: primary_key}
+    parent_workflow_id: text
+    name: text
+    status: text
+    queue_name: text
+    queue_partition_key: text
+    schedule_name: text
+    authenticated_user: text
+    executor_id: text
+    application_version: text
+    recovery_attempts: bigint
+    created_at: bigint
+    started_at_epoch_ms: bigint
+    completed_at: bigint
+  }
+  operation_outputs: {
+    shape: sql_table
+    workflow_uuid: text {constraint: [primary_key; foreign_key]}
+    function_id: integer {constraint: primary_key}
+    function_name: text
+    child_workflow_id: text
+    error: text
+    started_at_epoch_ms: bigint
+    completed_at_epoch_ms: bigint
+  }
+  streams: {
+    shape: sql_table
+    workflow_uuid: text {constraint: [primary_key; foreign_key]}
+    key: text {constraint: primary_key}
+    offset: integer {constraint: primary_key}
+    value: text
+    serialization: text
+  }
+  queues: {
+    shape: sql_table
+    queue_id: text {constraint: primary_key}
+    name: text
+    concurrency: integer
+    worker_concurrency: integer
+    rate_limit_max: integer
+    rate_limit_period_sec: "double precision"
+    partition_queue: boolean
+    partition_concurrency: integer
+    polling_interval_sec: "double precision"
+    updated_at: bigint
+  }
+  workflow_schedules: {
+    shape: sql_table
+    schedule_name: text {constraint: primary_key}
+    workflow_name: text
+    schedule: text
+    status: text
+    queue_name: text
+    cron_timezone: text
+    automatic_backfill: boolean
+    last_fired_at: text
+  }
+  workflow_status.parent_workflow_id -> workflow_status.workflow_uuid: "parent run" {style.stroke-dash: 3}
+  operation_outputs.workflow_uuid -> workflow_status.workflow_uuid
+  streams.workflow_uuid -> workflow_status.workflow_uuid
+  workflow_status.queue_name -> queues.name: "same name" {style.stroke-dash: 3}
+  workflow_status.schedule_name -> workflow_schedules.schedule_name {style.stroke-dash: 3}
+}

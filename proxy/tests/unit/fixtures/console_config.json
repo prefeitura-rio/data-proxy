@@ -1,0 +1,11 @@
+{
+  "revision": 7,
+  "schemas": {
+    "hr": {
+      "tables": [{ "name": "p.d.staff" }]
+    },
+    "sales": {
+      "tables": [{ "name": "p.d.events" }, { "name": "p.d.orders", "cache_ttl": 60 }]
+    }
+  }
+}

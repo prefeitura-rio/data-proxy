@@ -1,0 +1,110 @@
+"""Application settings loaded from environment variables."""
+
+from functools import cached_property
+from typing import TYPE_CHECKING, ClassVar, Literal
+
+from pydantic import Field, SecretStr, field_validator
+from pydantic.networks import RedisDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from redis.asyncio import Redis
+
+if TYPE_CHECKING:
+    from dbos._queue import QueueRateLimit
+
+
+class Settings(BaseSettings):
+    """Settings for the data-proxy DBOS sync service."""
+
+    model_config: ClassVar[SettingsConfigDict] = {
+        "extra": "ignore",
+        "env_file": ".env",
+    }
+
+    AUTH_USER_ROLE: str = "dp_api"
+    DBOS_APPLICATION_NAME: str = "data-proxy-sync"
+    DBOS_APPLICATION_VERSION: str = "0.1.0"
+    DBOS_APP_SCHEMA: str = "data_proxy"
+    DBOS_SYSTEM_DATABASE_URL: SecretStr = Field(default=...)
+    DBOS_SYSTEM_SCHEMA: str = "dbos"
+    DUCKLAKE_CATALOG_PATH: str = "ducklake"
+    DUCKLAKE_CATALOG_URL: SecretStr = Field(default=...)
+    DUCKLAKE_COMMIT_MAX_ATTEMPTS: int = Field(default=60, gt=0)
+    DUCKLAKE_COMMIT_RETRY_SECONDS: float = Field(default=1.0, gt=0)
+    DUCKLAKE_MAX_COMPACTED_FILES: int = Field(default=10, gt=0)
+    DUCKLAKE_REWRITE_DELETE_THRESHOLD: float = Field(default=0.95, gt=0, le=1)
+    DUCKLAKE_SNAPSHOT_EXPIRATION: str = "7d"
+    DUCKLAKE_TARGET_FILE_SIZE: str = "512MB"
+    DUCKDB_MEMORY_LIMIT: str = "1GB"
+    DUCKDB_TEMP_DIRECTORY: str = "/tmp/duckdb"  # ruff: ignore[hardcoded-temp-file]
+    DUCKDB_THREADS: int = Field(default=2, gt=0)
+    DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
+    DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
+    DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=2, gt=0)
+    LISTEN_QUEUES: str = ""
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    OTLP_LOGS_ENDPOINT: str = Field(default="")
+    OTLP_METRICS_ENDPOINT: str = Field(default="")
+    OTLP_TRACES_ENDPOINT: str = Field(default="")
+    PG_DATABASE_URL: SecretStr = Field(default=...)
+    PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
+    REDIS_READ: SecretStr = SecretStr("redis://localhost:6379/1")
+    REDIS_WRITE: SecretStr = SecretStr("redis://localhost:6379/0")
+    S3_ACCESS_KEY: str = Field(default=...)
+    S3_BUCKET: str = "test-bucket"
+    S3_IDENTITIES: bool = False
+    S3_ENDPOINT: str = "localhost:8333"
+    S3_REGION: str = "us-east-1"
+    S3_SCRATCH_PREFIX: str = "tmp"
+    S3_SECRET_KEY: SecretStr = Field(default=...)
+    S3_USE_SSL: bool = False
+    SYNC_QUEUE_CONCURRENCY: int = Field(default=1, gt=0)
+    SYNC_RUN_TIMEOUT_SECONDS: int = Field(default=3600, gt=0)
+    SYNC_SCHEDULE: str = "0 2 * * *"
+    SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
+    PROXY_ADMIN_URL: str | None = None
+    PROVISION_CRONJOB: str | None = None
+    PROVISION_TIMEOUT_SECONDS: int = Field(default=600, gt=0)
+
+    @cached_property
+    def dump_queue_limiter(self) -> QueueRateLimit | None:
+        """Return the dump queue rate limiter configuration, or None when disabled."""
+        if self.DUMP_QUEUE_RATE_LIMIT <= 0:
+            return None
+
+        return {"limit": self.DUMP_QUEUE_RATE_LIMIT, "period": 60.0}
+
+    @field_validator("DUCKLAKE_SNAPSHOT_EXPIRATION")
+    @classmethod
+    def validate_snapshot_expiration(cls, v: str) -> str:
+        """Require a positive integer followed by d (days)."""
+        if not v.endswith("d") or not v[:-1].isdigit() or int(v[:-1]) <= 0:
+            raise ValueError("DUCKLAKE_SNAPSHOT_EXPIRATION must be like '7d'")
+        return v
+
+    def redis(
+        self,
+        db: int | None = None,
+        *,
+        role: Literal["read", "write"] = "write",
+    ) -> Redis:
+        """Return a Redis client for the selected address."""
+        urls = {"read": self.REDIS_READ, "write": self.REDIS_WRITE}
+        url = RedisDsn(urls[role].get_secret_value())
+        db_text = (
+            url.path if url.path is not None and len(url.path) > 0 else "/0"
+        ).lstrip("/")
+        default_db = int(db_text) if len(db_text) > 0 else 0
+
+        return Redis(
+            host=url.host
+            if url.host is not None and len(url.host) > 0
+            else "localhost",
+            port=url.port if url.port is not None else 6379,
+            db=db if db is not None else default_db,
+            username=url.username,
+            password=url.password,
+            ssl=url.scheme == "rediss",
+        )
+
+
+settings = Settings()

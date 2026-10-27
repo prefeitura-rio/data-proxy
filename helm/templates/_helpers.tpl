@@ -1,101 +1,97 @@
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.defaultCpuTrigger",
-  "description": "Render the defaultCpuTrigger Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.defaultCpuTrigger" -}}
-- type: cpu
-  metricType: Utilization
-  metadata:
-    value: "90"
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.defaultResourceTriggers",
-  "description": "Render the defaultResourceTriggers Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.defaultResourceTriggers" -}}
 - type: cpu
   metricType: Utilization
   metadata:
-    value: "90"
+    value: "70"
 - type: memory
   metricType: Utilization
   metadata:
     value: "90"
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.haTriggers",
-  "description": "Render the haTriggers Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.haTriggers" -}}
-{{- $root := .root -}}
-{{- $schema := .schema -}}
-{{- $component := .component -}}
-{{- $override := dict -}}
-{{- range $entry := $root.Values.ha.schemas }}
-  {{- if eq $entry.name $schema }}
-    {{- $override = $entry -}}
-  {{- end }}
-{{- end }}
-{{- $triggers := dig $component "triggers" list $override }}
-{{- if gt (len $triggers) 0 }}
-{{ toYaml $triggers }}
-{{- else if eq $component "postgres" }}
-{{ include "data-proxy.defaultCpuTrigger" $root }}
-{{- else }}
-{{ include "data-proxy.defaultResourceTriggers" $root }}
-{{- end }}
+{{- /* The proxy scales on CPU only. Its pods use a fixed amount of memory, so a memory trigger holds two pods after a spike. */ -}}
+{{- define "data-proxy.cpuTrigger" -}}
+- type: cpu
+  metricType: Utilization
+  metadata:
+    value: "70"
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.name",
-  "description": "Render the name Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
+{{- define "data-proxy.cnpgMinInstances" -}}
+{{- max (.Values.cnpg.autoscaling.minReplicaCount | int) 2 -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgMaxInstances" -}}
+{{- max (.Values.cnpg.autoscaling.maxReplicaCount | int) (include "data-proxy.cnpgMinInstances" . | int) -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgCpuLimitCores" -}}
+{{- $cpu := .Values.cnpg.resources.limits.cpu | toString -}}
+{{- if hasSuffix "m" $cpu -}}
+{{- divf (trimSuffix "m" $cpu | float64) 1000.0 | ceil | int -}}
+{{- else -}}
+{{- $cpu | float64 | ceil | int -}}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgSessionsPerInstance" -}}
+{{- $threads := include "data-proxy.duckdbThreads" . | trimAll "\"" | float64 -}}
+{{- max 1 (divf (include "data-proxy.cnpgCpuLimitCores" . | float64) $threads | ceil | int) -}}
+{{- end }}
+
+{{- define "data-proxy.cnpgDefaultTriggers" -}}
+- type: postgresql
+  metricType: Value
+  authenticationRef:
+    name: {{ include "data-proxy.fullname" . }}-cluster-autoscaler-auth
+  metadata:
+    host: {{ printf "%s-r.%s.svc.cluster.local" (include "data-proxy.fullname" .) .Release.Namespace }}
+    port: "5432"
+    userName: {{ .Values.cnpg.db.user }}
+    dbName: {{ .Values.cnpg.db.name }}
+    sslmode: require
+    query: {{ printf "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename = '%s'" .Values.auth.servingRole | quote }}
+    targetQueryValue: {{ include "data-proxy.cnpgSessionsPerInstance" . | quote }}
+{{- end }}
+
+{{- define "data-proxy.triggers" -}}
+{{- if gt (len (.triggers | default list)) 0 -}}
+{{ toYaml .triggers }}
+{{- else -}}
+{{ .default }}
+{{- end -}}
+{{- end }}
+
+{{- /*
+One ScaledObject per workload whose count a scaler owns, so Helm never sets a count that KEDA also writes.
+*/ -}}
+{{- define "data-proxy.scaledObject" -}}
+{{- $root := .root -}}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+spec:
+  scaleTargetRef:
+    {{- toYaml .target | nindent 4 }}
+  minReplicaCount: {{ .min }}
+  maxReplicaCount: {{ .max }}
+  pollingInterval: {{ .block.pollingInterval }}
+  cooldownPeriod: {{ .block.cooldownPeriod }}
+  triggers:
+    {{- .triggers | nindent 4 }}
+{{- end }}
+
 {{- define "data-proxy.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.fullname",
-  "description": "Render the fullname Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -105,51 +101,18 @@
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.labels",
-  "description": "Render the labels Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.labels" -}}
-helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.selectorLabels",
-  "description": "Render the selectorLabels Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.serviceAccountName",
-  "description": "Render the serviceAccountName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- .Values.serviceAccount.name | default (include "data-proxy.fullname" .) }}
@@ -158,82 +121,48 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.dbSecretName",
-  "description": "Render the dbSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.dbSecretName" -}}
-{{- if .Values.cnpg.existingSecret }}
-{{- .Values.cnpg.existingSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-cnpg-dataproxy
-{{- end }}
+{{- include "data-proxy.fullname" . }}-cnpg-ops
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.authenticatorSecretName",
-  "description": "Render the authenticatorSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.authenticatorSecretName" -}}
-{{- if .Values.auth.existingSecret }}
-{{- .Values.auth.existingSecret }}
-{{- else }}
-{{- printf "%s-cnpg-authenticator" (include "data-proxy.fullname" .) }}
-{{- end }}
+{{- define "data-proxy.signerSecretName" -}}
+{{- printf "%s-signer" (include "data-proxy.fullname" .) }}
 {{- end }}
 
-{{- define "data-proxy.jobsSecretName" -}}
-{{- if .Values.jobs.existingSecret }}
-{{- .Values.jobs.existingSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-jobs
-{{- end }}
+{{- define "data-proxy.servingSecretName" -}}
+{{- printf "%s-cnpg-%s" (include "data-proxy.fullname" .) .Values.auth.servingRole }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.s3SecretName",
-  "description": "Render the s3SecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
+{{- define "data-proxy.duckdbSecretName" -}}
+{{- printf "%s-cnpg-duckdb" (include "data-proxy.fullname" .) }}
+{{- end }}
+
 {{- define "data-proxy.s3SecretName" -}}
-{{- if .Values.s3.existingSecret }}
-{{- .Values.s3.existingSecret }}
-{{- else }}
-{{- include "data-proxy.fullname" . }}-s3
-{{- end }}
+{{- .Values.s3.existingSecret | default (printf "%s-s3" (include "data-proxy.fullname" .)) }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.s3Endpoint",
-  "description": "Render the s3Endpoint Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
+{{- define "data-proxy.s3CredentialsChecksum" -}}
+{{- $s3Name := include "data-proxy.s3SecretName" . -}}
+{{- $s3 := lookup "v1" "Secret" .Release.Namespace $s3Name -}}
+{{- $accessKey := "data-proxy" -}}
+{{- $secretKey := "" -}}
+{{- if $s3 -}}
+{{- if hasKey $s3.data "S3_ACCESS_KEY" -}}
+{{- $accessKey = index $s3.data "S3_ACCESS_KEY" | b64dec -}}
+{{- end -}}
+{{- if hasKey $s3.data "S3_SECRET_KEY" -}}
+{{- $secretKey = index $s3.data "S3_SECRET_KEY" | b64dec -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.s3.accessKey -}}
+{{- $accessKey = .Values.s3.accessKey -}}
+{{- end -}}
+{{- if .Values.s3.secretKey -}}
+{{- $secretKey = .Values.s3.secretKey -}}
+{{- end -}}
+{{- printf "%s:%s" $accessKey $secretKey | sha256sum -}}
+{{- end }}
+
 {{- define "data-proxy.s3Endpoint" -}}
 {{- if .Values.s3.endpoint }}
 {{- .Values.s3.endpoint }}
@@ -248,367 +177,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisSecretName",
-  "description": "Render the redisSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisSecretName" -}}
-{{- required "redis.existingSecret is required" .Values.redis.existingSecret }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisConfigKey",
-  "description": "Render the redisConfigKey Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisConfigKey" -}}
-{{- .Values.redis.configKey | default "REDIS" }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisPasswordKey",
-  "description": "Render the redisPasswordKey Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisPasswordKey" -}}
-{{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisWriterAddress",
-  "description": "Render the redisWriterAddress Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisWriterAddress" -}}
-{{- $address := required "redis.writerAddress is required for KEDA Redis Streams triggers" .Values.redis.writerAddress }}
-{{- if contains ".svc." $address }}
-{{- $address }}
-{{- else }}
-{{- $parts := splitList ":" $address }}
-{{- printf "%s.%s.svc.cluster.local:%s" (index $parts 0) .Release.Namespace (index $parts 1) }}
-{{- end }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWritersSecretName",
-  "description": "Render the schemaWritersSecretName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersSecretName" -}}
-{{- if .Values.schemaWriters.existingSecret }}
-{{- .Values.schemaWriters.existingSecret }}
-{{- else if .Values.cnpg.existingSecret }}
-{{- .Values.cnpg.existingSecret }}-schema-writers
-{{- else }}
-{{- include "data-proxy.fullname" . }}-schema-writers
-{{- end }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.redisConfigEnv",
-  "description": "Render the redisConfigEnv Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.redisConfigEnv" -}}
-- name: REDIS
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.redisSecretName" . }}
-      key: {{ include "data-proxy.redisConfigKey" . }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.cnpgClusterName",
-  "description": "Render the cnpgClusterName Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.cnpgClusterName" -}}
-{{- $root := .root -}}
-{{- if eq $root.Values.cnpg.mode "shared" -}}
-{{- include "data-proxy.fullname" $root -}}
-{{- else -}}
-{{- printf "%s-%s" (include "data-proxy.fullname" $root) (.schema | replace "_" "-") -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresReadDsn",
-  "description": "Render the postgresReadDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.postgresReadDsn" -}}
-{{- $role := .Values.auth.authenticatorRole -}}
-{{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-pooler-ro:5432/{{ $db }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresWriteDsn",
-  "description": "Render the postgresWriteDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.postgresWriteDsn" -}}
-{{- $role := .Values.auth.authenticatorRole -}}
-{{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_AUTHENTICATOR_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.postgresDsn",
-  "description": "Render the postgresDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.postgresDsn" -}}
-{{ include "data-proxy.postgresWriteDsn" . }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.migrationDatabaseHost",
-  "description": "Render the migrationDatabaseHost Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.migrationDatabaseHost" -}}
-{{- include "data-proxy.fullname" . }}-rw
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.appPgDsn",
-  "description": "Render the appPgDsn Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.appPgDsn" -}}
-{{- $user := .Values.cnpg.db.user -}}
-{{- $db   := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgresql://{{ $user }}:$(POSTGRES_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.nginxConfigBody",
-  "description": "Render the nginxConfigBody Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.nginxConfigBody" -}}
-{{- $upstreams := .upstreams -}}
-{{- $root := .root -}}
-{{ $root.Files.Get "files/nginx.conf" | replace "__PGRST_MAP__" $upstreams }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.nginxProxyConfig",
-  "description": "Render the nginxProxyConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.nginxProxyConfig" -}}
-{{ include "data-proxy.nginxConfigBody" (dict "root" . "upstreams" (include "data-proxy.fallbackNginxUpstreams" .)) }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.webdisWriteConfig",
-  "description": "Render the webdisWriteConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.webdisWriteConfig" -}}
-{
-  "redis_host": "{{ .Values.redis.webdisHost }}",
-  "redis_port": {{ .Values.redis.webdisPort }},
-  "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.fallback.cacheRedisDb }},
-  "http_port": 7379,
-  "daemonize": false,
-  "logfile": "/dev/stdout"
-}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.webdisReadConfig",
-  "description": "Render the webdisReadConfig Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.webdisReadConfig" -}}
-{
-  "redis_host": "{{ .Values.redis.webdisReadHost | default .Values.redis.webdisHost }}",
-  "redis_port": {{ .Values.redis.webdisReadPort | default .Values.redis.webdisPort }},
-  "redis_auth": "__VALKEY_PASSWORD__",
-  "database": {{ .Values.fallback.cacheRedisDb }},
-  "http_port": 7380,
-  "daemonize": false,
-  "logfile": "/dev/stdout"
-}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.jwtRules",
-  "description": "Render the jwtRules Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.jwtRules" -}}
-jwtRules:
-  - issuer: {{ .Values.ingress.auth.issuer | quote }}
-    jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
-    {{- with .Values.ingress.auth.audience }}
-    audiences:
-      - {{ . | quote }}
-    {{- end }}
-    forwardOriginalToken: true
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.fallbackNginxUpstreams",
-  "description": "Render the fallbackNginxUpstreams Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.fallbackNginxUpstreams" -}}
-map $http_accept_profile $postgrest_read {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest-ro.{{ .Release.Namespace }}.svc.cluster.local:3000";
-  {{- if eq .Values.cnpg.mode "per-schema" }}
-  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-ro.{{ $.Release.Namespace }}.svc.cluster.local:3000";
-  {{- end }}
-  {{- end }}
-}
-map $http_accept_profile $postgrest_write {
-  default "http://{{ include "data-proxy.fullname" . }}-postgrest-rw.{{ .Release.Namespace }}.svc.cluster.local:3000";
-  {{- if eq .Values.cnpg.mode "per-schema" }}
-  {{- range $schema, $_ := (default .Values.cnpg.schemas .Values.syncConfig.schemas) }}
-  {{ $schema | quote }} "http://{{ include "data-proxy.cnpgClusterName" (dict "root" $ "schema" $schema) }}-postgrest-rw.{{ $.Release.Namespace }}.svc.cluster.local:3000";
-  {{- end }}
-  {{- end }}
-}
-
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.appEnv",
-  "description": "Render the appEnv Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.appEnv" -}}
-- name: POSTGRES_PASSWORD
+{{- define "data-proxy.pgEnv" -}}
+- name: PGHOST
+  value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+- name: PGPORT
+  value: "5432"
+- name: PGDATABASE
+  value: {{ .Values.cnpg.db.name | quote }}
+- name: PGUSER
+  value: {{ .Values.cnpg.db.user | quote }}
+- name: PGPASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "data-proxy.dbSecretName" . }}
-      key: POSTGRES_PASSWORD
-- name: PG_DSN
-  value: {{ include "data-proxy.appPgDsn" . | quote }}
-{{ include "data-proxy.redisConfigEnv" . }}
+      key: password
+{{- end }}
+
+{{- define "data-proxy.s3Env" -}}
 - name: S3_BUCKET
   value: {{ .Values.s3.bucket | quote }}
 - name: S3_ENDPOINT
@@ -625,190 +210,678 @@ map $http_accept_profile $postgrest_write {
     secretKeyRef:
       name: {{ include "data-proxy.s3SecretName" . }}
       key: S3_SECRET_KEY
-- name: SYNC_CONFIG_PATH
-  value: /config/sync.json
-- name: FALLBACK_CACHE_REDIS_DB
-  value: {{ .Values.fallback.cacheRedisDb | quote }}
-- name: DUMPER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.dumper.visibilityTimeoutMs | int64 | quote }}
-- name: DUMPER_BATCH_BYTES
-  value: {{ .Values.sync.dumper.batchMegaBytes | mul 1048576 | int64 | quote }}
-- name: DUMPER_BATCH_MAX_PARTITIONS
-  value: {{ .Values.sync.dumper.batchMaxPartitions | quote }}
-- name: DUMPER_SCRATCH_DIR
-  value: {{ .Values.sync.dumper.scratch.mountPath | quote }}
-- name: SEEDER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.seeder.visibilityTimeoutMs | int64 | quote }}
-- name: PUBLISHER_VISIBILITY_TIMEOUT_MS
-  value: {{ .Values.sync.publisher.visibilityTimeoutMs | int64 | quote }}
+{{- end }}
+
+{{- define "data-proxy.s3BootstrapEnv" -}}
+{{- include "data-proxy.s3Env" . }}
+- name: S3_BOOTSTRAP_TIMEOUT
+  value: {{ .Values.s3.bootstrap.timeout | quote }}
+- name: S3_BOOTSTRAP_RETRY
+  value: {{ .Values.s3.bootstrap.retry | quote }}
+{{- if .Values.gcp.existingSecret }}
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: {{ .Values.gcp.mountPath | quote }}
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.s3BootstrapVolume" -}}
+- name: s3-bootstrap
+  configMap:
+    name: {{ include "data-proxy.fullname" . }}-s3-bootstrap
+    defaultMode: 0555
+{{- end }}
+
+{{- define "data-proxy.s3WaitInitContainer" -}}
+- name: wait-for-s3
+  image: {{ .Values.jobs.image | quote }}
+  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
+  command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
+  env:
+    {{- include "data-proxy.s3BootstrapEnv" . | nindent 4 }}
+  volumeMounts:
+    - name: s3-bootstrap
+      mountPath: /s3-bootstrap
+      readOnly: true
+    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
+{{- end }}
+
+{{- define "data-proxy.backupS3WaitInitContainer" -}}
+- name: wait-for-backup-s3
+  image: {{ .Values.jobs.image | quote }}
+  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
+  command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
+  env:
+    - name: S3_BUCKET
+      value: {{ .Values.jobs.backup.s3.bucket | quote }}
+    - name: S3_ENDPOINT
+      value: {{ .Values.jobs.backup.s3.endpointURL | quote }}
+    - name: S3_USE_SSL
+      value: "true"
+    - name: S3_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
+          key: S3_ACCESS_KEY
+    - name: S3_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
+          key: S3_SECRET_KEY
+    - name: S3_BOOTSTRAP_TIMEOUT
+      value: {{ .Values.s3.bootstrap.timeout | quote }}
+    - name: S3_BOOTSTRAP_RETRY
+      value: {{ .Values.s3.bootstrap.retry | quote }}
+    {{- if .Values.gcp.existingSecret }}
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: {{ .Values.gcp.mountPath | quote }}
+    {{- end }}
+  volumeMounts:
+    - name: s3-bootstrap
+      mountPath: /s3-bootstrap
+      readOnly: true
+    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
+{{- end }}
+
+{{- define "data-proxy.redisSecretName" -}}
+{{- .Values.redis.existingSecret | default (printf "%s-redis" (include "data-proxy.fullname" .)) }}
+{{- end }}
+
+{{- define "data-proxy.redisPasswordKey" -}}
+{{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
+{{- end }}
+
+{{- define "data-proxy.redisConfigEnv" -}}
+- name: REDIS_READ
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ .Values.redis.readKey | default "REDIS_READ" }}
+- name: REDIS_WRITE
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ .Values.redis.writeKey | default "REDIS_WRITE" }}
+{{- end }}
+
+{{- /*
+PostgREST sends its queries to PgDog. Its listener needs a read-write session, which PgDog does not give,
+so libpq moves on to the second host, the primary.
+*/ -}}
+{{- define "data-proxy.postgrestDsn" -}}
+{{- $role := .Values.auth.servingRole -}}
+{{- $db := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.postgresWriteDsn" -}}
+{{- $role := .Values.auth.servingRole -}}
+{{- $db := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.appPgDsn" -}}
+{{- $user := .Values.cnpg.db.user -}}
+{{- $db   := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.fullname" . -}}
+postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.dbosClusterName" -}}
+{{- include "data-proxy.fullname" . -}}
+{{- end }}
+
+{{- define "data-proxy.dbosSystemDatabaseUrl" -}}
+{{- $user := .Values.cnpg.db.user -}}
+{{- $db   := .Values.cnpg.db.name -}}
+{{- $cluster := include "data-proxy.dbosClusterName" . -}}
+postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ $db }}
+{{- end }}
+
+{{- define "data-proxy.nginxConfigBody" -}}
+{{- $root := .root -}}
+{{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/config/nginx.conf") -}}
+{{- end }}
+
+{{- /* nginx resolves a name without the search domains of the pod, so a name with no dot gets the namespace of the release. */ -}}
+{{- define "data-proxy.redisHost" -}}
+{{- $host := required "redis.host is required: the proxy stores its answers in this Redis" .Values.redis.host -}}
+{{- if contains "." $host -}}
+{{- $host -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" $host .Release.Namespace -}}
+{{- end -}}
+{{- end }}
+
+{{- define "data-proxy.proxyEnv" -}}
+{{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
+{{- $address := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
+- name: PROXY_CACHE_TTL
+  value: {{ toString .Values.proxy.cacheTtl | quote }}
+- name: PROXY_MAX_BODY
+  value: {{ toString .Values.proxy.maxCacheBodyBytes | quote }}
+- name: PROXY_REDIS_HOST
+  value: {{ include "data-proxy.redisHost" . | quote }}
+- name: PROXY_REDIS_PORT
+  value: {{ toString .Values.redis.port | quote }}
+- name: PROXY_REDIS_DATABASE
+  value: {{ toString .Values.proxy.cacheRedisDb | quote }}
+- name: PROXY_REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.redisSecretName" . }}
+      key: {{ include "data-proxy.redisPasswordKey" . }}
+- name: PROXY_POSTGREST
+  value: {{ $address | quote }}
+- name: PROXY_MAX_INFLIGHT
+  value: {{ toString .Values.proxy.maxInflight | quote }}
+- name: PROXY_CONFIG_URL
+  value: {{ printf "%s/rpc/config" $address | quote }}
+- name: PROXY_CONFIG_REFRESH_SECONDS
+  value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
+{{- end }}
+
+{{- define "data-proxy.nginxProxyConfig" -}}
+{{ include "data-proxy.nginxConfigBody" (dict "root" .) }}
+{{- end }}
+
+{{- define "data-proxy.jwtRules" -}}
+jwtRules:
+  - issuer: {{ .Values.ingress.auth.issuer | quote }}
+    jwksUri: {{ .Values.ingress.auth.jwksUri | quote }}
+    {{- with .Values.ingress.auth.audience }}
+    audiences:
+      - {{ . | quote }}
+    {{- end }}
+    forwardOriginalToken: true
+{{- end }}
+
+{{- define "data-proxy.postgresHome" -}}
+/var/lib/postgresql/data
+{{- end }}
+
+{{- define "data-proxy.cnpgPodPatch" -}}
+{{- $secretsVolume := dict
+  "name" "duckdb"
+  "persistentVolumeClaim" (dict "claimName" (printf "%s-duckdb" (include "data-proxy.fullname" .)))
+-}}
+{{- $secretsMount := dict
+  "name" "duckdb"
+  "mountPath" (printf "%s/.duckdb/stored_secrets" (include "data-proxy.postgresHome" .))
+  "subPath" "duckdb/secrets"
+  "readOnly" false
+-}}
+{{- $prepareSecrets := dict
+  "name" "prepare-duckdb-secrets"
+  "image" .Values.cnpg.image
+  "imagePullPolicy" "IfNotPresent"
+  "command" (list "install" "-d" "-m" "0700" "/shared/duckdb" "/shared/duckdb/secrets")
+  "volumeMounts" (list (dict "name" "duckdb" "mountPath" "/shared"))
+-}}
+{{- $tmpfsVolume := dict
+  "name" "duckdb-tmpfs"
+  "emptyDir" (dict "medium" "Memory")
+-}}
+{{- $tmpfsMount := dict
+  "name" "duckdb-tmpfs"
+  "mountPath" "/var/lib/postgresql/data/pg_duckdb/temp"
+  "readOnly" false
+-}}
+{{- $postStart := dict
+  "postStart" (dict
+    "exec" (dict
+      "command" (list "sh" "-c" "psql -U postgres -d data-proxy -tAc \"SELECT duckdb.raw_query('LOAD ducklake; LOAD postgres')\" > /dev/null 2>&1 || true")
+    )
+  )
+-}}
+{{- $s3Volume := include "data-proxy.s3BootstrapVolume" . | fromYamlArray | first -}}
+{{- $waitForS3 := include "data-proxy.s3WaitInitContainer" . | fromYamlArray | first -}}
+{{- $operations := list
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $secretsVolume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $s3Volume)
+  (dict "op" "add" "path" "/spec/volumes/-" "value" $tmpfsVolume)
+  (dict "op" "add" "path" "/spec/initContainers/-" "value" $waitForS3)
+  (dict "op" "add" "path" "/spec/initContainers/-" "value" $prepareSecrets)
+  (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $secretsMount)
+  (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" $tmpfsMount)
+  (dict "op" "add" "path" "/spec/containers/0/lifecycle" "value" $postStart)
+-}}
+{{- if .Values.gcp.existingSecret }}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/volumes/-" "value" (include "data-proxy.gcpVolume" . | fromYamlArray | first)) -}}
+{{- $operations = append $operations (dict "op" "add" "path" "/spec/containers/0/volumeMounts/-" "value" (include "data-proxy.gcpVolumeMount" . | fromYamlArray | first)) -}}
+{{- end }}
+{{- $operations | toJson -}}
+{{- end }}
+
+{{- define "data-proxy.appEnv" -}}
+- name: PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "data-proxy.dbSecretName" . }}
+      key: password
+- name: PG_DATABASE_URL
+  value: {{ include "data-proxy.appPgDsn" . | quote }}
+{{ include "data-proxy.redisConfigEnv" . }}
+{{ include "data-proxy.s3Env" . }}
+- name: S3_SCRATCH_PREFIX
+  value: {{ .Values.s3.scratchPrefix | quote }}
+{{- if and .Values.console.enabled .Values.console.storage.perSchemaIdentities }}
+- name: S3_IDENTITIES
+  value: "true"
+{{- end }}
+- name: DUCKLAKE_CATALOG_PATH
+  value: {{ .Values.ducklake.catalogPath | quote }}
+- name: DUCKLAKE_TARGET_FILE_SIZE
+  value: {{ .Values.ducklake.targetFileSize | quote }}
+- name: DUCKLAKE_SNAPSHOT_EXPIRATION
+  value: {{ .Values.ducklake.snapshotExpiration | quote }}
+- name: DUCKLAKE_MAX_COMPACTED_FILES
+  value: {{ .Values.ducklake.maxCompactedFiles | quote }}
+- name: DUCKLAKE_REWRITE_DELETE_THRESHOLD
+  value: {{ .Values.ducklake.rewriteDeleteThreshold | quote }}
+- name: PROXY_CACHE_REDIS_DB
+  value: {{ .Values.proxy.cacheRedisDb | quote }}
+- name: DUMP_QUEUE_MAX_ATTEMPTS
+  value: {{ .Values.sync.dumpStepMaxAttempts | quote }}
+- name: DUMP_QUEUE_RATE_LIMIT
+  value: {{ .Values.sync.dumpQueueRateLimit | quote }}
+- name: SYNC_STEP_MAX_ATTEMPTS
+  value: {{ .Values.sync.stepMaxAttempts | quote }}
+- name: SYNC_RUN_TIMEOUT_SECONDS
+  value: {{ .Values.sync.workflowTimeoutSeconds | quote }}
+- name: DBOS_SYSTEM_DATABASE_URL
+  value: {{ include "data-proxy.dbosSystemDatabaseUrl" . | quote }}
+- name: DBOS_APPLICATION_NAME
+  value: {{ .Values.sync.dbos.applicationName | quote }}
+- name: DBOS_APPLICATION_VERSION
+  value: {{ .Values.sync.dbos.applicationVersion | quote }}
+- name: DBOS_SYSTEM_SCHEMA
+  value: {{ .Values.sync.dbos.systemSchema | quote }}
+- name: DBOS_APP_SCHEMA
+  value: {{ .Values.sync.dbos.appSchema | quote }}
+- name: OTLP_LOGS_ENDPOINT
+  value: {{ .Values.observability.otlpLogsEndpoint | quote }}
+- name: OTLP_TRACES_ENDPOINT
+  value: {{ .Values.observability.otlpTracesEndpoint | quote }}
+- name: OTLP_METRICS_ENDPOINT
+  value: {{ .Values.observability.otlpMetricsEndpoint | quote }}
+- name: SYNC_SCHEDULE
+  value: {{ .Values.sync.schedule | quote }}
+- name: DUMP_QUEUE_WORKER_CONCURRENCY
+  value: {{ .Values.sync.dumpQueueWorkerConcurrency | quote }}
+- name: DUCKDB_MEMORY_LIMIT
+  value: {{ .Values.sync.duckdb.memoryLimit | quote }}
+- name: DUCKDB_THREADS
+  value: {{ .Values.sync.duckdb.threads | quote }}
+- name: SYNC_QUEUE_CONCURRENCY
+  value: {{ .Values.sync.queueConcurrency | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
   value: {{ .Values.auth.userRole | quote }}
-- name: AUTH_AUTHENTICATOR_ROLE
-  value: {{ .Values.auth.authenticatorRole | quote }}
-- name: SCHEMA_WRITERS
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.schemaWritersSecretName" . }}
-      key: writers.json
-- name: PUSHGATEWAY_URL
-  value: {{ .Values.pushgateway.url | default (printf "http://%s-pushgateway.%s.svc.cluster.local:9091" .Release.Name .Release.Namespace) | quote }}
+- name: AUTH_POSTGREST_ROLE
+  value: {{ .Values.auth.servingRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
-- name: POSTGREST_RO_DEPLOYMENT_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-ro" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RW_DEPLOYMENT_TEMPLATE
-  value: {{ if eq .Values.cnpg.mode "shared" }}{{ printf "%s-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ else }}{{ printf "%s-{}-postgrest-rw" (include "data-proxy.fullname" .) | quote }}{{ end }}
-- name: POSTGREST_RO_ROLLOUT_TIMEOUT_SECONDS
-  value: "300"
-- name: REPLICATION_WAIT_TIMEOUT_SECONDS
-  value: "300"
-- name: REPLICATION_POLL_INTERVAL_SECONDS
-  value: "1"
 {{- if .Values.gcp.existingSecret }}
 - name: GOOGLE_APPLICATION_CREDENTIALS
-  value: /gcp/key.json
+  value: {{ .Values.gcp.mountPath | quote }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.gcpVolume",
-  "description": "Render the gcpVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.gcpVolume" -}}
 {{- if .Values.gcp.existingSecret }}
-- name: gcp-key
+- name: gcp
   secret:
     secretName: {{ .Values.gcp.existingSecret }}
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.gcpVolumeMount",
-  "description": "Render the gcpVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.gcpVolumeMount" -}}
 {{- if .Values.gcp.existingSecret }}
-- name: gcp-key
-  mountPath: /gcp
+- name: gcp
+  mountPath: {{ dir .Values.gcp.mountPath }}
   readOnly: true
 {{- end }}
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.syncConfigVolume",
-  "description": "Render the syncConfigVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.syncConfigVolume" -}}
 - name: sync-config
   configMap:
     name: {{ include "data-proxy.fullname" . }}-sync
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.syncConfigVolumeMount",
-  "description": "Render the syncConfigVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
   readOnly: true
 {{- end }}
 
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWritersVolume",
-  "description": "Render the schemaWritersVolume Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersVolume" -}}
-- name: schema-writers
-  secret:
-    secretName: {{ include "data-proxy.schemaWritersSecretName" . }}
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.schemaWritersVolumeMount",
-  "description": "Render the schemaWritersVolumeMount Helm helper.",
-  "inputs": {
-    "context": "Helm template context."
-  },
-  "returns": "Helper-rendered Kubernetes or configuration content."
-}
-*/}}
-{{- define "data-proxy.schemaWritersVolumeMount" -}}
-- name: schema-writers
-  mountPath: /config/schema-writers
-  readOnly: true
-{{- end }}
-
-{{/*
-{
-  "kind": "macro",
-  "name": "data-proxy.duckdbThreads",
-  "description": "Compute duckdb.threads proportional to the CNPG memory limit: floor(GiB / 2), clamped to 1..4.",
-  "inputs": {
-    "context": "Helm template context with cnpg.resources.limits.memory."
-  },
-  "returns": "Thread count as a quoted string for the postgresql.parameters map."
-}
-*/}}
 {{- define "data-proxy.duckdbThreads" -}}
-{{- $mem := .Values.cnpg.resources.limits.memory | toString -}}
-{{- $bytes := 0 -}}
-{{- if (regexMatch "^[0-9]+(\\.[0-9]+)?(Gi|Mi|Ti|Ki)?$" $mem) -}}
-  {{- $num := regexFind "^[0-9]+(\\.[0-9]+)?" $mem | float64 -}}
-  {{- $unit := regexFind "(Gi|Mi|Ti|Ki)$" $mem -}}
-  {{- $mult := dict "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 -}}
-  {{- $factor := 1.0 -}}
-  {{- if $unit -}}
-    {{- $factor = index $mult $unit -}}
-  {{- end -}}
-  {{- $bytes = mulf $num $factor -}}
-{{- end -}}
-{{- $gib := divf $bytes 1073741824.0 -}}
-{{- $threads := floor (divf $gib 2.0) | int -}}
+{{- $threads := .Values.cnpg.duckdb.threads | default 2 | int -}}
 {{- if lt $threads 1 -}}
   {{- $threads = 1 -}}
 {{- end -}}
-{{- if gt $threads 4 -}}
-  {{- $threads = 4 -}}
-{{- end -}}
 {{- $threads | quote -}}
 {{- end }}
+
+{{- define "data-proxy.cnpgParameters" -}}
+{{- $defaults := dict
+  "shared_buffers" "1GB"
+  "work_mem" "64MB"
+  "maintenance_work_mem" "512MB"
+  "effective_cache_size" "5GB"
+  "max_parallel_workers_per_gather" "4"
+  "duckdb.max_temp_directory_size" "2GB"
+  "random_page_cost" "1.1"
+  "effective_io_concurrency" "200"
+  "max_connections" "200"
+  "max_wal_size" "4GB"
+  "max_slot_wal_keep_size" "8GB"
+  "min_wal_size" "1GB"
+  "wal_compression" "on"
+  "checkpoint_timeout" "15min"
+  "checkpoint_completion_target" "0.9"
+-}}
+{{- if .Values.cnpg.postgresql.synchronous -}}
+{{- $_ := set $defaults "synchronous_commit" "local" -}}
+{{- end -}}
+{{- $params := mergeOverwrite $defaults (default (dict) .Values.cnpg.postgresql.parameters) -}}
+{{- toYaml $params -}}
+{{- end }}
+
+{{- /* The keys of the SQL ConfigMap are flat (dir_file.sql); items give them back their directory. */ -}}
+{{- define "data-proxy.sqlTemplateItems" -}}
+{{- range $path, $_ := .Files.Glob "files/templates/*.sql" }}
+- key: {{ base $path }}
+  path: {{ base $path }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/templates/**/*.sql" }}
+- key: {{ base (dir $path) }}_{{ base $path }}
+  path: {{ base (dir $path) }}/{{ base $path }}
+{{- end }}
+{{- end }}
+
+{{- define "data-proxy.configureDbPodSpec" -}}
+restartPolicy: OnFailure
+automountServiceAccountToken: false
+{{- include "data-proxy.podSecurity" $ | nindent 0 }}
+initContainers:
+  {{- include "data-proxy.s3WaitInitContainer" . | nindent 2 }}
+containers:
+  - name: configure-db
+    image: {{ .Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 4 }}
+    imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/configure-db.nu]
+    workingDir: /scripts
+    env:
+      - name: PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" . }}
+            key: password
+      - name: PG_DATABASE_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+      {{- include "data-proxy.pgEnv" . | nindent 6 }}
+      - name: DUCKLAKE_ADMIN_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+      - name: DUCKDB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.duckdbSecretName" . }}
+            key: password
+      - name: SERVING_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.servingSecretName" . }}
+            key: password
+      - name: SIGNER_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.signerSecretName" . }}
+            key: password
+      - name: AUTH_SIGNER_ROLE
+        value: {{ .Values.auth.signerRole | quote }}
+      - name: AUTH_ANON_ROLE
+        value: {{ .Values.auth.anonRole | quote }}
+      - name: AUTH_USER_ROLE
+        value: {{ .Values.auth.userRole | quote }}
+      - name: AUTH_SERVING_ROLE
+        value: {{ .Values.auth.servingRole | quote }}
+      - name: DBOS_APPLICATION_NAME
+        value: {{ .Values.sync.dbos.applicationName | quote }}
+      {{- include "data-proxy.s3Env" . | nindent 6 }}
+      - name: SQL_TEMPLATE_DIR
+        value: /templates
+    volumeMounts:
+      - name: configure-db-script
+        mountPath: /scripts
+        readOnly: true
+      - name: configure-db-sql
+        mountPath: /templates
+        readOnly: true
+volumes:
+  {{- include "data-proxy.s3BootstrapVolume" . | nindent 2 }}
+  {{- include "data-proxy.gcpVolume" . | nindent 2 }}
+  - name: configure-db-script
+    configMap:
+      name: {{ include "data-proxy.fullname" . }}-configure-db-script
+      defaultMode: 0555
+  - name: configure-db-sql
+    configMap:
+      name: {{ include "data-proxy.fullname" . }}-configure-db-sql
+      defaultMode: 0444
+      items:
+        {{- include "data-proxy.sqlTemplateItems" . | nindent 8 }}
+{{- end }}
+
+{{- define "data-proxy.provisionPodSpec" -}}
+{{- $root := .root -}}
+restartPolicy: OnFailure
+automountServiceAccountToken: false
+{{- include "data-proxy.podSecurity" $root | nindent 0 }}
+initContainers:
+  - name: wait-for-config
+    image: {{ $root.Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
+    imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/wait-for-relation.nu]
+    workingDir: /scripts
+    env:
+      - name: RELATION
+        value: console.schemas
+      {{- include "data-proxy.pgEnv" $root | nindent 6 }}
+    volumeMounts:
+      - name: scripts
+        mountPath: /scripts
+        readOnly: true
+containers:
+  - name: provision
+    image: {{ $root.Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
+    imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/provision.nu]
+    workingDir: /scripts
+    env:
+      - name: PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" $root }}
+            key: password
+      - name: PG_DATABASE_URL
+        value: {{ include "data-proxy.appPgDsn" $root | quote }}
+      - name: AUTH_USER_ROLE
+        value: {{ $root.Values.auth.userRole | quote }}
+      - name: AUTH_SERVING_ROLE
+        value: {{ $root.Values.auth.servingRole | quote }}
+      - name: AUTH_SIGNER_ROLE
+        value: {{ $root.Values.auth.signerRole | quote }}
+      - name: PGUSER
+        value: {{ $root.Values.cnpg.db.user | quote }}
+      - name: DBOS_APP_SCHEMA
+        value: {{ $root.Values.sync.dbos.appSchema | quote }}
+      - name: AUTH_ANON_ROLE
+        value: {{ $root.Values.auth.anonRole | quote }}
+      - name: PGPASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.dbSecretName" $root }}
+            key: password
+      - name: DUCKLAKE_ADMIN_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) | quote }}
+      - name: DUCKLAKE_CATALOG_PATH
+        value: {{ $root.Values.ducklake.catalogPath | quote }}
+      - name: S3_BUCKET
+        value: {{ $root.Values.s3.bucket | quote }}
+      - name: S3_ENDPOINT
+        value: {{ include "data-proxy.s3Endpoint" $root | quote }}
+      - name: S3_USE_SSL
+        value: {{ $root.Values.s3.useSsl | quote }}
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.s3SecretName" $root }}
+            key: S3_ACCESS_KEY
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "data-proxy.s3SecretName" $root }}
+            key: S3_SECRET_KEY
+      {{- if $root.Values.gcp.existingSecret }}
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: {{ $root.Values.gcp.mountPath | quote }}
+      {{- end }}
+      - name: SYNC_CONFIG_PATH
+        value: /config/sync.json
+      {{- if .all }}
+      - name: PROVISION_ALL
+        value: "true"
+      {{- end }}
+      - name: SQL_TEMPLATE_DIR
+        value: /templates
+    volumeMounts:
+      - name: scripts
+        mountPath: /scripts
+        readOnly: true
+      - name: templates
+        mountPath: /templates
+        readOnly: true
+      {{- include "data-proxy.syncConfigVolumeMount" $root | nindent 6 }}
+      {{- include "data-proxy.gcpVolumeMount" $root | nindent 6 }}
+volumes:
+  - name: scripts
+    configMap:
+      name: {{ include "data-proxy.fullname" $root }}-configure-db-script
+      defaultMode: 0555
+  - name: templates
+    configMap:
+      name: {{ include "data-proxy.fullname" $root }}-configure-db-sql
+      items:
+        {{- include "data-proxy.sqlTemplateItems" $root | nindent 8 }}
+  {{- include "data-proxy.syncConfigVolume" $root | nindent 2 }}
+  {{- include "data-proxy.gcpVolume" $root | nindent 2 }}
+{{- end }}
+
+{{- define "data-proxy.revisionJob" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "data-proxy.fullname" .root }}-{{ .name }}-{{ .root.Release.Revision }}
+  namespace: {{ .root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "data-proxy.selectorLabels" .root | nindent 8 }}
+        app.kubernetes.io/component: {{ .name }}
+    spec:
+      {{- .podSpec | nindent 6 }}
+{{- end }}
+
+{{- define "data-proxy.templateCronJob" -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "data-proxy.fullname" .root }}-{{ .name }}
+  namespace: {{ .root.Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}-template
+spec:
+  suspend: true
+  schedule: "0 0 1 1 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .deadline }}
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            {{- include "data-proxy.selectorLabels" .root | nindent 12 }}
+            app.kubernetes.io/component: {{ .name }}-template
+        spec:
+          {{- .podSpec | nindent 10 }}
+{{- end }}
+
+{{- define "data-proxy.consoleSecretName" -}}
+{{- default (printf "%s-console" (include "data-proxy.fullname" .)) .Values.console.oidc.existingSecret }}
+{{- end }}
+
+{{- define "data-proxy.consoleOrigin" -}}
+{{- printf "%s://%s" .Values.ingress.scheme (required "ingress.host is required when the console is enabled" .Values.ingress.host) }}
+{{- end }}
+
+{{- define "data-proxy.notebooksOrigin" -}}
+{{- printf "%s://%s" .Values.ingress.scheme .Values.notebooks.host }}
+{{- end }}
+
+{{- /* The Content Security Policy of the notebook origin. notebooks/csp.ts builds the same string for the browser test. */ -}}
+{{- define "data-proxy.notebooksCsp" -}}
+{{- printf "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: %s; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors %s" .Values.console.storage.endpoint (include "data-proxy.consoleOrigin" .) }}
+{{- end }}
+
+{{- /* The pod settings. They are the same for every pod. */ -}}
+{{- define "data-proxy.podSecurity" -}}
+securityContext:
+  {{- toYaml .Values.securityContext.pod | nindent 2 }}
+{{- end }}
+
+{{- /* The container settings of a component: the defaults, with the settings of the component on top. */ -}}
+{{- define "data-proxy.containerSecurity" -}}
+{{- $defaults := .root.Values.securityContext -}}
+{{- $own := dig "components" .component (dict) $defaults -}}
+securityContext:
+  {{- mergeOverwrite (deepCopy $defaults.container) $own | toYaml | nindent 2 }}
+{{- end }}
+
+{{- /* A network peer: the pods of one component of this release. */ -}}
+{{- define "data-proxy.podPeer" -}}
+podSelector:
+  matchLabels:
+    {{- include "data-proxy.selectorLabels" .root | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{- /* A network peer: every pod of one namespace. */ -}}
+{{- define "data-proxy.namespacePeer" -}}
+namespaceSelector:
+  matchLabels:
+    kubernetes.io/metadata.name: {{ . }}
+{{- end }}
+
+{{- /* The from list of a rule that serves requests: the peers, then the extra peers of the values. */ -}}
+{{- define "data-proxy.allowFrom" -}}
+from:
+  {{- concat .peers .root.Values.networkPolicy.extraPeers | toYaml | nindent 2 }}
+{{- end }}
+

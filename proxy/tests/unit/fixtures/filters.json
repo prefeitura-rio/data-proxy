@@ -1,0 +1,982 @@
+[
+  {
+    "name": "parses comparison filters",
+    "query": "id=eq.42",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "42"
+      }
+    }
+  },
+  {
+    "name": "parses nested logical filters",
+    "query": "or=(and(id.gte.10,id.lt.20),name.ilike.*rio*)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "or",
+        "items": [
+          {
+            "kind": "group",
+            "operator": "and",
+            "items": [
+              {
+                "kind": "comparison",
+                "column": "id",
+                "operator": "gte",
+                "negated": false,
+                "value": "10"
+              },
+              {
+                "kind": "comparison",
+                "column": "id",
+                "operator": "lt",
+                "negated": false,
+                "value": "20"
+              }
+            ]
+          },
+          {
+            "kind": "comparison",
+            "column": "name",
+            "operator": "ilike",
+            "negated": false,
+            "value": "*rio*"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses quoted in-list values",
+    "query": "name=in.(\"Rio, RJ\",\"O\\\"Connor\",plain)",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "in",
+        "negated": false,
+        "value": [
+          "Rio, RJ",
+          "O\"Connor",
+          "plain"
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses is values and negated operators",
+    "query": "deleted=is.not_null&name=not.ilike.*test*",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "and",
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "deleted",
+            "operator": "is",
+            "negated": false,
+            "value": "not_null"
+          },
+          {
+            "kind": "comparison",
+            "column": "name",
+            "operator": "ilike",
+            "negated": true,
+            "value": "*test*"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses negated logical groups",
+    "query": "not.and=(id.gte.1,id.lte.4)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "and",
+        "negated": true,
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "gte",
+            "negated": false,
+            "value": "1"
+          },
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "lte",
+            "negated": false,
+            "value": "4"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses quoted scalar values",
+    "query": "name=eq.\"Rio, RJ\"",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "eq",
+        "negated": false,
+        "value": "Rio, RJ"
+      }
+    }
+  },
+  {
+    "name": "pushes the columns and leaves ordering and pagination to PostgREST by default",
+    "query": "id=gte.10&order=id.desc&limit=25&offset=5&select=id,name",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "gte",
+        "negated": false,
+        "value": "10"
+      },
+      "columns": [
+        "id",
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "decodes URL values once",
+    "query": "name=eq.Rio%20de%20Janeiro",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "eq",
+        "negated": false,
+        "value": "Rio de Janeiro"
+      }
+    }
+  },
+  {
+    "name": "keeps supported filters when independent filters are unsupported",
+    "query": "id=eq.42&name=fts.search&select=id,name",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "42"
+      }
+    }
+  },
+  {
+    "name": "omits a logical group with an unsupported child",
+    "query": "id=eq.42&or=(name.eq.rio,description.fts.city)",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "42"
+      }
+    }
+  },
+  {
+    "name": "omits a malformed equality",
+    "query": "id=eq",
+    "expected": null
+  },
+  {
+    "name": "omits a malformed in list",
+    "query": "id=in.(one,,two)",
+    "expected": null
+  },
+  {
+    "name": "omits a scalar in an in list",
+    "query": "id=in.one",
+    "expected": null
+  },
+  {
+    "name": "omits a parenthesized scalar",
+    "query": "id=eq.(one)",
+    "expected": null
+  },
+  {
+    "name": "omits every filter when a percent escape is not valid",
+    "query": "id=eq.%ZZ",
+    "expected": null
+  },
+  {
+    "name": "omits a malformed logical group",
+    "query": "and=id.eq.1",
+    "expected": null
+  },
+  {
+    "name": "omits an in list with a trailing comma",
+    "query": "id=in.(1,2,)",
+    "expected": null
+  },
+  {
+    "name": "omits an empty in list",
+    "query": "id=in.()",
+    "expected": null
+  },
+  {
+    "name": "omits an empty logical group",
+    "query": "and=()",
+    "expected": null
+  },
+  {
+    "name": "omits a value with an unterminated quote",
+    "query": "name=eq.\"abc",
+    "expected": null
+  },
+  {
+    "name": "omits an empty filter value",
+    "query": "id=",
+    "expected": null
+  },
+  {
+    "name": "omits an empty logical group value",
+    "query": "or=",
+    "expected": null
+  },
+  {
+    "name": "omits an uppercase operator",
+    "query": "id=EQ.1",
+    "expected": null
+  },
+  {
+    "name": "keeps a filter when other parameters are not filters",
+    "query": "id=eq.1&&junk&id%2Dbad=eq.2",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "omits invalid column names",
+    "query": "bad-key=eq.1&id=eq.2",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "2"
+      }
+    }
+  },
+  {
+    "name": "parses a neq comparison",
+    "query": "id=neq.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "neq",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a gt comparison",
+    "query": "id=gt.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "gt",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a gte comparison",
+    "query": "id=gte.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "gte",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a lt comparison",
+    "query": "id=lt.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "lt",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a lte comparison",
+    "query": "id=lte.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "lte",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a like comparison",
+    "query": "id=like.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "like",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses an ilike comparison",
+    "query": "id=ilike.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "ilike",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses is null",
+    "query": "active=is.null",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "active",
+        "operator": "is",
+        "negated": false,
+        "value": "null"
+      }
+    }
+  },
+  {
+    "name": "parses is true",
+    "query": "active=is.true",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "active",
+        "operator": "is",
+        "negated": false,
+        "value": "true"
+      }
+    }
+  },
+  {
+    "name": "parses is false",
+    "query": "active=is.false",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "active",
+        "operator": "is",
+        "negated": false,
+        "value": "false"
+      }
+    }
+  },
+  {
+    "name": "parses is unknown",
+    "query": "active=is.unknown",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "active",
+        "operator": "is",
+        "negated": false,
+        "value": "unknown"
+      }
+    }
+  },
+  {
+    "name": "parses is not null",
+    "query": "active=is.not_null",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "active",
+        "operator": "is",
+        "negated": false,
+        "value": "not_null"
+      }
+    }
+  },
+  {
+    "name": "parses a negated comparison",
+    "query": "id=not.eq.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": true,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a negated gt comparison",
+    "query": "id=not.gt.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "gt",
+        "negated": true,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "parses a negated like comparison",
+    "query": "id=not.like.*a*",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "like",
+        "negated": true,
+        "value": "*a*"
+      }
+    }
+  },
+  {
+    "name": "parses a negated is comparison",
+    "query": "id=not.is.null",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "is",
+        "negated": true,
+        "value": "null"
+      }
+    }
+  },
+  {
+    "name": "parses a negated or group",
+    "query": "not.or=(id.gt.1,id.lt.2)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "or",
+        "negated": true,
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "gt",
+            "negated": false,
+            "value": "1"
+          },
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "lt",
+            "negated": false,
+            "value": "2"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses repeated filters into one and group",
+    "query": "id=gt.1&id=lt.10",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "and",
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "gt",
+            "negated": false,
+            "value": "1"
+          },
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "lt",
+            "negated": false,
+            "value": "10"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses a logical group with one child",
+    "query": "or=(id.eq.1)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "or",
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "eq",
+            "negated": false,
+            "value": "1"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses a nested negated group",
+    "query": "or=(not.and(id.gt.1),id.eq.2)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "or",
+        "items": [
+          {
+            "kind": "group",
+            "operator": "and",
+            "negated": true,
+            "items": [
+              {
+                "kind": "comparison",
+                "column": "id",
+                "operator": "gt",
+                "negated": false,
+                "value": "1"
+              }
+            ]
+          },
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "eq",
+            "negated": false,
+            "value": "2"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses quoted in values",
+    "query": "name=in.(\"a\",\"b\")",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "in",
+        "negated": false,
+        "value": [
+          "a",
+          "b"
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses an empty quoted in value",
+    "query": "name=in.(\"\")",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "in",
+        "negated": false,
+        "value": [
+          ""
+        ]
+      }
+    }
+  },
+  {
+    "name": "parses a value with a dot",
+    "query": "name=eq.a.b",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "eq",
+        "negated": false,
+        "value": "a.b"
+      }
+    }
+  },
+  {
+    "name": "parses an escaped backslash",
+    "query": "name=eq.\"a\\\\b\"",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "eq",
+        "negated": false,
+        "value": "a\\b"
+      }
+    }
+  },
+  {
+    "name": "parses a literal plus sign",
+    "query": "name=eq.a+b",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "name",
+        "operator": "eq",
+        "negated": false,
+        "value": "a+b"
+      }
+    }
+  },
+  {
+    "name": "omits a query that has no filter and selects every column",
+    "query": "id=fts.x",
+    "expected": null
+  },
+  {
+    "name": "omits an empty query",
+    "query": "",
+    "expected": null
+  },
+  {
+    "name": "omits a value with a doubled quote",
+    "query": "name=eq.\"a\"\"b\"",
+    "expected": null
+  },
+  {
+    "name": "omits parentheses inside an unquoted group value",
+    "query": "or=(name.like.a(b),id.eq.1)",
+    "expected": null
+  },
+  {
+    "name": "omits a value that is not an is keyword",
+    "query": "id=is.maybe",
+    "expected": null
+  },
+  {
+    "name": "pushes the selected columns",
+    "query": "select=id,name",
+    "expected": {
+      "columns": [
+        "id",
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pushes no columns for select star",
+    "query": "select=*",
+    "expected": null
+  },
+  {
+    "name": "pushes no columns when select has a star among names",
+    "query": "select=id,*",
+    "expected": null
+  },
+  {
+    "name": "adds the filter columns to the selected columns",
+    "query": "select=name&id=eq.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "1"
+      },
+      "columns": [
+        "name",
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "adds the filter columns of a group",
+    "query": "select=name&or=(id.eq.1,code.eq.2)",
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "or",
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "id",
+            "operator": "eq",
+            "negated": false,
+            "value": "1"
+          },
+          {
+            "kind": "comparison",
+            "column": "code",
+            "operator": "eq",
+            "negated": false,
+            "value": "2"
+          }
+        ]
+      },
+      "columns": [
+        "name",
+        "id",
+        "code"
+      ]
+    }
+  },
+  {
+    "name": "pushes no columns when select has a cast",
+    "query": "select=id::text&id=eq.1",
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "1"
+      }
+    }
+  },
+  {
+    "name": "pushes no columns when select has an alias",
+    "query": "select=a:id",
+    "expected": null
+  },
+  {
+    "name": "pushes no columns when select has an embed",
+    "query": "select=id,child(*)",
+    "expected": null
+  },
+  {
+    "name": "pushes no columns when select has an aggregate",
+    "query": "select=count()",
+    "expected": null
+  },
+  {
+    "name": "pushes nothing when a filter is not supported",
+    "query": "select=id&name=fts.x",
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for a path in a filter key",
+    "query": "select=id&a.b=eq.1",
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for an unknown parameter",
+    "query": "select=id&columns=id",
+    "expected": null
+  },
+  {
+    "name": "pushes nothing when select appears twice",
+    "query": "select=id&select=name",
+    "expected": null
+  },
+  {
+    "name": "adds the order columns to the selected columns",
+    "query": "select=id&order=name.desc",
+    "expected": {
+      "columns": [
+        "id",
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "pushes the limit with the order when the caller allows it",
+    "query": "select=id&order=name.desc.nullslast&limit=10",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "id",
+        "name"
+      ],
+      "order": [
+        {
+          "column": "name",
+          "descending": true,
+          "nulls": "last"
+        }
+      ],
+      "limit": 10
+    }
+  },
+  {
+    "name": "pushes an ascending order without nulls placement",
+    "query": "order=id&limit=3",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "order": [
+        {
+          "column": "id",
+          "descending": false
+        }
+      ],
+      "limit": 3
+    }
+  },
+  {
+    "name": "pushes several order columns",
+    "query": "order=id.asc,name.desc.nullsfirst&limit=3",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "order": [
+        {
+          "column": "id",
+          "descending": false
+        },
+        {
+          "column": "name",
+          "descending": true,
+          "nulls": "first"
+        }
+      ],
+      "limit": 3
+    }
+  },
+  {
+    "name": "adds the offset to the limit",
+    "query": "limit=10&offset=5",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "limit": 15
+    }
+  },
+  {
+    "name": "pushes the limit with a filter",
+    "query": "id=eq.1&limit=2",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "where": {
+        "kind": "comparison",
+        "column": "id",
+        "operator": "eq",
+        "negated": false,
+        "value": "1"
+      },
+      "limit": 2
+    }
+  },
+  {
+    "name": "pushes a limit of zero",
+    "query": "limit=0",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "limit": 0
+    }
+  },
+  {
+    "name": "does not push the limit when the caller forbids it",
+    "query": "limit=10",
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the offset is not a number",
+    "query": "limit=10&offset=x",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the limit is not a number",
+    "query": "limit=ten",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the limit is negative",
+    "query": "limit=-1",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the limit appears twice",
+    "query": "limit=1&limit=2",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the order has a path",
+    "query": "order=a->b&limit=1",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the order has an unknown modifier",
+    "query": "order=id.up&limit=1",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when select has an aggregate",
+    "query": "select=id.count()&limit=1",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes no limit when the limit has more than nine digits",
+    "query": "limit=12345678901",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  }
+]

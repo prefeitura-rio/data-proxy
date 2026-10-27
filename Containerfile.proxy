@@ -1,0 +1,43 @@
+FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm@sha256:8005b87dcb25df5e202e71dcc4b8a2c20a4845a75302b2bb6ee816b5392883e4 AS build
+
+ARG LUX_VERSION=0.43.5
+ARG LUX_SHA256_X86_64=cff7691b944a26d3becabb715bd0bf2dd2b6f91cc642ee139b5561e5bd9f2869
+ARG LUX_SHA256_AARCH64=ebd2efdfdc1c31ad83ddeddbc3e8fe1b940aad011ecaafcd0ed73774d2000dc8
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev libgpgme11 make pkg-config \
+ && rm -rf /var/lib/apt/lists/* \
+ && arch="$(uname -m)" \
+ && case "$arch" in \
+      x86_64) sha="$LUX_SHA256_X86_64" ;; \
+      aarch64) sha="$LUX_SHA256_AARCH64" ;; \
+    esac \
+ && curl -fsSL -o /tmp/lx.tar.gz "https://github.com/lumen-oss/lux/releases/download/v${LUX_VERSION}/lx-${arch}-unknown-linux-gnu.tar.gz" \
+ && echo "${sha}  /tmp/lx.tar.gz" | sha256sum --check - \
+ && tar -xzf /tmp/lx.tar.gz -C /usr/local/bin lx \
+ && rm /tmp/lx.tar.gz
+
+WORKDIR /build
+COPY proxy/lux.toml proxy/lux.lock ./
+
+ENV PKG_CONFIG_PATH=/usr/local/openresty/luajit/lib/pkgconfig
+
+RUN cp lux.lock lux.lock.orig \
+ && lx --no-prompt true --no-luarc --lua-version jit build --only-deps \
+ && cmp lux.lock lux.lock.orig \
+ && mkdir -p /opt/data-proxy/rocks /opt/data-proxy/lib \
+ && cp -r .lux/jit/*/src/. /opt/data-proxy/rocks/ \
+ && cp -r .lux/jit/*/lib/. /opt/data-proxy/lib/
+
+FROM docker.io/openresty/openresty:1.31.1.1-3-bookworm@sha256:8005b87dcb25df5e202e71dcc4b8a2c20a4845a75302b2bb6ee816b5392883e4 AS runtime
+
+COPY --from=build /opt/data-proxy/rocks/ /opt/data-proxy/rocks/
+COPY --from=build /opt/data-proxy/lib/ /opt/data-proxy/lib/
+COPY proxy/src/proxy/ /usr/local/openresty/site/lualib/proxy/
+
+USER 10001:10001
+
+EXPOSE 8080

@@ -1,0 +1,122 @@
+suite: DuckLake catalog database
+release:
+  name: data-proxy
+  namespace: default
+templates:
+  - cluster-cnpg.yaml
+  - database-ducklake.yaml
+  - secrets.yaml
+  - deployment-sync.yaml
+  - jobs.yaml
+set:
+  redis.host: redis-writer
+tests:
+  - it: declares the catalog database owned by the ops role
+    asserts:
+      - equal:
+          path: spec
+          value:
+            name: ducklake
+            owner: "ops"
+            cluster:
+              name: data-proxy
+            databaseReclaimPolicy: retain
+        template: database-ducklake.yaml
+
+  - it: manages the ops owner, which is a superuser because pg_duckdb lets only a superuser load extensions, and the read-only duckdb login
+    asserts:
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: ops
+            ensure: present
+            login: true
+            superuser: true
+            passwordSecret:
+              name: data-proxy-cnpg-ops
+        template: cluster-cnpg.yaml
+      - contains:
+          path: spec.managed.roles
+          content:
+            name: duckdb
+            ensure: present
+            login: true
+            superuser: false
+            bypassrls: false
+            passwordSecret:
+              name: data-proxy-cnpg-duckdb
+        template: cluster-cnpg.yaml
+
+  - it: generates a password for the duckdb role
+    asserts:
+      - matchRegex:
+          path: stringData.password
+          pattern: "^[A-Za-z0-9]{32}$"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cnpg-duckdb
+        template: secrets.yaml
+      - equal:
+          path: stringData.username
+          value: duckdb
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cnpg-duckdb
+        template: secrets.yaml
+
+  - it: lets values set the duckdb password
+    set:
+      ducklake.duckdbPassword: duckdb-secret
+    asserts:
+      - equal:
+          path: stringData.password
+          value: duckdb-secret
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-cnpg-duckdb
+        template: secrets.yaml
+
+  - it: gives the sync workers the catalog address with the ops password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_CATALOG_URL
+            value: postgresql://ops:$(PASSWORD)@data-proxy-rw:5432/ducklake # pragma: allowlist secret
+        template: deployment-sync.yaml
+
+  - it: gives the configure-db Job the duckdb password and the catalog address
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-configure-db-0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKDB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-duckdb
+                key: password
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKLAKE_ADMIN_URL
+            value: postgresql://ops@data-proxy-rw:5432/ducklake
+        template: jobs.yaml
+
+  - it: gives the configure-db Job the serving login password
+    documentSelector:
+      path: metadata.name
+      value: data-proxy-configure-db-0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVING_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-cnpg-serving
+                key: password
+        template: jobs.yaml

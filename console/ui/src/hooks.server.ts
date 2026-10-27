@@ -1,0 +1,30 @@
+import { resolve as address } from '$app/paths';
+import { error, redirect } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
+import { BASE } from '#lib/base.js';
+import { freshSession } from '#lib/server/auth.js';
+import { securityHeaders, settingsSources } from '#lib/headers.js';
+import { isSecure, sameOrigin } from '#lib/server/origin.js';
+import { querySettings, settings } from '#lib/server/settings.js';
+
+export const handle: Handle = async ({ event, resolve }) => {
+	if (!sameOrigin(event.request.method, event.request.headers.get('origin'), settings().origin)) {
+		error(403, 'The request does not come from this site');
+	}
+
+	if (event.url.pathname !== address('/healthz') && !event.url.pathname.startsWith(`${BASE}/auth/`)) {
+		const session = await freshSession(event.cookies, isSecure(settings().origin));
+
+		if (session === null) {
+			redirect(303, `${address('/auth/login')}?next=${encodeURIComponent(event.url.pathname + event.url.search)}`);
+		}
+
+		event.locals.session = session;
+	}
+
+	const response = await resolve(event);
+
+	securityHeaders(response.headers, settingsSources(querySettings()?.notebookOrigin ?? null, settings().issuer));
+
+	return response;
+};

@@ -1,0 +1,67 @@
+"""Pure DBOS configuration and retry helpers."""
+
+from typing import TYPE_CHECKING
+
+from duckdb import TransactionException
+
+if TYPE_CHECKING:
+    from sync.settings import Settings
+
+
+def endpoint_list(endpoint: str) -> list[str]:
+    """Return one configured endpoint or an empty list."""
+    return [endpoint] if len(endpoint) > 0 else []
+
+
+def otlp_enabled(application_settings: Settings) -> bool:
+    """Return whether any OTLP endpoint is configured."""
+    return any(
+        (
+            application_settings.OTLP_LOGS_ENDPOINT,
+            application_settings.OTLP_TRACES_ENDPOINT,
+            application_settings.OTLP_METRICS_ENDPOINT,
+        )
+    )
+
+
+def listened_queues(queues: list[str], configured: str) -> list[str]:
+    """Return the queues that one worker listens to: every queue, or the ones that the setting names."""
+    names = {name.strip() for name in configured.split(",") if len(name.strip()) > 0}
+
+    if len(names) == 0:
+        return queues
+
+    unknown = sorted(names - set(queues))
+
+    if len(unknown) > 0:
+        message = f"Unknown queues: {', '.join(unknown)}"
+        raise ValueError(message)
+
+    return [queue for queue in queues if queue in names]
+
+
+def retry_catalog_locked(error: BaseException) -> bool:
+    """Retry only while another process holds the DuckLake catalog write lock."""
+    match error:
+        case TransactionException() if "database is locked" in str(error):
+            return True
+        case _:
+            return False
+
+
+def retry_transient(error: BaseException) -> bool:
+    """Retry a failure of a backend, but not a bug or invalid input, which fail the same way each time."""
+    match error:
+        case (
+            ValueError()
+            | LookupError()
+            | TypeError()
+            | AttributeError()
+            | AssertionError()
+            | NotImplementedError()
+        ):
+            return False
+        case Exception():
+            return True
+        case _:
+            return False

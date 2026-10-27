@@ -1,0 +1,14 @@
+---@meta
+
+--- The Lua patterns of the proxy, by what they match.
+---@class Regex
+---@field bearer_payload string Payload of a bearer token, captured.
+---@field column_name string Text of a column name, for example id or name_2.
+---@field escaped_slash string
+---@field media_range string First media range of an Accept header, for example text/csv.
+---@field module_file string Name in a module file name, captured: main.lua gives main.
+---@field parameter string One query parameter, with the key and the value captured.
+---@field percent_escape string One percent escape: the two hexadecimal digits, without the percent sign.
+---@field table_name string Last part of a dotted table name, captured: project.sales.orders gives orders.
+---@field table_path string Table in a request path, captured: /people/1 gives people.
+---@field whole_number string
