@@ -1,5 +1,15 @@
-import pytest
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
+from uuid import uuid4
 
+import psycopg
+import pytest
+from psycopg import AsyncConnection
+from psycopg.sql import SQL, Identifier
+
+from sync.templates import render_template
+from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.console import (
     add_schema,
     as_token,
@@ -7,6 +17,7 @@ from tests.fixtures.console import (
     migrate,
     migration,
     migration_down,
+    migration_up,
     migrations_until,
     refusal,
 )
@@ -21,6 +32,82 @@ async def names(pg: Postgres, sql: str) -> list[object]:
     cursor = await pg.connection.execute(sql.encode())
 
     return [row[0] for row in await cursor.fetchall()]
+
+
+@pytest.fixture
+async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
+    """Give two committed connections to a scratch database that has the console tables, with one schema and one table.
+
+    A test of a lock needs committed rows and two sessions, and the test transaction of the other fixtures gives neither.
+    """
+    name = f"claim_{uuid4().hex[:8]}"
+    async with await AsyncConnection.connect(
+        f"{POSTGRES_URL}/postgres", autocommit=True
+    ) as admin:
+        await admin.execute(SQL("CREATE DATABASE {}").format(Identifier(name)))
+
+        try:
+            async with AsyncExitStack() as stack:
+                first, second = [
+                    await stack.enter_async_context(
+                        await AsyncConnection.connect(
+                            f"{POSTGRES_URL}/{name}", autocommit=True
+                        )
+                    )
+                    for _ in range(2)
+                ]
+                await first.execute(b"CREATE SCHEMA console")
+                for number in (2, 3, 11):
+                    await first.execute(migration_up(migration(number)).encode())
+                await first.execute(
+                    render_template("postgres/claim_fixture", {}, root=TEST_SQL_DIR)
+                )
+
+                yield first, second
+        finally:
+            await admin.execute(
+                SQL("DROP DATABASE {} WITH (FORCE)").format(Identifier(name))
+            )
+
+
+BLOCKED_SECONDS = 0.5
+ADD_RULE = "INSERT INTO console.rls (table_name, column_name, unit_type) VALUES ('p.d.t', 'id', 'cpf')"
+CLEAR_CLAIM = "UPDATE console.schemas SET claim = NULL WHERE name = 's'"
+
+
+@pytest.mark.postgres
+class TestClaimChecksUnderConcurrency:
+    """A schema with a row rule keeps its claim, also when two editors act together."""
+
+    async def test_a_claim_cleared_while_a_rule_is_added_waits_and_is_refused(
+        self, claim_database: tuple[AsyncConnection, AsyncConnection]
+    ) -> None:
+        """Both checks read what the other has not committed, so without a lock both pass and the schema ends with a rule and no claim."""
+        first, second = claim_database
+
+        async with first.transaction():
+            await first.execute(ADD_RULE)
+            clearing = asyncio.create_task(second.execute(CLEAR_CLAIM))
+            done, _ = await asyncio.wait({clearing}, timeout=BLOCKED_SECONDS)
+            assert len(done) == 0, "The change did not wait for the open transaction"
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="needs a claim"):
+            await clearing
+
+    async def test_a_rule_added_while_a_claim_is_cleared_waits_and_is_refused(
+        self, claim_database: tuple[AsyncConnection, AsyncConnection]
+    ) -> None:
+        """The same race in the other order: the rule must see the cleared claim."""
+        first, second = claim_database
+
+        async with first.transaction():
+            await first.execute(CLEAR_CLAIM)
+            adding = asyncio.create_task(second.execute(ADD_RULE))
+            done, _ = await asyncio.wait({adding}, timeout=BLOCKED_SECONDS)
+            assert len(done) == 0, "The change did not wait for the open transaction"
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="has no claim"):
+            await adding
 
 
 @pytest.mark.postgres
@@ -255,9 +342,9 @@ class TestMigrationOrder:
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """Go back to the start with the Down parts alone."""
-        await migrate(rbac, migrations_until(9))
+        await migrate(rbac, migrations_until(11))
 
-        for number in range(9, 0, -1):
+        for number in range(11, 0, -1):
             down = migration_down(migration(number))
             if len(down.strip()) > 0:
                 await rbac.connection.execute(down.encode())
