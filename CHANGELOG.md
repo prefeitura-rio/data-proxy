@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.4.0 - 2026-10-28
+
+### Features
+
+- **sync**: return the freed DuckDB memory in a long-lived backend (559b043)
+- **chart**: keep the PgDog server connections for an hour (0d9212f)
+
+
+- - -
+
 ## helm-v2.3.0 - 2026-10-28
 
 ### Features
