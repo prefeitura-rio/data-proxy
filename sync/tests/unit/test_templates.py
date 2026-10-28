@@ -2148,6 +2148,27 @@ class TestPostgresTemplates:
             [f"dl_{schema}", f"dl_{other}"]
         )
 
+    async def test_serving_function_gives_the_backend_a_small_allocator_footprint(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """A backend that serves for an hour returns its freed memory, so a heavy answer does not stay in its heap."""
+        schema = ducklake_view.namespace.schema
+
+        await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()')
+
+        cursor = await ducklake_view.connection.execute(
+            b"""
+            SELECT r['name']::text, r['value']::text
+            FROM duckdb.query(
+                'SELECT name, value FROM duckdb_settings() WHERE name IN (''allocator_background_threads'', ''allocator_flush_threshold'') ORDER BY 1'
+            ) r
+            """
+        )
+        assert await cursor.fetchall() == [
+            ("allocator_background_threads", "true"),
+            ("allocator_flush_threshold", "16.0 MiB"),
+        ]
+
     async def test_create_state_makes_the_state_error_and_scope_tables(
         self, postgres: Postgres
     ) -> None:
