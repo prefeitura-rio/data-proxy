@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.3.0 - 2026-10-28
+
+### Features
+
+- **sync**: run the aggregate of a request inside DuckDB (c1ede39)
+- **proxy**: send aggregate selects to the aggregate function of the table (13d5ecd)
+
+### Fixes
+
+- **sync**: pass the type check and the SQL lint for the aggregate function (bb4c3be)
+- **proxy**: narrow the aggregate response before the null check (2d7aa4e)
+
+
+- - -
+
 ## helm-v2.2.0 - 2026-10-28
 
 ### Features
