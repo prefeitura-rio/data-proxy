@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.1.0 - 2026-10-28
+
+### Features
+
+- **rbac**: read every row of one schema with schema:* in the schemas claim (2bd27ec)
+
+
+- - -
+
 ## helm-v2.0.2 - 2026-10-28
 
 ### Fixes
