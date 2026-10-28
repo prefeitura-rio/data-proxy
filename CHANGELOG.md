@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.2.0 - 2026-10-28
+
+### Features
+
+- **rbac**: read every row of a schema with the access policy grant * and * (b5fd74d)
+
+### Fixes
+
+- **helm**: pin the sync image to the b5fd74d build (00b9dd6)
+
+
+- - -
+
 ## helm-v2.1.0 - 2026-10-28
 
 ### Features
