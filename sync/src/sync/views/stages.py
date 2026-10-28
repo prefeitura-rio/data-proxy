@@ -128,7 +128,7 @@ async def drop_view_objects(
             "view": Identifier(view_name),
             "function": Identifier(f"{view_name}_fn"),
             "aggregate_function": (
-                None
+                ""
                 if (aggregate := aggregate_function_name(view_name)) is None
                 else Identifier(aggregate)
             ),

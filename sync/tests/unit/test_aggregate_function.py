@@ -54,9 +54,10 @@ def by(
     column: str, *, descending: bool = False, nulls: str | None = None
 ) -> dict[str, object]:
     """Build one order entry."""
-    return {"column": column, "descending": descending} | (
-        {} if nulls is None else {"nulls": nulls}
-    )
+    entry: dict[str, object] = {"column": column, "descending": descending}
+    if nulls is not None:
+        entry["nulls"] = nulls
+    return entry
 
 
 def total(alias: str = "n") -> dict[str, str]:
@@ -78,6 +79,7 @@ async def installed(aggregate_function: Postgres) -> Postgres:
     return aggregate_function
 
 
+@pytest.mark.postgres
 class TestAggregateResults:
     """The function gives the rows that a group by of the table function would give."""
 
@@ -232,6 +234,7 @@ class TestAggregateResults:
         assert again == [{"n": 47}]
 
 
+@pytest.mark.postgres
 class TestAggregateGroupAndTail:
     """The function names the group columns and orders and cuts the rows of the groups."""
 
@@ -417,6 +420,7 @@ class TestAggregateGroupAndTail:
         assert skipped == []
 
 
+@pytest.mark.postgres
 class TestAggregateWideTable:
     """A table with more than a hundred columns still gets an aggregate function."""
 
@@ -437,6 +441,7 @@ class TestAggregateWideTable:
         assert answer == [{"qty": 1, "n": 1}, {"qty": 2, "n": 1}]
 
 
+@pytest.mark.postgres
 class TestAggregateRowRules:
     """The function applies the row rules of the table before it aggregates."""
 
@@ -516,6 +521,7 @@ class TestAggregateRowRules:
         assert error.value.sqlstate == "42501"
 
 
+@pytest.mark.postgres
 class TestAggregateFallback:
     """The function answers null for a request that the table function must serve."""
 

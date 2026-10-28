@@ -19,7 +19,7 @@
   }
 }
 #}
--- noqa: disable=PRS,LT05
+-- noqa: disable=CP02,PRS,LT05
 {% from "postgres/macros.sql" import rls_where_clause, require_permission, require_scope %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS json AS $$

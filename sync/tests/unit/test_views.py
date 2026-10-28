@@ -2,6 +2,7 @@ from typing import Final
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from psycopg.sql import Identifier
 
 import sync.views.mappings as utils
 import sync.views.reconcile as views_module
@@ -308,11 +309,11 @@ class TestAggregateFunction:
         ("view_name", "expected"),
         [
             pytest.param("people", '"people_aggregate"', id="short-name"),
-            pytest.param("a" * 54, None, id="name-too-long"),
+            pytest.param("a" * 54, "", id="name-too-long"),
         ],
     )
     async def test_drops_the_function_with_the_view(
-        self, monkeypatch: pytest.MonkeyPatch, view_name: str, expected: str | None
+        self, monkeypatch: pytest.MonkeyPatch, view_name: str, expected: str
     ) -> None:
         """Drop the aggregate function of a view that leaves the config, and never a cut name."""
         executor = AsyncMock()
@@ -322,9 +323,15 @@ class TestAggregateFunction:
 
         await stages.drop_view_objects(AsyncMock(), "app", view_name)
 
-        mapping = executor.execute.await_args.kwargs["mapping"]
+        mapping: dict[str, Identifier | str] = executor.execute.await_args.kwargs[
+            "mapping"
+        ]
         aggregate = mapping["aggregate_function"]
-        assert (None if aggregate is None else aggregate.as_string(None)) == expected
+        assert (
+            aggregate.as_string(None)
+            if isinstance(aggregate, Identifier)
+            else aggregate
+        ) == expected
 
 
 class TestCreateTableViews:

@@ -6,7 +6,7 @@
     "schema": "PostgreSQL schema that owns the objects.",
     "view": "View to remove.",
     "function": "Table function to remove.",
-    "aggregate_function": "Aggregate function to remove. Empty if the table name is too long for one.",
+    "aggregate_function": "Aggregate function to remove. An empty text if the table name is too long for one.",
     "helpers": "List of source helper functions to remove."
   }
 }
