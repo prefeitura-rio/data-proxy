@@ -56,6 +56,7 @@ Each configured schema contains metadata and views:
 | `<schema>.access_log` | Append-only audit trail of grant changes. |
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks row-level security (RLS), plans the sources, and reads them. |
+| `<schema>.<table>_aggregate()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 53 bytes has none. |
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 

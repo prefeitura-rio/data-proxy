@@ -20,7 +20,7 @@ The diagram shows one API read, from the JWT check at the gateway to the cached 
 
 ![API read sequence](../diagrams/architecture/serving-sequence.svg)
 
-The table view calls a function that checks the access policy. The function plans DuckLake and the optional partition fallback from `data_proxy.state`, and it reads them in order. It passes the access policy predicate to DuckDB, so the Parquet scan returns only authorized rows. PostgREST filters aren't pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
+The table view calls a function that checks the access policy. The function plans DuckLake and the optional partition fallback from `data_proxy.state`, and it reads them in order. It passes the access policy predicate to DuckDB, so the Parquet scan returns only authorized rows. PostgREST filters aren't pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows. An aggregate select is the exception: the proxy calls the aggregate function of the table, and DuckDB runs the `GROUP BY`. See [Query pushdown](../proxy/pushdown.md#aggregates).
 
 ## What PgDog does
 

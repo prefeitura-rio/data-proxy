@@ -37,6 +37,8 @@ The page can list table and column names without exposing data. Use its Authoriz
 
 Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Query pushdown](proxy/pushdown.md).
 
+A `select` with `sum()`, `avg()`, `count()`, `min()` or `max()` and a group runs inside DuckDB, so it stays fast on large tables. See [Query pushdown](proxy/pushdown.md#aggregates).
+
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
 
 ## DuckLake change feed
