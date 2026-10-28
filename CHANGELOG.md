@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.0.1 - 2026-10-28
+
+### Fixes
+
+- **helm**: pin the images to the 42ea387 build (#10) (36a14b8)
+- **ci**: resolve the image tag that the latest tag points to (#9) (42ea387)
+
+
+- - -
+
 ## helm-v2.0.0 - 2026-10-27
 
 ### Breaking changes
