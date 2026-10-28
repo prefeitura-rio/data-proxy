@@ -15,7 +15,7 @@ PostgREST starts a read-only transaction for each `GET`, and a read/write transa
 
 PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `serving` login. The chart renders it into the `<release>-pgdog-users` Secret.
 
-PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host. Kubernetes picks the standby for each new connection. PgDog closes a server connection after about five minutes, so a new standby takes its share within that time. In a measured run the standbys served 50% and 50% of the reads, and in one of four runs 31% and 69%.
+PgDog finds the standbys through the `-ro` Service of the cluster, so it sees them as one host. Kubernetes picks the standby for each new connection. PgDog closes a server connection after about one hour, so a new standby takes its share within that time. In a measured run the standbys served 50% and 50% of the reads, and in one of four runs 31% and 69%.
 
 The lag of a standby works like this:
 
@@ -52,6 +52,7 @@ Notes for the cluster:
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
 - Replication is asynchronous, so a changed access policy can reach a standby a moment later. To make `access_policy` writes wait until a standby applies them, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then raises `synchronous_commit` to `remote_apply` for access policy writes only, and other commits use `local`.
 - The DuckDB secrets (the S3 secret `s3`, and the catalog secrets `ducklake_catalog_pg` and `ducklake_catalog`) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
+- Each PostgreSQL backend starts its own DuckDB and attaches the DuckLake catalog on its first aggregate, and this takes about 160 ms. PgDog keeps a server connection for one hour, even when the connection is idle, so a backend serves many requests at 10 to 15 ms each. A backend sets the DuckDB allocator to return freed memory, so it keeps about 30 MB after a heavy answer, and not 300 MB.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret. Run `helm upgrade` a second time if a read happens between the roll and the `init-db` write.
 
 ```yaml

@@ -83,15 +83,26 @@ tests:
           pattern: '(?s)\[tcp\]\s+keepalive = true\s+time = 10000\s+interval = 5000\s+retries = 2\s+user_timeout = 10000'
         template: configmap-pgdog.yaml
 
+  - it: keeps server connections for an hour, so each DuckDB backend stays warm
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^idle_timeout = 3600000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^min_pool_size = 2$'
+        template: configmap-pgdog.yaml
+
   - it: recycles server connections, so a new standby gets its share
     asserts:
       - matchRegex:
           path: data["pgdog.toml"]
-          pattern: '(?m)^server_lifetime = 300000$'
+          pattern: '(?m)^server_lifetime = 3600000$'
         template: configmap-pgdog.yaml
       - matchRegex:
           path: data["pgdog.toml"]
-          pattern: '(?m)^server_lifetime_jitter = 60000$'
+          pattern: '(?m)^server_lifetime_jitter = 600000$'
         template: configmap-pgdog.yaml
 
   - it: bounds the prepared statements on each server connection
