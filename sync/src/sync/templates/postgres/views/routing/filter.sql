@@ -21,11 +21,11 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  BEGIN
-    RETURN v_value::jsonb;
-  EXCEPTION WHEN OTHERS THEN
+  IF NOT pg_input_is_valid(v_value, 'jsonb') THEN
     RAISE EXCEPTION 'x-ducklake-filter must be a JSON object' USING ERRCODE = 'PT400';
-  END;
+  END IF;
+
+  RETURN v_value::jsonb;
 END;
 $$;
 

@@ -1824,6 +1824,24 @@ class TestPostgresTemplates:
             "X-DuckLake-Snapshot": snapshot,
         }
 
+    async def test_view_can_be_read_twice_in_one_transaction_with_a_pushed_filter(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """PostgREST counts and then reads in one transaction. The second read must not open a savepoint, because DuckDB refuses it."""
+        schema = ducklake_view.namespace.schema
+        await set_request_headers(
+            ducklake_view,
+            {"x-ducklake-filter": json.dumps({"columns": ["cpf"], "limit": 3})},
+        )
+        total = await scalar(ducklake_view, f'SELECT count(*) FROM "{schema}".people')
+        cursor = await ducklake_view.connection.execute(
+            f'SELECT cpf FROM "{schema}".people'.encode()
+        )
+        rows = await cursor.fetchall()
+
+        assert total == 3
+        assert len(rows) == 3
+
     async def test_view_reads_only_the_pushed_columns_and_rows(
         self, ducklake_view: Postgres
     ) -> None:
