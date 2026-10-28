@@ -46,7 +46,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, has_rls, rls_mappings) }}
+{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings) }}
 
   IF end_snapshot IS NULL THEN
     SELECT r['id']::bigint INTO v_end_snapshot

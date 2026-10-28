@@ -38,7 +38,20 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
         AND strpos(schema_name, ',') = 0
         AND (
             strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ',') > 0
-            -- The element * stands for every schema. rbac.mine('*') asks whether the claim has it.
+            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ':*,') > 0
+            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',*,') > 0
+        ),
+        FALSE
+    )
+$$;
+
+CREATE OR REPLACE FUNCTION rbac.all_rows(schema_name text) RETURNS boolean
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+    SELECT coalesce(
+        schema_name <> ''
+        AND strpos(schema_name, ',') = 0
+        AND (
+            strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ':*,') > 0
             OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',*,') > 0
         ),
         FALSE
@@ -64,7 +77,7 @@ SET search_path = pg_catalog, pg_temp AS $$
         )
 $$;
 
-REVOKE ALL ON FUNCTION rbac.unknown(text), rbac.mine(text), rbac.load() FROM PUBLIC;
+REVOKE ALL ON FUNCTION rbac.unknown(text), rbac.mine(text), rbac.all_rows(text), rbac.load() FROM PUBLIC;
 
 DO $rbac_load$
 DECLARE
@@ -170,7 +183,7 @@ BEGIN
     FOR role_name IN SELECT name FROM rbac_in_roles LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA rbac TO %I', role_name);
         EXECUTE format(
-            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.unknown(text) TO %I',
+            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.all_rows(text), rbac.unknown(text) TO %I',
             role_name
         );
     END LOOP;
@@ -184,4 +197,4 @@ $rbac_load$;
 UPDATE rbac.revision SET value = value + 1;
 
 GRANT USAGE ON SCHEMA rbac TO {{ anonymous_role }};
-GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.unknown(text) TO {{ anonymous_role }};
+GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.all_rows(text), rbac.unknown(text) TO {{ anonymous_role }};

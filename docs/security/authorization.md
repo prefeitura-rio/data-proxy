@@ -22,6 +22,12 @@ The schema name `*` stands for every schema. Use it only for a debugging account
 "schemas": ["*"]
 ```
 
+The element `<schema>:*` reaches one schema and reads every row of it. A token with it needs no access policy row for that schema, and it reaches no other schema.
+
+```json
+"schemas": ["test:*"]
+```
+
 ## Row condition
 
 For a table with this configuration:
@@ -39,7 +45,7 @@ subject   = JWT preferred_username (or configured claim)
 OR unit_type/unit_id matches the row
 ```
 
-A token whose `schemas` claim has `*` skips this condition and reads every row.
+A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 

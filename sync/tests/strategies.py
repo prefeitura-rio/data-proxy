@@ -68,7 +68,7 @@ DESCRIPTION: Final = st.one_of(
 )
 
 
-CLAIM_PART: Final = st.text(alphabet="abc0_\u00e9 ,*", max_size=3)
+CLAIM_PART: Final = st.text(alphabet="abc0_\u00e9 ,*:", max_size=3)
 
 
 PROPERTIES: Final = hypothesis_settings(

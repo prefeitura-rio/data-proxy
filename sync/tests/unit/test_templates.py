@@ -1080,6 +1080,31 @@ class TestPostgresTemplates:
 
         assert rows == [("ducklake", "", "7")]
 
+    async def test_view_function_passes_an_empty_predicate_to_the_schema_wildcard_claim(
+        self, table_function: Postgres
+    ) -> None:
+        """A token with schema:* reads every row of that schema, with no grant in the access policy."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+
+        rows, _ = await call_table_function(
+            table_function, schemas=f"{table_function.namespace.schema}:*"
+        )
+
+        assert rows == [("ducklake", "", "7")]
+
+    async def test_view_function_returns_no_row_for_the_schema_wildcard_of_another_schema(
+        self, table_function: Postgres
+    ) -> None:
+        """A token with other:* reaches neither the rows nor the schema of this table."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_unit(table_function, "u")
+
+        rows, _ = await call_table_function(table_function, schemas="other:*")
+
+        assert rows == []
+
     async def test_view_function_returns_no_row_without_a_grant_or_the_wildcard(
         self, table_function: Postgres
     ) -> None:
@@ -3177,6 +3202,15 @@ class TestRbacTemplate:
             pytest.param("s1", "*", False, id="name-is-not-the-wildcard"),
             pytest.param("s*", "s1", False, id="star-inside-a-name-is-no-wildcard"),
             pytest.param("s1,*", "*", True, id="wildcard-asks-for-itself"),
+            pytest.param("s1:*", "s1", True, id="schema-wildcard-reaches-its-schema"),
+            pytest.param("s1:*", "s2", False, id="schema-wildcard-stays-in-its-schema"),
+            pytest.param("s1:*", "*", False, id="schema-wildcard-is-not-the-wildcard"),
+            pytest.param(
+                "s1,s2:*", "s1", True, id="plain-name-beside-a-schema-wildcard"
+            ),
+            pytest.param(
+                "s1:*", "s1:", False, id="schema-wildcard-needs-the-whole-name"
+            ),
         ],
     )
     async def test_mine_answers_whether_the_schema_is_in_the_claim(
@@ -3195,6 +3229,42 @@ class TestRbacTemplate:
         await rbac.connection.execute(b"SELECT rbac.load()")
 
         assert await scalar(rbac, "SELECT rbac.mine(%s)", "s1") is False
+
+    @pytest.mark.parametrize(
+        ("claim", "schema", "expected"),
+        [
+            pytest.param("s1", "s1", False, id="plain-name-keeps-the-row-filter"),
+            pytest.param("s1:*", "s1", True, id="schema-wildcard-reads-every-row"),
+            pytest.param("s1:*", "s2", False, id="schema-wildcard-stays-in-its-schema"),
+            pytest.param("s1,s2:*", "s1", False, id="only-the-marked-schema"),
+            pytest.param(
+                "s1,s2:*", "s2", True, id="the-marked-schema-beside-a-plain-one"
+            ),
+            pytest.param("*", "s1", True, id="wildcard-reads-every-row-of-any-schema"),
+            pytest.param("*", "", False, id="wildcard-still-needs-a-name"),
+            pytest.param("s1:*", "s1,s2", False, id="comma-spans-two-names"),
+            pytest.param(
+                "s1:*", "s1:", False, id="schema-wildcard-needs-the-whole-name"
+            ),
+            pytest.param("", "s1", False, id="empty-claim"),
+        ],
+    )
+    async def test_all_rows_answers_whether_the_claim_lifts_the_row_filter_of_the_schema(
+        self, rbac: Postgres, claim: str, schema: str, expected: bool
+    ) -> None:
+        """Only the element schema:* or the element * lifts the row filter, and schema:* only for its schema."""
+        await set_setting(rbac, "app.claim_schemas", claim)
+        await rbac.connection.execute(b"SELECT rbac.load()")
+
+        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", schema) is expected
+
+    async def test_all_rows_denies_every_schema_without_a_schemas_claim(
+        self, rbac: Postgres
+    ) -> None:
+        """A request without the claim reads no row."""
+        await rbac.connection.execute(b"SELECT rbac.load()")
+
+        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", "s1") is False
 
     @pytest.mark.parametrize(
         "rules",
@@ -3562,7 +3632,7 @@ class TestRbacProperties:
         assert answer == (
             bool(schema)
             and "," not in schema
-            and (schema in elements or "*" in elements),
+            and (schema in elements or "*" in elements or f"{schema}:*" in elements),
         )
 
     @PROPERTIES

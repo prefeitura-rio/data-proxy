@@ -59,15 +59,16 @@
   "description": "Render the PL/pgSQL block that builds the row-level security predicate.",
   "inputs": {
     "schema": "PostgreSQL schema that owns access_policy.",
+    "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
-{% macro rls_where_clause(schema, has_rls, rls_mappings) -%}
-  -- A token whose schemas claim has * reads every row, so it needs no grant in the access policy.
-  IF NOT {{ has_rls }} OR rbac.mine('*') THEN
+{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings) -%}
+  -- A token with schema:* for this schema, or with *, reads every row, so it needs no grant in the access policy.
+  IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) THEN
     v_where := '';
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where
