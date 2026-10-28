@@ -67,8 +67,11 @@
 }
 #}
 {% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings) -%}
-  -- A token with schema:* for this schema, or with *, reads every row, so it needs no grant in the access policy.
-  IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) THEN
+  -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *), reads every row.
+  IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
+    SELECT 1 FROM {{ schema }}.access_policy p
+    WHERE p.subject = v_subject AND p.unit_type = '*' AND p.unit_id = '*'
+  ) THEN
     v_where := '';
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where

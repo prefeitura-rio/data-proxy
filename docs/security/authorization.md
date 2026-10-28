@@ -47,6 +47,8 @@ OR unit_type/unit_id matches the row
 
 A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
+A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
+
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 
 ## Seed access policy

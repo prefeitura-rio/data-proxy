@@ -1105,6 +1105,39 @@ class TestPostgresTemplates:
 
         assert rows == []
 
+    async def test_view_function_passes_an_empty_predicate_to_a_subject_with_the_wildcard_grant(
+        self, table_function: Postgres
+    ) -> None:
+        """A subject with the grant (*, *) reads every row of the schema, with no unit grant."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        await insert_access_policy(table_function, "u", "*", "*")
+
+        rows, _ = await call_table_function(table_function)
+
+        assert rows == [("ducklake", "", "7")]
+
+    @pytest.mark.parametrize(
+        ("subject", "unit_type", "unit_id"),
+        [
+            pytest.param("other", "*", "*", id="grant-of-another-subject"),
+            pytest.param("u", "*", "u1", id="wildcard-type-only"),
+        ],
+    )
+    async def test_view_function_returns_no_row_for_a_partial_wildcard_grant(
+        self, table_function: Postgres, subject: str, unit_type: str, unit_id: str
+    ) -> None:
+        """Only the grant (*, *) of the subject itself lifts the row filter."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        await insert_access_policy(table_function, subject, unit_type, unit_id)
+
+        rows, _ = await call_table_function(table_function)
+
+        assert rows == []
+
     async def test_view_function_returns_no_row_without_a_grant_or_the_wildcard(
         self, table_function: Postgres
     ) -> None:
