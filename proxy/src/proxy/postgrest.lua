@@ -93,10 +93,12 @@ local function ask_aggregate(context, sender)
 	aggregate.uri, aggregate.args = context.aggregate_path, ""
 
 	local response = sender(aggregate, context.postgrest)
-	local answers = response ~= nil and response.status == constants.http.ok_status
-	if answers and stringx.strip(response.body) ~= constants.aggregate.empty_body then return response end
+	if response and response.status == constants.http.ok_status then
+		if stringx.strip(response.body) ~= constants.aggregate.empty_body then return response end
+		return nil
+	end
 
-	if not answers then log.write(ngx.INFO, "aggregate-failed", context, { status = response and response.status }) end
+	log.write(ngx.INFO, "aggregate-failed", context, { status = response and response.status })
 	return nil
 end
 

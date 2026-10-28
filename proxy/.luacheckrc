@@ -6,4 +6,5 @@ max_cyclomatic_complexity = 8
 ignore = { "212/self" }
 
 -- .types/ has definition files only. Their functions have no body, so luacheck warns about unused arguments.
-exclude_files = { ".types/**" }
+-- .lux/ holds the installed rocks. A task that installs the test rocks must not add their files to the lint.
+exclude_files = { ".types/**", ".lux/**" }
