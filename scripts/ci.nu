@@ -5,8 +5,6 @@ use lib.nu [
     IMAGES
     latest-helm-tag
     make-dir
-    preview-tags
-    preview-version
     read-data
     read-text
     release-tag
@@ -202,45 +200,6 @@ def 'main chart bump' [
     | write-text helm/Chart.yaml
 
     log info 'Helm chart version updated.'
-}
-
-# Pin the images that this commit built in helm/values.yaml, commit the change and push it to the preview branch.
-def 'main preview pin' []: nothing -> nothing {
-    let short = required-env GITHUB_SHA | str substring 0..<7
-    let tags = preview-tags (required-env GITHUB_SHA)
-
-    log info $'Pinning the preview images to ($short)...'
-
-    with-env $tags { main images pin }
-
-    git config user.name $ci.bot_name
-    git config user.email $ci.bot_email
-    git add helm/values.yaml
-    git commit --message ('chore(preview): pin the images to ' + $short + ' [skip ci]') | complete | check-result 'git commit' | ignore
-
-    let pulled = git pull --rebase origin preview | complete
-
-    if $pulled.exit_code != 0 {
-        # A newer commit pinned its own images first, and the run of that commit rolls the preview. Keep this pin local.
-        git rebase --abort
-        log warning 'A newer pin is on preview. This run does not push its pin.'
-        return
-    }
-
-    git push origin HEAD:preview | complete | check-result 'git push' | ignore
-
-    log info 'Pinned the preview images and pushed the commit.'
-}
-
-# Publish the chart of this commit as a preview version, such as 2.0.0-preview.12. It makes no commit, no tag and no release.
-def 'main chart preview' []: nothing -> nothing {
-    let tag = cog bump --auto --dry-run | complete | check-result 'cog bump --dry-run' | release-tag
-    let version = preview-version $tag (read-data helm/Chart.yaml | get version) (required-env GITHUB_RUN_NUMBER)
-
-    log info $'Packaging the preview chart ($version)...'
-    make-dir packaged
-    helm package helm/ --destination packaged --version $version | complete | check-result 'helm package' | ignore
-    main chart publish
 }
 
 # Update the checkout from main.

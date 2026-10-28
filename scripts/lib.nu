@@ -348,25 +348,3 @@ export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
 export def release-tag []: string -> oneof<string, nothing> {
     lines | where $it =~ '^helm-v\d+\.\d+\.\d+' | get --optional 0
 }
-
-# Return the image tag of each image for a preview commit, as a record from the `sha_env` name to the tag.
-# A tag is the first seven characters of the commit with the tag prefix of the image.
-export def preview-tags [commit: string]: nothing -> record {
-    let short = $commit | str substring 0..<7
-
-    $IMAGES
-    | each {|image| {($image.sha_env): $'($image.tag_prefix)($short)'} }
-    | into record
-}
-
-# Return the version of a preview chart: the version of the next release, or the version of the chart when no release
-# is due, followed by `-preview.` and the number of the run. The number makes each preview version newer than the last.
-export def preview-version [
-    tag: oneof<string, nothing> # The tag of the next release, such as helm-v2.0.0, or null.
-    current: string # The version in Chart.yaml.
-    run: string # The number of the CI run.
-]: nothing -> string {
-    let base = if $tag == null { $current } else { $tag | str replace helm-v '' }
-
-    $'($base)-preview.($run)'
-}
