@@ -149,7 +149,7 @@ export def claims-of [token: string]: nothing -> record {
 
 # Print the partial import document for the console client. The roles come from rbac.toml.
 def "main client" [
-    --host: string # The public host of the API and the console, such as preview.data-proxy.dados.rio
+    --host: string # The public host of the API and the console, such as data-proxy.dados.rio
     --audience: string = data-proxy # The audience of the gateway (ingress.auth.audience)
     --client-id: string = data-proxy-console-web # The client ID that the console uses (console.oidc.clientId)
 ]: nothing -> nothing {

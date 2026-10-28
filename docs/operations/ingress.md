@@ -26,26 +26,23 @@ The chart makes a read-only identity next to the admin identity of the S3 secret
 
 ## Addresses
 
-Each environment has one host for the API, the docs and the console. The preview uses this layout now. Staging and production keep their old hosts until they move to this chart.
-
-Only the preview has notebooks. They use their own host, `notebooks.data-proxy.dados.rio`.
+Each environment has one host for the API, the docs, the console and the notebooks.
 
 | Environment | API | Docs | Console | Notebooks |
 | --- | --- | --- | --- | --- |
-| Production | `data-proxy.dados.rio` | `/docs` | `/console` | None yet |
-| Staging | `stg.data-proxy.dados.rio` | `/docs` | `/console` | None yet |
-| Preview | `preview.data-proxy.dados.rio` | `/docs` | `/console` | `notebooks.data-proxy.dados.rio` |
+| Production | `data-proxy.dados.rio` | `/docs` | `/console` | `notebooks.data-proxy.dados.rio` |
+| Staging | `staging.data-proxy.dados.rio` | `/docs` | `/console` | `staging-notebooks.data-proxy.dados.rio` |
 
-A wildcard certificate and a wildcard DNS record for `*.data-proxy.dados.rio` cover every name, because each name has one label before `data-proxy.dados.rio`. A table named `docs` or `console` in a schema isn't reachable on the API host.
+A wildcard certificate and a wildcard DNS record for `*.data-proxy.dados.rio` cover every name, because each name has one label before `data-proxy.dados.rio`. The production host `data-proxy.dados.rio` has its own DNS record and its own name in the certificate. A table named `docs` or `console` in a schema isn't reachable on the API host.
 
 The client `data-proxy-console-web` of the identity provider needs three addresses for each environment. The redirect address is `<origin>/console/auth/callback`. The post-logout address is `<origin>/console/auth/login`. The web origin is `<origin>`.
 
-Preview and staging share one Keycloak, `auth-idriohom`, so one client lists the origins of both. Production has its own Keycloak and lists only its own origin.
+Each environment has its own Keycloak realm, and each realm lists only the origin of its environment.
 
-| Keycloak | Origins |
+| Realm | Origin |
 | --- | --- |
-| `auth-idriohom` | `https://preview.data-proxy.dados.rio` and `https://stg.data-proxy.dados.rio` |
-| `auth-idrio` | `https://data-proxy.dados.rio` |
+| `id-staging.rio.gov.br` | `https://staging.data-proxy.dados.rio` |
+| `id.rio.gov.br` | `https://data-proxy.dados.rio` |
 
 ## Istio ingress
 
