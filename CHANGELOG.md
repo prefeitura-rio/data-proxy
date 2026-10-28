@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.0.2 - 2026-10-28
+
+### Fixes
+
+- **helm**: pin the sync image to the 8f81ed6 build (a48d687)
+- **sync**: validate x-ducklake-filter without a savepoint (8f81ed6)
+
+
+- - -
+
 ## helm-v2.0.1 - 2026-10-28
 
 ### Fixes
