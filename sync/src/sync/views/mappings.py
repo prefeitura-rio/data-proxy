@@ -1,10 +1,14 @@
 """Column and mapping helpers for source view generation."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from psycopg.sql import Identifier, Literal
 
-from sync.constants import DUCKDB_VIEW_PREFIX, MAX_IDENTIFIER_BYTES
+from sync.constants import (
+    AGGREGATE_FUNCTION_SUFFIX,
+    DUCKDB_VIEW_PREFIX,
+    MAX_IDENTIFIER_BYTES,
+)
 from sync.executor import Executor
 from sync.models import PartitionedTable, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
@@ -38,6 +42,50 @@ def pg_scalar_type(duckdb_type: str) -> str:
             return "text"
 
 
+NUMERIC_TYPES: Final = frozenset(
+    {
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "INT",
+        "BIGINT",
+        "HUGEINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "UHUGEINT",
+        "FLOAT",
+        "REAL",
+        "DOUBLE",
+        "DECIMAL",
+    }
+)
+
+
+def is_numeric(duckdb_type: str) -> bool:
+    """Return true when DuckDB can sum and average the type.
+
+    PostgreSQL receives a decimal or a floating point value as text, so it cannot sum or average the column.
+    DuckDB can, so the aggregate function runs the sum and the average there.
+    """
+    return duckdb_type.upper().split("(")[0].strip() in NUMERIC_TYPES
+
+
+GROUPABLE_TYPES: Final = frozenset(
+    {"VARCHAR", "TEXT", "STRING", "BIGINT", "INTEGER", "INT", "DATE", "BOOLEAN"}
+)
+
+
+def is_groupable(duckdb_type: str) -> bool:
+    """Return true when a group by on the column gives the same value as the table function.
+
+    The column reaches PostgreSQL as text, a whole number, a date, or a flag. Another type reaches it as text,
+    so DuckDB would give a number or a timestamp where the table gives a text. Those columns use the table.
+    """
+    return duckdb_type.upper() in GROUPABLE_TYPES
+
+
 def is_sortable(duckdb_type: str) -> bool:
     """Return true when DuckDB and PostgreSQL sort the type the same way.
 
@@ -55,6 +103,16 @@ def changes_function_name(table: TableConfig) -> str:
     return f"dl_changes_{table.table_name}".encode()[:MAX_IDENTIFIER_BYTES].decode(
         errors="ignore"
     )
+
+
+def aggregate_function_name(table_name: str) -> str | None:
+    """Return the name of the aggregate function of one table, or None if the name is too long.
+
+    PostgreSQL cuts an identifier at 63 bytes without an error, and the cut names of two tables can match.
+    The proxy does not call the function of a table whose name is too long, and the table function answers.
+    """
+    name = f"{table_name}{AGGREGATE_FUNCTION_SUFFIX}"
+    return name if len(name.encode()) <= MAX_IDENTIFIER_BYTES else None
 
 
 def quoted_identifier(identifier: str) -> str:
@@ -82,6 +140,8 @@ def function_columns(
             "pg_type": pg_scalar_type(duckdb_type),
             "return_type": return_type_for(duckdb_type),
             "sortable": is_sortable(duckdb_type),
+            "numeric": is_numeric(duckdb_type),
+            "groupable": is_groupable(duckdb_type),
         }
         for column, duckdb_type in columns
     ]
@@ -176,6 +236,13 @@ def serving_definition_signature(
             table_changes_function_mapping(schema, table, columns, claim),
         ),
     ]
+    aggregate_mapping = aggregate_function_mapping(schema, table, columns, claim)
+    if aggregate_mapping is not None:
+        definitions.append(
+            render_template(
+                "postgres/views/create_aggregate_function", aggregate_mapping
+            )
+        )
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
     if isinstance(table, PartitionedTable) and table.fallback:
         fallback = source.fallback
@@ -255,6 +322,21 @@ def table_function_mapping(
         "source_table": Literal(table.name),
         "fallbacks": fallback,
         "user_role": Identifier(settings.AUTH_USER_ROLE),
+    }
+
+
+def aggregate_function_mapping(
+    schema: str,
+    table: TableConfig,
+    columns: list[tuple[str, str]],
+    claim: str | None,
+) -> dict[str, TemplateValue] | None:
+    """Return mappings for the aggregate function of one table, or None if the table has none."""
+    name = aggregate_function_name(table.table_name)
+    if name is None:
+        return None
+    return table_function_mapping(schema, table, columns, claim) | {
+        "function": Identifier(name)
     }
 
 

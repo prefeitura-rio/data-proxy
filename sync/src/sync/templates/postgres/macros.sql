@@ -22,14 +22,15 @@
   "name": "postgres.require_scope",
   "description": "Render the PL/pgSQL check that returns no row for a schema outside the schemas claim of the token.",
   "inputs": {
-    "schema_literal": "SQL literal of the schema name."
+    "schema_literal": "SQL literal of the schema name.",
+    "empty_result": "SQL expression that a function with a scalar result returns. Empty for a function that returns rows."
   },
   "returns": "A PL/pgSQL block that leaves the function with an empty result."
 }
 #}
-{% macro require_scope(schema_literal) -%}
+{% macro require_scope(schema_literal, empty_result='') -%}
   IF NOT rbac.mine({{ schema_literal }}) THEN
-    RETURN;
+    RETURN{% if empty_result %} {{ empty_result }}{% endif %};
   END IF;
 {%- endmacro %}
 
@@ -61,12 +62,13 @@
     "schema": "PostgreSQL schema that owns access_policy.",
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
     "has_rls": "Enable the row-level security branch.",
-    "rls_mappings": "Unit mappings used to build the access-policy predicate."
+    "rls_mappings": "Unit mappings used to build the access-policy predicate.",
+    "empty_result": "SQL expression that a function with a scalar result returns when the subject has no grant. Empty for a function that returns rows."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
-{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings) -%}
+{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, empty_result='') -%}
   -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *), reads every row.
   IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
@@ -86,7 +88,7 @@
     ) filters;
 
     IF v_where IS NULL THEN
-      RETURN;
+      RETURN{% if empty_result %} {{ empty_result }}{% endif %};
     END IF;
 
     v_where := 'WHERE (' || v_where || ')';

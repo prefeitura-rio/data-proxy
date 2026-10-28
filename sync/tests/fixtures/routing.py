@@ -43,6 +43,18 @@ async def table_function(routing: Postgres) -> Postgres:
 
 
 @pytest.fixture
+async def aggregate_function(routing: Postgres) -> Postgres:
+    """Install a DuckLake helper with six rows, for the aggregate function."""
+    await create_access_policy(routing)
+    await execute_sql(
+        routing,
+        "postgres/create_aggregate_stubs",
+        mapping={"schema": routing.namespace.identifier},
+    )
+    return routing
+
+
+@pytest.fixture
 async def rbac(postgres: Postgres) -> Postgres:
     """Install the rbac schema from the real rules file in the test transaction."""
     await install_rbac(postgres)

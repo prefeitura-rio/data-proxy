@@ -1622,7 +1622,7 @@ class TestPostgresTemplates:
     async def test_cleanup_stale_objects_drops_only_views_missing_from_the_config(
         self, postgres: Postgres, psql: Psql
     ) -> None:
-        """Drops only views missing from the config."""
+        """Drops only views missing from the config, with their table and aggregate functions."""
         schema = postgres.namespace.schema
         target = postgres.namespace.identifier
         psql.run(
@@ -1643,6 +1643,16 @@ class TestPostgresTemplates:
                     {"schema": target, "function": Identifier("stale_fn")},
                     root=TEST_SQL_DIR,
                 ),
+                render_template(
+                    "postgres/create_stub_function",
+                    {"schema": target, "function": Identifier("stale_aggregate")},
+                    root=TEST_SQL_DIR,
+                ),
+                render_template(
+                    "postgres/create_stub_function",
+                    {"schema": target, "function": Identifier("kept_aggregate")},
+                    root=TEST_SQL_DIR,
+                ),
                 helm_sql(
                     "call_cleanup_stale_objects",
                     {"schema": target, "schema_argument": Literal(schema)},
@@ -1659,7 +1669,9 @@ class TestPostgresTemplates:
             await relation_exists(postgres, schema, "kept"),
             await relation_exists(postgres, schema, "stale"),
             await function_exists(postgres, schema, "stale_fn()"),
-        ] == [True, False, False]
+            await function_exists(postgres, schema, "stale_aggregate()"),
+            await function_exists(postgres, schema, "kept_aggregate()"),
+        ] == [True, False, False, False, True]
 
     async def test_prune_access_log_keeps_only_recent_rows(
         self, postgres: Postgres, psql: Psql

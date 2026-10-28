@@ -42,3 +42,4 @@ LOCATION_FRAMES: Final = 3
 PUBLISH_QUEUE: Final = "publish"
 
 MAX_IDENTIFIER_BYTES: Final = 63
+AGGREGATE_FUNCTION_SUFFIX: Final = "_aggregate"

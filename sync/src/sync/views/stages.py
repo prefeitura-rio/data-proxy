@@ -13,6 +13,8 @@ from sync.sources.registry import sources
 from sync.types import PostgresParams
 
 from .mappings import (
+    aggregate_function_mapping,
+    aggregate_function_name,
     boundary_view_mapping,
     changes_function_name,
     column_types_from_duckdb,
@@ -125,6 +127,11 @@ async def drop_view_objects(
             "schema": Identifier(schema_name),
             "view": Identifier(view_name),
             "function": Identifier(f"{view_name}_fn"),
+            "aggregate_function": (
+                None
+                if (aggregate := aggregate_function_name(view_name)) is None
+                else Identifier(aggregate)
+            ),
             "helpers": [
                 Identifier(f"{view_name}_dl_fn"),
                 *[
@@ -236,6 +243,21 @@ async def create_table_function(
     )
 
 
+async def create_aggregate_function(
+    executor: Executor[PostgresParams, list[TupleRow]],
+    schema: str,
+    table: TableConfig,
+    columns: list[tuple[str, str]],
+    claim: str | None,
+) -> None:
+    """Create the function that runs the aggregate of a request in DuckDB, if the table name allows it."""
+    mapping = aggregate_function_mapping(schema, table, columns, claim)
+    if mapping is not None:
+        await executor.execute(
+            "postgres/views/create_aggregate_function", mapping=mapping
+        )
+
+
 async def create_boundary_view(
     executor: Executor[PostgresParams, list[TupleRow]],
     schema: str,
@@ -272,6 +294,7 @@ async def create_table_views(
     await drop_removed_functions(pg_conn, {(schema, changes_function_name(table))})
     await create_source_helpers(executor, schema, table, columns)
     await create_table_function(executor, schema, table, columns, claim)
+    await create_aggregate_function(executor, schema, table, columns, claim)
     await create_boundary_view(executor, schema, table, columns)
 
     await executor.execute(

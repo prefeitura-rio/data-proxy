@@ -1,5 +1,5 @@
 from typing import Final
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -152,6 +152,179 @@ class TestSourceMappings:
         )
 
         assert first == second
+
+
+class TestAggregateFunction:
+    """The aggregate function of a table has a name that PostgreSQL keeps whole."""
+
+    @pytest.mark.parametrize(
+        ("duckdb_type", "numeric"),
+        [
+            pytest.param("BIGINT", True, id="bigint"),
+            pytest.param("INTEGER", True, id="integer"),
+            pytest.param("HUGEINT", True, id="hugeint"),
+            pytest.param("DOUBLE", True, id="double"),
+            pytest.param("FLOAT", True, id="float"),
+            pytest.param("DECIMAL(18,3)", True, id="decimal-with-a-scale"),
+            pytest.param("decimal(10,2)", True, id="decimal-in-lower-case"),
+            pytest.param("VARCHAR", False, id="text"),
+            pytest.param("DATE", False, id="date"),
+            pytest.param("BOOLEAN", False, id="boolean"),
+            pytest.param("TIMESTAMP", False, id="timestamp"),
+            pytest.param("INTERVAL", False, id="interval-is-not-a-number"),
+            pytest.param("STRUCT(id BIGINT)", False, id="json"),
+        ],
+    )
+    def test_marks_the_types_that_duckdb_sums_and_averages(
+        self, duckdb_type: str, numeric: bool
+    ) -> None:
+        """Mark a column numeric by its DuckDB type, because PostgreSQL receives decimals as text."""
+        columns = utils.function_columns([("c", duckdb_type)], raw_json=True)
+
+        assert columns[0]["numeric"] is numeric
+
+    @pytest.mark.parametrize(
+        ("duckdb_type", "groupable"),
+        [
+            pytest.param("VARCHAR", True, id="text"),
+            pytest.param("BIGINT", True, id="bigint"),
+            pytest.param("INTEGER", True, id="integer"),
+            pytest.param("DATE", True, id="date"),
+            pytest.param("BOOLEAN", True, id="boolean"),
+            pytest.param("varchar", True, id="text-in-lower-case"),
+            pytest.param("DOUBLE", False, id="double-reaches-postgresql-as-text"),
+            pytest.param(
+                "DECIMAL(18,3)", False, id="decimal-reaches-postgresql-as-text"
+            ),
+            pytest.param("SMALLINT", False, id="smallint-reaches-postgresql-as-text"),
+            pytest.param("TIMESTAMP", False, id="timestamp-reaches-postgresql-as-text"),
+            pytest.param("STRUCT(id BIGINT)", False, id="json"),
+        ],
+    )
+    def test_marks_the_types_that_a_group_by_gives_as_the_table_does(
+        self, duckdb_type: str, groupable: bool
+    ) -> None:
+        """Mark a column groupable only when DuckDB and the table function give the same value."""
+        columns = utils.function_columns([("c", duckdb_type)], raw_json=True)
+
+        assert columns[0]["groupable"] is groupable
+
+    @pytest.mark.parametrize(
+        ("table_name", "expected"),
+        [
+            pytest.param("people", "people_aggregate", id="short-name"),
+            pytest.param(
+                "a" * 53, f"{'a' * 53}_aggregate", id="longest-name-that-fits"
+            ),
+            pytest.param("a" * 54, None, id="one-byte-too-long"),
+            pytest.param("é" * 27, None, id="bytes-not-characters"),
+        ],
+    )
+    def test_names_the_function_only_when_the_name_fits(
+        self, table_name: str, expected: str | None
+    ) -> None:
+        """Give no name when PostgreSQL would cut it, because two cut names can match."""
+        assert utils.aggregate_function_name(table_name) == expected
+
+    @pytest.mark.parametrize(
+        ("table_name", "has_mapping"),
+        [
+            pytest.param("people", True, id="short-name"),
+            pytest.param("a" * 54, False, id="name-too-long"),
+        ],
+    )
+    def test_maps_the_function_of_a_table_with_a_short_name(
+        self, table_name: str, has_mapping: bool
+    ) -> None:
+        """Reuse the mapping of the table function with the name of the aggregate function."""
+        table = FullTable(name=f"p.d.{table_name}", resolved_source="bigquery")
+
+        mapping = utils.aggregate_function_mapping(
+            "app", table, [("qty", "BIGINT")], "sub"
+        )
+
+        assert (mapping is not None) is has_mapping
+        if mapping is not None:
+            assert mapping["function"].as_string(None) == f'"{table_name}_aggregate"'  # type: ignore[union-attr]
+            assert mapping["dl_function"].as_string(None) == f'"{table_name}_dl_fn"'  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize(
+        ("table_name", "rendered"),
+        [
+            pytest.param("people", True, id="short-name"),
+            pytest.param("a" * 54, False, id="name-too-long"),
+        ],
+    )
+    def test_puts_the_function_in_the_serving_signature(
+        self, monkeypatch: pytest.MonkeyPatch, table_name: str, rendered: bool
+    ) -> None:
+        """Change the signature when the function changes, so the next reconcile creates it."""
+        seen: list[str] = []
+        render = utils.render_template
+
+        def record(name: str, mapping: dict[str, object], **kwargs: object) -> str:
+            seen.append(name)
+            return render(name, mapping, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(utils, "render_template", record)
+
+        utils.serving_definition_signature(
+            "app",
+            FullTable(name=f"p.d.{table_name}", resolved_source="bigquery"),
+            [("qty", "BIGINT")],
+            "sub",
+        )
+
+        assert ("postgres/views/create_aggregate_function" in seen) is rendered
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("table_name", "templates"),
+        [
+            pytest.param(
+                "people", ["postgres/views/create_aggregate_function"], id="short-name"
+            ),
+            pytest.param("a" * 54, [], id="name-too-long"),
+        ],
+    )
+    async def test_creates_the_function_only_for_a_short_name(
+        self, table_name: str, templates: list[str]
+    ) -> None:
+        """Skip the function for a table whose name PostgreSQL would cut."""
+        executor = AsyncMock()
+
+        await stages.create_aggregate_function(
+            executor,
+            "app",
+            FullTable(name=f"p.d.{table_name}", resolved_source="bigquery"),
+            [("qty", "BIGINT")],
+            "sub",
+        )
+
+        assert [call.args[0] for call in executor.execute.await_args_list] == templates
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("view_name", "expected"),
+        [
+            pytest.param("people", '"people_aggregate"', id="short-name"),
+            pytest.param("a" * 54, None, id="name-too-long"),
+        ],
+    )
+    async def test_drops_the_function_with_the_view(
+        self, monkeypatch: pytest.MonkeyPatch, view_name: str, expected: str | None
+    ) -> None:
+        """Drop the aggregate function of a view that leaves the config, and never a cut name."""
+        executor = AsyncMock()
+        executor_class = MagicMock()
+        executor_class.__getitem__.return_value.return_value = executor
+        monkeypatch.setattr(stages, "Executor", executor_class)
+
+        await stages.drop_view_objects(AsyncMock(), "app", view_name)
+
+        mapping = executor.execute.await_args.kwargs["mapping"]
+        aggregate = mapping["aggregate_function"]
+        assert (None if aggregate is None else aggregate.as_string(None)) == expected
 
 
 class TestCreateTableViews:

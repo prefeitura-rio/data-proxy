@@ -558,6 +558,67 @@ async def install_table_function(
     )
 
 
+async def install_aggregate_function(
+    pg: Postgres, *, has_rls: bool, fallbacks: list[str], extra_columns: int = 0
+) -> None:
+    """Render the aggregate function over the stub DuckLake helper.
+
+    The extra columns exist only in the metadata of the function, to test a table with many columns.
+    """
+    from sync.views.mappings import function_columns
+
+    columns = function_columns(
+        [
+            ("unit_id", "VARCHAR"),
+            ("grp", "VARCHAR"),
+            ("qty", "BIGINT"),
+            ("day", "DATE"),
+            ("flag", "BOOLEAN"),
+            ("tags", "JSON"),
+            ("ratio", "DOUBLE"),
+            ("label", "VARCHAR"),
+            *[(f"extra_{index}", "BIGINT") for index in range(extra_columns)],
+        ],
+        raw_json=True,
+    )
+    await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
+        "postgres/views/create_aggregate_function",
+        mapping={
+            "schema": pg.namespace.identifier,
+            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
+            "function": Identifier("t_agg"),
+            "dl_function": Identifier("t_dl_fn"),
+            "dl_view": "dl_t",
+            "columns": columns,
+            "claim_setting": "app.claim_sub",
+            "has_rls": str(has_rls).lower(),
+            "rls_mappings": [{"column": "unit_id", "unit_type": "unit"}],
+            "source_table": Literal(ROUTED_TABLE),
+            "fallbacks": [{"name": name} for name in fallbacks],
+            "user_role": Identifier(settings.AUTH_USER_ROLE),
+            "schema_literal": Literal(pg.namespace.schema),
+        },
+    )
+
+
+async def call_aggregate_function(
+    pg: Postgres,
+    document: dict[str, object] | None,
+    role: str = "dp_api",
+    schemas: str | None = None,
+) -> tuple[object, dict[str, str]]:
+    """Call the aggregate function as a token, with the filter header of the document.
+
+    The first value is the parsed answer. It is None when the function answers null.
+    """
+    await act_as_token(pg, role, pg.namespace.schema if schemas is None else schemas)
+    if document is not None:
+        await set_request_headers(pg, {"x-ducklake-filter": json.dumps(document)})
+    raw = await scalar(pg, f"SELECT {pg.namespace.schema}.t_agg()::text")
+    answer = None if raw is None else json.loads(str(raw))
+    return answer, await response_headers(pg)
+
+
 async def act_as_token(pg: Postgres, role: str, schemas: str) -> None:
     """Give the connection the permissions of one role and the schemas claim of a token.
 

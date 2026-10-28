@@ -41,6 +41,9 @@ BEGIN
         LOOP
             EXECUTE format('DROP VIEW IF EXISTS %I.%I CASCADE', target_schema, target_table);
             EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_fn');
+            IF octet_length(target_table || '_aggregate') <= 63 THEN
+                EXECUTE format('DROP FUNCTION IF EXISTS %I.%I()', target_schema, target_table || '_aggregate');
+            END IF;
         END LOOP;
     END LOOP;
 END;
