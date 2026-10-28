@@ -3,6 +3,9 @@
 ---@type Regex
 return {
 	bearer_payload = "^Bearer [^.]+%.([^%.]+)",
+	aggregate_alias = "^([%a_][%w_]*):(.+)$",
+	aggregate_column = "^([%a_][%w_]*)%.(%a+)%(%)$",
+	aggregate_count = "^(%a+)%(%)$",
 	column_name = "^[%a_][%w_]*$",
 	escaped_slash = "%%2F",
 	media_range = "^[^,;]+",

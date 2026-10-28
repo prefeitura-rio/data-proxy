@@ -39,6 +39,100 @@ local function fakes(answers)
 	return sender, sleeper, calls, waits
 end
 
+describe("postgrest.query with an aggregate", function()
+	local aggregate = {
+		method = "GET",
+		uri = "/people",
+		args = "select=a,n:b.sum()",
+		started = 0,
+		postgrest = "http://postgrest",
+		aggregate_path = "/rpc/people_aggregate",
+	}
+
+	--- Make a sender that gives the answers in order, and records the uri and the args of each call.
+	local function recording(answers)
+		local seen = {}
+		local function sender(context)
+			seen[#seen + 1] = { uri = context.uri, args = context.args }
+			local answer = answers[#seen]
+			if answer == false then return nil, "failed" end
+			return answer
+		end
+		return sender, seen
+	end
+
+	local function no_sleep() end
+
+	it("sends the aggregate function first, without the query string, and returns its answer", function()
+		local sender, seen = recording({ { status = 200, body = '[{"a":1,"n":5}]' } })
+
+		local response = postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same({ status = 200, body = '[{"a":1,"n":5}]' }, response)
+		assert.same({ { uri = "/rpc/people_aggregate", args = "" } }, seen)
+	end)
+
+	it("sends the original request when the function answers null", function()
+		local sender, seen = recording({ { status = 200, body = "null" }, { status = 200, body = "[1]" } })
+
+		local response = postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same({ status = 200, body = "[1]" }, response)
+		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same("select=a,n:b.sum()", seen[2].args)
+	end)
+
+	it("treats a null with spaces and a new line as null", function()
+		local sender, seen = recording({ { status = 200, body = " null\n" }, { status = 200, body = "[1]" } })
+
+		postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same(2, #seen)
+	end)
+
+	for status, label in pairs({ [404] = "404", [500] = "500", [503] = "503", [401] = "401" }) do
+		it("sends the original request when the function answers " .. label, function()
+			local sender, seen = recording({ { status = status, body = "{}" }, { status = 200, body = "[1]" } })
+
+			local response = postgrest.query(aggregate, sender, no_sleep)
+
+			assert.same({ status = 200, body = "[1]" }, response)
+			assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		end)
+	end
+
+	it("sends the original request when the call to the function fails", function()
+		local sender, seen = recording({ false, { status = 200, body = "[1]" } })
+
+		local response = postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same({ status = 200, body = "[1]" }, response)
+		assert.same(2, #seen)
+	end)
+
+	it("does not call the function for a request without an aggregate path", function()
+		local sender, seen = recording({ { status = 200, body = "[1]" } })
+
+		postgrest.query(read, sender, no_sleep)
+
+		assert.same({ "/people" }, { seen[1].uri })
+		assert.same(1, #seen)
+	end)
+
+	it("keeps the retries of the original request after the function falls back", function()
+		local sender, seen = recording({
+			{ status = 200, body = "null" },
+			{ status = 503, body = "" },
+			{ status = 200, body = "[1]" },
+		})
+
+		local response = postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same({ status = 200, body = "[1]" }, response)
+		assert.same(3, #seen)
+	end)
+end)
+
 describe("postgrest.query", function()
 	it("sends one request to the PostgREST address of the context", function()
 		local sender, sleeper, calls = fakes({ { status = 200 } })

@@ -25,6 +25,7 @@
 ---@field max_body number Largest cacheable body in bytes. 0 means no limit.
 ---@field body string Request body. Empty if absent.
 ---@field disabled_endpoints string[] Path prefixes that are never cached.
+---@field aggregate_path string|nil Path of the function that runs the aggregate of the request in DuckDB.
 ---@field started number Time at which the proxy started the request (seconds, with fractions).
 
 --- The claims of a JWT that the proxy reads. Other claims are ignored.

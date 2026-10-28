@@ -781,8 +781,586 @@
     "expected": null
   },
   {
-    "name": "pushes no columns when select has an aggregate",
+    "name": "pushes the count aggregate only for a plain read",
     "query": "select=count()",
+    "expected": null
+  },
+  {
+    "name": "pushes the aggregate and its columns for a plain read",
+    "query": "select=serie_tipo,numerador:qtd.sum(),total:count()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "serie_tipo",
+        "qtd"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "serie_tipo",
+            "alias": "serie_tipo"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "qtd",
+            "alias": "numerador"
+          },
+          {
+            "fn": "count",
+            "alias": "total"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "names an aggregate without an alias after its function",
+    "query": "select=a,b.max()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "max",
+            "column": "b",
+            "alias": "max"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes an aggregate without a group",
+    "query": "select=count()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "aggregate": {
+        "items": [
+          {
+            "fn": "count",
+            "alias": "count"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes an average",
+    "query": "select=a,media:ratio.avg()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "ratio"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "avg",
+            "column": "ratio",
+            "alias": "media"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes a count of a column",
+    "query": "select=n:b.count()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "b"
+      ],
+      "aggregate": {
+        "items": [
+          {
+            "fn": "count",
+            "column": "b",
+            "alias": "n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes the filter and its columns with an aggregate",
+    "query": "select=a,n:b.sum()&c=gte.2&d=is.not_null",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "where": {
+        "kind": "group",
+        "operator": "and",
+        "items": [
+          {
+            "kind": "comparison",
+            "column": "c",
+            "operator": "gte",
+            "negated": false,
+            "value": "2"
+          },
+          {
+            "kind": "comparison",
+            "column": "d",
+            "operator": "is",
+            "negated": false,
+            "value": "not_null"
+          }
+        ]
+      },
+      "columns": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes the columns but not the aggregate for a read that needs every row",
+    "query": "select=a,n:b.sum()",
+    "options": {
+      "limit": false
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "pushes the order of a group column inside the aggregate",
+    "query": "select=a,n:b.sum()&order=a",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ],
+        "order": [
+          {
+            "column": "a",
+            "descending": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes the limit inside the aggregate and never at the top",
+    "query": "select=a,n:b.sum()&limit=5",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ],
+        "limit": 5
+      }
+    }
+  },
+  {
+    "name": "pushes the offset inside the aggregate",
+    "query": "select=a,n:b.sum()&offset=5",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ],
+        "offset": 5
+      }
+    }
+  },
+  {
+    "name": "pushes an alias on a column of the group",
+    "query": "select=regiao:a,n:b.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "regiao"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes an alias and a plain column together in the group",
+    "query": "select=regiao:a,c,n:b.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "c",
+        "b"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "regiao"
+          },
+          {
+            "column": "c",
+            "alias": "c"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "b",
+            "alias": "n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes nothing when the alias of a group column repeats a name of the answer",
+    "query": "select=n:a,n:b.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for an alias on a column when the select has no aggregate",
+    "query": "select=regiao:a,c",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes the order with its modifiers inside the aggregate",
+    "query": "select=a,b,n:c.sum()&order=a.desc.nullsfirst,b.asc",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b",
+        "c"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          },
+          {
+            "column": "b",
+            "alias": "b"
+          }
+        ],
+        "items": [
+          {
+            "fn": "sum",
+            "column": "c",
+            "alias": "n"
+          }
+        ],
+        "order": [
+          {
+            "column": "a",
+            "descending": true,
+            "nulls": "first"
+          },
+          {
+            "column": "b",
+            "descending": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes the order, the limit and the offset together inside the aggregate",
+    "query": "select=a,count()&order=a.asc.nullslast&offset=0&limit=1000",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "a"
+          }
+        ],
+        "items": [
+          {
+            "fn": "count",
+            "alias": "count"
+          }
+        ],
+        "order": [
+          {
+            "column": "a",
+            "descending": false,
+            "nulls": "last"
+          }
+        ],
+        "limit": 1000,
+        "offset": 0
+      }
+    }
+  },
+  {
+    "name": "orders by the column of an aliased group column",
+    "query": "select=regiao:a,count()&order=a",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a"
+      ],
+      "aggregate": {
+        "group": [
+          {
+            "column": "a",
+            "alias": "regiao"
+          }
+        ],
+        "items": [
+          {
+            "fn": "count",
+            "alias": "count"
+          }
+        ],
+        "order": [
+          {
+            "column": "a",
+            "descending": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "pushes no aggregate when the order names the alias of a group column",
+    "query": "select=regiao:a,count()&order=regiao",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "regiao"
+      ]
+    }
+  },
+  {
+    "name": "pushes no aggregate when the order names an aggregate",
+    "query": "select=a,n:b.sum()&order=n.desc",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b",
+        "n"
+      ]
+    }
+  },
+  {
+    "name": "pushes no aggregate when the order names a column outside the group",
+    "query": "select=a,n:b.sum()&order=b",
+    "options": {
+      "limit": true
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "pushes no aggregate for an order and a limit when the read needs every row",
+    "query": "select=a,n:b.sum()&order=a&limit=5",
+    "options": {
+      "limit": false
+    },
+    "expected": {
+      "columns": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "pushes nothing for an aggregate function that the proxy does not support",
+    "query": "select=a,n:b.stddev()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for an aggregate with a cast",
+    "query": "select=a,b.sum()::int",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing when two values of the answer have the same name",
+    "query": "select=a,a:b.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing when two aggregates have the same default name",
+    "query": "select=b.sum(),c.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for sum without a column",
+    "query": "select=sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for an aggregate with a star",
+    "query": "select=*,n:b.sum()",
+    "options": {
+      "limit": true
+    },
+    "expected": null
+  },
+  {
+    "name": "pushes nothing for an aggregate with an embed",
+    "query": "select=a,child(*),n:b.sum()",
+    "options": {
+      "limit": true
+    },
     "expected": null
   },
   {
@@ -964,12 +1542,26 @@
     "expected": null
   },
   {
-    "name": "pushes no limit when select has an aggregate",
+    "name": "pushes the limit inside the aggregate for a count of a column",
     "query": "select=id.count()&limit=1",
     "options": {
       "limit": true
     },
-    "expected": null
+    "expected": {
+      "columns": [
+        "id"
+      ],
+      "aggregate": {
+        "items": [
+          {
+            "fn": "count",
+            "column": "id",
+            "alias": "count"
+          }
+        ],
+        "limit": 1
+      }
+    }
   },
   {
     "name": "pushes no limit when the limit has more than nine digits",

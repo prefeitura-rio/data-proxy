@@ -2,6 +2,9 @@
 
 --- The Lua patterns of the proxy, by what they match.
 ---@class Regex
+---@field aggregate_alias string An item with an alias, with the alias and the rest captured: n:id.sum().
+---@field aggregate_column string An aggregate of a column, with the column and the function captured: id.sum().
+---@field aggregate_count string An aggregate without a column, with the function captured: count() gives count.
 ---@field bearer_payload string Payload of a bearer token, captured.
 ---@field column_name string Text of a column name, for example id or name_2.
 ---@field escaped_slash string

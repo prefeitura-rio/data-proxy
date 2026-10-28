@@ -65,13 +65,22 @@ local function can_limit(input)
 		and not (headers.Accept or ""):find("vnd.pgrst", 1, true)
 end
 
+--- Read the query of a read into the document of the filter header.
+---@param input NgxRequest
+---@return FilterDocument|nil filter nil for a write, or if there is nothing to push.
+function request.read_filter(input)
+	if not constants.http.read_methods[input.method] then return nil end
+
+	return parser.parse(input.args or "", { limit = can_limit(input) })
+end
+
 --- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read.
 --- The function returns a new table and does not change the input.
 ---@param input NgxRequest
+---@param filter FilterDocument|nil The document of the filter header. The function reads the query when it is nil.
 ---@return HeaderMap headers Headers for the PostgREST request.
-function request.make_headers(input)
-	local is_read = constants.http.read_methods[input.method]
-	local filter = is_read and parser.parse(input.args or "", { limit = can_limit(input) }) or nil
+function request.make_headers(input, filter)
+	filter = filter or request.read_filter(input)
 	local filter_json = filter and cjson.encode(filter) or nil
 
 	local names = List(tablex.copy(constants.headers.forwarded))
@@ -80,6 +89,36 @@ function request.make_headers(input)
 		if name == constants.headers.filter then return filter_json, name end
 		return input.headers_in[name], name
 	end, names)
+end
+
+--- Make the name of the aggregate function of the table in a path.
+---@param uri string Request path.
+---@return string|nil name nil if the path is not a plain table name.
+local function whole_table_name(uri)
+	local table_name = uri:match(regex.table_path)
+	if table_name == nil or uri ~= "/" .. table_name or not table_name:match(regex.column_name) then return nil end
+
+	return table_name .. constants.aggregate.function_suffix
+end
+
+--- Find the path of the function that runs the aggregate of the request in DuckDB.
+--- The function exists only for a plain read of a table as JSON. Any other request goes to the table.
+---
+--- ```lua
+--- request.aggregate_path({ uri = "/people", headers_in = {} }, { aggregate = { items = { ... } } })
+--- --> "/rpc/people_aggregate"
+--- request.aggregate_path({ uri = "/people", headers_in = {} }, { columns = { "id" } }) --> nil
+--- ```
+---@param input NgxRequest
+---@param filter FilterDocument|nil The document of the filter header.
+---@return string|nil path nil if the request has no aggregate function.
+function request.aggregate_path(input, filter)
+	if filter == nil or filter.aggregate == nil or not can_limit(input) then return nil end
+	if request.normalize_accept(input.headers_in.Accept) ~= constants.http.default_media_type then return nil end
+
+	local name = whole_table_name(input.uri)
+	if name == nil or #name > constants.aggregate.max_function_bytes then return nil end
+	return constants.aggregate.rpc_prefix .. name
 end
 
 --- Tell whether a request asks for the internal profile, which only the cluster may use.
@@ -161,6 +200,7 @@ end
 ---@return RequestContext context
 function request.make_context(input, deps)
 	local identity = request.jwt_identity(input.headers_in.Authorization)
+	local filter = request.read_filter(input)
 
 	local table_settings = sync.table_for(deps.config, input.uri)
 	local ttl_seconds = (table_settings and table_settings.cache_ttl) or input.cache_ttl or ""
@@ -175,7 +215,8 @@ function request.make_context(input, deps)
 		profile = input.headers_in["Accept-Profile"] or "",
 		generation = input.generation,
 		revision = deps.config.revision,
-		headers = request.make_headers(input),
+		headers = request.make_headers(input, filter),
+		aggregate_path = request.aggregate_path(input, filter),
 		postgrest = input.postgrest,
 		cache_ttl = tostring(ttl_seconds),
 		max_body = tonumber(input.max_body) or 0,

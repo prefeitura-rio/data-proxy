@@ -16,6 +16,7 @@
 ---@field time TimeConstants Units of time.
 ---@field settings SettingsConstants Limits for the call to the console that gives sync.json.
 ---@field filter FilterConstants Reading the filter parameters of a query.
+---@field aggregate AggregateConstants Calling the aggregate function of a table.
 ---@field config ConfigConstants Reading the config from the environment.
 
 --- Names of HTTP headers.
@@ -106,10 +107,18 @@
 ---@field max_limit_digits integer Most digits of a limit or an offset that the parser pushes.
 ---@field order_modifiers table<string, table> The fields that each word after a column in an order item sets.
 ---@field scalar_operators string[] Operators that take one scalar value, longest name first.
+---@field aggregate_functions string[] The aggregate functions that the parser pushes to DuckDB.
 ---@field is_keywords string[]
 ---@field query_parameter_separator string
 ---@field list_separator string Separates the items of a list in a value, for example in select and order.
 ---@field part_separator string Separates the parts of a value, for example id.desc, and the key from the value.
+
+--- Values for calling the aggregate function that runs a group by in DuckDB.
+---@class AggregateConstants
+---@field rpc_prefix string Path of the PostgREST functions.
+---@field function_suffix string Added to the table name to make the name of the function.
+---@field max_function_bytes integer The longest name of a PostgreSQL function.
+---@field empty_body string The body that tells the proxy to send the original request.
 
 --- Values for reading the config from the environment.
 ---@class ConfigConstants

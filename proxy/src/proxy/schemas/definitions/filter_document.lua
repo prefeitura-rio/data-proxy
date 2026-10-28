@@ -59,8 +59,28 @@ local order_entry = types.shape({
 	nulls = types.one_of({ "first", "last" }):is_optional(),
 })
 
+--- One aggregate: the function, the column (count has none), and the name in the answer.
+local aggregate_item = types.shape({
+	fn = types.one_of(constants.filter.aggregate_functions),
+	column = column:is_optional(),
+	alias = column,
+})
+
+--- One column of the group by: the column of the table and the name in the answer.
+local group_column = types.shape({ column = column, alias = column })
+
+--- The group by and the aggregates that DuckDB runs, with the order and the rows that PostgreSQL keeps.
+local aggregate = types.shape({
+	group = types.array_of(group_column, { length = at_least_one }):is_optional(),
+	items = types.array_of(aggregate_item, { length = at_least_one }),
+	order = types.array_of(order_entry, { length = at_least_one }):is_optional(),
+	limit = (types.integer * types.range(0, math.huge)):is_optional(),
+	offset = (types.integer * types.range(0, math.huge)):is_optional(),
+})
+
 return {
 	where = node:is_optional(),
+	aggregate = aggregate:is_optional(),
 	columns = types.array_of(column, { length = at_least_one }):is_optional(),
 	order = types.array_of(order_entry, { length = at_least_one }):is_optional(),
 	limit = (types.integer * types.range(0, math.huge)):is_optional(),

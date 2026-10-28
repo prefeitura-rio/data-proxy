@@ -64,6 +64,7 @@ return {
 		messages = {
 			request = "Proxy request completed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
+			["aggregate-failed"] = "Proxy aggregate function failed, sent the original request",
 			["lock-unavailable"] = "Proxy lock is not available",
 			["lock-failed"] = "Proxy lock failed",
 			["redis-failed"] = "Proxy Redis cache failed",
@@ -115,10 +116,17 @@ return {
 			nullslast = { nulls = "last" },
 		},
 		scalar_operators = { "neq", "eq", "gte", "gt", "lte", "lt", "ilike", "like" },
+		aggregate_functions = { "sum", "avg", "count", "min", "max" },
 		is_keywords = { "null", "not_null", "true", "false", "unknown" },
 		query_parameter_separator = "&",
 		list_separator = ",",
 		part_separator = ".",
+	},
+	aggregate = {
+		rpc_prefix = "/rpc/",
+		function_suffix = "_aggregate",
+		max_function_bytes = 63, -- PostgreSQL cuts a longer identifier without an error.
+		empty_body = "null", -- The answer of the function for a request that the table function must serve.
 	},
 	config = {
 		env_prefix = "PROXY_",

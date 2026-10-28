@@ -6,6 +6,7 @@
 -- parser.parse("id=eq.42&name=fts.x")            --> { where = { kind = "comparison", column = "id", ... } }
 -- parser.parse("select=id,name")                 --> { columns = { "id", "name" } }
 -- parser.parse("order=id&limit=5", { limit = true }) --> { order = { ... }, limit = 5 }
+-- parser.parse("select=a,n:b.sum()", { limit = true }) --> { columns = { "a", "b" }, aggregate = { ... } }
 -- ```
 
 local List = require("pl.List") --[[@as pl.ListClass]]
@@ -109,22 +110,137 @@ end
 ---@return boolean
 local function is_column_name(name) return name:match(regex.column_name) ~= nil end
 
+--- Join lists and drop the repeated names. The first place of a name stays.
+---@param lists pl.List<string>[]
+---@return string[] columns
+local function unique_columns(lists)
+	local seen, columns = {}, {}
+	for _, list in ipairs(lists) do
+		for _, name in ipairs(list) do
+			if not seen[name] then
+				seen[name] = true
+				columns[#columns + 1] = name
+			end
+		end
+	end
+	return columns
+end
+
+--- Read one item of a select as an aggregate: n:id.sum(), id.max(), or count().
+--- The name in the answer is the alias, or the name of the function, as PostgREST names it.
+---
+--- ```lua
+--- read_aggregate_item("n:id.sum()") --> { fn = "sum", column = "id", alias = "n" }
+--- read_aggregate_item("count()")    --> { fn = "count", alias = "count" }
+--- read_aggregate_item("id.avg()")   --> nil
+--- ```
+---@param name string One item of the select list.
+---@return FilterAggregateItem|nil item nil if the item is not an aggregate that the proxy pushes.
+local function read_aggregate_item(name)
+	local alias, expression = name:match(regex.aggregate_alias)
+	expression = expression or name
+
+	local column, fn = expression:match(regex.aggregate_column)
+	fn = fn or expression:match(regex.aggregate_count)
+	if fn == nil or not List(constants.filter.aggregate_functions):contains(fn) then return nil end
+	if column == nil and fn ~= "count" then return nil end
+	return { fn = fn, column = column, alias = alias or fn }
+end
+
+--- Read one item of the select list as a column of the group: id, or n:id.
+---
+--- ```lua
+--- read_group_column("id")   --> { column = "id", alias = "id" }
+--- read_group_column("n:id") --> { column = "id", alias = "n" }
+--- read_group_column("id::text") --> nil
+--- ```
+---@param name string One item of the select list.
+---@return FilterGroupColumn|nil entry nil if the item is not a column, with or without an alias.
+local function read_group_column(name)
+	local alias, column = name:match(regex.aggregate_alias)
+	column = column or name
+	if not is_column_name(column) then return nil end
+	return { column = column, alias = alias or column }
+end
+
+--- Read one item of the select list: a column of the group, or an aggregate.
+---@param name string One item of the select list.
+---@return string|nil answer_name The name of the value in the answer. nil if the item is not supported.
+---@return FilterAggregateItem|nil item The aggregate. nil for a column.
+---@return FilterGroupColumn|nil column The column of the group. nil for an aggregate.
+local function read_select_item(name)
+	local column = read_group_column(name)
+	if column then return column.alias, nil, column end
+
+	local item = read_aggregate_item(name)
+	if item then return item.alias, item end
+end
+
+--- Give a list, or nil if it has no item.
+---@generic T
+---@param list T[]
+---@return T[]|nil
+local function non_empty(list)
+	if #list > 0 then return list end
+end
+
+--- List the columns that the group and the aggregates read, without repeats.
+---@param group FilterGroupColumn[]
+---@param items FilterAggregateItem[]
+---@return string[] columns
+local function read_aggregate_columns(group, items)
+	local columns = List(group):map(function(entry) return entry.column end)
+	for _, item in ipairs(items) do
+		if item.column then columns:append(item.column) end
+	end
+	return unique_columns({ columns })
+end
+
+--- Read the aggregate select: the plain columns are the group, and the other items are aggregates.
+--- It gives nil if an item is not supported, if two values of the answer have the same name,
+--- or if the select has no aggregate.
+---@param names pl.List<string> The items of the select list.
+---@return string[]|nil columns The columns that the request reads, the group and the aggregate columns.
+---@return FilterAggregate|nil aggregate
+local function read_aggregate_select(names)
+	local group, items, named = {}, {}, {}
+	for _, name in ipairs(names) do
+		local answer_name, item, column = read_select_item(name)
+		if answer_name == nil or named[answer_name] then return nil end
+		named[answer_name] = true
+
+		if item then
+			items[#items + 1] = item
+		else
+			group[#group + 1] = column
+		end
+	end
+	if #items == 0 then return nil end
+	return read_aggregate_columns(group, items), { group = non_empty(group), items = items }
+end
+
 --- Read the select value as a list of column names.
 --- A star gives nil, because the request reads every column.
+--- A select with aggregates gives its columns and a third value, the aggregate.
 ---
 --- ```lua
 --- read_select("id,name") --> { "id", "name" }, true
 --- read_select("id,*")    --> nil, true
 --- read_select("id::text") --> nil, false
+--- read_select("a,n:b.sum()") --> { "a", "b" }, true, { group = { "a" }, items = { ... } }
 --- ```
 ---@param value string The value of the select parameter.
 ---@return string[]|nil columns nil if the request reads every column or the value is not supported.
----@return boolean supported false if the value has an alias, a cast, an embed, an aggregate, or anything else.
+---@return boolean supported false if the value has an alias, a cast, an embed, or anything else.
+---@return FilterAggregate|nil aggregate The group by and the aggregates, if the select has aggregates.
 local function read_select(value)
 	local names = List(stringx.split(value, constants.filter.list_separator))
 	local supported = tablex.find_if(names, function(name) return name ~= "*" and not is_column_name(name) end) == nil
-	if not supported or names:contains("*") then return nil, supported end
-	return names, true
+	if supported then return (not names:contains("*")) and names or nil, true end
+
+	local columns, aggregate = read_aggregate_select(names)
+	if aggregate == nil then return nil, false end
+	return columns, true, aggregate
 end
 
 --- Read one item of the order value: a column with modifiers, for example id.desc.nullslast.
@@ -202,22 +318,6 @@ local function collect_filter_columns(node, columns)
 	end
 end
 
---- Join lists and drop the repeated names. The first place of a name stays.
----@param lists pl.List<string>[]
----@return string[] columns
-local function unique_columns(lists)
-	local seen, columns = {}, {}
-	for _, list in ipairs(lists) do
-		for _, name in ipairs(list) do
-			if not seen[name] then
-				seen[name] = true
-				columns[#columns + 1] = name
-			end
-		end
-	end
-	return columns
-end
-
 --- Read the reserved parameters of a query. Return nil if a key appears twice or a value is not supported.
 ---@param results ParameterResult[]
 ---@return table<string, any>|nil read The value of each reserved key that the query has.
@@ -229,9 +329,10 @@ local function read_reserved(results)
 			if seen[key] then return nil end
 			seen[key] = true
 
-			local value, supported = readers[key](result.value)
+			local value, supported, aggregate = readers[key](result.value)
 			if not supported then return nil end
 			read[key] = value
+			if aggregate then read.aggregate = aggregate end
 		end
 	end
 	return read
@@ -256,7 +357,47 @@ local function has_unread_parameter(results)
 	return tablex.find_if(results, function(result) return result.node == nil and result.reserved == nil end) ~= nil
 end
 
---- Make the columns, the order, and the limit that the proxy pushes.
+--- Make the aggregate that the proxy pushes: the group, the aggregates, and the order, the limit and the offset.
+--- They stay in the aggregate, because the table function must not cut the rows before the aggregation.
+--- PostgreSQL applies them to the rows of the groups. The order can only name a column of the group.
+--- A read that needs every row, or an order on another value, goes to PostgREST.
+---@param read table<string, any> The reserved values.
+---@param options ParseOptions
+---@return FilterAggregate|nil aggregate
+local function make_aggregate(read, options)
+	if not options.limit then return nil end
+
+	local group_columns = {}
+	for _, entry in ipairs(read.aggregate.group or {}) do
+		group_columns[entry.column] = true
+	end
+	for _, entry in ipairs(read.order or {}) do
+		if not group_columns[entry.column] then return nil end
+	end
+
+	return tablex.update(tablex.copy(read.aggregate), { order = read.order, limit = read.limit, offset = read.offset })
+end
+
+--- Make the order and the limit that the proxy pushes, for a query that PostgREST can truncate.
+---@param read table<string, any> The reserved values.
+---@param options ParseOptions
+---@return table tail The limit, with the offset added, and the order. Empty if the proxy pushes none.
+local function make_tail(read, options)
+	if not (options.limit and read.limit) then return {} end
+
+	return { limit = read.limit + (read.offset or 0), order = read.order }
+end
+
+--- Make the columns that the proxy pushes: the ones that the request reads, or nil if it reads every column.
+---@param read table<string, any> The reserved values.
+---@param nodes pl.List<FilterNode>
+---@return string[]|nil columns
+local function make_pushed_columns(read, nodes)
+	local columns = read.select and make_columns(read, nodes)
+	if columns and #columns > 0 then return columns end
+end
+
+--- Make the columns, the order, the limit, and the aggregate that the proxy pushes.
 ---@param results ParameterResult[]
 ---@param nodes pl.List<FilterNode>
 ---@param options ParseOptions
@@ -267,12 +408,12 @@ local function make_plan(results, nodes, options)
 	local read = read_reserved(results)
 	if read == nil then return nil end
 
-	local plan = { columns = read.select and make_columns(read, nodes) }
-	if options.limit and read.limit then
-		plan.limit = read.limit + (read.offset or 0)
-		plan.order = read.order
+	local plan = { columns = make_pushed_columns(read, nodes) }
+	if read.aggregate then
+		plan.aggregate = make_aggregate(read, options)
+		return plan
 	end
-	return plan
+	return tablex.update(plan, make_tail(read, options))
 end
 
 --- Make the document from the results of the parameters: the filter and the plan.

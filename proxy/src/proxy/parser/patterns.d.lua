@@ -24,12 +24,32 @@
 ---@field descending boolean true for desc.
 ---@field nulls "first"|"last"|nil Where the nulls go. Absent means the PostgreSQL default.
 
+--- One aggregate of a select, for example numerador:participante_quantidade.sum().
+---@class FilterAggregateItem
+---@field fn "sum"|"avg"|"count"|"min"|"max" The aggregate function.
+---@field column string|nil The column. Absent for count().
+---@field alias string The name of the value in the answer.
+
+--- One column of the group by, with the name that it has in the answer.
+---@class FilterGroupColumn
+---@field column string The column of the table.
+---@field alias string The name of the value in the answer. It is the column when the select has no alias.
+
+--- The group by and the aggregates that DuckDB can run for a request.
+---@class FilterAggregate
+---@field group FilterGroupColumn[]|nil The plain columns of the select. Absent for an aggregate without a group.
+---@field items FilterAggregateItem[] The aggregates of the select.
+---@field order FilterOrder[]|nil The order of the groups. Each entry names a column of the group.
+---@field limit integer|nil The most rows of the answer.
+---@field offset integer|nil The number of rows to skip before the first row of the answer.
+
 --- What the proxy sends to PostgreSQL in the X-DuckLake-Filter header.
 ---@class FilterDocument
 ---@field where FilterNode|nil The filter.
 ---@field columns string[]|nil The columns that the request reads. Absent means every column.
 ---@field order FilterOrder[]|nil The order of the rows. Only sent with a limit.
 ---@field limit integer|nil The number of rows that PostgREST can return at most, with the offset added.
+---@field aggregate FilterAggregate|nil The group by and the aggregates of a select, without an order or a limit.
 
 --- The schema of the filter that the proxy sends to PostgreSQL.
 ---@class SchemasModule

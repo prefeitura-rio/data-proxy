@@ -3,6 +3,8 @@
 local constants = require("proxy.constants")
 local http = require("resty.http")
 local log = require("proxy.log")
+local stringx = require("pl.stringx") --[[@as pl.stringx]]
+local tablex = require("pl.tablex") --[[@as pl.tablex]]
 local utils = require("proxy.utils")
 
 --- Functions that send requests to PostgREST.
@@ -77,6 +79,27 @@ function postgrest.should_retry(context, response)
 	return response == nil or constants.http.retry_statuses[response.status] == true
 end
 
+--- Ask the aggregate function of the table, which runs the group by in DuckDB.
+--- The function answers null for a request that the table function must serve, for example one that reads
+--- a source other than DuckLake. The proxy then sends the original request. It also sends it after any
+--- other failure, so the function never makes a request fail that the table would answer.
+---@param context RequestContext
+---@param sender Sender
+---@return Response|nil response nil if the table must answer.
+local function ask_aggregate(context, sender)
+	if context.aggregate_path == nil then return nil end
+
+	local aggregate = tablex.copy(context)
+	aggregate.uri, aggregate.args = context.aggregate_path, ""
+
+	local response = sender(aggregate, context.postgrest)
+	local answers = response ~= nil and response.status == constants.http.ok_status
+	if answers and stringx.strip(response.body) ~= constants.aggregate.empty_body then return response end
+
+	if not answers then log.write(ngx.INFO, "aggregate-failed", context, { status = response and response.status }) end
+	return nil
+end
+
 --- Send the request to PostgREST, and send a read again while the answer is retryable.
 --- PostgREST fails for a moment when PgDog loses a standby. Each retry waits twice as long as the one before.
 ---@param context RequestContext
@@ -87,6 +110,9 @@ end
 function postgrest.query(context, sender, sleeper)
 	sender = sender or send
 	sleeper = sleeper or function(ms) return ngx.sleep(ms / constants.time.milliseconds_per_second) end
+
+	local aggregate = ask_aggregate(context, sender)
+	if aggregate then return aggregate end
 
 	local response, response_error = sender(context, context.postgrest)
 	for attempt = 1, constants.postgrest.retries do

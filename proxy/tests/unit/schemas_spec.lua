@@ -217,6 +217,101 @@ check("schemas.filter_document", function(case) return schemas.filter_document:v
 		},
 	},
 	{ name = "accepts a limit of zero", valid = true, value = { limit = 0 } },
+	{
+		name = "accepts an aggregate with a group",
+		valid = true,
+		value = {
+			aggregate = {
+				group = { { column = "a", alias = "a" } },
+				items = { { fn = "sum", column = "b", alias = "n" }, { fn = "count", alias = "total" } },
+			},
+		},
+	},
+	{
+		name = "accepts an aggregate without a group",
+		valid = true,
+		value = { aggregate = { items = { { fn = "max", column = "b", alias = "max" } } } },
+	},
+	{
+		name = "accepts an average",
+		valid = true,
+		value = { aggregate = { items = { { fn = "avg", column = "b", alias = "avg" } } } },
+	},
+	{
+		name = "rejects an aggregate function that the proxy does not push",
+		value = { aggregate = { items = { { fn = "stddev", column = "b", alias = "stddev" } } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects an aggregate without items",
+		value = { aggregate = { group = { "a" } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects an empty list of aggregate items",
+		value = { aggregate = { items = {} } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects an empty group",
+		value = { aggregate = { group = {}, items = { { fn = "count", alias = "count" } } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "accepts an alias on a column of the group",
+		valid = true,
+		value = {
+			aggregate = {
+				group = { { column = "a", alias = "regiao" } },
+				items = { { fn = "count", alias = "count" } },
+			},
+		},
+	},
+	{
+		name = "accepts the order, the limit and the offset of an aggregate",
+		valid = true,
+		value = {
+			aggregate = {
+				group = { { column = "a", alias = "a" } },
+				items = { { fn = "count", alias = "count" } },
+				order = { { column = "a", descending = true, nulls = "last" } },
+				limit = 10,
+				offset = 0,
+			},
+		},
+	},
+	{
+		name = "rejects a group column without an alias",
+		value = { aggregate = { group = { { column = "a" } }, items = { { fn = "count", alias = "count" } } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects a group that is a list of names",
+		value = { aggregate = { group = { "a" }, items = { { fn = "count", alias = "count" } } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects a negative limit in an aggregate",
+		value = { aggregate = { items = { { fn = "count", alias = "count" } }, limit = -1 } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects an empty order in an aggregate",
+		value = { aggregate = { items = { { fn = "count", alias = "count" } }, order = {} } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects an alias that is not a column name",
+		value = { aggregate = { items = { { fn = "count", alias = 'n"; drop' } } } },
+		reason = 'field "aggregate"',
+	},
+	{
+		name = "rejects a group column that is not a column name",
+		value = {
+			aggregate = { group = { { column = "a b", alias = "a" } }, items = { { fn = "count", alias = "count" } } },
+		},
+		reason = 'field "aggregate"',
+	},
 	{ name = "rejects an empty list of columns", value = { columns = {} }, reason = 'field "columns"' },
 	{
 		name = "rejects a column that is not a column name in the list",

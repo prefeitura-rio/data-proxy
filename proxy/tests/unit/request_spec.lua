@@ -100,6 +100,99 @@ check("request.make_headers", function(case) return request.make_headers(case.in
 	{ name = "accepts a missing query string", input = { method = "GET", headers_in = {} }, expected = {} },
 })
 
+check("request.make_headers with an aggregate", function(case) return request.make_headers(case.input) end, {
+	{
+		name = "adds the aggregate to the filter header for a plain GET",
+		input = { method = "GET", uri = "/t", args = "select=a,n:b.sum()", headers_in = {} },
+		expected = {
+			["X-DuckLake-Filter"] = cjson.encode(parser.parse("select=a,n:b.sum()", { limit = true })),
+		},
+	},
+	{
+		name = "does not add the aggregate when the client asks for a count",
+		input = { method = "GET", uri = "/t", args = "select=a,n:b.sum()", headers_in = { Prefer = "count=exact" } },
+		expected = {
+			Prefer = "count=exact",
+			["X-DuckLake-Filter"] = cjson.encode(parser.parse("select=a,n:b.sum()")),
+		},
+	},
+})
+
+check("request.aggregate_path", function(case) return request.aggregate_path(case.input, case.filter) end, {
+	{
+		name = "gives the function of the table for an aggregate",
+		input = { method = "GET", uri = "/people", headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = "/rpc/people_aggregate",
+	},
+	{
+		name = "gives the function for an Accept header of JSON",
+		input = { method = "GET", uri = "/people", headers_in = { Accept = "application/json; charset=utf-8" } },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = "/rpc/people_aggregate",
+	},
+	{
+		name = "gives nothing without a filter",
+		input = { method = "GET", uri = "/people", headers_in = {} },
+		filter = nil,
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing when the filter has no aggregate",
+		input = { method = "GET", uri = "/people", headers_in = {} },
+		filter = { columns = { "id" } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing for a HEAD",
+		input = { method = "HEAD", uri = "/people", headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing when the client asks for a count",
+		input = { method = "GET", uri = "/people", headers_in = { Prefer = "count=exact" } },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing for a range request",
+		input = { method = "GET", uri = "/people", headers_in = { Range = "0-4" } },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing when the client wants CSV",
+		input = { method = "GET", uri = "/people", headers_in = { Accept = "text/csv" } },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing for a path below the table",
+		input = { method = "GET", uri = "/people/1", headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nothing for a path that is not a table name",
+		input = { method = "GET", uri = "/rpc", headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = "/rpc/rpc_aggregate",
+	},
+	{
+		name = "gives nothing when the name of the function is longer than PostgreSQL keeps",
+		input = { method = "GET", uri = "/" .. string.rep("a", 60), headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives the function for the longest name that fits",
+		input = { method = "GET", uri = "/" .. string.rep("a", 53), headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = "/rpc/" .. string.rep("a", 53) .. "_aggregate",
+	},
+})
+
 describe("request.make_headers", function()
 	it("does not change the input headers", function()
 		local headers_in = { Authorization = "Bearer t", ["X-DuckLake-Filter"] = "client-value" }
@@ -203,6 +296,18 @@ local cfg = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "
 local function context_of(input) return request.make_context(input, { config = cfg, now = 1234.5 }) end
 
 check("request.make_context", function(case) return context_of(case.input)[case.field] end, {
+	{
+		name = "sets the aggregate path for an aggregate query",
+		input = { method = "GET", uri = "/people", args = "select=a,n:b.sum()", headers_in = {} },
+		field = "aggregate_path",
+		expected = "/rpc/people_aggregate",
+	},
+	{
+		name = "sets no aggregate path for a query without an aggregate",
+		input = { method = "GET", uri = "/people", args = "select=a", headers_in = {} },
+		field = "aggregate_path",
+		expected = helpers.NULL,
+	},
 	{
 		name = "uses the cache time of the table",
 		input = { method = "GET", uri = "/people", headers_in = {}, cache_ttl = "60" },
