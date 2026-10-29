@@ -199,3 +199,4 @@ Tailscale
 [Pp]olars
 seccomp
 keyless
+gzip

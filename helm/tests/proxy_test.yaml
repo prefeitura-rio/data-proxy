@@ -59,9 +59,26 @@ tests:
           path: metadata.name
           value: data-proxy-proxy
         template: configmap-proxy.yaml
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "lua_shared_dict proxy_settings 4m;"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
       - notMatchRegex:
           path: data["nginx.conf"]
           pattern: "webdis|js_import|js_content"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-proxy
+        template: configmap-proxy.yaml
+
+  - it: compresses the JSON answers for a client that accepts gzip
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '(?s)gzip on;\s+gzip_types application/json;\s+gzip_comp_level 4;\s+gzip_proxied any;\s+gzip_vary on;'
         documentSelector:
           path: metadata.name
           value: data-proxy-proxy

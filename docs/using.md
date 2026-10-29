@@ -80,6 +80,8 @@ Read responses include:
 
 A cache hit returns the headers of the answer it stored. Use `X-Cache` to tell a hit from a miss.
 
+The proxy compresses a JSON answer with gzip when the request has `Accept-Encoding: gzip`. Browsers and the usual HTTP libraries send this header and decode the answer without a setting. A client that doesn't send it, such as `curl` without `--compressed`, gets the plain body. A partial answer with the status `206` isn't compressed.
+
 ### Pin a snapshot
 
 Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request reads DuckLake only and never the source:
