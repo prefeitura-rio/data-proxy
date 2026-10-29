@@ -19,5 +19,6 @@ local sync_schema = types.shape({
 return {
 	revision = types.integer:is_optional(),
 	noCachePaths = types.array_of(types.string):is_optional(),
+	scopes = types.map_of(types.string, filled_text):is_optional(),
 	schemas = types.map_of(types.string, sync_schema):is_optional(),
 }

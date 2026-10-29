@@ -11,6 +11,7 @@
 ---@field uri string Request path.
 ---@field args string Raw query string, empty if absent.
 ---@field sub string User name taken from the JWT, or anon.
+---@field scope string|nil The digest of the grants of the user. nil if the configuration does not list the user.
 ---@field schemas string Comma-separated schemas claim of the JWT. Empty if absent.
 ---@field role string Role claim of the JWT. Empty if absent.
 ---@field profile string Value of the Accept-Profile header. Empty if absent.

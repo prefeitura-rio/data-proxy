@@ -66,6 +66,20 @@ check("sync.parse", function(case) return sync.parse(case.content) end, {
 		content = '{"revision":12}',
 		expected = { tables = {}, disabled_endpoints = { "/access_policy" }, revision = 12 },
 	},
+	{
+		name = "reads the scope of each subject",
+		content = '{"scopes":{"alice":"9e1c","bob":"9e1c"}}',
+		expected = {
+			tables = {},
+			disabled_endpoints = { "/access_policy" },
+			scopes = { alice = "9e1c", bob = "9e1c" },
+		},
+	},
+	{
+		name = "gives nil and a reason for a scope that is not a text",
+		content = '{"scopes":{"alice":1}}',
+		reason = 'Invalid sync.json: field "scopes"',
+	},
 	{ name = "gives nil and a reason for text that is not JSON", content = "not json", reason = "Expected" },
 	{
 		name = "gives nil and a reason that names sync.json for a document that does not match",

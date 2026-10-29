@@ -289,7 +289,12 @@ check("request.jwt_identity", function(case) return request.jwt_identity(case.he
 	},
 })
 
-local cfg = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/private" }, revision = 9 }
+local cfg = {
+	tables = { people = { cache_ttl = 42 } },
+	disabled_endpoints = { "/private" },
+	revision = 9,
+	scopes = { alice = "9e1c" },
+}
 --- Make the context of one request with the config and the fixed clock of the cases.
 ---@param input table
 ---@return RequestContext
@@ -363,6 +368,32 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		expected = "http://postgrest",
 	},
 	{
+		name = "gives the scope of a subject that the configuration lists",
+		input = {
+			method = "GET",
+			uri = "/other",
+			headers_in = { Authorization = bearer({ preferred_username = "alice", role = "dp_api" }) },
+		},
+		field = "scope",
+		expected = "9e1c",
+	},
+	{
+		name = "gives no scope to a subject that the configuration does not list",
+		input = {
+			method = "GET",
+			uri = "/other",
+			headers_in = { Authorization = bearer({ preferred_username = "carol", role = "dp_api" }) },
+		},
+		field = "scope",
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives no scope to a request without a token",
+		input = { method = "GET", uri = "/other", headers_in = {} },
+		field = "scope",
+		expected = helpers.NULL,
+	},
+	{
 		name = "reads the Accept-Profile header",
 		input = { method = "GET", uri = "/other", headers_in = { ["Accept-Profile"] = "public" } },
 		field = "profile",
@@ -405,7 +436,7 @@ describe("request.cache_identity", function()
 			"GET",
 			"/t",
 			"id=eq.1",
-			"user",
+			"sub:user",
 			"test",
 			"test",
 			"items=0-1",
@@ -421,10 +452,21 @@ describe("request.cache_identity", function()
 	it(
 		"uses empty texts and the default media type for missing headers",
 		function()
-			assert.same(
-				{ "GET", "/t", "id=eq.1", "user", "test", "test", "", "", "application/json", "", "0", "dp_api", "0" },
-				request.cache_identity(key_parts())
-			)
+			assert.same({
+				"GET",
+				"/t",
+				"id=eq.1",
+				"sub:user",
+				"test",
+				"test",
+				"",
+				"",
+				"application/json",
+				"",
+				"0",
+				"dp_api",
+				"0",
+			}, request.cache_identity(key_parts()))
 		end
 	)
 
@@ -436,6 +478,34 @@ describe("request.cache_identity", function()
 
 	local base = request.cache_identity(key_parts())
 
+	it(
+		"names the subject by its grants when the subject has a scope, so subjects with equal grants share an entry",
+		function()
+			local alice = identity_with(function(parts)
+				parts.sub = "alice"
+				parts.scope = "9e1c"
+			end)
+			local bob = identity_with(function(parts)
+				parts.sub = "bob"
+				parts.scope = "9e1c"
+			end)
+			assert.same(alice, bob)
+			assert.equal("scope:9e1c", alice[4])
+		end
+	)
+
+	it("keeps a subject without a scope apart from every other subject", function()
+		local alice = identity_with(function(parts) parts.sub = "alice" end)
+		local bob = identity_with(function(parts) parts.sub = "bob" end)
+		assert.not_same(alice, bob)
+	end)
+
+	it("does not let a subject that is named like a scope read the entries of that scope", function()
+		local scoped = identity_with(function(parts) parts.scope = "9e1c" end)
+		local named = identity_with(function(parts) parts.sub = "9e1c" end)
+		assert.not_same(scoped, named)
+	end)
+
 	check("request.cache_identity changes", function(case)
 		local parts = key_parts()
 		case.change(parts)
@@ -445,6 +515,7 @@ describe("request.cache_identity", function()
 		{ name = "the path", change = function(parts) parts.uri = "/other" end, not_expected = base },
 		{ name = "the query", change = function(parts) parts.args = "id=eq.2" end, not_expected = base },
 		{ name = "the user", change = function(parts) parts.sub = "other" end, not_expected = base },
+		{ name = "the scope", change = function(parts) parts.scope = "9e1c" end, not_expected = base },
 		{ name = "the schemas", change = function(parts) parts.schemas = "other" end, not_expected = base },
 		{
 			name = "the role",

@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Jsonb
 from pydantic import JsonValue
 
@@ -494,6 +495,119 @@ class TestProxyConfig:
         assert (
             json.dumps(config["schemas"], sort_keys=True) == '{"sales": {"tables": []}}'
         )
+
+
+async def add_policy_schema(
+    pg: Postgres, name: str, grants: dict[str, list[tuple[str, str]]], claim: str
+) -> None:
+    """Add a provisioned schema whose access policy has the given grants for each subject."""
+    await add_schema(pg, name, claim=claim)
+    await pg.connection.execute(
+        SQL(
+            "ALTER TABLE {}.access_policy ADD COLUMN unit_type text, ADD COLUMN unit_id text"
+        ).format(Identifier(name))
+    )
+    for subject, units in grants.items():
+        for unit_type, unit_id in units:
+            await pg.connection.execute(
+                SQL("INSERT INTO {}.access_policy VALUES (%s, %s, %s)").format(
+                    Identifier(name)
+                ),
+                (subject, unit_type, unit_id),
+            )
+
+
+@pytest.mark.postgres
+class TestProxyScopes:
+    """console.scopes() names the grants of each subject, so the proxy shares its cache between equal grants."""
+
+    async def test_subjects_with_the_same_grants_get_the_same_scope(
+        self, console_api: Postgres
+    ) -> None:
+        """Compare the grants as a set: their order and their subject do not matter."""
+        await add_policy_schema(
+            console_api,
+            "sales",
+            {
+                "alice": [("cras", "1"), ("cras", "2")],
+                "bob": [("cras", "2"), ("cras", "1")],
+                "carol": [("cras", "1")],
+                "dave": [("*", "*")],
+                "erin": [("*", "*")],
+            },
+            "preferred_username",
+        )
+
+        config = await scalar(console_api, "SELECT console.config()")
+
+        assert isinstance(config, dict)
+        scopes = config["scopes"]
+        assert isinstance(scopes, dict)
+        assert scopes["alice"] == scopes["bob"]
+        assert scopes["dave"] == scopes["erin"]
+        assert len({scopes["alice"], scopes["carol"], scopes["dave"]}) == 3
+        assert all(len(str(scope)) == 32 for scope in scopes.values())
+
+    async def test_the_grants_of_every_schema_count(
+        self, console_api: Postgres
+    ) -> None:
+        """Give another scope to a subject that has the same grants in one schema and more in another."""
+        await add_policy_schema(
+            console_api,
+            "sales",
+            {"alice": [("cras", "1")], "bob": [("cras", "1")]},
+            "preferred_username",
+        )
+        await add_policy_schema(
+            console_api, "hr", {"bob": [("cras", "1")]}, "preferred_username"
+        )
+
+        config = await scalar(console_api, "SELECT console.config()")
+
+        assert isinstance(config, dict)
+        scopes = config["scopes"]
+        assert isinstance(scopes, dict)
+        assert scopes["alice"] != scopes["bob"]
+
+    async def test_the_scope_changes_with_a_grant(self, console_api: Postgres) -> None:
+        """Move the scope of a subject when it gets one more grant."""
+        await add_policy_schema(
+            console_api, "sales", {"alice": [("cras", "1")]}, "preferred_username"
+        )
+        before = await scalar(console_api, "SELECT console.scopes() -> 'alice'")
+
+        await console_api.connection.execute(
+            "INSERT INTO sales.access_policy VALUES ('alice', 'cras', '2')"
+        )
+
+        assert await scalar(console_api, "SELECT console.scopes() -> 'alice'") != before
+
+    async def test_no_scope_when_a_schema_uses_another_claim(
+        self, console_api: Postgres
+    ) -> None:
+        """The proxy keys the cache by the user name, so a schema with another claim must not share entries."""
+        await add_policy_schema(
+            console_api, "sales", {"alice": [("cras", "1")]}, "preferred_username"
+        )
+        await add_policy_schema(console_api, "hr", {"alice": [("cras", "1")]}, "cpf")
+
+        config = await scalar(console_api, "SELECT console.config()")
+
+        assert isinstance(config, dict)
+        assert "scopes" not in config
+
+    async def test_no_scope_for_a_schema_without_a_policy_table(
+        self, console_api: Postgres
+    ) -> None:
+        """Leave the key out when no schema has a policy yet."""
+        await add_schema(
+            console_api, "sales", claim="preferred_username", provisioned=False
+        )
+
+        config = await scalar(console_api, "SELECT console.config()")
+
+        assert isinstance(config, dict)
+        assert "scopes" not in config
 
 
 @pytest.mark.postgres

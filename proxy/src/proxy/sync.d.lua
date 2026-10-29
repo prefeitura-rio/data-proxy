@@ -17,6 +17,7 @@
 ---@class SyncDocument
 ---@field revision integer|nil The revision of the access policy and the rules, a counter of the database.
 ---@field noCachePaths string[]|nil Path prefixes that are never cached.
+---@field scopes table<string, string>|nil The scope of each subject: the digest of its grants.
 ---@field schemas table<string, SyncSchema>|nil The schemas, by name.
 
 --- The table settings that the proxy reads from sync.json.
@@ -24,6 +25,7 @@
 ---@field tables table<string, TableSettings> Settings by short table name.
 ---@field disabled_endpoints string[] Path prefixes that are never cached.
 ---@field revision integer|nil The revision of the access policy and the rules that the document carries.
+---@field scopes table<string, string>|nil The scope of each subject. Subjects with the same scope have the same grants.
 
 --- The schema of sync.json.
 ---@class SchemasModule

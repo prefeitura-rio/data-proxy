@@ -156,7 +156,17 @@ function request.jwt_identity(header)
 	return { sub = sub, schemas = join_claim(claims.schemas), role = claims.role or "" }
 end
 
+--- Name the user in the cache key: by its scope, or by its own name if it has no scope.
+---@param parts CacheKeyParts
+---@return string
+local function subject_part(parts)
+	if parts.scope then return "scope:" .. parts.scope end
+
+	return "sub:" .. parts.sub
+end
+
 --- List the values that decide the answer, in the order of the cache key.
+--- Subjects with the same scope have the same grants, so they share the entries. A subject without a scope has its own.
 --- The order of the values is part of the key format. Do not change the order.
 ---@param parts CacheKeyParts
 ---@return string[] identity
@@ -165,7 +175,7 @@ function request.cache_identity(parts)
 		parts.method,
 		parts.uri,
 		parts.args,
-		parts.sub,
+		subject_part(parts),
 		parts.schemas,
 		parts.profile,
 		parts.headers.Range or "",
@@ -193,6 +203,16 @@ function request.cache_key(parts)
 	return utils.sha256_hex(payload)
 end
 
+--- Find the scope of a user in the configuration.
+---@param config SyncConfig
+---@param sub string
+---@return string|nil
+local function scope_of(config, sub)
+	if config.scopes == nil then return nil end
+
+	return config.scopes[sub]
+end
+
 --- Make the request context from the nginx request.
 --- If the table has its own cache_ttl, the proxy uses it. Otherwise it uses the default of config.cache_ttl.
 ---@param input NgxRequest The request from nginx.
@@ -210,6 +230,7 @@ function request.make_context(input, deps)
 		uri = input.uri,
 		args = input.args or "",
 		sub = identity.sub,
+		scope = scope_of(deps.config, identity.sub),
 		schemas = identity.schemas,
 		role = identity.role,
 		profile = input.headers_in["Accept-Profile"] or "",

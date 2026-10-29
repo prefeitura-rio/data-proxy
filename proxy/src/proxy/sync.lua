@@ -39,6 +39,7 @@ function sync.parse(text)
 		tables = tables,
 		disabled_endpoints = document.noCachePaths or constants.disabled_endpoints,
 		revision = document.revision,
+		scopes = document.scopes,
 	}
 end
 

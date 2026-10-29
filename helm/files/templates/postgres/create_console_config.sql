@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, the preview of what an import would change, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. They read and write the configuration tables of the console.",
+  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, the preview of what an import would change, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. It also carries the scope of each subject, the digest of its grants in every access policy, so the proxy shares cache entries between subjects with the same grants. The scopes are absent when a schema reads its rows by another claim than preferred_username. They read and write the configuration tables of the console.",
   "inputs": {}
 }
 #}
@@ -224,6 +224,59 @@ REVOKE ALL ON FUNCTION console.import_preview(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION console.sync_config() FROM PUBLIC;
 REVOKE ALL ON FUNCTION console.import_config(jsonb) FROM PUBLIC;
 
+CREATE OR REPLACE FUNCTION console.scopes() RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    v_union text;
+    v_result jsonb;
+BEGIN
+    -- The proxy names a subject by the claim preferred_username. A schema with another claim reads its rows by
+    -- another name, so the proxy must not share its entries between subjects.
+    IF EXISTS (
+        SELECT 1 FROM console.schemas AS s
+        WHERE to_regclass(format('%I.access_policy', s.name)) IS NOT NULL
+            AND s.claim IS DISTINCT FROM 'preferred_username'
+    ) THEN
+        RETURN '{}'::jsonb;
+    END IF;
+
+    SELECT string_agg(
+        format('SELECT %L AS schema_name, subject, unit_type, unit_id FROM %I.access_policy', s.name, s.name),
+        ' UNION ALL '
+    )
+    INTO v_union
+    FROM console.schemas AS s
+    WHERE to_regclass(format('%I.access_policy', s.name)) IS NOT NULL;
+
+    IF v_union IS NULL THEN
+        RETURN '{}'::jsonb;
+    END IF;
+
+    EXECUTE format(
+        $query$
+        SELECT coalesce(jsonb_object_agg(subject, scope), '{}'::jsonb)
+        FROM (
+            SELECT
+                subject,
+                md5(string_agg(
+                    schema_name || '|' || coalesce(unit_type, '') || '|' || coalesce(unit_id, ''),
+                    E'\n' ORDER BY schema_name COLLATE "C", unit_type COLLATE "C", unit_id COLLATE "C"
+                )) AS scope
+            FROM (%s) AS grants
+            WHERE subject IS NOT NULL
+            GROUP BY subject
+        ) AS scopes
+        $query$,
+        v_union
+    ) INTO v_result;
+
+    RETURN v_result;
+END
+$$;
+
+REVOKE ALL ON FUNCTION console.scopes() FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION console.config() RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
@@ -236,20 +289,29 @@ SET search_path = pg_catalog, pg_temp AS $$
             ) AS tables
         FROM console.tables
         GROUP BY schema
+    ),
+
+    document AS (
+        SELECT jsonb_build_object(
+            'revision', (SELECT value FROM rbac.revision),
+            'schemas',
+            coalesce(
+                jsonb_object_agg(
+                    s.name, jsonb_build_object('tables', coalesce(m.tables, '[]'::jsonb))
+                ),
+                '{}'::jsonb
+            )
+        ) AS body
+        FROM console.schemas AS s
+        LEFT JOIN members AS m ON s.name = m.schema
     )
 
-    SELECT jsonb_build_object(
-        'revision', (SELECT value FROM rbac.revision),
-        'schemas',
-        coalesce(
-            jsonb_object_agg(
-                s.name, jsonb_build_object('tables', coalesce(m.tables, '[]'::jsonb))
-            ),
-            '{}'::jsonb
-        )
-    )
-    FROM console.schemas AS s
-    LEFT JOIN members AS m ON s.name = m.schema
+    SELECT CASE
+        WHEN scopes.value = '{}'::jsonb THEN document.body
+        ELSE document.body || jsonb_build_object('scopes', scopes.value)
+    END
+    FROM document
+    CROSS JOIN (SELECT console.scopes() AS value) AS scopes
 $$;
 
 REVOKE ALL ON FUNCTION console.config() FROM PUBLIC;
