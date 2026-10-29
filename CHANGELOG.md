@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.5.3 - 2026-10-29
+
+### Fixes
+
+- **helm**: pin the sync image to the b0251ac build (07241fb)
+- **sync**: reconcile every table of a planned schema (b0251ac)
+
+
+- - -
+
 ## helm-v2.5.2 - 2026-10-29
 
 ### Fixes
