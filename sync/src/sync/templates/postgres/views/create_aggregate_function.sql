@@ -54,7 +54,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings, "'[]'::json") }}
+{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings, "'[]'::json", true) }}
 
   v_filter := {{ app_schema }}.request_filter();
   v_aggregate := v_filter -> 'aggregate';

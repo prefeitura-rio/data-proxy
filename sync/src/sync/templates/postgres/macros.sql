@@ -63,12 +63,13 @@
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
-    "empty_result": "SQL expression that a function with a scalar result returns when the subject has no grant. Empty for a function that returns rows."
+    "empty_result": "SQL expression that a function with a scalar result returns when the subject has no grant. Empty for a function that returns rows.",
+    "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it only for a predicate that DuckDB alone reads, because a fallback source cannot push it down."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
-{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, empty_result='') -%}
+{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, empty_result='', list_form=false) -%}
   -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *), reads every row.
   IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
@@ -78,7 +79,7 @@
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where
     FROM (
-      SELECT format('%I IN (%s)', t.col, string_agg(quote_literal(p.unit_id), ',')) AS predicate
+      SELECT format({% if list_form %}'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'{% else %}'%I IN (%s)'{% endif %}, t.col, string_agg(quote_literal(p.unit_id), ',')) AS predicate
       FROM (VALUES
         {{ rls_mapping_values(rls_mappings) }}
       ) AS t(col, ut)
