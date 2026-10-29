@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.5.0 - 2026-10-29
+
+### Features
+
+- **sync**: cap the answer of an aggregate at the max rows of PostgREST (b9b8c5c)
+- **proxy**: compress the JSON answers with gzip (2a3e86b)
+- **proxy**: share cache entries between subjects with the same grants (b993884)
+
+
+- - -
+
 ## helm-v2.4.0 - 2026-10-28
 
 ### Features

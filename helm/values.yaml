@@ -4,7 +4,7 @@ sync:
   ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
   replicas: 1
   ## Container image for the DBOS sync workers.
-  image: ghcr.io/prefeitura-rio/data-proxy-sync:559b043
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:b9b8c5c
   imagePullPolicy: IfNotPresent
   ## Mount the local manifests sync-trigger ConfigMap in sync workers.
   trigger:
@@ -451,7 +451,7 @@ proxy:
   maxCacheBodyBytes: 262144
   ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
   maxInflight: 32
-  image: ghcr.io/prefeitura-rio/data-proxy-proxy:bb4c3be
+  image: ghcr.io/prefeitura-rio/data-proxy-proxy:b9b8c5c
   resources:
     requests:
       ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.
