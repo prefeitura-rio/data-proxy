@@ -40,6 +40,8 @@ return {
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
 		ok_status = 200,
+		-- The statuses of an answer of the aggregate function. 206 is the cap of the function.
+		answer_statuses = { [200] = true, [206] = true },
 		success_from = 200,
 		success_before = 300,
 	},

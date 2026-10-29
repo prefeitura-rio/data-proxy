@@ -25,6 +25,22 @@ X-Cache: HIT
 [Asserts]
 jsonpath "$[0].n" == 1
 
+# A function that cut its answer at the cap gives a partial answer. The proxy sends it as it is and does not
+# store it, because it keeps only the answers with the status 200.
+GET http://{{host}}/agg_cap?select=grp,n:qty.sum()
+
+HTTP 206
+Content-Range: 0-1/*
+X-Cache: MISS
+[Asserts]
+jsonpath "$" count == 2
+jsonpath "$[0].via" == "rpc"
+
+GET http://{{host}}/agg_cap?select=grp,n:qty.sum()
+
+HTTP 206
+X-Cache: MISS
+
 # A function that answers null sends the original request to the table.
 GET http://{{host}}/agg_null?select=grp,n:qty.sum()
 

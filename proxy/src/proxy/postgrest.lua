@@ -93,7 +93,7 @@ local function ask_aggregate(context, sender)
 	aggregate.uri, aggregate.args = context.aggregate_path, ""
 
 	local response = sender(aggregate, context.postgrest)
-	if response and response.status == constants.http.ok_status then
+	if response and constants.http.answer_statuses[response.status] then
 		if stringx.strip(response.body) ~= constants.aggregate.empty_body then return response end
 		return nil
 	end

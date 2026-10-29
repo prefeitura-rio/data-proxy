@@ -42,6 +42,7 @@
 ---@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
 ---@field ok_status integer The status of a good answer.
+---@field answer_statuses table<integer, boolean> The statuses of an aggregate answer: 200, and 206 for the cap.
 ---@field success_from integer The first status of the success range.
 ---@field success_before integer The first status above the success range.
 

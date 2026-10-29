@@ -72,6 +72,16 @@ describe("postgrest.query with an aggregate", function()
 		assert.same({ { uri = "/rpc/people_aggregate", args = "" } }, seen)
 	end)
 
+	it("returns a partial answer of the function, so the cap of the function reaches the client", function()
+		local partial = { status = 206, body = '[{"a":1,"n":5}]', headers = { ["Content-Range"] = "0-0/*" } }
+		local sender, seen = recording({ partial })
+
+		local response = postgrest.query(aggregate, sender, no_sleep)
+
+		assert.same(partial, response)
+		assert.same(1, #seen)
+	end)
+
 	it("sends the original request when the function answers null", function()
 		local sender, seen = recording({ { status = 200, body = "null" }, { status = 200, body = "[1]" } })
 
