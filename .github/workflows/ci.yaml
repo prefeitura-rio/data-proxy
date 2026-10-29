@@ -180,7 +180,14 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        # Sigstore answers with a transient HTTP error now and then, and a failed signing skips the release.
+        run: |
+          for attempt in 1 2 3; do
+            cosign sign --yes "${IMAGE}@${DIGEST}" && exit 0
+            echo "Signing failed on attempt ${attempt}."
+            sleep $((attempt * 20))
+          done
+          exit 1
   helm:
     defaults:
       run:
