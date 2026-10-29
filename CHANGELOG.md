@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.5.4 - 2026-10-29
+
+### Fixes
+
+- **console**: keep the log as it was when the reader pauses the live logs (20085d5)
+
+### Continuous Integration
+
+- run a suite that starts services only when its inputs change (efe256c)
+- retry the image signing and run the browser tests without retries (669d304)
+
+
+- - -
+
 ## helm-v2.5.3 - 2026-10-29
 
 ### Fixes
