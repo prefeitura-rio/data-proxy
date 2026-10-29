@@ -530,7 +530,7 @@ class TestSeedSchemasStep:
     async def test_reconciles_every_table_of_a_planned_schema(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A plan that lists one table still reconciles the other tables of its schema, so one run applies a release."""
+        """A plan that lists one table still reconciles the other tables of its schema, so one run applies a change of a template."""
         config = SyncConfig(
             schemas={
                 "app": SchemaConfig(
