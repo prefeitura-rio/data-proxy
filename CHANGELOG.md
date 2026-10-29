@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.5.1 - 2026-10-29
+
+### Fixes
+
+- **helm**: pin the proxy image to the 73cb5a9 build (5ee36a6)
+- **proxy**: send the partial answer of the aggregate function to the client (73cb5a9)
+
+
+- - -
+
 ## helm-v2.5.0 - 2026-10-29
 
 ### Features
