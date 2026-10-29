@@ -136,18 +136,24 @@ async def record_run_status(status: RunStatus) -> None:
 
 @transient_step
 async def seed_schemas(plans: list[SyncPlan], document: str) -> bool:
-    """Reconcile planned serving schemas and report a PostgREST reload need."""
+    """Reconcile planned serving schemas and report a PostgREST reload need.
+
+    The reconcile covers every table of a planned schema, and not only the tables of the plans.
+    A release can change the generated definitions of a table whose data did not change, and the stored
+    signature skips the tables that did not.
+    """
     await logs.info("Schema seeding started", plans=len(plans))
 
+    config = SyncConfig.model_validate_json(document)
     schema_names = sorted({plan.schema_name for plan in plans})
     table_names = {
-        plan.schema_name: set(plan.signatures) | set(plan.partitioned_tables)
-        for plan in plans
+        name: {table.name for table in config.schemas[name].tables}
+        for name in schema_names
     }
 
     async with Postgres.connect(settings.PG_DATABASE_URL.get_secret_value()) as pg_conn:
         postgrest_reload_required = await reconcile_views(
-            pg_conn, SyncConfig.model_validate_json(document), schema_names, table_names
+            pg_conn, config, schema_names, table_names
         )
 
     for plan in plans:

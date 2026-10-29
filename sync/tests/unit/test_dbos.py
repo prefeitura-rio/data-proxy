@@ -523,6 +523,55 @@ class TestReconcileIdleSchemasStep:
         assert result is True
 
 
+class TestSeedSchemasStep:
+    """The seed reconciles the whole schema of a plan, and the stored signature skips the tables that did not change."""
+
+    @pytest.mark.asyncio
+    async def test_reconciles_every_table_of_a_planned_schema(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A plan that lists one table still reconciles the other tables of its schema, so one run applies a release."""
+        config = SyncConfig(
+            schemas={
+                "app": SchemaConfig(
+                    tables=[FullTable(name="p.app.a"), FullTable(name="p.app.b")]
+                ),
+                "other": SchemaConfig(tables=[FullTable(name="p.other.c")]),
+            }
+        )
+        connection = object()
+
+        @asynccontextmanager
+        async def connect(_dsn: str) -> AsyncGenerator[object]:
+            yield connection
+
+        reconcile = AsyncMock(return_value=True)
+        monkeypatch.setattr(Postgres, "connect", connect)
+        monkeypatch.setattr(steps, "reconcile_views", reconcile)
+
+        result = await workflow_body(steps.seed_schemas)(
+            [
+                SyncPlan(
+                    schema_name="app",
+                    signatures={"p.app.a": "s"},
+                    paths={"p.app.a": ["a.parquet"]},
+                )
+            ],
+            config.model_dump_json(),
+        )
+
+        reconcile.assert_awaited_once()
+        call = reconcile.await_args
+        assert call is not None
+        pg_conn, passed, schema_names, table_names = call.args
+        assert isinstance(passed, SyncConfig)
+        assert pg_conn is connection
+        assert sorted(passed.schemas) == ["app", "other"]
+        assert schema_names == ["app"]
+        assert table_names == {"app": {"p.app.a", "p.app.b"}}
+        assert result is True
+
+
 CONNECTION = object()
 
 
