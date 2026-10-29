@@ -16,6 +16,7 @@ from tests.helpers import (
     install_aggregate_function,
     partitioned,
     put_state,
+    response_status,
     scalar,
     set_setting,
 )
@@ -418,6 +419,139 @@ class TestAggregateGroupAndTail:
         assert isinstance(limited, list)
         assert len(limited) == 2
         assert skipped == []
+
+
+@pytest.fixture
+async def capped(aggregate_function: Postgres) -> Postgres:
+    """Install the aggregate function with a cap of two rows, over a table that has five labels."""
+    await install_aggregate_function(
+        aggregate_function, has_rls=False, fallbacks=[], max_rows=2
+    )
+    await put_state(aggregate_function, ROUTED_TABLE, FULL)
+    return aggregate_function
+
+
+LABELS = ["Alpha", "Beta", "Zeta", "alpha", "zeta"]
+
+
+@pytest.mark.postgres
+class TestAggregateRowCap:
+    """The function gives at most max_rows rows, and says so as PostgREST does when it cuts the answer."""
+
+    async def test_cuts_the_groups_without_a_limit_and_asks_for_a_partial_answer(
+        self, capped: Postgres
+    ) -> None:
+        """Give two of the five groups, with the status 206 and the range of the rows."""
+        answer, headers = await call_aggregate_function(
+            capped, aggregate({"fn": "count", "alias": "n"}, group=["label"])
+        )
+
+        assert isinstance(answer, list)
+        assert len(answer) == 2
+        assert await response_status(capped) == "206"
+        assert headers["Content-Range"] == "0-1/*"
+
+    async def test_keeps_the_source_headers_when_it_cuts(
+        self, capped: Postgres
+    ) -> None:
+        """Send X-Source and the snapshot with the range."""
+        _, headers = await call_aggregate_function(
+            capped, aggregate({"fn": "count", "alias": "n"}, group=["label"])
+        )
+
+        assert headers["X-Source"] == "ducklake"
+        assert headers["X-DuckLake-Snapshot"] == "7"
+
+    async def test_cuts_after_the_order(self, capped: Postgres) -> None:
+        """Give the first two groups of the order that PostgreSQL gives, and ask for a partial answer."""
+        expected = await scalar(
+            capped,
+            "SELECT json_agg(l ORDER BY l)::text FROM (SELECT l FROM unnest(%s::text[]) AS l ORDER BY l LIMIT 2) s",
+            LABELS,
+        )
+        document = aggregate(
+            {"fn": "count", "alias": "n"},
+            group=["label"],
+            order=[{"column": "label", "descending": False}],
+        )
+
+        answer, headers = await call_aggregate_function(capped, document)
+
+        assert isinstance(answer, list)
+        assert [row["label"] for row in answer] == json.loads(str(expected))
+        assert await response_status(capped) == "206"
+        assert headers["Content-Range"] == "0-1/*"
+
+    async def test_gives_the_range_of_the_rows_after_the_offset(
+        self, capped: Postgres
+    ) -> None:
+        """Start the range at the offset."""
+        document = aggregate(
+            {"fn": "count", "alias": "n"},
+            group=["label"],
+            order=[{"column": "label", "descending": False}],
+            offset=1,
+        )
+
+        answer, headers = await call_aggregate_function(capped, document)
+
+        assert isinstance(answer, list)
+        assert len(answer) == 2
+        assert headers["Content-Range"] == "1-2/*"
+
+    async def test_does_not_cut_when_the_rows_fit_in_the_cap(
+        self, capped: Postgres
+    ) -> None:
+        """Give every group, without a partial status, when there are exactly as many as the cap."""
+        answer, headers = await call_aggregate_function(
+            capped, aggregate(total(), group=["grp"])
+        )
+
+        assert isinstance(answer, list)
+        assert len(answer) == 2
+        assert await response_status(capped) is None
+        assert "Content-Range" not in headers
+
+    async def test_does_not_cut_the_rows_after_the_last_one(
+        self, capped: Postgres
+    ) -> None:
+        """Give the last two groups of five, with no partial status, because no row is left."""
+        document = aggregate(
+            {"fn": "count", "alias": "n"},
+            group=["label"],
+            order=[{"column": "label", "descending": False}],
+            offset=3,
+        )
+
+        answer, _ = await call_aggregate_function(capped, document)
+
+        assert isinstance(answer, list)
+        assert len(answer) == 2
+        assert await response_status(capped) is None
+
+    async def test_gives_the_limit_of_the_request_without_a_partial_status(
+        self, capped: Postgres
+    ) -> None:
+        """A request that asks for fewer rows than the cap gets them, and the rows that it did not ask for are no cut."""
+        document = aggregate({"fn": "count", "alias": "n"}, group=["label"], limit=1)
+
+        answer, headers = await call_aggregate_function(capped, document)
+
+        assert isinstance(answer, list)
+        assert len(answer) == 1
+        assert await response_status(capped) is None
+        assert "Content-Range" not in headers
+
+    async def test_cuts_a_limit_above_the_cap(self, capped: Postgres) -> None:
+        """Give the cap and not the limit, with the partial status, as PostgREST does with max-rows."""
+        document = aggregate({"fn": "count", "alias": "n"}, group=["label"], limit=5)
+
+        answer, headers = await call_aggregate_function(capped, document)
+
+        assert isinstance(answer, list)
+        assert len(answer) == 2
+        assert await response_status(capped) == "206"
+        assert headers["Content-Range"] == "0-1/*"
 
 
 @pytest.mark.postgres

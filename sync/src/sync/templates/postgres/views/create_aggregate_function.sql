@@ -15,7 +15,8 @@
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
     "source_table": "SQL literal name of the source table, as stored in state.",
     "fallbacks": "Ordered list of {name} records for configured fallback sources.",
-    "user_role": "Role that reads the table view and so must run this function."
+    "user_role": "Role that reads the table view and so must run this function.",
+    "max_rows": "The most rows that the function gives for one request. When the function cuts the answer, it asks for the status 206 and a Content-Range, as PostgREST does."
   }
 }
 #}
@@ -43,6 +44,9 @@ DECLARE
   v_kinds text[] := ARRAY[{% for column in columns %}'{{ column.pg_type }}'{% if not loop.last %}, {% endif %}{% endfor %}]::text[];
   v_offset bigint;
   v_limit bigint;
+  v_take bigint;
+  v_returned bigint;
+  v_truncated boolean;
   v_result text;
 BEGIN
 {{ require_permission('read_api') }}
@@ -116,6 +120,7 @@ BEGIN
   END LOOP;
   v_offset := coalesce((v_aggregate ->> 'offset')::bigint, 0);
   v_limit := (v_aggregate ->> 'limit')::bigint;
+  v_take := least(coalesce(v_limit, {{ max_rows }}), {{ max_rows }});
 
   FOR v_item IN SELECT jsonb_array_elements(v_aggregate -> 'items') LOOP
     v_column := v_item ->> 'column';
@@ -151,28 +156,45 @@ BEGIN
   EXECUTE format(
     'SELECT r[''j'']::text FROM duckdb.query(%L) r',
     format(
-      'SELECT CAST(json_group_array(to_json(t)) AS VARCHAR) AS j FROM (SELECT %s FROM {{ dl_view }}%s) t',
+      'SELECT CAST(json_group_array(to_json(t)) AS VARCHAR) AS j FROM (SELECT %s FROM {{ dl_view }}%s%s) t',
       array_to_string(v_select, ', '),
       CASE
         WHEN v_groups > 0 THEN ' GROUP BY ' || (SELECT string_agg(ordinal::text, ', ') FROM generate_series(1, v_groups) AS ordinal)
+        ELSE ''
+      END,
+      -- Without an order, any groups will do, so DuckDB stops after the rows that the answer needs and one more.
+      CASE
+        WHEN cardinality(v_order) = 0 THEN ' LIMIT ' || (v_offset + v_take + 1)
         ELSE ''
       END
     )
   ) INTO v_result;
   v_result := coalesce(v_result, '[]');
 
-  IF cardinality(v_order) > 0 OR v_limit IS NOT NULL OR v_offset > 0 THEN
-    EXECUTE format(
-      'SELECT coalesce(json_agg(s.elem ORDER BY s.rn), ''[]''::json)::text '
-      || 'FROM (SELECT t.elem, row_number() OVER (%s) AS rn FROM json_array_elements($1::json) AS t(elem)) s '
-      || 'WHERE s.rn > %s AND s.rn <= %s',
-      CASE WHEN cardinality(v_order) > 0 THEN 'ORDER BY ' || array_to_string(v_order, ', ') ELSE '' END,
-      v_offset,
-      coalesce(v_offset + v_limit, 9223372036854775807)
-    ) INTO v_result USING v_result;
-  END IF;
+  -- One row more than the answer holds shows that the cap cut it.
+  EXECUTE format(
+    'SELECT coalesce(json_agg(s.elem ORDER BY s.rn) FILTER (WHERE s.rn <= %s), ''[]''::json)::text, count(*) '
+    || 'FROM (SELECT t.elem, row_number() OVER (%s) AS rn FROM json_array_elements($1::json) AS t(elem)) s '
+    || 'WHERE s.rn > %s AND s.rn <= %s',
+    v_offset + v_take,
+    CASE WHEN cardinality(v_order) > 0 THEN 'ORDER BY ' || array_to_string(v_order, ', ') ELSE '' END,
+    v_offset,
+    v_offset + v_take + 1
+  ) INTO v_result, v_returned USING v_result;
+  v_truncated := v_returned > v_take AND (v_limit IS NULL OR v_limit > {{ max_rows }});
 
   PERFORM {{ app_schema }}.set_response_headers('ducklake', v_snapshot);
+  IF v_truncated THEN
+    PERFORM set_config('response.status', '206', true);
+    PERFORM set_config(
+      'response.headers',
+      (
+        current_setting('response.headers')::jsonb
+        || jsonb_build_array(jsonb_build_object('Content-Range', format('%s-%s/*', v_offset, v_offset + v_take - 1)))
+      )::text,
+      true
+    );
+  END IF;
   RETURN v_result::json;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER

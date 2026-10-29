@@ -114,6 +114,26 @@ tests:
             value: "ducklake"
         template: deployment-sync.yaml
 
+  - it: sync caps an aggregate at the rows that PostgREST gives
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGGREGATE_MAX_ROWS
+            value: "1000"
+        template: deployment-sync.yaml
+
+  - it: sync follows postgrest.maxRows for the cap of an aggregate
+    set:
+      postgrest.maxRows: 250
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGGREGATE_MAX_ROWS
+            value: "250"
+        template: deployment-sync.yaml
+
   - it: sync limits the memory and the threads of each DuckDB connection
     asserts:
       - contains:

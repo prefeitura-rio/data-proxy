@@ -43,7 +43,7 @@ The proxy sends the original request to PostgREST, and nothing changes for the c
 - The function answers `null`, because a fallback source serves a part of the table, or because the aggregate uses a column type that it doesn't support.
 - The function doesn't exist, fails, or the call to it fails.
 
-DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the rows of the groups, so the text order follows the collation of the database, as in the table. The proxy never sends `order` or `limit` at the top of the filter for an aggregate, because the table function would cut the rows before the aggregation.
+DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the rows of the groups, so the text order follows the collation of the database, as in the table. The function gives at most `postgrest.maxRows` rows, as PostgREST does. When the answer has more rows, the function gives the first rows with the status `206` and `Content-Range: <first>-<last>/*`. A request with a `limit` below the cap gets exactly that many rows and no `206`. Without an `order`, DuckDB stops after the rows that the answer needs, so a group by a column with many values doesn't build the whole answer. The proxy never sends `order` or `limit` at the top of the filter for an aggregate, because the table function would cut the rows before the aggregation.
 
 The answer of the function has no `Content-Range` header. It has the same `X-Source` and `X-DuckLake-Snapshot` headers as the table, and the cache stores it under the key of the original request.
 

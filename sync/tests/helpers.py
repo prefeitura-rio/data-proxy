@@ -559,7 +559,12 @@ async def install_table_function(
 
 
 async def install_aggregate_function(
-    pg: Postgres, *, has_rls: bool, fallbacks: list[str], extra_columns: int = 0
+    pg: Postgres,
+    *,
+    has_rls: bool,
+    fallbacks: list[str],
+    extra_columns: int = 0,
+    max_rows: int = 1000,
 ) -> None:
     """Render the aggregate function over the stub DuckLake helper.
 
@@ -597,8 +602,15 @@ async def install_aggregate_function(
             "fallbacks": [{"name": name} for name in fallbacks],
             "user_role": Identifier(settings.AUTH_USER_ROLE),
             "schema_literal": Literal(pg.namespace.schema),
+            "max_rows": str(max_rows),
         },
     )
+
+
+async def response_status(pg: Postgres) -> str | None:
+    """Return the status that the function asked PostgREST to send, or None if it asked for none."""
+    raw = await scalar(pg, "SELECT current_setting('response.status', true)")
+    return None if raw is None or len(str(raw)) == 0 else str(raw)
 
 
 async def call_aggregate_function(

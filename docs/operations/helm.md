@@ -60,7 +60,7 @@ These values tune the serving layer. The defaults are in [`helm/values.yaml`](..
 
 | Value | Default | Effect |
 | --- | --- | --- |
-| `postgrest.maxRows` | `1000` | The most rows that PostgREST returns for one request. |
+| `postgrest.maxRows` | `1000` | The most rows that PostgREST returns for one request. The sync worker gets it as `AGGREGATE_MAX_ROWS`, so an aggregate function gives at most as many rows. |
 | `postgrest.aggregatesEnabled` | `true` | Allows `avg()`, `count()`, `max()`, `min()` and `sum()` in `select`. |
 | `postgrest.dbPool` | `24` | The backend connections that each PostgREST pod opens. |
 | `postgrest.dbPoolAcquisitionTimeout` | `3` | Seconds that a request waits for a backend connection before it fails. |

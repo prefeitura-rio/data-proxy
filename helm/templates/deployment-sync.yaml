@@ -57,6 +57,8 @@ spec:
                   fieldPath: metadata.uid
             - name: PROVISION_CRONJOB
               value: {{ printf "%s-provision" (include "data-proxy.fullname" .) | quote }}
+            - name: AGGREGATE_MAX_ROWS
+              value: {{ .Values.postgrest.maxRows | quote }}
           volumeMounts:
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}

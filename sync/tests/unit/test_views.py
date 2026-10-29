@@ -13,6 +13,7 @@ from sync.models import (
     SyncConfig,
     UnitMapping,
 )
+from sync.settings import settings
 from sync.views import stages
 
 
@@ -246,6 +247,7 @@ class TestAggregateFunction:
 
         assert (mapping is not None) is has_mapping
         if mapping is not None:
+            assert mapping["max_rows"] == str(settings.AGGREGATE_MAX_ROWS)
             assert mapping["function"].as_string(None) == f'"{table_name}_aggregate"'  # type: ignore[union-attr]
             assert mapping["dl_function"].as_string(None) == f'"{table_name}_dl_fn"'  # type: ignore[union-attr]
 

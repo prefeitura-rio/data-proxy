@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     DUMP_QUEUE_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     DUMP_QUEUE_RATE_LIMIT: int = Field(default=0, ge=0)
     DUMP_QUEUE_WORKER_CONCURRENCY: int = Field(default=2, gt=0)
+    AGGREGATE_MAX_ROWS: int = Field(default=1000, gt=0)
     LISTEN_QUEUES: str = ""
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     OTLP_LOGS_ENDPOINT: str = Field(default="")

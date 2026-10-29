@@ -336,7 +336,8 @@ def aggregate_function_mapping(
     if name is None:
         return None
     return table_function_mapping(schema, table, columns, claim) | {
-        "function": Identifier(name)
+        "function": Identifier(name),
+        "max_rows": str(settings.AGGREGATE_MAX_ROWS),
     }
 
 
