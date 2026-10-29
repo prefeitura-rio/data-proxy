@@ -160,6 +160,19 @@ Feature: Sync runs
     And a log line "live line one" is added to the run
     Then the log shows the line "live line one"
 
+  Scenario: Pausing the live logs before the stream answers keeps the log as it was
+    Given I sign in as "web_admin"
+    And the log stream of a run answers after 4 seconds
+    When I open the "Sync" tab
+    And I set "Status" to "ENQUEUED" in the form "Filter the runs" and submit it
+    And I open the first run of the list
+    And I turn the "Live logs" switch off
+    And a log line "frozen line" is added to the run
+    And I refresh the data of the page
+    Then the log does not show the line "frozen line"
+    When I turn the "Live logs" switch on
+    Then the log shows the line "frozen line"
+
   Scenario: The user can pause the live logs and start them again
     Given I sign in as "web_admin"
     When I open the "Sync" tab

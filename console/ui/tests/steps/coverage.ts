@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
-import { After, BASE, hydrated, saved, scenario, Then, When } from '../fixtures';
+import { After, BASE, Given, hydrated, saved, scenario, Then, When } from '../fixtures';
 
 const log = (page: Page) => page.locator('pre');
 
@@ -28,6 +28,22 @@ Then('the page has no {string} switch', async ({ page }, name: string) => {
 
 Then('the {string} switch is on', async ({ page }, name: string) => {
 	await expect(page.getByRole('checkbox', { name })).toBeChecked();
+	// The switch is on from the start. The badge shows that the stream opened, so a step that follows does not race it.
+	await expect(page.getByText('Live', { exact: true })).toBeVisible();
+});
+
+Given('the log stream of a run answers after {int} seconds', async ({ page }, seconds: number) => {
+	await page.route(/\/sync\/runs\/[^/]+\/logs\?/, async (route) => {
+		await new Promise((done) => setTimeout(done, seconds * 1000));
+		await route.continue().catch(() => undefined);
+	});
+});
+
+When('I refresh the data of the page', async ({ page }) => {
+	await Promise.all([
+		page.waitForResponse((response) => response.url().includes('__data.json')),
+		page.getByRole('button', { name: 'Refresh now' }).click()
+	]);
 });
 
 When('I turn the {string} switch off', async ({ page }, name: string) => {
