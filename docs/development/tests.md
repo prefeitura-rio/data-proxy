@@ -16,6 +16,22 @@ devenv --profile proxy test   # OpenResty with a mock PostgREST, Valkey, then th
 devenv --profile console test # PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, then the browser tests
 ```
 
+## Run only what changed
+
+Each of the three suites has a task in the `checks` profile. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
+
+```bash
+devenv --profile checks tasks run itest:proxy  # the proxy suite
+devenv --profile checks tasks run itest:sync   # the sync suite
+devenv --profile checks tasks run e2e:console  # the console suite
+```
+
+devenv skips a task when none of its input files changed since the last green run, and the run takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks, so a change in `console/` doesn't run the proxy suite, and a change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only, and a change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
+
+The inputs follow two rules. devenv compares a file by its content, so a fresh checkout doesn't run a task again. It compares a folder by its metadata, and every folder is new after a checkout. Every input is therefore a file, or a glob that ends in a file name or an extension, such as `console/ui/src/**/*.ts`. `utils.inputsOf` throws at evaluation for a folder, a missing file or a glob over a missing folder. `utils.filesOf` lists the extensions of a folder and throws when the folder has a file with another extension, so a new kind of file can't stay outside the inputs.
+
+To force a run, change an input, delete `.devenv/profiles/checks/state/tasks.db`, or run `devenv --profile <name> test`. CI keeps the state of each group of jobs in the cache of GitHub Actions. A run on `main` saves it after a green job, and a pull request reads the state of `main` and doesn't save it. The input `force_full` of the workflow starts a run without the saved state.
+
 The `sync` profile starts these processes:
 
 - PostgreSQL, built from `Containerfile.postgres` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.

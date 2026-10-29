@@ -26,6 +26,144 @@ in
           lib.filter (name: lib.hasPrefix prefix name && !(lib.hasSuffix ":all" name)) (
             lib.attrNames config.tasks
           );
+
+        docsFiles = utils.filesOf "docs" [
+          "md"
+          "svg"
+          "d2"
+          "json"
+        ];
+
+        # The inputs of the suites that start services. A suite runs again only when one of its inputs changes. Every input
+        # is a file or a glob over files, and `filesOf` names the extensions of a folder and throws for another one.
+        environment = [
+          "devenv.nix"
+          "devenv.lock"
+          "devenv.yaml"
+          "nix/utils.nix"
+          "nix/data.nix"
+          "nix/profiles/*.nix"
+        ];
+
+        postgresServer = [
+          "nix/processes/postgres.nix"
+          "Containerfile.postgres"
+        ];
+
+        # What the sync code is made of, and what its tests read.
+        syncSources = [
+          "sync/pyproject.toml"
+          "sync/uv.lock"
+          "sync/src/**/*.py"
+          "sync/src/**/*.sql"
+        ];
+
+        proxyInputs =
+          [
+            "proxy/devenv.nix"
+            "proxy/lux.toml"
+            "proxy/lux.lock"
+            "proxy/src/**/*.lua"
+            "scripts/lux.nu"
+            "nix/processes/proxy.nix"
+            "nix/services/redis.nix"
+          ]
+          ++ utils.filesOf "proxy/tests/integration" [
+            "hurl"
+            "json"
+            "conf"
+          ]
+          ++ environment;
+
+        syncInputs =
+          [
+            "sync/devenv.nix"
+            "sync/tests/**/*.py"
+            "sync/tests/**/*.sql"
+            "sync/tests/**/*.feature"
+            "console/migrations/*.sql"
+            "scripts/db.nu"
+            "nix/processes/sync.nix"
+            "nix/processes/seaweedfs.nix"
+          ]
+          ++ utils.filesOf "sync/config" [
+            "toml"
+            "json"
+          ]
+          ++ utils.filesOf "sync/tests/files" [
+            "parquet"
+            "csv"
+          ]
+          ++ utils.filesOf "helm/files/templates" [ "sql" ]
+          ++ utils.filesOf "helm/files/config" [
+            "toml"
+            "json"
+            "conf"
+          ]
+          ++ utils.filesOf "proxy/tests/unit/fixtures" [ "json" ]
+          ++ syncSources
+          ++ postgresServer
+          ++ environment;
+
+        # The console tests seed their data with the sync code and the helm templates, and they read the values of k3d.
+        consoleInputs =
+          [
+            "console/devenv.nix"
+            "console/migrations/*.sql"
+            "console/ui/package.json"
+            "console/ui/pnpm-lock.yaml"
+            "console/ui/pnpm-workspace.yaml"
+            "console/ui/tsconfig.json"
+            "console/ui/vite.config.ts"
+            "console/ui/playwright.config.ts"
+            "console/ui/.npmrc"
+            "console/notebooks/*.ts"
+            "console/notebooks/build.nu"
+            "console/notebooks/package.json"
+            "console/notebooks/pnpm-lock.yaml"
+            "console/notebooks/pnpm-workspace.yaml"
+            "console/notebooks/pyproject.toml"
+            "console/notebooks/uv.lock"
+            "sync/tests/*.py"
+            "k3d/values/*.yaml"
+            "scripts/db.nu"
+            "scripts/migrate.nu"
+            "nix/processes/console.nix"
+            "nix/processes/keycloak.nix"
+            "nix/processes/postgrest.nix"
+            "nix/processes/seaweedfs.nix"
+          ]
+          ++ utils.filesOf "console/ui/src" [
+            "ts"
+            "svelte"
+            "svg"
+            "html"
+            "css"
+          ]
+          ++ utils.filesOf "console/ui/static" [ "txt" ]
+          ++ utils.filesOf "console/ui/tests" [
+            "ts"
+            "feature"
+          ]
+          ++ utils.filesOf "console/notebooks/src" [ "ts" ]
+          ++ utils.filesOf "console/notebooks/notebooks" [ "py" ]
+          ++ utils.filesOf "sync/tests/seeds" [ "py" ]
+          ++ utils.filesOf "sync/tests/fixtures" [ "py" ]
+          ++ utils.filesOf "sync/tests/files" [
+            "parquet"
+            "csv"
+          ]
+          ++ utils.filesOf "sync/tests/templates" [ "sql" ]
+          ++ utils.filesOf "helm/files" [
+            "sql"
+            "nu"
+            "toml"
+            "json"
+            "conf"
+          ]
+          ++ syncSources
+          ++ postgresServer
+          ++ environment;
       in
       {
         packages = with pkgs; [
@@ -72,16 +210,15 @@ in
               shellcheck
             ];
             exec = "actionlint .github/workflows/*.yaml";
-            execIfModified = [
-              ".github/workflows"
-              ".github/actions"
-            ];
+            execIfModified = utils.inputsOf (
+              utils.filesOf ".github/workflows" [ "yaml" ] ++ utils.filesOf ".github/actions" [ "yaml" ]
+            );
           };
           "lint:nu" = utils.nuTask {
             description = "Lint the Nushell scripts.";
             packages = with pkgs; [ nu-lint ];
             exec = builtins.readFile ../../scripts/nu-lint.nu;
-            execIfModified = [
+            execIfModified = utils.inputsOf [
               "helm/files/**/*.nu"
               "k3d/manifests/files/**/*.nu"
               "console/notebooks/**/*.nu"
@@ -92,9 +229,9 @@ in
           "test:nu" = utils.nuTask {
             description = "Run the Nushell tests.";
             exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/keycloak.nu";
-            execIfModified = [
-              "helm/files/scripts"
-              "scripts"
+            execIfModified = utils.inputsOf [
+              "helm/files/scripts/**/*.nu"
+              "scripts/**/*.nu"
             ];
           };
           "lint:toml" = utils.nuTask {
@@ -104,7 +241,7 @@ in
               taplo lint helm/files/config/rbac.toml
               taplo fmt --check helm/files/config/rbac.toml
             '';
-            execIfModified = [
+            execIfModified = utils.inputsOf [
               "helm/files/config/rbac.toml"
               "helm/files/config/rbac.schema.json"
               ".taplo.toml"
@@ -114,7 +251,7 @@ in
             description = "Lint the Containerfiles.";
             packages = with pkgs; [ hadolint ];
             exec = lib.concatMapStringsSep "\n" (name: "hadolint ${name}") containerfiles;
-            execIfModified = [ ".hadolint.yaml" ] ++ containerfiles;
+            execIfModified = utils.inputsOf ([ ".hadolint.yaml" ] ++ containerfiles);
           };
 
           "docs:build:diagrams" = utils.nuTask {
@@ -124,7 +261,7 @@ in
                   d2 $file ($file | path parse | update extension svg | path join)
               }
             '';
-            execIfModified = [ "docs/diagrams/**/*.d2" ];
+            execIfModified = utils.inputsOf [ "docs/diagrams/**/*.d2" ];
           };
           "docs:build:all" = {
             description = "Generate the diagrams, the navigation and the role table.";
@@ -145,7 +282,7 @@ in
           "docs:build:roles" = utils.nuTask {
             description = "Write the role and permission table in the Roles page.";
             exec = "nu scripts/docs.nu write";
-            execIfModified = [
+            execIfModified = utils.inputsOf [
               "helm/files/config/rbac.toml"
               "scripts/docs.nu"
             ];
@@ -153,7 +290,7 @@ in
           "lint:roles" = utils.nuTask {
             description = "Check that the role and permission table in the Roles page is current.";
             exec = "nu scripts/docs.nu check";
-            execIfModified = [
+            execIfModified = utils.inputsOf [
               "helm/files/config/rbac.toml"
               "docs/security/roles.md"
               "scripts/docs.nu"
@@ -162,29 +299,31 @@ in
           "docs:build:nav" = utils.nuTask {
             description = "Write the navigation block of every docs page and the MkDocs navigation, in the order of docs/.nav.json.";
             exec = "nu scripts/docs.nu nav write";
-            execIfModified = [
-              "docs"
-              "mkdocs.nav.yml"
+            execIfModified = utils.inputsOf (
+              [
               "scripts/docs.nu"
-            ];
+                        ] ++ docsFiles
+            );
           };
           "lint:nav" = utils.nuTask {
             description = "Check the navigation blocks and docs/.nav.json against the docs files.";
             exec = "nu scripts/docs.nu nav check";
-            execIfModified = [
-              "docs"
+            execIfModified = utils.inputsOf (
+              [
               "scripts/docs.nu"
-            ];
+                        ] ++ docsFiles
+            );
           };
           "lint:links" = utils.nuTask {
             description = "Check that the links of the docs, the README and the style guide point to a file and a heading.";
             exec = "nu scripts/docs.nu links";
-            execIfModified = [
-              "docs"
+            execIfModified = utils.inputsOf (
+              [
               "README.md"
               "STYLEGUIDE.md"
               "scripts/docs.nu"
-            ];
+                        ] ++ docsFiles
+            );
           };
           "lint:diagrams" = utils.nuTask {
             description = "Check that the rendered diagrams are current.";
@@ -202,9 +341,24 @@ in
                   }
               }
             '';
-            execIfModified = [ "docs/diagrams" ];
+            execIfModified = utils.inputsOf (utils.filesOf "docs/diagrams" [ "d2" "svg" ]);
           };
 
+          "itest:proxy" = utils.serviceSuite {
+            description = "Run the integration tests of the proxy against its test servers.";
+            profile = "proxy";
+            inputs = proxyInputs;
+          };
+          "itest:sync" = utils.serviceSuite {
+            description = "Run the sync tests that need a database and a storage server.";
+            profile = "sync";
+            inputs = syncInputs;
+          };
+          "e2e:console" = utils.serviceSuite {
+            description = "Run the browser tests of the console against its test servers.";
+            profile = "console";
+            inputs = consoleInputs;
+          };
           "lint:all" = {
             description = "Run every lint task.";
             after = tasksWith "lint:";

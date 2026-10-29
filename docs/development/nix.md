@@ -25,7 +25,7 @@ The `packages` list of a profile contains only the tools that people type: `psql
 
 devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. `devenv up` starts the same processes without the tests. A module reads the port of another process with `utils.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
 
-`execIfModified` skips a build task when its input files didn't change, so delete `console/ui/build` or `console/notebooks/site` to force a build.
+`execIfModified` skips a task when its input files didn't change, so delete `console/ui/build` or `console/notebooks/site` to force a build. The inputs are files and globs over files, because devenv compares a folder by its metadata and a fresh checkout changes every folder. See [Tests](tests.md#run-only-what-changed).
 
 A file that Nix builds from values is a `files` entry. The entries are `sync/.env.test`, the SeaweedFS identities, the SQL that creates the databases, and the four nginx files. They live in the state folder of the run (`utils.fileEntry`), except `sync/.env.test`, which devenv links into the project and git ignores. A file whose input is YAML, such as the Keycloak realm and the sync settings, stays a derivation, because Nix can't read YAML. A task that reads a generated file runs `after` `devenv:files`, because `devenv tasks run` doesn't create files by itself.
 

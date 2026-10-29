@@ -14,16 +14,38 @@
           "lint:chart" = utils.nuTask {
             description = "Lint the Helm chart.";
             exec = "helm lint helm/ --strict -f helm/ci/test-values.yaml";
-            execIfModified = [ "helm" ];
+            execIfModified = utils.inputsOf (
+              utils.filesOf "helm" [
+              "yaml"
+              "sql"
+              "nu"
+              "tpl"
+              "toml"
+              "nix"
+              "lock"
+              "json"
+              "conf"
+            ]
+            );
           };
           "test:chart" = utils.nuTask {
             description = "Run the Helm chart tests.";
             packages = with pkgs; [ kubeconform ];
             exec = builtins.readFile ../scripts/helm.nu;
-            execIfModified = [
-              "helm"
-              "scripts/helm.nu"
-            ];
+            execIfModified = utils.inputsOf (
+              [ "scripts/helm.nu" ]
+              ++ utils.filesOf "helm" [
+              "yaml"
+              "sql"
+              "nu"
+              "tpl"
+              "toml"
+              "nix"
+              "lock"
+              "json"
+              "conf"
+            ]
+            );
           };
         };
       };

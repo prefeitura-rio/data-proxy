@@ -1,0 +1,17 @@
+name: Restore the task state
+description: Restore the state of the devenv tasks, which tells devenv what changed since the last green run on main.
+inputs:
+  group:
+    description: The name of the jobs that share this state.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          .devenv/profiles/checks/state/tasks.db*
+          .devenv/profiles/checks/state/files.json
+        key: task-state-${{ inputs.group }}-${{ runner.os }}-${{ github.sha }}
+        restore-keys: |
+          task-state-${{ inputs.group }}-${{ runner.os }}-

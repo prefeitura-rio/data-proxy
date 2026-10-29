@@ -30,8 +30,6 @@ let
       ''}";
 
   notebookInputs = [
-    "console/notebooks/src"
-    "console/notebooks/notebooks"
     "console/notebooks/build.nu"
     "console/notebooks/bundle.ts"
     "console/notebooks/tsconfig.json"
@@ -40,7 +38,9 @@ let
     "console/notebooks/pnpm-workspace.yaml"
     "console/notebooks/pyproject.toml"
     "console/notebooks/uv.lock"
-  ];
+  ]
+  ++ utils.filesOf "console/notebooks/src" [ "ts" ]
+  ++ utils.filesOf "console/notebooks/notebooks" [ "py" ];
 
   setupEnv = {
     AUTH_ANON_ROLE = postgres.roles.anon;
@@ -198,15 +198,23 @@ let
     ];
     common = {
       cwd = "${config.devenv.root}/console/ui";
-      execIfModified = [
-        "console/ui/src"
-        "console/ui/static"
-        "console/ui/package.json"
-        "console/ui/pnpm-lock.yaml"
-        "console/ui/.npmrc"
-        "console/ui/tsconfig.json"
-        "console/ui/vite.config.ts"
-      ];
+      execIfModified = utils.inputsOf (
+        [
+          "console/ui/package.json"
+          "console/ui/pnpm-lock.yaml"
+          "console/ui/.npmrc"
+          "console/ui/tsconfig.json"
+          "console/ui/vite.config.ts"
+        ]
+        ++ utils.filesOf "console/ui/src" [
+          "ts"
+          "svelte"
+          "svg"
+          "html"
+          "css"
+        ]
+        ++ utils.filesOf "console/ui/static" [ "txt" ]
+      );
     };
     steps = [
       {
@@ -263,7 +271,7 @@ in
             "devenv:enterShell"
             (utils.processTask "notebooks")
           ];
-          execIfModified = notebookInputs;
+          execIfModified = utils.inputsOf notebookInputs;
         };
 
       "console:open" = lib.mkIf (!config.devenv.isTesting) (

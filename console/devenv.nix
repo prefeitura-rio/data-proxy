@@ -4,8 +4,6 @@ let
   projects = "^console/(ui|notebooks)/";
 
   consoleFiles = [
-    "console/ui/src"
-    "console/ui/tests"
     "console/ui/package.json"
     "console/ui/pnpm-lock.yaml"
     "console/ui/tsconfig.json"
@@ -18,7 +16,6 @@ let
   ];
 
   notebookFiles = [
-    "console/notebooks/src"
     "console/notebooks/*.ts"
     "console/notebooks/tsconfig.json"
     "console/notebooks/package.json"
@@ -38,6 +35,22 @@ in
     module =
       { lib, utils, ... }:
       let
+        consoleInputs =
+          consoleFiles
+          ++ utils.filesOf "console/ui/src" [
+            "ts"
+            "svelte"
+            "svg"
+            "html"
+            "css"
+          ]
+          ++ utils.filesOf "console/ui/tests" [
+            "ts"
+            "feature"
+          ];
+
+        notebookInputs = notebookFiles ++ utils.filesOf "console/notebooks/src" [ "ts" ];
+
         installTask =
           dir:
           utils.nuTask {
@@ -53,7 +66,7 @@ in
             cwd = dir;
             after = [ "console:install:${lib.last (lib.splitString "/" dir)}" ];
             exec = script;
-            execIfModified = files;
+            execIfModified = utils.inputsOf files;
           };
       in
       {
@@ -117,13 +130,13 @@ in
           "console:install:notebooks" = installTask "console/notebooks";
           "lint:console" =
             pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
-              consoleFiles;
+              consoleInputs;
           "lint:nb" =
             pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint"
-              notebookFiles;
+              notebookInputs;
           "test:console" =
             pnpmTask "Run the unit tests of the console app." "console/ui" "pnpm test"
-              consoleFiles;
+              consoleInputs;
         };
 
         enterTest = ''
