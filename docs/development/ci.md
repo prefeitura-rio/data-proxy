@@ -24,6 +24,8 @@ Each job restores the task state before it runs. The `task-state-restore` action
 
 The jobs `checks`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
 
+The sync and console jobs start the build of the PostgreSQL test image and the pull of the Keycloak image in the background (`.github/actions/prewarm-images`), before the Nix install. The devenv tasks then find the layers in the cache. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files.
+
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 
 ## Images
