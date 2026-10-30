@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.6.0 - 2026-10-30
+
+### Features
+
+- **nix**: run the three service suites at the same time with test:int:all (b3dd7c7)
+
+### Fixes
+
+- **postgres**: pin the PostGIS scripts to the version of the library (adbed83)
+- **console**: lock the run when a test adds a log line (1fe5f79)
+- **nix**: keep console:open out of devenv test (ceb9bdd)
+
+### Continuous Integration
+
+- name the input helpers of the tasks mkInputs and mkGlobs (8b1cb28)
+
+
+- - -
+
 ## helm-v2.5.4 - 2026-10-29
 
 ### Fixes
