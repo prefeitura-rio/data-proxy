@@ -1,3 +1,4 @@
+import re
 from typing import Final
 from unittest.mock import AsyncMock, MagicMock
 
@@ -271,8 +272,13 @@ class TestAggregateFunction:
             utils.table_function_mapping("app", table, columns, "sub"),
         )
 
-        assert "IN (SELECT unnest([%s]))" in aggregate_sql
-        assert "unnest" not in table_sql
+        assert (
+            re.search(
+                r"CAST\(.+ AS VARCHAR\) IN \(SELECT unnest\(\[%s\]\)\)", aggregate_sql
+            )
+            is not None
+        )
+        assert re.search(r"unnest\(", table_sql) is None
 
     @pytest.mark.parametrize(
         ("table_name", "rendered"),

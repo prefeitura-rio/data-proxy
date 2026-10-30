@@ -90,5 +90,8 @@ class TestContextFormatter:
 
         text = ContextFormatter().format(line)
 
-        assert "ERROR Failed\nTraceback" in text
+        first, second, *_ = text.splitlines()
+
+        assert first.endswith("ERROR Failed")
+        assert second == "Traceback (most recent call last):"
         assert text.endswith("ValueError: broken")

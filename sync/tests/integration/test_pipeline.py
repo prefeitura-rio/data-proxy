@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from tests.fixtures.pipeline import Pipeline, served, state_of
@@ -35,7 +37,7 @@ async def test_a_table_that_fails_to_dump_is_recorded_and_left_unpublished(
         "extraction_failed",
         "table_blocked",
     ]
-    assert any("extraction exploded" in str(error) for _, error in reasons)
+    assert any(re.search(r"extraction exploded", str(error)) for _, error in reasons)
 
 
 async def test_the_run_records_the_schema_and_each_dump_task_in_its_scope(

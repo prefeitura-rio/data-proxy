@@ -1313,7 +1313,9 @@ class TestPostgresTemplates:
         )
 
         assert isinstance(rendered, str)
-        assert all(f'"{column}"' in rendered for column in columns)
+        assert {f'"{column}"' for column in columns} <= set(
+            re.findall(r'"[^"]+"', rendered)
+        )
 
     async def test_filter_rejects_unknown_columns_and_operators(
         self, postgres: Postgres
@@ -1404,7 +1406,10 @@ class TestPostgresTemplates:
         ],
     )
     async def test_filter_renders_the_columns_that_the_table_has(
-        self, postgres: Postgres, document: dict[str, object] | None, expected: object
+        self,
+        postgres: Postgres,
+        document: dict[str, object] | None,
+        expected: object,
     ) -> None:
         """Keeps the requested names that are columns, and returns null when the request reads all."""
         await self._install_filter(postgres)
@@ -1474,7 +1479,10 @@ class TestPostgresTemplates:
         ],
     )
     async def test_filter_renders_the_order_and_limit_that_the_database_can_push(
-        self, postgres: Postgres, document: dict[str, object] | None, expected: object
+        self,
+        postgres: Postgres,
+        document: dict[str, object] | None,
+        expected: object,
     ) -> None:
         """Pushes the limit with an order only when DuckDB sorts the same rows as PostgreSQL."""
         await self._install_filter(postgres)
