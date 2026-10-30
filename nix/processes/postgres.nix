@@ -1,9 +1,9 @@
 { pkgs, utils, ... }:
 let
   inherit (utils.credentials) postgres;
+  container = "data-proxy-test-postgres";
+  image = "localhost/${container}:dev";
   port = toString (utils.port "postgres" "main");
-  container = "data-proxy-test-postgres-${port}";
-  image = "localhost/data-proxy-test-postgres:dev";
 in
 {
   env = {

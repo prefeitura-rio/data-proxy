@@ -55,8 +55,6 @@ in
         "-s3.port=${port}"
         "-s3.config=${utils.stateFile "seaweedfs-identities.json"}"
         "-s3.iam.readOnly=false"
-        "-s3.port.iceberg=0"
-        "-s3.port.lance=0"
       ];
     }
     // {

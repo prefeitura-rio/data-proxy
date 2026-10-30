@@ -354,14 +354,6 @@ in
             ++ postgresServer
             ++ environment;
           };
-          "test:int:all" = {
-            description = "Run the three suites that start services, at the same time.";
-            after = [
-              "test:int:proxy"
-              "test:int:sync"
-              "test:int:console"
-            ];
-          };
           "lint:all" = {
             description = "Run every lint task.";
             after = tasksWith "lint:";
