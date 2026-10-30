@@ -194,7 +194,7 @@ let
 
   /**
     A devenv task that runs the tests of a profile with `devenv test`, which starts the processes of the profile, runs its
-    `enterTest` and stops the processes. The task runs again only after a change of one of its inputs, and a failed run
+    `enterTest` and stops the processes. The run uses its own temporary state folder, so suites that run at the same time share no file. The task runs again only after a change of one of its inputs, and a failed run
     leaves no state, so it runs again too. The task belongs to another profile than `profile`: the profile of a task
     keeps its state in its own folder, and a task that runs its own profile would wait for that state.
 
@@ -227,6 +227,7 @@ let
         "--profile"
         profile
         "test"
+        "--override-dotfile"
       ];
     }
     // {

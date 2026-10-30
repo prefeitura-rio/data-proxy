@@ -24,9 +24,12 @@ Each of the three suites has a task in the `checks` profile. The task runs `deve
 devenv --profile checks tasks run test:int:proxy    # the proxy suite
 devenv --profile checks tasks run test:int:sync     # the sync suite
 devenv --profile checks tasks run test:int:console  # the console suite
+devenv --profile checks tasks run test:int:all      # the three suites at the same time
 ```
 
-devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `test:all` doesn't run the `test:int:` tasks, because they start services and use the same ports.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `test:all` doesn't run the `test:int:` tasks, because they start services.
+
+The three suites can run at the same time. Each task runs `devenv test --override-dotfile`, so each run keeps its files in its own temporary folder. Every process asks devenv for a free port, and the PostgreSQL container name ends with its port. A run that you start by hand, such as `devenv --profile sync test`, uses `.devenv/test-state`, so don't start two such runs of profiles that share a service.
 
 A change in `console/` doesn't run the proxy suite. A change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only. A change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
 
@@ -96,7 +99,7 @@ The PostgreSQL image installs the `ducklake` and `postgres` extensions while it 
 
 On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s. A cold `devenv --profile sync test` run takes about 60 s. CI therefore keeps no layer cache.
 
-PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run seaweedfs:clean`. The task deletes the SeaweedFS data folder and creates it again.
+PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run seaweedfs:clean`. The task deletes the SeaweedFS data folder and creates it again. The `test:int:` tasks use a temporary folder, so their object store starts empty.
 
 To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/processes/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
 
