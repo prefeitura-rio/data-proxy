@@ -1,0 +1,11 @@
+name: Cache the Nix fetcher
+description: Keep the tarballs that Nix fetches for the flake inputs (nixpkgs, devenv, the Lua type packages) between runs, keyed by devenv.lock, so a job does not download them again.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.cache/nix
+        key: nix-fetcher-${{ runner.os }}-${{ hashFiles('devenv.lock') }}
+        restore-keys: |
+          nix-fetcher-${{ runner.os }}-
