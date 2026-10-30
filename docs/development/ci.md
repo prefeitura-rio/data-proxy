@@ -4,7 +4,7 @@ The continuous integration (CI) pipeline is the workflow `.github/workflows/ci.y
 
 ## Triggers
 
-The pipeline runs on a push to `main`, on a pull request, and on a manual start. A manual start has the input `force_full`, which builds every image and releases the chart.
+The pipeline runs on a push to `main`, on a pull request, and on a manual start. A manual start has the input `force_full`. It builds every image, releases the chart, and runs every job without the saved task state.
 
 A push or pull request runs the pipeline only when it changes a path in the list `ci_paths` of the workflow. The list has `sync/`, `console/`, `k3d/`, `nix/`, `proxy/`, `helm/`, `k6/` and `scripts/`. It also has the workflows, `cog.toml`, the linter files of the repository root (`.sqlfluff`, `.sqlfluffignore`, `.hadolint.yaml` and `.nu-lint.toml`) and the devenv files. The container files of the sync, PostgreSQL, proxy and console images are in it too. A change in `docs/` doesn't start it.
 
@@ -15,10 +15,12 @@ The `concurrency` group is one for each branch, and a new run waits for the run 
 | Job | Needs | Work |
 | --- | --- | --- |
 | `changes` | none | Runs `ci changes`. It compares the commit with the previous one. It writes which images need a build and whether the chart needs a release. |
-| `checks` | `changes` | Runs `lint:all` and `test:all` of the `checks` profile. It caches the virtual environment and the task state. |
-| `test-sync`, `test-console`, `test-proxy` | `changes` | Run the integration suites of [Tests](tests.md). |
+| `checks` | `changes` | Runs `lint:all` and `test:all` of the `checks` profile. It caches the virtual environment. |
+| `test-sync`, `test-console`, `test-proxy` | `changes` | Run the tasks `itest:sync`, `e2e:console` and `itest:proxy` of the `checks` profile. Each task runs only if one of its input files changed. |
 | `build-images` | all test jobs | Builds and pushes one image for each changed component. It runs only on `main`. |
 | `helm` | all earlier jobs | Releases the chart. It runs only on `main`, when the chart or an image changed. |
+
+Each job restores the task state before it runs. The `task-state-restore` action reads the state that the last green run of `main` saved, and `task-state-save` writes it. Only a run on `main` saves the state. [Tests](tests.md#run-only-what-changed) explains how a task decides to run.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 

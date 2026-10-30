@@ -1,6 +1,6 @@
 # Data Proxy
 
-Data Proxy synchronises the tables of an external source to PostgreSQL with the pg_duckdb extension and exposes them through a PostgREST REST API, enforcing row-level security against a backend-managed access policy table, keyed by JWT identity claims.
+Data Proxy synchronises the tables of an external source to PostgreSQL with the pg_duckdb extension. It exposes them through a PostgREST REST API. Row-level security uses a backend-managed access policy table, keyed by JWT identity claims.
 
 The source is the authoritative data store. BigQuery is the only source adapter today. PostgreSQL is a disposable, eventually consistent read cache.
 

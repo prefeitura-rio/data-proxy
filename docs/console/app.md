@@ -60,7 +60,7 @@ A delete asks for a confirmation in a dialog. The row leaves the list immediatel
 
 A filter above a list applies after the user stops typing for 300 ms. The page keeps the focus and the scroll position, and the address keeps the filter. A **Clear** button removes the filters of that list.
 
-The Sync tab and the page of a sync run reload their data at the interval that the user picks: off, 2, 5, 10, 30 or 60 seconds. The default is 5 seconds. The choice stays in the browser. The reload pauses while the tab is hidden and runs again when the tab shows.
+The Sync tab and the page of a sync run reload their data at the interval that the user picks. The choices are off, 2, 5, 10, 30 and 60 seconds. The default is 5 seconds. The choice stays in the browser. The reload pauses while the tab is hidden and runs again when the tab shows.
 
 The console reloads by polling because it has no push channel. It reads through PostgREST, and DBOS sends no notification when a workflow changes its status. A push needs a direct database connection and triggers on tables that DBOS owns. The log of a run is the exception. It streams over server-sent events.
 

@@ -26,9 +26,11 @@ devenv --profile checks tasks run itest:sync   # the sync suite
 devenv --profile checks tasks run e2e:console  # the console suite
 ```
 
-devenv skips a task when none of its input files changed since the last green run, and the run takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks, so a change in `console/` doesn't run the proxy suite, and a change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only, and a change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks.
 
-The inputs follow two rules. devenv compares a file by its content, so a fresh checkout doesn't run a task again. It compares a folder by its metadata, and every folder is new after a checkout. Every input is therefore a file, or a glob that ends in a file name or an extension, such as `console/ui/src/**/*.ts`. `utils.mkInputs` throws at evaluation for a folder, a missing file or a glob over a missing folder. `utils.mkGlobs` lists the extensions of a folder and throws when the folder has a file with another extension, so a new kind of file can't stay outside the inputs.
+A change in `console/` doesn't run the proxy suite. A change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only. A change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
+
+The inputs follow two rules. devenv compares a file by its content, so a fresh checkout doesn't run a task again. It compares a folder by its metadata, and every folder is new after a checkout. Every input is therefore a file, or a glob that ends in a file name or an extension, such as `console/ui/src/**/*.ts`. `utils.mkInputs` throws at evaluation for a folder, a missing file or a glob over a missing folder. `utils.mkGlobs` lists the extensions of a folder. It throws when the folder has a file with another extension, so a new kind of file can't stay outside the inputs.
 
 To force a run, change an input, delete `.devenv/profiles/checks/state/tasks.db`, or run `devenv --profile <name> test`. CI keeps the state of each group of jobs in the cache of GitHub Actions. A run on `main` saves it after a green job, and a pull request reads the state of `main` and doesn't save it. The input `force_full` of the workflow starts a run without the saved state.
 
@@ -49,7 +51,12 @@ The `rbac` tests in that file include Hypothesis tests. They generate random rul
 
 Every template that has some logic has a test that renders it, runs it, and checks the result.
 
-The console SQL has its own tests, on the real server and in the test transaction. The fixture `console_api` (`sync/tests/fixtures/console.py`) builds the console from the real migrations and the real templates, over the DBOS tables and the rules of `rbac.toml`. The tests in `test_console_api.py`, `test_console_config.py`, `test_console_templates.py` and `test_migrations.py` cover the functions that the console calls, the views and their scope by schema, the import and its preview, the history, and the migrations on data of an older shape.
+The console SQL has its own tests, on the real server and in the test transaction. The fixture `console_api` (`sync/tests/fixtures/console.py`) builds the console from the real migrations and the real templates, over the DBOS tables and the rules of `rbac.toml`. The tests in `test_console_api.py`, `test_console_config.py`, `test_console_templates.py` and `test_migrations.py` cover these parts:
+
+- the functions that the console calls
+- the views and their scope by schema
+- the import and its preview, and the history
+- the migrations on data of an older shape
 
 The file `proxy/tests/unit/fixtures/console_config.json` is the document that `console.config()` writes for fixed rows. A pytest case checks that the database still writes it, and the Lua specs check that the proxy takes it. A change to one side breaks the other side.
 

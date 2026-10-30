@@ -20,13 +20,17 @@ Cancel, resume and the schedule actions enqueue a workflow in the queue `control
 
 ## Schedules
 
-Each schema has one schedule, named `sync-<schema>`. It starts a sync run for that schema only, at the cron of the schedule. A new schema gets the cron of `SYNC_SCHEDULE` (`0 2 * * *`). The workflow `reconcile_schedules` makes the schedules match the schemas. It runs in its own queue, `schedules`, one at a time. It runs at the start of a worker, and after each insert or delete in `console.schemas`. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
+Each schema has one schedule, named `sync-<schema>`. It starts a sync run for that schema only, at the cron of the schedule. A new schema gets the cron of `SYNC_SCHEDULE` (`0 2 * * *`). The workflow `reconcile_schedules` makes the schedules match the schemas. It runs in its own queue, `schedules`, one at a time.
 
-The Sync tab lists the schedules of the schemas in the claim. Its Edit dialog changes the cron, which has 5 fields, or 6 with the seconds first. The times are UTC. The schedule keeps its paused state, its context and its queue. There is no delete button, because every schema keeps one schedule. Pause the schedule to stop its runs. A schedule doesn't backfill. A run whose time passes while no sync worker runs is skipped, so start it by hand from the Sync tab.
+It runs at the start of a worker, and after each insert or delete in `console.schemas`. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
+
+The Sync tab lists the schedules of the schemas in the claim. Its Edit dialog changes the cron, which has 5 fields, or 6 with the seconds first. The times are UTC. The schedule keeps its paused state, its context and its queue. There is no delete button, because every schema keeps one schedule. Pause the schedule to stop its runs.
+
+A schedule doesn't backfill. A run whose time passes while no sync worker runs is skipped, so start it by hand from the Sync tab.
 
 A schedule action needs the schema of the schedule in the `schemas` claim. A token without that schema gets 404, as for a sync run. A bad cron returns 400, and the worker never sees it.
 
-The setting `LISTEN_QUEUES` limits the queues that one worker listens to. It contains queue names separated by commas, and an empty value means every queue. The test stack runs a second worker with `LISTEN_QUEUES=control,schedules`, so the browser tests run the control workflows and the schedule reconcile, and never a sync run.
+The setting `LISTEN_QUEUES` limits the queues that one worker listens to. It contains queue names separated by commas, and an empty value means every queue. The test stack runs a second worker with `LISTEN_QUEUES=control,schedules`. The browser tests therefore run the control workflows and the schedule reconcile, and never a sync run.
 
 <!-- nav:start -->
 ---
