@@ -1,4 +1,4 @@
-use lib.nu [fail]
+use lib.nu [check-result]
 
 # Run one goose command on the application database with the migrations of the console.
 def main [
@@ -15,7 +15,7 @@ def main [
     let result = with-env $settings { goose $command | complete }
     print ($result.stdout + $result.stderr)
 
-    if $result.exit_code != 0 {
-        fail $'goose ($command) failed: ($result.stderr)'
-    }
+    $result
+    | check-result $'goose ($command)'
+    | ignore
 }
