@@ -37,19 +37,19 @@ in
       let
         consoleInputs =
           consoleFiles
-          ++ utils.filesOf "console/ui/src" [
+          ++ utils.mkGlobs "console/ui/src" [
             "ts"
             "svelte"
             "svg"
             "html"
             "css"
           ]
-          ++ utils.filesOf "console/ui/tests" [
+          ++ utils.mkGlobs "console/ui/tests" [
             "ts"
             "feature"
           ];
 
-        notebookInputs = notebookFiles ++ utils.filesOf "console/notebooks/src" [ "ts" ];
+        notebookInputs = notebookFiles ++ utils.mkGlobs "console/notebooks/src" [ "ts" ];
 
         installTask =
           dir:
@@ -66,7 +66,7 @@ in
             cwd = dir;
             after = [ "console:install:${lib.last (lib.splitString "/" dir)}" ];
             exec = script;
-            execIfModified = utils.inputsOf files;
+            execIfModified = utils.mkInputs files;
           };
       in
       {

@@ -26,7 +26,7 @@ in
     // {
       description = "Build the PostgreSQL test image.";
       before = [ (utils.processTask "postgres") ];
-      execIfModified = utils.inputsOf [ "Containerfile.postgres" ];
+      execIfModified = utils.mkInputs [ "Containerfile.postgres" ];
     };
 
   processes.postgres =

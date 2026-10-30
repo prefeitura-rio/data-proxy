@@ -49,7 +49,7 @@
             // {
               description = "Install the locked Lua rocks of the proxy.";
               before = [ "devenv:enterShell" ];
-              execIfModified = utils.inputsOf [
+              execIfModified = utils.mkInputs [
                 "proxy/lux.toml"
                 "proxy/lux.lock"
                 "scripts/lux.nu"
@@ -66,7 +66,7 @@
             // {
               description = "Lint the Lua code of the proxy.";
               after = [ "proxy:rocks" ];
-              execIfModified = utils.inputsOf [
+              execIfModified = utils.mkInputs [
                 "proxy/**/*.lua"
                 "proxy/lux.toml"
                 "proxy/lux.lock"
@@ -85,13 +85,13 @@
             // {
               description = "Run the unit tests of the proxy.";
               after = [ "proxy:rocks" ];
-              execIfModified = utils.inputsOf (
+              execIfModified = utils.mkInputs (
                 [
                 "proxy/**/*.lua"
                 "proxy/lux.toml"
                 "proxy/lux.lock"
               ]
-                ++ utils.filesOf "proxy/tests/unit/fixtures" [ "json" ]
+                ++ utils.mkGlobs "proxy/tests/unit/fixtures" [ "json" ]
               );
             };
         };

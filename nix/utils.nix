@@ -116,9 +116,9 @@ let
   # # Type
   #
   # ```
-  # inputsOf :: [String] -> [String]
+  # mkInputs :: [String] -> [String]
   # ```
-  inputsOf =
+  mkInputs =
     entries:
     map (
       entry:
@@ -149,9 +149,9 @@ let
   # # Type
   #
   # ```
-  # filesOf :: String -> [String] -> [String]
+  # mkGlobs :: String -> [String] -> [String]
   # ```
-  filesOf =
+  mkGlobs =
     dir: extensions:
     let
       skipped = name: lib.hasPrefix "." name || lib.elem name [ "__pycache__" "node_modules" "charts" ];
@@ -215,7 +215,7 @@ let
     }
     // {
       inherit description;
-      execIfModified = inputsOf inputs;
+      execIfModified = mkInputs inputs;
     };
 
   /**
@@ -479,8 +479,8 @@ in
   inherit
     credentials
     fileEntry
-    filesOf
-    inputsOf
+    mkGlobs
+    mkInputs
     mkProcess
     mkTask
     mkTaskChain

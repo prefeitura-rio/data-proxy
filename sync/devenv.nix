@@ -49,7 +49,7 @@
             exec = ''
               uv run --frozen pytest tests/unit -m "not postgres"
             '';
-            execIfModified = utils.inputsOf (
+            execIfModified = utils.mkInputs (
               [
                 "sync/**/*.py"
                 "sync/pyproject.toml"
@@ -57,13 +57,13 @@
                 "sync/tests/templates/**/*.sql"
                 "helm/files/config/rbac.toml"
               ]
-              ++ utils.filesOf "sync/tests/files" [
+              ++ utils.mkGlobs "sync/tests/files" [
                 "parquet"
                 "csv"
               ]
-              ++ utils.filesOf "sync/src/sync/templates" [ "sql" ]
-              ++ utils.filesOf "helm/files/templates" [ "sql" ]
-              ++ utils.filesOf "proxy/tests/unit/fixtures" [ "json" ]
+              ++ utils.mkGlobs "sync/src/sync/templates" [ "sql" ]
+              ++ utils.mkGlobs "helm/files/templates" [ "sql" ]
+              ++ utils.mkGlobs "proxy/tests/unit/fixtures" [ "json" ]
             );
           };
           "lint:sync" = utils.nuTask {
@@ -76,7 +76,7 @@
               uv run --frozen complexipy src tests
               uv run --frozen vulture --min-confidence 60 src tests
             '';
-            execIfModified = utils.inputsOf [
+            execIfModified = utils.mkInputs [
               "sync/**/*.py"
               "sync/pyproject.toml"
               "sync/uv.lock"
@@ -91,7 +91,7 @@
               sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
               sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
             '';
-            execIfModified = utils.inputsOf [
+            execIfModified = utils.mkInputs [
               ".sqlfluff"
               ".sqlfluffignore"
               "helm/files/templates/**/*.sql"
