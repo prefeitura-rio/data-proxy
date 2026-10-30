@@ -4,14 +4,17 @@ inputs:
   group:
     description: The name of the jobs that share this state.
     required: true
+  profile:
+    description: The devenv profile that runs the tasks.
+    default: checks
 runs:
   using: composite
   steps:
     - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
-          .devenv/profiles/checks/state/tasks.db*
-          .devenv/profiles/checks/state/files.json
+          .devenv/profiles/${{ inputs.profile }}/state/tasks.db*
+          .devenv/profiles/${{ inputs.profile }}/state/files.json
         key: task-state-${{ inputs.group }}-${{ runner.os }}-${{ github.sha }}
         restore-keys: |
           task-state-${{ inputs.group }}-${{ runner.os }}-

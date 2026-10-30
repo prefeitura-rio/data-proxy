@@ -18,15 +18,15 @@ devenv --profile console test # PostgreSQL, SeaweedFS, Keycloak, PostgREST, the 
 
 ## Run only what changed
 
-Each of the three suites has a task in the `checks` profile. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
+Each of the three suites has a task in the `suites` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
 
 ```bash
-devenv --profile checks tasks run test:int:proxy    # the proxy suite
-devenv --profile checks tasks run test:int:sync     # the sync suite
-devenv --profile checks tasks run test:int:console  # the console suite
+devenv --profile suites tasks run test:int:proxy    # the proxy suite
+devenv --profile suites tasks run test:int:sync     # the sync suite
+devenv --profile suites tasks run test:int:console  # the console suite
 ```
 
-devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `test:all` doesn't run the `test:int:` tasks, because they start services.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `test:all` doesn't run the `test:int:` tasks, because they start services and live in another profile.
 
 Run one suite at a time on one machine. The suites share the folder `.devenv/test-state`, and devenv doesn't reserve a port that it allocates, so two runs that start together can pick the same port or delete the generated files of each other. CI runs each suite on its own runner, so it has no such conflict.
 

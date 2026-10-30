@@ -289,7 +289,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
 - Name a task `<component>:<step>`, such as `console:setup:seed`. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
-- Name the task of a suite that starts services `test:int:<component>`. `test:all` skips these tasks.
+- Name the task of a suite that starts services `test:int:<component>`, and define it in `nix/profiles/suites.nix`, so the job that runs it fetches no tool of another profile.
 - Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, and give it the input files with `utils.mkInputs`. List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder.
 - Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. Give a task that reads a generated file `after = [ "devenv:files" ]`.
 
