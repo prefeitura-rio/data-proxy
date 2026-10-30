@@ -106,8 +106,6 @@ export const LogLine = v.object({
 	run_id: v.string()
 });
 
-export const LogsAnswer = v.object({ logs: v.array(LogLine), status: v.string() });
-
 export const SchemaRow = v.object({
 	name: v.string(),
 	source: v.string(),

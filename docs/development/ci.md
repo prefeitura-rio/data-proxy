@@ -15,12 +15,14 @@ The `concurrency` group is one for each branch, and a new run waits for the run 
 | Job | Needs | Work |
 | --- | --- | --- |
 | `changes` | none | Runs `ci changes`. It compares the commit with the previous one. It writes which images need a build and whether the chart needs a release. |
-| `checks` | `changes` | Runs `lint:all` and `test:all` of the `checks` profile. It caches the virtual environment. |
-| `test-sync`, `test-console`, `test-proxy` | `changes` | Run the tasks `test:int:sync`, `test:int:console` and `test:int:proxy` of the `checks` profile. Each task runs only if one of its input files changed. |
-| `build-images` | all test jobs | Builds and pushes one image for each changed component. It runs only on `main`. |
+| `checks` | none | Runs `lint:all` and `test:all` of the `checks` profile. It caches the virtual environment. |
+| `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `test:int:sync`, `test:int:console` and `test:int:proxy` of the `checks` profile. Each task runs only if one of its input files changed. |
+| `build-images` | `changes` and all test jobs | Builds and pushes one image for each changed component. It runs only on `main`. |
 | `helm` | all earlier jobs | Releases the chart. It runs only on `main`, when the chart or an image changed. |
 
 Each job restores the task state before it runs. The `task-state-restore` action reads the state that the last green run of `main` saved, and `task-state-save` writes it. Only a run on `main` saves the state. [Tests](tests.md#run-only-what-changed) explains how a task decides to run.
+
+The jobs `checks`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 
