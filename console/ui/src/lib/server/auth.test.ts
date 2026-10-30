@@ -25,7 +25,7 @@ describe('oidcConfig', () => {
 /** The cookies of one request: a map that has the calls of the code under test. */
 function jar(initial: Record<string, string> = {}) {
 	const store = new Map(Object.entries(initial));
-	const cookies = {
+	const cookies: Cookies = {
 		getAll: () => [...store].map(([name, value]) => ({ name, value })),
 		get: (name: string) => store.get(name),
 		set: (name: string, value: string) => {
@@ -33,12 +33,12 @@ function jar(initial: Record<string, string> = {}) {
 		},
 		delete: (name: string) => {
 			store.delete(name);
-		}
+		},
+		parse: (header: string) => ({ name: header, value: '' }),
+		serialize: (name: string, value: string) => `${name}=${value}`
 	};
 
-	// The code under test calls only these four methods of the Cookies of SvelteKit.
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-	return { store, cookies: cookies as unknown as Cookies };
+	return { store, cookies };
 }
 
 const IDP = {

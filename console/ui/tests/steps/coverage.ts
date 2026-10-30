@@ -4,7 +4,11 @@ import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
 import { After, BASE, Given, hydrated, saved, scenario, Then, When } from '../fixtures';
 
+const STREAM_READ_MARGIN_MS = 3000;
+
 const log = (page: Page) => page.locator('pre');
+
+const streamOpened = (page: Page) => expect(page.getByText('Live', { exact: true })).toBeVisible();
 
 When('I open the run {string}', async ({ page }, id: string) => {
 	await page.goto(`${BASE}/sync/runs/${id}`);
@@ -28,8 +32,7 @@ Then('the page has no {string} switch', async ({ page }, name: string) => {
 
 Then('the {string} switch is on', async ({ page }, name: string) => {
 	await expect(page.getByRole('checkbox', { name })).toBeChecked();
-	// The switch is on from the start. The badge shows that the stream opened, so a step that follows does not race it.
-	await expect(page.getByText('Live', { exact: true })).toBeVisible();
+	await streamOpened(page);
 });
 
 Given('the log stream of a run answers after {int} seconds', async ({ page }, seconds: number) => {
@@ -55,8 +58,7 @@ When('I turn the {string} switch on', async ({ page }, name: string) => {
 });
 
 Then('the log does not show the line {string}', async ({ page }, text: string) => {
-	// The stream reads every second, so a line that would arrive shows within this wait.
-	await page.waitForTimeout(3000);
+	await page.waitForTimeout(STREAM_READ_MARGIN_MS);
 	await expect(log(page)).not.toContainText(text);
 });
 

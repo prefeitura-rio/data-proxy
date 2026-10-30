@@ -13,6 +13,8 @@ export type SubmissionOptions = {
 	begin?: () => () => void;
 };
 
+export type Settled = Pick<Parameters<Exclude<Awaited<ReturnType<SubmitFunction>>, void>>[0], 'result' | 'update'>;
+
 /** What a form action returns when it worked: the text of a toast, and the id of a run to link to. */
 const Done = v.object({ toast: v.string(), run: v.optional(v.string()) });
 
@@ -31,12 +33,12 @@ export class Submission {
 		this.#options = options;
 	}
 
-	submit: SubmitFunction = () => {
+	submit = () => {
 		this.pending = true;
 		this.error = null;
 		const undo = this.#options.begin?.();
 
-		return async ({ result, update }) => {
+		return async ({ result, update }: Settled) => {
 			try {
 				if (result.type === 'success' || result.type === 'redirect') {
 					const done = result.type === 'success' ? v.safeParse(Done, result.data) : null;

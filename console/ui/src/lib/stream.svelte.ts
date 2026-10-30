@@ -17,10 +17,9 @@ export function runStream(source: RunSource) {
 	let live = $state(isActive(untrack(source.status)));
 	let connection = $state<'live' | 'reconnecting'>('live');
 	let settling = false;
-	// The lines that the page shows when the reader pauses the log. A refresh of the page data must not change them.
-	let paused = $state<LogLine[] | null>(null);
+	let pausedLogs = $state<LogLine[] | null>(null);
 
-	const logs = $derived(paused ?? streamed?.logs ?? source.logs());
+	const logs = $derived(pausedLogs ?? streamed?.logs ?? source.logs());
 	const status = $derived(streamed?.status ?? source.status());
 
 	$effect(() => {
@@ -69,7 +68,7 @@ export function runStream(source: RunSource) {
 			return live;
 		},
 		set live(value: boolean) {
-			paused = value ? null : untrack(() => logs);
+			pausedLogs = value ? null : untrack(() => logs);
 			live = value;
 		},
 		get connection() {
@@ -78,7 +77,7 @@ export function runStream(source: RunSource) {
 		/** After a control action, follow the run even while it still shows a finished status. */
 		watch() {
 			settling = true;
-			paused = null;
+			pausedLogs = null;
 			live = true;
 		}
 	};

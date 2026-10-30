@@ -56,7 +56,7 @@ export const test = base.extend<{ world: World }>({
 			try {
 				localStorage.setItem('refresh-interval', seconds);
 			} catch {
-				// The storage is blocked, so the page keeps its default.
+				return;
 			}
 		}, REFRESH_SECONDS);
 

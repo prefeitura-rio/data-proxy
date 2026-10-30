@@ -261,8 +261,9 @@ When('I open the first run of the list', async ({ page, world }) => {
 	const href = (await listOf(page, 'Started by').rows.first().getByRole('link').getAttribute('href')) ?? '';
 
 	world.runId = runIdOf(href);
-	// The list refreshes and other scenarios start runs, so the first row can change before the click.
-	await page.locator(`a[href="${href}"]`).click();
+	const linkOfThatRun = page.locator(`a[href="${href}"]`);
+
+	await linkOfThatRun.click();
 	await page.waitForURL(new RegExp(`${BASE}/sync/runs/${world.runId}$`));
 });
 
