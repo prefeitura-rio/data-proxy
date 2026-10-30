@@ -242,7 +242,7 @@ in
             );
           };
 
-          "itest:proxy" = utils.serviceSuite {
+          "test:int:proxy" = utils.serviceSuite {
             description = "Run the integration tests of the proxy against its test servers.";
             profile = "proxy";
             inputs = [
@@ -261,7 +261,7 @@ in
             ]
             ++ environment;
           };
-          "itest:sync" = utils.serviceSuite {
+          "test:int:sync" = utils.serviceSuite {
             description = "Run the sync tests that need a database and a storage server.";
             profile = "sync";
             inputs = [
@@ -293,7 +293,7 @@ in
             ++ postgresServer
             ++ environment;
           };
-          "e2e:console" = utils.serviceSuite {
+          "test:int:console" = utils.serviceSuite {
             description = "Run the browser tests of the console against its test servers.";
             profile = "console";
             inputs = [
@@ -359,8 +359,8 @@ in
             after = tasksWith "lint:";
           };
           "test:all" = {
-            description = "Run every test task that needs no service.";
-            after = tasksWith "test:";
+            description = "Run every test task that needs no service. The test:int: tasks start services, so this task skips them.";
+            after = lib.filter (name: !(lib.hasPrefix "test:int:" name)) (tasksWith "test:");
           };
         };
       };

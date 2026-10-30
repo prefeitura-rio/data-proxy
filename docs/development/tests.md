@@ -21,12 +21,12 @@ devenv --profile console test # PostgreSQL, SeaweedFS, Keycloak, PostgREST, the 
 Each of the three suites has a task in the `checks` profile. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
 
 ```bash
-devenv --profile checks tasks run itest:proxy  # the proxy suite
-devenv --profile checks tasks run itest:sync   # the sync suite
-devenv --profile checks tasks run e2e:console  # the console suite
+devenv --profile checks tasks run test:int:proxy    # the proxy suite
+devenv --profile checks tasks run test:int:sync     # the sync suite
+devenv --profile checks tasks run test:int:console  # the console suite
 ```
 
-devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `test:all` doesn't run the `test:int:` tasks, because they start services and use the same ports.
 
 A change in `console/` doesn't run the proxy suite. A change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only. A change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
 

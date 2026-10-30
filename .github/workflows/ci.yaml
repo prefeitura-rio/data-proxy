@@ -108,7 +108,7 @@ jobs:
         uses: ./.github/actions/task-state-restore
         with:
           group: sync
-      - run: devenv --profile checks tasks run itest:sync
+      - run: devenv --profile checks tasks run test:int:sync
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
@@ -128,7 +128,7 @@ jobs:
         uses: ./.github/actions/task-state-restore
         with:
           group: console
-      - run: devenv --profile checks tasks run e2e:console
+      - run: devenv --profile checks tasks run test:int:console
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
@@ -147,7 +147,7 @@ jobs:
         uses: ./.github/actions/task-state-restore
         with:
           group: proxy
-      - run: devenv --profile checks tasks run itest:proxy
+      - run: devenv --profile checks tasks run test:int:proxy
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
