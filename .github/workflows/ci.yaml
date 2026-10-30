@@ -32,7 +32,11 @@ on:
   workflow_dispatch:
     inputs:
       force_full:
-        description: Run all stages
+        description: Run all stages, and build every image and release the chart
+        type: boolean
+        default: false
+      force_checks:
+        description: Run every check and test, with no saved task state. The images and the release follow the changed files.
         type: boolean
         default: false
 concurrency:
@@ -78,9 +82,9 @@ jobs:
           path: sync/.venv
           key: checks-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
       - name: Restore the task state
-        if: ${{ !inputs.force_full }}
         uses: ./.github/actions/task-state-restore
         with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
           group: checks
       - run: devenv --profile checks tasks run lint:all test:all
       - name: Save checks virtual environment
@@ -104,9 +108,9 @@ jobs:
       - uses: ./.github/actions/setup-devenv
       - run: podman --version
       - name: Restore the task state
-        if: ${{ !inputs.force_full }}
         uses: ./.github/actions/task-state-restore
         with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
           group: sync
           profile: suites
       - run: devenv --profile suites tasks run test:int:sync
@@ -129,9 +133,9 @@ jobs:
       - uses: ./.github/actions/cache-packages
       - run: podman --version
       - name: Restore the task state
-        if: ${{ !inputs.force_full }}
         uses: ./.github/actions/task-state-restore
         with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
           group: console
           profile: suites
       - run: devenv --profile suites tasks run test:int:console
@@ -149,9 +153,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-devenv
       - name: Restore the task state
-        if: ${{ !inputs.force_full }}
         uses: ./.github/actions/task-state-restore
         with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
           group: proxy
           profile: suites
       - run: devenv --profile suites tasks run test:int:proxy

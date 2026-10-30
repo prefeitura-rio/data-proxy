@@ -4,7 +4,7 @@ The continuous integration (CI) pipeline is the workflow `.github/workflows/ci.y
 
 ## Triggers
 
-The pipeline runs on a push to `main`, on a pull request, and on a manual start. A manual start has the input `force_full`. It builds every image, releases the chart, and runs every job without the saved task state.
+The pipeline runs on a push to `main`, on a pull request, and on a manual start. A manual start has two inputs. `force_checks` runs every check and test without the saved task state, and the images and the release follow the changed files, as in a push. `force_full` does the same, builds every image, and starts the release job. The release job still needs a release-level commit and a change in the chart, so neither input forces a new chart version.
 
 A push or pull request runs the pipeline only when it changes a path in the list `ci_paths` of the workflow. The list has `sync/`, `console/`, `k3d/`, `nix/`, `proxy/`, `helm/`, `k6/` and `scripts/`. It also has the workflows, `cog.toml`, the linter files of the repository root (`.sqlfluff`, `.sqlfluffignore`, `.hadolint.yaml` and `.nu-lint.toml`) and the devenv files. The container files of the sync, PostgreSQL, proxy and console images are in it too. A change in `docs/` doesn't start it.
 
