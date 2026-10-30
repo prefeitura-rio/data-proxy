@@ -24,7 +24,7 @@ local utils = {}
 function utils.percent_decode(value)
 	for index = 1, #value do
 		if value:sub(index, index) == "%" then
-			local escape = value:sub(index + 1, index + 2)
+			local escape = value:sub(index + 1, index + constants.filter.percent_escape_digits)
 			if not escape:match(regex.percent_escape) then return nil end
 		end
 	end

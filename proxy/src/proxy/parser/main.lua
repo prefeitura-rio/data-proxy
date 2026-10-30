@@ -46,7 +46,7 @@ end
 --- Split one key=value query parameter and percent-decode both parts.
 ---@param parameter string One part of the query string, for example id=eq.42.
 ---@return {key: string, value: string}|nil decoded nil if the parameter cannot be used.
----@return ParameterResult|nil failure The result to return when decoded is nil.
+---@return ParameterResult|nil failure The result to return if decoded is nil.
 local function decode_parameter(parameter)
 	local key, raw_value = parameter:match(regex.parameter)
 	if not key or not raw_value then return nil, SKIPPED end
@@ -251,7 +251,7 @@ local function read_order_item(item)
 	local entry = { column = parts[1], descending = false }
 	if not is_column_name(entry.column) then return nil end
 
-	for index = 2, #parts do
+	for index = constants.filter.first_modifier_index, #parts do
 		local modifier = constants.filter.order_modifiers[parts[index]]
 		if modifier == nil then return nil end
 		tablex.update(entry, modifier)

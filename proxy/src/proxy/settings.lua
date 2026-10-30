@@ -18,7 +18,7 @@ function settings.replace(store, document, revision)
 	store:incr("version", 1, 0)
 end
 
---- Fetch sync.json from the console and replace the shared settings when the document is new.
+--- Fetch sync.json from the console and replace the shared settings if the document is new.
 --- The shared settings stay as they are if the console fails or gives a document that is not valid.
 ---@param store SettingsStore The shared dictionary.
 ---@param url string Where the console serves sync.json.
@@ -42,7 +42,7 @@ function settings.reload(store, url, fetch)
 end
 
 --- Give the settings that one worker uses now. The worker parses the shared document again only
---- when its version moved since the last call.
+--- if its version moved since the last call.
 ---@param store SettingsStore The shared dictionary.
 ---@param cache SettingsCache The state of this worker. The function updates it.
 ---@return SyncConfig

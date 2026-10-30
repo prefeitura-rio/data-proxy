@@ -33,7 +33,7 @@
 --- One column of the group by, with the name that it has in the answer.
 ---@class FilterGroupColumn
 ---@field column string The column of the table.
----@field alias string The name of the value in the answer. It is the column when the select has no alias.
+---@field alias string The name of the value in the answer. It is the column if the select has no alias.
 
 --- The group by and the aggregates that DuckDB can run for a request.
 ---@class FilterAggregate

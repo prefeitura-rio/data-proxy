@@ -103,7 +103,7 @@ local function ask_aggregate(context, sender)
 end
 
 --- Send the request to PostgREST, and send a read again while the answer is retryable.
---- PostgREST fails for a moment when PgDog loses a standby. Each retry waits twice as long as the one before.
+--- PostgREST fails for a moment if PgDog loses a standby. Each retry waits twice as long as the one before.
 ---@param context RequestContext
 ---@param sender Sender|nil The function that sends one request. The default makes an HTTP call. Tests use a fake.
 ---@param sleeper Sleeper|nil The function that waits a number of milliseconds. The default is ngx.sleep.
@@ -120,7 +120,7 @@ function postgrest.query(context, sender, sleeper)
 	for attempt = 1, constants.postgrest.retries do
 		if not postgrest.should_retry(context, response) then break end
 		log.write(ngx.WARN, "postgrest-retried", context, { status = response and response.status })
-		sleeper(constants.postgrest.backoff_ms * 2 ^ (attempt - 1))
+		sleeper(constants.postgrest.backoff_ms * constants.postgrest.backoff_factor ^ (attempt - 1))
 		response, response_error = sender(context, context.postgrest)
 	end
 

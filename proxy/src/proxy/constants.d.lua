@@ -36,10 +36,10 @@
 ---@field unavailable_body string Body of the 502 answer. The proxy sends it if no PostgREST service answers.
 ---@field reload_failed_body string JSON body of the answer if the reload fails.
 ---@field unavailable_status integer
----@field overloaded_body string Body of the 503 answer. The proxy sends it when too many requests wait for PostgREST.
+---@field overloaded_body string Body of the 503 answer. The proxy sends it if too many requests wait for PostgREST.
 ---@field forbidden_body string Body of the 403 answer, for a request that asks for the console profile.
 ---@field overloaded_status integer
----@field overloaded_reason string The reason that limiter.run gives when it rejects a task.
+---@field overloaded_reason string The reason that limiter.run gives if it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
 ---@field ok_status integer The status of a good answer.
 ---@field answer_statuses table<integer, boolean> The statuses of an aggregate answer: 200, and 206 for the cap.
@@ -84,7 +84,8 @@
 ---@class PostgrestConstants
 ---@field timeout_ms integer Time limit for one PostgREST request, in milliseconds. Queries can run long.
 ---@field retries integer How many times a read that failed is sent again.
----@field backoff_ms integer Wait before the first retry, in milliseconds. It doubles for each retry.
+---@field backoff_ms integer Wait before the first retry, in milliseconds. It grows by backoff_factor for each retry.
+---@field backoff_factor integer How many times longer each retry waits than the one before.
 
 --- Units of time.
 ---@class TimeConstants
@@ -113,6 +114,8 @@
 ---@field query_parameter_separator string
 ---@field list_separator string Separates the items of a list in a value, for example in select and order.
 ---@field part_separator string Separates the parts of a value, for example id.desc, and the key from the value.
+---@field first_modifier_index integer The position of the first modifier in an order item.
+---@field percent_escape_digits integer How many hexadecimal digits follow a percent sign in an escape.
 
 --- Values for calling the aggregate function that runs a group by in DuckDB.
 ---@class AggregateConstants

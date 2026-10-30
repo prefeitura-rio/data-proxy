@@ -77,7 +77,7 @@ end
 --- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read.
 --- The function returns a new table and does not change the input.
 ---@param input NgxRequest
----@param filter FilterDocument|nil The document of the filter header. The function reads the query when it is nil.
+---@param filter FilterDocument|nil The document of the filter header. The function reads the query if it is nil.
 ---@return HeaderMap headers Headers for the PostgREST request.
 function request.make_headers(input, filter)
 	filter = filter or request.read_filter(input)
