@@ -68,9 +68,9 @@ async def rbac(postgres: Postgres) -> Postgres:
 
 
 @pytest.fixture
-def rbac_connection() -> Iterator[psycopg.Connection[TupleRow]]:
+def rbac_connection(database: str) -> Iterator[psycopg.Connection[TupleRow]]:
     """Give a property test one synchronous connection to the test database."""
-    with psycopg.connect(f"{POSTGRES_URL}/test_template") as connection:
+    with psycopg.connect(f"{POSTGRES_URL}/{database}") as connection:
         yield connection
         connection.rollback()
 

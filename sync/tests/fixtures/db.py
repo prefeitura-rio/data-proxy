@@ -26,7 +26,15 @@ from sync.state import write_table_state
 from sync.templates import render_template
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
-from tests.constants import FILES, POSTGRES_URL, S3_SECRET_INPUTS, TEST_SQL_DIR
+from tests.constants import (
+    DUCKDB_DATABASE_SETTINGS,
+    FILES,
+    POSTGRES_URL,
+    S3_SECRET_INPUTS,
+    TEST_DATABASE,
+    TEST_SQL_DIR,
+    WORKER,
+)
 from tests.fixtures.types import (
     Postgres,
     PostgresTestNamespace,
@@ -37,15 +45,37 @@ from tests.helpers import (
     act_as_token,
     create_state_tables,
     initialize_schemas,
+    one_worker_at_a_time,
     publish_people_catalog,
 )
 
 
+@pytest.fixture(scope="session")
+def database(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Give the database that this worker uses. Each xdist worker clones its own from test_template, so workers do not share the functions that the templates install."""
+    if WORKER is None:
+        return TEST_DATABASE
+
+    with (
+        one_worker_at_a_time(tmp_path_factory),
+        psycopg.connect(f"{POSTGRES_URL}/postgres", autocommit=True) as admin,
+    ):
+        name = Identifier(TEST_DATABASE)
+        admin.execute(SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(name))
+        admin.execute(SQL("CREATE DATABASE {} TEMPLATE test_template").format(name))
+        for setting in DUCKDB_DATABASE_SETTINGS:
+            admin.execute(
+                SQL("ALTER DATABASE {} SET {} = 'on'").format(name, SQL(setting))
+            )
+
+    return TEST_DATABASE
+
+
 @pytest.fixture
-async def postgres(storage: Storage) -> AsyncIterator[Postgres]:
+async def postgres(storage: Storage, database: str) -> AsyncIterator[Postgres]:
     """Provide the async PostgreSQL boundary for one isolated schema."""
     namespace = PostgresTestNamespace(f"test_{secrets.token_hex(8)}")
-    dsn = f"{POSTGRES_URL}/test_template"
+    dsn = f"{POSTGRES_URL}/{database}"
 
     setup = await psycopg.AsyncConnection.connect(dsn)
     await setup.execute(SQL("CREATE SCHEMA {}").format(namespace.identifier))
@@ -110,16 +140,17 @@ async def drop_catalog_schema(name: str) -> None:
 
 @pytest.fixture
 async def catalog_paths(tmp_path: Path) -> AsyncIterator[DuckLakePaths]:
-    """Give the test an empty metadata schema named app in the catalog database."""
-    await drop_catalog_schema("app")
+    """Give the test an empty metadata schema of its own in the catalog database."""
+    schema = f"app_{secrets.token_hex(4)}"
+    await drop_catalog_schema(schema)
     try:
         yield DuckLakePaths(
             catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
             data=str(tmp_path / "data"),
-            metadata_schema="app",
+            metadata_schema=schema,
         )
     finally:
-        await drop_catalog_schema("app")
+        await drop_catalog_schema(schema)
 
 
 @pytest.fixture
@@ -192,21 +223,22 @@ async def ducklake_view(
 
 
 @pytest.fixture(scope="session")
-def dbos_schema() -> str:
-    """Create the DBOS system tables in the test database once."""
+def dbos_schema(tmp_path_factory: pytest.TempPathFactory, database: str) -> str:
+    """Create the DBOS system tables in the test database once for each worker, one worker at a time."""
     engine = create_engine(
         POSTGRES_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-        + "/test_template"
+        + f"/{database}"
     )
     try:
-        ensure_dbos_schema(engine, "dbos")
-        run_dbos_migrations(engine, "dbos", use_listen_notify=True)
+        with one_worker_at_a_time(tmp_path_factory):
+            ensure_dbos_schema(engine, "dbos")
+            run_dbos_migrations(engine, "dbos", use_listen_notify=True)
     finally:
         engine.dispose()
     return "dbos"
 
 
 @pytest.fixture
-def psql() -> Psql:
+def psql(database: str) -> Psql:
     """Provide psql against the test database of the PostgreSQL test server."""
-    return Psql(database="test_template")
+    return Psql(database=database)

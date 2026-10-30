@@ -27,6 +27,12 @@ FULL: Final = TableState(strategy=Strategy.FULL, signature="s")
 POSTGRES_HOST = "127.0.0.1"
 POSTGRES_PORT = environ["TEST_POSTGRES_PORT"]
 POSTGRES_URL = f"postgresql://test:test@{POSTGRES_HOST}:{POSTGRES_PORT}"
+WORKER = environ.get("PYTEST_XDIST_WORKER")
+DUCKDB_DATABASE_SETTINGS = (
+    "duckdb.unsafe_allow_execution_inside_functions",
+    "duckdb.unsafe_allow_mixed_transactions",
+)
+TEST_DATABASE = "test_template" if WORKER is None else f"test_{WORKER}"
 S3_ENDPOINT = environ["TEST_S3_ENDPOINT"]
 S3_ACCESS_KEY = environ["TEST_S3_ACCESS_KEY"]
 S3_SECRET_KEY = environ["TEST_S3_SECRET_KEY"]

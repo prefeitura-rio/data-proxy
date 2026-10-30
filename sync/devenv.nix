@@ -101,7 +101,7 @@
           };
         };
 
-        enterTest = "uv run --directory sync --frozen pytest";
+        enterTest = "uv run --directory sync --frozen pytest --numprocesses auto --maxprocesses 4";
       };
   };
 }

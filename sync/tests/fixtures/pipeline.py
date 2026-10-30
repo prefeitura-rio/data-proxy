@@ -30,7 +30,13 @@ from sync.sources import registry
 from sync.views import stages
 from tests.constants import S3_ACCESS_KEY, S3_ENDPOINT, S3_SECRET_KEY
 from tests.fixtures.types import Postgres, RecordedOptions
-from tests.helpers import act_as_token, initialize_schemas, scalar, workflow_body
+from tests.helpers import (
+    act_as_token,
+    initialize_schemas,
+    one_worker_at_a_time,
+    scalar,
+    workflow_body,
+)
 
 
 @final
@@ -121,9 +127,12 @@ class Pipeline:
 
 
 @pytest.fixture(scope="session")
-def duckdb_extensions() -> None:
+def duckdb_extensions(tmp_path_factory: pytest.TempPathFactory) -> None:
     """Install the extensions that `DuckDB.connect` loads. The image has them, and a machine without them gets them once."""
-    with closing(duckdb.connect()) as connection:
+    with (
+        one_worker_at_a_time(tmp_path_factory),
+        closing(duckdb.connect()) as connection,
+    ):
         for extension in ("httpfs", "ducklake", "postgres_scanner"):
             connection.install_extension(extension)
 

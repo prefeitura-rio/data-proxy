@@ -1,7 +1,9 @@
+import fcntl
 import itertools
 import json
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from inspect import unwrap
 from logging import LogRecord
@@ -1288,3 +1290,15 @@ async def names(pg: Postgres, sql: str) -> list[object]:
     cursor = await pg.connection.execute(sql.encode())
 
     return [row[0] for row in await cursor.fetchall()]
+
+
+@contextmanager
+def one_worker_at_a_time(factory: pytest.TempPathFactory) -> Generator[None]:
+    """Hold a lock that every xdist worker shares, so a setup that all of them run does not overlap."""
+    lock = factory.getbasetemp().parent / "setup.lock"
+    with lock.open("w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)

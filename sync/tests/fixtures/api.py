@@ -21,7 +21,7 @@ from tests.constants import (
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import BigQueryQueryResult, Storage
-from tests.helpers import create_state_tables
+from tests.helpers import create_state_tables, one_worker_at_a_time
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -107,7 +107,7 @@ def bigquery() -> Iterator[BigQuery]:
 
 
 @pytest.fixture(scope="session")
-def storage() -> Storage:
+def storage(tmp_path_factory: pytest.TempPathFactory) -> Storage:
     """Provide the object storage populated with the Parquet test fixtures."""
     host, _, port = S3_ENDPOINT.partition(":")
     client = Minio(
@@ -116,8 +116,9 @@ def storage() -> Storage:
         secret_key=S3_SECRET_KEY,
         secure=False,
     )
-    if not client.bucket_exists("test-bucket"):
-        client.make_bucket("test-bucket")
+    with one_worker_at_a_time(tmp_path_factory):
+        if not client.bucket_exists("test-bucket"):
+            client.make_bucket("test-bucket")
     for fixture in FILES.glob("*.parquet"):
         client.fput_object("test-bucket", f"app/people/{fixture.name}", str(fixture))
         if fixture.name == "people_partition_10.parquet":
