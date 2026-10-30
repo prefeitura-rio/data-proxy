@@ -71,6 +71,7 @@ When('a log line {string} is added to the run', async ({ world }, message: strin
 	expect(message).toMatch(/^[a-z0-9 ]+$/);
 
 	await sql(`
+		SELECT pg_advisory_xact_lock(hashtext('${world.runId}'));
 		INSERT INTO dbos.streams (workflow_uuid, key, value, "offset", serialization)
 		SELECT '${world.runId}', 'logs',
 			json_build_object('time', now(), 'level', 'INFO', 'message', '${message}', 'fields', '{}'::json,
