@@ -436,8 +436,8 @@ let
         ready:
         ready
         // {
-          period = 2;
-          failure_threshold = 600;
+          period = 1;
+          failure_threshold = 1200;
         };
     in
     {
