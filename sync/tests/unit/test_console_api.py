@@ -1,44 +1,13 @@
 import pytest
 
-from tests.fixtures.console import add_schema, add_table, as_token, refusal
+from tests.fixtures.console import add_schema, as_token, refusal, start, two_schemas
 from tests.fixtures.types import Postgres
-from tests.helpers import scalar
+from tests.helpers import add_files_function, add_schedule, scalar, set_status, values
 
 INSUFFICIENT = "42501"
 NOT_FOUND = "PT404"
 CONFLICT = "PT409"
 BAD_REQUEST = "PT400"
-
-
-async def values(pg: Postgres, sql: str, *params: object) -> list[object]:
-    """Return the first column of every row of a statement."""
-    cursor = await pg.connection.execute(sql.encode(), params)
-
-    return [row[0] for row in await cursor.fetchall()]
-
-
-async def two_schemas(pg: Postgres) -> None:
-    """Add two provisioned schemas, one table in each, and a row rule on the first."""
-    await add_schema(pg, "sales", claim="cpf")
-    await add_schema(pg, "hr", claim="cpf")
-    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
-    await add_table(pg, "p.d.staff", "hr")
-
-
-async def start(
-    pg: Postgres, schemas: list[str], tables: list[str] | None = None
-) -> str:
-    """Start a run as an administrator of every schema, and return its id."""
-    await as_token(pg, "dp_admin", ["sales", "hr"])
-    run = await scalar(
-        pg,
-        "SELECT console.start_sync(%s, %s)",
-        schemas,
-        [] if tables is None else tables,
-    )
-    assert isinstance(run, str)
-
-    return run
 
 
 @pytest.mark.postgres
@@ -357,14 +326,6 @@ class TestStartSync:
         assert state == BAD_REQUEST
 
 
-async def set_status(pg: Postgres, run: str, status: str) -> None:
-    """Move a run to a status, as the workers do."""
-    await pg.connection.execute(
-        "UPDATE dbos.workflow_status SET status = %s WHERE workflow_uuid = %s",
-        (status, run),
-    )
-
-
 @pytest.mark.postgres
 class TestRunControl:
     """Cancel, resume and run again follow the status of the run and the schemas of the token."""
@@ -513,15 +474,6 @@ class TestRunControl:
         )
 
 
-async def add_schedule(pg: Postgres, name: str) -> None:
-    """Add a schedule as DBOS stores it."""
-    await pg.connection.execute(
-        "INSERT INTO dbos.workflow_schedules (schedule_id, schedule_name, workflow_name, schedule, context) "
-        "VALUES (%s, %s, 'run_sync', '0 2 * * *', '{}')",
-        (f"id-{name}", name),
-    )
-
-
 @pytest.mark.postgres
 class TestScheduleControl:
     """A schedule serves one schema, so a token needs that schema to see and control it."""
@@ -646,17 +598,6 @@ class TestScheduleControl:
             )
             == []
         )
-
-
-async def add_files_function(pg: Postgres, schema: str) -> None:
-    """Add a stand-in for the function that lists the files of a table, which the sync worker makes."""
-    await pg.connection.execute(
-        f"""
-        CREATE FUNCTION {schema}.dl_table_files(table_name text)
-        RETURNS TABLE (path text, size_bytes bigint, delete_file text)
-        LANGUAGE sql AS $$ SELECT table_name || '.parquet', 10::bigint, NULL::text $$
-        """.encode()
-    )
 
 
 @pytest.mark.postgres

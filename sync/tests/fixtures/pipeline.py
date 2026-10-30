@@ -29,8 +29,8 @@ from sync.settings import settings
 from sync.sources import registry
 from sync.views import stages
 from tests.constants import S3_ACCESS_KEY, S3_ENDPOINT, S3_SECRET_KEY
-from tests.fixtures.types import Postgres
-from tests.helpers import RecordedOptions, initialize_schemas, workflow_body
+from tests.fixtures.types import Postgres, RecordedOptions
+from tests.helpers import act_as_token, initialize_schemas, scalar, workflow_body
 
 
 @final
@@ -228,3 +228,25 @@ async def pipeline(
             )
         finally:
             await cleanup.close()
+
+
+async def served(pipeline: Pipeline, table: str) -> int:
+    """Count the rows that a client of the data API reads from the view of a table."""
+    pg = pipeline.pg
+    await act_as_token(pg, "dp_api", pipeline.schema)
+    count = await scalar(pg, f'SELECT count(*) FROM "{pipeline.schema}"."{table}"')
+    assert isinstance(count, int)
+
+    return count
+
+
+async def state_of(pipeline: Pipeline, table: str) -> str | None:
+    """Return the signature that the sync worker stored for a table, or None."""
+    row = await (
+        await pipeline.pg.connection.execute(
+            b"SELECT state ->> 'signature' FROM data_proxy.state WHERE table_name = %s",
+            (table,),
+        )
+    ).fetchone()
+
+    return None if row is None else str(row[0])

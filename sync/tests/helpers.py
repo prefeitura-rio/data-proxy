@@ -4,21 +4,27 @@ import tomllib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from inspect import unwrap
+from logging import LogRecord
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, Final, Self
+from typing import Final
 from unittest.mock import AsyncMock
 
 import duckdb
 import psycopg
 import pytest
 from httpx2 import AsyncClient, MockTransport, Request, Response
+from lightkube.models.batch_v1 import CronJobSpec, JobSpec, JobTemplateSpec
+from lightkube.models.core_v1 import Container, PodSpec, PodTemplateSpec
+from lightkube.models.meta_v1 import ObjectMeta
+from lightkube.resources.batch_v1 import CronJob
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import TupleRow
 from psycopg.sql import SQL, Composable, Identifier, Literal
-from pydantic import BaseModel, Field, TypeAdapter
+from psycopg.types.json import Jsonb
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
-from sync.dbos import workflows
+from sync.dbos import logs, workflows
 from sync.duckdb import DuckDB
 from sync.executor import Executor
 from sync.models import (
@@ -72,7 +78,7 @@ from tests.constants import (
     SIGNER,
     TEST_SQL_DIR,
 )
-from tests.fixtures.types import FilterCase, Postgres
+from tests.fixtures.types import FilterCase, Postgres, RecordedOptions
 
 type Selection = RangeSelection | TimeRangeSelection | RemainderSelection
 type SqlParams = Mapping[str, DatabaseValue | list[str]]
@@ -211,26 +217,6 @@ def workflow_body[**P, R](workflow: Callable[P, R]) -> Callable[P, R]:
 DOCUMENT = SyncConfig(
     schemas={name: SchemaConfig() for name in ("app", "one", "other", "two")}
 ).model_dump_json()
-
-
-class RecordedOptions:
-    """Stand in for SetEnqueueOptions and remember the options that are active."""
-
-    active: ClassVar[dict[str, object]] = {}
-    options: dict[str, object]
-
-    def __init__(self, **options: object) -> None:
-        """Keep the options of one enqueue."""
-        self.options = options
-
-    def __enter__(self) -> Self:
-        """Make the options active."""
-        RecordedOptions.active = self.options
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        """Clear the options."""
-        RecordedOptions.active = {}
 
 
 async def publish(plan: SyncPlan) -> int | None:
@@ -1052,3 +1038,253 @@ def client_answering(statuses: dict[str, int], seen: list[Request]) -> AsyncClie
 def proxy_filter_cases() -> list[FilterCase]:
     """Read the cases that the Lua parser specs share with the PostgreSQL filter tests."""
     return TypeAdapter(list[FilterCase]).validate_json(PROXY_FILTER_CASES.read_text())
+
+
+type GroupColumn = str | tuple[str, str]
+
+
+def aggregate(
+    *items: dict[str, str],
+    group: list[GroupColumn] | None = None,
+    order: list[dict[str, object]] | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> dict[str, object]:
+    """Build the filter document of an aggregate.
+
+    A group column is a name, or a pair of the column and the alias.
+    """
+    body: dict[str, object] = {"items": list(items)}
+    if group is not None:
+        body["group"] = [
+            {"column": entry, "alias": entry}
+            if isinstance(entry, str)
+            else {"column": entry[0], "alias": entry[1]}
+            for entry in group
+        ]
+    tail = {"order": order, "limit": limit, "offset": offset}
+    body.update({name: value for name, value in tail.items() if value is not None})
+    return {"aggregate": body}
+
+
+def by(
+    column: str, *, descending: bool = False, nulls: str | None = None
+) -> dict[str, object]:
+    """Build one order entry."""
+    entry: dict[str, object] = {"column": column, "descending": descending}
+    if nulls is not None:
+        entry["nulls"] = nulls
+    return entry
+
+
+def total(alias: str = "n") -> dict[str, str]:
+    """Build the aggregate item sum(qty)."""
+    return {"fn": "sum", "column": "qty", "alias": alias}
+
+
+def ordered(rows: object) -> list[dict[str, object]]:
+    """Sort the rows by their text, because the function gives the groups in no order."""
+    assert isinstance(rows, list)
+    return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
+
+
+async def values(pg: Postgres, sql: str, *params: object) -> list[object]:
+    """Return the first column of every row of a statement."""
+    cursor = await pg.connection.execute(sql.encode(), params)
+
+    return [row[0] for row in await cursor.fetchall()]
+
+
+async def set_status(pg: Postgres, run: str, status: str) -> None:
+    """Move a run to a status, as the workers do."""
+    await pg.connection.execute(
+        "UPDATE dbos.workflow_status SET status = %s WHERE workflow_uuid = %s",
+        (status, run),
+    )
+
+
+async def add_schedule(pg: Postgres, name: str) -> None:
+    """Add a schedule as DBOS stores it."""
+    await pg.connection.execute(
+        "INSERT INTO dbos.workflow_schedules (schedule_id, schedule_name, workflow_name, schedule, context) "
+        "VALUES (%s, %s, 'run_sync', '0 2 * * *', '{}')",
+        (f"id-{name}", name),
+    )
+
+
+async def add_files_function(pg: Postgres, schema: str) -> None:
+    """Add a stand-in for the function that lists the files of a table, which the sync worker makes."""
+    await pg.connection.execute(
+        f"""
+        CREATE FUNCTION {schema}.dl_table_files(table_name text)
+        RETURNS TABLE (path text, size_bytes bigint, delete_file text)
+        LANGUAGE sql AS $$ SELECT table_name || '.parquet', 10::bigint, NULL::text $$
+        """.encode()
+    )
+
+
+Document = dict[str, JsonValue]
+
+
+async def export(pg: Postgres) -> Document:
+    """Return the configuration that the console exports."""
+    document = await scalar(pg, "SELECT console.sync_config()")
+    assert isinstance(document, dict)
+
+    return document
+
+
+async def preview(pg: Postgres, document: Document) -> list[tuple[str, str, str, str]]:
+    """Return what an import of the document would do, as (object, schema, key, action)."""
+    cursor = await pg.connection.execute(
+        b"SELECT object, schema_name, key, action FROM console.import_preview(%s)",
+        (Jsonb(document),),
+    )
+
+    return [(a, b, c, d) for a, b, c, d in await cursor.fetchall()]
+
+
+RULES: list[JsonValue] = [
+    {"column": "cpf", "unit_type": "cpf"},
+    {"column": "cnpj", "unit_type": "cnpj"},
+]
+
+
+EVENTS: Document = {
+    "name": "p.d.events",
+    "strategy": "partitioned",
+    "n": 4,
+    "fallback": True,
+    "ducklake": {"partitioning": [{"column": "dt"}], "sort": ["dt", "id"]},
+}
+
+
+def hr_schema(claim: str = "cpf") -> Document:
+    """Build the export of the schema hr."""
+    return {
+        "claim": claim,
+        "source": {"type": "bigquery"},
+        "tables": [{"name": "p.d.staff", "strategy": "full"}],
+    }
+
+
+def sales_schema(ttl: int = 60, rules: list[JsonValue] | None = None) -> Document:
+    """Build the export of the schema sales, with the table orders, its cache time and its row rules."""
+    orders: Document = {
+        "name": "p.d.orders",
+        "strategy": "full",
+        "cache_ttl": ttl,
+        "rls": RULES if rules is None else rules,
+    }
+
+    return {"claim": "cpf", "source": {"type": "bigquery"}, "tables": [EVENTS, orders]}
+
+
+def exported(
+    *,
+    ttl: int = 60,
+    hr_claim: str = "cpf",
+    rules: list[JsonValue] | None = None,
+    more: Document | None = None,
+) -> Document:
+    """Build the document that the console exports for the seed rows, with the given changes."""
+    schemas: Document = {
+        "hr": hr_schema(hr_claim),
+        "sales": sales_schema(ttl, rules),
+        **({} if more is None else more),
+    }
+
+    return {"schemas": schemas}
+
+
+async def role_setting(pg: Postgres, role: str) -> str | None:
+    """Return the value of the PostgREST setting that a role carries, or None."""
+    cursor = await pg.connection.execute(
+        b"""
+        SELECT s.setting
+        FROM pg_db_role_setting AS d
+        INNER JOIN pg_roles AS r ON d.setrole = r.oid
+        CROSS JOIN LATERAL unnest(d.setconfig) AS s (setting)
+        WHERE r.rolname = %s AND s.setting LIKE 'pgrst.db_schemas=%%'
+        """,
+        (role,),
+    )
+    row = await cursor.fetchone()
+
+    return None if row is None else str(row[0])
+
+
+def workflow(monkeypatch: pytest.MonkeyPatch, workflow_id: str | None) -> AsyncMock:
+    """Run the log functions in a workflow, or outside one, and return the stream writer."""
+    write_stream = AsyncMock()
+    monkeypatch.setattr(
+        logs,
+        "DBOS",
+        SimpleNamespace(workflow_id=workflow_id, write_stream_async=write_stream),
+    )
+    return write_stream
+
+
+def written(stream: AsyncMock) -> tuple[str, dict[str, object]]:
+    """Return the key and the object of the one write to the stream."""
+    call = stream.await_args
+    assert call is not None
+    key, entry = call.args
+
+    return key, entry
+
+
+async def silent(message: str, /, **fields: str | float | bool) -> None:
+    """Ignore a report."""
+
+
+def cronjob(
+    *,
+    metadata: ObjectMeta | None = None,
+    template_metadata: ObjectMeta | None = None,
+) -> CronJob:
+    """Build a CronJob with one container in its job template."""
+    return CronJob(
+        metadata=ObjectMeta(name="provision", uid="uid-1")
+        if metadata is None
+        else metadata,
+        spec=CronJobSpec(
+            schedule="0 0 31 2 *",
+            jobTemplate=JobTemplateSpec(
+                metadata=template_metadata,
+                spec=JobSpec(
+                    template=PodTemplateSpec(
+                        spec=PodSpec(containers=[Container(name="run", image="img:1")])
+                    )
+                ),
+            ),
+        ),
+    )
+
+
+def raised_in_project_file(filename: str, line: int) -> BaseException:
+    """Raise an error from code that Python takes for a file at the given path."""
+    code = compile("\n" * (line - 1) + "raise ValueError('boom')", filename, "exec")
+
+    try:
+        exec(code, {})  # ruff: ignore[exec-builtin]
+    except ValueError as error:
+        return error
+
+    raise AssertionError("The code did not raise")
+
+
+def record(
+    level: int, message: str, *, error: BaseException | None = None
+) -> LogRecord:
+    """Build a log record like the logger of DBOS makes."""
+    exc_info = None if error is None else (type(error), error, error.__traceback__)
+
+    return LogRecord("dbos", level, "file.py", 1, message, (), exc_info)
+
+
+async def names(pg: Postgres, sql: str) -> list[object]:
+    """Return the first column of every row of a statement."""
+    cursor = await pg.connection.execute(sql.encode())
+
+    return [row[0] for row in await cursor.fetchall()]

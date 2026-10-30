@@ -1,83 +1,28 @@
 """Tests for the function that runs the aggregate of a request inside DuckDB."""
 
 import json
-from typing import Final
 
 import psycopg
 import pytest
 
-from sync.models import Strategy, TableState
-from tests.constants import ROUTED_TABLE
+from sync.models import TableState
+from tests.constants import FULL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
 from tests.helpers import (
+    aggregate,
+    by,
     call_aggregate_function,
     grant_unit,
     insert_access_policy,
     install_aggregate_function,
+    ordered,
     partitioned,
     put_state,
     response_status,
     scalar,
     set_setting,
+    total,
 )
-
-FULL: Final = TableState(strategy=Strategy.FULL, signature="s")
-
-
-type GroupColumn = str | tuple[str, str]
-
-
-def aggregate(
-    *items: dict[str, str],
-    group: list[GroupColumn] | None = None,
-    order: list[dict[str, object]] | None = None,
-    limit: int | None = None,
-    offset: int | None = None,
-) -> dict[str, object]:
-    """Build the filter document of an aggregate.
-
-    A group column is a name, or a pair of the column and the alias.
-    """
-    body: dict[str, object] = {"items": list(items)}
-    if group is not None:
-        body["group"] = [
-            {"column": entry, "alias": entry}
-            if isinstance(entry, str)
-            else {"column": entry[0], "alias": entry[1]}
-            for entry in group
-        ]
-    tail = {"order": order, "limit": limit, "offset": offset}
-    body.update({name: value for name, value in tail.items() if value is not None})
-    return {"aggregate": body}
-
-
-def by(
-    column: str, *, descending: bool = False, nulls: str | None = None
-) -> dict[str, object]:
-    """Build one order entry."""
-    entry: dict[str, object] = {"column": column, "descending": descending}
-    if nulls is not None:
-        entry["nulls"] = nulls
-    return entry
-
-
-def total(alias: str = "n") -> dict[str, str]:
-    """Build the aggregate item sum(qty)."""
-    return {"fn": "sum", "column": "qty", "alias": alias}
-
-
-def ordered(rows: object) -> list[dict[str, object]]:
-    """Sort the rows by their text, because the function gives the groups in no order."""
-    assert isinstance(rows, list)
-    return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
-
-
-@pytest.fixture
-async def installed(aggregate_function: Postgres) -> Postgres:
-    """Install the aggregate function for a table without row rules, and mark DuckLake as complete."""
-    await install_aggregate_function(aggregate_function, has_rls=False, fallbacks=[])
-    await put_state(aggregate_function, ROUTED_TABLE, FULL)
-    return aggregate_function
 
 
 @pytest.mark.postgres
@@ -419,16 +364,6 @@ class TestAggregateGroupAndTail:
         assert isinstance(limited, list)
         assert len(limited) == 2
         assert skipped == []
-
-
-@pytest.fixture
-async def capped(aggregate_function: Postgres) -> Postgres:
-    """Install the aggregate function with a cap of two rows, over a table that has five labels."""
-    await install_aggregate_function(
-        aggregate_function, has_rls=False, fallbacks=[], max_rows=2
-    )
-    await put_state(aggregate_function, ROUTED_TABLE, FULL)
-    return aggregate_function
 
 
 LABELS = ["Alpha", "Beta", "Zeta", "alpha", "zeta"]

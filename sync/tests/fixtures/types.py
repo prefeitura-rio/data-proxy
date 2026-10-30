@@ -1,9 +1,10 @@
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from os import environ
-from typing import TypedDict, final
+from typing import ClassVar, Self, TypedDict, final
 
+from dbos import error as dbos_error
 from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
@@ -169,3 +170,90 @@ class FilterCase(TypedDict):
 
     name: str
     expected: dict[str, JsonValue] | None
+
+
+class Counted:
+    """Stand-in for an OpenTelemetry counter that remembers each increase."""
+
+    def __init__(self) -> None:
+        """Start with no increase."""
+        self.adds: list[tuple[int, dict[str, str]]] = []
+
+    def add(self, amount: int, attributes: dict[str, str]) -> None:
+        """Remember one increase."""
+        self.adds.append((amount, attributes))
+
+
+class RecordingDbos:
+    """Stand-in for the DBOS class that records how the application sets itself up."""
+
+    queues: ClassVar[list[tuple[str, str]]] = []
+    concurrency: ClassVar[dict[str, object]] = {}
+    enqueued: ClassVar[list[tuple[str, str]]] = []
+    listened: ClassVar[list[str]] = []
+    deduplicated: ClassVar[bool] = False
+    options: ClassVar[list[dict[str, object]]] = []
+
+    def __init__(self, **_: object) -> None:
+        """Accept the configuration."""
+
+    @classmethod
+    def listen_queues(cls, queues: list[str]) -> None:
+        """Record the queues to listen to."""
+        cls.listened = queues
+
+    @classmethod
+    def launch(cls) -> None:
+        """Ignore the launch."""
+
+    @classmethod
+    async def register_queue_async(
+        cls,
+        name: str,
+        *,
+        on_conflict: str = "always_update",
+        concurrency: object = None,
+        **_: object,
+    ) -> None:
+        """Record the queue, how it treats an existing one, and its concurrency."""
+        cls.queues.append((name, on_conflict))
+        cls.concurrency[name] = concurrency
+
+    @classmethod
+    async def enqueue_workflow_async(
+        cls, queue: str, workflow: Callable[..., object]
+    ) -> None:
+        """Record the workflow that startup queued, and refuse it when the test says that one waits."""
+        cls.options.append(RecordedOptions.active)
+
+        if cls.deduplicated:
+            raise dbos_error.DBOSQueueDeduplicatedError("w", queue, "id")
+
+        cls.enqueued.append((queue, workflow.__name__))
+
+
+class ReturnsAtOnce:
+    """An event that never blocks, so that serve returns."""
+
+    async def wait(self) -> None:
+        """Return at once."""
+
+
+class RecordedOptions:
+    """Stand in for SetEnqueueOptions and remember the options that are active."""
+
+    active: ClassVar[dict[str, object]] = {}
+    options: dict[str, object]
+
+    def __init__(self, **options: object) -> None:
+        """Keep the options of one enqueue."""
+        self.options = options
+
+    def __enter__(self) -> Self:
+        """Make the options active."""
+        RecordedOptions.active = self.options
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Clear the options."""
+        RecordedOptions.active = {}

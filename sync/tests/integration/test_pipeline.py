@@ -1,31 +1,9 @@
 import pytest
 
-from tests.fixtures.pipeline import Pipeline
-from tests.helpers import act_as_token, scalar
+from tests.fixtures.pipeline import Pipeline, served, state_of
+from tests.helpers import scalar
 
 pytestmark = pytest.mark.postgres
-
-
-async def served(pipeline: Pipeline, table: str) -> int:
-    """Count the rows that a client of the data API reads from the view of a table."""
-    pg = pipeline.pg
-    await act_as_token(pg, "dp_api", pipeline.schema)
-    count = await scalar(pg, f'SELECT count(*) FROM "{pipeline.schema}"."{table}"')
-    assert isinstance(count, int)
-
-    return count
-
-
-async def state_of(pipeline: Pipeline, table: str) -> str | None:
-    """Return the signature that the sync worker stored for a table, or None."""
-    row = await (
-        await pipeline.pg.connection.execute(
-            b"SELECT state ->> 'signature' FROM data_proxy.state WHERE table_name = %s",
-            (table,),
-        )
-    ).fetchone()
-
-    return None if row is None else str(row[0])
 
 
 async def test_a_run_dumps_publishes_and_serves_the_table_that_works(

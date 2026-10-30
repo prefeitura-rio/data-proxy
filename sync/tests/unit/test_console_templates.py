@@ -3,7 +3,7 @@ from psycopg.sql import Identifier, Literal
 
 from tests.fixtures.console import add_schema, refusal
 from tests.fixtures.types import Postgres
-from tests.helpers import helm_sql, scalar
+from tests.helpers import helm_sql, role_setting, scalar
 
 INSUFFICIENT = "42501"
 
@@ -43,23 +43,6 @@ class TestGrantProxyConfig:
         await console_api.connection.execute(b"SET LOCAL ROLE anon")
 
         assert await refusal(console_api, "SELECT console.config()") == INSUFFICIENT
-
-
-async def role_setting(pg: Postgres, role: str) -> str | None:
-    """Return the value of the PostgREST setting that a role carries, or None."""
-    cursor = await pg.connection.execute(
-        b"""
-        SELECT s.setting
-        FROM pg_db_role_setting AS d
-        INNER JOIN pg_roles AS r ON d.setrole = r.oid
-        CROSS JOIN LATERAL unnest(d.setconfig) AS s (setting)
-        WHERE r.rolname = %s AND s.setting LIKE 'pgrst.db_schemas=%%'
-        """,
-        (role,),
-    )
-    row = await cursor.fetchone()
-
-    return None if row is None else str(row[0])
 
 
 @pytest.mark.postgres

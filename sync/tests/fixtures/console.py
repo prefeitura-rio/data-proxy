@@ -1,16 +1,22 @@
 """The console schema, built from the real migrations and templates in the test transaction."""
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Final
+from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
 
 from sync.settings import settings
+from sync.templates import render_template
+from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.types import Postgres
-from tests.helpers import act_as_token, helm_sql
+from tests.helpers import act_as_token, helm_sql, scalar
 
 MIGRATIONS: Final = sorted(
     (Path(__file__).parents[3] / "console" / "migrations").glob("*.sql")
@@ -178,3 +184,100 @@ async def grant_console(pg: Postgres) -> None:
             "grant_console_usage", {"user_role": Identifier(settings.AUTH_USER_ROLE)}
         ).encode()
     )
+
+
+@pytest.fixture
+async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
+    """Give two committed connections to a scratch database that has the console tables, with one schema and one table.
+
+    A test of a lock needs committed rows and two sessions, and the test transaction of the other fixtures gives neither.
+    """
+    name = f"claim_{uuid4().hex[:8]}"
+    async with await AsyncConnection.connect(
+        f"{POSTGRES_URL}/postgres", autocommit=True
+    ) as admin:
+        await admin.execute(SQL("CREATE DATABASE {}").format(Identifier(name)))
+
+        try:
+            async with AsyncExitStack() as stack:
+                first, second = [
+                    await stack.enter_async_context(
+                        await AsyncConnection.connect(
+                            f"{POSTGRES_URL}/{name}", autocommit=True
+                        )
+                    )
+                    for _ in range(2)
+                ]
+                await first.execute(b"CREATE SCHEMA console")
+                for number in (2, 3, 11):
+                    await first.execute(migration_up(migration(number)).encode())
+                await first.execute(
+                    render_template("postgres/claim_fixture", {}, root=TEST_SQL_DIR)
+                )
+
+                yield first, second
+        finally:
+            await admin.execute(
+                SQL("DROP DATABASE {} WITH (FORCE)").format(Identifier(name))
+            )
+
+
+async def two_schemas(pg: Postgres) -> None:
+    """Add two provisioned schemas, one table in each, and a row rule on the first."""
+    await add_schema(pg, "sales", claim="cpf")
+    await add_schema(pg, "hr", claim="cpf")
+    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
+    await add_table(pg, "p.d.staff", "hr")
+
+
+async def start(
+    pg: Postgres, schemas: list[str], tables: list[str] | None = None
+) -> str:
+    """Start a run as an administrator of every schema, and return its id."""
+    await as_token(pg, "dp_admin", ["sales", "hr"])
+    run = await scalar(
+        pg,
+        "SELECT console.start_sync(%s, %s)",
+        schemas,
+        [] if tables is None else tables,
+    )
+    assert isinstance(run, str)
+
+    return run
+
+
+async def seed(pg: Postgres) -> None:
+    """Add two schemas with a claim, two tables, a partitioned table and two row rules."""
+    await add_schema(pg, "sales", claim="cpf")
+    await add_schema(pg, "hr", claim="cpf")
+    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
+    await pg.connection.execute(
+        "INSERT INTO console.rls (table_name, column_name, unit_type) VALUES ('p.d.orders', 'cnpj', 'cnpj')"
+    )
+    await add_table(pg, "p.d.staff", "hr")
+    await pg.connection.execute(
+        """
+        INSERT INTO console.tables (name, schema, strategy, n, fallback, partitioning, sort)
+        VALUES ('p.d.events', 'sales', 'partitioned', 4, TRUE, '[{"column": "dt"}]', ARRAY['dt', 'id'])
+        """
+    )
+
+
+async def add_policy_schema(
+    pg: Postgres, name: str, grants: dict[str, list[tuple[str, str]]], claim: str
+) -> None:
+    """Add a provisioned schema whose access policy has the given grants for each subject."""
+    await add_schema(pg, name, claim=claim)
+    await pg.connection.execute(
+        SQL(
+            "ALTER TABLE {}.access_policy ADD COLUMN unit_type text, ADD COLUMN unit_id text"
+        ).format(Identifier(name))
+    )
+    for subject, units in grants.items():
+        for unit_type, unit_id in units:
+            await pg.connection.execute(
+                SQL("INSERT INTO {}.access_policy VALUES (%s, %s, %s)").format(
+                    Identifier(name)
+                ),
+                (subject, unit_type, unit_id),
+            )

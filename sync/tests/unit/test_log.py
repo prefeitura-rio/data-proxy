@@ -1,21 +1,10 @@
-from logging import ERROR, INFO, LogRecord
+from logging import ERROR, INFO
 
 import pytest
 
 from sync.constants import LOCATION_FRAMES, PROJECT_PATH
 from sync.log import ContextFormatter, summarize_exception
-
-
-def raised_in_project_file(filename: str, line: int) -> BaseException:
-    """Raise an error from code that Python takes for a file at the given path."""
-    code = compile("\n" * (line - 1) + "raise ValueError('boom')", filename, "exec")
-
-    try:
-        exec(code, {})  # ruff: ignore[exec-builtin]
-    except ValueError as error:
-        return error
-
-    raise AssertionError("The code did not raise")
+from tests.helpers import raised_in_project_file, record
 
 
 class TestSummarizeException:
@@ -58,15 +47,6 @@ class TestSummarizeException:
             raise KeyError("x")
 
         assert summarize_exception(caught.value) == "KeyError: 'x'"
-
-
-def record(
-    level: int, message: str, *, error: BaseException | None = None
-) -> LogRecord:
-    """Build a log record like the logger of DBOS makes."""
-    exc_info = None if error is None else (type(error), error, error.__traceback__)
-
-    return LogRecord("dbos", level, "file.py", 1, message, (), exc_info)
 
 
 class TestContextFormatter:

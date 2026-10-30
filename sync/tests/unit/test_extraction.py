@@ -18,7 +18,7 @@ from sync.sources.partitions import (
 )
 from sync.sources.registry import sources
 from sync.templates import to_sql
-from tests.helpers import dump_task
+from tests.helpers import dump_task, silent
 
 BASE_MAPPING: Final[dict[str, str | list[str]]] = {
     "source": "bigquery_scan('p.d.t')",
@@ -29,10 +29,6 @@ BASE_MAPPING: Final[dict[str, str | list[str]]] = {
 
 COPY_ROW: Final = ("s3://b/t", 10, 2048, 100, None, None)
 """What DuckDB returns for a COPY with RETURN_STATS."""
-
-
-async def silent(message: str, /, **fields: str | float | bool) -> None:
-    """Ignore a report."""
 
 
 class TestExtractionStatements:

@@ -10,9 +10,15 @@ from psycopg.sql import Identifier
 from sync.executor import Executor
 from sync.settings import settings
 from sync.types import PostgresParams
-from tests.constants import POSTGRES_URL
+from tests.constants import FULL, POSTGRES_URL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
-from tests.helpers import create_access_policy, execute_sql, install_rbac
+from tests.helpers import (
+    create_access_policy,
+    execute_sql,
+    install_aggregate_function,
+    install_rbac,
+    put_state,
+)
 
 
 @pytest.fixture
@@ -67,3 +73,21 @@ def rbac_connection() -> Iterator[psycopg.Connection[TupleRow]]:
     with psycopg.connect(f"{POSTGRES_URL}/test_template") as connection:
         yield connection
         connection.rollback()
+
+
+@pytest.fixture
+async def installed(aggregate_function: Postgres) -> Postgres:
+    """Install the aggregate function for a table without row rules, and mark DuckLake as complete."""
+    await install_aggregate_function(aggregate_function, has_rls=False, fallbacks=[])
+    await put_state(aggregate_function, ROUTED_TABLE, FULL)
+    return aggregate_function
+
+
+@pytest.fixture
+async def capped(aggregate_function: Postgres) -> Postgres:
+    """Install the aggregate function with a cap of two rows, over a table that has five labels."""
+    await install_aggregate_function(
+        aggregate_function, has_rls=False, fallbacks=[], max_rows=2
+    )
+    await put_state(aggregate_function, ROUTED_TABLE, FULL)
+    return aggregate_function

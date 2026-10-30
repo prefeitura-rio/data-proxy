@@ -3,6 +3,8 @@ from os import environ
 from pathlib import Path
 from typing import Final
 
+from sync.models import Strategy, TableState
+
 MODIFIED = datetime(2026, 8, 7, 12, 47, 52, 683000, tzinfo=UTC)
 FILES = Path(__file__).parent / "files"
 HELM_SQL = Path(__file__).parents[2] / "helm" / "files" / "templates" / "postgres"
@@ -21,6 +23,7 @@ PROXY_CONSOLE_CONFIG = (
 )
 PARQUET = str(FILES / "people_partition_10.parquet")
 ROUTED_TABLE = "p.d.routed"
+FULL: Final = TableState(strategy=Strategy.FULL, signature="s")
 POSTGRES_HOST = "127.0.0.1"
 POSTGRES_PORT = environ["TEST_POSTGRES_PORT"]
 POSTGRES_URL = f"postgresql://test:test@{POSTGRES_HOST}:{POSTGRES_PORT}"

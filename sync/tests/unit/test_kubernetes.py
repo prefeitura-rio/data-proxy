@@ -1,34 +1,8 @@
 import pytest
-from lightkube.models.batch_v1 import CronJobSpec, JobSpec, JobTemplateSpec
-from lightkube.models.core_v1 import Container, PodSpec, PodTemplateSpec
 from lightkube.models.meta_v1 import ObjectMeta
-from lightkube.resources.batch_v1 import CronJob
 
 from sync.kubernetes import job_from_cronjob
-
-
-def cronjob(
-    *,
-    metadata: ObjectMeta | None = None,
-    template_metadata: ObjectMeta | None = None,
-) -> CronJob:
-    """Build a CronJob with one container in its job template."""
-    return CronJob(
-        metadata=ObjectMeta(name="provision", uid="uid-1")
-        if metadata is None
-        else metadata,
-        spec=CronJobSpec(
-            schedule="0 0 31 2 *",
-            jobTemplate=JobTemplateSpec(
-                metadata=template_metadata,
-                spec=JobSpec(
-                    template=PodTemplateSpec(
-                        spec=PodSpec(containers=[Container(name="run", image="img:1")])
-                    )
-                ),
-            ),
-        ),
-    )
+from tests.helpers import cronjob
 
 
 class TestJobFromCronjob:

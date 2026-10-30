@@ -4,7 +4,6 @@ import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import ClassVar
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,10 +33,15 @@ from sync.postgres import Postgres
 from sync.settings import settings
 from sync.state import ScopeRow
 from sync.utils import sha256_hex
-from tests.fixtures.types import Calls
+from tests.fixtures.types import (
+    Calls,
+    Counted,
+    RecordedOptions,
+    RecordingDbos,
+    ReturnsAtOnce,
+)
 from tests.helpers import (
     DOCUMENT,
-    RecordedOptions,
     catalog_commit_error,
     dump_task,
     enqueue_label,
@@ -711,18 +715,6 @@ class TestExtractTaskLogs:
         assert str(fields["error"]).startswith("RuntimeError: write failed")
 
 
-class Counted:
-    """Stand-in for an OpenTelemetry counter that remembers each increase."""
-
-    def __init__(self) -> None:
-        """Start with no increase."""
-        self.adds: list[tuple[int, dict[str, str]]] = []
-
-    def add(self, amount: int, attributes: dict[str, str]) -> None:
-        """Remember one increase."""
-        self.adds.append((amount, attributes))
-
-
 class TestStepMetrics:
     """The step that does the work counts it, once, when the work ends."""
 
@@ -855,61 +847,6 @@ class TestPublishSchemaOrder:
 
         assert calls.names[-1] == "apply_ducklake_maintenance"
         assert snapshot_id == 42
-
-
-class RecordingDbos:
-    """Stand-in for the DBOS class that records how the application sets itself up."""
-
-    queues: ClassVar[list[tuple[str, str]]] = []
-    concurrency: ClassVar[dict[str, object]] = {}
-    enqueued: ClassVar[list[tuple[str, str]]] = []
-    listened: ClassVar[list[str]] = []
-    deduplicated: ClassVar[bool] = False
-    options: ClassVar[list[dict[str, object]]] = []
-
-    def __init__(self, **_: object) -> None:
-        """Accept the configuration."""
-
-    @classmethod
-    def listen_queues(cls, queues: list[str]) -> None:
-        """Record the queues to listen to."""
-        cls.listened = queues
-
-    @classmethod
-    def launch(cls) -> None:
-        """Ignore the launch."""
-
-    @classmethod
-    async def register_queue_async(
-        cls,
-        name: str,
-        *,
-        on_conflict: str = "always_update",
-        concurrency: object = None,
-        **_: object,
-    ) -> None:
-        """Record the queue, how it treats an existing one, and its concurrency."""
-        cls.queues.append((name, on_conflict))
-        cls.concurrency[name] = concurrency
-
-    @classmethod
-    async def enqueue_workflow_async(
-        cls, queue: str, workflow: Callable[..., object]
-    ) -> None:
-        """Record the workflow that startup queued, and refuse it when the test says that one waits."""
-        cls.options.append(RecordedOptions.active)
-
-        if cls.deduplicated:
-            raise dbos_error.DBOSQueueDeduplicatedError("w", queue, "id")
-
-        cls.enqueued.append((queue, workflow.__name__))
-
-
-class ReturnsAtOnce:
-    """An event that never blocks, so that serve returns."""
-
-    async def wait(self) -> None:
-        """Return at once."""
 
 
 @pytest.mark.usefixtures("recording")

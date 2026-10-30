@@ -1,32 +1,11 @@
 from collections.abc import Awaitable, Callable
 from logging import INFO
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 from sync.dbos import logs
 from sync.log import SCHEMA, TABLE
-
-
-def workflow(monkeypatch: pytest.MonkeyPatch, workflow_id: str | None) -> AsyncMock:
-    """Run the log functions in a workflow, or outside one, and return the stream writer."""
-    write_stream = AsyncMock()
-    monkeypatch.setattr(
-        logs,
-        "DBOS",
-        SimpleNamespace(workflow_id=workflow_id, write_stream_async=write_stream),
-    )
-    return write_stream
-
-
-def written(stream: AsyncMock) -> tuple[str, dict[str, object]]:
-    """Return the key and the object of the one write to the stream."""
-    call = stream.await_args
-    assert call is not None
-    key, entry = call.args
-
-    return key, entry
+from tests.helpers import workflow, written
 
 
 class TestRender:

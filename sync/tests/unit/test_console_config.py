@@ -1,108 +1,23 @@
 import json
 
 import pytest
-from psycopg.sql import SQL, Identifier
 from psycopg.types.json import Jsonb
-from pydantic import JsonValue
 
 from sync.models import PartitionedTable, SyncConfig
 from sync.state import read_sync_config
 from tests.constants import PROXY_CONSOLE_CONFIG
-from tests.fixtures.console import add_schema, add_table, as_token, refusal
+from tests.fixtures.console import (
+    add_policy_schema,
+    add_schema,
+    as_token,
+    refusal,
+    seed,
+)
 from tests.fixtures.types import Postgres
-from tests.helpers import scalar
+from tests.helpers import RULES, Document, export, exported, hr_schema, preview, scalar
 
 INSUFFICIENT = "42501"
 CHECK_VIOLATION = "23514"
-
-Document = dict[str, JsonValue]
-
-
-async def export(pg: Postgres) -> Document:
-    """Return the configuration that the console exports."""
-    document = await scalar(pg, "SELECT console.sync_config()")
-    assert isinstance(document, dict)
-
-    return document
-
-
-async def preview(pg: Postgres, document: Document) -> list[tuple[str, str, str, str]]:
-    """Return what an import of the document would do, as (object, schema, key, action)."""
-    cursor = await pg.connection.execute(
-        b"SELECT object, schema_name, key, action FROM console.import_preview(%s)",
-        (Jsonb(document),),
-    )
-
-    return [(a, b, c, d) for a, b, c, d in await cursor.fetchall()]
-
-
-async def seed(pg: Postgres) -> None:
-    """Add two schemas with a claim, two tables, a partitioned table and two row rules."""
-    await add_schema(pg, "sales", claim="cpf")
-    await add_schema(pg, "hr", claim="cpf")
-    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
-    await pg.connection.execute(
-        "INSERT INTO console.rls (table_name, column_name, unit_type) VALUES ('p.d.orders', 'cnpj', 'cnpj')"
-    )
-    await add_table(pg, "p.d.staff", "hr")
-    await pg.connection.execute(
-        """
-        INSERT INTO console.tables (name, schema, strategy, n, fallback, partitioning, sort)
-        VALUES ('p.d.events', 'sales', 'partitioned', 4, TRUE, '[{"column": "dt"}]', ARRAY['dt', 'id'])
-        """
-    )
-
-
-RULES: list[JsonValue] = [
-    {"column": "cpf", "unit_type": "cpf"},
-    {"column": "cnpj", "unit_type": "cnpj"},
-]
-
-EVENTS: Document = {
-    "name": "p.d.events",
-    "strategy": "partitioned",
-    "n": 4,
-    "fallback": True,
-    "ducklake": {"partitioning": [{"column": "dt"}], "sort": ["dt", "id"]},
-}
-
-
-def hr_schema(claim: str = "cpf") -> Document:
-    """Build the export of the schema hr."""
-    return {
-        "claim": claim,
-        "source": {"type": "bigquery"},
-        "tables": [{"name": "p.d.staff", "strategy": "full"}],
-    }
-
-
-def sales_schema(ttl: int = 60, rules: list[JsonValue] | None = None) -> Document:
-    """Build the export of the schema sales, with the table orders, its cache time and its row rules."""
-    orders: Document = {
-        "name": "p.d.orders",
-        "strategy": "full",
-        "cache_ttl": ttl,
-        "rls": RULES if rules is None else rules,
-    }
-
-    return {"claim": "cpf", "source": {"type": "bigquery"}, "tables": [EVENTS, orders]}
-
-
-def exported(
-    *,
-    ttl: int = 60,
-    hr_claim: str = "cpf",
-    rules: list[JsonValue] | None = None,
-    more: Document | None = None,
-) -> Document:
-    """Build the document that the console exports for the seed rows, with the given changes."""
-    schemas: Document = {
-        "hr": hr_schema(hr_claim),
-        "sales": sales_schema(ttl, rules),
-        **({} if more is None else more),
-    }
-
-    return {"schemas": schemas}
 
 
 @pytest.mark.postgres
@@ -495,26 +410,6 @@ class TestProxyConfig:
         assert (
             json.dumps(config["schemas"], sort_keys=True) == '{"sales": {"tables": []}}'
         )
-
-
-async def add_policy_schema(
-    pg: Postgres, name: str, grants: dict[str, list[tuple[str, str]]], claim: str
-) -> None:
-    """Add a provisioned schema whose access policy has the given grants for each subject."""
-    await add_schema(pg, name, claim=claim)
-    await pg.connection.execute(
-        SQL(
-            "ALTER TABLE {}.access_policy ADD COLUMN unit_type text, ADD COLUMN unit_id text"
-        ).format(Identifier(name))
-    )
-    for subject, units in grants.items():
-        for unit_type, unit_id in units:
-            await pg.connection.execute(
-                SQL("INSERT INTO {}.access_policy VALUES (%s, %s, %s)").format(
-                    Identifier(name)
-                ),
-                (subject, unit_type, unit_id),
-            )
 
 
 @pytest.mark.postgres

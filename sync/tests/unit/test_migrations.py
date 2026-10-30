@@ -1,15 +1,9 @@
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack
-from uuid import uuid4
 
 import psycopg
 import pytest
 from psycopg import AsyncConnection
-from psycopg.sql import SQL, Identifier
 
-from sync.templates import render_template
-from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.console import (
     add_schema,
     as_token,
@@ -17,57 +11,13 @@ from tests.fixtures.console import (
     migrate,
     migration,
     migration_down,
-    migration_up,
     migrations_until,
     refusal,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers import scalar
+from tests.helpers import names, scalar
 
 CHECK_VIOLATION = "23514"
-
-
-async def names(pg: Postgres, sql: str) -> list[object]:
-    """Return the first column of every row of a statement."""
-    cursor = await pg.connection.execute(sql.encode())
-
-    return [row[0] for row in await cursor.fetchall()]
-
-
-@pytest.fixture
-async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
-    """Give two committed connections to a scratch database that has the console tables, with one schema and one table.
-
-    A test of a lock needs committed rows and two sessions, and the test transaction of the other fixtures gives neither.
-    """
-    name = f"claim_{uuid4().hex[:8]}"
-    async with await AsyncConnection.connect(
-        f"{POSTGRES_URL}/postgres", autocommit=True
-    ) as admin:
-        await admin.execute(SQL("CREATE DATABASE {}").format(Identifier(name)))
-
-        try:
-            async with AsyncExitStack() as stack:
-                first, second = [
-                    await stack.enter_async_context(
-                        await AsyncConnection.connect(
-                            f"{POSTGRES_URL}/{name}", autocommit=True
-                        )
-                    )
-                    for _ in range(2)
-                ]
-                await first.execute(b"CREATE SCHEMA console")
-                for number in (2, 3, 11):
-                    await first.execute(migration_up(migration(number)).encode())
-                await first.execute(
-                    render_template("postgres/claim_fixture", {}, root=TEST_SQL_DIR)
-                )
-
-                yield first, second
-        finally:
-            await admin.execute(
-                SQL("DROP DATABASE {} WITH (FORCE)").format(Identifier(name))
-            )
 
 
 BLOCKED_SECONDS = 0.5
