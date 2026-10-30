@@ -70,6 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-devenv
+      - uses: ./.github/actions/cache-packages
       - name: Restore checks virtual environment
         id: checks-venv-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -125,6 +126,7 @@ jobs:
         with:
           keycloak: true
       - uses: ./.github/actions/setup-devenv
+      - uses: ./.github/actions/cache-packages
       - run: podman --version
       - name: Restore the task state
         if: ${{ !inputs.force_full }}

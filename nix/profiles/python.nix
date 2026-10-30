@@ -4,7 +4,7 @@
     { config, ... }:
     {
       env = {
-        UV_LINK_MODE = "copy";
+        UV_LINK_MODE = "hardlink";
         UV_PROJECT_ENVIRONMENT = lib.mkForce "${config.devenv.root}/sync/.venv";
       };
 

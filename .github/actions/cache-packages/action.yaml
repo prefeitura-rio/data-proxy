@@ -1,0 +1,13 @@
+name: Cache the package downloads
+description: Keep the uv cache and the pnpm store between runs, keyed by the lock files, so the installs of the console and the notebooks download nothing that did not change.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ~/.cache/uv
+          ~/.local/share/pnpm/store
+        key: packages-${{ runner.os }}-${{ hashFiles('console/ui/pnpm-lock.yaml', 'console/notebooks/pnpm-lock.yaml', 'console/notebooks/uv.lock', 'sync/uv.lock') }}
+        restore-keys: |
+          packages-${{ runner.os }}-
