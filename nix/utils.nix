@@ -68,7 +68,8 @@ let
     ```
   */
   bashPath =
-    packages: lib.optionalString (packages != [ ]) "export PATH=${lib.makeBinPath packages}:\"$PATH\"\n";
+    packages:
+    lib.optionalString (packages != [ ]) "export PATH=${lib.makeBinPath packages}:\"$PATH\"\n";
 
   /**
     The lines of a Nushell command that put the programs of some packages first in `PATH`. They change `PATH` for that
@@ -101,23 +102,27 @@ let
       exec ? null,
       ...
     }@task:
-    { package = pkgs.nushell; }
+    {
+      package = pkgs.nushell;
+    }
     // removeAttrs task [ "packages" ]
     // lib.optionalAttrs (exec != null) { exec = nuPath packages + exec; };
 
-  # The input files of a task, for `execIfModified`. Every entry must name files: a file, or a glob whose last part names
-  # an extension, such as `src/**/*.ts`. The call throws for a directory, for a file that does not exist, for a glob over a
-  # folder that does not exist, and for a glob that ends in `*` or `**`.
-  #
-  # devenv compares a file by its content, so a fresh checkout does not run the task again. It compares a directory by its
-  # metadata, and the glob `src/**` matches the directories too. Every directory is new after a checkout, so the task
-  # would run on every CI run. A glob does not match a hidden folder such as `.venv`.
-  #
-  # # Type
-  #
-  # ```
-  # mkInputs :: [String] -> [String]
-  # ```
+  /**
+    The input files of a task, for `execIfModified`. Every entry must name files: a file, or a glob whose last part names
+    an extension. The call throws for a directory, for a file that does not exist, for a glob over a folder that does not
+    exist, and for a glob that ends in a star.
+
+    devenv compares a file by its content, so a fresh checkout does not run the task again. It compares a directory by
+    its metadata, and a glob that ends in two stars matches the directories too. Every directory is new after a
+    checkout, so the task would run on every CI run. A glob does not match a hidden folder such as `.venv`.
+
+    # Type
+
+    ```
+    mkInputs :: [String] -> [String]
+    ```
+  */
   mkInputs =
     entries:
     map (
@@ -142,19 +147,28 @@ let
         throw "execIfModified lists ${entry}. It must be a file that exists, or a glob over files, such as dir/**/*.ext, in a folder that exists."
     ) entries;
 
-  # The globs of the files under a folder, one for each extension, such as `docs/**/*.md`. The call throws when the folder
-  # holds a file with another extension, so a new kind of file cannot stay outside the inputs of a task. It skips the
-  # hidden folders, `__pycache__`, `node_modules` and `charts` (the downloaded dependencies of a Helm chart).
-  #
-  # # Type
-  #
-  # ```
-  # mkGlobs :: String -> [String] -> [String]
-  # ```
+  /**
+    The globs of the files under a folder, one for each extension. The call throws if the folder has a file with another
+    extension, so a new kind of file cannot stay outside the inputs of a task. It skips the hidden folders,
+    `__pycache__`, `node_modules` and `charts` (the downloaded dependencies of a Helm chart).
+
+    # Type
+
+    ```
+    mkGlobs :: String -> [String] -> [String]
+    ```
+  */
   mkGlobs =
     dir: extensions:
     let
-      skipped = name: lib.hasPrefix "." name || lib.elem name [ "__pycache__" "node_modules" "charts" ];
+      skipped =
+        name:
+        lib.hasPrefix "." name
+        || lib.elem name [
+          "__pycache__"
+          "node_modules"
+          "charts"
+        ];
       walk =
         path:
         lib.concatLists (
@@ -169,7 +183,9 @@ let
           ) (builtins.readDir path)
         );
       extensionOf = file: lib.last (lib.splitString "." (baseNameOf file));
-      unknown = lib.filter (file: !(lib.elem (extensionOf file) extensions)) (walk "${config.devenv.root}/${dir}");
+      unknown = lib.filter (file: !(lib.elem (extensionOf file) extensions)) (
+        walk "${config.devenv.root}/${dir}"
+      );
     in
     if unknown != [ ] then
       throw "The folder ${dir} holds ${builtins.head unknown}, and its extension is not in ${builtins.toJSON extensions}. Add the extension, so a change of the file runs the tasks."
@@ -442,7 +458,8 @@ let
         that it runs. It uses the same timing as `http`.
       */
       anyAnswer =
-        url: mkProbe { exec = "${lib.getExe pkgs.curl} --silent --output /dev/null ${lib.escapeShellArg url}"; };
+        url:
+        mkProbe { exec = "${lib.getExe pkgs.curl} --silent --output /dev/null ${lib.escapeShellArg url}"; };
 
       /**
         A `ready` check that passes when the command exits with 0. It uses the same timing as `http`.

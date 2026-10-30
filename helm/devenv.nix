@@ -16,16 +16,16 @@
             exec = "helm lint helm/ --strict -f helm/ci/test-values.yaml";
             execIfModified = utils.mkInputs (
               utils.mkGlobs "helm" [
-              "yaml"
-              "sql"
-              "nu"
-              "tpl"
-              "toml"
-              "nix"
-              "lock"
-              "json"
-              "conf"
-            ]
+                "yaml"
+                "sql"
+                "nu"
+                "tpl"
+                "toml"
+                "nix"
+                "lock"
+                "json"
+                "conf"
+              ]
             );
           };
           "test:chart" = utils.nuTask {
@@ -35,16 +35,16 @@
             execIfModified = utils.mkInputs (
               [ "scripts/helm.nu" ]
               ++ utils.mkGlobs "helm" [
-              "yaml"
-              "sql"
-              "nu"
-              "tpl"
-              "toml"
-              "nix"
-              "lock"
-              "json"
-              "conf"
-            ]
+                "yaml"
+                "sql"
+                "nu"
+                "tpl"
+                "toml"
+                "nix"
+                "lock"
+                "json"
+                "conf"
+              ]
             );
           };
         };

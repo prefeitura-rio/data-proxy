@@ -2,29 +2,6 @@
 let
   bin = "./console/ui/node_modules/.bin";
   projects = "^console/(ui|notebooks)/";
-
-  consoleFiles = [
-    "console/ui/package.json"
-    "console/ui/pnpm-lock.yaml"
-    "console/ui/tsconfig.json"
-    "console/ui/vite.config.ts"
-    "console/ui/playwright.config.ts"
-    "console/ui/eslint.config.js"
-    "console/ui/.prettierrc.mjs"
-    "console/ui/.npmrc"
-    ".prettierignore"
-  ];
-
-  notebookFiles = [
-    "console/notebooks/*.ts"
-    "console/notebooks/tsconfig.json"
-    "console/notebooks/package.json"
-    "console/notebooks/pnpm-lock.yaml"
-    "console/notebooks/pnpm-workspace.yaml"
-    "console/notebooks/eslint.config.js"
-    "console/notebooks/.prettierrc"
-    ".prettierignore"
-  ];
 in
 {
   profiles.console = {
@@ -35,21 +12,28 @@ in
     module =
       { lib, utils, ... }:
       let
-        consoleInputs =
-          consoleFiles
-          ++ utils.mkGlobs "console/ui/src" [
-            "ts"
-            "svelte"
-            "svg"
-            "html"
-            "css"
-          ]
-          ++ utils.mkGlobs "console/ui/tests" [
-            "ts"
-            "feature"
-          ];
-
-        notebookInputs = notebookFiles ++ utils.mkGlobs "console/notebooks/src" [ "ts" ];
+        consoleInputs = [
+          "console/ui/package.json"
+          "console/ui/pnpm-lock.yaml"
+          "console/ui/tsconfig.json"
+          "console/ui/vite.config.ts"
+          "console/ui/playwright.config.ts"
+          "console/ui/eslint.config.js"
+          "console/ui/.prettierrc.mjs"
+          "console/ui/.npmrc"
+          ".prettierignore"
+        ]
+        ++ utils.mkGlobs "console/ui/src" [
+          "ts"
+          "svelte"
+          "svg"
+          "html"
+          "css"
+        ]
+        ++ utils.mkGlobs "console/ui/tests" [
+          "ts"
+          "feature"
+        ];
 
         installTask =
           dir:
@@ -131,9 +115,19 @@ in
           "lint:console" =
             pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
               consoleInputs;
-          "lint:nb" =
-            pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint"
-              notebookInputs;
+          "lint:nb" = pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint" (
+            [
+              "console/notebooks/*.ts"
+              "console/notebooks/tsconfig.json"
+              "console/notebooks/package.json"
+              "console/notebooks/pnpm-lock.yaml"
+              "console/notebooks/pnpm-workspace.yaml"
+              "console/notebooks/eslint.config.js"
+              "console/notebooks/.prettierrc"
+              ".prettierignore"
+            ]
+            ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+          );
           "test:console" =
             pnpmTask "Run the unit tests of the console app." "console/ui" "pnpm test"
               consoleInputs;

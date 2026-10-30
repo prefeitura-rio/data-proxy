@@ -87,10 +87,10 @@
               after = [ "proxy:rocks" ];
               execIfModified = utils.mkInputs (
                 [
-                "proxy/**/*.lua"
-                "proxy/lux.toml"
-                "proxy/lux.lock"
-              ]
+                  "proxy/**/*.lua"
+                  "proxy/lux.toml"
+                  "proxy/lux.lock"
+                ]
                 ++ utils.mkGlobs "proxy/tests/unit/fixtures" [ "json" ]
               );
             };

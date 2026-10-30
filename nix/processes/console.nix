@@ -10,7 +10,6 @@ let
   inherit (utils) urls;
   appPort = utils.port "console" "main";
   gatewayPort = utils.port "gateway" "main";
-  opener = if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open";
   postgresPort = utils.port "postgres" "main";
   appDatabase = "data_proxy";
   catalogDatabase = "ducklake";
@@ -22,25 +21,6 @@ let
     "--project"
     "sync"
   ];
-
-  syncConfig =
-    pkgs.runCommand "sync.json" { }
-      "${pkgs.writers.writeNu "sync-json" ''
-        open ${../../k3d/values/data-proxy.yaml} | get sync.config | to json | save --raw $env.out
-      ''}";
-
-  notebookInputs = [
-    "console/notebooks/build.nu"
-    "console/notebooks/bundle.ts"
-    "console/notebooks/tsconfig.json"
-    "console/notebooks/package.json"
-    "console/notebooks/pnpm-lock.yaml"
-    "console/notebooks/pnpm-workspace.yaml"
-    "console/notebooks/pyproject.toml"
-    "console/notebooks/uv.lock"
-  ]
-  ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
-  ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ];
 
   setupEnv = {
     AUTH_ANON_ROLE = postgres.roles.anon;
@@ -75,7 +55,11 @@ let
     SERVING_PASSWORD = postgres.passwords.serving;
     SIGNER_PASSWORD = postgres.passwords.signer;
     SQL_TEMPLATE_DIR = "${config.devenv.root}/helm/files/templates";
-    SYNC_CONFIG_PATH = syncConfig;
+    SYNC_CONFIG_PATH =
+      pkgs.runCommand "sync.json" { }
+        "${pkgs.writers.writeNu "sync-json" ''
+          open ${../../k3d/values/data-proxy.yaml} | get sync.config | to json | save --raw $env.out
+        ''}";
   };
 
   setup = utils.mkTaskChain {
@@ -271,13 +255,26 @@ in
             "devenv:enterShell"
             (utils.processTask "notebooks")
           ];
-          execIfModified = utils.mkInputs notebookInputs;
+          execIfModified = utils.mkInputs (
+            [
+              "console/notebooks/build.nu"
+              "console/notebooks/bundle.ts"
+              "console/notebooks/tsconfig.json"
+              "console/notebooks/package.json"
+              "console/notebooks/pnpm-lock.yaml"
+              "console/notebooks/pnpm-workspace.yaml"
+              "console/notebooks/pyproject.toml"
+              "console/notebooks/uv.lock"
+            ]
+            ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+            ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ]
+          );
         };
 
-      "console:open" = lib.mkIf (!config.devenv.isTesting) (
+      "console:open" =
         utils.mkTask {
           command = [
-            opener
+            (if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open")
             "${urls.console}/console"
           ];
           packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
@@ -285,8 +282,7 @@ in
         // {
           description = "Open the console in the browser. Run it with `devenv tasks run console:open`.";
           after = [ (utils.processTask "gateway") ];
-        }
-      );
+        };
     };
 
   processes = {
