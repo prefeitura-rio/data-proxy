@@ -176,10 +176,7 @@ let
   build = utils.mkTaskChain {
     name = "console:build";
     env = consoleEnv;
-    before = [
-      "devenv:enterShell"
-      (utils.processTask "console")
-    ];
+    before = [ (utils.processTask "console") ];
     common = {
       cwd = "${config.devenv.root}/console/ui";
       execIfModified = utils.mkInputs (
@@ -251,10 +248,7 @@ in
         // {
           description = "Build the notebook site.";
           cwd = "${config.devenv.root}/console/notebooks";
-          before = [
-            "devenv:enterShell"
-            (utils.processTask "notebooks")
-          ];
+          before = [ (utils.processTask "notebooks") ];
           execIfModified = utils.mkInputs (
             [
               "console/notebooks/build.nu"
