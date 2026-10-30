@@ -1,0 +1,18 @@
+name: Prewarm the container images
+description: Build the test PostgreSQL image and pull the Keycloak image in the background, while devenv evaluates the profile. The devenv tasks then find the layers in the cache.
+inputs:
+  keycloak:
+    description: Pull the Keycloak image too.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        KEYCLOAK: ${{ inputs.keycloak }}
+      run: |
+        setsid nohup podman build --file Containerfile.postgres --tag localhost/data-proxy-test-postgres:dev "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-postgres.log" 2>&1 &
+        if [ "$KEYCLOAK" = "true" ]; then
+          image=$(grep -o 'quay.io/keycloak/keycloak:[0-9.]*' nix/processes/keycloak.nix)
+          setsid nohup podman pull "$image" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+        fi

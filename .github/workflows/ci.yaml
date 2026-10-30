@@ -99,6 +99,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/prewarm-images
       - uses: ./.github/actions/setup-devenv
       - run: podman --version
       - name: Restore the task state
@@ -120,6 +121,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/prewarm-images
+        with:
+          keycloak: true
       - uses: ./.github/actions/setup-devenv
       - run: podman --version
       - name: Restore the task state
