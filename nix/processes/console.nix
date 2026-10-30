@@ -271,7 +271,7 @@ in
           );
         };
 
-      "console:open" =
+      "console:open" = lib.mkIf (!config.devenv.isTesting) (
         utils.mkTask {
           command = [
             (if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open")
@@ -282,7 +282,8 @@ in
         // {
           description = "Open the console in the browser. Run it with `devenv tasks run console:open`.";
           after = [ (utils.processTask "gateway") ];
-        };
+        }
+      );
     };
 
   processes = {
