@@ -25,7 +25,11 @@ def profile-paths [profile: string]: nothing -> table<path: string, size: int> {
     | complete
     | check-result $'the build of the profile ($profile)'
 
-    let built = try { $output | from json | values } catch { fail $'devenv gave no paths for the profile ($profile)' }
+    let built = try {
+        $output | from json | values
+    } catch {
+        fail $'devenv gave no paths for the profile ($profile)'
+    }
 
     nix path-info --recursive --size ...$built
     | complete
@@ -37,7 +41,11 @@ def profile-paths [profile: string]: nothing -> table<path: string, size: int> {
 
 # Fail when the closure of a profile is larger than its limit in CLOSURE_LIMITS_MB.
 def main []: nothing -> nothing {
-    let limits = try { $env.CLOSURE_LIMITS_MB | from json } catch { fail 'CLOSURE_LIMITS_MB is not a JSON object.' }
+    let limits = try {
+        $env.CLOSURE_LIMITS_MB | from json
+    } catch {
+        fail 'CLOSURE_LIMITS_MB is not a JSON object.'
+    }
 
     let measured = $limits
     | columns
