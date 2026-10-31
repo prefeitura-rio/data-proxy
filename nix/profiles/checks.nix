@@ -19,12 +19,6 @@ in
     module =
       { config, utils, ... }:
       let
-        tasksWith =
-          prefix:
-          lib.filter (name: lib.hasPrefix prefix name && !(lib.hasSuffix ":all" name)) (
-            lib.attrNames config.tasks
-          );
-
         tasksOf =
           task: type:
           lib.filter (
@@ -33,10 +27,9 @@ in
               parts = lib.splitString ":" name;
             in
             lib.length parts == 3
-            && lib.elemAt parts 0 != "all"
+            && lib.elemAt parts 0 != "repo"
             && lib.elemAt parts 1 == task
             && (type == null || lib.elemAt parts 2 == type)
-            && !(lib.hasSuffix ":all" name)
           ) (lib.attrNames config.tasks);
 
         docsFiles = utils.mkGlobs "docs" [
@@ -118,10 +111,6 @@ in
             execIfModified = utils.mkInputs ([ ".hadolint.yaml" ] ++ containerfiles);
           };
 
-          "docs:build:all" = {
-            description = "Generate the navigation and the role table.";
-            after = tasksWith "docs:build:";
-          };
           "docs:build:roles" = utils.nuTask {
             description = "Write the role and permission table in the Roles page.";
             exec = "nu scripts/docs.nu write";
@@ -171,11 +160,11 @@ in
               ++ docsFiles
             );
           };
-          "all:lint:all" = {
+          "repo:lint" = {
             description = "Run every lint task.";
             after = tasksOf "lint" null;
           };
-          "all:tests:unit" = {
+          "repo:unit" = {
             description = "Run every test task that needs no service.";
             after = tasksOf "tests" "unit";
           };

@@ -37,13 +37,13 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 Run the checks before you finish a change:
 
 ```bash
-devenv --profile default tasks run all:lint:all all:tests:unit
+devenv --profile default tasks run repo:lint repo:unit
 devenv --profile sync test
 devenv --profile proxy test
 devenv --profile console test
 ```
 
-`all:tests:unit` runs the tests that need no services. `sync:tests:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:tests:int` starts OpenResty and runs the Hurl proxy suite. `console:tests:int` starts the whole console stack and runs the browser tests. It takes about one minute.
+`repo:unit` runs the tests that need no services. `sync:tests:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:tests:int` starts OpenResty and runs the Hurl proxy suite. `console:tests:int` starts the whole console stack and runs the browser tests. It takes about one minute.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
@@ -287,7 +287,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Give every task and every script a `description`.
 - Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
-- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:tests:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:tests` runs the `sync:tests` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. The aggregate tasks use the component `all`. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
+- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:tests:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:tests` runs the `sync:tests` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. A task that groups other tasks has two parts and uses the component `repo`: `repo:lint` runs every lint task and `repo:unit` runs every unit task, and `devenv tasks run repo` runs both. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
 - Keep each devenv profile under its limit in `nix/profiles/sizes.nix`. Run `devenv --profile sizes tasks run nix:lint:closure` after you add a package to a profile, a task or a process.
 - Define the `<component>:tests:int` tasks in `nix/profiles/suites.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
@@ -306,7 +306,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 
 - Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
 - In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
-- In `tasks`, put the aggregate tasks (`all:lint:all`, `all:tests:unit`) last.
+- In `tasks`, put the group tasks (`repo:lint`, `repo:unit`) last.
 - Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack.
 - Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
 

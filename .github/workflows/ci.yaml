@@ -88,7 +88,7 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: checks
-      - run: devenv --profile checks tasks run all:lint:all all:tests:unit
+      - run: devenv --profile checks tasks run repo:lint repo:unit
       - name: Save checks virtual environment
         if: steps.checks-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

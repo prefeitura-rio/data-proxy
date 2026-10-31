@@ -10,7 +10,7 @@ A component has two tasks for its tests. `<component>:tests:unit` runs the tests
 | `chart` | the Helm chart tests | none |
 | `nu` | the Nushell tests | none |
 
-For a quick run with no service, run `devenv --profile default tasks run all:tests:unit`. It runs every `:unit` task.
+For a quick run with no service, run `devenv --profile default tasks run repo:unit`. It runs every `:unit` task.
 
 ## Run only what changed
 
@@ -22,7 +22,7 @@ devenv --profile suites tasks run sync:tests:int     # the sync suite
 devenv --profile suites tasks run console:tests:int  # the console suite
 ```
 
-devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `all:tests:unit` doesn't run the `:int` tasks, because they start services and live in another profile.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:unit` doesn't run the `:int` tasks, because they start services and live in another profile.
 
 Run one suite at a time on one machine. The suites share the folder `.devenv/test-state`, and devenv doesn't reserve a port that it allocates, so two runs that start together can pick the same port or delete the generated files of each other. CI runs each suite on its own runner, so it has no such conflict.
 

@@ -3,7 +3,7 @@
   profiles.docs = {
     extends = [ "checks" ];
     module =
-      { utils, ... }:
+      { config, utils, ... }:
       {
         env = {
           D2_LAYOUT = "elk";
@@ -31,7 +31,7 @@
                 mkdocs
               ]
               ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.xdg-utils ];
-            after = [ "docs:build:all" ];
+            after = lib.filter (lib.hasPrefix "docs:build:") (lib.attrNames config.tasks);
             exec = "nu scripts/docs.nu serve --opener ${
               if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open"
             }";

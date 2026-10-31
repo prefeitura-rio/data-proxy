@@ -7,12 +7,12 @@ These sections list the checks that run during development and before a release.
 Run the static and focused checks with devenv tasks:
 
 ```bash
-devenv --profile default tasks run all:lint:all all:tests:unit
+devenv --profile default tasks run repo:lint repo:unit
 ```
 
 E2E tests run against the local cluster or staging environment, not in CI.
 
-`all:lint:all` runs every task in the table that the active profile has. CI uses the `checks` profile, so it doesn't run `docs:lint:diagrams`. Run one task with `devenv --profile <profile> tasks run <task>`.
+`repo:lint` runs every task in the table that the active profile has. CI uses the `checks` profile, so it doesn't run `docs:lint:diagrams`. Run one task with `devenv --profile <profile> tasks run <task>`.
 
 | Task | Profile | What it checks |
 | --- | --- | --- |
@@ -29,9 +29,9 @@ E2E tests run against the local cluster or staging environment, not in CI.
 | `docs:lint:diagrams` | `docs` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
 | `docs:lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 
-`docs:build:diagrams` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `docs` profile, which adds `d2` and `mkdocs` to `checks`. In that profile `docs:build:all` runs it with `docs:build:nav` and `docs:build:roles`.
+`docs:build:diagrams` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `docs` profile, which adds `d2` and `mkdocs` to `checks`. In that profile `devenv tasks run docs:build` runs it with `docs:build:nav` and `docs:build:roles`, because devenv runs every task under a prefix.
 
-`docs:serve:site` (profile `docs`) runs `docs:build:all`, which renders the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
+`docs:serve:site` (profile `docs`) runs the `docs:build` tasks, which render the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
 
 The sidebar follows `docs/.nav.json`. The task writes it to the generated file `mkdocs.nav.yml`, which `mkdocs.yml` loads, so run the task and not `mkdocs` alone. A link to a file outside `docs/` doesn't open in the served site.
 
