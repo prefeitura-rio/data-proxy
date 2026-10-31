@@ -1,7 +1,7 @@
 { pkgs, utils, ... }:
 let
   container = "data-proxy-test-keycloak";
-  containerfile = ../../Containerfile.keycloak;
+  containerfile = ../../Containerfile.kc;
   version = builtins.substring 0 12 (builtins.hashFile "sha256" containerfile);
   image = "localhost/${container}:${version}";
   realm =

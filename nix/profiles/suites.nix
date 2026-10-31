@@ -16,7 +16,7 @@
 
         postgresServer = [
           "nix/processes/postgres.nix"
-          "Containerfile.postgres"
+          "Containerfile.pg"
         ];
 
         syncSources = [
@@ -100,7 +100,7 @@
               "scripts/migrate.nu"
               "nix/processes/console.nix"
               "nix/processes/keycloak.nix"
-              "Containerfile.keycloak"
+              "Containerfile.kc"
               "nix/processes/postgrest.nix"
               "nix/processes/seaweedfs.nix"
             ]

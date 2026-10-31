@@ -34,7 +34,7 @@ To force a run, change an input, delete `.devenv/profiles/checks/state/tasks.db`
 
 The `sync` profile starts these processes:
 
-- PostgreSQL, built from `Containerfile.postgres` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
+- PostgreSQL, built from `Containerfile.pg` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
 - SeaweedFS for S3.
 
 The `sync` suite tests the sync code and the SQL templates. It runs with `pytest-xdist` on up to four workers. Each worker clones its own database from `test_template`, because the templates install functions that all workers would share. A session setup that every worker runs, such as the DBOS migration, takes a file lock (`one_worker_at_a_time` in `sync/tests/helpers.py`). Write a new test so that it uses only its own schema, and it runs on any worker.
@@ -69,7 +69,7 @@ The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs 
 The `console` profile starts these parts:
 
 - the services of the `sync` profile
-- Keycloak, from the test image of `Containerfile.keycloak` that `kc:build:image` builds once, and PostgREST
+- Keycloak, from the test image of `Containerfile.kc` that `kc:build:image` builds once, and PostgREST
 - the console with its gateway
 - a worker for the `control` queue
 

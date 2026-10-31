@@ -17,7 +17,7 @@ in
         "podman"
         "build"
         "--file"
-        "${../../Containerfile.postgres}"
+        "${../../Containerfile.pg}"
         "--tag"
         image
         "${pkgs.emptyDirectory}"
@@ -26,7 +26,7 @@ in
     // {
       description = "Build the PostgreSQL test image.";
       before = [ (utils.processTask "postgres") ];
-      execIfModified = utils.mkInputs [ "Containerfile.postgres" ];
+      execIfModified = utils.mkInputs [ "Containerfile.pg" ];
     };
 
   processes.postgres =

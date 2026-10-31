@@ -16,7 +16,7 @@ on:
       - scripts/**
       - Containerfile.sync
       - Containerfile.jobs
-      - Containerfile.postgres
+      - Containerfile.pg
       - Containerfile.proxy
       - Containerfile.console
       - cog.toml
