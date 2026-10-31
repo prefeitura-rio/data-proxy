@@ -15,7 +15,7 @@ let
       ''}";
 in
 {
-  tasks."keycloak:build:image" = utils.nuTask {
+  tasks."kc:build:image" = utils.nuTask {
     description = "Build the Keycloak test image, with the server build done once. The tag is the hash of the Containerfile, so an existing image is current.";
     exec = ''
       if (podman image exists ${image} | complete).exit_code != 0 {

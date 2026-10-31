@@ -69,7 +69,7 @@ The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs 
 The `console` profile starts these parts:
 
 - the services of the `sync` profile
-- Keycloak, from the test image of `Containerfile.keycloak` that `keycloak:build:image` builds once, and PostgREST
+- Keycloak, from the test image of `Containerfile.keycloak` that `kc:build:image` builds once, and PostgREST
 - the console with its gateway
 - a worker for the `control` queue
 
