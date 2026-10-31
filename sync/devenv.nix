@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   profiles.sync = {
     extends = [
@@ -8,6 +8,8 @@
     module =
       { utils, ... }:
       {
+        stdenv = lib.mkDefault pkgs.stdenvNoCC;
+
         imports = [
           ../nix/processes/sync.nix
           ../nix/processes/postgres.nix

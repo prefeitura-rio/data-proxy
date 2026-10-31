@@ -54,6 +54,8 @@ in
               };
           in
           {
+            stdenv = lib.mkDefault pkgs.stdenvNoCC;
+
             languages = {
               javascript = {
                 enable = true;

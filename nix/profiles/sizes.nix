@@ -4,11 +4,11 @@ let
     base = 750;
     suites = 400;
     release = 1000;
-    ui = 1250;
+    ui = 900;
     proxy = 1200;
-    sync = 1550;
-    console = 2900;
-    nb = 2900;
+    sync = 1200;
+    console = 2600;
+    nb = 2600;
     checks = 2650;
     docs = 4700;
     default = 6500;
