@@ -76,7 +76,7 @@ let
     env = setupEnv;
     steps = [
       {
-        name = "databases";
+        name = "db";
         description = "Create the databases and the extensions.";
         command = [
           "psql"
