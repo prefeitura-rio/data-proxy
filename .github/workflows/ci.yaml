@@ -57,6 +57,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - id: filter
         env:
@@ -267,6 +268,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
         run: ci git update

@@ -126,8 +126,10 @@ def resolve-image [image: record]: nothing -> string {
 def 'main images resolve' []: nothing -> nothing {
     log info 'Resolving latest image tags from GHCR...'
 
-    for image in $IMAGES {
-        write-output $image.id (resolve-image $image)
+    let resolved = $IMAGES | par-each {|image| {id: $image.id tag: (resolve-image $image)} }
+
+    for image in $resolved {
+        write-output $image.id $image.tag
     }
 
     log info 'Resolved all image tags.'

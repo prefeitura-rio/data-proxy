@@ -53,7 +53,7 @@ The release must not use `latest`. Two commands pin the tags:
 
 | Command | Work |
 | --- | --- |
-| `ci images resolve` | Asks the registry for the newest tag of each image, with `crane ls`, and writes the tags as step outputs. A missing tag falls back to `latest`, except for the PostgreSQL image, which fails. |
+| `ci images resolve` | Asks the registry for the newest tag of each image, with `crane ls`, for all images at the same time, and writes the tags as step outputs. A missing tag falls back to `latest`, except for the PostgreSQL image, which fails. |
 | `ci images pin` | Rewrites the `image:` line of each Data Proxy image in `helm/values.yaml` with the tag from the environment. It fails when a line doesn't match. |
 
 The `pre_bump_hooks` of `cog.toml` call `ci images pin`, so the release commit contains the pinned tags. See [Chart releases](releases.md) for the other steps.
