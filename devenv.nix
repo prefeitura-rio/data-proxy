@@ -6,6 +6,7 @@
     ./nix/profiles/docs.nix
     ./nix/profiles/python.nix
     ./nix/profiles/release.nix
+    ./nix/profiles/sizes.nix
     ./nix/profiles/suites.nix
   ];
 

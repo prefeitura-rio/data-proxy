@@ -25,6 +25,7 @@ E2E tests run against the local cluster or staging environment, not in CI.
 | `nu:lint:scripts` | `checks` | The Nushell scripts, with `nu-lint`. |
 | `chart:lint:toml` | `checks` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
 | `containers:lint:files` | `checks` | The container files, with `hadolint`. |
+| `nix:lint:closure` | `sizes` | That the closure of each devenv profile isn't larger than its limit in `nix/profiles/sizes.nix`. It fails with the five largest paths of a profile over its limit. |
 | `docs:lint:diagrams` | `docs` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
 | `docs:lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 

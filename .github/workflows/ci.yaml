@@ -170,6 +170,27 @@ jobs:
         with:
           group: proxy
           profile: suites
+  profile-sizes:
+    name: Profile sizes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+      - name: Restore the task state
+        uses: ./.github/actions/task-state-restore
+        with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
+          group: sizes
+          profile: sizes
+      - run: devenv --profile sizes tasks run nix:lint:closure
+      - name: Save the task state
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/task-state-save
+        with:
+          group: sizes
+          profile: sizes
   build-images:
     name: Build ${{ matrix.name }} image
     needs: changes
