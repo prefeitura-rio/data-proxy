@@ -60,7 +60,7 @@ in
         };
 
         tasks = {
-          "ci:lint:workflows" = utils.nuTask {
+          "ci:lint:wf" = utils.nuTask {
             description = "Lint the GitHub workflows.";
             packages = with pkgs; [
               actionlint
@@ -83,7 +83,7 @@ in
               ".nu-lint.toml"
             ];
           };
-          "nu:tests:unit" = utils.nuTask {
+          "nu:test:unit" = utils.nuTask {
             description = "Run the Nushell tests.";
             exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/keycloak.nu";
             execIfModified = utils.mkInputs [
@@ -104,7 +104,7 @@ in
               ".taplo.toml"
             ];
           };
-          "containers:lint:files" = utils.nuTask {
+          "ctr:lint:files" = utils.nuTask {
             description = "Lint the Containerfiles.";
             packages = with pkgs; [ hadolint ];
             exec = lib.concatMapStringsSep "\n" (name: "hadolint ${name}") containerfiles;
@@ -164,9 +164,9 @@ in
             description = "Run every lint task.";
             after = tasksOf "lint" null;
           };
-          "repo:unit" = {
+          "repo:test:unit" = {
             description = "Run every test task that needs no service.";
-            after = tasksOf "tests" "unit";
+            after = tasksOf "test" "unit";
           };
         };
       };

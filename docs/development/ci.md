@@ -15,8 +15,8 @@ The `concurrency` group is one for each branch, and a new run waits for the run 
 | Job | Needs | Work |
 | --- | --- | --- |
 | `changes` | none | Runs `ci changes`. It compares the commit with the previous one. It writes which images need a build and whether the chart needs a release. |
-| `checks` | none | Runs `repo:lint` and `repo:unit` of the `checks` profile: every lint task and every `:unit` test task. It caches the virtual environment. |
-| `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `sync:tests:int`, `console:tests:int` and `proxy:tests:int` of the `suites` profile. Each task runs the integration tests of its component, and runs only if one of its input files changed. |
+| `checks` | none | Runs `repo:lint` and `repo:test:unit` of the `checks` profile: every lint task and every `:unit` test task. It caches the virtual environment. |
+| `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `sync:test:int`, `console:test:int` and `proxy:test:int` of the `suites` profile. Each task runs the integration tests of its component, and runs only if one of its input files changed. |
 | `profile-sizes` | none | Runs `nix:lint:closure` of the `sizes` profile. It builds every profile and fails when one closure is larger than its limit. It runs only if a Nix input changed. No other job waits for it. |
 | `build-images` | `changes` | Builds one image for each changed component and pushes nothing. It starts with the tests and fills the layer cache. It runs only on `main`. |
 | `push-images` | `build-images` and all test jobs | Builds each image again from the cache, pushes it, and signs it. It runs only on `main`, and only after the tests pass, so no image of an untested commit reaches the registry. |

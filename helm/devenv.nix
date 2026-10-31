@@ -28,7 +28,7 @@
               ]
             );
           };
-          "chart:tests:unit" = utils.nuTask {
+          "chart:test:unit" = utils.nuTask {
             description = "Run the Helm chart tests.";
             packages = with pkgs; [ kubeconform ];
             exec = builtins.readFile ../scripts/helm.nu;

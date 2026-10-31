@@ -40,7 +40,7 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 
 `enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/`. The notebooks have no tests.
 
-- The Vitest tests are the task `console:tests:unit`, which `repo:unit` runs. The browser tests are `console:tests:int`.
+- The Vitest tests are the task `console:test:unit`, which `repo:test:unit` runs. The browser tests are `console:test:int`.
 - Set the variables of the tests in the `env` of the console profile.
 - The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend.
 - The 86 scenarios run in about 25 seconds on half of the cores, after about 25 seconds for the processes to start. More workers don't help, because the machine is busy with the stack and the browsers. `playwright.config.ts` has three projects. The project `auth` signs each test user in once (`tests/setup/auth.setup.ts`) and saves the cookies in `test-results/.auth/`. The project `parallel` runs every scenario in parallel (`fullyParallel`). The project `shared` runs last, on one worker, and it has the scenarios that change data that every other scenario reads: the schedule, the token lifespan and the sync document (`tests/features/shared/`).

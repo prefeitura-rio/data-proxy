@@ -39,7 +39,7 @@ The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares eve
 devenv --profile proxy tasks run proxy:install:rocks
 ```
 
-The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `proxy:lint:lua` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `devenv --profile proxy tasks run proxy:lint:lua proxy:tests:int`.
+The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `proxy:lint:lua` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `devenv --profile proxy tasks run proxy:lint:lua proxy:test:int`.
 
 <!-- nav:start -->
 ---

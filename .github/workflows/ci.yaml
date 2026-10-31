@@ -88,7 +88,7 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: checks
-      - run: devenv --profile checks tasks run repo:lint repo:unit
+      - run: devenv --profile checks tasks run repo:lint repo:test:unit
       - name: Save checks virtual environment
         if: steps.checks-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -116,7 +116,7 @@ jobs:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: sync
           profile: suites
-      - run: devenv --profile suites tasks run sync:tests:int
+      - run: devenv --profile suites tasks run sync:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
@@ -143,7 +143,7 @@ jobs:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: console
           profile: suites
-      - run: devenv --profile suites tasks run console:tests:int
+      - run: devenv --profile suites tasks run console:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
@@ -169,7 +169,7 @@ jobs:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: proxy
           profile: suites
-      - run: devenv --profile suites tasks run proxy:tests:int
+      - run: devenv --profile suites tasks run proxy:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save

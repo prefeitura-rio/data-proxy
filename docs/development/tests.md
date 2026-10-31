@@ -1,6 +1,6 @@
 # Tests
 
-A component has two tasks for its tests. `<component>:tests:unit` runs the tests that need no service, and `<component>:tests:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile checks tasks run sync:tests` runs `sync:tests:unit`. The sync tests that the style guide calls unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:tests:int`.
+A component has two tasks for its tests. `<component>:tests:unit` runs the tests that need no service, and `<component>:tests:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile checks tasks run sync:tests` runs `sync:test:unit`. The sync tests that the style guide calls unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:test:int`.
 
 | Component | `:unit` (no service) | `:int` (services) |
 | --- | --- | --- |
@@ -10,19 +10,19 @@ A component has two tasks for its tests. `<component>:tests:unit` runs the tests
 | `chart` | the Helm chart tests | none |
 | `nu` | the Nushell tests | none |
 
-For a quick run with no service, run `devenv --profile default tasks run repo:unit`. It runs every `:unit` task.
+For a quick run with no service, run `devenv --profile default tasks run repo:test:unit`. It runs every `:unit` task.
 
 ## Run only what changed
 
 Each of the three `:int` tasks is in the `suites` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
 
 ```bash
-devenv --profile suites tasks run proxy:tests:int    # the proxy suite
-devenv --profile suites tasks run sync:tests:int     # the sync suite
-devenv --profile suites tasks run console:tests:int  # the console suite
+devenv --profile suites tasks run proxy:test:int    # the proxy suite
+devenv --profile suites tasks run sync:test:int     # the sync suite
+devenv --profile suites tasks run console:test:int  # the console suite
 ```
 
-devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:unit` doesn't run the `:int` tasks, because they start services and live in another profile.
+devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:test:unit` doesn't run the `:int` tasks, because they start services and live in another profile.
 
 Run one suite at a time on one machine. The suites share the folder `.devenv/test-state`, and devenv doesn't reserve a port that it allocates, so two runs that start together can pick the same port or delete the generated files of each other. CI runs each suite on its own runner, so it has no such conflict.
 
@@ -103,7 +103,7 @@ Each suite prints the lines that no test runs. There is no minimum percentage. R
 
 | Suite | Command |
 | --- | --- |
-| `sync` | `PYTEST_ADDOPTS='--cov=sync --cov-branch --cov-report=term-missing:skip-covered' devenv --profile sync test`. It covers the `:int` tests. Add `--cov-append` and run `sync:tests:unit` for the others. |
+| `sync` | `PYTEST_ADDOPTS='--cov=sync --cov-branch --cov-report=term-missing:skip-covered' devenv --profile sync test`. It covers the `:int` tests. Add `--cov-append` and run `sync:test:unit` for the others. |
 | Console | `pnpm --dir console/ui coverage` |
 | Proxy | `nu scripts/lux.nu coverage` |
 

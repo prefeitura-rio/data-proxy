@@ -37,13 +37,13 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 Run the checks before you finish a change:
 
 ```bash
-devenv --profile default tasks run repo:lint repo:unit
+devenv --profile default tasks run repo:lint repo:test:unit
 devenv --profile sync test
 devenv --profile proxy test
 devenv --profile console test
 ```
 
-`repo:unit` runs the tests that need no services. `sync:tests:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:tests:int` starts OpenResty and runs the Hurl proxy suite. `console:tests:int` starts the whole console stack and runs the browser tests. It takes about one minute.
+`repo:test:unit` runs the tests that need no services. `sync:test:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:test:int` starts OpenResty and runs the Hurl proxy suite. `console:test:int` starts the whole console stack and runs the browser tests. It takes about one minute.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
@@ -58,7 +58,7 @@ A unit test checks one unit exhaustively: a function, a class, a method, or an S
 | Integration | `console/ui/tests/`                                      | devenv processes: PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, a browser                            | The console as a user sees it: sign-in, tabs, forms, run control                                                         |
 | E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
 
-- A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `sync:tests:unit` skips those tests, and `sync:tests:int` runs them.
+- A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `sync:test:unit` skips those tests, and `sync:test:int` runs them.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
 - In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file contains only its steps, and `load.js` contains only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
@@ -213,7 +213,7 @@ end
 
 ### Checks
 
-- Run `devenv --profile proxy tasks run proxy:lint:lua proxy:tests:unit` before review.
+- Run `devenv --profile proxy tasks run proxy:lint:lua proxy:test:unit` before review.
 - `proxy:lint:lua` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
 - The git hook runs `lx fmt` (StyLua). Use tabs.
 - Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it.
@@ -254,7 +254,7 @@ Nushell scripts run the Helm jobs and the local commands.
 Run the Nushell tests after a script change. `run.nu` finds every `test ...` command of the test files, so a new test needs no registration:
 
 ```bash
-devenv --profile checks tasks run nu:tests:unit
+devenv --profile checks tasks run nu:test:unit
 ```
 
 ```nu
@@ -287,7 +287,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Give every task and every script a `description`.
 - Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
-- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:tests:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:tests` runs the `sync:tests` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. A task that groups other tasks has two parts and uses the component `repo`: `repo:lint` runs every lint task and `repo:unit` runs every unit task, and `devenv tasks run repo` runs both. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
+- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:test:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:test` runs the `sync:test` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. A task that groups other tasks has two parts and uses the component `repo`: `repo:lint` runs every lint task and `repo:test:unit` runs every unit task, and `devenv tasks run repo` runs both. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
 - Keep each devenv profile under its limit in `nix/profiles/sizes.nix`. Run `devenv --profile sizes tasks run nix:lint:closure` after you add a package to a profile, a task or a process.
 - Define the `<component>:tests:int` tasks in `nix/profiles/suites.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
@@ -306,7 +306,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 
 - Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
 - In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
-- In `tasks`, put the group tasks (`repo:lint`, `repo:unit`) last.
+- In `tasks`, put the group tasks (`repo:lint`, `repo:test:unit`) last.
 - Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack.
 - Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
 
@@ -467,7 +467,7 @@ devenv --profile console tasks run console:lint:ui
 - Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages.
 - Link to another page with a relative Markdown link: the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. Marksman completes and follows these links in the editor, but it doesn't flag a broken one.
 - Every page ends with a navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. `docs/.nav.json` has the page order. Add a new page to that file and link it from its parent page. `docs:lint:nav` fails on a missing page, a page without a link from its parent, or an old block.
-- Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile docs tasks run docs:build:diagrams`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `docs:lint:diagrams` (profile `docs`) fails when an SVG is out of date, and CI doesn't run it. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
+- Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile docs tasks run docs:build:diag`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `docs:lint:diag` (profile `docs`) fails when an SVG is out of date, and CI doesn't run it. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
 - Name a file with one word, and use two words only if one word is unclear.
 - Give each topic one page, and link to it from the other pages. Keep a file near 800 words. Split a larger file by topic.
 - Keep one topic in one document. Link to the owner. Don't copy.

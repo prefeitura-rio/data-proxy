@@ -13,7 +13,7 @@
         packages = with pkgs; [ d2 ];
 
         tasks = {
-          "docs:build:diagrams" = utils.nuTask {
+          "docs:build:diag" = utils.nuTask {
             description = "Render the D2 diagrams to SVG.";
             exec = ''
               for file in (glob docs/diagrams/**/*.d2) {
@@ -36,7 +36,7 @@
               if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open"
             }";
           };
-          "docs:lint:diagrams" = utils.nuTask {
+          "docs:lint:diag" = utils.nuTask {
             description = "Check that the rendered diagrams are current.";
             exec = ''
               for file in (glob docs/diagrams/**/*.d2) {
@@ -48,7 +48,7 @@
                   }
 
                   if ($fresh.stdout | str trim) != (open --raw $svg | str trim) {
-                      error make { msg: $"($svg) is out of date: run docs:build:diagrams" }
+                      error make { msg: $"($svg) is out of date: run docs:build:diag" }
                   }
               }
             '';

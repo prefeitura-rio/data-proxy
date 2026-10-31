@@ -59,7 +59,7 @@
             };
 
             tasks = {
-              "sync:tests:unit" = utils.nuTask {
+              "sync:test:unit" = utils.nuTask {
                 description = "Run the sync unit tests that need no service.";
                 after = [ "devenv:files" ];
                 cwd = "sync";

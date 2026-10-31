@@ -97,7 +97,7 @@ let
         ];
       }
       {
-        name = "configure";
+        name = "conf";
         description = "Create the roles and the application schema.";
         command = [
           "nu"
@@ -129,7 +129,7 @@ let
         ];
       }
       {
-        name = "provision";
+        name = "prov";
         description = "Provision the schemas of the sync settings.";
         packages = with pkgs; [ rclone ];
         command = [
@@ -173,49 +173,38 @@ let
     };
   };
 
-  build = utils.mkTaskChain {
-    name = "console:build";
-    env = consoleEnv;
-    before = [ (utils.processTask "console") ];
-    common = {
-      cwd = "${config.devenv.root}/console/ui";
-      execIfModified = utils.mkInputs (
-        [
-          "console/ui/package.json"
-          "console/ui/pnpm-lock.yaml"
-          "console/ui/.npmrc"
-          "console/ui/tsconfig.json"
-          "console/ui/vite.config.ts"
-        ]
-        ++ utils.mkGlobs "console/ui/src" [
-          "ts"
-          "svelte"
-          "svg"
-          "html"
-          "css"
-        ]
-        ++ utils.mkGlobs "console/ui/static" [ "txt" ]
-      );
-    };
-    steps = [
-      {
-        name = "install";
-        description = "Install the dependencies of the console app.";
-        command = [
-          "pnpm"
-          "install"
-          "--frozen-lockfile"
-        ];
-      }
-      {
-        name = "ui";
-        description = "Build the console server.";
+  build = {
+    "console:build:ui" =
+      utils.mkTask {
         command = [
           "pnpm"
           "build"
         ];
+        env = consoleEnv;
       }
-    ];
+      // {
+        description = "Build the console server.";
+        cwd = "${config.devenv.root}/console/ui";
+        after = [ "console:install:ui" ];
+        before = [ (utils.processTask "console") ];
+        execIfModified = utils.mkInputs (
+          [
+            "console/ui/package.json"
+            "console/ui/pnpm-lock.yaml"
+            "console/ui/.npmrc"
+            "console/ui/tsconfig.json"
+            "console/ui/vite.config.ts"
+          ]
+          ++ utils.mkGlobs "console/ui/src" [
+            "ts"
+            "svelte"
+            "svg"
+            "html"
+            "css"
+          ]
+          ++ utils.mkGlobs "console/ui/static" [ "txt" ]
+        );
+      };
   };
 in
 {
@@ -234,7 +223,7 @@ in
 
   tasks =
     setup.tasks
-    // build.tasks
+    // build
     // {
       "console:open:browser" = lib.mkIf (!config.devenv.isTesting) (
         utils.mkTask {

@@ -72,7 +72,7 @@
                     "proxy/.luacheckrc"
                   ];
                 };
-              "proxy:tests:unit" =
+              "proxy:test:unit" =
                 utils.mkTask {
                   command = [
                     "nu"

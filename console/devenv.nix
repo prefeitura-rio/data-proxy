@@ -107,7 +107,7 @@ in
                     ]
                     ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
                   );
-              "console:tests:unit" =
+              "console:test:unit" =
                 pnpmTask "Run the unit tests of the console app." "console/ui" "console:install:ui" "pnpm test"
                   consoleInputs;
             };

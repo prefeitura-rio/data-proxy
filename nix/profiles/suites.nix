@@ -30,7 +30,7 @@
         stdenv = pkgs.stdenvNoCC;
 
         tasks = {
-          "proxy:tests:int" = utils.serviceSuite {
+          "proxy:test:int" = utils.serviceSuite {
             description = "Run the integration tests of the proxy against its test servers.";
             profile = "proxy";
             inputs = [
@@ -49,7 +49,7 @@
             ]
             ++ environment;
           };
-          "sync:tests:int" = utils.serviceSuite {
+          "sync:test:int" = utils.serviceSuite {
             description = "Run the sync tests that need a database and a storage server.";
             profile = "sync";
             inputs = [
@@ -81,7 +81,7 @@
             ++ postgresServer
             ++ environment;
           };
-          "console:tests:int" = utils.serviceSuite {
+          "console:test:int" = utils.serviceSuite {
             description = "Run the browser tests of the console against its test servers.";
             profile = "console";
             inputs = [
