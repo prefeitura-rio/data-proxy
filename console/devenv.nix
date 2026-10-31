@@ -44,11 +44,11 @@ in
           };
 
         pnpmTask =
-          description: dir: script: files:
+          description: dir: install: script: files:
           utils.nuTask {
             inherit description;
             cwd = dir;
-            after = [ "console:install:${lib.last (lib.splitString "/" dir)}" ];
+            after = [ install ];
             exec = script;
             execIfModified = utils.mkInputs files;
           };
@@ -112,10 +112,11 @@ in
           "console:install:ui" = installTask "console/ui";
           "nb:install:deps" = installTask "console/notebooks";
           "console:lint:ui" =
-            pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
+            pnpmTask "Check and lint the console app." "console/ui" "console:install:ui" "pnpm check\npnpm lint"
               consoleInputs;
           "nb:lint:ts" =
-            pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint"
+            pnpmTask "Check and lint the notebooks." "console/notebooks" "nb:install:deps"
+              "pnpm check\npnpm lint"
               (
                 [
                   "console/notebooks/*.ts"
@@ -130,7 +131,7 @@ in
                 ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
               );
           "console:tests:unit" =
-            pnpmTask "Run the unit tests of the console app." "console/ui" "pnpm test"
+            pnpmTask "Run the unit tests of the console app." "console/ui" "console:install:ui" "pnpm test"
               consoleInputs;
         };
 
