@@ -48,7 +48,7 @@ The console views only read these tables. The console starts and controls a work
 
 ## Change a diagram
 
-Edit the table in its own `.d2` file in `docs/diagrams/schemas/`. `db.d2` imports those files, so it needs no edit. Then run `devenv --profile checks tasks run docs:build:diagrams`. Take the columns from the SQL files in `console/migrations/` and `helm/files/templates/postgres/`. For the DBOS tables, take them from the `dbos` migrations in the Python package.
+Edit the table in its own `.d2` file in `docs/diagrams/schemas/`. `db.d2` imports those files, so it needs no edit. Then run `devenv --profile docs tasks run docs:build:diagrams`. Take the columns from the SQL files in `console/migrations/` and `helm/files/templates/postgres/`. For the DBOS tables, take them from the `dbos` migrations in the Python package.
 
 <!-- nav:start -->
 ---

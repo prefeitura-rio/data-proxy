@@ -1,7 +1,7 @@
 { pkgs, ... }:
 {
   profiles.default = {
-    extends = [ "checks" ];
+    extends = [ "docs" ];
     module =
       { utils, ... }:
       {
