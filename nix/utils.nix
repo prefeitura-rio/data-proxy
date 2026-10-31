@@ -48,10 +48,13 @@ let
     `user`, `password`
     : The login. They default to the administrator of the test server.
 
+    `serverPort`
+    : The port of the server. It defaults to the allocated port of the test server, which needs its process.
+
     # Type
 
     ```
-    postgresUrl :: { database :: String, user :: String?, password :: String? } -> String
+    postgresUrl :: { database :: String, user :: String?, password :: String?, serverPort :: Int? } -> String
     ```
   */
   postgresUrl =
@@ -59,8 +62,9 @@ let
       database,
       user ? credentials.postgres.user,
       password ? credentials.postgres.password,
+      serverPort ? port "postgres" "main",
     }:
-    "postgresql://${user}:${password}@127.0.0.1:${toString (port "postgres" "main")}/${database}";
+    "postgresql://${user}:${password}@127.0.0.1:${toString serverPort}/${database}";
 
   /**
     The lines of a Bash command that put the programs of some packages first in `PATH`. They change `PATH` for that

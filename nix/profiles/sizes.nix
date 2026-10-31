@@ -5,12 +5,14 @@ let
     suites = 400;
     release = 1000;
     ui = 900;
+    proxy-unit = 1000;
     proxy = 1200;
+    sync-unit = 900;
     sync = 1200;
     console = 2600;
     nb = 2600;
-    checks = 2650;
-    docs = 4700;
+    checks = 2300;
+    docs = 4300;
     default = 6500;
   };
 in

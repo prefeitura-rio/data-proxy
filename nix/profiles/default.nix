@@ -4,6 +4,8 @@
     extends = [
       "docs"
       "console"
+      "sync"
+      "proxy"
     ];
     module =
       { utils, ... }:

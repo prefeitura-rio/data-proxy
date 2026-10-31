@@ -16,9 +16,9 @@ E2E tests run against the local cluster or staging environment, not in CI.
 
 | Task | Profile | What it checks |
 | --- | --- | --- |
-| `sync:lint:py` | `sync` | Python with `ruff`, `pyrefly`, `complexipy` and `vulture`. |
-| `sync:lint:sql` | `sync` | The SQL templates and the console migrations, with `sqlfluff` and `goose validate`. |
-| `proxy:lint:lua` | `proxy` | The Lua code, with StyLua, luacheck and the LuaLS type check. |
+| `sync:lint:py` | `sync-unit` | Python with `ruff`, `pyrefly`, `complexipy` and `vulture`. |
+| `sync:lint:sql` | `sync-unit` | The SQL templates and the console migrations, with `sqlfluff` and `goose validate`. |
+| `proxy:lint:lua` | `proxy-unit` | The Lua code, with StyLua, luacheck and the LuaLS type check. |
 | `console:lint:ui`, `nb:lint:ts` | `ui` | The console app and the notebooks, with `svelte-check`, ESLint and Prettier. |
 | `chart:lint:helm` | `chart` | The Helm chart, with `helm lint --strict`. |
 | `ci:lint:workflows` | `checks` | The GitHub workflows, with `actionlint`. |

@@ -11,9 +11,9 @@ in
 {
   profiles.checks = {
     extends = [
-      "sync"
+      "sync-unit"
       "ui"
-      "proxy"
+      "proxy-unit"
       "release"
     ];
     module =
