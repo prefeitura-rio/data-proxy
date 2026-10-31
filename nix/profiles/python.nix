@@ -13,14 +13,16 @@
         package = pkgs.python314;
         uv = {
           enable = true;
-          package = pkgs.symlinkJoin {
-            name = "uv";
-            paths = [ pkgs.uv ];
-            nativeBuildInputs = [ pkgs.makeWrapper ];
-            postBuild = "wrapProgram $out/bin/uv --prefix LD_LIBRARY_PATH : ${
-              lib.makeLibraryPath [ pkgs.stdenv.cc.cc ]
-            }";
-          };
+          package =
+            with pkgs;
+            symlinkJoin {
+              name = "uv";
+              paths = [ uv ];
+              nativeBuildInputs = [ makeWrapper ];
+              postBuild = "wrapProgram $out/bin/uv --prefix LD_LIBRARY_PATH : ${
+                lib.makeLibraryPath [ stdenv.cc.cc ]
+              }";
+            };
         };
         lsp.package = pkgs.pyrefly;
       };
