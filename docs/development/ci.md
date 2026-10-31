@@ -17,14 +17,17 @@ The `concurrency` group is one for each branch, and a new run waits for the run 
 | `changes` | none | Runs `ci changes`. It compares the commit with the previous one. It writes which images need a build and whether the chart needs a release. |
 | `checks` | none | Runs `lint:all` and `test:all` of the `checks` profile. It caches the virtual environment. |
 | `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `test:int:sync`, `test:int:console` and `test:int:proxy` of the `suites` profile. Each task runs only if one of its input files changed. |
-| `build-images` | `changes` and all test jobs | Builds and pushes one image for each changed component. It runs only on `main`. |
-| `helm` | all earlier jobs | Releases the chart. It runs only on `main`, when the chart or an image changed. |
+| `build-images` | `changes` | Builds one image for each changed component and pushes nothing. It starts with the tests and fills the layer cache. It runs only on `main`. |
+| `push-images` | `build-images` and all test jobs | Builds each image again from the cache, pushes it, and signs it. It runs only on `main`, and only after the tests pass, so no image of an untested commit reaches the registry. |
+| `helm` | all earlier jobs, `push-images` included | Releases the chart. It runs only on `main`, when the chart or an image changed. |
 
 Each job restores the task state before it runs. The `task-state-restore` action reads the state that the last green run of `main` saved, and `task-state-save` writes it. Only a run on `main` saves the state. [Tests](tests.md#run-only-what-changed) explains how a task decides to run.
 
 The jobs `checks`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
 
 The sync and console jobs start the build of the PostgreSQL test image and the pull of the Keycloak image in the background (`.github/actions/prewarm-images`), before the Nix install. The devenv tasks then find the layers in the cache. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files. Every job that runs devenv keeps the Nix fetcher cache (`.github/actions/cache-nix`), keyed by `devenv.lock`, so it doesn't download the flake inputs again.
+
+The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git. They don't evaluate the whole `checks` profile.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 
@@ -73,7 +76,7 @@ The `pre_bump_hooks` of `cog.toml` call `ci images pin`, so the release commit c
 
 | Name | Kind | Used by | Purpose |
 | --- | --- | --- | --- |
-| `GITHUB_TOKEN` | Automatic | `build-images`, `helm` | Pushes the images and the chart to the GitHub Container Registry (GHCR) and creates the release page. |
+| `GITHUB_TOKEN` | Automatic | `push-images`, `helm` | Pushes the images and the chart to the GitHub Container Registry (GHCR) and creates the release page. |
 | `RELEASE_TOKEN` | Secret, optional | `helm` | Pushes the release commit to a protected `main`. Without it, the job uses `GITHUB_TOKEN`. |
 | `SONARQUBE_URL` | Variable | SAST | The address of the SonarQube server. |
 | `SONARQUBE_TOKEN` | Secret | SAST | The token for SonarQube. |
