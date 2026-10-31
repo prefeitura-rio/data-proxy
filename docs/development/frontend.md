@@ -49,7 +49,7 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 - The layout sets `data-hydrated` on `<html>` when the page runs its scripts. A step that types or selects waits for it (`hydrated` in `tests/fixtures.ts`). Without it, a field that a step fills before the scripts run loses its value.
 - The fixture `world` sets the refresh interval of the Sync pages to 2 seconds, so a scenario that waits for a live update takes about 2 seconds. The config asks the browser for reduced motion. The console and DaisyUI then turn their animations off, and Playwright doesn't wait for an animation to end before it selects.
 - The test stack sets `GRANT_TTL_SECONDS` to 30.
-- A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `E2E_DATABASE_URL`.
+- A step that needs SQL, such as the log line of the live-log scenario, runs `psql` on the address in `INTEGRATION_DATABASE_URL`.
 - The scenario that shortens the token lifespan (`@short-token`) changes the client `data-proxy-console-web` in Keycloak through the admin API. A hook restores the old value.
 - The profile sets `PLAYWRIGHT_BROWSERS_PATH` to the browsers of the Nix package set. `@playwright/test` and the Python `playwright` package therefore stay at the versions of that package.
 

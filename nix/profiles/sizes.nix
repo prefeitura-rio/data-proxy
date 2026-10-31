@@ -30,7 +30,6 @@ in
               "devenv.yaml"
               "devenv.lock"
               "console/devenv.nix"
-              "console/e2e.nix"
               "helm/devenv.nix"
               "proxy/devenv.nix"
               "sync/devenv.nix"
