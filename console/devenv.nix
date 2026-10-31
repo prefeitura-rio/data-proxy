@@ -64,7 +64,6 @@ in
 
         env = {
           CONSOLE_URL = utils.urls.console;
-          NOTEBOOKS_URL = utils.urls.notebooks;
           KEYCLOAK_URL = utils.urls.keycloak;
           KEYCLOAK_USER_PASSWORD = "web-test";
           E2E_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
@@ -138,5 +137,10 @@ in
           pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
         '';
       };
+  };
+
+  profiles.notebooks = {
+    extends = [ "console" ];
+    module.imports = [ ../nix/processes/notebooks.nix ];
   };
 }

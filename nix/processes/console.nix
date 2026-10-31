@@ -236,35 +236,6 @@ in
     setup.tasks
     // build.tasks
     // {
-      "notebooks:build" =
-        utils.mkTask {
-          command = [
-            "nu"
-            "build.nu"
-            "notebooks/query.py"
-            "site"
-          ];
-        }
-        // {
-          description = "Build the notebook site.";
-          cwd = "${config.devenv.root}/console/notebooks";
-          before = [ (utils.processTask "notebooks") ];
-          execIfModified = utils.mkInputs (
-            [
-              "console/notebooks/build.nu"
-              "console/notebooks/bundle.ts"
-              "console/notebooks/tsconfig.json"
-              "console/notebooks/package.json"
-              "console/notebooks/pnpm-lock.yaml"
-              "console/notebooks/pnpm-workspace.yaml"
-              "console/notebooks/pyproject.toml"
-              "console/notebooks/uv.lock"
-            ]
-            ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
-            ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ]
-          );
-        };
-
       "console:open" = lib.mkIf (!config.devenv.isTesting) (
         utils.mkTask {
           command = [
@@ -346,27 +317,6 @@ in
           path = "/console/healthz";
         };
         after = [ (utils.processTask "console") ];
-      };
-
-    notebooks =
-      utils.mkProcess {
-        command = [
-          "node"
-          "server.ts"
-        ];
-        env = {
-          PORT = utils.port "notebooks" "main";
-          CONSOLE_ORIGIN = urls.console;
-          STORAGE_ORIGIN = urls.storage;
-        };
-      }
-      // {
-        cwd = "${config.devenv.root}/console/notebooks";
-        ports.main.allocate = 13002;
-        ready = utils.probes.http {
-          port = utils.port "notebooks" "main";
-          path = "/config.js";
-        };
       };
   };
 }

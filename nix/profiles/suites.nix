@@ -92,13 +92,6 @@
               "console/ui/vite.config.ts"
               "console/ui/playwright.config.ts"
               "console/ui/.npmrc"
-              "console/notebooks/*.ts"
-              "console/notebooks/build.nu"
-              "console/notebooks/package.json"
-              "console/notebooks/pnpm-lock.yaml"
-              "console/notebooks/pnpm-workspace.yaml"
-              "console/notebooks/pyproject.toml"
-              "console/notebooks/uv.lock"
               "sync/tests/*.py"
               "k3d/values/*.yaml"
               "scripts/db.nu"
@@ -120,8 +113,6 @@
               "ts"
               "feature"
             ]
-            ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
-            ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ]
             ++ utils.mkGlobs "sync/tests/seeds" [ "py" ]
             ++ utils.mkGlobs "sync/tests/fixtures" [ "py" ]
             ++ utils.mkGlobs "sync/tests/files" [

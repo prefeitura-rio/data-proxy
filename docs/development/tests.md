@@ -76,11 +76,10 @@ The `console` profile starts these parts:
 - Keycloak and PostgREST
 - the console with its gateway
 - a worker for the `control` queue
-- the notebook site
 
 It runs the browser tests of the console. [Frontend](frontend.md) describes it. A full run takes about one minute.
 
-Every process asks devenv for its ports with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. Two runs therefore never clash, and they can run at the same time. The setup passes the real number to the tests in environment variables.
+Every process asks devenv for its ports with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. The setup passes the real number to the tests in environment variables.
 
 | Suite | Base ports |
 | --- | --- |

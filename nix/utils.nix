@@ -6,7 +6,12 @@
 let
   toStrings = lib.mapAttrs (_: toString);
 
-  inherit (import ./data.nix { inherit config; }) credentials port urls;
+  inherit (import ./data.nix { inherit config; })
+    credentials
+    notebooksPort
+    port
+    urls
+    ;
 
   /**
     The path of a file in the state folder of the test run.
@@ -501,6 +506,7 @@ in
     mkProcess
     mkTask
     mkTaskChain
+    notebooksPort
     processTask
     nushellCommand
     nuTask

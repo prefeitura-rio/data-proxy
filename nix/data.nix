@@ -2,14 +2,15 @@
 let
   port = process: name: config.processes.${process}.ports.${name}.value;
   keycloak = "http://localhost:${toString (port "keycloak" "main")}";
+  notebooksPort = 13002;
 in
 {
-  inherit port;
+  inherit port notebooksPort;
 
   urls = {
     inherit keycloak;
     console = "http://console.localhost:${toString (port "gateway" "main")}";
-    notebooks = "http://notebooks.localhost:${toString (port "notebooks" "main")}";
+    notebooks = "http://notebooks.localhost:${toString notebooksPort}";
     storage = "http://localhost:${toString (port "seaweedfs" "main")}";
     issuer = "${keycloak}/realms/dev";
     postgrest = "http://127.0.0.1:${toString (port "postgrest" "main")}";

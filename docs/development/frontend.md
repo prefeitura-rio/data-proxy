@@ -36,7 +36,7 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 | `processes/console` (setup) | the tasks `console:setup:*`. Each task runs one step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, and `provision.nu` (the scripts of the chart Jobs). The last task runs `sync/tests/seeds/console.py`. It fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
 | `processes/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
 | `processes/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control,schedules`, so the browser tests run cancel, resume, the schedule actions and the schedule reconcile without a sync run |
-| `processes/console` (notebooks) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin |
+| `processes/notebooks` (profile `notebooks`) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin. The `console` profile doesn't start it, because no browser test opens the site |
 
 `enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/`. The notebooks have no tests.
 
