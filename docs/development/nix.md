@@ -21,7 +21,7 @@ processes.gateway =
   };
 ```
 
-A tool belongs to the task, the process or the script that calls it. A task has no `packages` option in devenv, so `utils.nuTask`, `utils.mkTask`, `utils.mkProcess` and `utils.nushellCommand` take a `packages` list. They put the programs of the list first in `PATH` for that command only. A step of a chain takes its own `packages`. A script of `scripts.<name>` uses the `packages` option of devenv, which works the same way. A command that calls one program can name it with `lib.getExe`, as the example does.
+A tool belongs to the task, the process or the script that calls it. A task has no `packages` option in devenv, so `utils.nuTask`, `utils.mkTask` and `utils.mkProcess` take a `packages` list. They put the programs of the list first in `PATH` for that command only. A step of a chain takes its own `packages`. A script of `scripts.<name>` uses the `packages` option of devenv, which works the same way. A command that calls one program can name it with `lib.getExe`, as the example does.
 
 The `packages` list of a profile contains only the tools that people type: `psql`, `goose`, `lx`, `cog`, `d2`, `kubectl` and a few more. A tool that only a task calls, such as `actionlint`, `mkdocs` or `rclone`, isn't there. The `languages.*` modules of devenv add their own tools to the shell, which devenv doesn't scope. To find a missing tool, run the task in a clean environment, for example `env -i HOME=$HOME PATH=<devenv and nix folders> devenv tasks run <task>`, because your own `PATH` can hide it.
 

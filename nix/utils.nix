@@ -470,31 +470,6 @@ let
       */
       command = command: mkProbe { exec = lib.escapeShellArgs command; };
     };
-
-  /**
-    A command of the shell of the project that runs one script of `scripts/`. The copy has the plain name of the
-    command, so that the help of the script shows it and not the name of a store path. The programs of `packages` come
-    first in `PATH` while the script runs.
-
-    # Type
-
-    ```
-    nushellCommand :: String -> [Package] -> Derivation
-    ```
-  */
-  nushellCommand =
-    name: packages:
-    let
-      script = pkgs.runCommand name { } ''
-        mkdir -p $out
-        cp ${../scripts + "/${name}.nu"} $out/${name}
-      '';
-    in
-    pkgs.writers.writeNuBin name ''
-      def --wrapped main [...args: string] {
-          ${nuPath packages}exec ${lib.getExe pkgs.nushell} --include-path ${config.devenv.root}/scripts ${script}/${name} ...$args
-      }
-    '';
 in
 {
   inherit
@@ -505,7 +480,6 @@ in
     mkTask
     mkTaskChain
     processTask
-    nushellCommand
     nuTask
     podmanRun
     postgresUrl
