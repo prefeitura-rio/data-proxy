@@ -1,6 +1,11 @@
-{ pkgs, utils, ... }:
+{
+  pkgs,
+  data,
+  utils,
+  ...
+}:
 let
-  inherit (utils.credentials) postgres;
+  inherit (data.credentials) postgres;
   jwks = utils.stateFile "jwks.json";
 in
 {
@@ -14,7 +19,7 @@ in
         "--create-dirs"
         "--output"
         jwks
-        "${utils.urls.issuer}/protocol/openid-connect/certs"
+        "${data.urls.issuer}/protocol/openid-connect/certs"
       ];
     }
     // {
@@ -33,7 +38,7 @@ in
           user = postgres.roles.serving;
           password = postgres.passwords.serving;
         };
-        PGRST_SERVER_PORT = utils.port "pgrest" "main";
+        PGRST_SERVER_PORT = data.port "pgrest" "main";
         PGRST_DB_SCHEMAS = "console";
         PGRST_DB_ANON_ROLE = postgres.roles.anon;
         PGRST_JWT_ROLE_CLAIM_KEY = ".role";
@@ -48,6 +53,6 @@ in
     }
     // {
       ports.main.allocate = 13000;
-      ready = utils.probes.http { port = utils.port "pgrest" "main"; };
+      ready = utils.probes.http { port = data.port "pgrest" "main"; };
     };
 }

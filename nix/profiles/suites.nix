@@ -98,6 +98,7 @@
               "k3d/values/*.yaml"
               "scripts/db.nu"
               "scripts/migrate.nu"
+              "nix/stack/console-setup.nix"
               "nix/stack/console.nix"
               "nix/stack/kc.nix"
               "Containerfile.kc"

@@ -6,12 +6,7 @@
 let
   toStrings = lib.mapAttrs (_: toString);
 
-  inherit (import ./data.nix { inherit config; })
-    credentials
-    notebooksPort
-    port
-    urls
-    ;
+  inherit (import ./data.nix { inherit config; }) credentials port;
 
   /**
     The path of a file in the state folder of the test run.
@@ -503,23 +498,19 @@ let
 in
 {
   inherit
-    credentials
     fileEntry
     mkGlobs
     mkInputs
     mkProcess
     mkTask
     mkTaskChain
-    notebooksPort
     processTask
     nushellCommand
     nuTask
     podmanRun
-    port
     postgresUrl
     probes
     serviceSuite
     stateFile
-    urls
     ;
 }

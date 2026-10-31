@@ -85,7 +85,7 @@ in
           };
           "nu:test:unit" = utils.nuTask {
             description = "Run the Nushell tests.";
-            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/keycloak.nu";
+            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/kc.nu";
             execIfModified = utils.mkInputs [
               "helm/files/scripts/**/*.nu"
               "scripts/**/*.nu"

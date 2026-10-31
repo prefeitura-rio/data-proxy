@@ -1,8 +1,13 @@
-{ pkgs, utils, ... }:
+{
+  pkgs,
+  data,
+  utils,
+  ...
+}:
 let
-  inherit (utils.credentials) storage;
+  inherit (data.credentials) storage;
   dataDir = utils.stateFile "s3";
-  port = toString (utils.port "s3" "main");
+  port = toString (data.port "s3" "main");
 in
 {
   env = {
@@ -46,11 +51,11 @@ in
         "server"
         "-ip=127.0.0.1"
         "-dir=${dataDir}"
-        "-master.port=${toString (utils.port "s3" "master")}"
-        "-volume.port=${toString (utils.port "s3" "volume")}"
+        "-master.port=${toString (data.port "s3" "master")}"
+        "-volume.port=${toString (data.port "s3" "volume")}"
         "-volume.max=8"
         "-filer"
-        "-filer.port=${toString (utils.port "s3" "filer")}"
+        "-filer.port=${toString (data.port "s3" "filer")}"
         "-s3"
         "-s3.port=${port}"
         "-s3.config=${utils.stateFile "seaweedfs-identities.json"}"

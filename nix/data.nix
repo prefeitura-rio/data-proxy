@@ -1,20 +1,27 @@
 { config }:
 let
   port = process: name: config.processes.${process}.ports.${name}.value;
-  keycloak = "http://localhost:${toString (port "kc" "main")}";
+  kc = "http://localhost:${toString (port "kc" "main")}";
   notebooksPort = 13002;
 in
 {
   inherit port notebooksPort;
 
   urls = {
-    inherit keycloak;
+    inherit kc;
     console = "http://console.localhost:${toString (port "gateway" "main")}";
-    notebooks = "http://notebooks.localhost:${toString notebooksPort}";
-    storage = "http://localhost:${toString (port "s3" "main")}";
-    issuer = "${keycloak}/realms/dev";
-    postgrest = "http://127.0.0.1:${toString (port "pgrest" "main")}";
+    nb = "http://notebooks.localhost:${toString notebooksPort}";
+    s3 = "http://localhost:${toString (port "s3" "main")}";
+    issuer = "${kc}/realms/dev";
+    pgrest = "http://127.0.0.1:${toString (port "pgrest" "main")}";
   };
+
+  databases = {
+    app = "data_proxy";
+    catalog = "ducklake";
+  };
+
+  bucket = "test-bucket";
 
   credentials = {
     postgres = {

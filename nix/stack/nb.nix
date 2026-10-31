@@ -1,10 +1,11 @@
 {
   config,
+  data,
   utils,
   ...
 }:
 let
-  inherit (utils) urls;
+  inherit (data) urls;
 in
 {
   tasks = {
@@ -46,15 +47,15 @@ in
           "server.ts"
         ];
         env = {
-          PORT = utils.notebooksPort;
+          PORT = data.notebooksPort;
           CONSOLE_ORIGIN = urls.console;
-          STORAGE_ORIGIN = urls.storage;
+          STORAGE_ORIGIN = urls.s3;
         };
       }
       // {
         cwd = "${config.devenv.root}/console/notebooks";
         ready = utils.probes.http {
-          port = utils.notebooksPort;
+          port = data.notebooksPort;
           path = "/config.js";
         };
       };

@@ -283,7 +283,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Use bash only for a script that's a list of plain commands, with no loop, condition or variable, such as `scripts.seed` or an `enterTest`. Write anything else in Nushell, or run a plain command. See the [Nushell](#nushell) section.
 - Prefer a plain command with `env` and `cwd` to a generated wrapper script.
 - Put a profile in the folder of the component that it tests, and list the folder under `imports:` in `devenv.yaml`. Put an input that only one component uses in the `devenv.yaml` of that folder.
-- Declare the port of a process with `ports.<name>.allocate = <base>` and read it with `utils.port "<process>" "<name>"`. Don't write a port number in another place.
+- Declare the port of a process with `ports.<name>.allocate = <base>` and read it with `data.port "<process>" "<name>"`. Don't write a port number in another place.
 - Give every task and every script a `description`.
 - Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.

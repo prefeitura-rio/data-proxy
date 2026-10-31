@@ -6,7 +6,7 @@ The profile names the modules of a test setup and the tests, and nothing else. `
 
 A profile fetches every package that its tasks, processes and `packages` name, also when the job runs none of them. Keep each profile small. The `base` profile has only what every job needs. The `ui` profile has the console tasks and tools. The `console` profile adds the services and the Chromium browser for the browser tests, so the lint job fetches neither. The `sync-unit` and `proxy-unit` profiles have the lint and unit tasks, and `sync` and `proxy` add the services, so the lint job fetches no SeaweedFS, OpenResty or Valkey. The sync tests read the service endpoints from the environment, so `sync-unit` sets default values that the service modules override. Use `postgresql_17.out` for `psql`, because the default output pulls a compiler and LLVM (1.7 GB). A profile that builds no native code sets `stdenv = pkgs.stdenvNoCC`. The task `nix:lint:closure` (profile `sizes`) measures every profile and fails when one is larger than its limit in `nix/profiles/sizes.nix`. When a new package makes a profile too large, remove the package or move it to the profile that needs it. Raise a limit only with the reason in the commit message.
 
-The `nix/` folder contains the shared parts. A module in `nix/stack/` contains one part of the test stack, and its file name is the short name of that part. `nix/utils.nix` and `nix/data.nix` contain the helpers and the shared values. The `base` profile passes every module the argument `utils`. Every script is Nushell, except a bash script that's a list of plain commands, such as `enterTest`.
+The `nix/` folder contains the shared parts. A module in `nix/stack/` contains one part of the test stack, and its file name is the short name of that part. `nix/utils.nix` and `nix/data.nix` contain the helpers and the shared values. The `base` profile passes every module two arguments: `utils` for the helpers and `data` for the shared values (`data.port`, `data.urls`, `data.credentials`). Every script is Nushell, except a bash script that's a list of plain commands, such as `enterTest`.
 
 A long-running service is a process, and a command that runs and exits is a task. `utils.mkProcess` and `utils.mkTask` build the command and the variables, and the caller adds the other options with `//`. A task runs `before` a process that needs it, or `after` a process that it needs. A setup with several steps is a chain of tasks (`utils.mkTaskChain`), so a failure names the step:
 
@@ -16,7 +16,7 @@ processes.gateway =
     command = [ (lib.getExe pkgs.caddy) "reverse-proxy" "--from" ":13001" "--to" "127.0.0.1:13004" ];
   }
   // {
-    ready = utils.probes.http utils.urls.console;
+    ready = utils.probes.http data.urls.console;
     after = [ (utils.processTask "console") ];
   };
 ```
@@ -25,7 +25,7 @@ A tool belongs to the task, the process or the script that calls it. A task has 
 
 The `packages` list of a profile contains only the tools that people type: `psql`, `goose`, `lx`, `cog`, `d2`, `kubectl` and a few more. A tool that only a task calls, such as `actionlint`, `mkdocs` or `rclone`, isn't there. The `languages.*` modules of devenv add their own tools to the shell, which devenv doesn't scope. To find a missing tool, run the task in a clean environment, for example `env -i HOME=$HOME PATH=<devenv and nix folders> devenv tasks run <task>`, because your own `PATH` can hide it.
 
-devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. `devenv up` starts the same processes without the tests. A module reads the port of another process with `utils.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
+devenv runs the processes with its native manager. A process or a task that names another one in `after` starts when that one is ready or has succeeded. `devenv test` starts the processes, waits for their `ready` checks and their setup tasks, and then runs the tests. `devenv up` starts the same processes without the tests. A module reads the port of another process with `data.port "<process>" "<name>"`, and the shared logins and addresses come from `nix/data.nix`.
 
 `execIfModified` skips a task when its input files didn't change, so delete `console/ui/build` or `console/notebooks/site` to force a build. The inputs are files and globs over files, because devenv compares a folder by its metadata and a fresh checkout changes every folder. See [Tests](tests.md#run-only-what-changed).
 

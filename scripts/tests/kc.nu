@@ -1,5 +1,5 @@
 use std/assert
-use ../keycloak.nu [claims-of partial-import role-names schemas-attribute token-problems]
+use ../kc.nu [claims-of partial-import role-names schemas-attribute token-problems]
 
 const RULES = {
     roles: [

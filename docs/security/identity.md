@@ -23,7 +23,7 @@ Add a second mapper for the `schemas` claim (a user attribute with several value
 
 A user who needs two roles takes a role that inherits both in `rbac.toml`, because a token has one.
 
-An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role`, and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/keycloak.nu check` reports this case.
+An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role`, and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/kc.nu check` reports this case.
 
 The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
@@ -52,23 +52,23 @@ The access policy subject must equal the configured identity claim in the end-us
 
 ## Create the console client with a script
 
-`scripts/keycloak.nu` prints the document for the Keycloak partial import. It reads the roles from `rbac.toml`, so the client roles always match the rules.
+`scripts/kc.nu` prints the document for the Keycloak partial import. It reads the roles from `rbac.toml`, so the client roles always match the rules.
 
 ```bash
-nu scripts/keycloak.nu client --host preview.data-proxy.dados.rio > console-client.json
+nu scripts/kc.nu client --host preview.data-proxy.dados.rio > console-client.json
 ```
 
 Then do these steps in the realm:
 
 1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `data-proxy-console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
 2. Open *Clients*, *data-proxy-console-web*, *Credentials*, and copy the client secret.
-3. Give each person one client role of `data-proxy-console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/keycloak.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
+3. Give each person one client role of `data-proxy-console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/kc.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
 4. If you rename an existing client, open its dedicated client scope. Set the *Client ID* of the mapper that makes the `role` claim to the new ID. The roles and the secret stay with the client.
 5. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
 
 ```bash
 nu scripts/token.nu --issuer <issuer> --client-id data-proxy-console-web --client-secret <secret> --username <user> --password <password>
-nu scripts/keycloak.nu check <access_token> --issuer <issuer>
+nu scripts/kc.nu check <access_token> --issuer <issuer>
 ```
 
 The `check` command fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of `rbac.toml`, a `schemas` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.

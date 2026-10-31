@@ -124,19 +124,20 @@ in
       "python"
     ];
     module =
-      { utils, ... }:
+      { data, utils, ... }:
       {
         imports = [
           ../nix/stack/kc.nix
           ../nix/stack/pg.nix
           ../nix/stack/pgrest.nix
           ../nix/stack/s3.nix
+          ../nix/stack/console-setup.nix
           ../nix/stack/console.nix
         ];
 
         env = {
-          CONSOLE_URL = utils.urls.console;
-          KEYCLOAK_URL = utils.urls.keycloak;
+          CONSOLE_URL = data.urls.console;
+          KEYCLOAK_URL = data.urls.kc;
           KEYCLOAK_USER_PASSWORD = "web-test";
           INTEGRATION_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
           PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers.override {

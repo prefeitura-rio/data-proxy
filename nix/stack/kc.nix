@@ -1,4 +1,9 @@
-{ pkgs, utils, ... }:
+{
+  pkgs,
+  data,
+  utils,
+  ...
+}:
 let
   container = "data-proxy-test-kc";
   containerfile = ../../Containerfile.kc;
@@ -10,7 +15,7 @@ let
         mkdir $env.out
         open ${../../k3d/values/keycloak.yaml}
         | get realm.configFile
-        | str replace --all 'http://data-proxy.local' '${utils.urls.console}'
+        | str replace --all 'http://data-proxy.local' '${data.urls.console}'
         | save $"($env.out)/dev-realm.json"
       ''}";
 in
@@ -44,15 +49,15 @@ in
           "--http-enabled=true"
           "--cache=local"
           "--import-realm"
-          "--http-port=${toString (utils.port "kc" "main")}"
-          "--hostname=${utils.urls.keycloak}"
+          "--http-port=${toString (data.port "kc" "main")}"
+          "--hostname=${data.urls.kc}"
         ];
       };
     }
     // {
       ports.main.allocate = 18180;
       ready = utils.probes.http {
-        port = utils.port "kc" "main";
+        port = data.port "kc" "main";
         path = "/realms/dev/.well-known/openid-configuration";
       };
     };

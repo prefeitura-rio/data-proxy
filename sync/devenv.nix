@@ -9,7 +9,12 @@
       key = "data-proxy-sync-unit";
       imports = [
         (
-          { config, utils, ... }:
+          {
+            config,
+            data,
+            utils,
+            ...
+          }:
           let
             serverPort = config.processes.pg.ports.main.value or 15432;
             storagePort = config.processes.s3.ports.main.value or 18333;
@@ -21,8 +26,8 @@
               TEST_POSTGRES_PORT = toString serverPort;
               TEST_POSTGRES_CONTAINER = "data-proxy-test-pg";
               TEST_S3_ENDPOINT = "127.0.0.1:${toString storagePort}";
-              TEST_S3_ACCESS_KEY = utils.credentials.storage.admin.accessKey;
-              TEST_S3_SECRET_KEY = utils.credentials.storage.admin.secretKey;
+              TEST_S3_ACCESS_KEY = data.credentials.storage.admin.accessKey;
+              TEST_S3_SECRET_KEY = data.credentials.storage.admin.secretKey;
             };
 
             files."sync/.env.test".text = ''
@@ -47,8 +52,8 @@
                   inherit serverPort;
                 }
               }
-              S3_ACCESS_KEY=${utils.credentials.storage.admin.accessKey}
-              S3_SECRET_KEY=${utils.credentials.storage.admin.secretKey}
+              S3_ACCESS_KEY=${data.credentials.storage.admin.accessKey}
+              S3_SECRET_KEY=${data.credentials.storage.admin.secretKey}
             '';
 
             packages = with pkgs; [ sqlfluff ];

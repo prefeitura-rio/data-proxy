@@ -10,7 +10,10 @@
       imports = [
         {
           key = "data-proxy-utils";
-          config._module.args.utils = import ../utils.nix { inherit lib pkgs config; };
+          config._module.args = {
+            data = import ../data.nix { inherit config; };
+            utils = import ../utils.nix { inherit lib pkgs config; };
+          };
         }
       ];
 

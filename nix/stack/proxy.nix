@@ -2,6 +2,7 @@
   pkgs,
   lib,
   config,
+  data,
   utils,
   ...
 }:
@@ -49,7 +50,7 @@ let
     };
   };
 
-  host = name: key: "127.0.0.1:${toString (utils.port name key)}";
+  host = name: key: "127.0.0.1:${toString (data.port name key)}";
 
   renderConf =
     name: instance:
@@ -59,13 +60,13 @@ let
         "__ROOT__" = config.devenv.root;
         "__LUALIB__" = "${pkgs.openresty}/lualib";
         "__SYNC_JSON__" = "${config.devenv.root}/proxy/tests/integration/fixtures/sync.json";
-        "__PROXY_PORT__" = toString (utils.port name "main");
-        "__POSTGREST_PORT__" = toString (utils.port name "postgrest");
+        "__PROXY_PORT__" = toString (data.port name "main");
+        "__POSTGREST_PORT__" = toString (data.port name "postgrest");
         "__REDIS_PORT__" = toString (
-          if instance.ports ? redis then utils.port name "redis" else utils.port "redis" "main"
+          if instance.ports ? redis then data.port name "redis" else data.port "redis" "main"
         );
         "__MAX_INFLIGHT__" = toString instance.maxInflight;
-        "__ADMIN_PORT__" = toString (utils.port name "admin");
+        "__ADMIN_PORT__" = toString (data.port name "admin");
         "__CONFIG_URL__" = lib.optionalString instance.console "http://${host name "postgrest"}/rpc/config";
       };
     in
@@ -100,7 +101,7 @@ let
       ]
       ++ lib.optional (instance ? startAfter) (utils.processTask instance.startAfter);
       ready = utils.probes.http {
-        port = utils.port name "main";
+        port = data.port name "main";
         path = "/health";
       };
     };

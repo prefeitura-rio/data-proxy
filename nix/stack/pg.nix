@@ -1,9 +1,14 @@
-{ pkgs, utils, ... }:
+{
+  pkgs,
+  data,
+  utils,
+  ...
+}:
 let
-  inherit (utils.credentials) postgres;
+  inherit (data.credentials) postgres;
   container = "data-proxy-test-pg";
   image = "localhost/${container}:dev";
-  port = toString (utils.port "pg" "main");
+  port = toString (data.port "pg" "main");
 in
 {
   env = {
