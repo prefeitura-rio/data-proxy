@@ -27,7 +27,7 @@ The jobs `checks`, `test-sync`, `test-console` and `test-proxy` start at the sam
 
 The sync and console jobs start the build of the PostgreSQL test image and the pull of the Keycloak image in the background (`.github/actions/prewarm-images`), before the Nix install. The devenv tasks then find the layers in the cache. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files. Every job that runs devenv keeps the Nix fetcher cache (`.github/actions/cache-nix`), keyed by `devenv.lock`, so it doesn't download the flake inputs again.
 
-The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git. They don't evaluate the whole `checks` profile.
+The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git, and no C compiler. They don't evaluate the whole `checks` profile.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 

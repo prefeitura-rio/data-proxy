@@ -3,7 +3,7 @@
   profiles.suites = {
     extends = [ "base" ];
     module =
-      { utils, ... }:
+      { pkgs, utils, ... }:
       let
         environment = [
           "devenv.nix"
@@ -27,6 +27,8 @@
         ];
       in
       {
+        stdenv = pkgs.stdenvNoCC;
+
         tasks = {
           "proxy:tests:int" = utils.serviceSuite {
             description = "Run the integration tests of the proxy against its test servers.";

@@ -4,11 +4,8 @@ let
   projects = "^console/(ui|notebooks)/";
 in
 {
-  profiles.console = {
-    extends = [
-      "base"
-      "python"
-    ];
+  profiles.ui = {
+    extends = [ "base" ];
     module =
       { lib, utils, ... }:
       let
@@ -54,37 +51,12 @@ in
           };
       in
       {
-        imports = [
-          ../nix/processes/keycloak.nix
-          ../nix/processes/postgres.nix
-          ../nix/processes/postgrest.nix
-          ../nix/processes/seaweedfs.nix
-          ../nix/processes/console.nix
-        ];
-
-        env = {
-          CONSOLE_URL = utils.urls.console;
-          KEYCLOAK_URL = utils.urls.keycloak;
-          KEYCLOAK_USER_PASSWORD = "web-test";
-          E2E_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
-          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-        };
-
         languages = {
           javascript = {
             enable = true;
             pnpm.enable = true;
           };
           typescript.enable = true;
-        };
-
-        scripts.migrate = {
-          description = "Run one goose command on the application database.";
-          package = pkgs.nushell;
-          binary = "nu";
-          exec = ../scripts/migrate.nu;
         };
 
         git-hooks.hooks = {
@@ -135,11 +107,15 @@ in
               consoleInputs;
         };
 
-        enterTest = ''
-          pnpm --dir console/ui exec bddgen
-          pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
-        '';
       };
+  };
+
+  profiles.console = {
+    extends = [
+      "ui"
+      "python"
+    ];
+    module.imports = [ ./e2e.nix ];
   };
 
   profiles.nb = {

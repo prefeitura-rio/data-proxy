@@ -12,6 +12,7 @@
         enable = true;
         package = pkgs.python314;
         uv.enable = true;
+        lsp.package = pkgs.pyrefly;
       };
     };
 }

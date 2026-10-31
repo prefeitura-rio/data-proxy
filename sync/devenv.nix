@@ -27,8 +27,6 @@
 
         packages = with pkgs; [ sqlfluff ];
 
-        languages.python.lsp.package = pkgs.pyrefly;
-
         scripts.seed = {
           description = "Seed synthetic BigQuery data for the sync service.";
           exec = ''

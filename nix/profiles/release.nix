@@ -1,8 +1,10 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   profiles.release = {
     extends = [ "chart" ];
     module = {
+      stdenv = lib.mkDefault pkgs.stdenvNoCC;
+
       packages = with pkgs; [ cocogitto ];
 
       scripts.ci = {

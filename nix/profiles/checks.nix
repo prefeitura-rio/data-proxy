@@ -12,7 +12,7 @@ in
   profiles.checks = {
     extends = [
       "sync"
-      "console"
+      "ui"
       "proxy"
       "release"
     ];
@@ -48,6 +48,8 @@ in
 
       in
       {
+        stdenv = pkgs.stdenv;
+
         env = {
           D2_LAYOUT = "elk";
           D2_DARK_THEME = "200";

@@ -5,6 +5,8 @@
     module =
       { utils, ... }:
       {
+        imports = [ ../../console/e2e.nix ];
+
         env.KUBECONFIG = "k3d/.kubeconfig";
 
         packages = [
