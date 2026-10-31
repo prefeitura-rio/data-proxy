@@ -21,7 +21,7 @@ pnpm build        # build the Node server in console/ui/build
 
 `pnpm lint` runs ESLint (the Svelte plugin and typescript-eslint) and `prettier --check`. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` in `console/ui/` once.
 
-The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. The `checks` profile includes `console:lint:ui` in `repo:lint`.
+The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. The `repo` profile includes `console:lint:ui` in `repo:lint`.
 
 Run the tests of the console with `devenv --profile console test`. It works like `devenv --profile sync test`: devenv starts the services, the setup runs, and the tests run against them.
 

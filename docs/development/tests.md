@@ -1,6 +1,6 @@
 # Tests
 
-A component has two tasks for its tests. `<component>:tests:unit` runs the tests that need no service, and `<component>:tests:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile checks tasks run sync:tests` runs `sync:test:unit`. The sync tests that the style guide calls unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:test:int`.
+A component has two tasks for its tests. `<component>:tests:unit` runs the tests that need no service, and `<component>:tests:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile repo tasks run sync:tests` runs `sync:test:unit`. The sync tests that the style guide calls unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:test:int`.
 
 | Component | `:unit` (no service) | `:int` (services) |
 | --- | --- | --- |
@@ -14,12 +14,12 @@ For a quick run with no service, run `devenv --profile default tasks run repo:te
 
 ## Run only what changed
 
-Each of the three `:int` tasks is in the `suites` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
+Each of the three `:int` tasks is in the `int` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
 
 ```bash
-devenv --profile suites tasks run proxy:test:int    # the proxy suite
-devenv --profile suites tasks run sync:test:int     # the sync suite
-devenv --profile suites tasks run console:test:int  # the console suite
+devenv --profile int tasks run proxy:test:int    # the proxy suite
+devenv --profile int tasks run sync:test:int     # the sync suite
+devenv --profile int tasks run console:test:int  # the console suite
 ```
 
 devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:test:unit` doesn't run the `:int` tasks, because they start services and live in another profile.

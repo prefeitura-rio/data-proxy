@@ -65,10 +65,10 @@ jobs:
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
         run: devenv --profile release shell -- ci changes
-  checks:
+  repo:
     defaults:
       run:
-        shell: devenv --profile checks shell -- bash -e {0}
+        shell: devenv --profile repo shell -- bash -e {0}
     name: Lint and unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -77,29 +77,29 @@ jobs:
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - uses: ./.github/actions/cache-packages
-      - name: Restore checks virtual environment
-        id: checks-venv-cache
+      - name: Restore the repo virtual environment
+        id: repo-venv-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: sync/.venv
-          key: checks-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
+          key: repo-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
       - name: Restore the task state
         uses: ./.github/actions/task-state-restore
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
-          group: checks
-      - run: devenv --profile checks tasks run repo:lint repo:test:unit
-      - name: Save checks virtual environment
-        if: steps.checks-venv-cache.outputs.cache-hit != 'true'
+          group: repo
+      - run: devenv --profile repo tasks run repo:lint repo:test:unit
+      - name: Save the repo virtual environment
+        if: steps.repo-venv-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: sync/.venv
-          key: ${{ steps.checks-venv-cache.outputs.cache-primary-key }}
+          key: ${{ steps.repo-venv-cache.outputs.cache-primary-key }}
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
-          group: checks
+          group: repo
   test-sync:
     name: Sync integration tests
     runs-on: ubuntu-latest
@@ -115,14 +115,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: sync
-          profile: suites
-      - run: devenv --profile suites tasks run sync:test:int
+          profile: int
+      - run: devenv --profile int tasks run sync:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: sync
-          profile: suites
+          profile: int
   test-console:
     name: Console integration tests
     runs-on: ubuntu-latest
@@ -142,14 +142,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: console
-          profile: suites
-      - run: devenv --profile suites tasks run console:test:int
+          profile: int
+      - run: devenv --profile int tasks run console:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: console
-          profile: suites
+          profile: int
       - name: Save the container images
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/save-images
@@ -168,14 +168,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: proxy
-          profile: suites
-      - run: devenv --profile suites tasks run proxy:test:int
+          profile: int
+      - run: devenv --profile int tasks run proxy:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: proxy
-          profile: suites
+          profile: int
   profile-sizes:
     name: Profile sizes
     runs-on: ubuntu-latest
@@ -188,15 +188,15 @@ jobs:
         uses: ./.github/actions/task-state-restore
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
-          group: sizes
-          profile: sizes
-      - run: devenv --profile sizes tasks run nix:lint:closure
+          group: nix
+          profile: nix
+      - run: devenv --profile nix tasks run nix:lint:closure
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
-          group: sizes
-          profile: sizes
+          group: nix
+          profile: nix
   build-images:
     name: Build ${{ matrix.name }} image
     needs: changes
@@ -222,14 +222,14 @@ jobs:
     needs:
       - changes
       - build-images
-      - checks
+      - repo
       - test-sync
       - test-proxy
       - test-console
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
-    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.build-images.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && needs.repo.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.build-images.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -282,13 +282,13 @@ jobs:
     timeout-minutes: 15
     needs:
       - changes
-      - checks
+      - repo
       - test-sync
       - test-proxy
       - test-console
       - build-images
       - push-images
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped') && (needs.push-images.result == 'success' || needs.push-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.repo.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped') && (needs.push-images.result == 'success' || needs.push-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

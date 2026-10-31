@@ -6,7 +6,7 @@ inputs:
     required: true
   profile:
     description: The devenv profile that runs the tasks.
-    default: checks
+    default: repo
 runs:
   using: composite
   steps:

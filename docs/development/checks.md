@@ -12,24 +12,24 @@ devenv --profile default tasks run repo:lint repo:test:unit
 
 E2E tests run against the local cluster or staging environment, not in CI.
 
-`repo:lint` runs every task in the table that the active profile has. CI uses the `checks` profile, so it doesn't run `docs:lint:diag`. Run one task with `devenv --profile <profile> tasks run <task>`.
+`repo:lint` runs every task in the table that the active profile has. CI uses the `repo` profile, so it doesn't run `docs:lint:diag`. Run one task with `devenv --profile <profile> tasks run <task>`.
 
 | Task | Profile | What it checks |
 | --- | --- | --- |
 | `sync:lint:py` | `sync-unit` | Python with `ruff`, `pyrefly`, `complexipy` and `vulture`. |
 | `sync:lint:sql` | `sync-unit` | The SQL templates and the console migrations, with `sqlfluff` and `goose validate`. |
 | `proxy:lint:lua` | `proxy-unit` | The Lua code, with StyLua, luacheck and the LuaLS type check. |
-| `console:lint:ui`, `nb:lint:ts` | `ui` | The console app and the notebooks, with `svelte-check`, ESLint and Prettier. |
+| `console:lint:ui`, `nb:lint:ts` | `console-unit` | The console app and the notebooks, with `svelte-check`, ESLint and Prettier. |
 | `chart:lint:helm` | `chart` | The Helm chart, with `helm lint --strict`. |
-| `ci:lint:wf` | `checks` | The GitHub workflows, with `actionlint`. |
-| `nu:lint:scripts` | `checks` | The Nushell scripts, with `nu-lint`. |
-| `chart:lint:toml` | `checks` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
-| `ctr:lint:files` | `checks` | The container files, with `hadolint`. |
-| `nix:lint:closure` | `sizes` | That the closure of each devenv profile isn't larger than its limit in `nix/profiles/sizes.nix`. It fails with the five largest paths of a profile over its limit. |
+| `ci:lint:wf` | `repo` | The GitHub workflows, with `actionlint`. |
+| `nu:lint:scripts` | `repo` | The Nushell scripts, with `nu-lint`. |
+| `chart:lint:toml` | `repo` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
+| `ctr:lint:files` | `repo` | The container files, with `hadolint`. |
+| `nix:lint:closure` | `nix` | That the closure of each devenv profile isn't larger than its limit in `nix/profiles/nix.nix`. It fails with the five largest paths of a profile over its limit. |
 | `docs:lint:diag` | `docs` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
-| `docs:lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
+| `docs:lint:links` | `repo` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 
-`docs:build:diag` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `docs` profile, which adds `d2` and `mkdocs` to `checks`. In that profile `devenv tasks run docs:build` runs it with `docs:build:nav` and `docs:build:roles`, because devenv runs every task under a prefix.
+`docs:build:diag` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `docs` profile, which adds `d2` and `mkdocs` to `repo`. In that profile `devenv tasks run docs:build` runs it with `docs:build:nav` and `docs:build:roles`, because devenv runs every task under a prefix.
 
 `docs:serve:site` (profile `docs`) runs the `docs:build` tasks, which render the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
 
@@ -58,7 +58,7 @@ The Helm suite tests pure helpers from `helm/files/scripts/lib.nu` without Kuber
 PostgreSQL, rclone, or network access:
 
 ```bash
-devenv --profile checks tasks run nu:test:unit
+devenv --profile repo tasks run nu:test:unit
 ```
 
 The task also runs the tests of `scripts/tests/lib.nu`, which cover the pure helpers of the local scripts.

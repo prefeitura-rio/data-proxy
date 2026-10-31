@@ -2,22 +2,22 @@ _:
 let
   limitsMb = {
     base = 750;
-    suites = 400;
+    int = 400;
     release = 1000;
-    ui = 900;
+    console-unit = 900;
     proxy-unit = 1000;
     proxy = 1200;
     sync-unit = 900;
     sync = 1200;
     console = 2600;
     nb = 2600;
-    checks = 2300;
+    repo = 2300;
     docs = 4300;
     default = 6500;
   };
 in
 {
-  profiles.sizes = {
+  profiles.nix = {
     extends = [ "base" ];
     module =
       { utils, ... }:

@@ -4,10 +4,10 @@ let
   projects = "^console/(ui|notebooks)/";
 in
 {
-  profiles.ui = {
+  profiles.console-unit = {
     extends = [ "base" ];
     module = {
-      key = "data-proxy-ui";
+      key = "data-proxy-console-unit";
       imports = [
         (
           { lib, utils, ... }:
@@ -120,7 +120,7 @@ in
 
   profiles.console = {
     extends = [
-      "ui"
+      "console-unit"
       "python"
     ];
     module =

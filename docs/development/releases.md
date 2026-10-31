@@ -39,7 +39,7 @@ The first release lists every `feat` and `fix` since `helm-v1.127.0`. The mainta
 
 ## Run it locally
 
-Run `cog bump --auto --dry-run` in the `checks` shell to print the next tag without a change. `ci version` prints the same result as outputs. `cog check --from-latest-tag` checks that the commit subjects follow Conventional Commits.
+Run `cog bump --auto --dry-run` in the `repo` shell to print the next tag without a change. `ci version` prints the same result as outputs. `cog check --from-latest-tag` checks that the commit subjects follow Conventional Commits.
 
 ## Use another forge
 

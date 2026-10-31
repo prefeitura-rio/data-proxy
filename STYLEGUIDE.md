@@ -243,7 +243,7 @@ Nushell scripts run the Helm jobs and the local commands.
 - Write an expression that three places repeat as a helper (`app-schema`, `role-literals`), and keep one table for a list that several commands read (`IMAGES` in `scripts/lib.nu`).
 - `default $env.NAME` reads the variable even when the value isn't null, and it fails when the variable isn't set. Use `default {|| $env.NAME }` for a variable that a caller may not need.
 - Use one command for one kind of quote (`quote-identifier`, `quote-literal`). Don't pass the kind as a string.
-- `devenv --profile checks tasks run nu:lint:scripts` runs `nu-lint`, and it fails when `nu-lint` reports a finding, because `nu-lint` exits with 0 in that case. Each rule that `.nu-lint.toml` turns off has a comment with the reason.
+- `devenv --profile repo tasks run nu:lint:scripts` runs `nu-lint`, and it fails when `nu-lint` reports a finding, because `nu-lint` exits with 0 in that case. Each rule that `.nu-lint.toml` turns off has a comment with the reason.
 
 ### Logs
 
@@ -254,7 +254,7 @@ Nushell scripts run the Helm jobs and the local commands.
 Run the Nushell tests after a script change. `run.nu` finds every `test ...` command of the test files, so a new test needs no registration:
 
 ```bash
-devenv --profile checks tasks run nu:test:unit
+devenv --profile repo tasks run nu:test:unit
 ```
 
 ```nu
@@ -289,8 +289,8 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
 - Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:test:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:test` runs the `sync:test` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. A task that groups other tasks has two parts and uses the component `repo`: `repo:lint` runs every lint task and `repo:test:unit` runs every unit task, and `devenv tasks run repo` runs both. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
-- Keep each devenv profile under its limit in `nix/profiles/sizes.nix`. Run `devenv --profile sizes tasks run nix:lint:closure` after you add a package to a profile, a task or a process.
-- Define the `<component>:tests:int` tasks in `nix/profiles/suites.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
+- Keep each devenv profile under its limit in `nix/profiles/nix.nix`. Run `devenv --profile nix tasks run nix:lint:closure` after you add a package to a profile, a task or a process.
+- Define the `<component>:tests:int` tasks in `nix/profiles/int.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
 - Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, and give it the input files with `utils.mkInputs`. List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder.
 - Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. Give a task that reads a generated file `after = [ "devenv:files" ]`.
 
@@ -388,7 +388,7 @@ Add a permission in these steps:
 
 1. Add it under `[permissions.<object>]` in `helm/files/config/rbac.toml`, and give it to a role.
 2. Call `rbac.can('<name>')` in the SQL that needs it.
-3. Run `devenv --profile checks tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
+3. Run `devenv --profile repo tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
 4. Add a role test in `sync/tests/unit/test_templates.py`.
 5. Update the permission tables in `docs/security/permissions.md`.
 
@@ -474,7 +474,7 @@ devenv --profile console tasks run console:lint:ui
 - Use generic examples unless a real value is required.
 - Say "the source" for the product, and name BigQuery only on a page about the BigQuery adapter or for a value that's specific to it.
 - Verify claims against source, Helm templates, tests, or a command you ran.
-- Vale runs only in the `vale` git hook. It checks the staged `*.md`, `*.py` and `*.nu` files when you commit. Run `vale <file>` in the `checks` shell to check a file earlier.
+- Vale runs only in the `vale` git hook. It checks the staged `*.md`, `*.py` and `*.nu` files when you commit. Run `vale <file>` in the `repo` shell to check a file earlier.
 - Use contractions in Markdown. The Python and Nushell checks turn that rule off, because messages keep their full forms.
 - Vale flags the acronym for a web address (write address), some adverbs, and acronyms in headings. Rephrase the sentence instead of ignoring the message.
 - `DataProxy.Terms` fixes the casing of product names: PostgreSQL, PostgREST, SeaweedFS, DuckDB, BigQuery. Add a word to `.vale/styles/config/vocabularies/data-proxy/accept.txt` at the end of the file only.

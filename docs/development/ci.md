@@ -15,20 +15,20 @@ The `concurrency` group is one for each branch, and a new run waits for the run 
 | Job | Needs | Work |
 | --- | --- | --- |
 | `changes` | none | Runs `ci changes`. It compares the commit with the previous one. It writes which images need a build and whether the chart needs a release. |
-| `checks` | none | Runs `repo:lint` and `repo:test:unit` of the `checks` profile: every lint task and every `:unit` test task. It caches the virtual environment. |
-| `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `sync:test:int`, `console:test:int` and `proxy:test:int` of the `suites` profile. Each task runs the integration tests of its component, and runs only if one of its input files changed. |
-| `profile-sizes` | none | Runs `nix:lint:closure` of the `sizes` profile. It builds every profile and fails when one closure is larger than its limit. It runs only if a Nix input changed. No other job waits for it. |
+| `repo` | none | Runs `repo:lint` and `repo:test:unit` of the `repo` profile: every lint task and every `:unit` test task. It caches the virtual environment. |
+| `test-sync`, `test-console`, `test-proxy` | none | Run the tasks `sync:test:int`, `console:test:int` and `proxy:test:int` of the `int` profile. Each task runs the integration tests of its component, and runs only if one of its input files changed. |
+| `profile-sizes` | none | Runs `nix:lint:closure` of the `nix` profile. It builds every profile and fails when one closure is larger than its limit. It runs only if a Nix input changed. No other job waits for it. |
 | `build-images` | `changes` | Builds one image for each changed component and pushes nothing. It starts with the tests and fills the layer cache. It runs only on `main`. |
 | `push-images` | `build-images` and all test jobs | Builds each image again from the cache, pushes it, and signs it. It runs only on `main`, and only after the tests pass, so no image of an untested commit reaches the registry. |
 | `helm` | all earlier jobs, `push-images` included | Releases the chart. It runs only on `main`, when the chart or an image changed. |
 
 Each job restores the task state before it runs. The `task-state-restore` action reads the state that the last green run of `main` saved, and `task-state-save` writes it. Only a run on `main` saves the state. [Tests](tests.md#run-only-what-changed) explains how a task decides to run.
 
-The jobs `checks`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
+The jobs `repo`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
 
 The sync and console jobs start the build of the PostgreSQL test image in the background (`.github/actions/prewarm-images`), before the Nix install. The console job also restores the test Keycloak image from the cache (a 399 MB archive, keyed by `Containerfile.kc`), or builds it. A run on `main` that found no copy saves it (`.github/actions/save-images`). The Containerfile runs the server build once, so Keycloak starts in 20 s and not in 33 s on a runner with two cores. The devenv tasks then find the images. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files. Every job that runs devenv keeps the Nix fetcher cache (`.github/actions/cache-nix`), keyed by `devenv.lock`, so it doesn't download the flake inputs again. A cache of the whole Nix store (`nix-community/cache-nix-action`) made the console job slower, because the restore of 1.4 GB took 31 s and saved 12 s in the test step, so the jobs don't use it. The first devenv step of a job takes 25 to 33 s, because the shell is cold. Running the steps that need no tool outside devenv only moves that cost to the next step, so the `helm` job doesn't do it.
 
-The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git, and no C compiler. They don't evaluate the whole `checks` profile.
+The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git, and no C compiler. They don't evaluate the whole `repo` profile.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 

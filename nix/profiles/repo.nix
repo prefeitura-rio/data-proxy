@@ -9,10 +9,10 @@ let
   );
 in
 {
-  profiles.checks = {
+  profiles.repo = {
     extends = [
       "sync-unit"
-      "ui"
+      "console-unit"
       "proxy-unit"
       "release"
     ];

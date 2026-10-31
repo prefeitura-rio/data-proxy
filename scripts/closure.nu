@@ -83,6 +83,6 @@ def main []: nothing -> nothing {
     }
 
     if ($over | is-not-empty) {
-        fail $'These profiles are larger than their limit: ($over | get profile | str join ", "). Remove the package that grew them, or raise the limit in nix/profiles/sizes.nix.'
+        fail $'These profiles are larger than their limit: ($over | get profile | str join ", "). Remove the package that grew them, or raise the limit in nix/profiles/nix.nix.'
     }
 }

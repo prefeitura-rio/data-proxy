@@ -1,7 +1,7 @@
 { lib, pkgs, ... }:
 {
   profiles.docs = {
-    extends = [ "checks" ];
+    extends = [ "repo" ];
     module =
       { config, utils, ... }:
       {

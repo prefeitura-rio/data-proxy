@@ -1,6 +1,6 @@
 { ... }:
 {
-  profiles.suites = {
+  profiles.int = {
     extends = [ "base" ];
     module =
       { pkgs, utils, ... }:
