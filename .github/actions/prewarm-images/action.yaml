@@ -22,12 +22,12 @@ runs:
         KEYCLOAK: ${{ inputs.keycloak }}
         CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
-        setsid nohup podman build --file Containerfile.pg --tag localhost/data-proxy-test-postgres:dev "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-postgres.log" 2>&1 &
+        setsid nohup podman build --file Containerfile.pg --tag localhost/data-proxy-test-pg:dev "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-postgres.log" 2>&1 &
         if [ "$KEYCLOAK" = "true" ]; then
           if [ "$CACHE_HIT" = "true" ]; then
             setsid nohup podman load --input ~/.cache/data-proxy/keycloak-image.tar > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
           else
             tag=$(sha256sum Containerfile.kc | cut -c1-12)
-            setsid nohup podman build --file Containerfile.kc --tag "localhost/data-proxy-test-keycloak:$tag" "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+            setsid nohup podman build --file Containerfile.kc --tag "localhost/data-proxy-test-kc:$tag" "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
           fi
         fi

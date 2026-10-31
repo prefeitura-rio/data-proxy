@@ -62,7 +62,7 @@ let
       database,
       user ? credentials.postgres.user,
       password ? credentials.postgres.password,
-      serverPort ? port "postgres" "main",
+      serverPort ? port "pg" "main",
     }:
     "postgresql://${user}:${password}@127.0.0.1:${toString serverPort}/${database}";
 

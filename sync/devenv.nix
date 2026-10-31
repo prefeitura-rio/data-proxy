@@ -11,15 +11,15 @@
         (
           { config, utils, ... }:
           let
-            serverPort = config.processes.postgres.ports.main.value or 15432;
-            storagePort = config.processes.seaweedfs.ports.main.value or 18333;
+            serverPort = config.processes.pg.ports.main.value or 15432;
+            storagePort = config.processes.s3.ports.main.value or 18333;
           in
           {
             stdenv = lib.mkDefault pkgs.stdenvNoCC;
 
             env = lib.mapAttrs (_: lib.mkDefault) {
               TEST_POSTGRES_PORT = toString serverPort;
-              TEST_POSTGRES_CONTAINER = "data-proxy-test-postgres";
+              TEST_POSTGRES_CONTAINER = "data-proxy-test-pg";
               TEST_S3_ENDPOINT = "127.0.0.1:${toString storagePort}";
               TEST_S3_ACCESS_KEY = utils.credentials.storage.admin.accessKey;
               TEST_S3_SECRET_KEY = utils.credentials.storage.admin.secretKey;
@@ -127,9 +127,9 @@
     extends = [ "sync-unit" ];
     module = {
       imports = [
-        ../nix/processes/sync.nix
-        ../nix/processes/postgres.nix
-        ../nix/processes/seaweedfs.nix
+        ../nix/stack/sync.nix
+        ../nix/stack/pg.nix
+        ../nix/stack/s3.nix
       ];
 
       scripts.seed = {

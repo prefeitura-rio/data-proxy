@@ -127,11 +127,11 @@ in
       { utils, ... }:
       {
         imports = [
-          ../nix/processes/keycloak.nix
-          ../nix/processes/postgres.nix
-          ../nix/processes/postgrest.nix
-          ../nix/processes/seaweedfs.nix
-          ../nix/processes/console.nix
+          ../nix/stack/kc.nix
+          ../nix/stack/pg.nix
+          ../nix/stack/pgrest.nix
+          ../nix/stack/s3.nix
+          ../nix/stack/console.nix
         ];
 
         env = {
@@ -163,6 +163,6 @@ in
 
   profiles.nb = {
     extends = [ "console" ];
-    module.imports = [ ../nix/processes/nb.nix ];
+    module.imports = [ ../nix/stack/nb.nix ];
   };
 }

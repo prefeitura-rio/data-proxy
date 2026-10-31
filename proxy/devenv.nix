@@ -103,8 +103,8 @@
     extends = [ "proxy-unit" ];
     module = {
       imports = [
-        ../nix/processes/proxy.nix
-        ../nix/services/redis.nix
+        ../nix/stack/proxy.nix
+        ../nix/stack/redis.nix
       ];
 
       enterTest = "${lib.getExe pkgs.hurl} --test --max-time 30 proxy/tests/integration/*.hurl";

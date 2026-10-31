@@ -12,7 +12,7 @@ runs:
       run: |
         tag=$(sha256sum Containerfile.kc | cut -c1-12)
         mkdir -p ~/.cache/data-proxy
-        podman save --format oci-archive --output ~/.cache/data-proxy/keycloak-image.tar "localhost/data-proxy-test-keycloak:$tag"
+        podman save --format oci-archive --output ~/.cache/data-proxy/keycloak-image.tar "localhost/data-proxy-test-kc:$tag"
     - if: ${{ inputs.keycloak-cache-hit != 'true' }}
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:

@@ -25,18 +25,18 @@ The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. Th
 
 Run the tests of the console with `devenv --profile console test`. It works like `devenv --profile sync test`: devenv starts the services, the setup runs, and the tests run against them.
 
-The profile in `console/devenv.nix` imports one module for each part of the setup. A module is a `.nix` file. Every part that runs as a process is in `nix/processes/`: the database, the object store, the identity provider, PostgREST, and the console. `nix/services/` contains the parts that devenv ships as a service module, which is only Redis today. `nix/utils.nix` contains the helpers that the modules share, and `nix/data.nix` contains the addresses and the test credentials:
+The profile in `console/devenv.nix` imports one module for each part of the setup. A module is a `.nix` file. Every part that runs as a process is in `nix/stack/`: the database, the object store, the identity provider, PostgREST, and the console. `nix/services/` contains the parts that devenv ships as a service module, which is only Redis today. `nix/utils.nix` contains the helpers that the modules share, and `nix/data.nix` contains the addresses and the test credentials:
 
 | Process | Role |
 |---|---|
-| `processes/postgres` | the `pg_duckdb` image in Podman, as in the sync tests (the task `pg:build:image` builds it, the process `postgres` runs it) |
-| `processes/seaweedfs` | the object store, with its IAM API and a read-only reader key |
-| `processes/keycloak` | the official Keycloak image in Podman, with the realm `dev` of `k3d/values/keycloak.yaml` and the redirect addresses of the local console |
-| `processes/postgrest` | PostgREST, with the keys that the task `pgrest:fetch:jwks` downloads from the local Keycloak |
-| `processes/console` (setup) | the tasks `console:setup:*`. Each task runs one step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, and `provision.nu` (the scripts of the chart Jobs). The last task runs `sync/tests/seeds/console.py`. It fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
-| `processes/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
-| `processes/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control,schedules`, so the browser tests run cancel, resume, the schedule actions and the schedule reconcile without a sync run |
-| `processes/nb` (profile `nb`) | the task `nb:build:site` builds the site and `notebooks` serves it on its own origin. The `console` profile doesn't start it, because no browser test opens the site |
+| `stack/pg` | the `pg_duckdb` image in Podman, as in the sync tests (the task `pg:build:image` builds it, the process `pg` runs it) |
+| `stack/s3` | the object store, with its IAM API and a read-only reader key |
+| `stack/kc` | the test Keycloak image in Podman (the task `kc:build:image` builds it from `Containerfile.kc`), with the realm `dev` of `k3d/values/keycloak.yaml` and the redirect addresses of the local console |
+| `stack/pgrest` | PostgREST, with the keys that the task `pgrest:fetch:jwks` downloads from the local Keycloak |
+| `stack/console` (setup) | the tasks `console:setup:*`. Each task runs one step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, and `provision.nu` (the scripts of the chart Jobs). The last task runs `sync/tests/seeds/console.py`. It fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
+| `stack/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
+| `stack/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control,schedules`, so the browser tests run cancel, resume, the schedule actions and the schedule reconcile without a sync run |
+| `stack/nb` (profile `nb`) | the task `nb:build:site` builds the site and `nb` serves it on its own origin. The `console` profile doesn't start it, because no browser test opens the site |
 
 `enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/`. The notebooks have no tests.
 

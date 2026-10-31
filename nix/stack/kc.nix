@@ -1,6 +1,6 @@
 { pkgs, utils, ... }:
 let
-  container = "data-proxy-test-keycloak";
+  container = "data-proxy-test-kc";
   containerfile = ../../Containerfile.kc;
   version = builtins.substring 0 12 (builtins.hashFile "sha256" containerfile);
   image = "localhost/${container}:${version}";
@@ -22,10 +22,10 @@ in
           podman build --file ${containerfile} --tag ${image} ${pkgs.emptyDirectory}
       }
     '';
-    before = [ (utils.processTask "keycloak") ];
+    before = [ (utils.processTask "kc") ];
   };
 
-  processes.keycloak =
+  processes.kc =
     utils.mkProcess {
       command = utils.podmanRun {
         name = container;
@@ -44,7 +44,7 @@ in
           "--http-enabled=true"
           "--cache=local"
           "--import-realm"
-          "--http-port=${toString (utils.port "keycloak" "main")}"
+          "--http-port=${toString (utils.port "kc" "main")}"
           "--hostname=${utils.urls.keycloak}"
         ];
       };
@@ -52,7 +52,7 @@ in
     // {
       ports.main.allocate = 18180;
       ready = utils.probes.http {
-        port = utils.port "keycloak" "main";
+        port = utils.port "kc" "main";
         path = "/realms/dev/.well-known/openid-configuration";
       };
     };

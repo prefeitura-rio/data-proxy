@@ -10,7 +10,7 @@
     }
     // {
       description = "Create the databases of the sync tests.";
-      after = [ (utils.processTask "postgres") ];
-      wantedBy = [ (utils.processTask "postgres") ];
+      after = [ (utils.processTask "pg") ];
+      wantedBy = [ (utils.processTask "pg") ];
     };
 }

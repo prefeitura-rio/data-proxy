@@ -1,8 +1,8 @@
 { pkgs, utils, ... }:
 let
   inherit (utils.credentials) storage;
-  dataDir = utils.stateFile "seaweedfs";
-  port = toString (utils.port "seaweedfs" "main");
+  dataDir = utils.stateFile "s3";
+  port = toString (utils.port "s3" "main");
 in
 {
   env = {
@@ -35,10 +35,10 @@ in
   tasks."s3:clean:data" = utils.nuTask {
     description = "Empty the data folder of the object store.";
     exec = "rm --recursive --force ${dataDir}; mkdir ${dataDir}";
-    before = [ (utils.processTask "seaweedfs") ];
+    before = [ (utils.processTask "s3") ];
   };
 
-  processes.seaweedfs =
+  processes.s3 =
     utils.mkProcess {
       packages = with pkgs; [ seaweedfs ];
       command = [
@@ -46,11 +46,11 @@ in
         "server"
         "-ip=127.0.0.1"
         "-dir=${dataDir}"
-        "-master.port=${toString (utils.port "seaweedfs" "master")}"
-        "-volume.port=${toString (utils.port "seaweedfs" "volume")}"
+        "-master.port=${toString (utils.port "s3" "master")}"
+        "-volume.port=${toString (utils.port "s3" "volume")}"
         "-volume.max=8"
         "-filer"
-        "-filer.port=${toString (utils.port "seaweedfs" "filer")}"
+        "-filer.port=${toString (utils.port "s3" "filer")}"
         "-s3"
         "-s3.port=${port}"
         "-s3.config=${utils.stateFile "seaweedfs-identities.json"}"

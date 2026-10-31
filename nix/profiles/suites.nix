@@ -15,7 +15,7 @@
         ];
 
         postgresServer = [
-          "nix/processes/postgres.nix"
+          "nix/stack/pg.nix"
           "Containerfile.pg"
         ];
 
@@ -39,8 +39,8 @@
               "proxy/lux.lock"
               "proxy/src/**/*.lua"
               "scripts/lux.nu"
-              "nix/processes/proxy.nix"
-              "nix/services/redis.nix"
+              "nix/stack/proxy.nix"
+              "nix/stack/redis.nix"
             ]
             ++ utils.mkGlobs "proxy/tests/integration" [
               "hurl"
@@ -59,8 +59,8 @@
               "sync/tests/**/*.feature"
               "console/migrations/*.sql"
               "scripts/db.nu"
-              "nix/processes/sync.nix"
-              "nix/processes/seaweedfs.nix"
+              "nix/stack/sync.nix"
+              "nix/stack/s3.nix"
             ]
             ++ utils.mkGlobs "sync/config" [
               "toml"
@@ -98,11 +98,11 @@
               "k3d/values/*.yaml"
               "scripts/db.nu"
               "scripts/migrate.nu"
-              "nix/processes/console.nix"
-              "nix/processes/keycloak.nix"
+              "nix/stack/console.nix"
+              "nix/stack/kc.nix"
               "Containerfile.kc"
-              "nix/processes/postgrest.nix"
-              "nix/processes/seaweedfs.nix"
+              "nix/stack/pgrest.nix"
+              "nix/stack/s3.nix"
             ]
             ++ utils.mkGlobs "console/ui/src" [
               "ts"

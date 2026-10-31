@@ -267,7 +267,7 @@ for schema in $schemas {
 
 ## Nix
 
-Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/processes/` contains one component for each file, with its processes and tasks, and `nix/utils.nix` contains the helpers.
+Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/stack/` contains one component for each file, with its processes and tasks, and `nix/utils.nix` contains the helpers.
 
 ### Code
 

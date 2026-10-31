@@ -10,7 +10,7 @@ let
   inherit (utils) urls;
   appPort = utils.port "console" "main";
   gatewayPort = utils.port "gateway" "main";
-  postgresPort = utils.port "postgres" "main";
+  postgresPort = utils.port "pg" "main";
   appDatabase = "data_proxy";
   catalogDatabase = "ducklake";
   s3Bucket = "test-bucket";
@@ -49,7 +49,7 @@ let
     S3_BOOTSTRAP_TIMEOUT = "2min";
     S3_BUCKET = s3Bucket;
     S3_CORS_ORIGINS = urls.notebooks;
-    S3_ENDPOINT = "127.0.0.1:${toString (utils.port "seaweedfs" "main")}";
+    S3_ENDPOINT = "127.0.0.1:${toString (utils.port "s3" "main")}";
     S3_SECRET_KEY = storage.admin.secretKey;
     S3_USE_SSL = "false";
     SERVING_PASSWORD = postgres.passwords.serving;
@@ -66,12 +66,12 @@ let
     name = "console:setup";
     common.cwd = config.devenv.root;
     after = [
-      (utils.processTask "postgres")
-      (utils.processTask "seaweedfs")
+      (utils.processTask "pg")
+      (utils.processTask "s3")
     ];
     before = [
       (utils.processTask "console")
-      (utils.processTask "postgrest")
+      (utils.processTask "pgrest")
     ];
     env = setupEnv;
     steps = [
@@ -277,10 +277,10 @@ in
         cwd = "${config.devenv.root}/console/ui";
         ports.main.allocate = 13004;
         after = map utils.processTask [
-          "postgres"
-          "seaweedfs"
-          "keycloak"
-          "postgrest"
+          "pg"
+          "s3"
+          "kc"
+          "pgrest"
         ];
         ready = utils.probes.http {
           port = appPort;

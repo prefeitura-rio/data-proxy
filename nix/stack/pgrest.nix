@@ -19,11 +19,11 @@ in
     }
     // {
       description = "Download the signing keys of the test Keycloak.";
-      after = [ (utils.processTask "keycloak") ];
-      before = [ (utils.processTask "postgrest") ];
+      after = [ (utils.processTask "kc") ];
+      before = [ (utils.processTask "pgrest") ];
     };
 
-  processes.postgrest =
+  processes.pgrest =
     utils.mkProcess {
       packages = with pkgs; [ postgrest ];
       command = [ "postgrest" ];
@@ -33,7 +33,7 @@ in
           user = postgres.roles.serving;
           password = postgres.passwords.serving;
         };
-        PGRST_SERVER_PORT = utils.port "postgrest" "main";
+        PGRST_SERVER_PORT = utils.port "pgrest" "main";
         PGRST_DB_SCHEMAS = "console";
         PGRST_DB_ANON_ROLE = postgres.roles.anon;
         PGRST_JWT_ROLE_CLAIM_KEY = ".role";
@@ -48,6 +48,6 @@ in
     }
     // {
       ports.main.allocate = 13000;
-      ready = utils.probes.http { port = utils.port "postgrest" "main"; };
+      ready = utils.probes.http { port = utils.port "pgrest" "main"; };
     };
 }

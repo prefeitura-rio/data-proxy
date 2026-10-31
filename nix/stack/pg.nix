@@ -1,9 +1,9 @@
 { pkgs, utils, ... }:
 let
   inherit (utils.credentials) postgres;
-  container = "data-proxy-test-postgres";
+  container = "data-proxy-test-pg";
   image = "localhost/${container}:dev";
-  port = toString (utils.port "postgres" "main");
+  port = toString (utils.port "pg" "main");
 in
 {
   env = {
@@ -25,11 +25,11 @@ in
     }
     // {
       description = "Build the PostgreSQL test image.";
-      before = [ (utils.processTask "postgres") ];
+      before = [ (utils.processTask "pg") ];
       execIfModified = utils.mkInputs [ "Containerfile.pg" ];
     };
 
-  processes.postgres =
+  processes.pg =
     utils.mkProcess {
       command = utils.podmanRun {
         name = container;

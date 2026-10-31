@@ -34,7 +34,7 @@ To force a run, change an input, delete `.devenv/profiles/checks/state/tasks.db`
 
 The `sync` profile starts these processes:
 
-- PostgreSQL, built from `Containerfile.pg` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-postgres:dev`.
+- PostgreSQL, built from `Containerfile.pg` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-pg:dev`.
 - SeaweedFS for S3.
 
 The `sync` suite tests the sync code and the SQL templates. It runs with `pytest-xdist` on up to four workers. Each worker clones its own database from `test_template`, because the templates install functions that all workers would share. A session setup that every worker runs, such as the DBOS migration, takes a file lock (`one_worker_at_a_time` in `sync/tests/helpers.py`). Write a new test so that it uses only its own schema, and it runs on any worker.
@@ -95,7 +95,7 @@ On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. 
 
 PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run s3:clean:data`. The task deletes the SeaweedFS data folder and creates it again.
 
-To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/processes/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
+To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/stack/pg.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
 
 ## Coverage
 
