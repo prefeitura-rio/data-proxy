@@ -129,7 +129,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/prewarm-images
+      - id: prewarm
+        uses: ./.github/actions/prewarm-images
         with:
           keycloak: true
       - uses: ./.github/actions/cache-nix
@@ -149,6 +150,11 @@ jobs:
         with:
           group: console
           profile: suites
+      - name: Save the container images
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/save-images
+        with:
+          keycloak-cache-hit: ${{ steps.prewarm.outputs.keycloak-cache-hit }}
   test-proxy:
     name: Proxy integration tests
     runs-on: ubuntu-latest

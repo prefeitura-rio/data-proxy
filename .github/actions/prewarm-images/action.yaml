@@ -1,18 +1,33 @@
 name: Prewarm the container images
-description: Build the test PostgreSQL image and pull the Keycloak image in the background, while devenv evaluates the profile. The devenv tasks then find the layers in the cache.
+description: Build the test PostgreSQL image in the background, while devenv evaluates the profile. With the keycloak input, restore the test Keycloak image from the cache, or build it. The devenv tasks then find the images.
 inputs:
   keycloak:
-    description: Pull the Keycloak image too.
+    description: Prepare the Keycloak test image too.
     default: "false"
+outputs:
+  keycloak-cache-hit:
+    description: "true when the cache had the Keycloak test image."
+    value: ${{ steps.cache.outputs.cache-hit }}
 runs:
   using: composite
   steps:
+    - id: cache
+      if: ${{ inputs.keycloak == 'true' }}
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.cache/data-proxy/keycloak-image.tar
+        key: keycloak-image-${{ runner.os }}-${{ hashFiles('Containerfile.keycloak') }}
     - shell: bash
       env:
         KEYCLOAK: ${{ inputs.keycloak }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
         setsid nohup podman build --file Containerfile.postgres --tag localhost/data-proxy-test-postgres:dev "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-postgres.log" 2>&1 &
         if [ "$KEYCLOAK" = "true" ]; then
-          image=$(grep -o 'quay.io/keycloak/keycloak:[0-9.]*' nix/processes/keycloak.nix)
-          setsid nohup podman pull "$image" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+          if [ "$CACHE_HIT" = "true" ]; then
+            setsid nohup podman load --input ~/.cache/data-proxy/keycloak-image.tar > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+          else
+            tag=$(sha256sum Containerfile.keycloak | cut -c1-12)
+            setsid nohup podman build --file Containerfile.keycloak --tag "localhost/data-proxy-test-keycloak:$tag" "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+          fi
         fi
