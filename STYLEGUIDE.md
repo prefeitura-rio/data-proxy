@@ -37,13 +37,13 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 Run the checks before you finish a change:
 
 ```bash
-devenv --profile default tasks run lint:all test:all
+devenv --profile default tasks run all:lint:all all:tests:unit
 devenv --profile sync test
 devenv --profile proxy test
 devenv --profile console test
 ```
 
-`test:all` runs the tests that need no services. `devenv --profile sync test` starts the services and runs every sync test. `devenv --profile proxy test` starts OpenResty and runs the Hurl proxy suite. `devenv --profile console test` starts the whole console stack and runs the browser tests. It takes about one minute.
+`all:tests:unit` runs the tests that need no services. `sync:tests:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:tests:int` starts OpenResty and runs the Hurl proxy suite. `console:tests:int` starts the whole console stack and runs the browser tests. It takes about one minute.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
@@ -58,7 +58,7 @@ A unit test checks one unit exhaustively: a function, a class, a method, or an S
 | Integration | `console/ui/tests/`                                      | devenv processes: PostgreSQL, SeaweedFS, Keycloak, PostgREST, the console, a browser                            | The console as a user sees it: sign-in, tabs, forms, run control                                                         |
 | E2E         | `k6/e2e.js`, `k6/scenarios/`, `k6/load.js`              | The deployed k3d cluster (`nu scripts/cluster.nu k6 e2e`)                                                       | Sync, Keycloak and Istio auth, proxy, PostgREST headers, split sources                                                    |
 
-- A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `test:sync` skips those tests.
+- A unit test calls no service except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. Mark a test that needs the server with `postgres`. `sync:tests:unit` skips those tests, and `sync:tests:int` runs them.
 - Integration tests don't mock PostgreSQL. Mock only external services, such as BigQuery.
 - E2E tests cover only what needs the deployed stack.
 - In `k6/`, put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. A scenario file contains only its steps, and `load.js` contains only its orchestration and its iteration functions. One check asserts one condition. Write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields, and never with `console`. The k6 files are plain JavaScript with JSDoc types, and `tsc` checks them. All types are in `k6/lib/types.d.ts`. It declares the k6 modules and the shapes of the code. The shapes are global types, so a file uses `Step` or `TokenData` in a `@param` without an import. Write a new type there, and give every function parameter a `@param` type. Keep the file a script: a top-level `import` or `export` would turn it into a module, and the declarations of the k6 modules would fail. Use `import("k6/http").Response` in it. A `.d.ts` file never shares its name with a `.js` file of the same folder, because `tsc` would then skip the `.js` file. Type external data at its source: a type guard such as `isRecord` or `recordsOf` for JSON. Don't cast: read an unknown value with `String`, `Number` or a type guard. Put a blank line between two statements when one of them spans several lines.
@@ -125,7 +125,7 @@ logger.info("DuckLake commit completed: published_tables=%d", len(published_tabl
 
 ### Tooling
 
-`devenv --profile default tasks run lint:sync` runs `ruff` with `select = ["ALL"]`, `pyrefly` (with `preset = "all"`), `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any`. Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. Don't use implicit string concatenation. Write one long string. `E501` is off.
+`devenv --profile default tasks run sync:lint:py` runs `ruff` with `select = ["ALL"]`, `pyrefly` (with `preset = "all"`), `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any`. Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. Don't use implicit string concatenation. Write one long string. `E501` is off.
 
 ## Lua and OpenResty
 
@@ -213,8 +213,8 @@ end
 
 ### Checks
 
-- Run `devenv --profile proxy tasks run lint:proxy test:proxy` before review.
-- `lint:proxy` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
+- Run `devenv --profile proxy tasks run proxy:lint:lua proxy:tests:unit` before review.
+- `proxy:lint:lua` runs luacheck (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level. The type check must report no problems.
 - The git hook runs `lx fmt` (StyLua). Use tabs.
 - Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it.
 - Start the editor inside the devenv shell, so that LuaLS can read `LPEG_TYPES`.
@@ -243,7 +243,7 @@ Nushell scripts run the Helm jobs and the local commands.
 - Write an expression that three places repeat as a helper (`app-schema`, `role-literals`), and keep one table for a list that several commands read (`IMAGES` in `scripts/lib.nu`).
 - `default $env.NAME` reads the variable even when the value isn't null, and it fails when the variable isn't set. Use `default {|| $env.NAME }` for a variable that a caller may not need.
 - Use one command for one kind of quote (`quote-identifier`, `quote-literal`). Don't pass the kind as a string.
-- `devenv --profile checks tasks run lint:nu` runs `nu-lint`, and it fails when `nu-lint` reports a finding, because `nu-lint` exits with 0 in that case. Each rule that `.nu-lint.toml` turns off has a comment with the reason.
+- `devenv --profile checks tasks run nu:lint:scripts` runs `nu-lint`, and it fails when `nu-lint` reports a finding, because `nu-lint` exits with 0 in that case. Each rule that `.nu-lint.toml` turns off has a comment with the reason.
 
 ### Logs
 
@@ -254,7 +254,7 @@ Nushell scripts run the Helm jobs and the local commands.
 Run the Nushell tests after a script change. `run.nu` finds every `test ...` command of the test files, so a new test needs no registration:
 
 ```bash
-devenv --profile checks tasks run test:nu
+devenv --profile checks tasks run nu:tests:unit
 ```
 
 ```nu
@@ -287,9 +287,9 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Give every task and every script a `description`.
 - Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
-- Name a task `<component>:<step>`, such as `console:setup:seed`. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
+- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:tests:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:tests` runs the `sync:tests` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. The aggregate tasks use the component `all`. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
-- Name the task of a suite that starts services `test:int:<component>`, and define it in `nix/profiles/suites.nix`, so the job that runs it fetches no tool of another profile.
+- Define the `<component>:tests:int` tasks in `nix/profiles/suites.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
 - Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, and give it the input files with `utils.mkInputs`. List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder.
 - Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. Give a task that reads a generated file `after = [ "devenv:files" ]`.
 
@@ -305,7 +305,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 
 - Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
 - In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
-- In `tasks`, put the aggregate tasks (`lint:all`, `test:all`) last.
+- In `tasks`, put the aggregate tasks (`all:lint:all`, `all:tests:unit`) last.
 - Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack.
 - Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
 
@@ -373,7 +373,7 @@ mapping = {"table": Identifier(schema, name), "limit": Literal(n)}
 ### Console migrations
 
 - The migrations of the `console` schema live in `console/migrations/NNNNN_name.sql`, and `goose` applies them. Add a new numbered file for each change. Don't edit a migration that another install applied.
-- `lint:sql` runs `sqlfluff` on the files, with a limit of 88 columns, and `goose validate`.
+- `sync:lint:sql` runs `sqlfluff` on the files, with a limit of 88 columns, and `goose validate`.
 - Give a `SECURITY DEFINER` function a fixed `search_path`, as `data_proxy.sees` does.
 - Check access with `rbac.can()` and `rbac.mine()`. Both refuse if the rule is missing.
 
@@ -387,7 +387,7 @@ Add a permission in these steps:
 
 1. Add it under `[permissions.<object>]` in `helm/files/config/rbac.toml`, and give it to a role.
 2. Call `rbac.can('<name>')` in the SQL that needs it.
-3. Run `devenv --profile checks tasks run lint:toml`. It checks the file with `taplo` and the JSON schema.
+3. Run `devenv --profile checks tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
 4. Add a role test in `sync/tests/unit/test_templates.py`.
 5. Update the permission tables in `docs/security/permissions.md`.
 
@@ -432,10 +432,10 @@ The console is a SvelteKit app in `console/ui/`. The sources are the [Svelte bes
 ### Tooling
 
 ```bash
-devenv --profile console tasks run lint:console
+devenv --profile console tasks run console:lint:ui
 ```
 
-`lint:console` runs `svelte-check`, ESLint (`eslint-plugin-svelte` recommended and typescript-eslint) and `prettier --check`, for `console/ui/` and `console/notebooks/`. Run `pnpm format` in the folder to format. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` once.
+`console:lint:ui` runs `svelte-check`, ESLint (`eslint-plugin-svelte` recommended and typescript-eslint) and `prettier --check`, for `console/ui/` and `console/notebooks/`. Run `pnpm format` in the folder to format. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` once.
 
 ### Tests
 
@@ -462,11 +462,11 @@ devenv --profile console tasks run lint:console
 - Give a diagram one owner page. Other pages link to it and don't embed a copy.
 - Give every diagram a short name, and write it as the alt text of the image. Don't add a caption line under the image.
 - Draw one dependency diagram of the whole system, on `docs/architecture/index.md`. Draw sequence diagrams for what happens in order, and put the diagrams of a layer in `docs/diagrams/architecture/`. The pages of the serving, sync and console layers have sequence diagrams only. A page about another topic may have a small dependency diagram. Use a table for anything else.
-- Don't write by hand a table that a file already defines. `docs/security/roles.md` has a role table that `docs:build:roles` writes from `rbac.toml`, and `lint:roles` checks it.
+- Don't write by hand a table that a file already defines. `docs/security/roles.md` has a role table that `docs:build:roles` writes from `rbac.toml`, and `docs:lint:roles` checks it.
 - Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages.
 - Link to another page with a relative Markdown link: the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. Marksman completes and follows these links in the editor, but it doesn't flag a broken one.
-- Every page ends with a navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. `docs/.nav.json` has the page order. Add a new page to that file and link it from its parent page. `lint:nav` fails on a missing page, a page without a link from its parent, or an old block.
-- Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile checks tasks run docs:build:diagrams`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `lint:diagrams` fails when an SVG is out of date. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
+- Every page ends with a navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. `docs/.nav.json` has the page order. Add a new page to that file and link it from its parent page. `docs:lint:nav` fails on a missing page, a page without a link from its parent, or an old block.
+- Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile checks tasks run docs:build:diagrams`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `docs:lint:diagrams` fails when an SVG is out of date. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
 - Name a file with one word, and use two words only if one word is unclear.
 - Give each topic one page, and link to it from the other pages. Keep a file near 800 words. Split a larger file by topic.
 - Keep one topic in one document. Link to the owner. Don't copy.

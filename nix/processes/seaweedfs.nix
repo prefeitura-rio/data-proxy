@@ -32,7 +32,7 @@ in
     };
   };
 
-  tasks."seaweedfs:clean" = utils.nuTask {
+  tasks."s3:clean:data" = utils.nuTask {
     description = "Empty the data folder of the object store.";
     exec = "rm --recursive --force ${dataDir}; mkdir ${dataDir}";
     before = [ (utils.processTask "seaweedfs") ];

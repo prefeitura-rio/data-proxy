@@ -110,24 +110,26 @@ in
         tasks = {
           "devenv:git-hooks:run".before = lib.mkForce [ ];
           "console:install:ui" = installTask "console/ui";
-          "console:install:notebooks" = installTask "console/notebooks";
-          "lint:console" =
+          "nb:install:deps" = installTask "console/notebooks";
+          "console:lint:ui" =
             pnpmTask "Check and lint the console app." "console/ui" "pnpm check\npnpm lint"
               consoleInputs;
-          "lint:nb" = pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint" (
-            [
-              "console/notebooks/*.ts"
-              "console/notebooks/tsconfig.json"
-              "console/notebooks/package.json"
-              "console/notebooks/pnpm-lock.yaml"
-              "console/notebooks/pnpm-workspace.yaml"
-              "console/notebooks/eslint.config.js"
-              "console/notebooks/.prettierrc"
-              ".prettierignore"
-            ]
-            ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
-          );
-          "test:console" =
+          "nb:lint:ts" =
+            pnpmTask "Check and lint the notebooks." "console/notebooks" "pnpm check\npnpm lint"
+              (
+                [
+                  "console/notebooks/*.ts"
+                  "console/notebooks/tsconfig.json"
+                  "console/notebooks/package.json"
+                  "console/notebooks/pnpm-lock.yaml"
+                  "console/notebooks/pnpm-workspace.yaml"
+                  "console/notebooks/eslint.config.js"
+                  "console/notebooks/.prettierrc"
+                  ".prettierignore"
+                ]
+                ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+              );
+          "console:tests:unit" =
             pnpmTask "Run the unit tests of the console app." "console/ui" "pnpm test"
               consoleInputs;
         };
@@ -139,8 +141,8 @@ in
       };
   };
 
-  profiles.notebooks = {
+  profiles.nb = {
     extends = [ "console" ];
-    module.imports = [ ../nix/processes/notebooks.nix ];
+    module.imports = [ ../nix/processes/nb.nix ];
   };
 }

@@ -101,7 +101,7 @@ A claim that names a role that isn't in `rbac.toml` never gains rights. PostgRES
 
 Two checks keep `rbac.toml` and the database in step:
 
-- `lint:toml` runs in the checks of the repository. `taplo` checks `rbac.toml` against `rbac.schema.json`: each object has a description and at least one action, and each role has a name.
+- `chart:lint:toml` runs in the checks of the repository. `taplo` checks `rbac.toml` against `rbac.schema.json`: each object has a description and at least one action, and each role has a name.
 - The `configure-db` Job runs `verify-rbac` after it loads the rules. It fails when the database differs from the file:
   - a role is missing
   - a request role can log in or is a superuser

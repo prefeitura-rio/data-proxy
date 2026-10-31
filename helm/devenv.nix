@@ -11,7 +11,7 @@
         };
 
         tasks = {
-          "lint:chart" = utils.nuTask {
+          "chart:lint:helm" = utils.nuTask {
             description = "Lint the Helm chart.";
             exec = "helm lint helm/ --strict -f helm/ci/test-values.yaml";
             execIfModified = utils.mkInputs (
@@ -28,7 +28,7 @@
               ]
             );
           };
-          "test:chart" = utils.nuTask {
+          "chart:tests:unit" = utils.nuTask {
             description = "Run the Helm chart tests.";
             packages = with pkgs; [ kubeconform ];
             exec = builtins.readFile ../scripts/helm.nu;

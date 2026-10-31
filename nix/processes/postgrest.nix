@@ -4,7 +4,7 @@ let
   jwks = utils.stateFile "jwks.json";
 in
 {
-  tasks."postgrest:jwks" =
+  tasks."pgrest:fetch:jwks" =
     utils.mkTask {
       packages = with pkgs; [ curl ];
       command = [

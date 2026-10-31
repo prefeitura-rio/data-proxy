@@ -27,6 +27,7 @@ from sync.templates import render_template
 from sync.views import stages
 from sync.views.reconcile import reconcile_views
 from tests.constants import (
+    DBOS_DATABASE,
     DUCKDB_DATABASE_SETTINGS,
     FILES,
     POSTGRES_URL,
@@ -43,6 +44,7 @@ from tests.fixtures.types import (
 )
 from tests.helpers import (
     act_as_token,
+    clone_database,
     create_state_tables,
     initialize_schemas,
     one_worker_at_a_time,
@@ -56,19 +58,18 @@ def database(tmp_path_factory: pytest.TempPathFactory) -> str:
     if WORKER is None:
         return TEST_DATABASE
 
-    with (
-        one_worker_at_a_time(tmp_path_factory),
-        psycopg.connect(f"{POSTGRES_URL}/postgres", autocommit=True) as admin,
-    ):
-        name = Identifier(TEST_DATABASE)
-        admin.execute(SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(name))
-        admin.execute(SQL("CREATE DATABASE {} TEMPLATE test_template").format(name))
-        for setting in DUCKDB_DATABASE_SETTINGS:
-            admin.execute(
-                SQL("ALTER DATABASE {} SET {} = 'on'").format(name, SQL(setting))
-            )
+    return clone_database(
+        tmp_path_factory, "test_template", TEST_DATABASE, DUCKDB_DATABASE_SETTINGS
+    )
 
-    return TEST_DATABASE
+
+@pytest.fixture(scope="session")
+def dbos_database(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Give the DBOS system database of this worker, a clone of dbos_system, because every test that uses it empties the state tables."""
+    if WORKER is None:
+        return DBOS_DATABASE
+
+    return clone_database(tmp_path_factory, "dbos_system", DBOS_DATABASE)
 
 
 @pytest.fixture

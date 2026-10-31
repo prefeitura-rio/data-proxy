@@ -17,11 +17,11 @@ pnpm format       # format the code with Prettier
 pnpm build        # build the Node server in console/ui/build
 ```
 
-`devenv --profile console tasks run lint:console` installs the locked dependencies and runs `pnpm check` and `pnpm lint` in `console/ui/`. `lint:nb` runs `pnpm lint` in `console/notebooks/`. The root `.prettierignore` lists what Prettier skips, for the scripts and for the hook.
+`devenv --profile console tasks run console:lint:ui` installs the locked dependencies and runs `pnpm check` and `pnpm lint` in `console/ui/`. `nb:lint:ts` runs `pnpm lint` in `console/notebooks/`. The root `.prettierignore` lists what Prettier skips, for the scripts and for the hook.
 
 `pnpm lint` runs ESLint (the Svelte plugin and typescript-eslint) and `prettier --check`. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` in `console/ui/` once.
 
-The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. The `checks` profile includes `lint:console` in `lint:all`.
+The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. The `checks` profile includes `console:lint:ui` in `all:lint:all`.
 
 Run the tests of the console with `devenv --profile console test`. It works like `devenv --profile sync test`: devenv starts the services, the setup runs, and the tests run against them.
 
@@ -29,18 +29,18 @@ The profile in `console/devenv.nix` imports one module for each part of the setu
 
 | Process | Role |
 |---|---|
-| `processes/postgres` | the `pg_duckdb` image in Podman, as in the sync tests (the task `postgres:image` builds it, the process `postgres` runs it) |
+| `processes/postgres` | the `pg_duckdb` image in Podman, as in the sync tests (the task `pg:build:image` builds it, the process `postgres` runs it) |
 | `processes/seaweedfs` | the object store, with its IAM API and a read-only reader key |
 | `processes/keycloak` | the official Keycloak image in Podman, with the realm `dev` of `k3d/values/keycloak.yaml` and the redirect addresses of the local console |
-| `processes/postgrest` | PostgREST, with the keys that the task `postgrest:jwks` downloads from the local Keycloak |
+| `processes/postgrest` | PostgREST, with the keys that the task `pgrest:fetch:jwks` downloads from the local Keycloak |
 | `processes/console` (setup) | the tasks `console:setup:*`. Each task runs one step: the databases (`psql -f`), the bucket, `configure-db.nu`, the DBOS and console migrations, and `provision.nu` (the scripts of the chart Jobs). The last task runs `sync/tests/seeds/console.py`. It fills the `test` catalog with a table of 5000 rows and a delete file for 100 of them |
 | `processes/console` (server and gateway) | the tasks `console:build:*` build the SvelteKit server and `console` runs it, behind `caddy reverse-proxy`, which sends `x-forwarded-proto` as Istio does |
 | `processes/console` (control worker) | `control-worker` runs the sync worker with `LISTEN_QUEUES=control,schedules`, so the browser tests run cancel, resume, the schedule actions and the schedule reconcile without a sync run |
-| `processes/notebooks` (profile `notebooks`) | the task `notebooks:build` builds the site and `notebooks` serves it on its own origin. The `console` profile doesn't start it, because no browser test opens the site |
+| `processes/nb` (profile `nb`) | the task `nb:build:site` builds the site and `notebooks` serves it on its own origin. The `console` profile doesn't start it, because no browser test opens the site |
 
 `enterTest` runs the `playwright-bdd` features in `console/ui/tests/features/`. The notebooks have no tests.
 
-- The Vitest tests are the task `test:console`, which `test:all` runs.
+- The Vitest tests are the task `console:tests:unit`, which `all:tests:unit` runs. The browser tests are `console:tests:int`.
 - Set the variables of the tests in the `env` of the console profile.
 - The browser tests don't start a sync run or wait for a provision Job, because both need Kubernetes. The end-to-end suite in the cluster (`k6`) tests the backend.
 - The 86 scenarios run in about 25 seconds on half of the cores, after about 25 seconds for the processes to start. More workers don't help, because the machine is busy with the stack and the browsers. `playwright.config.ts` has three projects. The project `auth` signs each test user in once (`tests/setup/auth.setup.ts`) and saves the cookies in `test-results/.auth/`. The project `parallel` runs every scenario in parallel (`fullyParallel`). The project `shared` runs last, on one worker, and it has the scenarios that change data that every other scenario reads: the schedule, the token lifespan and the sync document (`tests/features/shared/`).
@@ -57,7 +57,7 @@ To run some scenarios, set `PLAYWRIGHT_GREP`, for example `PLAYWRIGHT_GREP='heal
 
 ## Notebooks
 
-`console/notebooks/` builds the static site of the query tab ([Notebooks](../notebooks.md)). `devenv --profile console tasks run lint:nb` checks and lints its TypeScript. The notebooks have no tests.
+`console/notebooks/` builds the static site of the query tab ([Notebooks](../notebooks.md)). `devenv --profile console tasks run nb:lint:ts` checks and lints its TypeScript. The notebooks have no tests.
 
 ## Develop
 

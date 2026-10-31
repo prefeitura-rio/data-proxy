@@ -7,30 +7,30 @@ These sections list the checks that run during development and before a release.
 Run the static and focused checks with devenv tasks:
 
 ```bash
-devenv --profile default tasks run lint:all test:all
+devenv --profile default tasks run all:lint:all all:tests:unit
 ```
 
 E2E tests run against the local cluster or staging environment, not in CI.
 
-`lint:all` runs every task in the table. Run one task with `devenv --profile <profile> tasks run <task>`.
+`all:lint:all` runs every task in the table. Run one task with `devenv --profile <profile> tasks run <task>`.
 
 | Task | Profile | What it checks |
 | --- | --- | --- |
-| `lint:sync` | `sync` | Python with `ruff`, `pyrefly`, `complexipy` and `vulture`. |
-| `lint:sql` | `sync` | The SQL templates and the console migrations, with `sqlfluff` and `goose validate`. |
-| `lint:proxy` | `proxy` | The Lua code, with StyLua, luacheck and the LuaLS type check. |
-| `lint:console`, `lint:nb` | `console` | The console app and the notebooks, with `svelte-check`, ESLint and Prettier. |
-| `lint:chart` | `chart` | The Helm chart, with `helm lint --strict`. |
-| `lint:ci` | `checks` | The GitHub workflows, with `actionlint`. |
-| `lint:nu` | `checks` | The Nushell scripts, with `nu-lint`. |
-| `lint:toml` | `checks` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
-| `lint:containers` | `checks` | The container files, with `hadolint`. |
-| `lint:diagrams` | `checks` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
-| `lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
+| `sync:lint:py` | `sync` | Python with `ruff`, `pyrefly`, `complexipy` and `vulture`. |
+| `sync:lint:sql` | `sync` | The SQL templates and the console migrations, with `sqlfluff` and `goose validate`. |
+| `proxy:lint:lua` | `proxy` | The Lua code, with StyLua, luacheck and the LuaLS type check. |
+| `console:lint:ui`, `nb:lint:ts` | `console` | The console app and the notebooks, with `svelte-check`, ESLint and Prettier. |
+| `chart:lint:helm` | `chart` | The Helm chart, with `helm lint --strict`. |
+| `ci:lint:workflows` | `checks` | The GitHub workflows, with `actionlint`. |
+| `nu:lint:scripts` | `checks` | The Nushell scripts, with `nu-lint`. |
+| `chart:lint:toml` | `checks` | The role-based access control (RBAC) rules file `rbac.toml`, with `taplo`. |
+| `containers:lint:files` | `checks` | The container files, with `hadolint`. |
+| `docs:lint:diagrams` | `checks` | That each rendered diagram in `docs/diagrams/` matches its D2 source. |
+| `docs:lint:links` | `checks` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 
 `docs:build:diagrams` renders the D2 sources in `docs/diagrams/` to SVG files. `docs:build:all` runs it with `docs:build:nav` and `docs:build:roles`.
 
-`docs:serve` runs `docs:build:all`, which renders the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
+`docs:serve:site` runs `docs:build:all`, which renders the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
 
 The sidebar follows `docs/.nav.json`. The task writes it to the generated file `mkdocs.nav.yml`, which `mkdocs.yml` loads, so run the task and not `mkdocs` alone. A link to a file outside `docs/` doesn't open in the served site.
 
@@ -57,7 +57,7 @@ The Helm suite tests pure helpers from `helm/files/scripts/lib.nu` without Kuber
 PostgreSQL, rclone, or network access:
 
 ```bash
-devenv --profile checks tasks run test:nu
+devenv --profile checks tasks run nu:tests:unit
 ```
 
 The task also runs the tests of `scripts/tests/lib.nu`, which cover the pure helpers of the local scripts.

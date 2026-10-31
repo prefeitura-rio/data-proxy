@@ -11,7 +11,7 @@ in
     TEST_POSTGRES_CONTAINER = container;
   };
 
-  tasks."postgres:image" =
+  tasks."pg:build:image" =
     utils.mkTask {
       command = [
         "podman"

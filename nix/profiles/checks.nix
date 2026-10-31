@@ -25,6 +25,20 @@ in
             lib.attrNames config.tasks
           );
 
+        tasksOf =
+          task: type:
+          lib.filter (
+            name:
+            let
+              parts = lib.splitString ":" name;
+            in
+            lib.length parts == 3
+            && lib.elemAt parts 0 != "all"
+            && lib.elemAt parts 1 == task
+            && (type == null || lib.elemAt parts 2 == type)
+            && !(lib.hasSuffix ":all" name)
+          ) (lib.attrNames config.tasks);
+
         docsFiles = utils.mkGlobs "docs" [
           "md"
           "svg"
@@ -59,7 +73,7 @@ in
         };
 
         tasks = {
-          "lint:ci" = utils.nuTask {
+          "ci:lint:workflows" = utils.nuTask {
             description = "Lint the GitHub workflows.";
             packages = with pkgs; [
               actionlint
@@ -70,7 +84,7 @@ in
               utils.mkGlobs ".github/workflows" [ "yaml" ] ++ utils.mkGlobs ".github/actions" [ "yaml" ]
             );
           };
-          "lint:nu" = utils.nuTask {
+          "nu:lint:scripts" = utils.nuTask {
             description = "Lint the Nushell scripts.";
             packages = with pkgs; [ nu-lint ];
             exec = builtins.readFile ../../scripts/nu-lint.nu;
@@ -82,7 +96,7 @@ in
               ".nu-lint.toml"
             ];
           };
-          "test:nu" = utils.nuTask {
+          "nu:tests:unit" = utils.nuTask {
             description = "Run the Nushell tests.";
             exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/keycloak.nu";
             execIfModified = utils.mkInputs [
@@ -90,7 +104,7 @@ in
               "scripts/**/*.nu"
             ];
           };
-          "lint:toml" = utils.nuTask {
+          "chart:lint:toml" = utils.nuTask {
             description = "Lint the RBAC rules file.";
             packages = with pkgs; [ taplo ];
             exec = ''
@@ -103,7 +117,7 @@ in
               ".taplo.toml"
             ];
           };
-          "lint:containers" = utils.nuTask {
+          "containers:lint:files" = utils.nuTask {
             description = "Lint the Containerfiles.";
             packages = with pkgs; [ hadolint ];
             exec = lib.concatMapStringsSep "\n" (name: "hadolint ${name}") containerfiles;
@@ -123,7 +137,7 @@ in
             description = "Generate the diagrams, the navigation and the role table.";
             after = tasksWith "docs:build:";
           };
-          "docs:serve" = utils.nuTask {
+          "docs:serve:site" = utils.nuTask {
             description = "Generate the diagrams, the navigation and the role table, then serve the docs.";
             packages =
               with pkgs;
@@ -145,7 +159,7 @@ in
               "scripts/docs.nu"
             ];
           };
-          "lint:roles" = utils.nuTask {
+          "docs:lint:roles" = utils.nuTask {
             description = "Check that the role and permission table in the Roles page is current.";
             exec = "nu scripts/docs.nu check";
             execIfModified = utils.mkInputs [
@@ -164,7 +178,7 @@ in
               ++ docsFiles
             );
           };
-          "lint:nav" = utils.nuTask {
+          "docs:lint:nav" = utils.nuTask {
             description = "Check the navigation blocks and docs/.nav.json against the docs files.";
             exec = "nu scripts/docs.nu nav check";
             execIfModified = utils.mkInputs (
@@ -174,7 +188,7 @@ in
               ++ docsFiles
             );
           };
-          "lint:links" = utils.nuTask {
+          "docs:lint:links" = utils.nuTask {
             description = "Check that the links of the docs, the README and the style guide point to a file and a heading.";
             exec = "nu scripts/docs.nu links";
             execIfModified = utils.mkInputs (
@@ -186,7 +200,7 @@ in
               ++ docsFiles
             );
           };
-          "lint:diagrams" = utils.nuTask {
+          "docs:lint:diagrams" = utils.nuTask {
             description = "Check that the rendered diagrams are current.";
             exec = ''
               for file in (glob docs/diagrams/**/*.d2) {
@@ -210,13 +224,13 @@ in
             );
           };
 
-          "lint:all" = {
+          "all:lint:all" = {
             description = "Run every lint task.";
-            after = tasksWith "lint:";
+            after = tasksOf "lint" null;
           };
-          "test:all" = {
+          "all:tests:unit" = {
             description = "Run every test task that needs no service.";
-            after = tasksWith "test:";
+            after = tasksOf "tests" "unit";
           };
         };
       };

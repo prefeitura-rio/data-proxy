@@ -28,7 +28,7 @@
       in
       {
         tasks = {
-          "test:int:proxy" = utils.serviceSuite {
+          "proxy:tests:int" = utils.serviceSuite {
             description = "Run the integration tests of the proxy against its test servers.";
             profile = "proxy";
             inputs = [
@@ -47,7 +47,7 @@
             ]
             ++ environment;
           };
-          "test:int:sync" = utils.serviceSuite {
+          "sync:tests:int" = utils.serviceSuite {
             description = "Run the sync tests that need a database and a storage server.";
             profile = "sync";
             inputs = [
@@ -79,7 +79,7 @@
             ++ postgresServer
             ++ environment;
           };
-          "test:int:console" = utils.serviceSuite {
+          "console:tests:int" = utils.serviceSuite {
             description = "Run the browser tests of the console against its test servers.";
             profile = "console";
             inputs = [

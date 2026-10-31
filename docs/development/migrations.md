@@ -33,7 +33,7 @@ migrate status    # list the applied migrations
 migrate down      # undo the last migration
 ```
 
-`devenv test` runs `migrate up` on the test database, so a broken migration fails the test setup. `lint:sql` checks the files with `sqlfluff` and `goose validate`.
+`devenv test` runs `migrate up` on the test database, so a broken migration fails the test setup. `sync:lint:sql` checks the files with `sqlfluff` and `goose validate`.
 
 To add a migration, run `goose -dir console/migrations create <name> sql`. Write both the `Up` and the `Down` part. Never edit a migration that a shared database has applied. Add a new one instead.
 

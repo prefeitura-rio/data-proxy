@@ -28,10 +28,10 @@ from tests.protocols import BigQueryQueryConfig
 
 @pytest.fixture
 async def dbos_conn(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dbos_database: str
 ) -> AsyncIterator[psycopg.AsyncConnection]:
     """Provide an async connection to the DBOS system database with the data_proxy schema initialized."""
-    url = f"{POSTGRES_URL}/dbos_system"
+    url = f"{POSTGRES_URL}/{dbos_database}"
     monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", SecretStr(url))
     conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
     await create_state_tables(conn)

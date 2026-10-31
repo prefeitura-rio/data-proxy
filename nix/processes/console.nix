@@ -208,7 +208,7 @@ let
         ];
       }
       {
-        name = "build";
+        name = "ui";
         description = "Build the console server.";
         command = [
           "pnpm"
@@ -236,7 +236,7 @@ in
     setup.tasks
     // build.tasks
     // {
-      "console:open" = lib.mkIf (!config.devenv.isTesting) (
+      "console:open:browser" = lib.mkIf (!config.devenv.isTesting) (
         utils.mkTask {
           command = [
             (if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open")
@@ -245,7 +245,7 @@ in
           packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux (with pkgs; [ xdg-utils ]);
         }
         // {
-          description = "Open the console in the browser. Run it with `devenv tasks run console:open`.";
+          description = "Open the console in the browser. Run it with `devenv tasks run console:open:browser`.";
           after = [ (utils.processTask "gateway") ];
         }
       );

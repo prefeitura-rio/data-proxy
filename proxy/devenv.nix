@@ -39,7 +39,7 @@
         };
 
         tasks = {
-          "proxy:rocks" =
+          "proxy:install:rocks" =
             utils.mkTask {
               command = [
                 "nu"
@@ -55,7 +55,7 @@
                 "scripts/lux.nu"
               ];
             };
-          "lint:proxy" =
+          "proxy:lint:lua" =
             utils.mkTask {
               command = [
                 "nu"
@@ -65,7 +65,7 @@
             }
             // {
               description = "Lint the Lua code of the proxy.";
-              after = [ "proxy:rocks" ];
+              after = [ "proxy:install:rocks" ];
               execIfModified = utils.mkInputs [
                 "proxy/**/*.lua"
                 "proxy/lux.toml"
@@ -74,7 +74,7 @@
                 "proxy/.luacheckrc"
               ];
             };
-          "test:proxy" =
+          "proxy:tests:unit" =
             utils.mkTask {
               command = [
                 "nu"
@@ -84,7 +84,7 @@
             }
             // {
               description = "Run the unit tests of the proxy.";
-              after = [ "proxy:rocks" ];
+              after = [ "proxy:install:rocks" ];
               execIfModified = utils.mkInputs (
                 [
                   "proxy/**/*.lua"

@@ -8,7 +8,7 @@ let
 in
 {
   tasks = {
-    "notebooks:build" =
+    "nb:build:site" =
       utils.mkTask {
         command = [
           "nu"
@@ -20,7 +20,7 @@ in
       // {
         description = "Build the notebook site.";
         cwd = "${config.devenv.root}/console/notebooks";
-        before = [ (utils.processTask "notebooks") ];
+        before = [ (utils.processTask "nb") ];
         execIfModified = utils.mkInputs (
           [
             "console/notebooks/build.nu"
@@ -39,7 +39,7 @@ in
   };
 
   processes = {
-    notebooks =
+    nb =
       utils.mkProcess {
         command = [
           "node"

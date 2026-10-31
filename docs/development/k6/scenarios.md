@@ -45,7 +45,7 @@ Keycloak imports its realm only at the first start. After a change to `k3d/value
 
 ## Check the rules file
 
-Run `lint:toml` (`devenv --profile checks tasks run lint:toml`) after a change in `rbac.toml`. It runs `taplo lint`, which checks the file against `rbac.schema.json`, and `taplo fmt --check`. The `taplo` language server in the `checks` profile runs the same checks in an editor.
+Run `chart:lint:toml` (`devenv --profile checks tasks run chart:lint:toml`) after a change in `rbac.toml`. It runs `taplo lint`, which checks the file against `rbac.schema.json`, and `taplo fmt --check`. The `taplo` language server in the `checks` profile runs the same checks in an editor.
 
 ## Scenarios
 

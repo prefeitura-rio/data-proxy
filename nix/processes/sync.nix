@@ -1,6 +1,6 @@
 { pkgs, utils, ... }:
 {
-  tasks."sync:setup" =
+  tasks."sync:setup:db" =
     utils.mkTask {
       command = [
         "nu"

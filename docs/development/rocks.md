@@ -23,7 +23,7 @@ The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares eve
 
 **Lint**
 
-- `lint:proxy` runs luacheck (through `lx lint`) and the LuaLS type check with every rule that works for this code.
+- `proxy:lint:lua` runs luacheck (through `lx lint`) and the LuaLS type check with every rule that works for this code.
 - Luacheck uses the `ngx_lua` globals, a 120-character line limit, and a limit of 10 branches per function.
 - LuaLS has every diagnostic group on, down to the hint level. Four checks are off:
   - `codestyle-check`, because stylua formats the code
@@ -36,10 +36,10 @@ The proxy uses [Lux](https://lux.lumen-labs.org/). `proxy/lux.toml` declares eve
 - `Containerfile.proxy` runs `lx build --only-deps` against the same lockfile. The image gets the runtime rocks and no test rocks.
 
 ```bash
-devenv --profile proxy tasks run proxy:rocks
+devenv --profile proxy tasks run proxy:install:rocks
 ```
 
-The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `lint:proxy` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `devenv --profile proxy tasks run lint:proxy test:proxy`.
+The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `proxy:lint:lua` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `devenv --profile proxy tasks run proxy:lint:lua proxy:tests:int`.
 
 <!-- nav:start -->
 ---

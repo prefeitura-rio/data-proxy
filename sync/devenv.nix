@@ -42,7 +42,7 @@
         };
 
         tasks = {
-          "test:sync" = utils.nuTask {
+          "sync:tests:unit" = utils.nuTask {
             description = "Run the sync unit tests that need no service.";
             after = [ "devenv:files" ];
             cwd = "sync";
@@ -66,7 +66,7 @@
               ++ utils.mkGlobs "proxy/tests/unit/fixtures" [ "json" ]
             );
           };
-          "lint:sync" = utils.nuTask {
+          "sync:lint:py" = utils.nuTask {
             description = "Lint and type check the sync code.";
             cwd = "sync";
             exec = ''
@@ -83,7 +83,7 @@
               "sync/complexipy-snapshot.json"
             ];
           };
-          "lint:sql" = utils.nuTask {
+          "sync:lint:sql" = utils.nuTask {
             description = "Lint the SQL templates and the console migrations.";
             exec = ''
               sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres console/migrations
@@ -101,7 +101,11 @@
           };
         };
 
-        enterTest = "uv run --directory sync --frozen pytest --numprocesses auto --maxprocesses 4";
+        enterTest = ''
+          set -e
+          uv run --directory sync --frozen pytest tests/integration --numprocesses auto --maxprocesses 4
+          uv run --directory sync --frozen pytest tests/unit -m postgres --numprocesses auto --maxprocesses 4
+        '';
       };
   };
 }

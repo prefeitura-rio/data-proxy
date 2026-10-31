@@ -9,7 +9,7 @@ from inspect import unwrap
 from logging import LogRecord
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Final
+from typing import Final, LiteralString
 from unittest.mock import AsyncMock
 
 import duckdb
@@ -72,6 +72,7 @@ from sync.views.reconcile import reconcile_views
 from tests.constants import (
     HELM_SQL,
     PARQUET,
+    POSTGRES_URL,
     PROXY_FILTER_CASES,
     RBAC_RULES,
     REQUEST_ROLES,
@@ -1302,3 +1303,27 @@ def one_worker_at_a_time(factory: pytest.TempPathFactory) -> Generator[None]:
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def clone_database(
+    factory: pytest.TempPathFactory,
+    source: str,
+    name: str,
+    settings: tuple[LiteralString, ...] = (),
+) -> str:
+    """Create the database name from the template source, for one xdist worker, and give it the settings."""
+    with (
+        one_worker_at_a_time(factory),
+        psycopg.connect(f"{POSTGRES_URL}/postgres", autocommit=True) as admin,
+    ):
+        identifier = Identifier(name)
+        admin.execute(SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(identifier))
+        admin.execute(
+            SQL("CREATE DATABASE {} TEMPLATE {}").format(identifier, Identifier(source))
+        )
+        for setting in settings:
+            admin.execute(
+                SQL("ALTER DATABASE {} SET {} = 'on'").format(identifier, SQL(setting))
+            )
+
+    return name
