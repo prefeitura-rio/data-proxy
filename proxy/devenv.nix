@@ -63,7 +63,10 @@
                 }
                 // {
                   description = "Lint the Lua code of the proxy.";
-                  after = [ "proxy:install:rocks" ];
+                  after = [
+                    "proxy:install:rocks"
+                    "proxy:test:unit"
+                  ];
                   execIfModified = utils.mkInputs [
                     "proxy/**/*.lua"
                     "proxy/lux.toml"

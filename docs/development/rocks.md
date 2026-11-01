@@ -41,6 +41,8 @@ devenv --profile proxy tasks run proxy:install:rocks
 
 The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `lux.lock` changes. Change a version with `lx add` or `lx update` in `proxy/`, then commit the lockfile. Add a test library with `lx add --test`. `proxy:lint:lua` runs `lx fmt`, `lx lint`, and the LuaLS type check, and fails when formatting changed a file. OpenResty bundles `resty.redis`, `resty.string`, `resty.lock`, and `cjson`, so only `lua-resty-http` is a runtime rock. Run the checks with `devenv --profile proxy tasks run proxy:lint:lua proxy:test:int`.
 
+`proxy:lint:lua` runs after `proxy:test:unit`. Both tasks call Lux, and each one installs its own tools into `proxy/.lux/` on the first run. Two Lux runs that download at the same time failed with the error "File was longer than declared length" in 1 of 4 runs on a clean tree.
+
 <!-- nav:start -->
 ---
 
