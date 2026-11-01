@@ -2,17 +2,15 @@ _:
 let
   limitsMb = {
     base = 750;
-    int = 400;
-    release = 1000;
+    integration = 400;
+    chart = 1000;
     console-unit = 900;
     proxy-unit = 1000;
     proxy = 1200;
     sync-unit = 900;
     sync = 1200;
     console = 2600;
-    nb = 2600;
     repo = 2300;
-    docs = 4300;
     default = 6500;
   };
 in

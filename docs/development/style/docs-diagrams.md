@@ -14,7 +14,7 @@ Applies to: `docs/diagrams/**`, `docs/**/*.svg`.
 
 - **DOC-29** Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. Don't write a diagram in another language. [must, review]
 - **DOC-30** Let `db.d2` import the other files of its folder. Edit a table in its own file and not in `db.d2`. [must, review]
-- **DOC-31** Render a diagram with `devenv --profile docs tasks run docs:build:diag`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
+- **DOC-31** Render a diagram with `devenv --profile default tasks run docs:build:diag`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
 - **DOC-32** Know that `docs:lint:diag` (profile `docs`) fails when an SVG is out of date, and that CI doesn't run it. [should, devenv]
 - **DOC-33** Make every diagram render in a light and a dark theme. [must, review]
 - **DOC-34** Draw a database diagram with `sql_table` shapes, and take the columns from the SQL files. [must, review]

@@ -1,6 +1,6 @@
 { ... }:
 {
-  profiles.int = {
+  profiles.integration = {
     extends = [ "base" ];
     module =
       { pkgs, utils, ... }:
@@ -15,9 +15,23 @@
         ];
 
         postgresServer = [
-          "nix/stack/pg.nix"
+          "nix/stack/postgres.nix"
           "Containerfile.pg"
         ];
+
+        notebookSources = [
+          "nix/stack/notebooks.nix"
+          "console/notebooks/build.nu"
+          "console/notebooks/bundle.ts"
+          "console/notebooks/tsconfig.json"
+          "console/notebooks/package.json"
+          "console/notebooks/pnpm-lock.yaml"
+          "console/notebooks/pnpm-workspace.yaml"
+          "console/notebooks/pyproject.toml"
+          "console/notebooks/uv.lock"
+        ]
+        ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+        ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ];
 
         syncSources = [
           "sync/pyproject.toml"
@@ -60,7 +74,7 @@
               "console/migrations/*.sql"
               "scripts/db.nu"
               "nix/stack/sync.nix"
-              "nix/stack/s3.nix"
+              "nix/stack/seaweedfs.nix"
             ]
             ++ utils.mkGlobs "sync/config" [
               "toml"
@@ -98,12 +112,11 @@
               "k3d/values/*.yaml"
               "scripts/db.nu"
               "scripts/migrate.nu"
-              "nix/stack/console-setup.nix"
               "nix/stack/console.nix"
-              "nix/stack/kc.nix"
+              "nix/stack/keycloak.nix"
               "Containerfile.kc"
-              "nix/stack/pgrest.nix"
-              "nix/stack/s3.nix"
+              "nix/stack/postgrest.nix"
+              "nix/stack/seaweedfs.nix"
             ]
             ++ utils.mkGlobs "console/ui/src" [
               "ts"
@@ -131,6 +144,7 @@
               "json"
               "conf"
             ]
+            ++ notebookSources
             ++ syncSources
             ++ postgresServer
             ++ environment;

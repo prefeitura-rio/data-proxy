@@ -8,7 +8,7 @@ Run the checks before you finish a change. Run them inside `devenv`.
 
 ```bash
 devenv --profile repo tasks run repo:lint repo:test:unit
-devenv --profile int tasks run sync:test:int proxy:test:int console:test:int
+devenv --profile integration tasks run sync:test:int proxy:test:int console:test:int
 devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 ```
 

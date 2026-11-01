@@ -32,7 +32,7 @@ E2E tests run against the local cluster or staging environment, not in CI.
 | `docs:lint:style` | `repo` | That each rule in `docs/development/style/` has an ID, a level and a check, has at most 40 words, and has a unique ID, that a style page has at most 900 words, and that each cited ID exists. It also fails a sentence over 25 words, and a page over 1000 words unless the page is on a short list. |
 | `docs:lint:links` | `repo` | That each link in `docs/`, `README.md` and `STYLEGUIDE.md` points to a file and, when it has one, a heading. A link to another site isn't checked. |
 
-`docs:build:diag` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `docs` profile, which adds `d2` and `mkdocs` to `repo`. In that profile `devenv tasks run docs:build` runs it with `docs:build:nav` and `docs:build:roles`, because devenv runs every task under a prefix.
+`docs:build:diag` renders the D2 sources in `docs/diagrams/` to SVG files. It runs in the `default` profile, which has `d2` and `mkdocs`. In that profile `devenv tasks run docs:build` runs it with `docs:build:nav` and `docs:build:roles`, because devenv runs every task under a prefix.
 
 `docs:serve:site` (profile `docs`) runs the `docs:build` tasks, which render the diagrams and writes the page footers, the role table and the sidebar. Then it serves the docs at `http://127.0.0.1:18200` and opens them in your browser, with `open` on macOS and `xdg-open` on Linux. A second run stops the old `mkdocs` server on the port. The task fails when another program uses the port. Set `DOCS_PORT` to use another port.
 

@@ -14,12 +14,12 @@ For a quick run with no service, run `devenv --profile default tasks run repo:te
 
 ## Run only what changed
 
-Each of the three `:int` tasks is in the `int` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
+Each of the three `:int` tasks is in the `integration` profile, which extends only `base`. A CI job that runs one suite therefore doesn't fetch the tools of the other profiles, such as the Playwright browsers. The task runs `devenv test` for the profile, and it lists the files that the suite reads:
 
 ```bash
-devenv --profile int tasks run proxy:test:int    # the proxy suite
-devenv --profile int tasks run sync:test:int     # the sync suite
-devenv --profile int tasks run console:test:int  # the console suite
+devenv --profile integration tasks run proxy:test:int    # the proxy suite
+devenv --profile integration tasks run sync:test:int     # the sync suite
+devenv --profile integration tasks run console:test:int  # the console suite
 ```
 
 devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:test:unit` doesn't run the `:int` tasks, because they start services and live in another profile.

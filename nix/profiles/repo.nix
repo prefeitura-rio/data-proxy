@@ -14,7 +14,7 @@ in
       "sync-unit"
       "console-unit"
       "proxy-unit"
-      "release"
+      "chart"
     ];
     module =
       { config, utils, ... }:

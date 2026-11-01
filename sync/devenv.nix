@@ -133,8 +133,8 @@
     module = {
       imports = [
         ../nix/stack/sync.nix
-        ../nix/stack/pg.nix
-        ../nix/stack/s3.nix
+        ../nix/stack/postgres.nix
+        ../nix/stack/seaweedfs.nix
       ];
 
       scripts.seed = {

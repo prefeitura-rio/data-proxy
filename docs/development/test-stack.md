@@ -38,7 +38,7 @@ On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. 
 
 PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run s3:clean:data`. The task deletes the SeaweedFS data folder and creates it again.
 
-To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/stack/pg.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
+To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/stack/postgres.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
 
 <!-- nav:start -->
 ---

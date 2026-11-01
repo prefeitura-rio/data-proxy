@@ -24,7 +24,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 - **NIX-36** Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process. [must, review]
 - **NIX-37** Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. Add the other options of a process or task with `//`. [should, review]
 - **NIX-38** Let a task that a process needs use `before`. Let a task that needs a running service use `after` and `wantedBy` with `utils.processTask "<name>"`. [must, review]
-- **NIX-39** Define the `<component>:test:int` tasks in `nix/profiles/int.nix`, so the job that runs one fetches no tool of another profile. [must, review]
+- **NIX-39** Define the `<component>:test:int` tasks in `nix/profiles/integration.nix`, so the job that runs one fetches no tool of another profile. [must, review]
 - **NIX-40** Define a `<component>:test:unit` task in the unit profile of its component. [must, review]
 - **NIX-41** Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, with the input files from `utils.mkInputs`. [must, review]
 - **NIX-42** List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder. [must, devenv]
@@ -62,7 +62,7 @@ command = command: mkProbe (lib.escapeShellArgs command);
 
 ## Tests
 
-- **NIX-53** Run `devenv --profile int tasks run <component>:test:int` for each component that a change touches. The first run can fail when a hook formats a file. Run it again. [must, review]
+- **NIX-53** Run `devenv --profile integration tasks run <component>:test:int` for each component that a change touches. The first run can fail when a hook formats a file. Run it again. [must, review]
 
 <!-- nav:start -->
 ---

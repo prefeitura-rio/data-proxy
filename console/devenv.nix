@@ -127,12 +127,12 @@ in
       { data, utils, ... }:
       {
         imports = [
-          ../nix/stack/kc.nix
-          ../nix/stack/pg.nix
-          ../nix/stack/pgrest.nix
-          ../nix/stack/s3.nix
-          ../nix/stack/console-setup.nix
+          ../nix/stack/keycloak.nix
+          ../nix/stack/postgres.nix
+          ../nix/stack/postgrest.nix
+          ../nix/stack/seaweedfs.nix
           ../nix/stack/console.nix
+          ../nix/stack/notebooks.nix
         ];
 
         env = {
@@ -160,10 +160,5 @@ in
           pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
         '';
       };
-  };
-
-  profiles.nb = {
-    extends = [ "console" ];
-    module.imports = [ ../nix/stack/nb.nix ];
   };
 }

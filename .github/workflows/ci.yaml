@@ -64,7 +64,7 @@ jobs:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
-        run: devenv --profile release shell -- ci changes
+        run: devenv --profile chart shell -- ci changes
   repo:
     defaults:
       run:
@@ -115,14 +115,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: sync
-          profile: int
-      - run: devenv --profile int tasks run sync:test:int
+          profile: integration
+      - run: devenv --profile integration tasks run sync:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: sync
-          profile: int
+          profile: integration
   test-console:
     name: Console integration tests
     runs-on: ubuntu-latest
@@ -142,14 +142,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: console
-          profile: int
-      - run: devenv --profile int tasks run console:test:int
+          profile: integration
+      - run: devenv --profile integration tasks run console:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: console
-          profile: int
+          profile: integration
       - name: Save the container images
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/save-images
@@ -168,14 +168,14 @@ jobs:
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: proxy
-          profile: int
-      - run: devenv --profile int tasks run proxy:test:int
+          profile: integration
+      - run: devenv --profile integration tasks run proxy:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
           group: proxy
-          profile: int
+          profile: integration
   profile-sizes:
     name: Profile sizes
     runs-on: ubuntu-latest
@@ -277,7 +277,7 @@ jobs:
   helm:
     defaults:
       run:
-        shell: devenv --profile release shell -- bash -e {0}
+        shell: devenv --profile chart shell -- bash -e {0}
     name: Release Helm chart
     timeout-minutes: 15
     needs:

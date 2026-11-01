@@ -95,8 +95,8 @@ export def "test commands-of-reads-each-form-of-a-command" []: nothing -> nothin
         [name text expected];
         [
             'a profile and a task'
-            'devenv --profile int tasks run sync:test:int'
-            [(found 1 int 'tasks run' sync:test:int)]
+            'devenv --profile integration tasks run sync:test:int'
+            [(found 1 integration 'tasks run' sync:test:int)]
         ]
         [
             'no profile means default'
@@ -110,13 +110,13 @@ export def "test commands-of-reads-each-form-of-a-command" []: nothing -> nothin
         ]
         [
             'a word after the tasks is not a task'
-            'devenv --profile int tasks run sync:test:int and more words'
-            [(found 1 int 'tasks run' sync:test:int)]
+            'devenv --profile integration tasks run sync:test:int and more words'
+            [(found 1 integration 'tasks run' sync:test:int)]
         ]
         [
             'a full stop ends the last task'
-            'devenv --profile int tasks run sync:test:int. It takes a minute.'
-            [(found 1 int 'tasks run' sync:test:int)]
+            'devenv --profile integration tasks run sync:test:int. It takes a minute.'
+            [(found 1 integration 'tasks run' sync:test:int)]
         ]
         [
             'the test verb has no tasks'
@@ -139,8 +139,8 @@ export def "test commands-of-reads-each-form-of-a-command" []: nothing -> nothin
         assert equal (commands-of $case.text) $case.expected $case.name
     }
 
-    assert equal (commands-of "one\n\n```bash\ndevenv --profile nb up -d\n```") [
-        (found 4 nb up)
+    assert equal (commands-of "one\n\n```bash\ndevenv --profile console up -d\n```") [
+        (found 4 console up)
     ]
 }
 
@@ -148,7 +148,7 @@ export def "test commands-of-reads-each-form-of-a-command" []: nothing -> nothin
 export def "test command-problems-names-the-wrong-commands" []: nothing -> nothing {
     let tasks_of = {|profile|
         match $profile {
-            int => [sync:test:int proxy:test:int]
+            integration => [sync:test:int proxy:test:int]
             repo => [repo:lint repo:test:unit sync:lint:py]
             _ => []
         }
@@ -156,17 +156,17 @@ export def "test command-problems-names-the-wrong-commands" []: nothing -> nothi
 
     let commands = [
         [file line profile verb tasks];
-        [a.md 1 int 'tasks run' [sync:test:int]]
+        [a.md 1 integration 'tasks run' [sync:test:int]]
         [a.md 2 repo 'tasks run' [repo]]
         [a.md 3 repo 'tasks run' [sync:lint]]
-        [a.md 4 int 'tasks run' [sync:tests:int]]
+        [a.md 4 integration 'tasks run' [sync:tests:int]]
         [a.md 5 gone 'tasks run' [repo:lint]]
-        [a.md 6 int test []]
+        [a.md 6 integration test []]
         [a.md 7 gone up []]
     ]
 
-    assert equal (command-problems $commands [int repo] $tasks_of) [
-        'a.md:4: no task sync:tests:int in the profile int'
+    assert equal (command-problems $commands [integration repo] $tasks_of) [
+        'a.md:4: no task sync:tests:int in the profile integration'
         'a.md:5: no profile gone'
         'a.md:7: no profile gone'
     ]
