@@ -1,6 +1,7 @@
 """Stub the workflows, the steps, the logs and the clients of the sync worker."""
 
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from inspect import unwrap
 from logging import LogRecord
@@ -237,3 +238,35 @@ def record(
     exc_info = None if error is None else (type(error), error, error.__traceback__)
 
     return LogRecord("dbos", level, "file.py", 1, message, (), exc_info)
+
+
+class FakeRedis:
+    """A Redis client that records when it flushes a database."""
+
+    def __init__(self, db: int | None, events: list[str]) -> None:
+        """Keep the database that the client opened and the list that records the calls."""
+        self.db = db
+        self.events = events
+
+    async def flushdb(self) -> None:
+        """Record that the client flushed the database."""
+        self.events.append(f"flush:{self.db}")
+
+
+def stub_cache_redis(monkeypatch: pytest.MonkeyPatch, cache_db: int) -> list[str]:
+    """Put a fake Redis in the settings of sync.cache and return the list of its calls."""
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def redis(db: int | None = None) -> AsyncGenerator[FakeRedis]:
+        events.append(f"open:{db}")
+        try:
+            yield FakeRedis(db, events)
+        finally:
+            events.append(f"close:{db}")
+
+    monkeypatch.setattr(
+        "sync.cache.settings",
+        SimpleNamespace(PROXY_CACHE_REDIS_DB=cache_db, redis=redis),
+    )
+    return events

@@ -14,12 +14,14 @@ from sync.models import (
 )
 from sync.settings import settings
 from sync.templates import render_template
+from sync.views.reconcile import ROUTING_TEMPLATES
 from tests.constants import (
     ROUTED_TABLE,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers.core import scalar, set_request_headers, set_setting
+from tests.helpers.core import execute_sql, scalar, set_request_headers, set_setting
 from tests.helpers.routing import (
+    aggregate,
     call_table_function,
     comparison,
     group,
@@ -615,3 +617,53 @@ class TestRenderFilterNode:
                 await render_filter_node(postgres, node, COLUMNS)
 
         assert error.value.sqlstate == "PT400"
+
+
+@pytest.mark.postgres
+class TestRoutingUpgrade:
+    """A database that has the older render_filter_node gets the new functions at the next sync run."""
+
+    async def test_the_routing_templates_replace_the_function_with_the_old_parameter_names(
+        self, postgres: Postgres
+    ) -> None:
+        """Replaces render_filter_node, and its callers read the new function."""
+        mapping = {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
+        await execute_sql(postgres, "postgres/create_old_filter_node", mapping=mapping)
+        assert (
+            await scalar(postgres, "SELECT data_proxy.render_filter_node('{}', '{}')")
+            == "old"
+        )
+
+        for template in ROUTING_TEMPLATES:
+            await postgres.connection.execute(
+                render_template(f"postgres/views/routing/{template}", mapping)
+            )
+
+        arguments = await scalar(
+            postgres,
+            "SELECT pg_get_function_arguments('data_proxy.render_filter_node(jsonb, text[])'::regprocedure)",
+        )
+        assert arguments == "p_node jsonb, p_columns text[]"
+        node = json.dumps(comparison("id", "eq", "1"))
+        assert (
+            await scalar(
+                postgres,
+                "SELECT data_proxy.render_filter_node(%s::jsonb, ARRAY['id'])",
+                node,
+            )
+            == "(\"id\" = '1')"
+        )
+        assert (
+            await scalar(
+                postgres,
+                "SELECT data_proxy.render_dl_where(%s::jsonb, ARRAY['id'])",
+                json.dumps({"where": json.loads(node)}),
+            )
+            == "(\"id\" = '1')"
+        )
+        assert await scalar(
+            postgres,
+            "SELECT data_proxy.plan_aggregate_items(%s::jsonb, %s::jsonb)",
+            json.dumps(aggregate({"fn": "count", "alias": "n"})["aggregate"]),
+            json.dumps({}),
+        ) == ["count(*) AS n"]

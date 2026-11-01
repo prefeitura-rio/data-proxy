@@ -1,7 +1,7 @@
 """Source view reconciliation pipeline."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from psycopg.rows import TupleRow
 
@@ -23,6 +23,16 @@ from .stages import (
 if TYPE_CHECKING:
     from sync.models import SyncConfig
     from sync.postgres import Postgres
+
+ROUTING_TEMPLATES: Final = (
+    "quoting",
+    "snapshot",
+    "coverage",
+    "plan",
+    "response",
+    "filter",
+    "aggregate",
+)
 
 
 @dataclass
@@ -71,15 +81,7 @@ class ReconciliationContext:
     async def install_routing(self) -> None:
         """Install the orchestration functions that route requests to sources."""
         executor = Executor[PostgresParams, list[TupleRow]](conn=self.pg_conn)
-        for template in (
-            "quoting",
-            "snapshot",
-            "coverage",
-            "plan",
-            "response",
-            "filter",
-            "aggregate",
-        ):
+        for template in ROUTING_TEMPLATES:
             await executor.execute(
                 f"postgres/views/routing/{template}",
                 mapping={"schema": app_schema()},

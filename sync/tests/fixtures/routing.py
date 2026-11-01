@@ -10,6 +10,7 @@ from psycopg.sql import Identifier
 from sync.executor import Executor
 from sync.settings import settings
 from sync.types import PostgresParams
+from sync.views.reconcile import ROUTING_TEMPLATES
 from tests.constants import FULL, POSTGRES_URL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
 from tests.helpers.core import execute_sql
@@ -21,11 +22,7 @@ from tests.helpers.state import put_state
 @pytest.fixture
 async def routing(postgres: Postgres) -> Postgres:
     """Install the routing functions in the test transaction."""
-    await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
-        "postgres/views/routing/snapshot",
-        mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
-    )
-    for template in ("quoting", "coverage", "filter", "plan", "response", "aggregate"):
+    for template in ROUTING_TEMPLATES:
         await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
             f"postgres/views/routing/{template}",
             mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},

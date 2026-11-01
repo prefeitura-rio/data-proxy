@@ -33,7 +33,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 
 ## Tests
 
-- **LUA-25** Write one test file for each module, `proxy/tests/unit/<module>_spec.lua`, and keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main` and `handler` have no test file. [must, review]
+- **LUA-25** Write one test file for each module, `proxy/tests/unit/<module>_spec.lua`, and keep `proxy/tests/unit` flat. `constants`, `regex`, `main` and `handler` have no test file. [must, review]
 - **LUA-26** Write table-driven Busted specs, with one `describe` for each function and `it(case.name)` for each case. [must, review]
 - **LUA-27** Give each case a name that states the behavior, for example `retries a 503 on the retry service`. [must, review]
 - **LUA-28** Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, such as the 32 raw bytes that `resty.sha256` gives. [must, review]
