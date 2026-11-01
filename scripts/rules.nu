@@ -10,6 +10,10 @@ const SKIPPED_FOLDERS = [
 
 const COMMIT_TYPES = '^(feat|fix|refactor|test|docs|chore|revert)(\([a-z0-9,_ -]+\))?!?: '
 
+const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
+
+const HEADER_WORDS = 40
+
 const LUA = ['proxy/src/**/*.lua']
 
 const NIX = ['**/*.nix']
@@ -24,6 +28,15 @@ const SQL = [
     'sync/src/sync/templates/**/*.sql'
     'helm/files/templates/**/*.sql'
     'console/migrations/*.sql'
+]
+
+const PARSER_DISABLED = [
+    console/migrations/
+    sync/src/sync/templates/duckdb/
+    sync/src/sync/templates/postgres/create_table_changes_function.sql
+    sync/src/sync/templates/postgres/delete_removed_state.sql
+    sync/src/sync/templates/postgres/views/create_function.sql
+    sync/tests/templates/duckdb/publish_people_snapshots.sql
 ]
 
 const NU_LIBS = [
@@ -45,6 +58,7 @@ export const RULES = [
     [NU-16 $NU '(^|[|={(])\s*(open|save|mkdir|rm|cp|mv)\s' '#' [...$NU_LIBS console/notebooks/build.nu] "Use the file helpers of lib.nu."]
     [SQL-04 $SQL '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b' '--' [] "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
     [SQL-24 $SQL r#'"' \|\| replace\('# '--' [sync/src/sync/templates/postgres/views/routing/quoting.sql] "Quote a DuckDB identifier with quote_column()."]
+    [SQL-29 [...$SQL 'sync/tests/templates/**/*.sql'] '^-- noqa: disable=[A-Z0-9,]*PRS' '' $PARSER_DISABLED "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
     [K6-13 ['k6/**/*.js'] '\bconsole\.(log|warn|error|info|debug)\b' '//' [k6/lib/log.js] "Log with info and warn from lib/log.js."]
     [GEN-11 $NU '^\s{4,}#\s' '' [] "Write no comment inside a function body."]
     [GEN-11 ['console/ui/src/**/*.ts'] '^\t{2,}(//|/\*)' '' [] "Write no comment inside a function body."]
@@ -58,6 +72,30 @@ export def line-findings [rule: record, file: string, text: string]: nothing -> 
     | where ($rule.skip | is-empty) or not ($it.item | str trim | str starts-with $rule.skip)
     | where item =~ $rule.pattern
     | each {|row| $'($file):($row.index + 1): ($rule.id) ($rule.message)' }
+}
+
+# Return the number of words of the description of a header, or 0 for a header without one.
+def description-words [header: record]: nothing -> int {
+    let description = $header | get --optional description
+
+    if $description == null { 0 } else { $description | split row --regex '\s+' | length }
+}
+
+# Return a problem for each header of a template whose description has more than 40 words.
+export def header-problems [file: string, text: string]: nothing -> list<string> {
+    $text
+    | parse --regex $HEADER
+    | get capture0
+    | each {|source|
+        let header = try { $source | from json } catch { fail $'($file): The header is not valid JSON.' }
+
+        {
+            name: ($header | get --optional name | default template)
+            words: (description-words $header)
+        }
+    }
+    | where words > $HEADER_WORDS
+    | each {|header| $'($file): SQL-30 The description of ($header.name) has ($header.words) words.' }
 }
 
 # Return true when the path starts with one of the files or folders that the rule allows.
@@ -98,8 +136,15 @@ def main []: nothing -> nothing {
     | each {|rule| files-of $rule | each {|file| line-findings $rule $file (read-text $file) } | flatten }
     | flatten
 
+    let headers = $SQL
+    | each {|pattern| glob $pattern }
+    | flatten
+    | each {|file| $file | path relative-to (pwd) }
+    | each {|file| header-problems $file (read-text $file) }
+    | flatten
+
     let commits = commit-problems ...(git log --max-count=50 --format=%s | lines)
-    let found = [...$files ...$commits]
+    let found = [...$files ...$headers ...$commits]
 
     if ($found | is-not-empty) {
         fail $"The code breaks the style rules:\n($found | str join "\n")"

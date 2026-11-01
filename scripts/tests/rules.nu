@@ -1,5 +1,5 @@
 use std/assert
-use ../rules.nu [commit-problems excluded line-findings RULES]
+use ../rules.nu [commit-problems excluded header-problems line-findings RULES]
 
 const ASSERT = {
     id: LUA-47
@@ -87,6 +87,7 @@ export def "test every-row-flags-its-violation-and-passes-the-compliant-line" []
         [SQL-04 sql '    created_at timestamp NOT NULL' '    created_at timestamptz NOT NULL']
         [SQL-04 sql '    id bigserial PRIMARY KEY' '    id bigint GENERATED ALWAYS AS IDENTITY']
         [SQL-24 sql r#'  SELECT '"' || replace(p_name, '"', '""')'# '  SELECT quote_column(p_name)']
+        [SQL-29 sql '-- noqa: disable=PRS,LT05' '-- noqa: disable=LT05']
         [K6-13 js '    console.log(text)' '    info("started", {})']
         [GEN-11 nu '    # A comment in a body' '# A comment above a command']
         [GEN-11 ts "\t\t// A comment in a body" '/** A summary above a function. */']
@@ -101,4 +102,28 @@ export def "test every-row-flags-its-violation-and-passes-the-compliant-line" []
         assert equal (line-findings $rule f $case.bad | length) 1 $'bad ($case.id) ($case.ext)'
         assert equal (line-findings $rule f $case.good) [] $'good ($case.id) ($case.ext)'
     }
+}
+
+# Verify that a header description over 40 words is a problem, and that other headers pass.
+export def "test header-problems-counts-the-words-of-each-description" []: nothing -> nothing {
+    let long = 1..41 | each { 'word' } | str join ' '
+    let exact = 1..40 | each { 'word' } | str join ' '
+
+    let cases = [
+        [name text expected];
+        ['a short description' (header 'template' 'Create a table.') []]
+        ['a description of 40 words' (header 'template' $exact) []]
+        ['a description of 41 words' (header 'template' $long) ['f.sql: SQL-30 The description of template has 41 words.']]
+        ['a macro with a name' (header 'postgres.sql_array' $long) ['f.sql: SQL-30 The description of postgres.sql_array has 41 words.']]
+        ['a file without a header' 'SELECT 1;' []]
+        ['a note under the header' $"(header 'template' 'Create a table.')\n{#\n($long)\n#}" []]
+    ]
+
+    for case in $cases {
+        assert equal (header-problems f.sql $case.text) $case.expected $case.name
+    }
+}
+
+def header [name: string, description: string]: nothing -> string {
+    {kind: template, name: $name, description: $description} | to json --indent 2 | $"{#\n($in)\n#}"
 }

@@ -51,8 +51,8 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - **SQL-26** Render an array with `sql_array` or `name_array`. Don't write a `for` loop with `loop.last` for a list. [must, review]
 - **SQL-27** Name a parameter of a new function `p_<name>` and a local variable `v_<name>`. [should, review]
 - **SQL-28** Keep a function under 60 lines. Split a longer function into functions with one job and a name. [should, review]
-- **SQL-29** Keep a template readable by the SQLFluff parser. Don't add `noqa: disable=PRS` to a new template, and write the reason under any `noqa`. [must, review]
-- **SQL-30** Keep the description of a header under 40 words. Put the detail in a Jinja comment under the header. [must, review]
+- **SQL-29** Keep a template readable by the SQLFluff parser. Don't add `noqa: disable=PRS` to a new template. Add a file to the allowed list in `scripts/rules.nu` only with a reason line under the `noqa`. [must, code]
+- **SQL-30** Keep the description of a header under 40 words. Put the detail in a Jinja comment under the header. [must, code]
 
 ```sql
 ✅ v_duckdb_sql := format('SELECT %s FROM view%s', v_plan.select_list, v_plan.group_by);
