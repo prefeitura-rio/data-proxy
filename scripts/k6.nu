@@ -63,9 +63,15 @@ def test-phase [kubecfg: path, label: string]: nothing -> record<complete: bool,
     }
 }
 
+# How long to wait for the runner Job to appear, and for the test to end, and how often to look.
+const RUNNER_APPEAR_WAIT = 15min
+const RUNNER_RUN_WAIT = 60min
+const APPEAR_INTERVAL = 1sec
+const RUN_INTERVAL = 2sec
+
 # Wait until the runner Jobs complete or fail, and return their last phase.
 def await-test [kubecfg: path, label: string, attempts: int]: nothing -> record<complete: bool, failed: bool> {
-    poll {|| let phase = test-phase $kubecfg $label; $phase.complete or $phase.failed } {interval: 2sec, max_attempts: $attempts} | ignore
+    poll {|| let phase = test-phase $kubecfg $label; $phase.complete or $phase.failed } {interval: $RUN_INTERVAL, max_attempts: $attempts} | ignore
 
     test-phase $kubecfg $label
 }
@@ -171,8 +177,8 @@ def k6-run [
         let jobs = wrap-kubectl $kubecfg -n $NAMESPACE get jobs -l $label -o 'jsonpath={.items}' | str trim
         ($jobs | is-not-empty) and ($jobs != '[]')
     } {
-        interval: 1sec
-        max_attempts: 900
+        interval: $APPEAR_INTERVAL
+        max_attempts: ($RUNNER_APPEAR_WAIT // $APPEAR_INTERVAL)
     }) {
         let stage = try {
             wrap-kubectl $kubecfg -n $NAMESPACE get testrun $testrun -o json
@@ -182,7 +188,7 @@ def k6-run [
         } catch {
             missing
         }
-        fail $"k6 runner Job didn't appear within 15 minutes (TestRun stage=($stage))"
+        fail $"k6 runner Job didn't appear within ($RUNNER_APPEAR_WAIT) (TestRun stage=($stage))"
     }
 
     let pod = wrap-kubectl $kubecfg -n $NAMESPACE get pods -l $label -o 'jsonpath={.items[0].metadata.name}'
@@ -190,7 +196,7 @@ def k6-run [
     let streamed = stream-log $kubecfg $pod
 
     log info 'Waiting for the test to complete...'
-    let phase = await-test $kubecfg $label 1800
+    let phase = await-test $kubecfg $label ($RUNNER_RUN_WAIT // $RUN_INTERVAL)
 
     if not $streamed {
         print (wrap-kubectl $kubecfg -n $NAMESPACE logs $pod | to text)
@@ -201,7 +207,7 @@ def k6-run [
     }
 
     if not $phase.complete {
-        fail 'k6 runner Job timed out after 60 minutes'
+        fail $'k6 runner Job timed out after ($RUNNER_RUN_WAIT)'
     }
 }
 

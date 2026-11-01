@@ -193,27 +193,35 @@ app.kubernetes.io/instance: {{ .Release.Name }}
       key: password
 {{- end }}
 
-{{- define "data-proxy.s3Env" -}}
+{{- define "data-proxy.s3CredentialsEnv" -}}
 - name: S3_BUCKET
-  value: {{ .Values.s3.bucket | quote }}
+  value: {{ .bucket | quote }}
 - name: S3_ENDPOINT
-  value: {{ include "data-proxy.s3Endpoint" . | quote }}
+  value: {{ .endpoint | quote }}
 - name: S3_USE_SSL
-  value: {{ .Values.s3.useSsl | quote }}
+  value: {{ .useSsl | quote }}
 - name: S3_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ include "data-proxy.s3SecretName" . }}
+      name: {{ .secret | quote }}
       key: S3_ACCESS_KEY
 - name: S3_SECRET_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ include "data-proxy.s3SecretName" . }}
+      name: {{ .secret | quote }}
       key: S3_SECRET_KEY
 {{- end }}
 
-{{- define "data-proxy.s3BootstrapEnv" -}}
-{{- include "data-proxy.s3Env" . }}
+{{- define "data-proxy.s3Env" -}}
+{{- include "data-proxy.s3CredentialsEnv" (dict
+  "bucket" .Values.s3.bucket
+  "endpoint" (include "data-proxy.s3Endpoint" .)
+  "useSsl" .Values.s3.useSsl
+  "secret" (include "data-proxy.s3SecretName" .)
+) }}
+{{- end }}
+
+{{- define "data-proxy.s3BootstrapSettingsEnv" -}}
 - name: S3_BOOTSTRAP_TIMEOUT
   value: {{ .Values.s3.bootstrap.timeout | quote }}
 - name: S3_BOOTSTRAP_RETRY
@@ -224,6 +232,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "data-proxy.s3BootstrapEnv" -}}
+{{- include "data-proxy.s3Env" . }}
+{{ include "data-proxy.s3BootstrapSettingsEnv" . }}
+{{- end }}
+
 {{- define "data-proxy.s3BootstrapVolume" -}}
 - name: s3-bootstrap
   configMap:
@@ -231,55 +244,41 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     defaultMode: 0555
 {{- end }}
 
-{{- define "data-proxy.s3WaitInitContainer" -}}
-- name: wait-for-s3
-  image: {{ .Values.jobs.image | quote }}
-  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
+{{- define "data-proxy.s3WaitContainer" -}}
+- name: {{ .name }}
+  image: {{ .root.Values.jobs.image | quote }}
+  {{- include "data-proxy.containerSecurity" (dict "root" .root "component" "jobs") | nindent 2 }}
   command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
   env:
-    {{- include "data-proxy.s3BootstrapEnv" . | nindent 4 }}
+    {{- .env | nindent 4 }}
   volumeMounts:
     - name: s3-bootstrap
       mountPath: /s3-bootstrap
       readOnly: true
-    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
+    {{- include "data-proxy.gcpVolumeMount" .root | nindent 4 }}
+{{- end }}
+
+{{- define "data-proxy.s3WaitInitContainer" -}}
+{{- include "data-proxy.s3WaitContainer" (dict
+  "name" "wait-for-s3"
+  "root" .
+  "env" (include "data-proxy.s3BootstrapEnv" .)
+) }}
 {{- end }}
 
 {{- define "data-proxy.backupS3WaitInitContainer" -}}
-- name: wait-for-backup-s3
-  image: {{ .Values.jobs.image | quote }}
-  {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 2 }}
-  command: [nu, /s3-bootstrap/ensure-s3-bucket.nu, --wait]
-  env:
-    - name: S3_BUCKET
-      value: {{ .Values.jobs.backup.s3.bucket | quote }}
-    - name: S3_ENDPOINT
-      value: {{ .Values.jobs.backup.s3.endpointURL | quote }}
-    - name: S3_USE_SSL
-      value: "true"
-    - name: S3_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
-          key: S3_ACCESS_KEY
-    - name: S3_SECRET_KEY
-      valueFrom:
-        secretKeyRef:
-          name: {{ .Values.jobs.backup.s3.existingSecret | quote }}
-          key: S3_SECRET_KEY
-    - name: S3_BOOTSTRAP_TIMEOUT
-      value: {{ .Values.s3.bootstrap.timeout | quote }}
-    - name: S3_BOOTSTRAP_RETRY
-      value: {{ .Values.s3.bootstrap.retry | quote }}
-    {{- if .Values.gcp.existingSecret }}
-    - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: {{ .Values.gcp.mountPath | quote }}
-    {{- end }}
-  volumeMounts:
-    - name: s3-bootstrap
-      mountPath: /s3-bootstrap
-      readOnly: true
-    {{- include "data-proxy.gcpVolumeMount" . | nindent 4 }}
+{{- $backup := .Values.jobs.backup.s3 -}}
+{{- $credentials := include "data-proxy.s3CredentialsEnv" (dict
+  "bucket" $backup.bucket
+  "endpoint" $backup.endpointURL
+  "useSsl" "true"
+  "secret" $backup.existingSecret
+) -}}
+{{- include "data-proxy.s3WaitContainer" (dict
+  "name" "wait-for-backup-s3"
+  "root" .
+  "env" (print $credentials "\n" (include "data-proxy.s3BootstrapSettingsEnv" .))
+) }}
 {{- end }}
 
 {{- define "data-proxy.redisSecretName" -}}
