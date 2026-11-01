@@ -56,7 +56,7 @@ in
               exec ${lib.getExe pkgs.vale} "$@"
             ''
           );
-          files = "^(docs/.*\\.md|README\\.md|STYLEGUIDE\\.md|sync/src/sync/.*\\.py|scripts/.*\\.nu)$";
+          files = "^(docs/.*\\.md|README\\.md|AGENTS\\.md|STYLEGUIDE\\.md|sync/src/sync/.*\\.py|scripts/.*\\.nu)$";
         };
 
         tasks = {
@@ -154,6 +154,7 @@ in
             execIfModified = utils.mkInputs (
               [
                 "README.md"
+                "AGENTS.md"
                 "STYLEGUIDE.md"
                 "scripts/docs.nu"
               ]

@@ -47,6 +47,7 @@ in
           execIfModified = utils.mkInputs (
             [
               "README.md"
+              "AGENTS.md"
               "STYLEGUIDE.md"
               "devenv.nix"
               "devenv.lock"

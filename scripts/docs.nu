@@ -343,7 +343,7 @@ export def link-problems [...files: path]: nothing -> list<string> {
 
 # Fail when a link of the docs, the README or the style guide points to a missing file or heading.
 def "main links" []: nothing -> nothing {
-    let files = [...(glob $'($DOCS)/**/*.md') README.md STYLEGUIDE.md]
+    let files = [...(glob $'($DOCS)/**/*.md') README.md AGENTS.md STYLEGUIDE.md]
 
     let found = link-problems ...$files
 

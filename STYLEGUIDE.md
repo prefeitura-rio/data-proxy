@@ -497,7 +497,6 @@ devenv --profile console tasks run console:lint:ui
 - Make one logical change per commit. Squash fixups before merge.
 - The hooks run in prek at commit time. If a hook rewrites a file, stage the file again and commit again.
 - `ripsecrets` blocks a line that looks like a secret. Add a whole file to `.secretsignore`, or mark one line with `pragma: allowlist secret`, as `helm/tests/ducklake_catalog_test.yaml` does.
-- Never commit or push without explicit approval. Stage, summarize, and wait.
 
 ```text
 feat(sync)!: require DBOS workflow recovery
