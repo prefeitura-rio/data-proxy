@@ -269,6 +269,17 @@ for schema in $schemas {
 
 Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/stack/` contains one component for each file, with its processes and tasks, and `nix/utils.nix` contains the helpers.
 
+### Naming
+
+- A task is `<component>:<verb>:<target>`. The verb is one of `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean`, `serve` and `open`. The target is the object of the verb, in the singular, such as `py`, `image` or `db`. For `test` the target is the level: `unit` for the tests that need no service and `int` for the tests that need services.
+- A task that groups other tasks uses the component `repo` and has two parts, or three if it names a level: `repo:lint` and `repo:test:unit`. A namespace prefix runs every task under it in the active profile, so `devenv tasks run repo` runs both groups and `devenv tasks run sync:test` runs the sync tests.
+- The component is a deployable (`sync`, `proxy`, `console`, `chart`), a part of the test stack (`pg`, `pgrest`, `kc`, `s3`, `nb`) or a repository tool (`nu`, `ci`, `ctr`, `docs`, `nix`, `repo`).
+- Abbreviate a name that's long, and use the same short form in every layer: the task, the process, the profile, the file in `nix/stack/` and the test image. The glossary has these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, provision `prov` and configure `conf`. Add a word to the glossary before you use a new short form. Environment variables and the names of registry images keep the full words, because the tests and the chart read them.
+- A profile is `<component>` for the whole stack of a component and `<component>-unit` for the part that needs no service. The other profiles are named by what they do: `base` and `python` are mixed into the others, `repo` runs the lint and unit tasks, `int` has the integration suites, `nix` checks the size of the profiles, `docs` serves the docs and `release` runs the release.
+- A file in `nix/stack/` has the short name of its part. A file in `nix/profiles/` has the name of its profile.
+- `devenv.yaml` imports the folders that have their own inputs, and the root `devenv.nix` imports `nix/profiles/*`.
+- devenv rejects a task name that breaks these rules when it evaluates a profile. The list of verbs and components is in `nix/profiles/base.nix`.
+
 ### Code
 
 - Format with `nixfmt`. Don't align by hand.
@@ -287,10 +298,10 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Give every task and every script a `description`.
 - Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
-- Name every task `<component>:<task>:<type>`, such as `console:setup:seed`, `sync:lint:py` or `proxy:test:int`. A namespace prefix runs every task under it in the active profile: `devenv tasks run sync:test` runs the `sync:test` tasks of that profile. A type of tests is `unit` for the tests that need no service and `int` for the tests that need services. A task that groups other tasks has two parts and uses the component `repo`: `repo:lint` runs every lint task and `repo:test:unit` runs every unit task, and `devenv tasks run repo` runs both. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
+- Name tasks, processes, profiles and files as the [Naming](#naming) section says. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
 - Keep each devenv profile under its limit in `nix/profiles/nix.nix`. Run `devenv --profile nix tasks run nix:lint:closure` after you add a package to a profile, a task or a process.
-- Define the `<component>:tests:int` tasks in `nix/profiles/int.nix`, so the job that runs one fetches no tool of another profile. A `<component>:tests:unit` task needs no service and lives in the profile of its component.
+- Define the `<component>:test:int` tasks in `nix/profiles/int.nix`, so the job that runs one fetches no tool of another profile. A `<component>:test:unit` task needs no service and lives in the unit profile of its component.
 - Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, and give it the input files with `utils.mkInputs`. List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder.
 - Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. Give a task that reads a generated file `after = [ "devenv:files" ]`.
 

@@ -125,7 +125,7 @@ in
 
   tasks = lib.mapAttrs' (
     name: _:
-    lib.nameValuePair "proxy:run-dir:${name}" (
+    lib.nameValuePair "proxy:setup:${name}" (
       utils.mkTask {
         command = [
           "mkdir"
