@@ -39,13 +39,14 @@ The `sync` profile starts these processes:
 
 The `sync` suite tests the sync code and the SQL templates. It runs with `pytest-xdist` on up to four workers. Each worker clones its own database from `test_template`, because the templates install functions that all workers would share. A session setup that every worker runs, such as the DBOS migration, takes a file lock (`one_worker_at_a_time` in `sync/tests/helpers.py`). Write a new test so that it uses only its own schema, and it runs on any worker.
 
-A unit test checks one function, class, method or template with every input and edge case. `sync/tests/unit/test_templates.py` contains all the template tests, as one class for each engine:
+A unit test checks one function, class, method or template with every input and edge case. The template tests are in `sync/tests/unit/test_templates_*.py`, one file for each family:
 
-- The PostgreSQL class runs the templates on the real test server.
-- The DuckDB class runs them on a real DuckDB with a file catalog.
-- The BigQuery class uses a mock.
+- `duckdb` runs the DuckDB templates on a real DuckDB with a file catalog, and the BigQuery template with a mock.
+- `routing`, `filter` and `serving` run the request functions on the real test server.
+- `access` and `maintenance` run the access policy, the schema and the reconcile templates on the real test server.
+- `roles` runs the roles and the `rbac` templates on the real test server.
 
-The `rbac` tests in that file include Hypothesis tests. They generate random rules files and compare the answers of `rbac.can()` and `rbac.mine()` with a reference that the test computes in Python. A property runs 300 examples by default, and `RBAC_EXAMPLES` sets another number.
+The `rbac` tests in `test_templates_roles.py` include Hypothesis tests. They generate random rules files and compare the answers of `rbac.can()` and `rbac.mine()` with a reference that the test computes in Python. A property runs 300 examples by default, and `RBAC_EXAMPLES` sets another number.
 
 Every template that has some logic has a test that renders it, runs it, and checks the result.
 

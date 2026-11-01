@@ -42,6 +42,24 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 
 - **SQL-21** Put test SQL in `sync/tests/templates/<backend>/`, with the same headers and names as the `src/` templates. Inline only one short statement, such as `SELECT set_config(...)` or `SET ROLE`. [must, review]
 
+## Readable templates
+
+- **SQL-22** Install a function that doesn't depend on the columns of a table once, as a static function in `routing/`. Render only identifiers and column lists in the function of a table. [must, review]
+- **SQL-23** Build dynamic SQL in named variables, and call `format()` once for each statement. Don't put `format()` in an argument of `format()` when a variable can store the text. Pass values with `USING`. [should, review]
+- **SQL-24** Quote a DuckDB column with `quote_column()`, a PostgreSQL identifier with `%I` and a value with `%L`. Don't quote with `replace`. [must, code]
+- **SQL-25** Write a macro that takes arguments and gives text. When a macro reads or sets a variable of the function, name the variable in its header, and let the caller write the `RETURN`. [must, review]
+- **SQL-26** Render an array with `sql_array` or `name_array`. Don't write a `for` loop with `loop.last` for a list. [must, review]
+- **SQL-27** Name a parameter of a new function `p_<name>` and a local variable `v_<name>`. [should, review]
+- **SQL-28** Keep a function under 60 lines. Split a longer function into functions with one job and a name. [should, review]
+- **SQL-29** Keep a template readable by the SQLFluff parser. Don't add `noqa: disable=PRS` to a new template, and write the reason under any `noqa`. [must, review]
+- **SQL-30** Keep the description of a header under 40 words. Put the detail in a Jinja comment under the header. [must, review]
+
+```sql
+✅ v_duckdb_sql := format('SELECT %s FROM view%s', v_plan.select_list, v_plan.group_by);
+✅ EXECUTE format('SELECT r[''j'']::text FROM duckdb.query(%L) r', v_duckdb_sql) INTO v_result;
+❌ EXECUTE format('SELECT r[''j'']::text FROM duckdb.query(%L) r', format('SELECT %s FROM view%s', a, b)) INTO v_result;
+```
+
 ## Permissions
 
 Add a permission in these steps:
@@ -49,7 +67,7 @@ Add a permission in these steps:
 1. Add it under `[permissions.<object>]` in `helm/files/config/rbac.toml`, and give it to a role.
 2. Call `rbac.can('<name>')` in the SQL that needs it.
 3. Run `devenv --profile repo tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
-4. Add a role test in `sync/tests/unit/test_templates.py`.
+4. Add a role test in `sync/tests/unit/test_templates_roles.py`.
 5. Update the permission tables in `docs/security/permissions.md`.
 
 The `configure-db` job runs `verify-rbac` and fails if the database differs from the file.

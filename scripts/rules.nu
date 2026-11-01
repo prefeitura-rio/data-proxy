@@ -44,6 +44,7 @@ export const RULES = [
     [NU-15 $NU '\berror make\b' '#' [...$NU_LIBS console/notebooks/build.nu] "Stop with fail from lib.nu."]
     [NU-16 $NU '(^|[|={(])\s*(open|save|mkdir|rm|cp|mv)\s' '#' [...$NU_LIBS console/notebooks/build.nu] "Use the file helpers of lib.nu."]
     [SQL-04 $SQL '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b' '--' [] "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
+    [SQL-24 $SQL r#'"' \|\| replace\('# '--' [sync/src/sync/templates/postgres/views/routing/quoting.sql] "Quote a DuckDB identifier with quote_column()."]
     [K6-13 ['k6/**/*.js'] '\bconsole\.(log|warn|error|info|debug)\b' '//' [k6/lib/log.js] "Log with info and warn from lib/log.js."]
     [GEN-11 $NU '^\s{4,}#\s' '' [] "Write no comment inside a function body."]
     [GEN-11 ['console/ui/src/**/*.ts'] '^\t{2,}(//|/\*)' '' [] "Write no comment inside a function body."]
