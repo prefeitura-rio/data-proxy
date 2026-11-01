@@ -30,6 +30,8 @@ The sync and console jobs start the build of the PostgreSQL test image in the ba
 
 The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git, and no C compiler. They don't evaluate the whole `repo` profile.
 
+The workflow `.github/workflows/cache-cleanup.yaml` deletes the Actions caches of a branch when someone deletes the branch, and the caches of a pull request when it closes. The caches of `main` stay. This keeps the 10 GB limit free for the caches that the jobs use.
+
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 
 ## Images

@@ -1,0 +1,33 @@
+name: Cache cleanup
+on:
+  delete: {}
+  pull_request:
+    types:
+      - closed
+permissions:
+  actions: write
+jobs:
+  branch:
+    name: Delete the caches of a deleted branch
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete the caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CACHE_REF: refs/heads/${{ github.event.ref }}
+        run: gh cache list --ref "$CACHE_REF" --limit 500 --json id --jq '.[].id' | xargs --no-run-if-empty --max-args 1 gh cache delete
+  pull-request:
+    name: Delete the caches of a closed pull request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete the caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CACHE_REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: gh cache list --ref "$CACHE_REF" --limit 500 --json id --jq '.[].id' | xargs --no-run-if-empty --max-args 1 gh cache delete
