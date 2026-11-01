@@ -39,7 +39,12 @@
       ]
     },
     {
-      "page": "database.md"
+      "page": "database.md",
+      "children": [
+        {
+          "page": "grants.md"
+        }
+      ]
     },
     {
       "page": "model.md"
@@ -89,7 +94,12 @@
       "page": "console/index.md",
       "children": [
         {
-          "page": "console/app.md"
+          "page": "console/app.md",
+          "children": [
+            {
+              "page": "console/feedback.md"
+            }
+          ]
         },
         {
           "page": "console/theme.md"
@@ -121,7 +131,15 @@
           "page": "development/setup.md"
         },
         {
-          "page": "development/tests.md"
+          "page": "development/tests.md",
+          "children": [
+            {
+              "page": "development/test-stack.md"
+            },
+            {
+              "page": "development/sync-tests.md"
+            }
+          ]
         },
         {
           "page": "development/checks.md"
@@ -204,7 +222,15 @@
           "page": "development/releases.md"
         },
         {
-          "page": "development/ci.md"
+          "page": "development/ci.md",
+          "children": [
+            {
+              "page": "development/ci-images.md"
+            },
+            {
+              "page": "development/ci-security.md"
+            }
+          ]
         },
         {
           "page": "development/seed.md"

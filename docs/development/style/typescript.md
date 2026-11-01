@@ -15,7 +15,7 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 
 - **TS-05** Use `strict` and `noUncheckedIndexedAccess`. Lint with the typescript-eslint `strictTypeChecked` and `stylisticTypeChecked` configurations. [must, eslint]
 - **TS-06** Don't use `any`, the non-null `!`, or a type assertion. Only `as const` is allowed. [must, eslint]
-- **TS-07** Type a value where it enters the program, with a valibot schema: a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field or a message from a frame. [must, review]
+- **TS-07** Type a value where it enters the program, with a valibot schema. Examples are a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field and a message from a frame. [must, review]
 - **TS-08** Derive the type with `v.InferOutput`. `lib/types.ts` has the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message. [should, review]
 - **TS-09** Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`. [must, eslint]
 - **TS-10** Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions. [must, eslint]

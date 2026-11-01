@@ -53,5 +53,5 @@ Edit the table in its own `.d2` file in `docs/diagrams/schemas/`. `db.d2` import
 <!-- nav:start -->
 ---
 
-[Previous: Database Schema](database.md) | [Next: Glossary](glossary.md) | [Home](index.md)
+[Previous: Database roles and grants](grants.md) | [Next: Glossary](glossary.md) | [Home](index.md)
 <!-- nav:end -->

@@ -8,7 +8,8 @@ The console is the admin web app of the data proxy. It lives in `console/`, whic
 
 It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. It has four tabs: Sync, Config, Access and Query. The browser never calls PostgREST. The SvelteKit server stores the session and calls PostgREST with the token of the user.
 
-- [Application](app.md) — The web app, its lists and its tokens.
+- [Application](app.md) — The web app and its sign-in.
+  - [Console lists, feedback and tokens](feedback.md) — The lists, the feedback, the live data and the tokens.
 - [Theme](theme.md) — The themes and the theme button.
 - [Database views](views.md) — Database views, logs and the HTTP interface.
 - [Control a run and a schedule](runs.md) — Control of sync runs and schedules.

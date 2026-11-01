@@ -40,7 +40,7 @@ The proxy sends the original request to PostgREST, and nothing changes for the c
 - The group has a decimal, floating point, timestamp, or JSON column. The table gives those as text, and DuckDB would give another type.
 - The select has a function other than `sum`, `avg`, `count`, `min` and `max`, a cast, an embed, or a star. An alias on a plain column also needs an aggregate in the same select. Two values of the answer with the same name stop it too.
 - The request has `Prefer: count=...` or a `Range` header, asks for another media type than JSON, is a `HEAD`, or isn't a read.
-- The function answers `null`, because a fallback source serves a part of the table, or because the aggregate uses a column type that it doesn't support.
+- The function answers `null` when a fallback source serves a part of the table. It also answers `null` when the aggregate uses a column type that it doesn't support.
 - The function doesn't exist, fails, or the call to it fails.
 
 DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the rows of the groups, so the text order follows the collation of the database, as in the table.

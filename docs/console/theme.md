@@ -30,5 +30,5 @@ The client `console` of the realm is another client. The end-to-end suite uses i
 <!-- nav:start -->
 ---
 
-[Previous: Application](app.md) | [Next: Database views](views.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Console lists, feedback and tokens](feedback.md) | [Next: Database views](views.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

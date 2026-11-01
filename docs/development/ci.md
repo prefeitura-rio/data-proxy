@@ -26,81 +26,18 @@ Each job restores the task state before it runs. The `task-state-restore` action
 
 The jobs `repo`, `test-sync`, `test-console` and `test-proxy` start at the same time as `changes`, because they use none of its output. The unit tests and the three integration suites therefore run in parallel on four runners.
 
-The sync and console jobs start the build of the PostgreSQL test image in the background (`.github/actions/prewarm-images`), before the Nix install. The console job also restores the test Keycloak image from the cache (a 399 MB archive, keyed by `Containerfile.kc`), or builds it. A run on `main` that found no copy saves it (`.github/actions/save-images`). The Containerfile runs the server build once, so Keycloak starts in 20 s and not in 33 s on a runner with two cores. The devenv tasks then find the images. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files. Every job that runs devenv keeps the Nix fetcher cache (`.github/actions/cache-nix`), keyed by `devenv.lock`, so it doesn't download the flake inputs again. A cache of the whole Nix store (`nix-community/cache-nix-action`) made the console job slower, because the restore of 1.4 GB took 31 s and saved 12 s in the test step, so the jobs don't use it. The first devenv step of a job takes 25 to 33 s, because the shell is cold. Running the steps that need no tool outside devenv only moves that cost to the next step, so the `helm` job doesn't do it.
+The sync and console jobs start the build of the PostgreSQL test image in the background (`.github/actions/prewarm-images`), before the Nix install. The console job also restores the test Keycloak image from the cache (a 399 MB archive, keyed by `Containerfile.kc`), or builds it. A run on `main` that found no copy saves it (`.github/actions/save-images`). The Containerfile runs the server build once, so Keycloak starts in 20 s and not in 33 s on a runner with two cores. The devenv tasks then find the images. The console and checks jobs keep the uv cache and the pnpm store between runs (`.github/actions/cache-packages`), keyed by the lock files. Every job that runs devenv keeps the Nix fetcher cache (`.github/actions/cache-nix`), keyed by `devenv.lock`, so it doesn't download the flake inputs again. A cache of the whole Nix store (`nix-community/cache-nix-action`) made the console job slower. The restore of 1.4 GB took 31 s and saved 12 s in the test step, so the jobs don't use it. The first devenv step of a job takes 25 to 33 s, because the shell is cold. Running the steps that need no tool outside devenv only moves that cost to the next step, so the `helm` job doesn't do it.
 
-The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git, and no C compiler. They don't evaluate the whole `repo` profile.
+The `changes` job and the `helm` job run in the `release` profile (`nix/profiles/release.nix`), which has only the `ci` script, `cog`, Helm and Git. It has no C compiler. They don't evaluate the whole `repo` profile.
 
 The workflow `.github/workflows/cache-cleanup.yaml` deletes the Actions caches of a branch when someone deletes the branch, and the caches of a pull request when it closes. The caches of `main` stay. This keeps the 10 GB limit free for the caches that the jobs use.
 
 A failed lint or test job stops the build and the release. The end-to-end (e2e) suite doesn't run in CI. Run it on the local cluster with `cluster k6 e2e`.
 
-## Images
-
-`ci changes` matches the changed files against the `change_pattern` of each image in the table `IMAGES` of `scripts/lib.nu`. The jobs build only the images that match.
-
-| Image | Containerfile | Rebuilds when this path changes |
-| --- | --- | --- |
-| `data-proxy-sync` | `Containerfile.sync` | `sync/src/`, `sync/pyproject.toml`, `sync/uv.lock`, `console/migrations/` |
-| `data-proxy-proxy` | `Containerfile.proxy` | `proxy/src/`, `proxy/lux.toml`, `proxy/lux.lock` |
-| `data-proxy-jobs` | `Containerfile.jobs` | `Containerfile.jobs` |
-| `data-proxy-postgres` | `Containerfile.pg` | `Containerfile.pg` |
-| `data-proxy-console` | `Containerfile.console` | `console/ui/`, `console/notebooks/` |
-
-Each image goes to `ghcr.io/<repository>-<name>`, for example `ghcr.io/prefeitura-rio/data-proxy-sync`. The tags are the short commit hash and `latest`. The PostgreSQL image adds the prefix `17-` to the hash, as in `17-ff86fc4`.
-
-The k6 image of `Containerfile.k6` is for the local cluster only. CI doesn't build it.
-
-## Pin the images in the chart
-
-The release must not use `latest`. Two commands pin the tags:
-
-| Command | Work |
-| --- | --- |
-| `ci images resolve` | Asks the registry for the newest tag of each image, with `crane ls`, for all images at the same time, and writes the tags as step outputs. A missing tag falls back to `latest`, except for the PostgreSQL image, which fails. |
-| `ci images pin` | Rewrites the `image:` line of each Data Proxy image in `helm/values.yaml` with the tag from the environment. It fails when a line doesn't match. |
-
-The `pre_bump_hooks` of `cog.toml` call `ci images pin`, so the release commit contains the pinned tags. See [Chart releases](releases.md) for the other steps.
-
-## Other `ci` commands
-
-| Command | Work |
-| --- | --- |
-| `ci git update` | Runs `git pull --rebase origin main`, so the release starts from the newest commit. |
-| `ci chart login` | Logs in to the Open Container Initiative (OCI) registry with `helm registry login`. |
-| `ci chart bump <version>` | Sets `version` in `helm/Chart.yaml`. The `pre_bump_hooks` of `cog.toml` call it. |
-
-## SAST
-
-`sast.yaml` runs on a push to `main`, on a pull request to `main`, and on a manual start. The job calls the shared action `prefeitura-rio/actions/sast`. The action sends the code to SonarQube and the findings to DefectDojo.
-
-`sonar-project.properties` excludes `scripts/`, `k3d/`, `k6/`, `helm/ci/` and `helm/tests/` from the analysis. They contain tooling and tests.
-
-## Secrets and variables
-
-| Name | Kind | Used by | Purpose |
-| --- | --- | --- | --- |
-| `GITHUB_TOKEN` | Automatic | `push-images`, `helm` | Pushes the images and the chart to the GitHub Container Registry (GHCR) and creates the release page. |
-| `RELEASE_TOKEN` | Secret, optional | `helm` | Pushes the release commit to a protected `main`. Without it, the job uses `GITHUB_TOKEN`. |
-| `SONARQUBE_URL` | Variable | SAST | The address of the SonarQube server. |
-| `SONARQUBE_TOKEN` | Secret | SAST | The token for SonarQube. |
-| `DEFECTDOJO_URL` | Variable | SAST | The address of the DefectDojo server. |
-| `DEFECTDOJO_TOKEN` | Secret | SAST | The token for DefectDojo. |
-| `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` | Secret | SAST | The Tailscale credentials that the shared action uses. |
-
-## Settings for another forge
-
-`ci.nu` reads these environment variables and uses the GitHub Actions values when they're missing.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `CI_OUTPUT_FILE` | `GITHUB_OUTPUT` | The file that receives the step outputs. Without it, the script prints them. |
-| `CI_REPOSITORY` | `GITHUB_REPOSITORY` | The repository path, for example `prefeitura-rio/data-proxy`. |
-| `CI_REGISTRY` | `ghcr.io` | The registry of the images and the chart. |
-| `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN` | `GITHUB_ACTOR`, `GITHUB_TOKEN` | The registry login. |
-| `CI_BOT_NAME`, `CI_BOT_EMAIL` | `github-actions[bot]` | The author of the release commit. |
+Two more pages go into the detail. [CI images and releases](ci-images.md) describes the image tags, the pin step and the other `ci` commands. [CI security and settings](ci-security.md) describes the SAST scan, the secrets, the variables and the settings for another forge.
 
 <!-- nav:start -->
 ---
 
-[Previous: Chart releases](releases.md) | [Next: Seed BigQuery data](seed.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Chart releases](releases.md) | [Next: CI images and releases](ci-images.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

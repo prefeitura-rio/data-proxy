@@ -32,7 +32,7 @@ logger.info("DuckLake commit completed: published_tables=%d", len(published_tabl
 
 ## Nushell and k6
 
-- **LOG-12** In Nushell, use `std/log` directly. A command in `scripts/` may use `print` for machine output, such as a CI output line, or for a log stream that it shows to a person. [must, review]
+- **LOG-12** In Nushell, use `std/log` directly. A command in `scripts/` may use `print` for machine output, such as a CI output line. It may also use `print` for a log stream that it shows to a person. [must, review]
 - **LOG-13** In k6, write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields. Never use `console`. [must, review]
 
 <!-- nav:start -->

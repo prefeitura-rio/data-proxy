@@ -19,5 +19,5 @@ The temporary e2e Job mounts the standalone trigger at `/scripts`. It isn't part
 <!-- nav:start -->
 ---
 
-[Previous: CI pipeline](ci.md) | [Next: Access the API](api.md) | [Index](index.md) | [Home](../index.md)
+[Previous: CI security and settings](ci-security.md) | [Next: Access the API](api.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

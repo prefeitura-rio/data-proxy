@@ -9,6 +9,17 @@ const NAV = 'docs/.nav.json'
 const MKDOCS_NAV = 'mkdocs.nav.yml'
 const NAV_START = '<!-- nav:start -->'
 const NAV_END = '<!-- nav:end -->'
+const SENTENCE_WORDS = 25
+const PAGE_WORDS = 1000
+const LONG_PAGES = [
+    docs/development/checks.md
+    docs/development/frontend.md
+    docs/operations/topology.md
+    docs/proxy/pushdown.md
+    docs/security/identity.md
+    docs/security/permissions.md
+    docs/sync.md
+]
 
 # Return the permissions of a role, including the permissions of the roles that it inherits.
 export def closure [roles: list<record>, name: string]: nothing -> list<string> {
@@ -292,6 +303,61 @@ def prose [text: string]: nothing -> list<record<number: int, text: string>> {
     | get rows
 }
 
+# Return the number of words of a text.
+def count-words [text: string]: nothing -> int {
+    $text | split row --regex '\s+' | where $it != '' | length
+}
+
+# Return the words of a Markdown line: no list marker, no rule ID and tag, no bold, no link address, and a code span as one word.
+def plain-line [line: string]: nothing -> string {
+    let marks = $line | str replace --all --regex '^\s*([-*]|\d+\.)\s+|\*\*[A-Z0-9]+-\d{2}\*\*\s*|\s*\[(must|should), [^\]]+\]\s*$|\*\*|\]\([^)]*\)' ''
+    if $marks =~ '`' { $marks | str replace --all --regex '`[^`]*`' 'code' } else { $marks }
+}
+
+# Return the paragraphs and the list items of a text, as one line each, with the number of their first line. A heading,
+# a table row, a code block, the navigation block and an image are not text.
+def units-of [text: string]: nothing -> table<number: int, text: string> {
+    prose $text
+    | reduce --fold {units: [], open: false} {|row, state|
+        let line = $row.text
+
+        if ($line | str trim | is-empty) or $line =~ '^(\||#|<!--|!\[|\[Previous|-{3,})' {
+            $state | update open false
+        } else if $state.open and $line !~ '^\s*([-*]|\d+\.)\s' {
+            $state | update units {|current|
+                $current.units | update (($current.units | length) - 1) {|unit| {number: $unit.number, text: $'($unit.text) (plain-line $line)'} }
+            }
+        } else {
+            $state | update units { append {number: $row.number, text: (plain-line $line)} } | update open true
+        }
+    }
+    | get units
+}
+
+# Return a problem for each sentence of more than 25 words in the text of a page.
+export def sentence-problems [file: string, text: string]: nothing -> list<string> {
+    units-of $text
+    | each {|unit|
+        $unit.text
+        | split row --regex '(?<=[.!?])\s+'
+        | each {|sentence| count-words $sentence }
+        | where $it > $SENTENCE_WORDS
+        | each {|size| $'($file):($unit.number): DOC-02 A sentence has ($size) words.' }
+    }
+    | flatten
+}
+
+# Return a problem for a page of more than 1000 words, unless the path of the page ends with a page of the list of long pages.
+export def length-problems [file: string, text: string, ...allowed: string]: nothing -> list<string> {
+    let size = count-words (prose $text | get text | str join ' ')
+
+    if $size > $PAGE_WORDS and not ($allowed | any {|page| $file | str ends-with $page }) {
+        [$'($file): DOC-13 The page has ($size) words. Split it by topic.']
+    } else {
+        []
+    }
+}
+
 # Return the anchors of the headings of a text.
 export def anchors [text: string]: nothing -> list<string> {
     prose $text
@@ -568,7 +634,16 @@ def "main style" []: nothing -> nothing {
 
     let in_pages = $pages | each {|page| page-problems $page.file $page.text } | flatten
 
-    let found = [...$in_pages ...(cross-problems $pages $others)]
+    let prose_problems = [...$pages ...$others]
+    | each {|page|
+        let sentences = sentence-problems $page.file $page.text
+        let lengths = length-problems $page.file $page.text ...$LONG_PAGES
+
+        [...$sentences ...$lengths]
+    }
+    | flatten
+
+    let found = [...$in_pages ...(cross-problems $pages $others) ...$prose_problems]
 
     if ($found | is-not-empty) {
         fail $"The style pages have problems:\n($found | str join "\n")"

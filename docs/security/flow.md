@@ -14,7 +14,7 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 | `dp_api`, `dp_policy`, `dp_console`, `dp_admin` | One role for each role of `rbac.toml`. A token switches to the role of its `role` claim, and the rules decide what that role may do. The schema and row policies limit the rows. |
 | `serving`                | The login of the serving layer: PostgREST, the PgDog pool and the recovery Deployment (`auth.servingRole`). It's `NOINHERIT` and can switch to `anon` and to every `dp_*` role. |
 
-[Database](../database.md#roles) describes each role and why `ops` is a superuser.
+[Database](../grants.md#roles) describes each role and why `ops` is a superuser.
 
 Init-db creates the `data_proxy` schema and its internal functions, procedures, and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
 

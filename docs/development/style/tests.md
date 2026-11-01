@@ -6,7 +6,7 @@ Applies to: every test, in `sync/`, `proxy/`, `console/`, `helm/` and `k6/`.
 
 - **TEST-01** Put each test at the lowest level that proves the behavior. Don't repeat a check at a higher level. [must, review]
 - **TEST-02** Make a unit test check one unit exhaustively: a function, a class, a method or an SQL template. Cover every input, every branch and the edge cases. [must, review]
-- **TEST-03** Make an integration test check one behavior that can cross units or services, such as a state commit, a catalog read or a request through the proxy. [must, review]
+- **TEST-03** Make an integration test check one behavior that can cross units or services. Examples are a state commit, a catalog read and a request through the proxy. [must, review]
 - **TEST-04** Don't let the infrastructure decide the level. A template test on the real PostgreSQL server is a unit test, because it checks that template alone. [must, review]
 - **TEST-05** Name the task type by what the test needs. A `unit` task needs no service, and an `int` task starts services. [must, devenv]
 - **TEST-06** Mark a test that needs the PostgreSQL server with `postgres`. `sync:test:unit` skips it, and `sync:test:int` runs it. [must, devenv]
@@ -25,7 +25,7 @@ Applies to: every test, in `sync/`, `proxy/`, `console/`, `helm/` and `k6/`.
 
 ## Writing tests
 
-- **TEST-10** Keep a test module for tests only. Put fixtures in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in the module of `sync/tests/helpers/` for their area (`core`, `state`, `dbos`, `ducklake`, `routing`, `rbac` or `console`). [must, review]
+- **TEST-10** Keep a test module for tests only. Put fixtures in `sync/tests/fixtures/` and test-double dataclasses in `sync/tests/fixtures/types.py`. Put builders in the module of `sync/tests/helpers/` for their area (`core`, `state`, `dbos`, `ducklake`, `routing`, `rbac` or `console`). [must, review]
 - **TEST-11** Merge small test files that cover one module. [should, review]
 - **TEST-12** Test your own code and no code of a third party, such as DBOS, PostgREST, Keycloak, Kubernetes, Redis, a cloud SDK or a browser engine. [must, review]
 - **TEST-13** Stub the call at the edge of your code, and test what your code does with the answer. [must, review]

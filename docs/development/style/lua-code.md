@@ -32,7 +32,7 @@ Applies to: `proxy/src/proxy/**/*.lua`.
 
 ## Penlight
 
-- **LUA-53** Use Penlight for data, strings and classes: `pl.List` for arrays, `pl.tablex` for maps and searches (`pairmap`, `find_if`, `foreach`, `update`), and `pl.stringx` for text (`strip`, `startswith`, `split`). [must, review]
+- **LUA-53** Use Penlight for data, strings and classes. Use `pl.List` for arrays, `pl.tablex` for maps and searches (`pairmap`, `find_if`, `foreach`, `update`), and `pl.stringx` for text (`strip`, `startswith`, `split`). [must, review]
 - **LUA-54** Cast every Penlight `require` to its module class: `pl.ClassModule`, `pl.ListClass`, `pl.tablex` and `pl.stringx`. Without the cast, LuaLS types the module from the rock source, which has no annotations. [must, luals]
 - **LUA-55** Make every class with `pl.class`. A module table is a namespace, not a class. [must, review]
 - **LUA-56** Declare the class type in the `.d.lua` file of its module, and derive it from `pl.Class`. Give the constructor an `---@overload` that returns the class type. [must, luals]

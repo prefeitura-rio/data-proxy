@@ -5,7 +5,7 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 ## Writing
 
 - **DOC-01** Use Simplified Technical English: short sentences, active voice, one idea per sentence. [must, vale]
-- **DOC-02** Keep a sentence at 25 words or fewer and a paragraph at 6 sentences or fewer. Split a longer text into a list or a table. [must, review]
+- **DOC-02** Keep a sentence at 25 words or fewer and a paragraph at 6 sentences or fewer. `docs:lint:style` checks the sentences. [must, devenv]
 - **DOC-03** Expand an acronym at its first use on a page, and define each project term once in `docs/glossary.md`. Add a row to its Tools table for each new tool. [must, vale]
 - **DOC-04** Use the fixed terms `access policy` (the table), `row policy` (the PostgreSQL rule) and `sync run`. [must, review]
 - **DOC-05** Write `contains`, `stores` or `has`, and not `holds`. Write `immediately`, and not `at once`. Vale enforces the word swaps and the ban on semicolons. [must, vale]
@@ -19,8 +19,8 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 
 - **DOC-11** Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages. [must, review]
 - **DOC-12** Name a file with one word, and use two words only if one word is unclear. [should, review]
-- **DOC-13** Give each topic one page, and link to it from the other pages. Don't copy text. Keep a file near 800 words, and split a larger file by topic. [must, review]
-- **DOC-14** Link to another page with a relative Markdown link: the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. [must, devenv]
+- **DOC-13** Give each topic one page, and link to it from the other pages. Keep a page near 800 words. `docs:lint:style` fails above 1000, unless the page is on a list in `scripts/docs.nu`. [must, devenv]
+- **DOC-14** Link to another page with a relative Markdown link. Write the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. [must, devenv]
 - **DOC-15** Run `docs:lint:links` after you move a page or a heading. Marksman completes and follows the links in the editor, but it doesn't flag a broken one. [must, devenv]
 - **DOC-16** End every page with the navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. [must, devenv]
 - **DOC-17** Put the page order in `docs/.nav.json`. Add a new page to that file, and link it from its parent page. [must, devenv]

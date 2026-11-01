@@ -204,3 +204,4 @@ luals
 nixfmt
 pyrefly
 ripsecrets
+Checkov

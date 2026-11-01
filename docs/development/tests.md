@@ -24,7 +24,7 @@ devenv --profile int tasks run console:test:int  # the console suite
 
 devenv skips a task when none of its input files changed since the last green run. A skipped task takes under a second. A failed run leaves no state, so the task runs again. The same rule applies to the lint and unit tasks. `repo:test:unit` doesn't run the `:int` tasks, because they start services and live in another profile.
 
-Run one suite at a time on one machine. The suites share the folder `.devenv/test-state`, and devenv doesn't reserve a port that it allocates, so two runs that start together can pick the same port or delete the generated files of each other. CI runs each suite on its own runner, so it has no such conflict.
+Run one suite at a time on one machine. The suites share the folder `.devenv/test-state`, and devenv doesn't reserve a port that it allocates. Two runs that start together can pick the same port or delete the generated files of each other. CI runs each suite on its own runner, so it has no such conflict.
 
 A change in `console/` doesn't run the proxy suite. A change in `proxy/` doesn't run the console browser tests. A change in `sync/tests/unit` runs the sync suite only. A change in `sync/src` runs the sync suite and the console suite, because the console tests seed their data with the sync code.
 
@@ -32,71 +32,7 @@ The inputs follow two rules. devenv compares a file by its content, so a fresh c
 
 To force a run, change an input, delete `.devenv/profiles/int/state/tasks.db`, or run `devenv --profile <name> test`. CI keeps the state of each group of jobs in the cache of GitHub Actions. A run on `main` saves it after a green job, and a pull request reads the state of `main` and doesn't save it. The input `force_full` of the workflow starts a run without the saved state.
 
-The `sync` profile starts these processes:
-
-- PostgreSQL, built from `Containerfile.pg` and run on the host network. Install Podman first, or install Docker and set `CONTAINER_RUNTIME=docker`. The build needs network for the base image. The engine keeps the layer cache, so the first run is slow and later runs only check the layers. The image is `localhost/data-proxy-test-pg:dev`.
-- SeaweedFS for S3.
-
-The `sync` suite tests the sync code and the SQL templates. It runs with `pytest-xdist` on up to four workers. Each worker clones its own database from `test_template`, because the templates install functions that all workers would share. A session setup that every worker runs, such as the DBOS migration, takes a file lock (`one_worker_at_a_time` in `sync/tests/helpers/core.py`). Write a new test so that it uses only its own schema, and it runs on any worker.
-
-A unit test checks one function, class, method or template with every input and edge case. The template tests are in `sync/tests/unit/test_templates_*.py`, one file for each family:
-
-- `duckdb` runs the DuckDB templates on a real DuckDB with a file catalog, and the BigQuery template with a mock.
-- `routing`, `filter` and `serving` run the request functions on the real test server.
-- `access` and `maintenance` run the access policy, the schema and the reconcile templates on the real test server.
-- `roles` runs the roles and the `rbac` templates on the real test server.
-
-The `rbac` tests in `test_templates_roles.py` include Hypothesis tests. They generate random rules files and compare the answers of `rbac.can()` and `rbac.mine()` with a reference that the test computes in Python. A property runs 300 examples by default, and `RBAC_EXAMPLES` sets another number.
-
-Every template that has some logic has a test that renders it, runs it, and checks the result.
-
-The console SQL has its own tests, on the real server and in the test transaction. The fixture `console_api` (`sync/tests/fixtures/console.py`) builds the console from the real migrations and the real templates, over the DBOS tables and the rules of `rbac.toml`. The tests in `test_console_api.py`, `test_console_config.py`, `test_console_templates.py` and `test_migrations.py` cover these parts:
-
-- the functions that the console calls
-- the views and their scope by schema
-- the import and its preview, and the history
-- the migrations on data of an older shape
-
-The file `proxy/tests/unit/fixtures/console_config.json` is the document that `console.config()` writes for fixed rows. A pytest case checks that the database still writes it, and the Lua specs check that the proxy takes it. A change to one side breaks the other side.
-
-`sync/tests/integration/test_pipeline.py` runs the body of `run_sync` with its real steps, a fake source, and the PostgreSQL, S3 and DuckLake of the test stack. It reaches no DBOS runtime, Kubernetes, Redis or PostgREST.
-
-An integration test (`sync/tests/integration/`) checks a behavior that crosses units, such as the catalog, the state and S3.
-
-The suite doesn't test the API schemas, the database roles, or what a token may do. The end-to-end suite tests those ([Roles](../security/roles.md#how-the-rules-are-tested) lists what it covers).
-
-The `proxy` profile starts OpenResty with a mock PostgREST and Valkey. It needs no container engine.
-
-The `console` profile starts these parts:
-
-- the services of the `sync` profile
-- Keycloak, from the test image of `Containerfile.kc` that `kc:build:image` builds once, and PostgREST
-- the console with its gateway
-- a worker for the `control` queue
-
-It runs the browser tests of the console. [Frontend](frontend.md) describes it. A full run takes about one minute.
-
-Every process asks devenv for its ports with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. The setup passes the real number to the tests in environment variables.
-
-| Suite | Base ports |
-| --- | --- |
-| `sync` | 15432 (PostgreSQL), 18333, 19333, 18082 and 18888 (SeaweedFS) |
-| `console` | 15432 (PostgreSQL), 18333, 19333, 18082 and 18888 (SeaweedFS), 18180 (Keycloak), 13000 (PostgREST), 13001 (gateway), 13002 (notebooks), 13004 (console) |
-| `proxy` | 18080, 18090, 18100 and 18110 (the four proxies), 18081, 18091, 18101 and 18111 (mock PostgREST), 18083, 18093, 18103 and 18113 (admin), 18399 (the Redis that the Redis-down proxy uses), 18379 (Valkey) |
-
-The four proxies start one after another, because each `lx exec` rewrites `proxy/lux.lock` and two at the same time can read a half-written file.
-
-The `default` profile runs the three suites in one `devenv test`.
-
-devenv runs the task `sync:setup:db` (`scripts/db.nu`) before it starts pytest. If the task fails, the run stops and shows the error of the task.
-
-The PostgreSQL image installs the `ducklake` and `postgres` extensions while it builds. A cached build layer keeps the version that it first downloaded. The sync worker writes DuckLake 1.0 catalogs, and `ducklake_catalog` in `sync/tests/fixtures/db.py` writes the test catalog with the same DuckDB. An image with an older `ducklake` extension fails the DuckLake tests. Rebuild with `podman build --no-cache` to refresh the extension.
-
-On the GitHub `ubuntu-latest` runner (image `20261004.327.1`), Podman is 4.9.3. A cold build of the test image takes about 35 s. A cold `devenv --profile sync test` run takes about 60 s. CI therefore keeps no layer cache.
-
-PostgreSQL starts empty on every run. The other services keep their files in `.devenv/test-state` for `devenv test` and in `.devenv/state` for `devenv up`. To start the object store empty, run `devenv --profile sync tasks run s3:clean:data`. The task deletes the SeaweedFS data folder and creates it again.
-
-To add another test container, declare `processes.<name> = utils.mkProcess { command = utils.podmanRun { ... }; } // { ready = ...; }`, as `nix/stack/pg.nix` does. Build an image in a task that runs `before` the process, and set `ready` to a command that runs in the container. For a one-shot step after the container is ready, declare a task with `after = [ (utils.processTask "<name>") ]` and `wantedBy` the same process. `podmanRun` uses the host Podman.
+Two more pages go into the detail. [Test stack](test-stack.md) describes the processes, the ports and how to add a test container. [Sync tests](sync-tests.md) describes the unit and integration tests of the sync suite.
 
 ## Coverage
 
@@ -113,5 +49,5 @@ The proxy report covers the modules that the unit specs load. The Hurl files cov
 <!-- nav:start -->
 ---
 
-[Previous: Setup](setup.md) | [Next: Checks](checks.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Setup](setup.md) | [Next: Test stack](test-stack.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

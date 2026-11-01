@@ -4,10 +4,12 @@ use ../docs.nu [
     command-problems
     commands-of
     cross-problems
+    length-problems
     link-problems
     links-of
     page-problems
     rules-of
+    sentence-problems
     slug
 ]
 use ../lib.nu [remove-path write-text]
@@ -224,4 +226,102 @@ export def "test cross-problems-names-duplicates-and-unknown-ids" []: nothing ->
         'a.md: cites PY-09, which no page defines'
         'AGENTS.md: cites PY-77, which no page defines'
     ]
+}
+
+def words [count: int]: nothing -> string {
+    1..$count | each { 'word' } | str join ' '
+}
+
+# Verify that a sentence of 26 words is a problem, and that the text that the check skips is not.
+export def "test sentence-problems-counts-the-words-of-each-sentence" []: nothing -> nothing {
+    let cases = [
+        {
+            name: 'a sentence of 25 words'
+            text: $"(words 25)."
+            expected: []
+        }
+        {
+            name: 'a sentence of 26 words'
+            text: $"# Title\n\n(words 26)."
+            expected: ['f.md:3: DOC-02 A sentence has 26 words.']
+        }
+        {
+            name: 'two sentences of 20 words on one line'
+            text: $"(words 20). (words 20)."
+            expected: []
+        }
+        {
+            name: 'a long sentence in a code block'
+            text: $"```\n(words 40).\n```"
+            expected: []
+        }
+        {
+            name: 'a long row of a table'
+            text: $"| a | b |\n| (words 40) | c |"
+            expected: []
+        }
+        {
+            name: 'a long heading'
+            text: $"## (words 40)"
+            expected: []
+        }
+        {
+            name: 'a long item of a list'
+            text: $"- (words 26)."
+            expected: ['f.md:1: DOC-02 A sentence has 26 words.']
+        }
+        {
+            name: 'a sentence that wraps over two lines'
+            text: $"(words 14)\n(words 14)."
+            expected: ['f.md:1: DOC-02 A sentence has 28 words.']
+        }
+        {
+            name: 'a link that counts its text and not its address'
+            text: ((words 23) + ' [one two](https://example.test/a/long/address/that/has/no/spaces).')
+            expected: []
+        }
+        {
+            name: 'a code span that counts as one word'
+            text: ((words 24) + ' `a b c d e f`.')
+            expected: []
+        }
+    ]
+
+    for case in $cases {
+        assert equal (sentence-problems f.md $case.text) $case.expected $case.name
+    }
+}
+
+# Verify that a page of 1001 words is a problem unless it is allowed, and that a code block does not count.
+export def "test length-problems-counts-the-words-of-a-page" []: nothing -> nothing {
+    let cases = [
+        {
+            name: 'a page of 1000 words'
+            file: f.md
+            text: (words 1000)
+            expected: []
+        }
+        {
+            name: 'a page of 1001 words'
+            file: f.md
+            text: (words 1001)
+            expected: ['f.md: DOC-13 The page has 1001 words. Split it by topic.']
+        }
+        {
+            name: 'a page of 1001 words on the allowed list'
+            file: allowed.md
+            text: (words 1001)
+            expected: []
+        }
+        {
+            name: 'words in a code block'
+            file: f.md
+            text: $"(words 900)\n```\n(words 500)\n```"
+            expected: []
+        }
+    ]
+
+    for case in $cases {
+        assert equal (length-problems $case.file $case.text allowed.md) $case.expected $case.name
+    }
 }
