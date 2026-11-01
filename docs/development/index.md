@@ -5,6 +5,7 @@ The local stack runs on k3d with Podman and Helm.
 - [Setup](setup.md) — Prerequisites, the Python project and stopping the cluster.
 - [Tests](tests.md) — The test suites and how to run them.
 - [Checks](checks.md) — Development and release checks.
+- [Style rules](style/index.md) — The rules for the code and the docs, one page for each area.
 - [Proxy rocks](rocks.md) — The Lua libraries of the proxy.
 - [Frontend](frontend.md) — The console and the notebooks.
 - [Run the console locally](stack.md) — Start the console stack in a browser.

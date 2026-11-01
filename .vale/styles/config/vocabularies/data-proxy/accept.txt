@@ -200,3 +200,7 @@ Tailscale
 seccomp
 keyless
 gzip
+luals
+nixfmt
+pyrefly
+ripsecrets

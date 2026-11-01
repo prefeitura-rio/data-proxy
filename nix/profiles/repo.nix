@@ -148,6 +148,19 @@ in
               ++ docsFiles
             );
           };
+          "docs:lint:style" = utils.nuTask {
+            description = "Check the rule format of the style pages and the rule IDs that a text cites.";
+            exec = "nu scripts/docs.nu style";
+            execIfModified = utils.mkInputs (
+              [
+                "AGENTS.md"
+                "README.md"
+                "STYLEGUIDE.md"
+                "scripts/docs.nu"
+              ]
+              ++ docsFiles
+            );
+          };
           "docs:lint:links" = utils.nuTask {
             description = "Check that the links of the docs, the README and the style guide point to a file and a heading.";
             exec = "nu scripts/docs.nu links";

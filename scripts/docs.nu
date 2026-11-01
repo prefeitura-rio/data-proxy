@@ -454,6 +454,127 @@ def "main cmd" []: nothing -> nothing {
     }
 }
 
+const RULE_LIMIT = 40
+const PAGE_LIMIT = 900
+
+# Return the prefix of a rule ID: PY for PY-07.
+def prefix-of [id: string]: nothing -> string {
+    $id | str substring 0..<($id | str index-of '-')
+}
+
+# Return the bullets of a Markdown page outside the code, with their line numbers.
+def bullets-of [text: string]: nothing -> table<number: int, text: string> {
+    prose $text | where text =~ '^- ' | select number text
+}
+
+# Return the rules of a style page: `- **PY-07** The rule. [must, ruff]`, with the length of the rule without the ID and the tag.
+export def rules-of [text: string]: nothing -> table<number: int, id: string, words: int, level: string, check: string> {
+    bullets-of $text
+    | each {|bullet|
+        $bullet.text
+        | parse --regex '^- \*\*(?<id>[A-Z][A-Z0-9]{1,4}-\d{2})\*\* (?<body>.+) \[(?<level>must|should), (?<check>[a-z0-9+-]+)\]$'
+        | each {|rule|
+            {
+                number: $bullet.number
+                id: $rule.id
+                words: ($rule.body | split row --regex '\s+' | length)
+                level: $rule.level
+                check: $rule.check
+            }
+        }
+    }
+    | flatten
+}
+
+# Return the problems of one style page: a bullet that is not a rule, a long rule, two ID prefixes, a long page and a missing Applies to line.
+export def page-problems [file: string, text: string]: nothing -> list<string> {
+    let rules = rules-of $text
+    let rule_lines = $rules | each {|rule| $rule.number }
+
+    let bad = bullets-of $text
+    | where number not-in $rule_lines
+    | each {|bullet| $'($file):($bullet.number): not a rule' }
+
+    let long = $rules
+    | where words > $RULE_LIMIT
+    | each {|rule| $'($file):($rule.number): ($rule.id) has ($rule.words) words, the limit is ($RULE_LIMIT)' }
+
+    let prefixes = $rules | each {|rule| prefix-of $rule.id } | uniq
+
+    let mixed = if ($prefixes | length) > 1 {
+        [$'($file): the IDs use more than one prefix: ($prefixes | str join ", ")']
+    } else {
+        []
+    }
+
+    let marker = $text | str index-of '<!-- nav:start -->'
+
+    let body = if $marker < 0 { $text } else { $text | str substring 0..<$marker }
+
+    let size = prose $body
+    | each {|row| $row.text | split row --regex '\s+' | where $it != '' | length }
+    | math sum
+
+    let long_page = if $size > $PAGE_LIMIT { [$'($file): ($size) words, the limit is ($PAGE_LIMIT)'] } else { [] }
+
+    let applies = if $text =~ '(?m)^Applies to: ' { [] } else { [$'($file): no "Applies to:" line'] }
+
+    [...$bad ...$long ...$mixed ...$long_page ...$applies]
+}
+
+# Return the problems between pages: an ID that two pages define, and an ID that a text cites and no page defines.
+export def cross-problems [pages: table<file: string, text: string>, others: table<file: string, text: string>]: nothing -> list<string> {
+    let defined = $pages
+    | each {|page| rules-of $page.text | each {|rule| {id: $rule.id, file: $page.file} } }
+    | flatten
+
+    let duplicates = $defined
+    | group-by id
+    | transpose id found
+    | where ($it.found | length) > 1
+    | each {|entry| $'($entry.id) is defined in ($entry.found | get file | str join " and in ")' }
+
+    let prefixes = $defined | each {|rule| prefix-of $rule.id } | uniq | str join '|'
+
+    let ids = $defined | get id | uniq
+
+    let unknown = if ($prefixes | is-empty) {
+        []
+    } else {
+        let pattern = ['\b(?<id>(?:' $prefixes ')-\d{2})\b'] | str join
+
+        [...$pages ...$others]
+        | each {|page|
+            $page.text
+            | parse --regex $pattern
+            | get id
+            | uniq
+            | where $it not-in $ids
+            | each {|id| $'($page.file): cites ($id), which no page defines' }
+        }
+        | flatten
+    }
+
+    [...$duplicates ...$unknown]
+}
+
+# Fail when a style page breaks the rule format, or a rule ID is defined twice or cited without a definition.
+def "main style" []: nothing -> nothing {
+    let pages = glob docs/development/style/*.md | each {|file| {file: $file, text: (read-text $file)} }
+
+    let others = [...(glob '{README,AGENTS,STYLEGUIDE}.md') ...(glob $'($DOCS)/**/*.md')]
+    | where $it not-in ($pages | get file)
+    | each {|file| {file: $file, text: (read-text $file)} }
+
+    let in_pages = $pages | each {|page| page-problems $page.file $page.text } | flatten
+
+    let found = [...$in_pages ...(cross-problems $pages $others)]
+
+    if ($found | is-not-empty) {
+        fail $"The style pages have problems:\n($found | str join "\n")"
+    }
+}
+
 # Return the ids of the processes that listen on a port. The command lsof exits with 1 when there are none.
 def listeners [port: int]: nothing -> list<int> {
     let result = lsof -t -i $'tcp:($port)' -sTCP:LISTEN | complete

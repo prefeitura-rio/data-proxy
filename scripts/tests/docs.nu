@@ -1,5 +1,15 @@
 use std/assert
-use ../docs.nu [anchors command-problems commands-of link-problems links-of slug]
+use ../docs.nu [
+    anchors
+    command-problems
+    commands-of
+    cross-problems
+    link-problems
+    links-of
+    page-problems
+    rules-of
+    slug
+]
 use ../lib.nu [remove-path write-text]
 
 # Verify the anchor of a heading.
@@ -157,5 +167,61 @@ export def "test command-problems-names-the-wrong-commands" []: nothing -> nothi
         'a.md:4: no task sync:tests:int in the profile int'
         'a.md:5: no profile gone'
         'a.md:7: no profile gone'
+    ]
+}
+
+# Build a page with the given body lines, a title and the Applies to line.
+def page [...lines: string]: nothing -> string {
+    ['# Page' '' 'Applies to: everything.' '' ...$lines] | str join "\n"
+}
+
+# Verify that a rule gives its ID, its length without the ID and the tag, and its tag.
+export def "test rules-of-reads-the-rule-format" []: nothing -> nothing {
+    let text = page '- **PY-07** Use a dataclass for plain data. [must, review]' '- **PY-08** Run `ruff` on every file. [should, ruff+pyrefly]' '- A plain bullet.' '```text' '- **PY-99** In code. [must, review]' '```'
+
+    assert equal (rules-of $text | select id words level check) [
+        [id words level check];
+        [PY-07 6 must review]
+        [PY-08 5 should ruff+pyrefly]
+    ]
+}
+
+# Verify each problem of one page and that a valid page has none.
+export def "test page-problems-names-each-problem" []: nothing -> nothing {
+    let long = 1..41 | each { 'word' } | str join ' '
+    let cases = [
+        [name text expected];
+        ['a valid page' (page '- **PY-01** Use a dataclass. [must, review]') []]
+        ['a bullet that is not a rule' (page '- **PY-01** Use a dataclass. [must, review]' '- Plain bullet.') ['f.md:6: not a rule']]
+        ['a rule without a tag' (page '- **PY-01** Use a dataclass.') ['f.md:5: not a rule']]
+        ['a rule of 41 words' (page $'- **PY-01** ($long) [must, review]') ['f.md:5: PY-01 has 41 words, the limit is 40']]
+        ['no Applies to line' "# Page\n\n- **PY-01** Use a dataclass. [must, review]" ['f.md: no "Applies to:" line']]
+        ['two prefixes' (page '- **PY-01** Use a dataclass. [must, review]' '- **NU-01** Use fail. [must, review]') ['f.md: the IDs use more than one prefix: PY, NU']]
+        ['a page of 905 words' (page (1..900 | each { 'word' } | str join ' ')) ['f.md: 905 words, the limit is 900']]
+    ]
+
+    for case in $cases {
+        assert equal (page-problems f.md $case.text) $case.expected $case.name
+    }
+}
+
+# Verify that an ID defined twice and an ID that no page defines are problems.
+export def "test cross-problems-names-duplicates-and-unknown-ids" []: nothing -> nothing {
+    let first = page '- **PY-01** Use a dataclass. [must, review]' '- **PY-02** See PY-01 and PY-09. [must, review]'
+    let second = page '- **PY-01** Use another thing. [must, review]'
+
+    let pages = [
+        {file: a.md, text: $first}
+        {file: b.md, text: $second}
+    ]
+
+    let others = [
+        {file: AGENTS.md, text: 'Read PY-02, PY-77 and NU-1.'}
+    ]
+
+    assert equal (cross-problems $pages $others) [
+        'PY-01 is defined in a.md and in b.md'
+        'a.md: cites PY-09, which no page defines'
+        'AGENTS.md: cites PY-77, which no page defines'
     ]
 }

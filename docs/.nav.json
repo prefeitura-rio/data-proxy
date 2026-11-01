@@ -127,6 +127,65 @@
           "page": "development/checks.md"
         },
         {
+          "page": "development/style/index.md",
+          "children": [
+            {
+              "page": "development/style/principles.md"
+            },
+            {
+              "page": "development/style/logs.md"
+            },
+            {
+              "page": "development/style/tests.md"
+            },
+            {
+              "page": "development/style/k6.md"
+            },
+            {
+              "page": "development/style/python.md"
+            },
+            {
+              "page": "development/style/lua-layout.md"
+            },
+            {
+              "page": "development/style/lua-code.md"
+            },
+            {
+              "page": "development/style/lua-types.md"
+            },
+            {
+              "page": "development/style/nushell.md"
+            },
+            {
+              "page": "development/style/nix.md"
+            },
+            {
+              "page": "development/style/nix-layout.md"
+            },
+            {
+              "page": "development/style/sql.md"
+            },
+            {
+              "page": "development/style/typescript.md"
+            },
+            {
+              "page": "development/style/svelte.md"
+            },
+            {
+              "page": "development/style/notebooks.md"
+            },
+            {
+              "page": "development/style/docs.md"
+            },
+            {
+              "page": "development/style/docs-diagrams.md"
+            },
+            {
+              "page": "development/style/git.md"
+            }
+          ]
+        },
+        {
           "page": "development/rocks.md"
         },
         {

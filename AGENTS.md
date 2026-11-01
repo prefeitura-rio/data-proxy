@@ -1,6 +1,6 @@
 # Working in this repository
 
-Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style guide](STYLEGUIDE.md) section for the files that you change.
+Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style page](docs/development/style/index.md) for the files that you change.
 
 ## Commands
 
@@ -30,31 +30,31 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 
 ## Style by file
 
-| Files | Section |
+| Files | Page |
 | --- | --- |
-| `proxy/**` | [Lua and OpenResty](STYLEGUIDE.md#lua-and-openresty) |
-| `sync/**/*.py` | [Python](STYLEGUIDE.md#python) |
-| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](STYLEGUIDE.md#nushell) |
-| `**/*.nix`, `devenv.*` | [Nix](STYLEGUIDE.md#nix) |
-| `**/*.sql`, `helm/files/config/rbac.toml` | [SQL](STYLEGUIDE.md#sql) and [Permissions](STYLEGUIDE.md#permissions) |
-| `console/ui/**` | [TypeScript and Svelte](STYLEGUIDE.md#typescript-and-svelte) |
-| `console/notebooks/**` | [Notebooks](STYLEGUIDE.md#notebooks) |
-| `docs/**`, `README.md` | [Documentation](STYLEGUIDE.md#documentation) |
-| Any test | [Tests](STYLEGUIDE.md#tests) |
+| `proxy/**` | [layout](docs/development/style/lua-layout.md), [code](docs/development/style/lua-code.md), [types](docs/development/style/lua-types.md) |
+| `sync/**/*.py` | [Python](docs/development/style/python.md) |
+| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/development/style/nushell.md) |
+| `**/*.nix`, `devenv.*` | [naming and code](docs/development/style/nix.md), [layout](docs/development/style/nix-layout.md) |
+| `**/*.sql`, `rbac.toml` | [SQL](docs/development/style/sql.md) |
+| `console/ui/**` | [TypeScript](docs/development/style/typescript.md), [Svelte](docs/development/style/svelte.md) |
+| `console/notebooks/**` | [Notebooks](docs/development/style/notebooks.md) |
+| `k6/**` | [k6](docs/development/style/k6.md) |
+| `docs/**`, `README.md` | [Documentation](docs/development/style/docs.md), [Diagrams](docs/development/style/docs-diagrams.md) |
+| Any test, any log line | [Tests](docs/development/style/tests.md), [Logs](docs/development/style/logs.md) |
 
 ## Rules that matter most
 
-- Read the code first, and follow an existing pattern before you add a new one.
-- Prefer deletion to a new abstraction. Keep one source of truth for each fact.
-- Write no comment inside a function body in Lua and TypeScript. Name the idea.
-- Never put a user value into SQL text. Use `Identifier()`, `Literal()` or a parameter.
-- Never log a credential, a token, a connection string or a query value.
-- Put a test at the lowest level that proves the behavior, with table-driven cases that have an `id`.
-- Name a devenv task `<component>:<verb>:<target>`. devenv rejects other names.
-- Write docs in short sentences of 25 words or fewer.
+Read the [style guide](STYLEGUIDE.md) for the list with IDs. These come first:
+
+- Read the code first, and follow an existing pattern (GEN-01, GEN-02).
+- Prefer deletion to a new abstraction. Keep one source of truth (GEN-03, GEN-06).
+- Never put a user value into SQL text, and never log a secret (SQL-02, LOG-03).
+- Put a test at the lowest level that proves the behavior (TEST-01).
+- Name a devenv task `<component>:<verb>:<target>` (NIX-01).
 
 ## Workflow
 
 - Never commit or push without explicit approval. Stage, summarize, and wait.
-- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](STYLEGUIDE.md#git).
+- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](docs/development/style/git.md).
 - Fix a flaky test at its cause, and add a test that reproduces it. Never add a retry.
