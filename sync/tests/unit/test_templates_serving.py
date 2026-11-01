@@ -9,14 +9,9 @@ from psycopg.sql import Identifier
 from sync.settings import settings
 from sync.templates import render_template
 from tests.fixtures.types import Postgres
-from tests.helpers import (
-    act_as_token,
-    fetch_all,
-    publish_people_catalog,
-    response_headers,
-    scalar,
-    set_request_headers,
-)
+from tests.helpers.core import fetch_all, response_headers, scalar, set_request_headers
+from tests.helpers.ducklake import publish_people_catalog
+from tests.helpers.routing import act_as_token
 
 CHECK_VIEWS = """
 SELECT count(*) FROM duckdb.query(

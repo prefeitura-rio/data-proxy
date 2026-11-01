@@ -20,7 +20,6 @@ A role name over 63 characters fails, because PostgreSQL would cut it and two sc
 Run it in the catalog database as the owner role.
 Run it again without an error.
 #}
--- noqa: disable=PRS
 DO $create_reader$
 DECLARE
     reader text := 'schema_' || {{ name }};

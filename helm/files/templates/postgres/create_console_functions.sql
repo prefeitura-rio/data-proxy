@@ -8,7 +8,7 @@
 {#
 Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.
 #}
--- noqa: disable=CP02,PRS
+-- noqa: disable=CP02
 CREATE OR REPLACE FUNCTION console.permissions() RETURNS text[]
 LANGUAGE sql STABLE AS $$
     SELECT string_to_array(

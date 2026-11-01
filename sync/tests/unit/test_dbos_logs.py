@@ -5,7 +5,7 @@ import pytest
 
 from sync.dbos import logs
 from sync.log import SCHEMA, TABLE
-from tests.helpers import workflow, written
+from tests.helpers.dbos import workflow, written
 
 
 class TestRender:

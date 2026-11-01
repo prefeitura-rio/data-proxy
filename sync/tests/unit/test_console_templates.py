@@ -3,7 +3,8 @@ from psycopg.sql import Identifier, Literal
 
 from tests.fixtures.console import add_schema, refusal
 from tests.fixtures.types import Postgres
-from tests.helpers import helm_sql, role_setting, scalar
+from tests.helpers.console import role_setting
+from tests.helpers.core import helm_sql, scalar
 
 INSUFFICIENT = "42501"
 

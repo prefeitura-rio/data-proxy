@@ -12,13 +12,10 @@ from sync.settings import settings
 from sync.types import PostgresParams
 from tests.constants import FULL, POSTGRES_URL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
-from tests.helpers import (
-    create_access_policy,
-    execute_sql,
-    install_aggregate_function,
-    install_rbac,
-    put_state,
-)
+from tests.helpers.core import execute_sql
+from tests.helpers.rbac import install_rbac
+from tests.helpers.routing import create_access_policy, install_aggregate_function
+from tests.helpers.state import put_state
 
 
 @pytest.fixture

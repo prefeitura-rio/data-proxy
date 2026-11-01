@@ -33,19 +33,15 @@ from tests.constants import (
     ROUTED_TABLE,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers import (
+from tests.helpers.core import fetch_all, scalar, set_request_headers, set_setting
+from tests.helpers.routing import (
     act_as_token,
     call_table_function,
-    fetch_all,
     grant_unit,
     insert_access_policy,
     install_table_function,
-    partitioned,
-    put_state,
-    scalar,
-    set_request_headers,
-    set_setting,
 )
+from tests.helpers.state import partitioned, put_state
 
 FULL: Final = TableState(strategy=Strategy.FULL, signature="s")
 

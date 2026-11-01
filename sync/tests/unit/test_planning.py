@@ -32,7 +32,7 @@ from sync.postgres import Postgres
 from sync.sources.partitions import order_partition_ids
 from sync.sources.source import Source
 from tests.fixtures.types import FullOnlySource
-from tests.helpers import partition
+from tests.helpers.state import partition
 
 
 class TestPartitionChanges:

@@ -9,6 +9,7 @@
 }
 #}
 -- noqa: disable=PRS,LT05
+-- The SQLFluff DuckDB dialect can't parse this statement.
 ALTER TABLE dl.{{ table }}
 {% for alteration in alterations %}{% if alteration.operation == "add" %} ADD COLUMN {{ alteration.column }} {{ alteration.type }}{% elif alteration.operation == "drop" %} DROP COLUMN {{ alteration.column }}{% else %} ALTER COLUMN {{ alteration.column }} SET DATA TYPE {{ alteration.type }}{% endif %}{% if not loop.last %},{% endif %}
 {% endfor %}

@@ -2,7 +2,9 @@ import pytest
 
 from tests.fixtures.console import add_schema, as_token, refusal, start, two_schemas
 from tests.fixtures.types import Postgres
-from tests.helpers import add_files_function, add_schedule, scalar, set_status, values
+from tests.helpers.console import add_schedule, set_status
+from tests.helpers.core import scalar, values
+from tests.helpers.routing import add_files_function
 
 INSUFFICIENT = "42501"
 NOT_FOUND = "PT404"

@@ -45,8 +45,6 @@ DECLARE
   v_ducklake_only boolean;
   v_plan record;
   v_snapshot bigint;
-  v_returned bigint;
-  v_truncated boolean;
   v_result text;
   v_duckdb_sql text;
 BEGIN
@@ -121,35 +119,15 @@ BEGIN
   EXECUTE format('SELECT r[''j'']::text FROM duckdb.query(%L) r', v_duckdb_sql) INTO v_result;
   v_result := coalesce(v_result, '[]');
 
-  -- One row more than the answer holds shows that the cap cut it.
-  EXECUTE format(
-    'SELECT coalesce(json_agg(s.elem ORDER BY s.rn) FILTER (WHERE s.rn <= %s), ''[]''::json)::text, count(*) '
-    || 'FROM (SELECT t.elem, row_number() OVER (%s) AS rn FROM json_array_elements($1::json) AS t(elem)) s '
-    || 'WHERE s.rn > %s AND s.rn <= %s',
-    v_plan.row_offset + v_plan.row_take,
+  PERFORM {{ app_schema }}.set_response_headers('ducklake', v_snapshot);
+  RETURN {{ app_schema }}.page_aggregate(
+    v_result,
     v_plan.order_by,
     v_plan.row_offset,
-    v_plan.row_offset + v_plan.row_take + 1
-  ) INTO v_result, v_returned USING v_result;
-  v_truncated := v_returned > v_plan.row_take
-    AND (v_plan.row_limit IS NULL OR v_plan.row_limit > {{ max_rows }});
-
-  PERFORM {{ app_schema }}.set_response_headers('ducklake', v_snapshot);
-  IF v_truncated THEN
-    PERFORM set_config('response.status', '206', true);
-    PERFORM set_config(
-      'response.headers',
-      (
-        current_setting('response.headers')::jsonb
-        || jsonb_build_array(jsonb_build_object(
-          'Content-Range',
-          format('%s-%s/*', v_plan.row_offset, v_plan.row_offset + v_plan.row_take - 1)
-        ))
-      )::text,
-      true
-    );
-  END IF;
-  RETURN v_result::json;
+    v_plan.row_take,
+    v_plan.row_limit,
+    {{ max_rows }}
+  )::json;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;

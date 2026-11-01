@@ -4,7 +4,7 @@ import pytest
 
 from sync.constants import LOCATION_FRAMES, PROJECT_PATH
 from sync.log import ContextFormatter, summarize_exception
-from tests.helpers import raised_in_project_file, record
+from tests.helpers.dbos import raised_in_project_file, record
 
 
 class TestSummarizeException:

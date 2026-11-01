@@ -19,6 +19,7 @@
 }
 #}
 -- noqa: disable=PRS
+-- The lint context renders the column loops without columns, which is invalid.
 {% from "postgres/macros.sql" import
   rls_where_clause, column_projection, ducklake_attach, require_permission,
   require_scope %}

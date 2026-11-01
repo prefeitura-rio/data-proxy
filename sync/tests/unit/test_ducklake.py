@@ -35,15 +35,14 @@ from sync.sources.partitions import (
 from sync.templates import render_template
 from sync.types import DatabaseRow, DuckDBParams
 from tests.constants import PARQUET, TEST_SQL_DIR
-from tests.helpers import (
+from tests.helpers.ducklake import (
     attach_ducklake,
     create_ducklake_table,
     ducklake_columns,
     ducklake_row_count,
-    partition,
     snapshot_count,
-    table_plan,
 )
+from tests.helpers.state import partition, table_plan
 
 
 @pytest.mark.parametrize("schema", ["app", "bigquery_a"])

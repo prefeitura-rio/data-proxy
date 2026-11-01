@@ -73,8 +73,11 @@ The caller returns an empty result for NULL.
 }
 #}
 {% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, list_form=false) -%}
-{% set predicate_format = "'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'" if list_form else "'%I IN (%s)'" %}
-  -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *), reads every row.
+{% set predicate_format =
+  "'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'" if list_form else "'%I IN (%s)'"
+%}
+  -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *),
+  -- reads every row.
   IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
     WHERE p.subject = v_subject AND p.unit_type = '*' AND p.unit_id = '*'
@@ -140,7 +143,9 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 }
 #}
 {% macro ducklake_attach(metadata_schema, data_path) -%}
-  PERFORM duckdb.raw_query('SET allocator_background_threads = true; SET allocator_flush_threshold = ''16MiB''');
+  PERFORM duckdb.raw_query(
+    'SET allocator_background_threads = true; SET allocator_flush_threshold = ''16MiB'''
+  );
   PERFORM duckdb.raw_query(
     'ATTACH IF NOT EXISTS ''ducklake:ducklake_catalog'' AS "dl_{{ metadata_schema }}" '
     || '(DATA_PATH ''{{ data_path }}'', METADATA_SCHEMA ''{{ metadata_schema }}'', READ_ONLY)'
@@ -159,7 +164,14 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 }
 #}
 {% macro column_projection(columns) -%}
-{% for column in columns %}{% if column.is_json and not column.raw_json %}to_json({{ column.name }}) AS {{ column.name }}{% else %}{{ column.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+{% for column in columns -%}
+  {%- if column.is_json and not column.raw_json -%}
+    to_json({{ column.name }}) AS {{ column.name }}
+  {%- else -%}
+    {{ column.name }}
+  {%- endif -%}
+  {{ ', ' if not loop.last }}
+{%- endfor %}
 {%- endmacro %}
 
 {#
@@ -176,7 +188,8 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 {% macro return_query_select(columns) -%}
     SELECT
 {% for column in columns %}
-      r[{{ column.key }}]::{{ 'text' if column.is_json else column.pg_type }} AS {{ column.name }}{% if not loop.last %},{% endif %}
+      r[{{ column.key }}]::{{ 'text' if column.is_json else column.pg_type }}
+        AS {{ column.name }}{% if not loop.last %},{% endif %}
 {% endfor %}
 {%- endmacro %}
 
@@ -194,7 +207,7 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 #}
 {% macro duckdb_query_select(columns, duckdb_view) -%}
     FROM duckdb.query(
-      'SELECT {% for column in columns %}{{ column.name }}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}'
+      'SELECT {{ columns | map(attribute='name') | join(', ') }} FROM {{ duckdb_view }}'
     ) r
 {%- endmacro %}
 

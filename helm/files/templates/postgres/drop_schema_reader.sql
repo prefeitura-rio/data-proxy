@@ -11,7 +11,6 @@
 Run it after the metadata schema is gone.
 Run it again without an error.
 #}
--- noqa: disable=PRS
 DO $drop_reader$
 DECLARE
     reader text := 'schema_' || {{ name }};

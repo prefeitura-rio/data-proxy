@@ -16,7 +16,8 @@ from sync.settings import settings
 from sync.templates import render_template
 from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.types import Postgres
-from tests.helpers import act_as_token, helm_sql, scalar
+from tests.helpers.core import helm_sql, scalar
+from tests.helpers.routing import act_as_token
 
 MIGRATIONS: Final = sorted(
     (Path(__file__).parents[3] / "console" / "migrations").glob("*.sql")

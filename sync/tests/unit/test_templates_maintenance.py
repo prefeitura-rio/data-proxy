@@ -22,20 +22,21 @@ from tests.constants import (
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import Postgres, Psql
-from tests.helpers import (
-    create_state_tables,
+from tests.helpers.core import (
     execute_sql,
     fetch_all,
     function_exists,
     helm_sql,
-    initialize_schemas,
-    install_rbac,
-    install_table_function,
     psql_script,
-    reconcile_one_table,
     relation_exists,
     scalar,
-    schema_scope_condition,
+)
+from tests.helpers.rbac import install_rbac
+from tests.helpers.routing import install_table_function, schema_scope_condition
+from tests.helpers.state import (
+    create_state_tables,
+    initialize_schemas,
+    reconcile_one_table,
 )
 
 HOUR_MS: Final = 3_600_000

@@ -5,7 +5,6 @@
   "inputs": {}
 }
 #}
--- noqa: disable=PRS
 SELECT table_name
 FROM duckdb_tables()
 WHERE database_name = 'dl'

@@ -7,5 +7,4 @@
   }
 }
 #}
--- noqa: disable=PRS
 DROP TABLE IF EXISTS dl.{{ table }}

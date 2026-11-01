@@ -43,9 +43,18 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
         schema_name <> ''
         AND strpos(schema_name, ',') = 0
         AND (
-            strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ',') > 0
-            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ':*,') > 0
-            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',*,') > 0
+            strpos(
+                coalesce(current_setting('rbac.schemas', TRUE), ''),
+                ',' || schema_name || ','
+            ) > 0
+            OR strpos(
+                coalesce(current_setting('rbac.schemas', TRUE), ''),
+                ',' || schema_name || ':*,'
+            ) > 0
+            OR strpos(
+                coalesce(current_setting('rbac.schemas', TRUE), ''),
+                ',*,'
+            ) > 0
         ),
         FALSE
     )
@@ -57,8 +66,14 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
         schema_name <> ''
         AND strpos(schema_name, ',') = 0
         AND (
-            strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',' || schema_name || ':*,') > 0
-            OR strpos(coalesce(current_setting('rbac.schemas', TRUE), ''), ',*,') > 0
+            strpos(
+                coalesce(current_setting('rbac.schemas', TRUE), ''),
+                ',' || schema_name || ':*,'
+            ) > 0
+            OR strpos(
+                coalesce(current_setting('rbac.schemas', TRUE), ''),
+                ',*,'
+            ) > 0
         ),
         FALSE
     )
@@ -70,7 +85,10 @@ SET search_path = pg_catalog, pg_temp AS $$
     SELECT
         set_config(
             'rbac.permissions',
-            coalesce((SELECT wrapped FROM rbac.roles WHERE name = current_setting('app.claim_role', TRUE)), ''),
+            coalesce(
+                (SELECT wrapped FROM rbac.roles WHERE name = current_setting('app.claim_role', TRUE)),
+                ''
+            ),
             TRUE
         ),
         set_config(

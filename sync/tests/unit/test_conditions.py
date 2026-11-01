@@ -6,7 +6,7 @@ from sync.sources.partitions import (
     RemainderSelection,
     TimeRangeSelection,
 )
-from tests.helpers import partition
+from tests.helpers.state import partition
 
 
 class TestSelectionConditions:

@@ -18,22 +18,19 @@ from tests.constants import (
     SIGNER,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers import (
+from tests.helpers.core import helm_sql, query_plan, scalar, set_setting
+from tests.helpers.dbos import answers_for
+from tests.helpers.rbac import (
     RBAC,
     SOURCE_HASH,
     RbacRole,
     RbacRules,
-    answers_for,
     create_request_roles,
     create_schema_reader,
-    helm_sql,
     install_rbac,
     install_rbac_sync,
     make_serving_login,
-    query_plan,
     revision,
-    scalar,
-    set_setting,
     stored_roles,
     stored_roles_sync,
     verify_rbac,

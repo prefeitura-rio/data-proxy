@@ -25,7 +25,7 @@ Applies to: every test, in `sync/`, `proxy/`, `console/`, `helm/` and `k6/`.
 
 ## Writing tests
 
-- **TEST-10** Keep a test module for tests only. Put fixtures in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in `sync/tests/helpers.py`. [must, review]
+- **TEST-10** Keep a test module for tests only. Put fixtures in `sync/tests/fixtures/`, test-double dataclasses in `sync/tests/fixtures/types.py`, and builders in the module of `sync/tests/helpers/` for their area (`core`, `state`, `dbos`, `ducklake`, `routing`, `rbac` or `console`). [must, review]
 - **TEST-11** Merge small test files that cover one module. [should, review]
 - **TEST-12** Test your own code and no code of a third party, such as DBOS, PostgREST, Keycloak, Kubernetes, Redis, a cloud SDK or a browser engine. [must, review]
 - **TEST-13** Stub the call at the edge of your code, and test what your code does with the answer. [must, review]
@@ -49,10 +49,10 @@ def test_renders_exact_predicate(selection, expected):
     assert render(partition_condition(partition_for(selection))) == expected
 ```
 
-A test module that has only tests, and a helper that lives in `helpers.py`:
+A test module that has only tests, and a helper that lives in a module of `helpers/`:
 
 ```text
-✅ sync/tests/helpers.py            def build_plan(...)
+✅ sync/tests/helpers/state.py      def build_plan(...)
 ✅ sync/tests/unit/test_plan.py     def test_plan_groups_changed_tables(): ...
 ❌ sync/tests/unit/test_plan.py     def build_plan(...)   # a builder in a test module
 ```

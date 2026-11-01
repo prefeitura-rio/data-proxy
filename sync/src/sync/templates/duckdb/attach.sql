@@ -11,6 +11,7 @@
 }
 #}
 -- noqa: disable=PRS
+-- The SQLFluff DuckDB dialect can't parse this statement.
 ATTACH {{ catalog }} AS dl (
     DATA_PATH {{ data_path }},
     DATA_INLINING_ROW_LIMIT 0,{% if metadata_schema is defined %}

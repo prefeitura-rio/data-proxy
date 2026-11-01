@@ -3,7 +3,7 @@ import re
 import pytest
 
 from tests.fixtures.pipeline import Pipeline, served, state_of
-from tests.helpers import scalar
+from tests.helpers.core import scalar
 
 pytestmark = pytest.mark.postgres
 

@@ -9,7 +9,6 @@
   }
 }
 #}
--- noqa: disable=PRS
 CALL {{ schema }}.recover_orphaned_workflows(
     {{ live_executor_ids }}::jsonb,
     {{ grace_seconds }}::integer * interval '1 second'

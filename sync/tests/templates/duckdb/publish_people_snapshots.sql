@@ -15,6 +15,7 @@
 }
 #}
 -- noqa: disable=PRS
+-- The SQLFluff DuckDB dialect can't parse this statement.
 INSTALL httpfs;
 LOAD httpfs;
 CREATE OR REPLACE SECRET test_s3 (

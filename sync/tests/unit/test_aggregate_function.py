@@ -8,7 +8,8 @@ import pytest
 from sync.models import TableState
 from tests.constants import FULL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
-from tests.helpers import (
+from tests.helpers.core import scalar, set_setting
+from tests.helpers.routing import (
     aggregate,
     by,
     call_aggregate_function,
@@ -16,13 +17,10 @@ from tests.helpers import (
     insert_access_policy,
     install_aggregate_function,
     ordered,
-    partitioned,
-    put_state,
     response_status,
-    scalar,
-    set_setting,
     total,
 )
+from tests.helpers.state import partitioned, put_state
 
 
 @pytest.mark.postgres
@@ -722,3 +720,146 @@ class TestAggregateFallback:
         )
 
         assert answer == [{"n": 47}]
+
+
+COLUMNS = {
+    "names": ["grp", "qty"],
+    "kinds": ["text", "numeric"],
+    "group": ["grp"],
+    "count": ["grp", "qty"],
+    "sum": ["qty"],
+    "avg": ["qty"],
+    "min": ["qty"],
+    "max": ["qty"],
+}
+
+
+@pytest.mark.postgres
+@pytest.mark.usefixtures("routing")
+class TestPlanAggregateParts:
+    """Each plan function gives the expressions of one part, or NULL for a request that it refuses."""
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param({}, [], id="no-group"),
+            pytest.param(
+                aggregate(group=["grp"]), ["grp AS grp"], id="an-allowed-column"
+            ),
+            pytest.param(
+                aggregate(group=["qty"]), None, id="a-column-that-cannot-group"
+            ),
+            pytest.param(
+                {"group": [{"column": "grp"}]}, None, id="a-group-column-without-alias"
+            ),
+        ],
+    )
+    async def test_group_gives_the_select_of_the_group_columns(
+        self,
+        postgres: Postgres,
+        document: dict[str, object],
+        expected: list[str] | None,
+    ) -> None:
+        """Gives a select for each group column that can group."""
+        assert (
+            await scalar(
+                postgres,
+                "SELECT data_proxy.plan_aggregate_group(%s::jsonb, %s::jsonb)",
+                json.dumps(document.get("aggregate", document)),
+                json.dumps(COLUMNS["group"]),
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param(aggregate(group=["grp"]), [], id="no-order"),
+            pytest.param(
+                aggregate(group=["grp"], order=[by("grp", descending=True)]),
+                ["(t.elem ->> 'grp') DESC"],
+                id="text-descending",
+            ),
+            pytest.param(
+                aggregate(group=["grp"], order=[by("grp", nulls="last")]),
+                ["(t.elem ->> 'grp') ASC NULLS LAST"],
+                id="text-with-nulls-last",
+            ),
+            pytest.param(
+                aggregate(group=["grp"], order=[by("qty")]),
+                None,
+                id="a-column-outside-the-group",
+            ),
+            pytest.param(
+                aggregate(group=["qty"], order=[by("qty")]),
+                None,
+                id="a-type-that-sorts-differently",
+            ),
+        ],
+    )
+    async def test_order_gives_the_order_of_the_groups(
+        self,
+        postgres: Postgres,
+        document: dict[str, object],
+        expected: list[str] | None,
+    ) -> None:
+        """Gives an order only for a group column that PostgreSQL sorts like DuckDB."""
+        assert (
+            await scalar(
+                postgres,
+                "SELECT data_proxy.plan_aggregate_order(%s::jsonb, %s::jsonb)",
+                json.dumps(document.get("aggregate", document)),
+                json.dumps(COLUMNS),
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param(
+                aggregate({"fn": "count", "alias": "n"}),
+                ["count(*) AS n"],
+                id="count-of-rows",
+            ),
+            pytest.param(
+                aggregate({"fn": "sum", "column": "qty", "alias": "n"}),
+                ["sum(qty) AS n"],
+                id="sum-of-an-allowed-column",
+            ),
+            pytest.param(
+                aggregate({"fn": "sum", "column": "grp", "alias": "n"}),
+                None,
+                id="sum-of-a-column-that-is-not-allowed",
+            ),
+            pytest.param(
+                aggregate({"fn": "sum", "alias": "n"}), None, id="sum-without-a-column"
+            ),
+            pytest.param(
+                aggregate({"fn": "median", "column": "qty", "alias": "n"}),
+                None,
+                id="an-unknown-function",
+            ),
+            pytest.param(
+                aggregate({"fn": "count", "column": "qty"}),
+                None,
+                id="an-item-without-alias",
+            ),
+        ],
+    )
+    async def test_items_give_the_select_of_the_aggregates(
+        self,
+        postgres: Postgres,
+        document: dict[str, object],
+        expected: list[str] | None,
+    ) -> None:
+        """Gives an expression for each item that its function allows."""
+        assert (
+            await scalar(
+                postgres,
+                "SELECT data_proxy.plan_aggregate_items(%s::jsonb, %s::jsonb)",
+                json.dumps(document.get("aggregate", document)),
+                json.dumps(COLUMNS),
+            )
+            == expected
+        )

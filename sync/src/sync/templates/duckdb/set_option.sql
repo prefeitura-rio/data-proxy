@@ -8,5 +8,4 @@
   }
 }
 #}
--- noqa: disable=PRS
 CALL dl.set_option('{{ option }}', {{ value }})

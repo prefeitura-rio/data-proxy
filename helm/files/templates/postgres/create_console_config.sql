@@ -11,7 +11,7 @@ It also carries the scope of each subject, the digest of its grants in every acc
 The scopes are absent when a schema reads its rows by another claim than preferred_username.
 They read and write the configuration tables of the console.
 #}
--- noqa: disable=CP02,PRS
+-- noqa: disable=CP02
 CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     WITH rules AS (

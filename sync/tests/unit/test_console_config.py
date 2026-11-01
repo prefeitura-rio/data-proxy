@@ -14,7 +14,8 @@ from tests.fixtures.console import (
     seed,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers import RULES, Document, export, exported, hr_schema, preview, scalar
+from tests.helpers.console import RULES, Document, export, exported, hr_schema, preview
+from tests.helpers.core import scalar
 
 INSUFFICIENT = "42501"
 CHECK_VIOLATION = "23514"

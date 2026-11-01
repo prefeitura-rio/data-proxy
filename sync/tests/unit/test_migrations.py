@@ -15,7 +15,7 @@ from tests.fixtures.console import (
     refusal,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers import names, scalar
+from tests.helpers.core import names, scalar
 
 CHECK_VIOLATION = "23514"
 

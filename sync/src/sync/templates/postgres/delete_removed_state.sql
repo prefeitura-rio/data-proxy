@@ -8,6 +8,7 @@
 }
 #}
 -- noqa: disable=PRS
+-- The %(kept)s placeholder of psycopg is not valid SQL for the SQLFluff dialect.
 WITH removed_state AS (
     DELETE FROM {{ schema }}.state
     WHERE table_name NOT IN (SELECT jsonb_array_elements_text(%(kept)s::jsonb))

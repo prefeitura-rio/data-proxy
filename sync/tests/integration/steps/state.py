@@ -21,7 +21,7 @@ from sync.state import (
     read_table_state,
     write_table_states,
 )
-from tests.helpers import partition
+from tests.helpers.state import partition
 
 
 @pytest.fixture

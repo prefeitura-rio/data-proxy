@@ -14,7 +14,7 @@ A change queues a workflow only when none of that kind waits in its queue.
 A change that arrives while one runs queues the next run, because the running one may have read the data already, and a burst of changes shares one waiting run.
 Run it after the rbac schema and the console tables exist.
 #}
--- noqa: disable=CP02,PRS
+-- noqa: disable=CP02
 CREATE OR REPLACE FUNCTION console.enqueue_once() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$

@@ -10,7 +10,7 @@
   }
 }
 #}
--- noqa: disable=CP02,PRS,LT05
+-- noqa: disable=CP02,LT05
 {% from "postgres/macros.sql" import ducklake_attach %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_table text)
 RETURNS TABLE (path text, size_bytes bigint, delete_file text) AS $$

@@ -9,4 +9,5 @@
 }
 #}
 -- noqa: disable=PRS
+-- The SQLFluff DuckDB dialect can't parse this statement.
 ALTER TABLE dl.{{ table }}{% if sort_columns %} SET SORTED BY ({{ sort_columns }}){% else %} RESET SORTED BY{% endif %}

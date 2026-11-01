@@ -21,7 +21,8 @@ from tests.constants import (
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import BigQueryQueryResult, Storage
-from tests.helpers import create_state_tables, one_worker_at_a_time
+from tests.helpers.core import one_worker_at_a_time
+from tests.helpers.state import create_state_tables
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 

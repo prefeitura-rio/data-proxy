@@ -30,13 +30,10 @@ from sync.sources import registry
 from sync.views import stages
 from tests.constants import S3_ACCESS_KEY, S3_ENDPOINT, S3_SECRET_KEY
 from tests.fixtures.types import Postgres, RecordedOptions
-from tests.helpers import (
-    act_as_token,
-    initialize_schemas,
-    one_worker_at_a_time,
-    scalar,
-    workflow_body,
-)
+from tests.helpers.core import one_worker_at_a_time, scalar
+from tests.helpers.dbos import workflow_body
+from tests.helpers.routing import act_as_token
+from tests.helpers.state import initialize_schemas
 
 
 @final

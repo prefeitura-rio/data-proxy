@@ -9,4 +9,5 @@
 }
 #}
 -- noqa: disable=PRS
+-- The SQLFluff DuckDB dialect can't parse this statement.
 ALTER TABLE dl.{{ table }}{% if partitioning %} SET PARTITIONED BY ({{ partitioning }}){% else %} RESET PARTITIONED BY{% endif %}

@@ -20,7 +20,8 @@ from sync.postgres import Postgres
 from sync.settings import settings
 from sync.state import read_table_signature
 from tests.constants import PARQUET
-from tests.helpers import attach_ducklake, sync_config
+from tests.helpers.ducklake import attach_ducklake
+from tests.helpers.state import sync_config
 
 pytestmark = pytest.mark.postgres
 

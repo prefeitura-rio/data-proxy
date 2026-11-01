@@ -2,7 +2,7 @@ import pytest
 from httpx2 import AsyncClient, MockTransport, Request, Response
 
 from sync.proxies import ProxyReloadError, proxy_addresses, reload_proxies
-from tests.helpers import client_answering
+from tests.helpers.dbos import client_answering
 
 URL = "http://proxy-admin.ns.svc:8081/reload"
 

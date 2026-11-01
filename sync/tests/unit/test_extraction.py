@@ -18,7 +18,8 @@ from sync.sources.partitions import (
 )
 from sync.sources.registry import sources
 from sync.templates import to_sql
-from tests.helpers import dump_task, silent
+from tests.helpers.dbos import silent
+from tests.helpers.state import dump_task
 
 BASE_MAPPING: Final[dict[str, str | list[str]]] = {
     "source": "bigquery_scan('p.d.t')",

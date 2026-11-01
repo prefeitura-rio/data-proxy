@@ -14,18 +14,18 @@ from sync.postgres import Postgres as PgBackend
 from sync.schema import notify_postgrest, wait_for_standbys
 from sync.settings import settings
 from tests.fixtures.types import Postgres
-from tests.helpers import (
-    act_as_token,
-    create_access_policy,
+from tests.helpers.core import (
     fetch_all,
     helm_sql,
-    insert_access_policy,
-    install_console_triggers,
-    queued_workflows,
-    revision,
     scalar,
     set_request_headers,
     set_setting,
+)
+from tests.helpers.rbac import install_console_triggers, queued_workflows, revision
+from tests.helpers.routing import (
+    act_as_token,
+    create_access_policy,
+    insert_access_policy,
 )
 
 

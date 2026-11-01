@@ -36,7 +36,7 @@ from sync.sources.partitions import (
     TimeGranularity,
     TimeRangeSelection,
 )
-from tests.helpers import metadata_row
+from tests.helpers.state import metadata_row
 from tests.strategies import identifiers, ordered_bounds
 
 table_from_api = Table.from_api_repr

@@ -8,5 +8,6 @@
 }
 #}
 -- noqa: disable=PRS,AM04
+-- The SQLFluff DuckDB dialect can't parse this statement.
 INSERT INTO dl.{{ table }} BY NAME
 SELECT * FROM read_parquet(?)

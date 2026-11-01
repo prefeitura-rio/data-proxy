@@ -33,7 +33,7 @@ from sync.sources.partitions import (
 )
 from sync.sources.registry import sources
 from tests.fixtures.types import NoFallbackSource
-from tests.helpers import partition
+from tests.helpers.state import partition
 from tests.strategies import (
     identifiers,
     physical_partitions,

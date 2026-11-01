@@ -42,14 +42,10 @@ from tests.fixtures.types import (
     Psql,
     Storage,
 )
-from tests.helpers import (
-    act_as_token,
-    clone_database,
-    create_state_tables,
-    initialize_schemas,
-    one_worker_at_a_time,
-    publish_people_catalog,
-)
+from tests.helpers.core import clone_database, one_worker_at_a_time
+from tests.helpers.ducklake import publish_people_catalog
+from tests.helpers.routing import act_as_token
+from tests.helpers.state import create_state_tables, initialize_schemas
 
 
 @pytest.fixture(scope="session")

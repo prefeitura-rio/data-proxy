@@ -14,7 +14,7 @@ The drop of a schema reader deletes the row of that schema.
 Run it in the catalog database as the owner role.
 Run it again without an error.
 #}
--- noqa: disable=CP02,PRS
+-- noqa: disable=CP02
 CREATE SCHEMA IF NOT EXISTS signer;
 
 CREATE TABLE IF NOT EXISTS signer.keys (

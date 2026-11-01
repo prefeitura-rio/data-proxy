@@ -8,4 +8,5 @@
 }
 #}
 -- noqa: disable=PRS
+-- The SQLFluff DuckDB dialect can't parse this statement.
 DESCRIBE dl.{{ table }}

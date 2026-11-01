@@ -8,7 +8,6 @@
   }
 }
 #}
--- noqa: disable=PRS
 DELETE FROM dl.{{ table }}
 {% if predicate %}WHERE {{ predicate }}
 {% endif %}

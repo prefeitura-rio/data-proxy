@@ -9,7 +9,7 @@
   }
 }
 #}
--- noqa: disable=PRS,LT05
+-- noqa: disable=LT05
 CALL ducklake_expire_snapshots('dl', older_than => now() - INTERVAL {{ interval }});
 CALL ducklake_merge_adjacent_files('dl', max_compacted_files => {{ max_compacted_files }});
 CALL ducklake_rewrite_data_files('dl', delete_threshold => {{ rewrite_delete_threshold }});

@@ -2,7 +2,7 @@ import pytest
 from lightkube.models.meta_v1 import ObjectMeta
 
 from sync.kubernetes import job_from_cronjob
-from tests.helpers import cronjob
+from tests.helpers.dbos import cronjob
 
 
 class TestJobFromCronjob:

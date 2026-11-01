@@ -6,7 +6,7 @@ from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
 
 from sync.sources.partitions import PhysicalPartition, RangeSelection
-from tests.helpers import RbacRole, RbacRules
+from tests.helpers.rbac import RbacRole, RbacRules
 
 identifiers = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
 

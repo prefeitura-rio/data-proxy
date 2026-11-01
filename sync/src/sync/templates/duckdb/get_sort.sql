@@ -8,6 +8,7 @@
 }
 #}
 -- noqa: disable=PRS,AM05
+-- The SQLFluff DuckDB dialect can't parse this statement.
 SELECT expression_info.expression
 FROM {{ metadata }}.ducklake_sort_info AS info
 JOIN {{ metadata }}.ducklake_sort_expression AS expression_info

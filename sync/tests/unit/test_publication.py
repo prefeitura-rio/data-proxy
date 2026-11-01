@@ -6,7 +6,7 @@ from sync.ducklake import (
     restore_partition,
 )
 from sync.models import SyncPlan
-from tests.helpers import add_change, partition, remove_change, table_plan
+from tests.helpers.state import add_change, partition, remove_change, table_plan
 
 
 class TestPlannedPaths:

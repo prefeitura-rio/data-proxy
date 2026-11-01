@@ -5,6 +5,5 @@
   "inputs": {}
 }
 #}
--- noqa: disable=PRS
 SELECT id
 FROM dl.current_snapshot()

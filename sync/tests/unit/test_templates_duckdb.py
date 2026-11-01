@@ -16,7 +16,7 @@ from tests.constants import (
     MODIFIED,
     PARQUET,
 )
-from tests.helpers import (
+from tests.helpers.ducklake import (
     attach_ducklake,
     count_rows,
     create_ducklake_table,

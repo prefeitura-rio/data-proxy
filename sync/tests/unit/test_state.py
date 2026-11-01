@@ -8,7 +8,7 @@ from sync.models import (
     TableState,
 )
 from sync.state import build_table_states
-from tests.helpers import partition, sync_config
+from tests.helpers.state import partition, sync_config
 
 
 class TestBuildTableStates:
