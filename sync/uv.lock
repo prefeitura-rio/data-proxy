@@ -1878,19 +1878,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytest-gremlins"
-version = "1.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "coverage" },
-    { name = "pytest" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/b6/74470cd5b97eb0cf5f3d7e2ef7feb2d6136b5cbe2df6e070299c5faf5e7c/pytest_gremlins-1.9.0.tar.gz", hash = "sha256:12966b4d24146b46d58aa1dc8a6d0881918863ca4454a44d109b295f22d27c24", size = 4013393, upload-time = "2026-07-01T12:55:33.149Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/f7/f582cd587ebdfad6e7f6426ca3220b051d7adb41c824576851732843777a/pytest_gremlins-1.9.0-py3-none-any.whl", hash = "sha256:26997e1e6ac0cbdef70c68ddadbbd2bf93c7d41e143d9f2d84ec318b7d552b67", size = 118421, upload-time = "2026-07-01T12:55:31.708Z" },
-]
-
-[[package]]
 name = "pytest-xdist"
 version = "3.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2094,7 +2081,6 @@ dev = [
     { name = "pytest-bdd" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
-    { name = "pytest-gremlins" },
     { name = "pytest-xdist" },
     { name = "ruff" },
     { name = "types-aiobotocore", extra = ["iam", "s3"] },
@@ -2135,7 +2121,6 @@ dev = [
     { name = "pytest-bdd", specifier = "==8.1.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-env", specifier = ">=1.1.5" },
-    { name = "pytest-gremlins", specifier = ">=1.9.0" },
     { name = "pytest-xdist", specifier = ">=3.6" },
     { name = "ruff", specifier = ">=0.9.3" },
     { name = "types-aiobotocore", extras = ["s3", "iam"], specifier = ">=3.9.0" },

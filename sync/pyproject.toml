@@ -33,7 +33,6 @@ dev = [
   "pytest-asyncio>=0.24.0",
   "pytest-bdd==8.1.0",
   "pytest-env>=1.1.5",
-  "pytest-gremlins>=1.9.0",
   "pytest-cov>=6.0.0",
   "pytest>=8.0.0",
   "pyrefly>=0.1.0",
@@ -70,10 +69,6 @@ filterwarnings = [
   "ignore::pytest.PytestRemovedIn10Warning:_pytest.fixtures",
   "ignore::DeprecationWarning:gherkin.gherkin_line",
 ]
-
-[tool.pytest-gremlins]
-paths = ["src"]
-exclude = ["**/tests/*", "**/templates/*", "**/__pycache__/*"]
 
 [tool.ruff]
 line-length = 88
