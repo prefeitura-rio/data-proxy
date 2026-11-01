@@ -37,17 +37,15 @@ S3 bucket is not ready; retrying: bucket=test-bucket error=connection refused
 Run the checks before you finish a change:
 
 ```bash
-devenv --profile default tasks run repo:lint repo:test:unit
-devenv --profile sync test
-devenv --profile proxy test
-devenv --profile console test
+devenv --profile repo tasks run repo:lint repo:test:unit
+devenv --profile int tasks run sync:test:int proxy:test:int console:test:int
 ```
 
 `repo:test:unit` runs the tests that need no services. `sync:test:int` starts PostgreSQL and SeaweedFS and runs the sync tests that need them. `proxy:test:int` starts OpenResty and runs the Hurl proxy suite. `console:test:int` starts the whole console stack and runs the browser tests. It takes about one minute.
 
 Put each test at the lowest level that can prove the behavior. Don't repeat a check at a higher level.
 
-A unit test checks one unit exhaustively: a function, a class, a method, or an SQL template. It covers every input, every branch, and the edge cases. An integration test checks a behavior. The scenario can cross units or services, such as a state commit, a catalog read, or a request through the proxy. The infrastructure doesn't decide the level. A template belongs to the unit level even when it runs on the real PostgreSQL server, because the test checks that template alone.
+A unit test checks one unit exhaustively: a function, a class, a method, or an SQL template. It covers every input, every branch, and the edge cases. An integration test checks a behavior. The scenario can cross units or services, such as a state commit, a catalog read, or a request through the proxy. The infrastructure doesn't decide the level. A template belongs to the unit level even when it runs on the real PostgreSQL server, because the test checks that template alone. The level and the task type are two things. The level says what a test proves. The task type says what it needs: a `unit` task needs no service, and an `int` task starts services. A template test on the real PostgreSQL has the level unit and runs in the task `sync:test:int`.
 
 | Level       | Location                                                | Runs against                                                                                                    | Covers                                                                                                                    |
 | ----------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -115,7 +113,7 @@ class PlanningContext:
 
 ### Logs
 
-- Use the standard-library logger from `sync.log`. Don't use `print`, configure handlers in application modules, or create module-specific loggers.
+- Use the standard-library logger from `sync.log`. Don't configure handlers in application modules or create module-specific loggers.
 - Configure the log level only through `Settings.LOG_LEVEL`. Don't set a log level in application modules.
 - Preserve DBOS workflow, schema, and table context through the context values in `sync.log`.
 
@@ -125,7 +123,7 @@ logger.info("DuckLake commit completed: published_tables=%d", len(published_tabl
 
 ### Tooling
 
-`devenv --profile default tasks run sync:lint:py` runs `ruff` with `select = ["ALL"]`, `pyrefly` (with `preset = "all"`), `complexipy` (a limit of 10 for each function) and `vulture`. Don't use `Any`. Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. Don't use implicit string concatenation. Write one long string. `E501` is off.
+`devenv --profile default tasks run sync:lint:py` runs `ruff` with `select = ["ALL"]`, `pyrefly` (with `preset = "all"`), `complexipy` (a limit of 10 for each function) and `vulture`. Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. Don't use implicit string concatenation. Write one long string. `E501` is off.
 
 ## Lua and OpenResty
 
@@ -200,7 +198,6 @@ end
 
 - Write logs only through `log.write`. Don't call `ngx.log` in other modules.
 - Use the fixed messages in `constants.log.messages`. Add the context as `name=value` pairs. Use `log.note` for an event that has no request, such as a timer or the Redis store.
-- Don't write tokens, request bodies, cache values, or query strings to logs.
 
 ### Tests
 
@@ -247,7 +244,7 @@ Nushell scripts run the Helm jobs and the local commands.
 
 ### Logs
 
-- Use `std/log` directly. Don't use `print` for service output. A command in `scripts/` may use `print` for machine output, such as a CI output line, or for a log stream that it shows to a person.
+- Use `std/log` directly. A command in `scripts/` may use `print` for machine output, such as a CI output line, or for a log stream that it shows to a person.
 
 ### Tests
 
@@ -271,7 +268,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 
 ### Naming
 
-- A task is `<component>:<verb>:<target>`. The verb is one of `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean`, `serve` and `open`. The target is the object of the verb, in the singular, such as `py`, `image` or `db`. For `test` the target is the level: `unit` for the tests that need no service and `int` for the tests that need services.
+- A task is `<component>:<verb>:<target>`. The verb is one of `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean`, `serve` and `open`. The target is the object of the verb, in the singular, such as `py`, `image` or `db`. For `test` the target is the task type: `unit` for the tests that need no service and `int` for the tests that need services (see [Tests](#tests)).
 - A task that groups other tasks uses the component `repo` and has two parts, or three if it names a level: `repo:lint` and `repo:test:unit`. A namespace prefix runs every task under it in the active profile, so `devenv tasks run repo` runs both groups and `devenv tasks run sync:test` runs the sync tests.
 - The component is a deployable (`sync`, `proxy`, `console`, `chart`), a part of the test stack (`pg`, `pgrest`, `kc`, `s3`, `nb`) or a repository tool (`nu`, `ci`, `ctr`, `docs`, `nix`, `repo`).
 - Abbreviate a name that's long, and use the same short form in every layer: the task, the process, the profile, the file in `nix/stack/` and the test image. The glossary has these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, provision `prov` and configure `conf`. Add a word to the glossary before you use a new short form. Environment variables and the names of registry images keep the full words, because the tests and the chart read them.
@@ -285,7 +282,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Format with `nixfmt`. Don't align by hand.
 - Put every web address in quotes. Don't use a bare address.
 - Don't use `rec`. Bind the shared names in a `let` block and use `inherit`.
-- Don't use `with` at the top of a file or around code. Use `with pkgs; [ ... ]` only for a list of packages.
+- Don't use `with` at the top of a file. Use `with pkgs;` for a list of packages, or for one expression that uses three or more `pkgs` attributes, as `python.nix` does.
 - Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input.
 - Name the arguments of a function in a set pattern, and give an optional argument a default with `?`.
 - Use `inherit (set) name;` instead of `name = set.name;`.
@@ -296,7 +293,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - Put a profile in the folder of the component that it tests, and list the folder under `imports:` in `devenv.yaml`. Put an input that only one component uses in the `devenv.yaml` of that folder.
 - Declare the port of a process with `ports.<name>.allocate = <base>` and read it with `data.port "<process>" "<name>"`. Don't write a port number in another place.
 - Give every task and every script a `description`.
-- Take `utils` from the module arguments. Don't import `nix/utils.nix` in a module.
+- Take `utils` and `data` from the module arguments. Don't import `nix/utils.nix` or `nix/data.nix` in a module.
 - Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process.
 - Name tasks, processes, profiles and files as the [Naming](#naming) section says. Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. `mkProcess` and `mkTask` build only the command and the variables. Add the other options of the devenv process or task with `//`.
 - A task that a process needs uses `before`. A task that needs a running service uses `after` and `wantedBy` with `utils.processTask "<name>"`.
@@ -318,7 +315,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 - Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used.
 - In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`.
 - In `tasks`, put the group tasks (`repo:lint`, `repo:test:unit`) last.
-- Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack.
+- Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack. The one exception is `console:open:browser`, which would open a browser and hang `devenv test`.
 - Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`.
 
 ### Documentation
@@ -351,7 +348,7 @@ command = command: mkProbe (lib.escapeShellArgs command);
 
 ### Tests
 
-Run `devenv --profile <name> test` for each profile that a change touches. The first run can fail when a hook formats a file. Run it again.
+Run `devenv --profile int tasks run <component>:test:int` for each component that a change touches. The first run can fail when a hook formats a file. Run it again.
 
 ## SQL
 
@@ -480,8 +477,7 @@ devenv --profile console tasks run console:lint:ui
 - Every page ends with a navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. `docs/.nav.json` has the page order. Add a new page to that file and link it from its parent page. `docs:lint:nav` fails on a missing page, a page without a link from its parent, or an old block.
 - Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. The file `db.d2` imports the other files of its folder, so edit a table in its own file and not in `db.d2`. Render it with `devenv --profile docs tasks run docs:build:diag`, commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. Don't write a diagram in another language. `docs:lint:diag` (profile `docs`) fails when an SVG is out of date, and CI doesn't run it. Every diagram renders in a light and a dark theme. Draw a database diagram with `sql_table` shapes and take the columns from the SQL files.
 - Name a file with one word, and use two words only if one word is unclear.
-- Give each topic one page, and link to it from the other pages. Keep a file near 800 words. Split a larger file by topic.
-- Keep one topic in one document. Link to the owner. Don't copy.
+- Give each topic one page, and link to it from the other pages. Don't copy text. Keep a file near 800 words, and split a larger file by topic.
 - Use generic examples unless a real value is required.
 - Say "the source" for the product, and name BigQuery only on a page about the BigQuery adapter or for a value that's specific to it.
 - Verify claims against source, Helm templates, tests, or a command you ran.
