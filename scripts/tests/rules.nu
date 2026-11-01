@@ -1,5 +1,13 @@
 use std/assert
-use ../rules.nu [commit-problems excluded header-problems line-findings RULES]
+use ../rules.nu [
+    commit-problems
+    excluded
+    function-problems
+    header-problems
+    line-findings
+    migration-problems
+    RULES
+]
 
 const ASSERT = {
     id: LUA-47
@@ -126,4 +134,99 @@ export def "test header-problems-counts-the-words-of-each-description" []: nothi
 
 def header [name: string, description: string]: nothing -> string {
     {kind: template, name: $name, description: $description} | to json --indent 2 | $"{#\n($in)\n#}"
+}
+
+def function-text [lines: int, --tag: string = '$$']: nothing -> string {
+    let body = 1..($lines - 3) | each { 'SELECT 1;' }
+
+    let head = ['CREATE OR REPLACE FUNCTION data_proxy.f()' $'RETURNS void AS ($tag)']
+
+    [...$head ...$body $'($tag);'] | str join "\n"
+}
+
+def long-message [line: int, size: int]: nothing -> string {
+    $'a.sql:($line): SQL-28 The function data_proxy.f has ($size) lines.'
+}
+
+# Verify that a function over 60 lines is a problem, and that an allowed file is not.
+export def "test function-problems-names-the-functions-over-60-lines" []: nothing -> nothing {
+    let cases = [
+        {
+            name: 'a function of 60 lines'
+            text: (function-text 60)
+            expected: []
+        }
+        {
+            name: 'a function of 61 lines'
+            text: (function-text 61)
+            expected: [(long-message 1 61)]
+        }
+        {
+            name: 'a function with a named dollar quote'
+            text: (function-text 70 --tag '$body$')
+            expected: [(long-message 1 70)]
+        }
+        {
+            name: 'a function in single quotes'
+            text: "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1';"
+            expected: []
+        }
+        {
+            name: 'two functions, one long'
+            text: $"(function-text 10)\n\n(function-text 65)"
+            expected: [(long-message 12 65)]
+        }
+    ]
+
+    for case in $cases {
+        assert equal (function-problems a.sql $case.text allowed.sql) $case.expected $case.name
+    }
+
+    assert equal (function-problems allowed.sql (function-text 90) allowed.sql) [] 'a function in an allowed file'
+}
+
+def migration-message [file: string, kind: string]: nothing -> string {
+    let reasons = {
+        changed: 'The file changed. Never edit an applied migration. Add a new one.'
+        added: 'The file is not in SHA256SUMS. Run `nu scripts/rules.nu sums`.'
+        missing: 'SHA256SUMS lists a file that does not exist.'
+    }
+
+    $'console/migrations/($file).sql: SQL-17 ($reasons | get --optional $kind)'
+}
+
+def migration-table [hashes: record]: nothing -> table<file: string, hash: string> {
+    $hashes | items {|name, hash| {file: $'console/migrations/($name).sql', hash: $hash} }
+}
+
+# Verify each way that a migration can disagree with the list of its hash.
+export def "test migration-problems-names-a-changed-new-and-missing-file" []: nothing -> nothing {
+    let sums = "aaa  console/migrations/00001_a.sql\nbbb  console/migrations/00002_b.sql"
+
+    let cases = [
+        {
+            name: 'every file has its hash'
+            files: {'00001_a': aaa, '00002_b': bbb}
+            expected: []
+        }
+        {
+            name: 'a changed file'
+            files: {'00001_a': zzz, '00002_b': bbb}
+            expected: [(migration-message 00001_a changed)]
+        }
+        {
+            name: 'a new file without a line'
+            files: {'00001_a': aaa, '00002_b': bbb, '00003_c': ccc}
+            expected: [(migration-message 00003_c added)]
+        }
+        {
+            name: 'a line without a file'
+            files: {'00001_a': aaa}
+            expected: [(migration-message 00002_b missing)]
+        }
+    ]
+
+    for case in $cases {
+        assert equal (migration-problems $sums (migration-table $case.files)) $case.expected $case.name
+    }
 }

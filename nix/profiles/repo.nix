@@ -163,6 +163,7 @@ in
               "sync/src/sync/templates/**/*.sql"
               "helm/files/templates/**/*.sql"
               "console/migrations/*.sql"
+              "console/migrations/SHA256SUMS"
               "**/*.nix"
             ];
           };

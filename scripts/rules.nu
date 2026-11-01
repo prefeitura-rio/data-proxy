@@ -1,4 +1,4 @@
-use lib.nu [fail read-text]
+use lib.nu [fail read-text write-text]
 
 const SKIPPED_FOLDERS = [
     '**/node_modules/**'
@@ -13,6 +13,12 @@ const COMMIT_TYPES = '^(feat|fix|refactor|test|docs|chore|revert)(\([a-z0-9,_ -]
 const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
 
 const HEADER_WORDS = 40
+
+const FUNCTION_LINES = 60
+
+const MIGRATIONS = 'console/migrations'
+
+const SUMS = 'console/migrations/SHA256SUMS'
 
 const LUA = ['proxy/src/**/*.lua']
 
@@ -37,6 +43,13 @@ const PARSER_DISABLED = [
     sync/src/sync/templates/postgres/delete_removed_state.sql
     sync/src/sync/templates/postgres/views/create_function.sql
     sync/tests/templates/duckdb/publish_people_snapshots.sql
+]
+
+const LONG_FUNCTIONS = [
+    helm/files/templates/postgres/create_console_config.sql
+    sync/src/sync/templates/postgres/views/create_aggregate_function.sql
+    sync/src/sync/templates/postgres/views/create_function.sql
+    sync/src/sync/templates/postgres/views/routing/filter.sql
 ]
 
 const NU_LIBS = [
@@ -98,6 +111,93 @@ export def header-problems [file: string, text: string]: nothing -> list<string>
     | each {|header| $'($file): SQL-30 The description of ($header.name) has ($header.words) words.' }
 }
 
+# Return the index of the line where the function that starts at the line `start` ends. A body in dollar quotes ends
+# with the line that closes the quote, and any other function ends with its first line that ends in a semicolon.
+def function-end [lines: list<string>, start: int]: nothing -> int {
+    mut index = $start
+    mut tag = ''
+    mut seen = 0
+
+    while $index < ($lines | length) {
+        let line = $lines | skip $index | first
+
+        if $tag == '' {
+            let opened = $line | parse --regex '(?<tag>\$[A-Za-z_]*\$)'
+
+            if ($opened | is-not-empty) {
+                $tag = ($opened | first | get tag)
+            } else if ($line | str ends-with ';') {
+                return $index
+            }
+        }
+
+        if $tag != '' {
+            $seen += ($line | split row $tag | length) - 1
+
+            if $seen > 0 and $seen mod 2 == 0 {
+                return $index
+            }
+        }
+
+        $index += 1
+    }
+
+    $index - 1
+}
+
+# Return a problem for each function over 60 lines in the text of a SQL file, unless the file is allowed.
+export def function-problems [file: string, text: string, ...allowed: string]: nothing -> list<string> {
+    if (excluded $file ...$allowed) {
+        return []
+    }
+
+    let lines = $text | lines
+
+    $lines
+    | enumerate
+    | where item =~ '^\s*CREATE (OR REPLACE )?FUNCTION'
+    | each {|row|
+        let size = (function-end $lines $row.index) - $row.index + 1
+        let names = $row.item | parse --regex 'FUNCTION\s+(?<name>.+?)\s*\('
+        let name = if ($names | is-empty) { 'function' } else { $names | first | get name }
+
+        {line: ($row.index + 1), name: $name, size: $size}
+    }
+    | where size > $FUNCTION_LINES
+    | each {|function| $'($file):($function.line): SQL-28 The function ($function.name) has ($function.size) lines.' }
+}
+
+# Return a problem for each migration that disagrees with the list of hashes: a changed, a new and a missing file.
+export def migration-problems [sums: string, files: table<file: string, hash: string>]: nothing -> list<string> {
+    let listed = $sums
+    | lines
+    | where ($it | str trim | is-not-empty)
+    | parse --regex '(?<hash>\S+)\s+(?<file>\S+)'
+
+    let changed = $files
+    | join $listed file
+    | where hash != $it.hash_
+    | each {|row| $'($row.file): SQL-17 The file changed. Never edit an applied migration. Add a new one.' }
+
+    let added = $files
+    | where file not-in ($listed | get file)
+    | each {|row| $'($row.file): SQL-17 The file is not in SHA256SUMS. Run `nu scripts/rules.nu sums`.' }
+
+    let missing = $listed
+    | where file not-in ($files | get file)
+    | each {|entry| $'($entry.file): SQL-17 SHA256SUMS lists a file that does not exist.' }
+
+    [...$changed ...$added ...$missing]
+}
+
+# Return the files of the migrations with the hash of each one.
+def migration-files []: nothing -> table<file: string, hash: string> {
+    glob $'($MIGRATIONS)/*.sql'
+    | each {|file| $file | path relative-to (pwd) }
+    | sort
+    | each {|file| {file: $file, hash: (read-text $file | hash sha256)} }
+}
+
 # Return true when the path starts with one of the files or folders that the rule allows.
 export def excluded [file: string, ...except: string]: nothing -> bool {
     $except | any {|head| $file | str starts-with $head }
@@ -130,21 +230,43 @@ def files-of [rule: record]: nothing -> list<string> {
     | where not (excluded $it ...$rule.except)
 }
 
-# Check the code against the rules that a pattern can check, and the last 50 commit subjects against the commit rules.
+# Return the SQL files of the templates and the migrations, as paths from the repository root.
+def sql-files []: nothing -> list<string> {
+    $SQL
+    | each {|pattern| glob $pattern }
+    | flatten
+    | each {|file| $file | path relative-to (pwd) }
+    | uniq
+}
+
+# Write the hash of each console migration to the list that SQL-17 checks. Run it only for a migration that no install applied.
+def "main sums" []: nothing -> nothing {
+    migration-files
+    | each {|row| $'($row.hash)  ($row.file)' }
+    | str join (char nl)
+    | $in + (char nl)
+    | write-text $SUMS
+}
+
+# Check the code against the rules that a pattern can check, the SQL files against the rules of size, and the last 50 commit subjects.
 def main []: nothing -> nothing {
     let files = $RULES
     | each {|rule| files-of $rule | each {|file| line-findings $rule $file (read-text $file) } | flatten }
     | flatten
 
-    let headers = $SQL
-    | each {|pattern| glob $pattern }
-    | flatten
-    | each {|file| $file | path relative-to (pwd) }
-    | each {|file| header-problems $file (read-text $file) }
+    let sql = sql-files
+    | each {|file|
+        let text = read-text $file
+
+        let sizes = function-problems $file $text ...$LONG_FUNCTIONS
+
+        [...(header-problems $file $text) ...$sizes]
+    }
     | flatten
 
+    let migrations = migration-problems (read-text $SUMS) (migration-files)
     let commits = commit-problems ...(git log --max-count=50 --format=%s | lines)
-    let found = [...$files ...$headers ...$commits]
+    let found = [...$files ...$sql ...$migrations ...$commits]
 
     if ($found | is-not-empty) {
         fail $"The code breaks the style rules:\n($found | str join "\n")"

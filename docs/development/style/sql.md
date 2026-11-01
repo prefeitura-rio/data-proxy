@@ -33,7 +33,7 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 ## Console migrations
 
 - **SQL-16** Keep the migrations of the `console` schema in `console/migrations/NNNNN_name.sql`, and let `goose` apply them. Add a new numbered file for each change. [must, goose]
-- **SQL-17** Don't edit a migration that another install applied. [must, review]
+- **SQL-17** Don't edit a migration that another install applied. `console/migrations/SHA256SUMS` has the hash of each file, and `nu scripts/rules.nu sums` rewrites it for a new migration. [must, code]
 - **SQL-18** Keep `sync:lint:sql` green. It runs `sqlfluff` on the files with a limit of 88 columns, and `goose validate`. [must, sqlfluff]
 - **SQL-19** Give a `SECURITY DEFINER` function a fixed `search_path`, as `data_proxy.sees` does. [must, review]
 - **SQL-20** Check access with `rbac.can()` and `rbac.mine()`. Both refuse if the rule is missing. [must, review]
@@ -50,7 +50,7 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - **SQL-25** Write a macro that takes arguments and gives text. When a macro reads or sets a variable of the function, name the variable in its header, and let the caller write the `RETURN`. [must, review]
 - **SQL-26** Render an array with `sql_array` or `name_array`. Don't write a `for` loop with `loop.last` for a list. [must, review]
 - **SQL-27** Name a parameter of a new function `p_<name>` and a local variable `v_<name>`. [should, review]
-- **SQL-28** Keep a function under 60 lines. Split a longer function into functions with one job and a name. [should, review]
+- **SQL-28** Keep a function under 60 lines. Split a longer function into functions with one job and a name. Four files keep an older long function on a list in `scripts/rules.nu`. [should, code]
 - **SQL-29** Keep a template readable by the SQLFluff parser. Don't add `noqa: disable=PRS` to a new template. Add a file to the allowed list in `scripts/rules.nu` only with a reason line under the `noqa`. [must, code]
 - **SQL-30** Keep the description of a header under 40 words. Put the detail in a Jinja comment under the header. [must, code]
 
