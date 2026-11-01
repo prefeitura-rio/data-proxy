@@ -191,7 +191,8 @@ export def poll [check: closure, config: record<interval: duration, max_attempts
     false
 }
 
-# Build and push every input image record to its configured registry.
+# Build and push every input image record to its configured registry. A tracked file that the working tree deleted is
+# still in the index, so the build context copies only the files that exist.
 export def build-images []: list<record<image: string, containerfile: string>> -> nothing {
     let images = $in
     let context = $"/tmp/data-proxy-build-(random uuid)"
@@ -199,7 +200,6 @@ export def build-images []: list<record<image: string, containerfile: string>> -
     try {
         mkdir $context
 
-        # A tracked file that the working tree deleted is still in the index.
         for file in (git ls-files --cached --others --exclude-standard | lines | where ($it | path exists)) {
             let destination = $context | path join $file
             mkdir ($destination | path dirname)

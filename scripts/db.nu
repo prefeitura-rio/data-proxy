@@ -25,6 +25,8 @@ def run-sql [database: string, port: string]: string -> nothing {
 }
 
 # Create the test databases, including the DuckLake catalog database, and the rbac rules that the data schemas call.
+# The policies and the functions of every data schema ask rbac.can(), so the data tests need the rules too.
+# DuckDB reads persistent secrets once per backend, so the setup creates them before any test backend starts.
 def main []: nothing -> nothing {
     let port = $env.TEST_POSTGRES_PORT
     let templates = $env.DEVENV_ROOT | path join sync tests templates postgres
@@ -45,7 +47,6 @@ def main []: nothing -> nothing {
 
     render ($templates | path join fixture.sql) | run-sql test_template $port
 
-    # The policies and the functions of every data schema ask rbac.can(), so the data tests need the rules too.
     let rules_text = read-text ($env.DEVENV_ROOT | path join helm files config rbac.toml)
     let rbac_sql = render ($env.DEVENV_ROOT | path join helm files templates postgres create_rbac.sql) {
         rules: ($rules_text | parse-toml)
@@ -56,7 +57,6 @@ def main []: nothing -> nothing {
         $rbac_sql | run-sql $database $port
     }
 
-    # DuckDB reads persistent secrets once per backend, so create them before any test backend starts.
     render ($templates | path join create_ducklake_catalog_secret.sql) {host: localhost, port: $port, database: ducklake, user: test, password: test} | run-sql test $port
 
     'CREATE EXTENSION IF NOT EXISTS pg_duckdb;' | run-sql test $port

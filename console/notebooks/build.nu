@@ -14,7 +14,9 @@ def fail [message: string]: nothing -> error {
 }
 
 # Build the notebook site: export a marimo notebook that runs offline, bundle the page script and the worker script
-# with DuckDB-WASM, and add the files that DuckDB-WASM needs.
+# with DuckDB-WASM, and add the files that DuckDB-WASM needs. The devenv shell points uv at the environment of sync/,
+# so the script sets the environment of this project. marimo asks on a terminal whether to run in a sandbox, so the
+# export passes --no-sandbox and uses the environment that uv sync made.
 def main [
     notebook: path = notebooks/query.py # The marimo notebook to export
     output: path = dist # The folder for the site
@@ -26,7 +28,6 @@ def main [
         fail $'Cannot enter ($env.FILE_PWD): ($err.msg)'
     }
 
-    # The devenv shell points uv at the environment of sync/. This project keeps its own.
     $env.UV_PROJECT_ENVIRONMENT = ($env.FILE_PWD | path join .venv)
 
     pnpm install --frozen-lockfile
@@ -38,8 +39,6 @@ def main [
         fail $'Cannot remove ($output): ($err.msg)'
     }
 
-    # --no-sandbox: marimo asks on a terminal whether to run in a sandbox, and the task waits for an answer.
-    # The project has its own environment, which uv sync made above.
     uv run --frozen marimo export html-wasm $notebook --output $output --mode $mode --offline --force --no-sandbox
 
     let duckdb = [$output duckdb] | path join

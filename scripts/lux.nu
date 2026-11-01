@@ -97,11 +97,7 @@ def "main coverage" []: nothing -> nothing {
             ^($tree | path join bin unwrapped luacov)
         }
 
-        let report = try {
-            open luacov.report.out
-        } catch {|err|
-            fail $'Cannot read luacov.report.out: ($err.msg)'
-        }
+        let report = read-text luacov.report.out
 
         $report
         | lines

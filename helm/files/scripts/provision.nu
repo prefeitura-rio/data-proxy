@@ -6,18 +6,21 @@ use ./lib.nu [
     execute-sql
     fail
     orphans
+    parse-json
     query-sql
     quote-identifier
     quote-literal
     rclone-env
+    read-text
     served-schemas
     sync-config
     wait-for-postgres
 ]
 
-# Fill an empty configuration from the values file, once. Editors own it afterward.
+# Fill an empty configuration from the values file, once. Editors own it afterward. The job has no token, so it acts as
+# the role that holds import_config, for one transaction.
 def bootstrap-config []: nothing -> nothing {
-    let bootstrap = try { open $env.SYNC_CONFIG_PATH } catch { {
+    let bootstrap = try { read-text $env.SYNC_CONFIG_PATH | parse-json } catch { {
         schemas: {}
     } }
 
@@ -25,7 +28,6 @@ def bootstrap-config []: nothing -> nothing {
         return
     }
 
-    # The job has no token, so it acts as the role that holds import_config, for one transaction.
     "BEGIN; SELECT set_config('app.claim_role', 'dp_admin', true); SELECT rbac.load(); SELECT console.import_config(:'document'::jsonb); COMMIT;"
     | psql $env.PG_DATABASE_URL --no-psqlrc --quiet -v ON_ERROR_STOP=1 --set $"document=($bootstrap | to json --raw)"
     | complete
@@ -172,29 +174,29 @@ def remove-schemas [...names: string]: nothing -> nothing {
 }
 
 # Make the database match the console configuration: create, serve and remove schemas.
+# The event run skips the console functions, because replacing a trigger locks its table.
+# Every token switches to one role, so that role needs the rights on the console schema once the migrations created it.
+# The anonymous role reads the one document that the proxy needs, and nothing else of the console schema.
+# Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 
     wait-for-postgres $env.PG_DATABASE_URL
 
-    # The event run skips this step, because replacing a trigger locks its table.
     if $env.PROVISION_ALL? == 'true' {
         install-console-functions
     }
 
     bootstrap-config
 
-    # Every token switches to one role. It needs the rights on the console schema once the migrations created them.
     execute-sql postgres/grant_console_usage.sql {
         user_role: (quote-identifier $env.AUTH_USER_ROLE)
     }
 
-    # The anonymous role reads the one document that the proxy needs, and nothing else of the console schema.
     execute-sql postgres/grant_proxy_config.sql {
         anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
     }
 
-    # Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
     for pass in 0..2 {
         let names = (sync-config).schemas | columns
         let pending = if $env.PROVISION_ALL? == 'true' and $pass == 0 { $names } else { unprovisioned-schemas }

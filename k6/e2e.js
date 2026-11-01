@@ -23,12 +23,12 @@ const MAX_DURATION = __ENV.MAX_DURATION || "10m";
 const PIPELINE_TIMEOUT_SECONDS = 600;
 
 /**
- * Parses `E2E_SCENARIOS`, a comma-separated list. An empty list selects every scenario.
+ * Parses `E2E_SCENARIOS`, a comma-separated list. An empty list selects every scenario. A scenario that only throws,
+ * like jobs, never calls scenario(), so the steps name it too.
  * @param {string} list
  * @returns {ReadonlySet<string>}
  */
 function selectedScenarios(list) {
-    // A scenario that only throws, like jobs, never calls scenario(), so the steps name it too.
     const known = [...new Set([...scenarioNames(), ...STEPS.map((step) => step.scenario)])];
 
     const names = list

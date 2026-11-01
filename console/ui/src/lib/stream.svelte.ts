@@ -11,6 +11,7 @@ export type RunSource = { id: () => string; logs: () => LogLine[]; status: () =>
 /**
  * Follow a run while `live` is true. The stream adds log lines and a newer status on top of the loaded data, and it
  * asks the page to reload the tasks and the steps when the status changes. Call it while a component starts.
+ * After a control action, `watch()` follows the run even while it still shows a finished status.
  */
 export function runStream(source: RunSource) {
 	let streamed = $state<{ logs: LogLine[]; status: string } | null>(null);
@@ -74,7 +75,6 @@ export function runStream(source: RunSource) {
 		get connection() {
 			return connection;
 		},
-		/** After a control action, follow the run even while it still shows a finished status. */
 		watch() {
 			settling = true;
 			pausedLogs = null;

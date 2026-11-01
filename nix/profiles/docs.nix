@@ -15,12 +15,11 @@
         tasks = {
           "docs:build:diag" = utils.nuTask {
             description = "Render the D2 diagrams to SVG.";
-            exec = ''
-              for file in (glob docs/diagrams/**/*.d2) {
-                  d2 $file ($file | path parse | update extension svg | path join)
-              }
-            '';
-            execIfModified = utils.mkInputs [ "docs/diagrams/**/*.d2" ];
+            exec = "nu scripts/diag.nu build";
+            execIfModified = utils.mkInputs [
+              "docs/diagrams/**/*.d2"
+              "scripts/diag.nu"
+            ];
           };
           "docs:serve:site" = utils.nuTask {
             description = "Generate the diagrams, the navigation and the role table, then serve the docs.";
@@ -38,22 +37,10 @@
           };
           "docs:lint:diag" = utils.nuTask {
             description = "Check that the rendered diagrams are current.";
-            exec = ''
-              for file in (glob docs/diagrams/**/*.d2) {
-                  let svg = $file | path parse | update extension svg | path join
-                  let fresh = d2 $file - | complete
-
-                  if $fresh.exit_code != 0 {
-                      error make { msg: $fresh.stderr }
-                  }
-
-                  if ($fresh.stdout | str trim) != (open --raw $svg | str trim) {
-                      error make { msg: $"($svg) is out of date: run docs:build:diag" }
-                  }
-              }
-            '';
+            exec = "nu scripts/diag.nu check";
             execIfModified = utils.mkInputs (
-              utils.mkGlobs "docs/diagrams" [
+              [ "scripts/diag.nu" ]
+              ++ utils.mkGlobs "docs/diagrams" [
                 "d2"
                 "svg"
               ]

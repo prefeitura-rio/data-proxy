@@ -6,6 +6,7 @@ use ./lib.nu [
     execute-sql
     fail
     rclone-env
+    remove-path
     schema-list
     sync-config
 ]
@@ -50,7 +51,7 @@ def backup-schema [schema: string]: nothing -> nothing {
 
     try {
         for file in ($dumps | get file) {
-            rm --force $file
+            remove-path $file
         }
     } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
 }
