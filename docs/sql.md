@@ -36,7 +36,7 @@ Every Jinja or minijinja SQL template starts with one metadata header:
 
 Use `kind: template` and `description`. Add `inputs` when the template accepts values. Keep descriptions short. Keep metadata inside the source comment.
 
-Document each Jinja or minijinja macro with one metadata header. Document each Helm `define` in `_helpers.tpl` with the same structure and `kind: macro`.
+Document each Jinja or minijinja macro with one metadata header. Document each Helm `define` in the `_*.tpl` files of `helm/templates/` with the same structure and `kind: macro`. Each file has one area: `_helpers.tpl` (names, labels, security), `_s3.tpl`, `_redis.tpl`, `_postgres.tpl`, `_scaling.tpl`, `_proxy.tpl`, `_console.tpl` and `_jobs.tpl`.
 
 Put the detail of a long description in a Jinja comment under the header, and keep the description under 40 words. Put one blank line before a header. Put no blank line between the header and its definition. Put one blank line after the definition. Add `name`, `description`, and `returns`. Add `inputs` when needed.
 
@@ -64,7 +64,7 @@ Keep SQLFluff context values close to the template family that uses them. Each v
 
 ## Macros and helpers
 
-Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in `_helpers.tpl`. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata. Render a list with `sql_array` for SQL literals and with `name_array` for plain names.
+Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in the `_*.tpl` files. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata. Render a list with `sql_array` for SQL literals and with `name_array` for plain names.
 ''
 
 <!-- nav:start -->
