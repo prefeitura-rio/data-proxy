@@ -28,7 +28,7 @@ async def routing(postgres: Postgres) -> Postgres:
         "postgres/views/routing/snapshot",
         mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},
     )
-    for template in ("coverage", "filter", "plan", "response"):
+    for template in ("quoting", "coverage", "filter", "plan", "response", "aggregate"):
         await Executor[PostgresParams, list[TupleRow]](conn=postgres.backend).execute(
             f"postgres/views/routing/{template}",
             mapping={"schema": Identifier(settings.DBOS_APP_SCHEMA)},

@@ -4,7 +4,6 @@
   "description": "Coverage predicate functions for DuckLake and fallback sources."
 }
 #}
--- noqa: disable=PRS,LT05
 
 CREATE OR REPLACE FUNCTION {{ schema }}.sql_literal(p_value jsonb) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
@@ -14,18 +13,20 @@ LANGUAGE sql IMMUTABLE AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.selection_condition(p_selection jsonb) RETURNS text
+CREATE OR REPLACE FUNCTION {{ schema }}.selection_condition(
+  p_selection jsonb
+) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE p_selection ->> 'type'
     WHEN 'remainder' THEN format(
       '(%1$s IS NULL OR %1$s < %2$s OR %1$s >= %3$s)',
-      '"' || replace(p_selection ->> 'column', '"', '""') || '"',
+      {{ schema }}.quote_column(p_selection ->> 'column'),
       {{ schema }}.sql_literal(p_selection -> 'start'),
       {{ schema }}.sql_literal(p_selection -> 'end')
     )
     ELSE format(
       '(%1$s >= %2$s AND %1$s < %3$s)',
-      '"' || replace(p_selection ->> 'column', '"', '""') || '"',
+      {{ schema }}.quote_column(p_selection ->> 'column'),
       {{ schema }}.sql_literal(p_selection -> 'lower'),
       {{ schema }}.sql_literal(p_selection -> 'upper')
     )

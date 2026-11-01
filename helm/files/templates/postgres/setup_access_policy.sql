@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create access_policy and access_log tables with a change trigger, row policies that ask for the read_policy, create_policy, edit_policy and delete_policy permissions in the schemas of the token (the log takes only the read_policy policy), a commit that waits for the standbys, and a trigger that moves the counter in rbac.revision on every write.",
+  "description": "Create access_policy and access_log, with a change trigger, row policies by permission, a commit that waits for the standbys, and a trigger that moves rbac.revision.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "user_role": "Database role that every token switches to.",
@@ -9,6 +9,9 @@
     "app_schema": "PostgreSQL schema that holds internal functions."
   }
 }
+#}
+{#
+The row policies ask for the read_policy, create_policy, edit_policy and delete_policy permissions in the schemas of the token. The log takes only the read_policy policy.
 #}
 CREATE SCHEMA IF NOT EXISTS {{ app_schema }};
 

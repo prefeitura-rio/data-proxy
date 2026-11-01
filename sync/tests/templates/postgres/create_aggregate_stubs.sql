@@ -1,11 +1,14 @@
 {#
 {
   "kind": "template",
-  "description": "Create the snapshot function and a DuckLake helper whose view holds six rows with a unit, a group, a whole number, a date, a flag, a decimal number and a label. The view applies the WHERE clause that it receives, as the real helper does.",
+  "description": "Create the snapshot function and a DuckLake helper whose view holds six rows.",
   "inputs": {
     "schema": "SQL-safe PostgreSQL schema identifier."
   }
 }
+#}
+{#
+The view applies the WHERE clause that it receives, as the real helper does.
 #}
 CREATE FUNCTION {{ schema }}.dl_latest_snapshot() RETURNS bigint
 LANGUAGE sql AS 'SELECT 7::bigint';

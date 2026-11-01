@@ -4,7 +4,6 @@
   "description": "Response header and WHERE clause helper functions."
 }
 #}
--- noqa: disable=PRS,LT05
 
 CREATE OR REPLACE FUNCTION {{ schema }}.source_label(p_sources text[])
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
@@ -13,7 +12,9 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
   WHERE source IS NOT NULL
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.and_where(p_where text, p_condition text) RETURNS text
+CREATE OR REPLACE FUNCTION {{ schema }}.and_where(
+  p_where text, p_condition text
+) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE
     WHEN p_condition IS NULL OR p_condition = 'TRUE' THEN p_where
@@ -22,7 +23,9 @@ LANGUAGE sql IMMUTABLE AS $$
   END
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.set_response_headers(p_source text, p_snapshot bigint)
+CREATE OR REPLACE FUNCTION {{ schema }}.set_response_headers(
+  p_source text, p_snapshot bigint
+)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
   v_headers json[] := ARRAY[]::json[];

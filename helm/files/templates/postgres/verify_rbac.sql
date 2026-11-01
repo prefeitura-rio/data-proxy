@@ -1,13 +1,17 @@
 {#
 {
   "kind": "template",
-  "description": "Check that the roles of the database match the roles of rbac.toml and stop the job with every difference, so that a stale or too powerful role never keeps a right. Each role of the file must exist, must not log in, must not be a superuser, must be in rbac.roles, and the serving login must be a member of it. The serving login must log in without inheriting rights, and must be a member of no role that the file and the anonymous role don't name.",
+  "description": "Check that the roles of the database match the roles of rbac.toml, and stop the job with every difference.",
   "inputs": {
     "roles": "SQL literals, separated by commas, of the roles of rbac.toml.",
     "anonymous_role": "SQL literal of the role of a request without a token.",
     "serving_role": "SQL literal of the login that PostgREST connects with."
   }
 }
+#}
+{#
+Each role of the file must exist, must not log in, must not be a superuser, must be in rbac.roles, and the serving login must be a member of it.
+The serving login must log in without inheriting rights, and must be a member of no role that the file and the anonymous role don't name.
 #}
 DO $verify_rbac$
 DECLARE

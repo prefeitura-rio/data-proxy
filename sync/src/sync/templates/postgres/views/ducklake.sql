@@ -13,8 +13,7 @@
   }
 }
 #}
--- noqa: disable=CP02,PRS,LT05
-{% from "postgres/macros.sql" import ducklake_attach %}
+{% from "postgres/macros.sql" import ducklake_attach, sql_array %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(
   p_where text, p_arg text, p_validate_snapshot boolean, p_columns text[], p_tail text
 )
@@ -33,7 +32,7 @@ BEGIN
   PERFORM duckdb.raw_query(
     'CREATE OR REPLACE VIEW {{ duckdb_view }} AS ' ||
     'SELECT ' || {{ app_schema }}.project_columns(
-      ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[],
+      {{ sql_array(columns | map(attribute='key')) }},
       p_columns
     ) || ' ' ||
     'FROM {{ source }} AT (VERSION => ' || v_snapshot || ') ' ||
@@ -44,4 +43,6 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
-REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text, boolean, text[], text) FROM PUBLIC
+REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(
+  text, text, boolean, text[], text
+) FROM public

@@ -1,13 +1,19 @@
 {#
 {
   "kind": "template",
-  "description": "Create the rbac schema, the table of roles, and the functions that answer whether a request may use a feature, then load the rules of the rbac.toml file. The load validates the file, computes the permissions that each role inherits with a recursive union, replaces the stored roles, and writes the known permissions into rbac.can(), so that a name that no rule defines raises an error. Every load moves the counter in rbac.revision, which the access policy triggers move too, so that the proxy learns that what grants access changed. Run it in one transaction. The load turns JIT off for its transaction, because the compile time of JIT costs far more than the queries, which read a handful of rows.",
+  "description": "Create the rbac schema, the table of roles, and the functions that say whether a request may use a feature. Then load the rules of rbac.toml.",
   "inputs": {
     "rules": "The parsed rbac.toml file: permissions grouped by object, and the roles with their inherits and permissions.",
     "anonymous_role": "SQL-safe identifier of the role of a request without a token.",
     "source_hash": "SHA-256 of the text of the rbac.toml file, in hexadecimal. It is stored in the comment of rbac.roles."
   }
 }
+#}
+{#
+The load validates the file, computes the permissions that each role inherits with a recursive union, replaces the stored roles, and writes the known permissions into rbac.can(), so that a name that no rule defines raises an error.
+Every load moves the counter in rbac.revision, which the access policy triggers move too, so that the proxy learns that what grants access changed.
+Run it in one transaction.
+The load turns JIT off for its transaction, because the compile time of JIT costs far more than the queries, which read a handful of rows.
 #}
 CREATE SCHEMA IF NOT EXISTS rbac;
 

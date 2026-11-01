@@ -19,8 +19,17 @@
   }
 }
 #}
--- noqa: disable=PRS,LT05
-{% from "postgres/macros.sql" import rls_where_clause, return_query_select, duckdb_query_select, require_permission, require_scope %}
+{% from "postgres/macros.sql" import
+  duckdb_query_select,
+  name_array,
+  require_permission,
+  require_scope,
+  return_query_select,
+  rls_where_clause,
+  sql_array
+%}
+-- noqa: disable=PRS
+-- The columns of the lint context render an empty RETURNS TABLE, which is invalid.
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}()
 RETURNS TABLE(
 {% for column in columns %}
@@ -44,29 +53,32 @@ BEGIN
   v_subject := current_setting('{{ claim_setting }}', true);
 
 {{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings) }}
+  IF v_where IS NULL THEN
+    RETURN;
+  END IF;
 
   v_filter := {{ app_schema }}.request_filter();
   v_where := {{ app_schema }}.and_where(
     v_where,
     {{ app_schema }}.render_dl_where(
       v_filter,
-      ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+      {{ sql_array(columns | map(attribute='key')) }}
     )
   );
   v_columns := {{ app_schema }}.render_dl_columns(
     v_filter,
-    ARRAY[{% for column in columns %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+    {{ sql_array(columns | map(attribute='key')) }}
   );
   v_tail := {{ app_schema }}.render_dl_tail(
     v_filter,
-    ARRAY[{% for column in columns if column.sortable %}{{ column.key }}{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
+    {{ sql_array(columns | selectattr('sortable') | map(attribute='key')) }}
   );
   v_pinned := {{ app_schema }}.requested_snapshot();
 
   FOR v_plan IN
     SELECT * FROM {{ app_schema }}.plan_sources(
       {{ source_table }},
-      ARRAY[{% for f in fallbacks %}'{{ f.name }}'{% if not loop.last %}, {% endif %}{% endfor %}]::text[],
+      {{ name_array(fallbacks | map(attribute='name')) }},
       v_pinned IS NOT NULL
     )
   LOOP
@@ -104,5 +116,5 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
-REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}() FROM PUBLIC;
+REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}() FROM public;
 GRANT EXECUTE ON FUNCTION {{ schema }}.{{ function }}() TO {{ user_role }}

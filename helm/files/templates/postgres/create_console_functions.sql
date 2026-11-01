@@ -1,9 +1,12 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the start of a sync run, the control of a run (cancel, resume, run again) and of a schedule (pause, resume, change the cron), and the list of the data files of a table. Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.",
+  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the sync run, the control of runs and schedules, and the data files of a table.",
   "inputs": {}
 }
+#}
+{#
+Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.
 #}
 -- noqa: disable=CP02,PRS
 CREATE OR REPLACE FUNCTION console.permissions() RETURNS text[]

@@ -1,9 +1,15 @@
 {#
 {
   "kind": "template",
-  "description": "Create the functions that read and write the sync configuration as one document: the full document for the sync worker, the import of a document, the preview of what an import would change, and the short document that the proxy reads. The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document. It also carries the scope of each subject, the digest of its grants in every access policy, so the proxy shares cache entries between subjects with the same grants. The scopes are absent when a schema reads its rows by another claim than preferred_username. They read and write the configuration tables of the console.",
+  "description": "Create the functions that read and write the sync configuration as one document: the full document, the import, the preview of an import, and the short document that the proxy reads.",
   "inputs": {}
 }
+#}
+{#
+The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document.
+It also carries the scope of each subject, the digest of its grants in every access policy, so the proxy shares cache entries between subjects with the same grants.
+The scopes are absent when a schema reads its rows by another claim than preferred_username.
+They read and write the configuration tables of the console.
 #}
 -- noqa: disable=CP02,PRS
 CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb

@@ -1,11 +1,14 @@
 {#
 {
   "kind": "template",
-  "description": "Create the application schema, the tables where the engine keeps the state of each synced table, its errors, and the schemas of each run, and the function that says which workflows a token sees. The function calls the rbac schema when it runs.",
+  "description": "Create the application schema, the tables of the state, the errors and the schemas of each run, and the function that says which workflows a token sees.",
   "inputs": {
     "schema": "SQL-safe PostgreSQL schema that holds application state."
   }
 }
+#}
+{#
+The function calls the rbac schema when it runs.
 #}
 CREATE SCHEMA IF NOT EXISTS {{ schema }};
 

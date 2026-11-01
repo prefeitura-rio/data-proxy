@@ -4,8 +4,6 @@
   "description": "Read and render what the proxy pushes in the X-DuckLake-Filter header: the WHERE filter, the columns, and the ORDER BY with the LIMIT."
 }
 #}
--- noqa: disable=PRS,LT05
-
 CREATE OR REPLACE FUNCTION {{ schema }}.request_filter() RETURNS jsonb
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
@@ -29,98 +27,125 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.render_filter_node(
-  node jsonb,
-  columns text[]
+-- One comparison as a DuckDB condition, for example ("id" = '1').
+CREATE OR REPLACE FUNCTION {{ schema }}.render_comparison(
+  p_node jsonb,
+  p_columns text[]
 ) RETURNS text
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
-  kind text;
-  column_name text;
-  quoted_column text;
-  operator_name text;
-  value_text text;
-  rendered text;
-  parts text[];
+  v_column text := p_node ->> 'column';
+  v_operator text := p_node ->> 'operator';
+  v_value text := p_node ->> 'value';
+  v_quoted text;
+  v_comparator text;
+  v_condition text;
 BEGIN
-  kind := node ->> 'kind';
-
-  IF kind = 'comparison' THEN
-    column_name := node ->> 'column';
-    IF NOT column_name = ANY(columns) THEN
-      RAISE EXCEPTION 'unknown filter column' USING ERRCODE = 'PT400';
-    END IF;
-
-    quoted_column := '"' || replace(column_name, '"', '""') || '"';
-    operator_name := node ->> 'operator';
-
-    IF jsonb_typeof(node -> 'value') = 'array' THEN
-      IF operator_name <> 'in' THEN
-        RAISE EXCEPTION 'list value for non-in operator' USING ERRCODE = 'PT400';
-      END IF;
-      SELECT array_agg(format('%L', value))
-      INTO parts
-      FROM jsonb_array_elements_text(node -> 'value') AS values(value);
-      rendered := format('%s IN (%s)', quoted_column, array_to_string(parts, ', '));
-    ELSE
-      value_text := node ->> 'value';
-      rendered := CASE operator_name
-        WHEN 'eq'    THEN format('%s = %L', quoted_column, value_text)
-        WHEN 'neq'   THEN format('%s <> %L', quoted_column, value_text)
-        WHEN 'gt'    THEN format('%s > %L', quoted_column, value_text)
-        WHEN 'gte'   THEN format('%s >= %L', quoted_column, value_text)
-        WHEN 'lt'    THEN format('%s < %L', quoted_column, value_text)
-        WHEN 'lte'   THEN format('%s <= %L', quoted_column, value_text)
-        WHEN 'like'  THEN format('%s LIKE %L', quoted_column, replace(value_text, '*', '%'))
-        WHEN 'ilike' THEN format('%s ILIKE %L', quoted_column, replace(value_text, '*', '%'))
-        WHEN 'is'    THEN CASE value_text
-          WHEN 'not_null' THEN format('%s IS NOT NULL', quoted_column)
-          WHEN 'null'     THEN format('%s IS NULL', quoted_column)
-          WHEN 'true'     THEN format('%s IS TRUE', quoted_column)
-          WHEN 'false'    THEN format('%s IS FALSE', quoted_column)
-          WHEN 'unknown'  THEN format('%s IS UNKNOWN', quoted_column)
-          ELSE NULL
-        END
-        ELSE NULL
-      END;
-    END IF;
-
-    IF rendered IS NULL THEN
-      RAISE EXCEPTION 'unknown filter operator' USING ERRCODE = 'PT400';
-    END IF;
-
-    rendered := '(' || rendered || ')';
-
-    IF COALESCE((node ->> 'negated')::boolean, false) THEN
-      rendered := 'NOT (' || rendered || ')';
-    END IF;
-
-    RETURN rendered;
+  IF NOT v_column = ANY(p_columns) THEN
+    RAISE EXCEPTION 'unknown filter column' USING ERRCODE = 'PT400';
   END IF;
 
-  IF kind <> 'group' THEN
-    RAISE EXCEPTION 'unknown filter node' USING ERRCODE = 'PT400';
+  v_quoted := {{ schema }}.quote_column(v_column);
+  v_comparator := CASE v_operator
+    WHEN 'eq' THEN '='
+    WHEN 'neq' THEN '<>'
+    WHEN 'gt' THEN '>'
+    WHEN 'gte' THEN '>='
+    WHEN 'lt' THEN '<'
+    WHEN 'lte' THEN '<='
+  END;
+
+  IF jsonb_typeof(p_node -> 'value') = 'array' THEN
+    IF v_operator <> 'in' THEN
+      RAISE EXCEPTION 'list value for non-in operator' USING ERRCODE = 'PT400';
+    END IF;
+    v_condition := format(
+      '%s IN (%s)',
+      v_quoted,
+      (
+        SELECT string_agg(format('%L', item.value), ', ')
+        FROM jsonb_array_elements_text(p_node -> 'value') AS item(value)
+      )
+    );
+  ELSIF v_comparator IS NOT NULL THEN
+    v_condition := format('%s %s %L', v_quoted, v_comparator, v_value);
+  ELSIF v_operator IN ('like', 'ilike') THEN
+    v_condition := format(
+      '%s %s %L', v_quoted, upper(v_operator), replace(v_value, '*', '%')
+    );
+  ELSIF v_operator = 'is' THEN
+    v_condition := v_quoted || CASE v_value
+      WHEN 'not_null' THEN ' IS NOT NULL'
+      WHEN 'null' THEN ' IS NULL'
+      WHEN 'true' THEN ' IS TRUE'
+      WHEN 'false' THEN ' IS FALSE'
+      WHEN 'unknown' THEN ' IS UNKNOWN'
+    END;
   END IF;
 
-  IF (node ->> 'operator') NOT IN ('and', 'or') THEN
+  IF v_condition IS NULL THEN
+    RAISE EXCEPTION 'unknown filter operator' USING ERRCODE = 'PT400';
+  END IF;
+
+  v_condition := '(' || v_condition || ')';
+  IF coalesce((p_node ->> 'negated')::boolean, false) THEN
+    RETURN 'NOT (' || v_condition || ')';
+  END IF;
+  RETURN v_condition;
+END;
+$$;
+
+-- One group of conditions joined by AND or OR, for example
+-- (("a" = '1') OR ("b" = '2')).
+CREATE OR REPLACE FUNCTION {{ schema }}.render_group(
+  p_node jsonb,
+  p_columns text[]
+) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_parts text[];
+  v_condition text;
+BEGIN
+  IF (p_node ->> 'operator') NOT IN ('and', 'or') THEN
     RAISE EXCEPTION 'unknown logical operator' USING ERRCODE = 'PT400';
   END IF;
 
-  SELECT array_agg({{ schema }}.render_filter_node(item, columns))
-  INTO parts
-  FROM jsonb_array_elements(node -> 'items') AS nodes(item);
+  SELECT array_agg({{ schema }}.render_filter_node(item.node, p_columns))
+  INTO v_parts
+  FROM jsonb_array_elements(p_node -> 'items') AS item(node);
 
-  IF parts IS NULL OR array_length(parts, 1) = 0 THEN
+  IF v_parts IS NULL OR array_length(v_parts, 1) = 0 THEN
     RAISE EXCEPTION 'empty filter group' USING ERRCODE = 'PT400';
   END IF;
 
-  rendered := '(' || array_to_string(parts, ' ' || upper(node ->> 'operator') || ' ') || ')';
-
-  IF COALESCE((node ->> 'negated')::boolean, false) THEN
-    rendered := 'NOT ' || rendered;
+  v_condition := '('
+    || array_to_string(v_parts, ' ' || upper(p_node ->> 'operator') || ' ')
+    || ')';
+  IF coalesce((p_node ->> 'negated')::boolean, false) THEN
+    RETURN 'NOT ' || v_condition;
   END IF;
+  RETURN v_condition;
+END;
+$$;
 
-  RETURN rendered;
+-- One node of the filter tree as a DuckDB condition: a comparison or a group.
+-- The function had the parameters node and columns.
+-- CREATE OR REPLACE can't rename them, so the old function goes first.
+DROP FUNCTION IF EXISTS {{ schema }}.render_filter_node(jsonb, text[]);
+CREATE FUNCTION {{ schema }}.render_filter_node(
+  p_node jsonb,
+  p_columns text[]
+) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_kind text := p_node ->> 'kind';
+BEGIN
+  IF v_kind = 'comparison' THEN
+    RETURN {{ schema }}.render_comparison(p_node, p_columns);
+  ELSIF v_kind = 'group' THEN
+    RETURN {{ schema }}.render_group(p_node, p_columns);
+  END IF;
+  RAISE EXCEPTION 'unknown filter node' USING ERRCODE = 'PT400';
 END;
 $$;
 
@@ -139,7 +164,8 @@ END;
 $$;
 
 -- The columns that the request reads. NULL means every column.
--- A name that is not a column is dropped, so PostgREST answers with its own error for it.
+-- A name that is not a column is dropped,
+-- so PostgREST answers with its own error for it.
 CREATE OR REPLACE FUNCTION {{ schema }}.render_dl_columns(
   p_filter jsonb,
   p_columns text[]
@@ -165,11 +191,14 @@ BEGIN
 END;
 $$;
 
--- The ORDER BY and LIMIT that DuckDB can run, or NULL when PostgREST must read every row.
--- The text order of DuckDB is by bytes and the order of PostgreSQL follows the collation, and every
--- column that isn't a bigint, a date, or a boolean reaches PostgreSQL as text. DuckDB then picks other
--- rows for a limit, so the order is pushed only when every order column is in p_sortable.
--- PostgreSQL puts the nulls last for ASC and first for DESC, and DuckDB needs them in the text.
+-- The ORDER BY and LIMIT that DuckDB can run, or NULL when PostgREST must read
+-- every row.
+-- DuckDB orders text by bytes and PostgreSQL follows the collation. Every column
+-- that isn't a bigint, a date or a boolean reaches PostgreSQL as text. DuckDB
+-- would then pick other rows for a limit, so the order is pushed only when every
+-- order column is in p_sortable.
+-- PostgreSQL puts the nulls last for ASC and first for DESC, and DuckDB needs
+-- them in the text.
 CREATE OR REPLACE FUNCTION {{ schema }}.render_dl_tail(
   p_filter jsonb,
   p_sortable text[]
@@ -197,7 +226,7 @@ BEGIN
     END IF;
 
     SELECT 'ORDER BY ' || string_agg(
-      '"' || replace(item.entry ->> 'column', '"', '""') || '" '
+      {{ schema }}.quote_column(item.entry ->> 'column') || ' '
       || CASE WHEN (item.entry ->> 'descending')::boolean THEN 'DESC' ELSE 'ASC' END
       || ' NULLS '
       || upper(coalesce(
@@ -214,7 +243,8 @@ BEGIN
 END;
 $$;
 
--- The projection of the DuckLake view. A column that the request skips is a NULL, so DuckDB never reads it.
+-- The projection of the DuckLake view. A column that the request skips is a NULL,
+-- so DuckDB never reads it.
 -- A typed NULL, because DuckDB can't cast an untyped NULL to a date.
 CREATE OR REPLACE FUNCTION {{ schema }}.project_columns(
   p_names text[],
@@ -224,8 +254,8 @@ LANGUAGE sql IMMUTABLE AS $$
   SELECT string_agg(
     CASE
       WHEN p_wanted IS NULL OR item.name = ANY(p_wanted)
-        THEN '"' || replace(item.name, '"', '""') || '"'
-      ELSE 'CAST(NULL AS VARCHAR) AS "' || replace(item.name, '"', '""') || '"'
+        THEN {{ schema }}.quote_column(item.name)
+      ELSE 'CAST(NULL AS VARCHAR) AS ' || {{ schema }}.quote_column(item.name)
     END,
     ', ' ORDER BY item.position
   )

@@ -1,11 +1,18 @@
 {#
 {
   "kind": "template",
-  "description": "Create the table where the console keeps the sealed keys of the storage identities that it makes for each schema, in the catalog database. The secret of a key is sealed by the console, so the database never holds it in the clear. Only the signer login reads and writes the table, and it can't delete a row. The drop of a schema reader deletes the row of that schema. Run it in the catalog database as the owner role. Run it again without an error.",
+  "description": "Create the table where the console keeps the sealed keys of the storage identities of each schema, in the catalog database.",
   "inputs": {
     "signer": "SQL literal with the signer login, which must exist."
   }
 }
+#}
+{#
+The secret of a key is sealed by the console, so the database never holds it in the clear.
+Only the signer login reads and writes the table, and it can't delete a row.
+The drop of a schema reader deletes the row of that schema.
+Run it in the catalog database as the owner role.
+Run it again without an error.
 #}
 -- noqa: disable=CP02,PRS
 CREATE SCHEMA IF NOT EXISTS signer;

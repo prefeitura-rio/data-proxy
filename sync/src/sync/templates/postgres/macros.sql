@@ -54,22 +54,26 @@
 {%- endmacro %}
 
 {#
+The caller returns an empty result for NULL.
+#}
+
+{#
 {
   "kind": "macro",
   "name": "postgres.rls_where_clause",
-  "description": "Render the PL/pgSQL block that builds the row-level security predicate.",
+  "description": "Render the PL/pgSQL block that builds the row-level security predicate. It reads v_subject and sets v_where: empty text for every row, WHERE (...) for a filter, NULL for no row.",
   "inputs": {
     "schema": "PostgreSQL schema that owns access_policy.",
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
-    "empty_result": "SQL expression that a function with a scalar result returns when the subject has no grant. Empty for a function that returns rows.",
     "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it only for a predicate that DuckDB alone reads, because a fallback source cannot push it down."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
-{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, empty_result='', list_form=false) -%}
+{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, list_form=false) -%}
+{% set predicate_format = "'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'" if list_form else "'%I IN (%s)'" %}
   -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *), reads every row.
   IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
@@ -79,7 +83,11 @@
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where
     FROM (
-      SELECT format({% if list_form %}'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'{% else %}'%I IN (%s)'{% endif %}, t.col, string_agg(quote_literal(p.unit_id), ',')) AS predicate
+      SELECT format(
+        {{ predicate_format }},
+        t.col,
+        string_agg(quote_literal(p.unit_id), ',')
+      ) AS predicate
       FROM (VALUES
         {{ rls_mapping_values(rls_mappings) }}
       ) AS t(col, ut)
@@ -87,10 +95,6 @@
       WHERE p.subject = v_subject
       GROUP BY t.col
     ) filters;
-
-    IF v_where IS NULL THEN
-      RETURN{% if empty_result %} {{ empty_result }}{% endif %};
-    END IF;
 
     v_where := 'WHERE (' || v_where || ')';
   END IF;
@@ -116,10 +120,18 @@
 {%- endmacro %}
 
 {#
+A PostgreSQL backend keeps one DuckDB connection for all of its requests, so each schema needs an alias of its own.
+With one shared alias, a backend that attached the catalog of one schema would read that catalog for every other schema.
+The DuckDB secret ducklake_catalog holds the catalog address and credentials.
+The block first sets the allocator of DuckDB to purge freed memory in the background, with a flush threshold of 16 MiB.
+A backend that serves for an hour then keeps about 30 MB after a heavy answer, and not 300 MB.
+#}
+
+{#
 {
   "kind": "macro",
   "name": "postgres.ducklake_attach",
-  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog of one schema, under the alias dl_<schema>. A PostgreSQL backend keeps one DuckDB connection for all of its requests, so each schema needs an alias of its own. With one shared alias, a backend that attached the catalog of one schema would read that catalog for every other schema. The DuckDB secret ducklake_catalog holds the catalog address and credentials. The block first sets the allocator of DuckDB to purge freed memory in the background, with a flush threshold of 16 MiB. A backend that serves for an hour then keeps about 30 MB after a heavy answer, and not 300 MB.",
+  "description": "Render the PL/pgSQL block that attaches the read-only DuckLake catalog of one schema under the alias dl_<schema>, after it sets the allocator of DuckDB.",
   "inputs": {
     "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment."
@@ -184,4 +196,34 @@
     FROM duckdb.query(
       'SELECT {% for column in columns %}{{ column.name }}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}'
     ) r
+{%- endmacro %}
+
+{#
+{
+  "kind": "macro",
+  "name": "postgres.sql_array",
+  "description": "Render a PostgreSQL text array from SQL literals.",
+  "inputs": {
+    "literals": "SQL literals, such as the key of a column."
+  },
+  "returns": "An ARRAY[...]::text[] expression. An empty list gives an empty array."
+}
+#}
+{% macro sql_array(literals) -%}
+ARRAY[{{ literals | join(', ') }}]::text[]
+{%- endmacro %}
+
+{#
+{
+  "kind": "macro",
+  "name": "postgres.name_array",
+  "description": "Render a PostgreSQL text array from plain names, and put each name in quotes.",
+  "inputs": {
+    "names": "Names that need no escape, such as a type name or the name of a fallback source."
+  },
+  "returns": "An ARRAY[...]::text[] expression. An empty list gives an empty array."
+}
+#}
+{% macro name_array(names) -%}
+ARRAY[{% for name in names %}'{{ name }}'{% if not loop.last %}, {% endif %}{% endfor %}]::text[]
 {%- endmacro %}

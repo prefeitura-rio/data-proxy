@@ -1,11 +1,15 @@
 {#
 {
   "kind": "template",
-  "description": "Drop the role that reads the metadata of one schema, with its grants and its default privileges in the catalog database, and forget the sealed storage key of that schema when the table of keys exists. Run it after the metadata schema is gone. Run it again without an error.",
+  "description": "Drop the role that reads the metadata of one schema, with its grants and default privileges in the catalog database.",
   "inputs": {
     "name": "SQL literal with the name of the schema."
   }
 }
+#}
+{#
+Run it after the metadata schema is gone.
+Run it again without an error.
 #}
 -- noqa: disable=PRS
 DO $drop_reader$

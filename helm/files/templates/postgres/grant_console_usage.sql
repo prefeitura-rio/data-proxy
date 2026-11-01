@@ -1,11 +1,15 @@
 {#
 {
   "kind": "template",
-  "description": "Give the role that every token switches to its rights on the console schema: read the views and tables, run the functions, and write the configuration tables. The rights are wide on purpose. A row policy or a check in each function asks for the permission of the token, and the schemas of the token limit the rows.",
+  "description": "Give the role that every token switches to its rights on the console schema: read the views and tables, run the functions, and write the configuration tables.",
   "inputs": {
     "user_role": "Database role that every token switches to."
   }
 }
+#}
+{#
+The rights are wide on purpose.
+A row policy or a check in each function asks for the permission of the token, and the schemas of the token limit the rows.
 #}
 GRANT USAGE ON SCHEMA console TO {{ user_role }};
 GRANT SELECT ON ALL TABLES IN SCHEMA console TO {{ user_role }};

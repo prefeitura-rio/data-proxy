@@ -4,11 +4,11 @@
   "description": "The routing rule that decides which source serves a request."
 }
 #}
--- noqa: disable=PRS,LT05
 
 -- The routing rule. DuckLake runs first, then each fallback in order.
 -- A table that has no published data and no fallback is not found (PT404).
--- The first fallback takes the whole remainder, later ones get FALSE so no rows duplicate.
+-- The first fallback takes the whole remainder.
+-- Later ones get FALSE, so no rows duplicate.
 -- Returns one row per source: (name, use, arg).
 -- For DuckLake, arg is the snapshot version (or NULL).
 -- For fallback sources, arg is the covered condition (or 'FALSE').

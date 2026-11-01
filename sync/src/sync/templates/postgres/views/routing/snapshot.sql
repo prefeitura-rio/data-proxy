@@ -4,7 +4,6 @@
   "description": "Snapshot request and validation functions."
 }
 #}
--- noqa: disable=PRS,LT05
 
 CREATE OR REPLACE FUNCTION {{ schema }}.requested_snapshot() RETURNS bigint
 LANGUAGE plpgsql STABLE AS $$
@@ -29,7 +28,9 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION {{ schema }}.assert_snapshot_exists(p_snapshot bigint, p_metadata_schema text) RETURNS void
+CREATE OR REPLACE FUNCTION {{ schema }}.assert_snapshot_exists(
+  p_snapshot bigint, p_metadata_schema text
+) RETURNS void
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_found bigint;

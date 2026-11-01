@@ -71,7 +71,15 @@ class ReconciliationContext:
     async def install_routing(self) -> None:
         """Install the orchestration functions that route requests to sources."""
         executor = Executor[PostgresParams, list[TupleRow]](conn=self.pg_conn)
-        for template in ("snapshot", "coverage", "plan", "response", "filter"):
+        for template in (
+            "quoting",
+            "snapshot",
+            "coverage",
+            "plan",
+            "response",
+            "filter",
+            "aggregate",
+        ):
             await executor.execute(
                 f"postgres/views/routing/{template}",
                 mapping={"schema": app_schema()},

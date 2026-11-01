@@ -1,11 +1,14 @@
 {#
 {
   "kind": "template",
-  "description": "Create a function that maps JWT claims into PostgreSQL session variables (a claim whose name is not a plain word is skipped, because it can't name a setting), loads the rbac rules for the role and the schemas of the token, and gives a request to the console profile a longer statement timeout.",
+  "description": "Create the function that maps JWT claims into PostgreSQL session variables and loads the rbac rules of the token. It gives a console request a longer statement timeout.",
   "inputs": {
     "schema": "PostgreSQL schema that holds the pre-request function."
   }
 }
+#}
+{#
+A claim whose name is not a plain word is skipped, because it can't name a setting.
 #}
 CREATE SCHEMA IF NOT EXISTS {{ schema }};
 

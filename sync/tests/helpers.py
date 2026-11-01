@@ -415,6 +415,20 @@ async def scalar(
     return value
 
 
+async def render_filter_node(
+    pg: Postgres, node: dict[str, object], columns: list[str]
+) -> str | None:
+    """Render one node of a filter tree with the columns that the table has."""
+    rendered = await scalar(
+        pg,
+        "SELECT data_proxy.render_filter_node(%s::jsonb, %s::text[])",
+        json.dumps(node),
+        columns,
+    )
+    assert rendered is None or isinstance(rendered, str)
+    return rendered
+
+
 async def set_setting(pg: Postgres, name: str, value: str) -> None:
     """Set one session setting, as PostgREST and data_proxy.pre_request do per request."""
     await pg.connection.execute("SELECT set_config(%s, %s, false)", (name, value))
@@ -1078,6 +1092,31 @@ def by(
     if nulls is not None:
         entry["nulls"] = nulls
     return entry
+
+
+def comparison(
+    column: str, operator: str, value: object, *, negated: bool = False
+) -> dict[str, object]:
+    """Build one comparison node of a filter tree."""
+    return {
+        "kind": "comparison",
+        "column": column,
+        "operator": operator,
+        "value": value,
+        "negated": negated,
+    }
+
+
+def group(
+    operator: str, *items: dict[str, object], negated: bool = False
+) -> dict[str, object]:
+    """Build one group node of a filter tree."""
+    return {
+        "kind": "group",
+        "operator": operator,
+        "items": list(items),
+        "negated": negated,
+    }
 
 
 def total(alias: str = "n") -> dict[str, str]:

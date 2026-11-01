@@ -12,7 +12,6 @@
   }
 }
 #}
--- noqa: disable=CP02,PRS,LT05
 {% from "postgres/macros.sql" import column_projection %}
 CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_where text, p_arg text)
 RETURNS void AS $$
@@ -26,4 +25,4 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, {{ schema }}, pg_temp;
 
-REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text) FROM PUBLIC
+REVOKE ALL ON FUNCTION {{ schema }}.{{ function }}(text, text) FROM public

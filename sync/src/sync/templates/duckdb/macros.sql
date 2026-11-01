@@ -14,10 +14,14 @@ SELECT *{% if json_columns %} REPLACE ({% for column in json_columns %}to_json({
 {%- endmacro %}
 
 {#
+A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 2 GB for a table with wide JSON columns. A smaller row group keeps the memory of a dump near 1 GB.
+#}
+
+{#
 {
   "kind": "macro",
   "name": "duckdb.parquet_options",
-  "description": "Render the options of the Parquet files that a dump writes. A row group is in memory while DuckDB writes it, and the default of 122880 rows needs more than 2 GB for a table with wide JSON columns. A smaller row group keeps the memory of a dump near 1 GB. RETURN_STATS makes the COPY return the rows and the size of each file, which the dump logs.",
+  "description": "Render the options of the Parquet files that a dump writes: a row group of 10000 rows, and RETURN_STATS so that the COPY returns the rows and the size of each file.",
   "inputs": {},
   "returns": "The options of a COPY to Parquet."
 }
