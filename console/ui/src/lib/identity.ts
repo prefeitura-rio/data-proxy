@@ -6,7 +6,7 @@ const Claims = v.object({
 	role: v.optional(v.string())
 });
 
-export type Identity = { name: string; role: string };
+type Identity = { name: string; role: string };
 
 /** Read the user name and the role from the payload of an access token. PostgREST verifies the token; this only labels the page. */
 export function identityOf(accessToken: string): Identity | null {

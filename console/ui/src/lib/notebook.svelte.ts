@@ -13,9 +13,9 @@ const READY_TIMEOUT_MS = 15_000;
 /** The share of the life of a grant after which the page asks for a new one. */
 const RENEW_SHARE = 0.8;
 
-export type Target = { schema: string; tables: string[] };
+type Target = { schema: string; tables: string[] };
 
-export type BridgeSource = {
+type BridgeSource = {
 	origin: () => string | null;
 	ttlSeconds: () => number;
 	frame: () => HTMLIFrameElement | undefined;

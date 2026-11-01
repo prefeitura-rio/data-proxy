@@ -68,14 +68,3 @@ export function paramsWith(
 
 	return next;
 }
-
-/** Build the query part of a link with `paramsWith`. */
-export function linkWith(
-	current: Params,
-	change: Record<string, string | undefined>,
-	pageKeys: string[] = ['page']
-): string {
-	const query = paramsWith(current, change, pageKeys).toString();
-
-	return query === '' ? '' : `?${query}`;
-}

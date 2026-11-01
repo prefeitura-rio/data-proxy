@@ -8,7 +8,7 @@ export type Source = {
 	lines: (after: string | null) => Promise<LogLine[]>;
 };
 
-export type FollowOptions = {
+type FollowOptions = {
 	/** The time of the last line that the client has. */
 	after: string | null;
 	signal: AbortSignal;

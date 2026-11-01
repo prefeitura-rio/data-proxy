@@ -6,7 +6,7 @@ import { isActive } from './status.js';
 import type { LogLine } from './types.js';
 
 /** What the stream starts from: the id of the run, and the logs and the status that the page loaded. */
-export type RunSource = { id: () => string; logs: () => LogLine[]; status: () => string };
+type RunSource = { id: () => string; logs: () => LogLine[]; status: () => string };
 
 /**
  * Follow a run while `live` is true. The stream adds log lines and a newer status on top of the loaded data, and it

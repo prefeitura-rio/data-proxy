@@ -1,7 +1,7 @@
 /** The refresh intervals that the reader can pick, in seconds. Zero means off. */
 export const INTERVALS = [0, 2, 5, 10, 30, 60];
 
-export const DEFAULT_INTERVAL = 5;
+const DEFAULT_INTERVAL = 5;
 
 /** The key of the browser storage that keeps the interval. */
 export const INTERVAL_KEY = 'refresh-interval';

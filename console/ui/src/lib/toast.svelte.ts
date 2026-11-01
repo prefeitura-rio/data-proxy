@@ -1,7 +1,7 @@
-export type ToastKind = 'success' | 'error';
+type ToastKind = 'success' | 'error';
 
 /** A toast may link to a sync run, because starting a run is the one action whose result lives on another page. */
-export type Toast = { id: number; kind: ToastKind; text: string; run?: string };
+type Toast = { id: number; kind: ToastKind; text: string; run?: string };
 
 /** How long a toast stays, in milliseconds. */
 export const TOAST_MS = 4000;

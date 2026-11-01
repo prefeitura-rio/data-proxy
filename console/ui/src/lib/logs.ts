@@ -53,7 +53,7 @@ export async function collectLines<T>(
 	return { rows, total };
 }
 
-export type LogFilter = { level: string; table: string; text: string };
+type LogFilter = { level: string; table: string; text: string };
 
 const valueText = (value: unknown): string => (typeof value === 'string' ? value : JSON.stringify(value));
 

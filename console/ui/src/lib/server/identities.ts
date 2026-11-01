@@ -1,6 +1,6 @@
 import type { Credentials } from './signer';
 
-export type Policy = {
+type Policy = {
 	Version: string;
 	Statement: { Effect: 'Allow'; Action: string[]; Resource: string[] }[];
 };

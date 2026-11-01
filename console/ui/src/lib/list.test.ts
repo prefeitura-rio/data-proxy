@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containsFilter, linkWith, pageOf, parseTotal, rangeQuery, rangeText } from './list';
+import { containsFilter, pageOf, paramsWith, parseTotal, rangeQuery, rangeText } from './list';
 
 describe('pageOf', () => {
 	it.each([
@@ -67,25 +67,25 @@ describe('containsFilter', () => {
 	});
 });
 
-describe('linkWith', () => {
+describe('paramsWith', () => {
 	it.each([
-		['keeps the filters and sets the page', '?status=ERROR&page=1', { page: '2' }, '?status=ERROR&page=2'],
-		['drops an empty value', '?status=ERROR', { status: '' }, ''],
-		['drops the page of the first page', '?page=3', { page: '0' }, ''],
-		['adds a filter and resets the page', '?page=3', { status: 'ERROR', page: undefined }, '?status=ERROR']
-	])('%s', (_, query, change, link) => {
-		expect(linkWith(new URLSearchParams(query), change)).toBe(link);
+		['keeps the filters and sets the page', 'status=ERROR&page=1', { page: '2' }, 'status=ERROR&page=2'],
+		['drops an empty value', 'status=ERROR', { status: '' }, ''],
+		['drops the page of the first page', 'page=3', { page: '0' }, ''],
+		['adds a filter and resets the page', 'page=3', { status: 'ERROR', page: undefined }, 'status=ERROR']
+	])('%s', (_, query, change, expected) => {
+		expect(paramsWith(new URLSearchParams(query), change).toString()).toBe(expected);
 	});
 
 	it('keeps the page of another list when it changes the page of this one', () => {
-		const link = linkWith(new URLSearchParams('page=3'), { errors_page: '1' }, ['errors_page']);
+		const params = paramsWith(new URLSearchParams('page=3'), { errors_page: '1' }, ['errors_page']);
 
-		expect(link).toBe('?page=3&errors_page=1');
+		expect(params.toString()).toBe('page=3&errors_page=1');
 	});
 
 	it('resets the page of a list when a filter of it changes', () => {
-		const link = linkWith(new URLSearchParams('errors_page=4&page=2'), { reason: 'cron' }, ['errors_page']);
+		const params = paramsWith(new URLSearchParams('errors_page=4&page=2'), { reason: 'cron' }, ['errors_page']);
 
-		expect(link).toBe('?page=2&reason=cron');
+		expect(params.toString()).toBe('page=2&reason=cron');
 	});
 });

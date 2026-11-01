@@ -8,7 +8,7 @@ from typing import LiteralString
 
 import psycopg
 import pytest
-from psycopg import AsyncConnection, AsyncCursor
+from psycopg import AsyncCursor
 from psycopg.sql import SQL, Identifier
 
 from sync.templates import render_template
@@ -125,12 +125,6 @@ def psql_script(*statements: str) -> str:
 def helm_sql(name: str, mapping: Mapping[str, TemplateValue] | None = None) -> str:
     """Render one Helm SQL template as the init and maintenance jobs do."""
     return render_template(name, {} if mapping is None else mapping, root=HELM_SQL)
-
-
-async def rows(connection: AsyncConnection, sql: str) -> list[tuple[object, ...]]:
-    """Return every row of one inline query."""
-    cursor = await connection.execute(sql.encode())
-    return await cursor.fetchall()
 
 
 async def query_plan(pg: Postgres, query: str) -> str:
