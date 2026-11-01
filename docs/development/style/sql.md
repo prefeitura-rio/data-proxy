@@ -9,7 +9,7 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - **SQL-01** Build SQL mappings with `Identifier()` and `Literal()`. Use parameters for runtime values. [must, review]
 - **SQL-02** Never put a user value into SQL text. [must, review]
 - **SQL-03** Use `ON CONFLICT ... DO UPDATE` for upserts. [should, review]
-- **SQL-04** Use `timestamptz`, `jsonb` and `bigint GENERATED ALWAYS AS IDENTITY`. [must, review]
+- **SQL-04** Use `timestamptz`, `jsonb` and `bigint GENERATED ALWAYS AS IDENTITY` for a column. A PostgREST contract can need `json`. [must, code]
 - **SQL-05** Use one transaction per logical operation, with the `atomic()` helper. [must, review]
 - **SQL-06** Use `SECURITY DEFINER` only on purpose, and grant `EXECUTE` to the required role only. [must, review]
 - **SQL-07** Mark read-only functions `STABLE`. [should, review]

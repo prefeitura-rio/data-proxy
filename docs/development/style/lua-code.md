@@ -18,7 +18,7 @@ Applies to: `proxy/src/proxy/**/*.lua`.
 
 ## Errors and names
 
-- **LUA-47** Don't use `assert` in code under `proxy/src`. Check the value, and raise an error with a message. Specs can use `assert`. [must, review]
+- **LUA-47** Don't use `assert` in code under `proxy/src`. Check the value, and raise an error with a message. Specs can use `assert`. [must, code]
 - **LUA-48** Return `value, err` for an error that the caller can handle. Raise an error for an input that the proxy must not run without, such as a missing file or setting. [must, review]
 - **LUA-49** Use `pcall` only around an external boundary. Don't use it to hide a bug. [must, review]
 - **LUA-50** Give every number and every repeated text a name in `constants.lua`. Don't put a bare number or a repeated string in code. [must, review]

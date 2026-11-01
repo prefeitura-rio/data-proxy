@@ -85,7 +85,7 @@ in
           };
           "nu:test:unit" = utils.nuTask {
             description = "Run the Nushell tests.";
-            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/kc.nu";
+            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/kc.nu scripts/tests/rules.nu";
             execIfModified = utils.mkInputs [
               "helm/files/scripts/**/*.nu"
               "scripts/**/*.nu"
@@ -147,6 +147,24 @@ in
               ]
               ++ docsFiles
             );
+          };
+          "docs:lint:code" = utils.nuTask {
+            description = "Check the code and the last commit subjects against the style rules that a pattern can check.";
+            exec = "nu scripts/rules.nu";
+            execIfModified = utils.mkInputs [
+              ".git/logs/HEAD"
+              "scripts/rules.nu"
+              "scripts/**/*.nu"
+              "helm/files/scripts/**/*.nu"
+              "console/notebooks/*.nu"
+              "console/ui/src/**/*.ts"
+              "proxy/src/**/*.lua"
+              "k6/**/*.js"
+              "sync/src/sync/templates/**/*.sql"
+              "helm/files/templates/**/*.sql"
+              "console/migrations/*.sql"
+              "**/*.nix"
+            ];
           };
           "docs:lint:style" = utils.nuTask {
             description = "Check the rule format of the style pages and the rule IDs that a text cites.";

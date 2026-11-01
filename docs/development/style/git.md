@@ -4,9 +4,9 @@ Applies to: every commit.
 
 ## Commits
 
-- **GIT-01** Use Conventional Commits: `type(scope)!: imperative summary`, lowercase, no trailing period. The scope is optional. [must, review]
-- **GIT-02** Use only these types: `feat` (new user-visible capability), `fix` (user-visible defect), `refactor` (internal restructuring), `test` (test-only work), `docs` (documentation-only work) and `chore` (CI, tooling, dependencies and maintenance). [must, cog]
-- **GIT-03** Don't use `perf` or `ci`. Classify release-worthy performance work as `feat` or `fix`, and classify CI work as `chore`. [must, cog]
+- **GIT-01** Use Conventional Commits: `type(scope)!: imperative summary`, lowercase, no trailing period. The scope is optional. [must, code]
+- **GIT-02** Use only these types: `feat` (new user-visible capability), `fix` (user-visible defect), `refactor` (internal restructuring), `test` (test-only work), `docs` (documentation-only work), `revert` (an exact undo) and `chore` (CI, tooling, dependencies and maintenance). [must, code]
+- **GIT-03** Don't use `perf` or `ci`. Classify release-worthy performance work as `feat` or `fix`, and classify CI work as `chore`. [must, code]
 - **GIT-04** Use `chore` for a change of tooling, even when it touches the chart folder. A `fix` or a `feat` releases the chart when `helm/` changed since the last release. [must, cog]
 - **GIT-05** Make one logical change per commit. Squash fixups before merge. [should, review]
 

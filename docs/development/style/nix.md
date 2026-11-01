@@ -33,7 +33,7 @@ devenv rejects a task name that breaks these rules when it evaluates a profile. 
 
 - **NIX-16** Format with `nixfmt`. Don't align by hand. [must, nixfmt]
 - **NIX-17** Put every web address in quotes. Don't use a bare address. [must, review]
-- **NIX-18** Don't use `rec`. Bind the shared names in a `let` block and use `inherit`. [must, review]
+- **NIX-18** Don't use `rec`. Bind the shared names in a `let` block and use `inherit`. [must, code]
 - **NIX-19** Don't use `with` at the top of a file. Use `with pkgs;` for a list of packages, or for one expression that uses three or more `pkgs` attributes, as `python.nix` does. [must, review]
 ```nix
 ✅ packages = with pkgs; [ curl goose nushell ];
@@ -41,12 +41,12 @@ devenv rejects a task name that breaks these rules when it evaluates a profile. 
 ❌ with import <nixpkgs> { };
 ```
 
-- **NIX-20** Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input. [must, review]
+- **NIX-20** Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input. [must, code]
 - **NIX-21** Name the arguments of a function in a set pattern, and give an optional argument a default with `?`. [must, review]
 - **NIX-22** Use `inherit (set) name;` instead of `name = set.name;`. [should, review]
 - **NIX-23** Write a path that Nix must track as a path literal, such as `../../Containerfile.pg`. A string path breaks in the sandbox. [must, review]
 - **NIX-24** Keep a value in one place. A login and an address live in `nix/data.nix`, and a port lives on its process. [must, review]
-- **NIX-25** Declare the port of a process with `ports.<name>.allocate = <base>`, and read it with `data.port "<process>" "<name>"`. Don't write a port number in another place. [must, review]
+- **NIX-25** Declare the port of a process with `ports.<name>.allocate = <base>`, and read it with `data.port "<process>" "<name>"`. A devenv service sets its `port` option, as `services.redis` does. Don't write a port number in another place. [must, review]
 - **NIX-26** Take `utils` and `data` from the module arguments. Don't import `nix/utils.nix` or `nix/data.nix` in a module. [must, review]
 - **NIX-27** Use bash only for a script that's a list of plain commands, with no loop, condition or variable, such as `scripts.seed` or an `enterTest`. Write anything else in Nushell. [must, review]
 - **NIX-28** Prefer a plain command with `env` and `cwd` to a generated wrapper script. [should, review]

@@ -19,6 +19,7 @@ These rules apply to every file. The pages for each area add more.
 - **GEN-08** Let DBOS and PostgreSQL own the orchestration state. Redis is a cache only. [must, review]
 - **GEN-09** Keep DBOS workflows deterministic, and put I/O in steps. [must, review]
 - **GEN-10** Don't re-implement DBOS checkpoints. [must, review]
+- **GEN-11** Write no comment inside a function body. Put the reason in the comment above the function, or use a name. The check covers Nushell and TypeScript. [must, code]
 
 See [Architecture](../../architecture/index.md) for the layers. See [Database Schema](../../database.md) for roles, row policies and privileged functions.
 

@@ -20,7 +20,7 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 - **TS-09** Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`. [must, eslint]
 - **TS-10** Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions. [must, eslint]
 - **TS-11** Return a `Result` for a failure that the caller can handle, such as an answer of PostgREST. Throw for an input that the program can't run without. [must, review]
-- **TS-12** Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. [must, review]
+- **TS-12** Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. [must, code]
 - **TS-13** Give a lint disable comment a reason. A marker that a tool reads, such as `// pragma: allowlist secret`, is allowed. [must, review]
 
 ```ts

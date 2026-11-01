@@ -14,10 +14,10 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 - **LUA-06** Return the module table directly. Don't add re-export modules. [must, review]
 - **LUA-07** Read the `PROXY_*` variables only through the table that `config.load` (`proxy/src/proxy/config.lua`) returns. [must, review]
 - **LUA-08** Let only `main` load the config, once at start-up in `main.init`, and pass it down as a parameter named `config`. [must, review]
-- **LUA-09** Don't call `os.getenv` or read `ngx.var` for a setting in another module. [must, review]
+- **LUA-09** Don't call `os.getenv` or read `ngx.var` for a setting in another module. [must, code]
 - **LUA-10** Declare each setting, with its type, default and limits, in `proxy/src/proxy/schemas/definitions/config.lua`. List its `PROXY_` variable in `helm/files/config/nginx.conf` with an `env` directive. [must, review]
 - **LUA-11** Use the module `settings` only for the `sync.json` table that every worker shares and that the console replaces. [must, review]
-- **LUA-12** Define every named constant in `constants.lua`, in a group with lower case names, such as `constants.redis.connect_timeout_ms`. Other modules define no constants. [must, review]
+- **LUA-12** Define every named constant in `constants.lua`, in a group with lower case names, such as `constants.redis.connect_timeout_ms`. Other modules define no constants. [must, code]
 - **LUA-13** Describe each constant group with a small type in `constants.d.lua`, and compose the `Constants` type from them. [must, review]
 - **LUA-14** Define every Lua pattern that matches text in `regex.lua`, named after what it matches, such as `regex.parameter`, with a `---@field` line in `regex.d.lua`. [must, review]
 - **LUA-15** Don't write such a pattern at the point of use. A single character stays in its `gsub` call, and a filter grammar stays in `parser/patterns.lua` as LPeg. [must, review]
@@ -33,7 +33,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 
 ## Tests
 
-- **LUA-25** Write one test file for each module, `proxy/tests/unit/<module>_spec.lua`, and keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main`, `handler` and `log` have no test file. [must, review]
+- **LUA-25** Write one test file for each module, `proxy/tests/unit/<module>_spec.lua`, and keep `proxy/tests/unit` flat. `config`, `constants`, `regex`, `main` and `handler` have no test file. [must, review]
 - **LUA-26** Write table-driven Busted specs, with one `describe` for each function and `it(case.name)` for each case. [must, review]
 - **LUA-27** Give each case a name that states the behavior, for example `retries a 503 on the retry service`. [must, review]
 - **LUA-28** Keep fakes and fixtures in `proxy/tests/unit/helpers.lua` and `proxy/tests/unit/fixtures`. Make a fake follow the shape of the real API, such as the 32 raw bytes that `resty.sha256` gives. [must, review]
