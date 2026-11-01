@@ -40,6 +40,31 @@ in
             ++ utils.mkGlobs "nix" [ "nix" ]
           );
         };
+
+        tasks."nix:lint:cmd" = utils.nuTask {
+          description = "Check that every devenv command of the docs names a profile and a task that exist.";
+          exec = "nu scripts/docs.nu cmd";
+          execIfModified = utils.mkInputs (
+            [
+              "README.md"
+              "STYLEGUIDE.md"
+              "devenv.nix"
+              "devenv.lock"
+              "console/devenv.nix"
+              "helm/devenv.nix"
+              "proxy/devenv.nix"
+              "sync/devenv.nix"
+              "scripts/docs.nu"
+            ]
+            ++ utils.mkGlobs "nix" [ "nix" ]
+            ++ utils.mkGlobs "docs" [
+              "md"
+              "svg"
+              "d2"
+              "json"
+            ]
+          );
+        };
       };
   };
 }

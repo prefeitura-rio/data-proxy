@@ -1,4 +1,4 @@
-use lib.nu [fail read-data read-text write-text]
+use lib.nu [check-result fail read-data read-text write-text]
 
 const START = '<!-- roles-matrix:start -->'
 const END = '<!-- roles-matrix:end -->'
@@ -349,6 +349,108 @@ def "main links" []: nothing -> nothing {
 
     if ($found | is-not-empty) {
         fail $"The docs have broken links:\n($found | str join "\n")"
+    }
+}
+
+# Return the task names that follow `tasks run`. The first word is a task or a prefix. A later word needs a colon.
+def task-names [rest: string]: nothing -> list<string> {
+    $rest
+    | split row --regex '\s+'
+    | where $it != ''
+    | each {|word| $word | str replace --regex '[.,;)]+$' '' }
+    | enumerate
+    | take while {|word| $word.item =~ '^[a-z][a-z0-9-]*(:[a-z0-9-]+)*$' and ($word.index == 0 or $word.item =~ ':') }
+    | get item
+}
+
+# Return the devenv commands of a text, with the line number, the profile, the verb and the task names of `tasks run`.
+# A command without a profile uses the profile default. A placeholder such as `<name>` is not a command.
+export def commands-of [text: string]: nothing -> table<line: int, profile: string, verb: string, tasks: list<string>> {
+    $text
+    | lines
+    | enumerate
+    | each {|row|
+        $row.item
+        | parse --regex 'devenv(?: --profile (?<profile>[a-z][a-z-]*))? (?<verb>tasks run|tasks list|test|up|shell|build|eval|processes)\b(?<rest>[^`]*)'
+        | each {|found|
+            {
+                line: ($row.index + 1)
+                profile: (if ($found.profile | is-empty) { 'default' } else { $found.profile })
+                verb: $found.verb
+                tasks: (if $found.verb == 'tasks run' { task-names $found.rest } else { [] })
+            }
+        }
+    }
+    | flatten
+}
+
+# Return the wrong commands: a profile that the Nix files do not define, or a task that the profile does not have.
+# A task name is valid when it is a task or the start of one, such as `repo` or `sync:test`.
+export def command-problems [commands: table, profiles: list<string>, tasks_of: closure]: nothing -> list<string> {
+    $commands
+    | each {|command|
+        let where = $'($command.file):($command.line)'
+
+        if $command.profile not-in $profiles {
+            $'($where): no profile ($command.profile)'
+        } else {
+            let known = do $tasks_of $command.profile
+
+            $command.tasks
+            | each {|task|
+                let exists = $known | any {|name| $name == $task or ($name | str starts-with $'($task):') }
+
+                if not $exists {
+                    $'($where): no task ($task) in the profile ($command.profile)'
+                }
+            }
+            | compact
+        }
+    }
+    | flatten
+}
+
+# Return the names of the profiles that the Nix files define.
+def known-profiles []: nothing -> list<string> {
+    [...(glob nix/profiles/*.nix) ...(glob */devenv.nix) devenv.nix]
+    | each {|file| read-text $file | parse --regex 'profiles\.(?<name>[a-z][a-z-]*) =' }
+    | flatten
+    | get name
+    | uniq
+}
+
+# Return the task names that `devenv tasks list` shows for a profile.
+def listed-tasks [profile: string]: nothing -> list<string> {
+    devenv --profile $profile tasks list
+    | complete
+    | check-result $'the task list of the profile ($profile)'
+    | parse --regex '(?<name>[a-z0-9]+(?::[a-z0-9-]+)+)'
+    | get name
+    | uniq
+}
+
+# Fail when a devenv command of the docs, the README, the style guide or AGENTS.md names a profile or a task that does not exist.
+def "main cmd" []: nothing -> nothing {
+    let files = [...(glob $'($DOCS)/**/*.md') ...(glob '{README,AGENTS,STYLEGUIDE}.md')]
+
+    let commands = $files
+    | each {|file| commands-of (read-text $file) | each {|command| $command | insert file $file } }
+    | flatten
+
+    let profiles = known-profiles
+
+    let lists = $commands
+    | get profile
+    | uniq
+    | where $it in $profiles
+    | each {|profile| {profile: $profile, tasks: (listed-tasks $profile)} }
+
+    let tasks_of = {|profile| $lists | where profile == $profile | first | get tasks }
+
+    let found = command-problems $commands $profiles $tasks_of
+
+    if ($found | is-not-empty) {
+        fail $"The docs have wrong devenv commands:\n($found | str join "\n")"
     }
 }
 

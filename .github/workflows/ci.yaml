@@ -190,7 +190,7 @@ jobs:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: nix
           profile: nix
-      - run: devenv --profile nix tasks run nix:lint:closure
+      - run: devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
