@@ -35,6 +35,12 @@ devenv rejects a task name that breaks these rules when it evaluates a profile. 
 - **NIX-17** Put every web address in quotes. Don't use a bare address. [must, review]
 - **NIX-18** Don't use `rec`. Bind the shared names in a `let` block and use `inherit`. [must, review]
 - **NIX-19** Don't use `with` at the top of a file. Use `with pkgs;` for a list of packages, or for one expression that uses three or more `pkgs` attributes, as `python.nix` does. [must, review]
+```nix
+✅ packages = with pkgs; [ curl goose nushell ];
+✅ package = with pkgs; symlinkJoin { name = "uv"; paths = [ uv ]; nativeBuildInputs = [ makeWrapper ]; };
+❌ with import <nixpkgs> { };
+```
+
 - **NIX-20** Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input. [must, review]
 - **NIX-21** Name the arguments of a function in a set pattern, and give an optional argument a default with `?`. [must, review]
 - **NIX-22** Use `inherit (set) name;` instead of `name = set.name;`. [should, review]
