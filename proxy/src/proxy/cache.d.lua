@@ -10,6 +10,15 @@
 ---@field read fun(self: CacheStore, key: string): CachedEntry|nil Finds one stored entry.
 ---@field write fun(self: CacheStore, key: string, ttl: string|number, value: CachedEntry): boolean Stores one entry.
 
+--- A lock of one cache key, from resty.lock. Tests use a fake lock.
+---@class CacheLock
+---@field lock fun(self: CacheLock, key: string): number|nil, string|nil Takes the lock. Gives the wait in seconds.
+---@field unlock fun(self: CacheLock): boolean|nil, string|nil Frees the lock.
+
+--- The resty.lock module, as the cache uses it. Tests use a fake module.
+---@class CacheLocks
+---@field new fun(self: CacheLocks, dict: string, options: LockOptions): CacheLock|nil, string|nil Makes a lock.
+
 --- The result of cache.fetch: the response and where it came from.
 ---@class CacheResult
 ---@field response Response|nil The response to send. nil if PostgREST failed.

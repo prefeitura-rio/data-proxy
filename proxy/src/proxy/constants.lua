@@ -110,6 +110,8 @@ return {
 			["not.or"] = true,
 		},
 		non_filter_keys = { fields = true },
+		skipped = { readable = true },
+		unreadable = { readable = false },
 		reserved_keys = { select = true, order = true, limit = true, offset = true },
 		max_limit_digits = 9,
 		order_modifiers = {

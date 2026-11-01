@@ -18,14 +18,6 @@ local stringx = require("pl.stringx") --[[@as pl.stringx]]
 local tablex = require("pl.tablex") --[[@as pl.tablex]]
 local utils = require("proxy.utils")
 
---- The result for a parameter that is not a filter. The code never changes it.
----@type ParameterResult
-local SKIPPED = { readable = true }
-
---- The result for a parameter with a percent escape that is not valid. The code never changes it.
----@type ParameterResult
-local UNREADABLE = { readable = false }
-
 --- Functions that read a query string into a filter.
 ---@class Parser
 local parser = {}
@@ -39,7 +31,7 @@ local parser = {}
 ---@param node FilterNode|nil
 ---@return ParameterResult
 local function make_parameter_result(node)
-	if node == nil then return SKIPPED end
+	if node == nil then return constants.filter.skipped end
 	return { node = node, readable = true }
 end
 
@@ -49,11 +41,11 @@ end
 ---@return ParameterResult|nil failure The result to return if decoded is nil.
 local function decode_parameter(parameter)
 	local key, raw_value = parameter:match(regex.parameter)
-	if not key or not raw_value then return nil, SKIPPED end
+	if not key or not raw_value then return nil, constants.filter.skipped end
 
 	local decoded_key = utils.percent_decode(key)
 	local decoded_value = utils.percent_decode(raw_value)
-	if not decoded_key or not decoded_value then return nil, UNREADABLE end
+	if not decoded_key or not decoded_value then return nil, constants.filter.unreadable end
 
 	return { key = decoded_key, value = decoded_value }
 end
@@ -78,14 +70,14 @@ local function parse_parameter(parameter)
 
 	local key, value = decoded.key, decoded.value
 	if constants.filter.reserved_keys[key] then return { readable = true, reserved = key, value = value } end
-	if constants.filter.non_filter_keys[key] then return SKIPPED end
+	if constants.filter.non_filter_keys[key] then return constants.filter.skipped end
 
 	if constants.filter.group_keys[key] then
-		if value:sub(1, 1) ~= "(" then return SKIPPED end
+		if value:sub(1, 1) ~= "(" then return constants.filter.skipped end
 		return make_parameter_result(patterns.filter_grammar:match(key .. value))
 	end
 
-	if not patterns.whole_column_name:match(key) then return SKIPPED end
+	if not patterns.whole_column_name:match(key) then return constants.filter.skipped end
 	return make_parameter_result(patterns.filter_grammar:match(key .. constants.filter.part_separator .. value))
 end
 

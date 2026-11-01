@@ -99,10 +99,10 @@ end
 --- waited is a follower. It takes the lock only to know that the leader finished, and frees it at once, so the
 --- followers don't wait for each other. A request that couldn't get the lock is alone and asks PostgREST itself.
 ---@param key string Cache key.
----@param locks table The lock module, resty.lock.
+---@param locks CacheLocks The lock module, resty.lock.
 ---@param context RequestContext The request that asks for the lock. The log line names it.
 ---@return "leader"|"follower"|"alone" role
----@return table|nil lock The lock that the leader holds.
+---@return CacheLock|nil lock The lock that the leader holds.
 local function take_lock(key, locks, context)
 	local settings = constants.locks
 	local lock, new_error = locks:new(settings.dict, settings.options)
@@ -128,9 +128,9 @@ end
 ---@param context RequestContext
 ---@param key string
 ---@param store CacheStore|Redis
----@param locks table|nil The lock module, resty.lock. nil means no waiting.
+---@param locks CacheLocks|nil The lock module, resty.lock. nil means no waiting.
 ---@return CachedEntry|nil hit
----@return table|nil lock The lock of a leader that has to ask PostgREST and then free it.
+---@return CacheLock|nil lock The lock of a leader that has to ask PostgREST and then free it.
 local function look_up(context, key, store, locks)
 	if not may_read(context) then return nil, nil end
 
@@ -153,7 +153,7 @@ end
 ---@param key string
 ---@param load fun(): Response|nil, string|nil
 ---@param store CacheStore|Redis
----@param lock table|nil The lock that this request holds as the leader.
+---@param lock CacheLock|nil The lock that this request holds as the leader.
 ---@return Response|nil response
 ---@return string|nil failure
 local function ask_and_store(context, key, load, store, lock)
@@ -186,7 +186,7 @@ end
 ---@param key string Cache key from request.cache_key.
 ---@param load fun(): Response|nil, string|nil Asks PostgREST. The function calls it only on a cache miss.
 ---@param store CacheStore|Redis The cache store.
----@param locks table|nil The lock module, resty.lock. It makes the requests for a key wait for one. nil: no waiting.
+---@param locks CacheLocks|nil The lock module, resty.lock. Requests for a key wait for one. nil: no waiting.
 ---@return CacheResult
 function cache.fetch(context, key, load, store, locks)
 	local hit, lock = look_up(context, key, store, locks)
