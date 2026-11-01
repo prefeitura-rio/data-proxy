@@ -312,7 +312,6 @@ auth:
   servingRole: serving
   ## The login that the console uses to read the catalog. It has no rights of its own. Each schema has a reader role that it switches into, and that role reads the metadata of that schema only.
   signerRole: console_signer
-  existingSecret: ""
   jwtRoleClaim: $.role
 ## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
@@ -330,7 +329,6 @@ cnpg:
   db:
     name: data-proxy
     user: ops
-  existingSecret: ""
   ## A standby that replays more bytes behind the primary than this leaves the read Service until it catches up.
   maxReplicaLag: 16Mi
   ## How CNPG updates the primary after a change of the pod: switchover moves the primary to a standby first.

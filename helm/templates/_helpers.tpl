@@ -313,13 +313,6 @@ so libpq moves on to the second host, the primary.
 postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
-{{- define "data-proxy.postgresWriteDsn" -}}
-{{- $role := .Values.auth.servingRole -}}
-{{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
-{{- end }}
-
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
@@ -519,8 +512,6 @@ jwtRules:
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE
   value: {{ .Values.auth.userRole | quote }}
-- name: AUTH_POSTGREST_ROLE
-  value: {{ .Values.auth.servingRole | quote }}
 - name: KUBERNETES_NAMESPACE
   value: {{ .Release.Namespace | quote }}
 {{- if .Values.gcp.existingSecret }}
