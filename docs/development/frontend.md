@@ -25,7 +25,7 @@ The [style guide](../../STYLEGUIDE.md#typescript-and-svelte) lists the rules. Th
 
 Run the tests of the console with `devenv --profile console test`. It works like `devenv --profile sync test`: devenv starts the services, the setup runs, and the tests run against them.
 
-The profile in `console/devenv.nix` imports one module for each part of the setup. A module is a `.nix` file. Every part that runs as a process is in `nix/stack/`: the database, the object store, the identity provider, PostgREST, and the console. `nix/services/` contains the parts that devenv ships as a service module, which is only Redis today. `nix/utils.nix` contains the helpers that the modules share, and `nix/data.nix` contains the addresses and the test credentials:
+The profile in `console/devenv.nix` imports one module for each part of the setup. A module is a `.nix` file. Every part that runs as a process is in `nix/stack/`: the database, the object store, the identity provider, PostgREST, and the console. `nix/stack/redis.nix` sets up the Redis service that devenv ships. `nix/utils.nix` contains the helpers that the modules share, and `nix/data.nix` contains the addresses and the test credentials:
 
 | Process | Role |
 |---|---|
