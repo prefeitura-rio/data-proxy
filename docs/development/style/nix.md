@@ -2,7 +2,7 @@
 
 Applies to: `**/*.nix`, `devenv.yaml`.
 
-Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/stack/` contains one part of the test stack for each file, and `nix/utils.nix` contains the helpers.
+Nix files build the test setup of the devenv profiles. The profile of a component lives in `<component>/devenv.nix`, and the root `devenv.yaml` imports it. `nix/profiles/` contains the profiles that belong to no component. `nix/stack/` contains one part of the test stack for each file, and `nix/utils/` contains the helpers.
 
 ## Naming
 
@@ -22,7 +22,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - **NIX-14** Put a component profile in the folder of the component, and list the folder under `imports:` in `devenv.yaml`. Put an input that only that component uses in the `devenv.yaml` of the folder. [must, review]
 - **NIX-15** Import `nix/profiles/*` in the root `devenv.nix`. [must, review]
 
-devenv rejects a task name that breaks these rules when it evaluates a profile. The verbs and the components are in `nix/utils.nix`.
+devenv rejects a task name that breaks these rules when it evaluates a profile. The verbs and the components are in `nix/utils/naming.nix`.
 
 ```text
 ✅ sync:test:int        console:setup:db      repo:lint
@@ -47,7 +47,7 @@ devenv rejects a task name that breaks these rules when it evaluates a profile. 
 - **NIX-23** Write a path that Nix must track as a path literal, such as `../../Containerfile.pg`. A string path breaks in the sandbox. [must, review]
 - **NIX-24** Keep a value in one place. A login and an address live in `nix/data.nix`, and a port lives on its process. [must, review]
 - **NIX-25** Declare the port of a process with `ports.<name>.allocate = <base>`, and read it with `data.port "<process>" "<name>"`. A devenv service sets its `port` option, as `services.redis` does. Don't write a port number in another place. [must, review]
-- **NIX-26** Take `utils` and `data` from the module arguments. Don't import `nix/utils.nix` or `nix/data.nix` in a module. [must, review]
+- **NIX-26** Take `utils` and `data` from the module arguments. Don't import `nix/utils/` or `nix/data.nix` in a module. [must, review]
 - **NIX-27** Use bash only for a script that's a list of plain commands, with no loop, condition or variable, such as `scripts.seed` or an `enterTest`. Write anything else in Nushell. [must, review]
 - **NIX-28** Prefer a plain command with `env` and `cwd` to a generated wrapper script. [should, review]
 - **NIX-29** Give every task and every script a `description`. [must, review]

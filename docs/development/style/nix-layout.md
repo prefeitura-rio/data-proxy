@@ -17,7 +17,8 @@ Read each file from the top to the bottom. The main part of the file is the last
 - **NIX-32** In `tasks`, put the group tasks (`repo:lint`, `repo:test:unit`) last. [must, review]
 - **NIX-33** Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack. [must, review]
 - **NIX-34** Gate only `console:open:browser`, because it would open a browser and hang `devenv test`. [must, review]
-- **NIX-35** Don't give a local function the name of a helper in `nix/utils.nix`. Name it for what it builds, such as `mkNginx`. [must, review]
+- **NIX-35** Don't give a local function the name of a helper in `nix/utils/`. Name it for what it builds, such as `mkNginx`. [must, review]
+- **NIX-54** Put a helper in the file of its topic in `nix/utils/`. The file takes `{ lib, pkgs, config, utils, ... }` and returns its helpers, and `import-tree` adds it to `utils`. [must, review]
 
 ## Processes and tasks
 

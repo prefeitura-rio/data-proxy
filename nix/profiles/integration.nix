@@ -9,7 +9,7 @@
           "devenv.nix"
           "devenv.lock"
           "devenv.yaml"
-          "nix/utils.nix"
+          "nix/utils/*.nix"
           "nix/data.nix"
           "nix/profiles/*.nix"
         ];

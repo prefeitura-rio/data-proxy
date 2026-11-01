@@ -4,6 +4,8 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  import-tree:
+    url: github:vic/import-tree
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
 
