@@ -22,7 +22,7 @@ The documentation is a wiki of linked Markdown files in `docs/`. Start at [docs/
 
 ### Browse the wiki
 
-The pages link to each other with relative Markdown links. Open the repository in an editor that has the [Marksman](https://github.com/artempyanykh/marksman) language server, which the devenv shell provides. Then use go to definition on a link, find references on a heading, and completion inside a link target. The [documentation rules](docs/development/style/docs.md) lists the rules for a page.
+The pages link to each other with relative Markdown links. Open the repository in an editor that has the [Marksman](https://github.com/artempyanykh/marksman) language server, which the devenv shell provides. Then use go to definition on a link, find references on a heading, and completion inside a link target. The [documentation rules](docs/style.md#documentation) lists the rules for a page.
 
 ## License
 

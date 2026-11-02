@@ -46,5 +46,5 @@ The task installs the rocks into the ignored `proxy/.lux/` tree and fails when `
 <!-- nav:start -->
 ---
 
-[Previous: Git](style/git.md) | [Next: Frontend](frontend.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Checks](checks.md) | [Next: Frontend](frontend.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

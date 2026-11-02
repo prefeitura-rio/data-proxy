@@ -7,7 +7,6 @@ The local stack runs on k3d with Podman and Helm.
   - [Test stack](test-stack.md) — The processes, the ports and how to add a test container.
   - [Sync tests](sync-tests.md) — The unit and integration tests of the sync suite.
 - [Checks](checks.md) — Development and release checks.
-- [Style rules](style/index.md) — The rules for the code and the docs, one page for each area.
 - [Proxy rocks](rocks.md) — The Lua libraries of the proxy.
 - [Frontend](frontend.md) — The console and the notebooks.
 - [Run the console locally](stack.md) — Start the console stack in a browser.
@@ -24,5 +23,5 @@ The local stack runs on k3d with Podman and Helm.
 <!-- nav:start -->
 ---
 
-[Previous: Query tab scope](../console/scope.md) | [Next: Setup](setup.md) | [Home](../index.md)
+[Previous: Style](../style.md) | [Next: Setup](setup.md) | [Home](../index.md)
 <!-- nav:end -->

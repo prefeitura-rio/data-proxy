@@ -1,6 +1,6 @@
 # Tests
 
-A component has two tasks for its tests. `<component>:test:unit` runs the tests that need no service, and `<component>:test:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile repo tasks run sync:test` runs `sync:test:unit`. The sync tests that the [style rules](style/tests.md) call unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:test:int`.
+A component has two tasks for its tests. `<component>:test:unit` runs the tests that need no service, and `<component>:test:int` runs the tests that need services. A namespace prefix runs every task under it in the active profile, so `devenv --profile repo tasks run sync:test` runs `sync:test:unit`. The sync tests that the [style rules](../style.md#tests) call unit tests, but that run on the real PostgreSQL (marked `postgres`), belong to `sync:test:int`.
 
 | Component | `:unit` (no service) | `:int` (services) |
 | --- | --- | --- |

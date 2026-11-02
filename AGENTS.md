@@ -1,6 +1,6 @@
 # Working in this repository
 
-Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style page](docs/development/style/index.md) for the files that you change.
+Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style page](docs/style.md) for the files that you change.
 
 ## Commands
 
@@ -30,18 +30,18 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 
 ## Style by file
 
-| Files | Page |
+| Files | Section |
 | --- | --- |
-| `proxy/**` | [layout](docs/development/style/lua-layout.md), [code](docs/development/style/lua-code.md), [types](docs/development/style/lua-types.md) |
-| `sync/**/*.py` | [Python](docs/development/style/python.md) |
-| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/development/style/nushell.md) |
-| `**/*.nix`, `devenv.*` | [naming and code](docs/development/style/nix.md), [layout](docs/development/style/nix-layout.md) |
-| `**/*.sql`, `rbac.toml` | [SQL](docs/development/style/sql.md) |
-| `console/ui/**` | [TypeScript](docs/development/style/typescript.md), [Svelte](docs/development/style/svelte.md) |
-| `console/notebooks/**` | [Notebooks](docs/development/style/notebooks.md) |
-| `k6/**` | [k6](docs/development/style/k6.md) |
-| `docs/**`, `README.md` | [Documentation](docs/development/style/docs.md), [Diagrams](docs/development/style/docs-diagrams.md) |
-| Any test, any log line | [Tests](docs/development/style/tests.md), [Logs](docs/development/style/logs.md) |
+| `proxy/**` | [Lua](docs/style.md#lua) |
+| `sync/**/*.py` | [Python](docs/style.md#python) |
+| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell) |
+| `**/*.nix`, `devenv.*` | [Nix](docs/style.md#nix) |
+| `**/*.sql`, `rbac.toml` | [SQL](docs/style.md#sql) |
+| `console/ui/**` | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
+| `console/notebooks/**` | [Notebooks](docs/style.md#notebooks) |
+| `k6/**` | [k6](docs/style.md#k6) |
+| `docs/**`, `README.md` | [Documentation](docs/style.md#documentation) |
+| Any test, any log line | [Tests](docs/style.md#tests), [Logs](docs/style.md#logs) |
 
 ## Rules that matter most
 
@@ -56,5 +56,5 @@ Read the [style guide](STYLEGUIDE.md) for the list with IDs. These come first:
 ## Workflow
 
 - Never commit or push without explicit approval. Stage, summarize, and wait.
-- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](docs/development/style/git.md).
+- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](docs/style.md#git).
 - Fix a flaky test at its cause, and add a test that reproduces it. Never add a retry.

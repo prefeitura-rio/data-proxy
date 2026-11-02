@@ -1,6 +1,7 @@
 use std/assert
 use ../docs.nu [
     anchors
+    areas-of
     command-problems
     commands-of
     cross-problems
@@ -199,12 +200,27 @@ export def "test page-problems-names-each-problem" []: nothing -> nothing {
         ['a rule of 41 words' (page $'- **PY-01** ($long) [must, review]') ['f.md:5: PY-01 has 41 words, the limit is 40']]
         ['no Applies to line' "# Page\n\n- **PY-01** Use a dataclass. [must, review]" ['f.md: no "Applies to:" line']]
         ['two prefixes' (page '- **PY-01** Use a dataclass. [must, review]' '- **NU-01** Use fail. [must, review]') ['f.md: the IDs use more than one prefix: PY, NU']]
-        ['a page of 905 words' (page (1..900 | each { 'word' } | str join ' ')) ['f.md: 905 words, the limit is 900']]
+        ['an area of 2001 words' (page (1..1996 | each { 'word' } | str join ' ')) ['f.md: 2001 words, the limit is 2000']]
     ]
 
     for case in $cases {
         assert equal (page-problems f.md $case.text) $case.expected $case.name
     }
+}
+
+# Verify that an area is a section with a rule, and that a heading in a code fence starts no area.
+export def "test areas-of-splits-the-sections-with-rules" []: nothing -> nothing {
+    let text = [
+        '# Style' '' '## The format' '' '1. A numbered step.' ''
+        '## Python' '' 'Applies to: Python.' '' '- **PY-01** Use a dataclass. [must, review]' '```text' '## Not a heading' '```' ''
+        '## Lua code' '' '- **LUA-01** Use a module. [must, review]'
+    ] | str join "\n"
+
+    let areas = areas-of $text
+
+    assert equal ($areas | get slug) [python lua-code]
+    assert (($areas | first | get text) =~ '## Not a heading')
+    assert (($areas | last | get text) !~ 'PY-01')
 }
 
 # Verify that an ID defined twice and an ID that no page defines are problems.

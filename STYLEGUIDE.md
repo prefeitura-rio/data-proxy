@@ -2,11 +2,11 @@
 
 Rules for this repository. Follow an existing pattern before you add a new one.
 
-The rules live in [one page for each area](docs/development/style/index.md). Read the page for the files that you change. [AGENTS.md](AGENTS.md) maps each path to its page.
+The rules live in [one page with a section for each area](docs/style.md). Read the section for the files that you change. [AGENTS.md](AGENTS.md) maps each path to its section.
 
 ## How to read a rule
 
-Each rule has an ID, a level and a check: `**PY-07** The rule. [must, ruff]`. The ID is for a review or a commit message. `must` means the change can't merge when it breaks the rule. The last word of the tag names the tool, the devenv task or the review that checks it. See [the rule format](docs/development/style/index.md#the-rule-format).
+Each rule has an ID, a level and a check: `**PY-07** The rule. [must, ruff]`. The ID is for a review or a commit message. `must` means the change can't merge when it breaks the rule. The last word of the tag names the tool, the devenv task or the review that checks it. See [the rule format](docs/style.md#the-rule-format).
 
 ## The rules that matter most
 
@@ -37,4 +37,4 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 
 ## Examples
 
-Each page shows the rules that people break most as a pair, marked ✅ and ❌. For example, [Nix naming](docs/development/style/nix.md#naming) shows a task name that follows the grammar and one that doesn't, and [Git](docs/development/style/git.md#commits) shows the commit types.
+Each section shows the rules that people break most as a pair, marked ✅ and ❌. For example, [Nix naming](docs/style.md#nix) shows a task name that follows the grammar and one that doesn't, and [Git](docs/style.md#commits) shows the commit types.

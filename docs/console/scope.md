@@ -19,5 +19,5 @@ Every link is a `GET`. A `HEAD` request on a link signed for `GET` answers 403, 
 <!-- nav:start -->
 ---
 
-[Previous: Query tab](query.md) | [Next: Local Development](../development/index.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Query tab](query.md) | [Next: Style](../style.md) | [Index](index.md) | [Home](../index.md)
 <!-- nav:end -->

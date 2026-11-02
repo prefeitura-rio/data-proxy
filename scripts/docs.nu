@@ -12,6 +12,7 @@ const NAV_END = '<!-- nav:end -->'
 const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
+    docs/style.md
     docs/development/checks.md
     docs/development/frontend.md
     docs/operations/topology.md
@@ -521,7 +522,7 @@ def "main cmd" []: nothing -> nothing {
 }
 
 const RULE_LIMIT = 40
-const PAGE_LIMIT = 900
+const AREA_LIMIT = 2000
 
 # Return the prefix of a rule ID: PY for PY-07.
 def prefix-of [id: string]: nothing -> string {
@@ -552,7 +553,7 @@ export def rules-of [text: string]: nothing -> table<number: int, id: string, wo
     | flatten
 }
 
-# Return the problems of one style page: a bullet that is not a rule, a long rule, two ID prefixes, a long page and a missing Applies to line.
+# Return the problems of one style area: a bullet that is not a rule, a long rule, two ID prefixes, a long area and a missing Applies to line.
 export def page-problems [file: string, text: string]: nothing -> list<string> {
     let rules = rules-of $text
     let rule_lines = $rules | each {|rule| $rule.number }
@@ -581,7 +582,7 @@ export def page-problems [file: string, text: string]: nothing -> list<string> {
     | each {|row| $row.text | split row --regex '\s+' | where $it != '' | length }
     | math sum
 
-    let long_page = if $size > $PAGE_LIMIT { [$'($file): ($size) words, the limit is ($PAGE_LIMIT)'] } else { [] }
+    let long_page = if $size > $AREA_LIMIT { [$'($file): ($size) words, the limit is ($AREA_LIMIT)'] } else { [] }
 
     let applies = if $text =~ '(?m)^Applies to: ' { [] } else { [$'($file): no "Applies to:" line'] }
 
@@ -624,15 +625,37 @@ export def cross-problems [pages: table<file: string, text: string>, others: tab
     [...$duplicates ...$unknown]
 }
 
-# Fail when a style page breaks the rule format, or a rule ID is defined twice or cited without a definition.
+# Return the areas of the style page: the sections that start with `## ` and contain a rule, with the slug of the title and the text.
+export def areas-of [text: string]: nothing -> table<slug: string, text: string> {
+    let starts = prose $text | where text =~ '^## ' | get number
+
+    $starts
+    | zip [...($starts | skip 1) (($text | lines | length) + 1)]
+    | each {|bounds|
+        let from = $bounds | first
+        let to = $bounds | last
+        let section = $text | lines | skip ($from - 1) | first ($to - $from)
+
+        {
+            slug: (slug ($section | first | str substring 3..))
+            text: ($section | str join "\n")
+        }
+    }
+    | where text =~ '(?m)^- \*\*'
+}
+
+# Fail when the style page breaks the rule format, or a rule ID is defined twice or cited without a definition.
 def "main style" []: nothing -> nothing {
-    let pages = glob docs/development/style/*.md | each {|file| {file: $file, text: (read-text $file)} }
+    let pages = [docs/style.md] | each {|file| {file: $file, text: (read-text $file)} }
 
     let others = [...(glob '{README,AGENTS,STYLEGUIDE}.md') ...(glob $'($DOCS)/**/*.md')]
     | where $it not-in ($pages | get file)
     | each {|file| {file: $file, text: (read-text $file)} }
 
-    let in_pages = $pages | each {|page| page-problems $page.file $page.text } | flatten
+    let in_pages = $pages
+    | each {|page| areas-of $page.text | each {|area| page-problems $'($page.file)#($area.slug)' $area.text } }
+    | flatten
+    | flatten
 
     let prose_problems = [...$pages ...$others]
     | each {|page|
