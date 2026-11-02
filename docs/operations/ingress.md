@@ -2,7 +2,7 @@
 
 The chart exposes the console, the notebooks and the API through the Istio gateway.
 
-![Ingress paths](../diagrams/dist/ingress.svg)
+![Ingress paths](../diagrams/dist/ingress-paths.svg)
 
 ## Console and notebooks
 

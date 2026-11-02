@@ -12,7 +12,7 @@ SQL has three layers. Each layer has one job.
 | Static function | PL/pgSQL | At each request | Reads the filter and builds the text of the DuckDB query. It doesn't depend on a table. |
 | Dynamic SQL | `format()` | At each request | Runs the text that a static function built, with `%I` and `%L`. |
 
-![How a request becomes SQL](diagrams/dist/sql-request.svg)
+![How a request becomes SQL](diagrams/dist/request-to-sql.svg)
 
 Put logic in a static function and not in a template. A static function has one name, one test and one place to read.
 

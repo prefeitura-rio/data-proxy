@@ -4,7 +4,7 @@ A sync rebuilds application tables from the source. It doesn't rebuild access gr
 
 ## Operation
 
-![Backup flow](../diagrams/dist/backups.svg)
+![Backup flow](../diagrams/dist/backup-flow.svg)
 
 Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so it backs up a schema that an editor adds in the console from its first night.
 

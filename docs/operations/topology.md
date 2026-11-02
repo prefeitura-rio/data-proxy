@@ -9,7 +9,7 @@ This page shows what the chart deploys, how the pods connect and how each worklo
 | PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
-![Deployment topology](../diagrams/dist/topology.svg)
+![Deployment topology](../diagrams/dist/deployment-topology.svg)
 
 PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary.
 

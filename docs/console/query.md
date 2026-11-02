@@ -10,7 +10,7 @@ The notebook runs on its own origin, `notebooks.<domain>`, which is a different 
 
 The grant that the console server builds for one schema has four steps, which the diagram shows:
 
-![Query tab grant](../diagrams/dist/query-grant.svg)
+![Query tab grant](../diagrams/dist/query-tab-grant.svg)
 
 
 1. **Authorize.** The server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files` and checks the schemas of the token.

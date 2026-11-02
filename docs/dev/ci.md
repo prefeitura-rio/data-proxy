@@ -10,7 +10,7 @@ A manual start has two inputs. `force_checks` runs every check and test without 
 
 ## Jobs
 
-![CI jobs](../diagrams/dist/ci-pipeline.svg)
+![CI jobs](../diagrams/dist/ci-jobs.svg)
 
 | Job | Work |
 | --- | --- |
