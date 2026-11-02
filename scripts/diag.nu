@@ -1,23 +1,22 @@
 use lib.nu [check-result fail make-dir read-text]
 
-const SOURCES = 'docs/diagrams/src/**/*.d2'
+const SOURCES = 'docs/diagrams/*.d2'
 
-# Return the path of the SVG file that a D2 source renders to: the same path in `dist` for a path in `src`.
+# Return the path of the SVG file that a D2 source renders to: the same name in the folder `dist`.
 export def svg-of [source: path]: nothing -> path {
-    $source
-    | path parse
+    let parts = $source | path parse
+
+    $parts
+    | update parent ($parts.parent | path join dist)
     | update extension svg
     | path join
-    | str replace 'docs/diagrams/src/' 'docs/diagrams/dist/'
 }
 
 # Render each D2 diagram to an SVG file next to its source.
 def "main build" []: nothing -> nothing {
     for source in (glob $SOURCES) {
-        let svg = svg-of $source
-
-        make-dir ($svg | path dirname)
-        d2 $source $svg
+        make-dir (svg-of $source | path dirname)
+        d2 $source (svg-of $source)
     }
 }
 

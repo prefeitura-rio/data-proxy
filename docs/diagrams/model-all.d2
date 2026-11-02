@@ -1,11 +1,11 @@
 direction: right
 
 app: "Application database (data-proxy)" {
-  ...@application
-  ...@workflows
+  ...@model-application
+  ...@model-workflows
 }
 catalog: "Catalog database (ducklake)" {
-  ...@catalog
+  ...@model-catalog
 }
 
 app.data_proxy.scope.workflow_id -> app.dbos.workflow_status.workflow_uuid: "same value, no foreign key" {style.stroke-dash: 3}

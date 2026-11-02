@@ -53,7 +53,7 @@
             description = "Render the D2 diagrams to SVG.";
             exec = "nu scripts/diag.nu build";
             execIfModified = utils.mkInputs [
-              "docs/diagrams/src/**/*.d2"
+              "docs/diagrams/*.d2"
               "scripts/diag.nu"
             ];
           };

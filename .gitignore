@@ -6,6 +6,8 @@ __pycache__/
 *.egg-info/
 node_modules/
 dist/
+# The rendered diagrams are committed, so the pages show them on GitHub.
+!docs/diagrams/dist/
 build/
 .ruff_cache/
 credentials.json

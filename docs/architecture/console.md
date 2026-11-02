@@ -19,7 +19,7 @@ The console shows the system to people and changes its configuration. It's a web
 
 The diagram shows how the console loads a page, starts a sync run and edits the configuration. [Application](../console/app.md) shows the sign-in, and [Query tab](../console/query.md) shows the query tab.
 
-![Console requests](../diagrams/dist/architecture/console-requests.svg)
+![Console requests](../diagrams/dist/console-requests.svg)
 
 See [Console](../console/index.md) for the pages of the app and its database views.
 
@@ -27,7 +27,7 @@ See [Console](../console/index.md) for the pages of the app and its database vie
 
 A console user can cancel a sync run. The same path serves resume and the schedule actions. The console never changes a workflow itself. The database function checks the permission, the schemas and the status, and then it queues a workflow in the `control` queue. A sync worker runs that workflow with the DBOS API.
 
-![Run control sequence](../diagrams/dist/architecture/control-sequence.svg)
+![Run control sequence](../diagrams/dist/control-sequence.svg)
 
 See [Control a run and a schedule](../console/runs.md) for the allowed statuses and the error codes.
 

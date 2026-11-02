@@ -6,7 +6,7 @@ This page shows the parts of Data Proxy and how they depend on each other. Read 
 
 The diagram shows what each component needs. KEDA (Kubernetes Event-driven Autoscaling) scales the proxy, PostgREST, the sync workers and the PostgreSQL standbys.
 
-![System components](../diagrams/dist/architecture/overview.svg)
+![System components](../diagrams/dist/overview.svg)
 
 ## Layers
 

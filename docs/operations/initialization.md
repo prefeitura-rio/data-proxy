@@ -12,7 +12,7 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 Three Jobs prepare the database, and each one waits for what it needs.
 
-![Install Jobs sequence](../diagrams/dist/architecture/init-sequence.svg)
+![Install Jobs sequence](../diagrams/dist/init-sequence.svg)
 
 | Job | Waits for | Work |
 | --- | --- | --- |

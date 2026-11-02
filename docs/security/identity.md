@@ -4,7 +4,7 @@ This page shows how to set up the `role` and `schemas` claims in your identity p
 
 The diagram shows what happens to a token on its way to the data.
 
-![API client token](../diagrams/dist/security/api-token.svg)
+![API client token](../diagrams/dist/api-token.svg)
 
 ## Set up the role claim in an identity provider
 

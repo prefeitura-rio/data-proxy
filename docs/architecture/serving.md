@@ -18,7 +18,7 @@ The serving layer answers API reads. It checks the token, uses the cache, and re
 
 The diagram shows one API read, from the JWT check at the gateway to the cached answer. It covers the cache, the role switch, the row-level security checks, the DuckLake scan, and the fallback to the source.
 
-![API read sequence](../diagrams/dist/architecture/serving-sequence.svg)
+![API read sequence](../diagrams/dist/serving-sequence.svg)
 
 The table view calls a function that checks the access policy. The function plans DuckLake and the optional partition fallback from `data_proxy.state`, and it reads them in order. It passes the access policy predicate to DuckDB, so the Parquet scan returns only authorized rows. PostgREST filters aren't pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
 
