@@ -54,7 +54,6 @@ class TestRunSyncReloadsPostgrest:
         snapshot_id: int | None,
         expected: list[str],
     ) -> None:
-        """Reloads postgrest only after a view change."""
         calls, events = stub_sync_run(
             monkeypatch,
             postgrest_reload_required=postgrest_reload_required,
@@ -172,8 +171,6 @@ class TestRecordScopeStep:
 
 
 class TestLoadSyncConfig:
-    """load_sync_config step behavior tests."""
-
     @pytest.fixture
     def stored(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
         """Stand in for the database and return the reader of the stored configuration."""

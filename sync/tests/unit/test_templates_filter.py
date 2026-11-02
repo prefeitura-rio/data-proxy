@@ -232,7 +232,6 @@ class TestFilterFunctions:
     async def test_filter_request_filter_reads_the_header(
         self, postgres: Postgres
     ) -> None:
-        """Request filter reads the header."""
         await self._install_filter(postgres)
 
         assert await scalar(postgres, "SELECT data_proxy.request_filter()") is None

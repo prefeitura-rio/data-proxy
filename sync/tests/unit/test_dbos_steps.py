@@ -181,7 +181,6 @@ class TestApplyDucklakeMaintenanceStep:
     async def test_maintains_the_schema_catalog_and_returns_its_snapshot(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Maintains the schema catalog and returns its snapshot."""
         connection = object()
         connections: list[object] = []
         maintain = AsyncMock(return_value=9)
@@ -383,8 +382,6 @@ class TestStepMetrics:
 
 
 class TestPublishSchemaOrder:
-    """publish_schema workflow behavior tests."""
-
     async def test_maintains_the_schema_after_the_snapshot_and_returns_it(
         self, calls: Calls
     ) -> None:
@@ -400,7 +397,6 @@ class TestPublishSchemaOrder:
     async def test_returns_no_snapshot_when_nothing_was_published(
         self, calls: Calls
     ) -> None:
-        """Returns no snapshot when nothing was published."""
         calls.snapshot_id = None
 
         assert await publish(SyncPlan(schema_name="app")) is None
@@ -409,7 +405,6 @@ class TestPublishSchemaOrder:
     async def test_returns_the_published_snapshot_when_maintenance_fails(
         self, calls: Calls
     ) -> None:
-        """Returns the published snapshot when maintenance fails."""
         calls.maintenance_error = RuntimeError("boom")
 
         snapshot_id = await publish(SyncPlan(schema_name="app"))

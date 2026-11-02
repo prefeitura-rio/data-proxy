@@ -36,8 +36,6 @@ from tests.helpers.state import partition
 
 
 class TestPartitionChanges:
-    """PartitionChanges behavior tests."""
-
     @pytest.mark.parametrize(
         ("stored", "expected"),
         [
@@ -344,10 +342,7 @@ class TestSourceCapabilities:
 
 
 class TestPartitionBatching:
-    """PartitionBatching behavior tests."""
-
     def test_builds_paths_and_tasks_for_changed_partitions(self) -> None:
-        """Build paths and tasks for changed partitions."""
         table = PartitionedTable(
             name="p.d.t", resolved_schema="app", resolved_source="bigquery"
         )
@@ -369,8 +364,6 @@ class TestPartitionBatching:
 
 
 class TestTableSignature:
-    """TableSignature behavior tests."""
-
     @pytest.mark.parametrize(
         ("before", "claim_before", "after", "claim_after"),
         [
@@ -439,7 +432,6 @@ class TestTableSignature:
     def test_ignores_resolved_schema_in_signature(
         self, schema_x: str, schema_y: str
     ) -> None:
-        """Ignore resolved schema in the signature."""
         table_x = FullTable(
             name="p.d.t", resolved_schema=schema_x, resolved_source="bigquery"
         )
@@ -452,8 +444,6 @@ class TestTableSignature:
 
 
 class TestPartitionOrdering:
-    """Partition ordering behavior tests."""
-
     @given(
         partition_ids=st.lists(
             st.integers(0, 10_000).map(str), min_size=0, max_size=12, unique=True
@@ -475,8 +465,6 @@ class TestPartitionOrdering:
 
 
 class TestSchemaPlanGrouping:
-    """Schema plan grouping behavior tests."""
-
     @given(first=st.booleans(), second=st.booleans())
     def test_groups_full_table_plans_by_resolved_schema(
         self, first: bool, second: bool

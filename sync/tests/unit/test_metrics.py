@@ -5,8 +5,6 @@ from sync.types import RunStatus
 
 
 class TestObserveSync:
-    """ObserveSync behavior tests."""
-
     @pytest.mark.asyncio
     async def test_records_success_for_completed_workflow(self) -> None:
         """Forward arguments and record success when the workflow completes."""
@@ -28,7 +26,6 @@ class TestObserveSync:
 
     @pytest.mark.asyncio
     async def test_records_failure_before_reraising(self) -> None:
-        """Record failure before re-raising the exception."""
         recorded: list[str] = []
 
         async def record(value: RunStatus) -> None:

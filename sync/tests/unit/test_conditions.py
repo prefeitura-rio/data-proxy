@@ -10,8 +10,6 @@ from tests.helpers.state import partition
 
 
 class TestSelectionConditions:
-    """Selection predicate behavior tests."""
-
     @pytest.mark.parametrize(
         ("selection", "expected"),
         [

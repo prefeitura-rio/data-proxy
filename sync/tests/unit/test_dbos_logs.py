@@ -9,8 +9,6 @@ from tests.helpers.dbos import workflow, written
 
 
 class TestRender:
-    """render behavior tests."""
-
     @pytest.mark.parametrize(
         ("message", "fields", "expected"),
         [
@@ -32,8 +30,6 @@ class TestRender:
 
 
 class TestWrite:
-    """write behavior tests."""
-
     @pytest.mark.asyncio
     async def test_adds_one_object_to_the_stream_of_the_workflow(
         self, monkeypatch: pytest.MonkeyPatch

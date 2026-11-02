@@ -6,8 +6,6 @@ from tests.helpers.dbos import cronjob
 
 
 class TestJobFromCronjob:
-    """job_from_cronjob behavior tests."""
-
     def test_names_the_job_and_marks_it_as_a_manual_run(self) -> None:
         """Make the Job that kubectl create job --from=cronjob makes."""
         job = job_from_cronjob(cronjob(), "provision-ab12")

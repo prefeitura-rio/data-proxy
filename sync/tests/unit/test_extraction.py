@@ -33,8 +33,6 @@ COPY_ROW: Final = ("s3://b/t", 10, 2048, 100, None, None)
 
 
 class TestExtractionStatements:
-    """Extraction statement behavior tests."""
-
     @pytest.mark.parametrize(
         ("selection", "template", "bounds"),
         [

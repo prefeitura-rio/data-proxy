@@ -12,8 +12,6 @@ from sync.templates import to_sql
 
 
 class TestSources:
-    """Source registry behavior tests."""
-
     def test_rejects_unsupported_bigquery_settings(self) -> None:
         """Reject settings that BigQuery does not define."""
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):

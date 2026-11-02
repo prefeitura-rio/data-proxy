@@ -8,8 +8,6 @@ from tests.helpers.dbos import raised_in_project_file, record
 
 
 class TestSummarizeException:
-    """summarize_exception behavior tests."""
-
     def test_writes_the_type_and_the_message_on_one_line(self) -> None:
         """Collapse the white space of a message that spans lines."""
         assert summarize_exception(ValueError("a  b\n  c")) == "ValueError: a b c"
@@ -50,8 +48,6 @@ class TestSummarizeException:
 
 
 class TestContextFormatter:
-    """ContextFormatter behavior tests."""
-
     def test_prefixes_the_message_with_the_workflow_the_schema_and_the_table(
         self,
     ) -> None:

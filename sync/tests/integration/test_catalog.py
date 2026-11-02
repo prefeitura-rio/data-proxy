@@ -145,7 +145,6 @@ class TestApplyMaintenance:
         monkeypatch: pytest.MonkeyPatch,
         expiration: str,
     ) -> None:
-        """Keeps the rows and returns the current snapshot."""
         monkeypatch.setattr(settings, "DUCKLAKE_SNAPSHOT_EXPIRATION", expiration)
         await attach_catalog(duckdb, catalog_paths, encrypted=False)
         duckdb.connection.execute("CREATE TABLE dl.items (id INTEGER)")

@@ -10,10 +10,7 @@ from tests.helpers.state import add_change, partition, remove_change, table_plan
 
 
 class TestPlannedPaths:
-    """planned_paths behavior tests."""
-
     def test_returns_partition_paths_for_partitioned_table(self) -> None:
-        """Return add/update change paths for a partitioned table."""
         plan = SyncPlan(
             schema_name="app",
             partitioned_tables={
@@ -28,7 +25,6 @@ class TestPlannedPaths:
         ]
 
     def test_returns_plan_paths_for_full_table(self) -> None:
-        """Return plan paths for a full table."""
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.d.t": "sig"},
@@ -37,7 +33,6 @@ class TestPlannedPaths:
         assert planned_paths(plan, "p.d.t", None) == ["s3://b/t.parquet"]
 
     def test_excludes_remove_changes_from_paths(self) -> None:
-        """Exclude remove changes from the planned paths."""
         previous = partition("1")
         plan = SyncPlan(
             schema_name="app",
@@ -51,8 +46,6 @@ class TestPlannedPaths:
 
 
 class TestEmptyIncrementalTables:
-    """empty_incremental_tables behavior tests."""
-
     def test_returns_incremental_tables_with_no_changes(self) -> None:
         """Return incremental tables that have no changes and no full rebuild."""
         plan = SyncPlan(
@@ -71,8 +64,6 @@ class TestEmptyIncrementalTables:
 
 
 class TestFailedPartitionIds:
-    """failed_partition_ids behavior tests."""
-
     def test_returns_only_add_update_partitions_with_failed_paths(self) -> None:
         """Return only add/update partitions whose path is in failed_paths."""
         plan = table_plan(
@@ -97,8 +88,6 @@ class TestFailedPartitionIds:
 
 
 class TestRestorePartition:
-    """restore_partition behavior tests."""
-
     def test_restores_previous_partition(self) -> None:
         """Roll back to the previous partition state."""
         previous = partition("1", signature="old")
@@ -124,8 +113,6 @@ class TestRestorePartition:
 
 
 class TestPlanPublication:
-    """plan_publication behavior tests."""
-
     def test_blocks_full_rebuild_table_when_path_fails(self) -> None:
         """Block a full-rebuild table when any of its paths fail."""
         plan = SyncPlan(
@@ -179,7 +166,6 @@ class TestPlanPublication:
         assert failed == {"p.d.t": {"1"}}
 
     def test_passes_through_unchanged_when_no_failures(self) -> None:
-        """Pass through unchanged when no paths fail."""
         plan = SyncPlan(
             schema_name="app",
             signatures={"p.d.full": "sig"},

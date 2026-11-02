@@ -41,8 +41,6 @@ from tests.strategies import (
 
 
 class TestSelectionValidation:
-    """Selection validation behavior tests."""
-
     @pytest.mark.parametrize(
         "build",
         [
@@ -73,7 +71,6 @@ class TestSelectionValidation:
 
     @given(lower=st.integers(-100, 100), width=st.integers(0, 100))
     def test_rejects_empty_or_reversed_range(self, lower: int, width: int) -> None:
-        """Reject an empty or reversed integer range."""
         with pytest.raises(ValidationError):
             RangeSelection(
                 partition_id="1", column="id", lower=lower, upper=lower - width
@@ -86,7 +83,6 @@ class TestSelectionValidation:
     def test_rejects_empty_or_reversed_time_range(
         self, lower: date, width: int
     ) -> None:
-        """Reject an empty or reversed time range."""
         upper = lower - timedelta(days=width)
         with pytest.raises(ValidationError):
             TimeRangeSelection(
@@ -110,8 +106,6 @@ class TestSelectionValidation:
 
 
 class TestTableConfiguration:
-    """Table configuration behavior tests."""
-
     def test_names_the_scratch_file_after_the_schema_and_the_table(self) -> None:
         """The scratch Parquet file of a table lives under the run bucket, the schema and the short name."""
         table = FullTable(
@@ -150,8 +144,6 @@ class TestTableConfiguration:
 
 
 class TestSchemaConfiguration:
-    """Schema configuration behavior tests."""
-
     @given(
         schema=identifiers, table=st.from_regex("p\\.[a-z]+\\.[a-z]+", fullmatch=True)
     )
@@ -295,8 +287,6 @@ class TestSyncScope:
 
 
 class TestTaskResults:
-    """Task result behavior tests."""
-
     @pytest.mark.parametrize(
         ("update", "same_id"),
         [
@@ -322,8 +312,6 @@ class TestTaskResults:
 
 
 class TestPlanValidation:
-    """Synchronization plan validation behavior tests."""
-
     def test_rejects_add_partition_without_current_partition(self) -> None:
         """Reject an add partition absent from the current manifest."""
         with pytest.raises(ValueError, match="Add/update partitions"):

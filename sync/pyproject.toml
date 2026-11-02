@@ -111,6 +111,9 @@ runtime-evaluated-decorators = ["dbos.DBOS.workflow"]
   "ASYNC109", # test doubles keep the signature of the real function
   "RUF029",   # async test doubles keep the awaitable signature
   "D100",     # test modules have no module docstring by project rule
+  "D101",     # a test class takes its meaning from its name
+  "D102",     # a test method takes its meaning from its name
+  "D103",     # a test function takes its meaning from its name
   "INP001",   # tests run with importlib import mode, not as a package
   "PLR0904",  # one test class holds every case of one template, so it has many methods
   "PLR2004",  # magic numbers are the expected values in assertions

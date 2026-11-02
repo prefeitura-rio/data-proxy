@@ -34,7 +34,6 @@ class TestRenderTemplate:
         assert rendered == '"a_fn" "b_fn" "c_fn"'
 
     def test_preserves_template_trailing_newline(self, tmp_path: Path) -> None:
-        """Preserve the template trailing newline."""
         (tmp_path / "query.sql").write_text("SELECT 1;\n")
         assert render_template("query", {}, root=tmp_path) == "SELECT 1;\n"
 

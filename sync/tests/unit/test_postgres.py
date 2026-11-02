@@ -7,8 +7,6 @@ from sync.postgres import Postgres
 
 
 class TestAtomic:
-    """Atomic transaction behavior tests."""
-
     @pytest.mark.asyncio
     async def test_commits_after_success(self) -> None:
         """Commit the connection after a successful block."""

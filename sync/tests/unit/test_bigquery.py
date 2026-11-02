@@ -43,8 +43,6 @@ table_from_api = Table.from_api_repr
 
 
 class TestTimeGranularity:
-    """Time granularity behavior tests."""
-
     @pytest.mark.parametrize(
         ("granularity", "lower", "upper"),
         [
@@ -70,8 +68,6 @@ class TestTimeGranularity:
 
 
 class TestTimeBounds:
-    """Time partition bounds behavior tests."""
-
     @pytest.mark.parametrize(
         ("granularity", "partition_id", "bounds"),
         [
@@ -130,8 +126,6 @@ class TestTimeBounds:
 
 
 class TestTableModified:
-    """Table modification time behavior tests."""
-
     @pytest.mark.parametrize(
         ("modified", "expected"),
         [
@@ -170,13 +164,10 @@ class TestTableModified:
 
 
 class TestRangeConfiguration:
-    """Range partition configuration behavior tests."""
-
     @given(field=identifiers, bounds=ordered_bounds(), interval=st.integers(1, 100))
     def test_converts_valid_range_metadata(
         self, field: str, bounds: tuple[int, int], interval: int
     ) -> None:
-        """Convert valid range metadata into application configuration."""
         start, end = bounds
         metadata = RangePartitioning(
             field=field,
@@ -230,18 +221,14 @@ class TestRangeConfiguration:
 
 
 class TestTimeConfiguration:
-    """Time partition configuration behavior tests."""
-
     @pytest.mark.parametrize("granularity", list(TimeGranularity), ids=str)
     def test_converts_valid_time_metadata(self, granularity: TimeGranularity) -> None:
-        """Convert valid time metadata into application configuration."""
         metadata = TimePartitioning(type_=granularity.value, field="created_at")
         assert time_config(metadata, "p.d.t") == TimeConfig(
             field="created_at", granularity=granularity
         )
 
     def test_defaults_missing_time_granularity_to_day(self) -> None:
-        """Default missing time granularity to DAY."""
         assert time_config(
             TimePartitioning(type_=None, field="created_at"), "p.d.t"
         ) == TimeConfig(field="created_at", granularity=TimeGranularity.DAY)
@@ -258,7 +245,6 @@ class TestTimeConfiguration:
 
     @pytest.mark.parametrize("granularity", ["WEEK", "MINUTE", "UNKNOWN"])
     def test_rejects_unsupported_time_granularity(self, granularity: str) -> None:
-        """Reject unsupported time partition granularities."""
         with pytest.raises(ValueError, match="Unsupported"):
             time_config(
                 TimePartitioning(type_=granularity, field="created_at"), "p.d.t"
@@ -266,8 +252,6 @@ class TestTimeConfiguration:
 
 
 class TestPartitionKindConfiguration:
-    """Partition kind selection behavior tests."""
-
     def test_selects_range_partition_configuration(self) -> None:
         """Select the range configuration for a range-partitioned table."""
         metadata = table_from_api(
@@ -305,7 +289,6 @@ class TestPartitionKindConfiguration:
             partition_kind_config(metadata, "p.d.t")
 
     def test_rejects_nonphysical_table(self) -> None:
-        """Reject a nonphysical BigQuery table."""
         metadata = table_from_api(
             {
                 "tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"},
@@ -317,8 +300,6 @@ class TestPartitionKindConfiguration:
 
 
 class TestPartitionMetadata:
-    """PartitionMetadata behavior tests."""
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("values", "field"),
@@ -353,7 +334,6 @@ class TestPartitionMetadata:
             await partition_rows(conn, "project", "dataset", "table")
 
     def test_defaults_missing_logical_bytes_to_zero(self) -> None:
-        """Default missing logical bytes to zero during normalization."""
         row = PartitionMetadata(
             partition_id="0",
             last_modified_time=datetime(2025, 1, 1, tzinfo=UTC),
@@ -395,8 +375,6 @@ class TestPartitionMetadata:
 
 
 class TestPhysicalPartitions:
-    """Physical partition discovery behavior tests."""
-
     @pytest.mark.asyncio
     async def test_limits_time_partitions_to_latest_n(self, bigquery: BigQuery) -> None:
         """Keep only the latest time partitions and a stable table signature.
@@ -428,8 +406,6 @@ class TestPhysicalPartitions:
 
 
 class TestTableReference:
-    """TableReference behavior tests."""
-
     def test_parses_project_dataset_and_table(self) -> None:
         """Parse a table reference into named parts."""
         reference = parse_table_reference("project.dataset.table-name")
@@ -451,8 +427,6 @@ class TestTableReference:
 
 
 class TestRangePartitionNormalization:
-    """Range partition normalization behavior tests."""
-
     @given(bucket=st.integers(0, 9), logical_bytes=st.integers(0, 1000000))
     def test_normalizes_aligned_range_bucket(
         self, bucket: int, logical_bytes: int
@@ -506,7 +480,6 @@ class TestRangePartitionNormalization:
             ).normalize(metadata_row("103", 0))
 
     def test_normalizes_null_range_bucket_as_remainder(self) -> None:
-        """Normalize a null range bucket as a remainder selection."""
         partition = PartitionNormalizer(
             RangeConfig(field="id", start=0, end=100, interval=10), "p.d.t", "signature"
         ).normalize(metadata_row("__NULL__", 0))
@@ -517,8 +490,6 @@ class TestRangePartitionNormalization:
 
 
 class TestTimePartitionNormalization:
-    """Time partition normalization behavior tests."""
-
     @pytest.mark.parametrize(
         ("granularity", "partition_id", "lower", "upper"),
         [
@@ -570,7 +541,6 @@ class TestTimePartitionNormalization:
             ).normalize(metadata_row("0", 0, None))
 
     def test_skips_null_time_bucket(self) -> None:
-        """Skip a null bucket for time partitioning."""
         partition = PartitionNormalizer(
             TimeConfig(field="created_at", granularity=TimeGranularity.DAY),
             "p.d.t",

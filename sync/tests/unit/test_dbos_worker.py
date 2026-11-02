@@ -41,8 +41,6 @@ class TestWorkflowAnnotations:
 
 
 class TestTransientRetryClassification:
-    """TransientRetryClassification behavior tests."""
-
     @pytest.mark.parametrize(
         ("error", "expected"),
         [
@@ -62,7 +60,6 @@ class TestTransientRetryClassification:
         assert utils.retry_transient(error) is expected
 
     def test_classifies_cancellation_as_permanent(self) -> None:
-        """Classify cancellation as permanent."""
         assert not utils.retry_transient(asyncio.CancelledError())
 
 
@@ -94,7 +91,6 @@ class TestCatalogLockRetryClassification:
     def test_retries_only_the_catalog_lock_error(
         self, error: BaseException, expected: bool
     ) -> None:
-        """Retries only the catalog lock error."""
         assert utils.retry_catalog_locked(error) is expected
 
 
@@ -221,8 +217,6 @@ class TestListenedQueues:
 
 
 class TestMain:
-    """Entrypoint behavior tests."""
-
     def test_runs_the_application_on_uvloop(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

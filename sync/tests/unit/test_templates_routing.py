@@ -382,7 +382,6 @@ class TestRoutingPlan:
         snapshot: int | None,
         expected: list[dict[str, str]],
     ) -> None:
-        """Sets the postgrest response headers."""
         await routing.connection.execute(
             "SELECT data_proxy.set_response_headers(%s, %s)", (label, snapshot)
         )
