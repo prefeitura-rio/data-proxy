@@ -2,7 +2,7 @@
 
 `rbac.toml` defines four roles, and each inherits the permissions of the roles that it lists. The identity provider and the database use the same names. A token has one role.
 
-![Role inheritance](../diagrams/architecture/roles-dependencies.svg)
+![Role inheritance](../diagrams/dist/architecture/roles-dependencies.svg)
 
 The table shows the permissions that each role has, with the inherited ones. The task `docs:build:roles` writes it from `rbac.toml`.
 

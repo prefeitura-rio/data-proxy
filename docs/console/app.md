@@ -4,7 +4,7 @@ This page explains how the console app signs people in, keeps the session and sh
 
 ## The web app
 
-![Console sign-in](../diagrams/console/signin.svg)
+![Console sign-in](../diagrams/dist/console/signin.svg)
 
 The app signs in people with OpenID Connect: the authorization code flow with PKCE and a `state` value. The server keeps the access token and the refresh token in an encrypted cookie. The cookie is `httpOnly`, `SameSite=Lax` and host-only.
 

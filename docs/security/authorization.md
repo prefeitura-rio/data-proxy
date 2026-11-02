@@ -2,7 +2,7 @@
 
 Authorization has two independent conditions. The diagram shows the order of the checks.
 
-![Authorization checks](../diagrams/security/authorization.svg)
+![Authorization checks](../diagrams/dist/security/authorization.svg)
 
 ## Schema condition
 

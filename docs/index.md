@@ -2,7 +2,7 @@
 
 Data Proxy copies tables from a source, such as BigQuery, into PostgreSQL and serves them as a REST API. Each caller reads only the rows that its token and the access policy allow. This wiki explains how it works, how to use it and how to run it. The [Glossary](glossary.md) defines the terms.
 
-![System context](diagrams/context.svg)
+![System context](diagrams/dist/context.svg)
 
 ## Find your page
 

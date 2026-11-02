@@ -20,7 +20,7 @@ The table view pushes `order` with the limit only when every order column is a w
 
 A request that selects all columns of a wide table still reads all of them. A `count` of a table or a request without `limit` reads every row too.
 
-![Pushdown decision](../diagrams/proxy/pushdown.svg)
+![Pushdown decision](../diagrams/dist/proxy/pushdown.svg)
 
 ## Aggregates
 

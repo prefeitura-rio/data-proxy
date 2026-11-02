@@ -9,21 +9,13 @@ const SKIPPED_FOLDERS = [
 ]
 
 const COMMIT_TYPES = '^(feat|fix|refactor|test|docs|chore|revert)(\([a-z0-9,_ -]+\))?!?: '
-
 const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
-
 const HEADER_WORDS = 40
-
 const FUNCTION_LINES = 60
-
 const HEADER_LINES = 40
-
 const MIGRATIONS = 'console/migrations'
-
 const SUMS = 'console/migrations/SHA256SUMS'
-
 const LUA = ['proxy/src/**/*.lua']
-
 const NIX = ['**/*.nix']
 
 const NU = [
@@ -92,21 +84,21 @@ const NU_LIBS = [
 ]
 
 export const RULES = [
-    [id globs pattern skip except message];
-    [LUA-47 $LUA '\bassert\(' '--' [] "Check the value and raise an error with a message."]
-    [LUA-64 $LUA '---@diagnostic disable' '' [] "Fix the cause and don't disable a diagnostic."]
-    [LUA-09 $LUA 'os\.getenv' '--' [proxy/src/proxy/main.lua] "Read a setting only from the config table."]
-    [LUA-12 $LUA '^local [A-Z][A-Z_0-9]+ =' '' [proxy/src/proxy/constants.lua] "Define the constant in constants.lua."]
-    [NIX-18 $NIX '\brec \{|= rec ' '#' [] "Bind the shared names in a let block."]
-    [NIX-20 $NIX '\bimport <[a-z]+>' '#' [] "Don't use a lookup path."]
-    [NU-15 $NU '\berror make\b' '#' [...$NU_LIBS console/notebooks/build.nu] "Stop with fail from lib.nu."]
-    [NU-16 $NU '(^|[|={(])\s*(open|save|mkdir|rm|cp|mv)\s' '#' [...$NU_LIBS console/notebooks/build.nu] "Use the file helpers of lib.nu."]
-    [SQL-04 $SQL '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b' '--' [] "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
-    [SQL-24 $SQL r#'"' \|\| replace\('# '--' [sync/src/sync/templates/postgres/views/routing/quoting.sql] "Quote a DuckDB identifier with quote_column()."]
-    [SQL-29 [...$SQL 'sync/tests/templates/**/*.sql'] '^-- noqa: disable=[A-Z0-9,]*PRS' '' $PARSER_DISABLED "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
-    [K6-13 ['k6/**/*.js'] '\bconsole\.(log|warn|error|info|debug)\b' '//' [k6/lib/log.js] "Log with info and warn from lib/log.js."]
-    [GEN-11 $NU '^\s{4,}#\s' '' [] "Write no comment inside a function body."]
-    [GEN-11 ['console/ui/src/**/*.ts'] '^\t{2,}(//|/\*)' '' [] "Write no comment inside a function body."]
+    [id, globs, pattern, skip, except, message];
+    [LUA-47, $LUA, '\bassert\(', '--', [], "Check the value and raise an error with a message."]
+    [LUA-64, $LUA, '---@diagnostic disable', '', [], "Fix the cause and don't disable a diagnostic."]
+    [LUA-09, $LUA, 'os\.getenv', '--', [proxy/src/proxy/main.lua], "Read a setting only from the config table."]
+    [LUA-12, $LUA, '^local [A-Z][A-Z_0-9]+ =', '', [proxy/src/proxy/constants.lua], "Define the constant in constants.lua."]
+    [NIX-18, $NIX, '\brec \{|= rec ', '#', [], "Bind the shared names in a let block."]
+    [NIX-20, $NIX, '\bimport <[a-z]+>', '#', [], "Don't use a lookup path."]
+    [NU-15, $NU, '\berror make\b', '#', [...$NU_LIBS console/notebooks/build.nu], "Stop with fail from lib.nu."]
+    [NU-16, $NU, '(^|[|={(])\s*(open|save|mkdir|rm|cp|mv)\s', '#', [...$NU_LIBS console/notebooks/build.nu], "Use the file helpers of lib.nu."]
+    [SQL-04, $SQL, '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b', '--', [], "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
+    [SQL-24, $SQL, r#'"' \|\| replace\('#, '--', [sync/src/sync/templates/postgres/views/routing/quoting.sql], "Quote a DuckDB identifier with quote_column()."]
+    [SQL-29, [...$SQL 'sync/tests/templates/**/*.sql'], '^-- noqa: disable=[A-Z0-9,]*PRS', '', $PARSER_DISABLED, "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
+    [K6-13, ['k6/**/*.js'], '\bconsole\.(log|warn|error|info|debug)\b', '//', [k6/lib/log.js], "Log with info and warn from lib/log.js."]
+    [GEN-11, $NU, '^\s{4,}#\s', '', [], "Write no comment inside a function body."]
+    [GEN-11, ['console/ui/src/**/*.ts'], '^\t{2,}(//|/\*)', '', [], "Write no comment inside a function body."]
 ]
 
 # Return the findings of one rule in the text of one file, as `file:line: ID message`. A line that starts with the skip prefix is a comment.
@@ -123,7 +115,11 @@ export def line-findings [rule: record, file: string, text: string]: nothing -> 
 def description-words [header: record]: nothing -> int {
     let description = $header | get --optional description
 
-    if $description == null { 0 } else { $description | split row --regex '\s+' | length }
+    if $description == null {
+        0
+    } else {
+        $description | split row --regex '\s+' | length
+    }
 }
 
 # Return a problem for each header of a template whose description has more than 40 words.
@@ -199,7 +195,11 @@ export def input-problems [file: string, text: string]: nothing -> list<string> 
         return []
     }
 
-    let header = try { $headers | first | get capture0 | from json } catch { return [] }
+    let header = try {
+        $headers | first | get capture0 | from json
+    } catch {
+        return []
+    }
 
     if ($header | get --optional kind) == macro {
         return []
@@ -215,8 +215,16 @@ export def input-problems [file: string, text: string]: nothing -> list<string> 
         (captures $code ([$tag 'for\s+' $name] | str join))
         (captures $code ([$tag 'for\s+\w+,\s*' $name] | str join))
         (captures $code ([$tag 'macro\s+' $name] | str join))
-        (captures $code ([$tag 'macro\s+\w+\(([^)]*)\)'] | str join) | each {|args| names-in $args } | flatten)
-        (captures $code ([$tag 'from\s+"[^"]+"\s+import\s+([^%]+)%'] | str join) | each {|names| names-in $names } | flatten)
+        (
+            captures $code ([$tag 'macro\s+\w+\(([^)]*)\)'] | str join)
+            | each {|args| names-in $args }
+            | flatten
+        )
+        (
+            captures $code ([$tag 'from\s+"[^"]+"\s+import\s+([^%]+)%'] | str join)
+            | each {|names| names-in $names }
+            | flatten
+        )
         (captures $code ([$tag 'import\s+"[^"]+"\s+as\s+' $name] | str join))
     ]
     | flatten
@@ -389,7 +397,10 @@ def main []: nothing -> nothing {
 
     let test_templates = glob 'sync/tests/templates/**/*.sql' | each {|file| $file | path relative-to (pwd) }
 
-    let inputs = [...(sql-files) ...$test_templates]
+    let inputs = [
+        ...(sql-files)
+        ...$test_templates
+    ]
     | each {|file| input-problems $file (read-text $file) }
     | flatten
 

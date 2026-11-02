@@ -45,13 +45,13 @@ KEDA reads the length of the DBOS queues in the application database and scales 
 
 The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, seeding the views, publishing each schema, and the reload of PostgREST.
 
-![Sync run sequence](../diagrams/architecture/sync-sequence.svg)
+![Sync run sequence](../diagrams/dist/architecture/sync-sequence.svg)
 
 ## DuckLake write path
 
 A publish worker commits one schema at a time. It uses DuckDB with the DuckLake extension.
 
-![DuckLake publication sequence](../diagrams/architecture/publish-sequence.svg)
+![DuckLake publication sequence](../diagrams/dist/architecture/publish-sequence.svg)
 
 - **One writer for each schema:** publishing is parallel across schemas and sequential within each schema. One `publish` queue serves all schemas, and the schema name is its partition key. A new schema needs no new queue.
 - **Files first:** the writer writes the Parquet files before it commits the snapshot.

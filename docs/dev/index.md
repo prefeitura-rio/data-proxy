@@ -4,7 +4,7 @@ This section helps you set up the repository, run the checks and find your way i
 
 ## Code map
 
-![Code map](../diagrams/dev/code-map.svg)
+![Code map](../diagrams/dist/dev/code-map.svg)
 
 ## Set up the local cluster
 

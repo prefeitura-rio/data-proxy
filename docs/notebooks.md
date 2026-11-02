@@ -2,7 +2,7 @@
 
 The query tab of the console embeds a notebook that runs in the browser. `console/notebooks/` builds the static site of that notebook. The site runs on its own origin, so it shares no cookie with the console.
 
-![Notebook flow](diagrams/notebooks.svg)
+![Notebook flow](diagrams/dist/notebooks.svg)
 
 ## What the site contains
 

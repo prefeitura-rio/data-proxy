@@ -2,7 +2,7 @@
 
 Kubernetes Event-driven Autoscaling (KEDA) scales the DBOS sync Deployment from the DBOS system database. The sync workers share the `data-proxy-duckdb` PersistentVolumeClaim (PVC). They publish through one `publish` queue that's partitioned by schema, so each schema runs one publish task at a time.
 
-![Scaling triggers](../diagrams/operations/scaling.svg)
+![Scaling triggers](../diagrams/dist/operations/scaling.svg)
 
 KEDA also scales PostgREST, the proxy and the CloudNativePG (CNPG) standbys. [Topology](topology.md) describes how.
 

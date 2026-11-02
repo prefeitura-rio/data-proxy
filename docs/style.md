@@ -747,14 +747,14 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 
 ### Diagrams
 
-Applies to: `docs/diagrams/**`, `docs/**/*.svg`.
+Applies to: `docs/diagrams/**`.
 
 #### Where a diagram lives
 
 - **DOC-24** Give a diagram one owner page, and embed its SVG there once. Other pages link to the owner. `docs:lint:diag` fails for an SVG that no page embeds or that two pages embed. [must, devenv]
 - **DOC-25** Give every diagram a short name, and write it as the alt text of the image. Don't add a caption line under the image. [must, review]
 - **DOC-26** Draw one context diagram on `docs/index.md` and one overview diagram of the whole system on `docs/architecture/index.md`. [must, review]
-- **DOC-27** Put a diagram in `docs/diagrams/<section>/`, where the section is the folder of its owner page. [must, review]
+- **DOC-27** Put the D2 file of a diagram in `docs/diagrams/src/<section>/`, where the section is the folder of its owner page. A page at the top of `docs/` uses `docs/diagrams/src/`. [must, review]
 - **DOC-28** Pick the diagram type from the question that the page answers, as the next table shows. Use a table when a diagram adds nothing. [must, review]
 - **DOC-36** Start a page with one or two sentences that say what the page is for. Show the diagram or the steps next, and put reference tables last. [should, review]
 - **DOC-37** Keep a diagram to about 12 boxes. Split a larger one, or draw the detail on the page of the part. [should, review]
@@ -772,9 +772,9 @@ Applies to: `docs/diagrams/**`, `docs/**/*.svg`.
 
 #### How to draw it
 
-- **DOC-29** Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. Don't write a diagram in another language. [must, review]
+- **DOC-29** Write a diagram in D2, in `docs/diagrams/src/`. Don't write a diagram in another language. [must, review]
 - **DOC-30** Let `db.d2` import the other files of its folder. Edit a table in its own file and not in `db.d2`. [must, review]
-- **DOC-31** Render a diagram with `devenv --profile default tasks run docs:build:diag`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
+- **DOC-31** Render a diagram with `devenv --profile default tasks run docs:build:diag`. It writes the SVG to the same path in `docs/diagrams/dist/`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
 - **DOC-32** Know that `docs:lint:diag` (profile `default`) fails when an SVG is out of date or embedded wrongly, and that CI doesn't run it. [should, devenv]
 - **DOC-33** Make every diagram render in a light and a dark theme. [must, review]
 - **DOC-34** Draw a database diagram with `sql_table` shapes, and take the columns from the SQL files. [must, review]
