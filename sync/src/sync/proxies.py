@@ -20,7 +20,7 @@ def proxy_port(parts: SplitResult) -> int:
 
 
 async def proxy_addresses(url: str) -> list[str]:
-    """Resolve the host of the URL to the sorted IPv4 address of each pod behind it."""
+    """Resolve the host name of the web address to the sorted IPv4 addresses of its pods."""
     parts = urlsplit(url)
     found = await get_running_loop().getaddrinfo(
         parts.hostname, proxy_port(parts), family=AF_INET, type=SOCK_STREAM

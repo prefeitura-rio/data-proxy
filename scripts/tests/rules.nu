@@ -1,9 +1,12 @@
 use std/assert
 use ../rules.nu [
     commit-problems
+    define-problems
     excluded
+    file-header-problems
     function-problems
     header-problems
+    input-problems
     line-findings
     migration-problems
     RULES
@@ -228,5 +231,79 @@ export def "test migration-problems-names-a-changed-new-and-missing-file" []: no
 
     for case in $cases {
         assert equal (migration-problems $sums (migration-table $case.files)) $case.expected $case.name
+    }
+}
+
+# Verify that a header comment of more than 40 lines is a problem, and that the lines before it don't count.
+export def "test file-header-problems-counts-the-comment-lines-of-the-header" []: nothing -> nothing {
+    let lines = {|count prefix| 1..$count | each { $'($prefix) line' } | str join "\n" }
+
+    let cases = [
+        [name text expected];
+        ['a header of 40 lines' (do $lines 40 '#') []]
+        ['a header of 41 lines' (do $lines 41 '#') ['f.nu: GEN-12 The header comment has 41 lines, the limit is 40.']]
+        ['a block comment of 41 lines' (do $lines 41 ' *') ['f.nu: GEN-12 The header comment has 41 lines, the limit is 40.']]
+        ['a shebang and a use line first' $"#!/usr/bin/env nu\n\nuse lib.nu [fail]\n\n(do $lines 41 '#')" ['f.nu: GEN-12 The header comment has 41 lines, the limit is 40.']]
+        ['a file with no header' $"use lib.nu [fail]\n\ndef main [] {}\n(do $lines 50 '#')" []]
+    ]
+
+    for case in $cases {
+        assert equal (file-header-problems f.nu $case.text) $case.expected $case.name
+    }
+}
+
+# Verify that a Helm helper needs a comment above its define, and that a comment in the Helm style counts.
+export def "test define-problems-names-the-helpers-without-a-comment" []: nothing -> nothing {
+    let cases = [
+        [name text expected];
+        ['a documented helper' "{{- /* Return the name. */ -}}\n{{- define \"data-proxy.name\" -}}\nx\n{{- end }}" []]
+        ['a comment in the long form' "{{- /*\nReturn the name.\n*/ -}}\n{{- define \"data-proxy.name\" -}}\nx\n{{- end }}" []]
+        ['a blank line between the comment and the helper' "{{- /* Return the name. */ -}}\n\n{{- define \"data-proxy.name\" -}}\nx\n{{- end }}" []]
+        ['a helper with no comment' "{{- define \"data-proxy.name\" -}}\nx\n{{- end }}" ['f.tpl:1: GEN-13 The helper data-proxy.name has no comment.']]
+        ['the second helper has none' "{{- /* Return a. */ -}}\n{{- define \"a\" -}}\n{{- end }}\n\n{{- define \"b\" -}}\n{{- end }}" ['f.tpl:5: GEN-13 The helper b has no comment.']]
+    ]
+
+    for case in $cases {
+        assert equal (define-problems f.tpl $case.text) $case.expected $case.name
+    }
+}
+
+def input-header [inputs: list<string>, kind: string = template]: nothing -> string {
+    let listed = $inputs | reduce --fold {} {|name, acc| $acc | insert $name 'A value.' }
+
+    {kind: $kind, description: 'Do it.', inputs: $listed} | to json --indent 2 | $"{#\n($in)\n#}"
+}
+
+# Verify that a template needs an input for each variable that it uses, and that its own names are not inputs.
+export def "test input-problems-names-the-variables-that-the-header-lacks" []: nothing -> nothing {
+    let none = input-header []
+    let schema = input-header [schema]
+    let columns = input-header [columns]
+    let rows = input-header [rows]
+    let macro = input-header [] macro
+    let missing = {|name|
+        let message = $'f.sql: SQL-31 The template uses ($name), and its header has no input of that name.'
+
+        [$message]
+    }
+    let import = '{% from "macros.sql" import sql_array, name_array %}{{ sql_array(rows) }}{{ name_array(rows) }}'
+    let loop = '{% for c in columns %}{{ c }}{{ loop.index }}{% endfor %}'
+
+    let cases = [
+        [name text expected];
+        ['every variable is an input' $"($schema)\nSELECT 1 FROM {{ schema }}.t;" []]
+        ['a variable that is not an input' $"($none)\nSELECT 1 FROM {{ schema }}.t;" (do $missing schema)]
+        ['a variable in a condition' $"($none)\n{% if encrypted %}x{% endif %}" (do $missing encrypted)]
+        ['the list of a loop' $"($none)\n{% for c in columns %}x{% endfor %}" (do $missing columns)]
+        ['a loop variable and loop' $"($columns)\n($loop)" []]
+        ['a set variable' $"($none)\n{% set limit = 3 %}{{ limit }}" []]
+        ['an imported macro' ([$rows $import] | str join "\n") []]
+        ['a macro header' $"($macro)\n{{ anything }}" []]
+        ['a variable in a Jinja comment' $"($none)\n{# {{ schema }} #}SELECT 1;" []]
+        ['a file with no header' 'SELECT {{ schema }};' []]
+    ]
+
+    for case in $cases {
+        assert equal (input-problems f.sql $case.text) $case.expected $case.name
     }
 }

@@ -52,6 +52,8 @@ These rules apply to every file. The pages for each area add more.
 - **GEN-09** Keep DBOS workflows deterministic, and put I/O in steps. [must, review]
 - **GEN-10** Don't re-implement DBOS checkpoints. [must, review]
 - **GEN-11** Write no comment inside a function body. Put the reason in the comment above the function, or use a name. The check covers Nushell and TypeScript. [must, code]
+- **GEN-12** Start a file with at most one header comment of 40 lines or fewer. It says what the file does and how to run it. Put the detail of a function above the function. [must, code]
+- **GEN-13** Write a `{{/* */}}` comment above each `define` of the Helm chart. It says what the helper returns, and it names the keys of a dict input. [must, code]
 
 See [Architecture](architecture/index.md) for the layers. See [Database Schema](database.md) for roles, row policies and privileged functions.
 
@@ -511,7 +513,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 #### Documentation of a function
 
 - **NIX-46** Write the documentation of a function as an [RFC 145](https://github.com/NixOS/rfcs/blob/master/rfcs/0145-doc-strings.md) doc comment. Start it with `/**` and put it directly before the function. [must, review]
-- **NIX-47** Document functions only. Don't document a variable, a set of values, or a module. [must, review]
+- **NIX-47** Document functions only. Don't document a variable or a set of values. A file may have a header comment (GEN-12). [must, review]
 - **NIX-48** Write the content as CommonMark. Start with one sentence that says what the function returns. [must, review]
 - **NIX-49** Use these headings when they apply: `# Inputs` with one term for each argument, and `# Type` with a type signature in a code block. [must, review]
 - **NIX-50** Write the type as `name :: { key :: Type, optional :: Type? } -> Result`. [must, review]
@@ -595,6 +597,7 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - **SQL-28** Keep a function under 60 lines. Split a longer function into functions with one job and a name. Four files keep an older long function on a list in `scripts/rules.nu`. [should, code]
 - **SQL-29** Keep a template readable by the SQLFluff parser. Don't add `noqa: disable=PRS` to a new template. Add a file to the allowed list in `scripts/rules.nu` only with a reason line under the `noqa`. [must, code]
 - **SQL-30** Keep the description of a header under 40 words. Put the detail in a Jinja comment under the header. [must, code]
+- **SQL-31** List in the header `inputs` each variable that a template uses. A name that the template sets, loops over or imports isn't an input. [must, code]
 
 ```sql
 ✅ v_duckdb_sql := format('SELECT %s FROM view%s', v_plan.select_list, v_plan.group_by);

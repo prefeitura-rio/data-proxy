@@ -56,7 +56,7 @@ in
               exec ${lib.getExe pkgs.vale} "$@"
             ''
           );
-          files = "^(docs/.*\\.md|README\\.md|AGENTS\\.md|STYLEGUIDE\\.md|sync/src/sync/.*\\.py|scripts/.*\\.nu)$";
+          files = "^(docs/.*\\.md|README\\.md|AGENTS\\.md|STYLEGUIDE\\.md|sync/src/.*\\.py|scripts/.*\\.nu|helm/files/scripts/.*\\.nu)$";
         };
 
         tasks = {
@@ -162,6 +162,10 @@ in
               "k6/**/*.js"
               "sync/src/sync/templates/**/*.sql"
               "helm/files/templates/**/*.sql"
+              "helm/templates/*.tpl"
+              "sync/tests/templates/**/*.sql"
+              "console/ui/*.ts"
+              "proxy/lux.toml"
               "console/migrations/*.sql"
               "console/migrations/SHA256SUMS"
               "**/*.nix"

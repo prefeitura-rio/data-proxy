@@ -16,6 +16,8 @@ const HEADER_WORDS = 40
 
 const FUNCTION_LINES = 60
 
+const HEADER_LINES = 40
+
 const MIGRATIONS = 'console/migrations'
 
 const SUMS = 'console/migrations/SHA256SUMS'
@@ -50,6 +52,36 @@ const LONG_FUNCTIONS = [
     sync/src/sync/templates/postgres/views/create_aggregate_function.sql
     sync/src/sync/templates/postgres/views/create_function.sql
     sync/src/sync/templates/postgres/views/routing/filter.sql
+]
+
+const HEADED = [
+    'scripts/**/*.nu'
+    'helm/files/scripts/**/*.nu'
+    'console/notebooks/*.nu'
+    'console/ui/*.ts'
+    'k6/**/*.js'
+    'proxy/lux.toml'
+]
+
+const CHART_HELPERS = 'helm/templates/_*.tpl'
+
+const BUILTINS = [
+    loop
+    true
+    false
+    none
+    range
+    namespace
+    caller
+    varargs
+    kwargs
+    not
+    and
+    or
+    in
+    is
+    if
+    else
 ]
 
 const NU_LIBS = [
@@ -109,6 +141,97 @@ export def header-problems [file: string, text: string]: nothing -> list<string>
     }
     | where words > $HEADER_WORDS
     | each {|header| $'($file): SQL-30 The description of ($header.name) has ($header.words) words.' }
+}
+
+# Return a problem for a file whose header comment has more than 40 lines. The header is the first block of comment lines,
+# after a shebang, a blank line and the `use` lines.
+export def file-header-problems [file: string, text: string]: nothing -> list<string> {
+    let size = $text
+    | lines
+    | where not ($it =~ '^(#!|use |\s*$)')
+    | take while {|line| $line =~ '^\s*(#|//|/\*|\*|--)' }
+    | length
+
+    if $size > $HEADER_LINES {
+        [
+            $'($file): GEN-12 The header comment has ($size) lines, the limit is ($HEADER_LINES).'
+        ]
+    } else {
+        []
+    }
+}
+
+# Return a problem for each `define` of a Helm helper that has no comment above it.
+export def define-problems [file: string, text: string]: nothing -> list<string> {
+    let lines = $text | lines
+
+    $lines
+    | enumerate
+    | where item =~ '^\{\{-?\s*define "'
+    | each {|row|
+        let before = $lines | first $row.index | where ($it | str trim | is-not-empty) | last 1
+
+        if ($before | is-empty) or (($before | first) !~ '\*/\s*-?\}\}\s*$') {
+            let name = $row.item | parse --regex 'define "(?<name>[^"]+)"' | first | get name
+
+            $'($file):($row.index + 1): GEN-13 The helper ($name) has no comment.'
+        }
+    }
+    | compact
+}
+
+# Return the text of the first group of a pattern, for each match in a text.
+def captures [text: string, pattern: string]: nothing -> list<string> {
+    $text | parse --regex $pattern | get --optional capture0 | default []
+}
+
+# Return the names in a comma-separated list, without the default value of each.
+def names-in [list: string]: nothing -> list<string> {
+    $list | split row ',' | each {|item| $item | str replace --regex '=.*$' '' | str trim }
+}
+
+# Return a problem for each variable that a template uses and its header doesn't list in `inputs`. A macro header and a
+# name that the template defines, imports or gets from Jinja are not inputs.
+export def input-problems [file: string, text: string]: nothing -> list<string> {
+    let headers = $text | parse --regex $HEADER
+
+    if ($headers | is-empty) {
+        return []
+    }
+
+    let header = try { $headers | first | get capture0 | from json } catch { return [] }
+
+    if ($header | get --optional kind) == macro {
+        return []
+    }
+
+    let listed = $header | get --optional inputs | default {} | columns
+    let code = $text | str replace --all --regex '(?s)\{#.*?#\}' ''
+    let tag = '\{%-?\s*'
+    let name = '([A-Za-z_]\w*)'
+
+    let defined = [
+        (captures $code ([$tag 'set\s+' $name] | str join))
+        (captures $code ([$tag 'for\s+' $name] | str join))
+        (captures $code ([$tag 'for\s+\w+,\s*' $name] | str join))
+        (captures $code ([$tag 'macro\s+' $name] | str join))
+        (captures $code ([$tag 'macro\s+\w+\(([^)]*)\)'] | str join) | each {|args| names-in $args } | flatten)
+        (captures $code ([$tag 'from\s+"[^"]+"\s+import\s+([^%]+)%'] | str join) | each {|names| names-in $names } | flatten)
+        (captures $code ([$tag 'import\s+"[^"]+"\s+as\s+' $name] | str join))
+    ]
+    | flatten
+
+    let used = [
+        (captures $code (['\{\{-?\s*' $name] | str join))
+        (captures $code ([$tag '(?:if|elif)\s+' $name] | str join))
+        (captures $code ([$tag 'for\s+\w+(?:,\s*\w+)?\s+in\s+' $name] | str join))
+    ]
+    | flatten
+
+    $used
+    | uniq
+    | where $it not-in $listed and $it not-in $defined and $it not-in $BUILTINS
+    | each {|variable| $'($file): SQL-31 The template uses ($variable), and its header has no input of that name.' }
 }
 
 # Return the index of the line where the function that starts at the line `start` ends. A body in dollar quotes ends
@@ -264,9 +387,34 @@ def main []: nothing -> nothing {
     }
     | flatten
 
+    let test_templates = glob 'sync/tests/templates/**/*.sql' | each {|file| $file | path relative-to (pwd) }
+
+    let inputs = [...(sql-files) ...$test_templates]
+    | each {|file| input-problems $file (read-text $file) }
+    | flatten
+
+    let headers = $HEADED
+    | each {|pattern| glob $pattern --exclude $SKIPPED_FOLDERS }
+    | flatten
+    | uniq
+    | each {|file| file-header-problems ($file | path relative-to (pwd)) (read-text $file) }
+    | flatten
+
+    let helpers = glob $CHART_HELPERS
+    | each {|file| define-problems ($file | path relative-to (pwd)) (read-text $file) }
+    | flatten
+
     let migrations = migration-problems (read-text $SUMS) (migration-files)
     let commits = commit-problems ...(git log --max-count=50 --format=%s | lines)
-    let found = [...$files ...$sql ...$migrations ...$commits]
+    let found = [
+        ...$files
+        ...$sql
+        ...$inputs
+        ...$headers
+        ...$helpers
+        ...$migrations
+        ...$commits
+    ]
 
     if ($found | is-not-empty) {
         fail $"The code breaks the style rules:\n($found | str join "\n")"
