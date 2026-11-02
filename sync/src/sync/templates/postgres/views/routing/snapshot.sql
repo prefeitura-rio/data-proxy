@@ -1,7 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "Snapshot request and validation functions."
+  "description": "Snapshot request and validation functions.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the routing functions."
+  }
 }
 #}
 

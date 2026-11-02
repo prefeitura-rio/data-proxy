@@ -1,7 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "Read and render what the proxy pushes in the X-DuckLake-Filter header: the WHERE filter, the columns, and the ORDER BY with the LIMIT."
+  "description": "Read and render what the proxy pushes in the X-DuckLake-Filter header: the WHERE filter, the columns, and the ORDER BY with the LIMIT.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the routing functions."
+  }
 }
 #}
 CREATE OR REPLACE FUNCTION {{ schema }}.request_filter() RETURNS jsonb

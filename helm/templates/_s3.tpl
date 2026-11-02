@@ -1,8 +1,10 @@
 
+{{- /* Return the name of the S3 Secret. */ -}}
 {{- define "data-proxy.s3SecretName" -}}
 {{- .Values.s3.existingSecret | default (printf "%s-s3" (include "data-proxy.fullname" .)) }}
 {{- end }}
 
+{{- /* Return the hash of the S3 keys, from the values or from the Secret in the cluster. */ -}}
 {{- define "data-proxy.s3CredentialsChecksum" -}}
 {{- $s3Name := include "data-proxy.s3SecretName" . -}}
 {{- $s3 := lookup "v1" "Secret" .Release.Namespace $s3Name -}}
@@ -25,6 +27,7 @@
 {{- printf "%s:%s" $accessKey $secretKey | sha256sum -}}
 {{- end }}
 
+{{- /* Return the S3 endpoint: `s3.endpoint`, or the SeaweedFS service. It fails when neither exists. */ -}}
 {{- define "data-proxy.s3Endpoint" -}}
 {{- if .Values.s3.endpoint }}
 {{- .Values.s3.endpoint }}
@@ -39,6 +42,7 @@
 {{- end }}
 {{- end }}
 
+{{- /* Return the S3 variables of one bucket. It takes `bucket`, `endpoint`, `useSsl` and `secret`. */ -}}
 {{- define "data-proxy.s3CredentialsEnv" -}}
 - name: S3_BUCKET
   value: {{ .bucket | quote }}
@@ -58,6 +62,7 @@
       key: S3_SECRET_KEY
 {{- end }}
 
+{{- /* Return the S3 variables of the main bucket. */ -}}
 {{- define "data-proxy.s3Env" -}}
 {{- include "data-proxy.s3CredentialsEnv" (dict
   "bucket" .Values.s3.bucket
@@ -67,6 +72,7 @@
 ) }}
 {{- end }}
 
+{{- /* Return the timeout and retry settings of the bucket wait, and the Google credentials. */ -}}
 {{- define "data-proxy.s3BootstrapSettingsEnv" -}}
 - name: S3_BOOTSTRAP_TIMEOUT
   value: {{ .Values.s3.bootstrap.timeout | quote }}
@@ -78,11 +84,13 @@
 {{- end }}
 {{- end }}
 
+{{- /* Return the S3 variables and the wait settings of the bucket bootstrap. */ -}}
 {{- define "data-proxy.s3BootstrapEnv" -}}
 {{- include "data-proxy.s3Env" . }}
 {{ include "data-proxy.s3BootstrapSettingsEnv" . }}
 {{- end }}
 
+{{- /* Return the volume of the bucket bootstrap script. */ -}}
 {{- define "data-proxy.s3BootstrapVolume" -}}
 - name: s3-bootstrap
   configMap:
@@ -90,6 +98,7 @@
     defaultMode: 0555
 {{- end }}
 
+{{- /* Return a container that waits until a bucket exists. It takes `name`, `root` and `env`. */ -}}
 {{- define "data-proxy.s3WaitContainer" -}}
 - name: {{ .name }}
   image: {{ .root.Values.jobs.image | quote }}
@@ -104,6 +113,7 @@
     {{- include "data-proxy.gcpVolumeMount" .root | nindent 4 }}
 {{- end }}
 
+{{- /* Return the init container that waits for the main bucket. */ -}}
 {{- define "data-proxy.s3WaitInitContainer" -}}
 {{- include "data-proxy.s3WaitContainer" (dict
   "name" "wait-for-s3"
@@ -112,6 +122,7 @@
 ) }}
 {{- end }}
 
+{{- /* Return the init container that waits for the backup bucket. */ -}}
 {{- define "data-proxy.backupS3WaitInitContainer" -}}
 {{- $backup := .Values.jobs.backup.s3 -}}
 {{- $credentials := include "data-proxy.s3CredentialsEnv" (dict

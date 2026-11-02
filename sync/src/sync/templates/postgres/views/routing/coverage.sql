@@ -1,7 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "Coverage predicate functions for DuckLake and fallback sources."
+  "description": "Coverage predicate functions for DuckLake and fallback sources.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the routing functions."
+  }
 }
 #}
 

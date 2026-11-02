@@ -64,18 +64,26 @@ STATUSES = ["active", "inactive", "pending"]
 
 
 class SeedModel(BaseModel):
+    """Base of the seed models. It forbids unknown fields and stays frozen."""
+
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
 
 class TableSeed(SeedModel):
+    """The seed of one table: its row count."""
+
     rows: PositiveInt
 
 
 class PartitionedTableSeed(TableSeed):
+    """The seed of a partitioned table: its row count and the days that it spans."""
+
     partition_days: PositiveInt
 
 
 class TableSeeds(SeedModel):
+    """The seed of every test table."""
+
     full_table: TableSeed
     snapshot_table: TableSeed
     partitioned_table: PartitionedTableSeed
@@ -85,12 +93,16 @@ class TableSeeds(SeedModel):
 
 
 class SeedSettings(SeedModel):
+    """The settings file `seed.toml`: the random seed and the table seeds."""
+
     seed: int
     tables: TableSeeds
 
 
 @dataclass
 class Config:
+    """The command line arguments, the settings and the path of the sync configuration."""
+
     project: str | None
     dataset: str
     settings: SeedSettings
@@ -98,6 +110,7 @@ class Config:
 
 
 def parse_args() -> Config:
+    """Read the command line and the settings file."""
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--project",
@@ -134,6 +147,7 @@ def parse_args() -> Config:
 
 
 def build_full_table_rows(n: int) -> list[Row]:
+    """Build `n` rows of the full table, with random units, statuses and tags."""
     return [
         {
             "id": str(i + 1),
@@ -162,6 +176,7 @@ def build_new_schema_table_rows(n: int) -> list[Row]:
 
 
 def build_big_table_rows(n: int, max_days: int) -> list[Row]:
+    """Build `n` rows of the big table, spread over `max_days` days."""
     today = datetime.now(tz=UTC).date()
     return [
         {**row, "date": (today - timedelta(days=randint(0, max_days - 1))).isoformat()}
@@ -170,6 +185,7 @@ def build_big_table_rows(n: int, max_days: int) -> list[Row]:
 
 
 def build_multi_rls_table_rows(n: int) -> list[Row]:
+    """Build `n` rows that carry a region and a group for the row policies."""
     return [
         {
             "id": str(i + 1),
@@ -182,6 +198,7 @@ def build_multi_rls_table_rows(n: int) -> list[Row]:
 
 
 def build_partitioned_table_rows(n: int, max_days: int) -> list[Row]:
+    """Build `n` rows of the partitioned table, spread over `max_days` days."""
     rows: list[Row] = []
     now = datetime.now(tz=UTC).date()
     for i in range(n):
@@ -204,6 +221,7 @@ def load_table(
     schema: list[SchemaField],
     time_partitioning: TimePartitioning | None = None,
 ) -> None:
+    """Load the rows into a BigQuery table and replace its content."""
     job_config = LoadJobConfig(
         schema=schema,
         time_partitioning=time_partitioning,
@@ -215,6 +233,7 @@ def load_table(
 
 
 def main() -> None:
+    """Create or replace every fixture table in BigQuery."""
     cfg = parse_args()
 
     set_seed(cfg.settings.seed)
@@ -238,6 +257,7 @@ def main() -> None:
         )
 
     def table_ref(table_name: str) -> str:
+        """Return the BigQuery reference of a configured table in the chosen project."""
         configured = next(
             table.name for table in sync_config.tables if table.table_name == table_name
         )

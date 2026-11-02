@@ -43,6 +43,7 @@ local group = types.shape({
 	negated = types.boolean:is_optional(),
 })
 
+--- The filter node: a comparison or a group of nodes.
 node = types
 	.one_of({
 		comparison(scalar_operators, types.string),

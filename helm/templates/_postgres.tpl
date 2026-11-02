@@ -1,20 +1,25 @@
 
+{{- /* Return the name of the CNPG Secret of the `ops` login. */ -}}
 {{- define "data-proxy.dbSecretName" -}}
 {{- include "data-proxy.fullname" . }}-cnpg-ops
 {{- end }}
 
+{{- /* Return the name of the Secret of the signer login of the console. */ -}}
 {{- define "data-proxy.signerSecretName" -}}
 {{- printf "%s-signer" (include "data-proxy.fullname" .) }}
 {{- end }}
 
+{{- /* Return the name of the CNPG Secret of the serving login. */ -}}
 {{- define "data-proxy.servingSecretName" -}}
 {{- printf "%s-cnpg-%s" (include "data-proxy.fullname" .) .Values.auth.servingRole }}
 {{- end }}
 
+{{- /* Return the name of the CNPG Secret of the `duckdb` login. */ -}}
 {{- define "data-proxy.duckdbSecretName" -}}
 {{- printf "%s-cnpg-duckdb" (include "data-proxy.fullname" .) }}
 {{- end }}
 
+{{- /* Return the `PG*` variables that point `psql` at the primary as the `ops` login. */ -}}
 {{- define "data-proxy.pgEnv" -}}
 - name: PGHOST
   value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
@@ -42,6 +47,7 @@ so libpq moves on to the second host, the primary.
 postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
+{{- /* Return the connection string of the application database on the primary. The pod sets `PASSWORD`. */ -}}
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
@@ -49,10 +55,12 @@ postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }
 postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
+{{- /* Return the name of the CNPG cluster that stores the DBOS state. */ -}}
 {{- define "data-proxy.dbosClusterName" -}}
 {{- include "data-proxy.fullname" . -}}
 {{- end }}
 
+{{- /* Return the connection URL of the DBOS system database, with the full name of the primary service. */ -}}
 {{- define "data-proxy.dbosSystemDatabaseUrl" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
@@ -60,10 +68,12 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ $db }}
 {{- end }}
 
+{{- /* Return the data folder of PostgreSQL in the CNPG image. */ -}}
 {{- define "data-proxy.postgresHome" -}}
 /var/lib/postgresql/data
 {{- end }}
 
+{{- /* Return the JSON patch for the CNPG pods. It adds the shared DuckDB secrets volume, a memory volume for the DuckDB temp files, the wait for S3 and the Google credentials. */ -}}
 {{- define "data-proxy.cnpgPodPatch" -}}
 {{- $secretsVolume := dict
   "name" "duckdb"
@@ -117,6 +127,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 {{- $operations | toJson -}}
 {{- end }}
 
+{{- /* Return the DuckDB threads of each PostgreSQL backend as a quoted number, with a minimum of 1. */ -}}
 {{- define "data-proxy.duckdbThreads" -}}
 {{- $threads := .Values.cnpg.duckdb.threads | default 2 | int -}}
 {{- if lt $threads 1 -}}
@@ -125,6 +136,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 {{- $threads | quote -}}
 {{- end }}
 
+{{- /* Return the PostgreSQL parameters: the defaults of the chart, with `cnpg.postgresql.parameters` on top. */ -}}
 {{- define "data-proxy.cnpgParameters" -}}
 {{- $defaults := dict
   "shared_buffers" "1GB"

@@ -1,4 +1,5 @@
 
+{{- /* Return the environment of the sync engine: the database, Redis, S3 and DuckLake settings, and the Google credentials. */ -}}
 {{- define "data-proxy.appEnv" -}}
 - name: PASSWORD
   valueFrom:
@@ -73,12 +74,14 @@
 {{- end }}
 {{- end }}
 
+{{- /* Return the volume of the sync configuration ConfigMap. */ -}}
 {{- define "data-proxy.syncConfigVolume" -}}
 - name: sync-config
   configMap:
     name: {{ include "data-proxy.fullname" . }}-sync
 {{- end }}
 
+{{- /* Return the read-only mount of the sync configuration at `/config`. */ -}}
 {{- define "data-proxy.syncConfigVolumeMount" -}}
 - name: sync-config
   mountPath: /config
@@ -97,6 +100,7 @@
 {{- end }}
 {{- end }}
 
+{{- /* Return the pod spec of the `configure-db` Job. It waits for S3, and then runs the script with the SQL templates. */ -}}
 {{- define "data-proxy.configureDbPodSpec" -}}
 restartPolicy: OnFailure
 automountServiceAccountToken: false
@@ -171,6 +175,7 @@ volumes:
         {{- include "data-proxy.sqlTemplateItems" . | nindent 8 }}
 {{- end }}
 
+{{- /* Return the pod spec of the `provision` Job. It waits for the configuration, and then makes the database match it. It takes `root`. */ -}}
 {{- define "data-proxy.provisionPodSpec" -}}
 {{- $root := .root -}}
 restartPolicy: OnFailure
@@ -278,6 +283,7 @@ volumes:
   {{- include "data-proxy.gcpVolume" $root | nindent 2 }}
 {{- end }}
 
+{{- /* Return a Job that runs once for each Helm revision. It takes `root`, `name` and `podSpec`. */ -}}
 {{- define "data-proxy.revisionJob" -}}
 apiVersion: batch/v1
 kind: Job
@@ -298,6 +304,7 @@ spec:
       {{- .podSpec | nindent 6 }}
 {{- end }}
 
+{{- /* Return a suspended CronJob that holds a Job template, so that a Job starts from it on demand. It takes `root`, `name`, `deadline` and `podSpec`. */ -}}
 {{- define "data-proxy.templateCronJob" -}}
 apiVersion: batch/v1
 kind: CronJob

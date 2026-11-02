@@ -1,9 +1,11 @@
 
+{{- /* Return `nginx.conf` with the size of the header buffers from the values. */ -}}
 {{- define "data-proxy.nginxConfigBody" -}}
 {{- $root := .root -}}
 {{- replace "__LARGE_CLIENT_HEADER_BUFFERS__" (toString $root.Values.proxy.largeClientHeaderBuffers) ($root.Files.Get "files/config/nginx.conf") -}}
 {{- end }}
 
+{{- /* Return the environment of the proxy: the cache, Redis, PostgREST and the address of the configuration. */ -}}
 {{- define "data-proxy.proxyEnv" -}}
 {{- $postgrest := printf "%s-postgrest" (include "data-proxy.fullname" .) -}}
 {{- $address := printf "http://%s.%s.svc.cluster.local:3000" $postgrest .Release.Namespace -}}
@@ -32,10 +34,12 @@
   value: {{ toString .Values.proxy.configRefreshSeconds | quote }}
 {{- end }}
 
+{{- /* Return the `nginx.conf` of the proxy. */ -}}
 {{- define "data-proxy.nginxProxyConfig" -}}
 {{ include "data-proxy.nginxConfigBody" (dict "root" .) }}
 {{- end }}
 
+{{- /* Return the Istio `jwtRules` of the issuer, with the audience when it's set. The gateway forwards the original token. */ -}}
 {{- define "data-proxy.jwtRules" -}}
 jwtRules:
   - issuer: {{ .Values.ingress.auth.issuer | quote }}

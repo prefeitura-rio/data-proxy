@@ -1,7 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "The routing rule that decides which source serves a request."
+  "description": "The routing rule that decides which source serves a request.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the routing functions."
+  }
 }
 #}
 

@@ -7,6 +7,7 @@ local log = require("proxy.log")
 local resty_redis = require("resty.redis")
 local schemas = require("proxy.schemas.main")
 
+--- The time of the last cache warning of this worker.
 local last_warning = -math.huge
 
 --- Log a warning about a failed cache operation, at most once in each warning interval of a worker.

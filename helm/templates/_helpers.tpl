@@ -1,8 +1,10 @@
 
+{{- /* Return the chart name, cut to 63 characters. */ -}}
 {{- define "data-proxy.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- /* Return the name that prefixes every resource of the release, cut to 63 characters. `fullnameOverride` and `nameOverride` change it. */ -}}
 {{- define "data-proxy.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -12,6 +14,7 @@
 {{- end }}
 {{- end }}
 
+{{- /* Return the standard labels of a resource: the chart, the name, the instance and the manager. */ -}}
 {{- define "data-proxy.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
@@ -19,11 +22,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{- /* Return the labels that select the pods of this release. */ -}}
 {{- define "data-proxy.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "data-proxy.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- /* Return the name of the service account. The chart creates it only when `serviceAccount.create` is true. */ -}}
 {{- define "data-proxy.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- .Values.serviceAccount.name | default (include "data-proxy.fullname" .) }}
@@ -32,6 +37,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- /* Return the volume of the Google credentials, when `gcp.existingSecret` is set. */ -}}
 {{- define "data-proxy.gcpVolume" -}}
 {{- if .Values.gcp.existingSecret }}
 - name: gcp
@@ -40,6 +46,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- /* Return the mount of the Google credentials volume, when `gcp.existingSecret` is set. */ -}}
 {{- define "data-proxy.gcpVolumeMount" -}}
 {{- if .Values.gcp.existingSecret }}
 - name: gcp

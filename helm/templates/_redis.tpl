@@ -1,12 +1,15 @@
 
+{{- /* Return the name of the Redis Secret. */ -}}
 {{- define "data-proxy.redisSecretName" -}}
 {{- .Values.redis.existingSecret | default (printf "%s-redis" (include "data-proxy.fullname" .)) }}
 {{- end }}
 
+{{- /* Return the key of the Redis password in the Redis Secret. */ -}}
 {{- define "data-proxy.redisPasswordKey" -}}
 {{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
 {{- end }}
 
+{{- /* Return the variables `REDIS_READ` and `REDIS_WRITE` from the Redis Secret. */ -}}
 {{- define "data-proxy.redisConfigEnv" -}}
 - name: REDIS_READ
   valueFrom:

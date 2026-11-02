@@ -1,7 +1,10 @@
 {#
 {
   "kind": "template",
-  "description": "Response header and WHERE clause helper functions."
+  "description": "Response header and WHERE clause helper functions.",
+  "inputs": {
+    "schema": "PostgreSQL schema that holds the routing functions."
+  }
 }
 #}
 

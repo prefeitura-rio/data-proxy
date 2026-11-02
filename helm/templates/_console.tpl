@@ -1,12 +1,15 @@
 
+{{- /* Return the name of the Secret that has the OIDC client secret and the cookie secret of the console. */ -}}
 {{- define "data-proxy.consoleSecretName" -}}
 {{- default (printf "%s-console" (include "data-proxy.fullname" .)) .Values.console.oidc.existingSecret }}
 {{- end }}
 
+{{- /* Return the public origin of the console. It fails when `ingress.host` is empty. */ -}}
 {{- define "data-proxy.consoleOrigin" -}}
 {{- printf "%s://%s" .Values.ingress.scheme (required "ingress.host is required when the console is enabled" .Values.ingress.host) }}
 {{- end }}
 
+{{- /* Return the public origin of the notebook site. */ -}}
 {{- define "data-proxy.notebooksOrigin" -}}
 {{- printf "%s://%s" .Values.ingress.scheme .Values.notebooks.host }}
 {{- end }}
