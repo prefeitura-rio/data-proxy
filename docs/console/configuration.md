@@ -1,6 +1,6 @@
 # Configuration
 
-The console edits the sync configuration in the database. These sections cover the tables, the removal of a table or a schema, and the configuration endpoint.
+This page lists the configuration tables that the console edits. It also says what happens when you remove a table or a schema, and which endpoint gives the configuration to the engine and the proxy.
 
 ## Configuration tables
 

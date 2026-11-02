@@ -1,6 +1,6 @@
 # Required JWT claims
 
-A normal end-user token for the example above contains claims similar to:
+This page lists the claims that a token needs. A normal end-user token for the example of the [access model](index.md#configure-the-access-model) has claims like these:
 
 ```json
 {

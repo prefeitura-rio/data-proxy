@@ -1,24 +1,23 @@
 # Security
 
-Data Proxy enforces access in PostgreSQL. The table function passes the row-level security (RLS) predicate into DuckDB, so the Parquet scan reads only authorized rows.
+Data Proxy enforces access in PostgreSQL, and no layer above it calculates permissions. A token gives a role and a list of schemas. The database role decides what the caller may do. The access policy decides which rows the caller reads.
 
-PostgreSQL applies PostgREST query filters, such as `?id=eq.1`, after DuckDB returns the authorized rows. Data Proxy doesn't calculate business permissions in nginx or in the client.
+## Where to start
 
-- [Required JWT claims](claims.md) — The claims that a token must carry.
-- [Permissions](permissions.md) — Permissions, roles and the schemas claim.
-- [Roles](roles.md) — The four roles and how the rules are tested.
-- [Authorization flow](flow.md) — How a token becomes a database role and a row filter.
-- [Schema and row authorization](authorization.md) — Schema conditions, row conditions and the access policy.
-- [Requests](requests.md) — Read requests and their results.
-- [Identity provider](identity.md) — Identity provider setup and requirements.
-- [Tokens](tokens.md) — Token lifetime and revoking access.
-- [Troubleshooting](troubleshooting.md) — Common failures and their causes.
+| Question | Read |
+| --- | --- |
+| Which claims must a token have? | [Required JWT claims](claims.md) |
+| What can each role do? | [Roles](roles.md) and [Permissions](permissions.md) |
+| In which order does the system check a request? | [Schema and row authorization](authorization.md) and [Authorization flow](flow.md) |
+| What does a status code mean? | [Requests](requests.md) and [Troubleshooting](troubleshooting.md) |
+| How do I set up my identity provider? | [Identity provider](identity.md) |
+| How long does a token live, and how do I revoke access? | [Tokens](tokens.md) |
 
 The chart also limits the pods, the network paths and the images. See [Hardening](../operations/hardening.md).
 
 ## Configure the access model
 
-The following values must agree:
+These values must agree:
 
 ```yaml
 auth:
@@ -40,12 +39,10 @@ sync:
                 unit_type: region
 ```
 
-These settings mean:
-
 - PostgREST reads the PostgreSQL role from the JSON Web Token (JWT) `role` claim.
-- `schemas` must contain `test`.
-- The database matches the JWT `preferred_username` value with `access_policy.subject`.
-- Rows are visible only when the unit columns match enabled access policy rows.
+- The `schemas` claim of the token must contain `test`.
+- The database matches the `preferred_username` claim with `access_policy.subject`.
+- A row is visible only when its unit columns match an active access policy row.
 
 <!-- nav:start -->
 ---

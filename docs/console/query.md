@@ -1,6 +1,6 @@
 # Query tab
 
-The query tab lets a user query the synced data in a notebook. These sections describe the tab and the scope of its token.
+This page explains how the Query tab gives a user a notebook for the synced data. It also says how the console limits the files that the notebook reads.
 
 ## The query tab
 

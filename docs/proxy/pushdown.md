@@ -34,7 +34,6 @@ A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:co
 | `count()` and `column.count()` | Any column that doesn't contain JSON. |
 | `order` | Columns of the group, by the name of the column, with `asc`, `desc`, `nullsfirst` and `nullslast`. |
 | `limit` and `offset` | Yes. They apply to the rows of the groups, after the order. |
-| Alias, `alias:column.sum()` | Yes. Without an alias, the value has the name of the function, as in PostgREST. |
 
 The proxy sends the original request to PostgREST, and nothing changes for the client, in these cases:
 
@@ -49,13 +48,13 @@ DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the r
 
 The function gives at most `postgrest.maxRows` rows, as PostgREST does. If the answer has more rows, the function gives the first rows with the status `206` and `Content-Range: <first>-<last>/*`. A request with a `limit` below the cap gets exactly that many rows and no `206`. The proxy sends the `206` unchanged and doesn't store it.
 
-The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. In staging, DuckDB ran this form about four times faster than an `IN` list with 2,000 literals. A subject with 2,556 grants needs that many literals.
+The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. In staging this form ran about four times faster than an `IN` list of 2,000 literals.
 
-Without an `order`, DuckDB stops after the rows that the answer needs. A group by a column with many values therefore doesn't build the whole answer. For an aggregate, the proxy never sends `order` or `limit` at the top of the filter. The table function would cut the rows before the aggregation.
+Without an `order`, DuckDB stops after the rows that the answer needs. For an aggregate, the proxy never sends `order` or `limit` at the top of the filter. The table function would cut the rows before the aggregation.
 
 The answer of the function has no `Content-Range` header. It has the same `X-Source` and `X-DuckLake-Snapshot` headers as the table, and the cache stores it under the key of the original request.
 
-The parser reads the query parameters that contain comparisons and the `and`, `or` and `not` groups. It decodes the escapes in their keys and values. The grammar is LPeg, in `proxy/src/proxy/parser/patterns.lua`. The proxy checks the document that the parser builds with the `filter_document` schema before it sends it. A document that the PostgreSQL side can't render therefore fails in the proxy, with the field named.
+The parser reads comparisons and the `and`, `or` and `not` groups, and it decodes the escapes. The grammar is LPeg, in `proxy/src/proxy/parser/patterns.lua`. The proxy checks the document with the `filter_document` schema before it sends it. A document that PostgreSQL can't render fails in the proxy with the field named.
 
 <!-- nav:start -->
 ---

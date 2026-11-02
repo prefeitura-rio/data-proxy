@@ -1,6 +1,6 @@
 # Architecture
 
-Data Proxy serves source data from PostgreSQL through DuckLake catalogs, and a sync service keeps those catalogs up to date. The [Glossary](../glossary.md) defines the terms, and its [Tools table](../glossary.md#tools) says what each tool does.
+This page shows the parts of Data Proxy and how they depend on each other. Read it before the other technical pages. Data Proxy serves source data from PostgreSQL through DuckLake catalogs, and a sync service keeps those catalogs up to date. The [Glossary](../glossary.md) defines the terms, and its [Tools table](../glossary.md#tools) says what each tool does.
 
 ## Components
 

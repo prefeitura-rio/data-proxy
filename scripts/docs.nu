@@ -13,11 +13,6 @@ const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
     docs/style.md
-    docs/operations/topology.md
-    docs/proxy/pushdown.md
-    docs/security/identity.md
-    docs/security/permissions.md
-    docs/sync.md
 ]
 
 # Return the permissions of a role, including the permissions of the roles that it inherits.

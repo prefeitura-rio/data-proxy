@@ -1,6 +1,6 @@
 # Tokens
 
-A token is valid until it expires. These sections give its lifetime and the way to revoke access.
+This page gives the lifetime of a token and the way to revoke access before the token expires.
 
 ## Token lifetime
 

@@ -1,6 +1,6 @@
 # Identity provider
 
-The identity provider issues the tokens. These sections set up its role claim, name the needs of another provider, and check the roles at deploy time.
+This page shows how to set up the `role` and `schemas` claims in your identity provider. It also says what another provider needs, and how to check the roles when you deploy.
 
 The diagram shows what happens to a token on its way to the data.
 
@@ -54,28 +54,9 @@ curl --request POST \
 
 The access policy subject must equal the configured identity claim in the end-user JSON Web Token (JWT).
 
-## Create the console client with a script
+## Create the console client
 
-`scripts/kc.nu` prints the document for the Keycloak partial import. It reads the roles from `rbac.toml`, so the client roles always match the rules.
-
-```bash
-nu scripts/kc.nu client --host preview.data-proxy.dados.rio > console-client.json
-```
-
-Then do these steps in the realm:
-
-1. Open *Realm settings*, then *Action*, then *Partial import*, and choose the file. It creates the client `data-proxy-console-web`, one client role for each role of `rbac.toml`, and the mappers for `role`, `schemas` and the audience.
-2. Open *Clients*, *data-proxy-console-web*, *Credentials*, and copy the client secret.
-3. Give each person one client role of `data-proxy-console-web`, and set the user attribute `schemas` to their schemas. A realm with the declarative user profile drops an attribute that the profile lacks. `nu scripts/kc.nu user-profile-attribute` prints the attribute to add in *Realm settings*, *User profile*, *JSON editor*, inside `attributes`.
-4. If you rename an existing client, open its dedicated client scope. Set the *Client ID* of the mapper that makes the `role` claim to the new ID. The roles and the secret stay with the client.
-5. Check a token. Turn on *Direct access grants* for the client during the check, and turn it off afterwards.
-
-```bash
-nu scripts/token.nu --issuer <issuer> --client-id data-proxy-console-web --client-secret <secret> --username <user> --password <password>
-nu scripts/kc.nu check <access_token> --issuer <issuer>
-```
-
-The `check` command fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of `rbac.toml`, a `schemas` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
+`scripts/kc.nu` prints the document for the Keycloak partial import and checks a token. The header of the script has the steps. Print the document with `nu scripts/kc.nu client --host <host> > console-client.json`, import it in the realm, and check a token with `nu scripts/kc.nu check <access_token> --issuer <issuer>`.
 
 ## Use another identity provider
 

@@ -1,6 +1,6 @@
 # Database views
 
-The console reads the database through views and a few functions. These sections list the views, the logs and sync runs views, and the HTTP interface.
+The console reads the database through views and a few functions. This page lists the views, the views of the logs and of the sync runs, and the HTTP interface.
 
 ## Views
 

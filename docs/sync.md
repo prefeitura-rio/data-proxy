@@ -1,6 +1,6 @@
 # Sync
 
-The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. The field `source.type` names the source adapter, and `bigquery` is the only adapter today. Each sync run loads the document once, at its start, so a change never reaches a sync run that already started.
+This page is the reference for the sync configuration. The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. The field `source.type` names the source adapter, and `bigquery` is the only adapter today. Each sync run loads the document once, at its start, so a change never reaches a sync run that already started.
 
 The tables of the `console` schema contain the configuration ([Console](console/configuration.md#configuration-tables)), and the engine reads it with `console.sync_config()`. An empty configuration means there is nothing to sync.
 
@@ -53,31 +53,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 
 ## Pipeline
 
-The scheduled `run_sync` workflow performs these steps:
-
-1. Build the changed-table and changed-partition plan.
-2. Enqueue source dump tasks.
-3. Write independent scratch Parquet files to the S3 scratch path. Extraction doesn't merge files.
-4. Run `seed_schemas` in parallel with publication. Seed reconciles PostgreSQL functions and views.
-5. Enqueue one `publish_schema` workflow per schema.
-6. DBOS sync workers insert scratch Parquet into DuckLake and commit a snapshot to the schema catalog in the `ducklake` database. Streaming replication copies the catalog to every standby.
-7. After all publishers finish, tell PostgREST to reload its schema, only when seed added or removed views.
-8. Flush scratch objects and Redis.
-
-Publishing is parallel across schemas and sequential within a schema queue. There is one active writer for each schema catalog.
-
-### DuckLake maintenance
-
-After a publication commits, the same `publish_schema` workflow runs `apply_ducklake_maintenance` on the schema writer on the schema writer. It does the following in order:
-
-1. Expire snapshots older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
-2. Merge up to `DUCKLAKE_MAX_COMPACTED_FILES` adjacent files per table.
-3. Rewrite files whose deleted fraction reaches `DUCKLAKE_REWRITE_DELETE_THRESHOLD`.
-4. Clean old and orphaned files older than `DUCKLAKE_SNAPSHOT_EXPIRATION`.
-
-Merging and rewriting create new snapshots, so the step returns the current snapshot, and the reader check waits for that one. The workflow logs a maintenance error and doesn't stop the sync run. The published snapshot still reaches the readers, and the next publication retries the maintenance. Schemas that publish nothing aren't maintained.
-
-The maintenance CronJob only cleans outdated PostgreSQL objects.
+The scheduled `run_sync` workflow plans the changed tables and partitions, dumps them as scratch Parquet files, and publishes each schema to its DuckLake catalog. Publishing runs in parallel across schemas and in sequence within a schema, so each catalog has one writer. After a publication, the workflow expires old snapshots, merges and rewrites files, and cleans orphaned files. A maintenance error is logged and doesn't stop the sync run. [Sync layer](architecture/sync.md) lists the workflows and shows the sequence.
 
 ## DuckLake partitioning and encryption
 
@@ -102,15 +78,7 @@ It rejects removed columns, renames, and incompatible type changes before changi
 
 ## Catalog lifecycle
 
-Each schema uses these locations:
-
-```text
-catalog:         database ducklake, schema <schema> (DuckLake metadata, written by the sync workers)
-secrets:         data-proxy-duckdb:/duckdb/secrets (PostgreSQL pods, mounted at ~/.duckdb/stored_secrets)
-DuckLake data:   s3://<bucket>/ducklake/<schema>/<table>/*.parquet
-```
-
-The DBOS sync workers write the catalog as the `ops` role, through the primary. PostgreSQL pods read it as the `duckdb` role, from their own instance, so a standby never reads from the primary. A PostgreSQL backend that attached earlier sees a new snapshot at the start of its next query, so nothing refreshes the readers. See [Serving layer](architecture/serving.md#ducklake-read-path).
+The sync workers write the catalog as `ops` through the primary, and every PostgreSQL pod reads it as `duckdb` from its own instance. The Parquet files are at `s3://<bucket>/ducklake/<schema>/<table>/`. See [Serving layer](architecture/serving.md#ducklake-read-path).
 
 ## Partition fallback
 

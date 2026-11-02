@@ -1,5 +1,26 @@
 use lib.nu [fail read-data]
 
+# Create the console client in a Keycloak realm, and check a token.
+#
+# `nu scripts/kc.nu client --host <host> > console-client.json` prints the document for the partial import. It reads the
+# roles from rbac.toml, so the client roles always match the rules. Then do these steps in the realm:
+#
+# 1. Open Realm settings, Action, Partial import, and choose the file. It creates the client `data-proxy-console-web`,
+#    one client role for each role of rbac.toml, and the mappers for `role`, `schemas` and the audience.
+# 2. Open Clients, data-proxy-console-web, Credentials, and copy the client secret.
+# 3. Give each person one client role of the client, and set the user attribute `schemas` to their schemas. A realm with
+#    the declarative user profile drops an attribute that the profile lacks. `nu scripts/kc.nu user-profile-attribute`
+#    prints the attribute to add in Realm settings, User profile, JSON editor, inside `attributes`.
+# 4. If you rename an existing client, set the Client ID of the mapper that makes the `role` claim to the new ID in the
+#    dedicated client scope. The roles and the secret stay with the client.
+# 5. Check a token. Turn on Direct access grants for the client during the check, and turn it off afterwards:
+#
+#    nu scripts/token.nu --issuer <issuer> --client-id data-proxy-console-web --client-secret <secret> --username <user> --password <password>
+#    nu scripts/kc.nu check <access_token> --issuer <issuer>
+#
+# `check` fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of rbac.toml, a
+# `schemas` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
+
 const RULES = 'helm/files/config/rbac.toml'
 
 # Return the names of the roles in the rules.

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-[Request outcomes](permissions.md#request-outcomes) lists what each status means. The table below lists what to check.
+Use this page when a request fails or returns no rows. [Request outcomes](permissions.md#request-outcomes) lists what each status means, and the table lists what to check.
 
 | Symptom                                       | Check                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |

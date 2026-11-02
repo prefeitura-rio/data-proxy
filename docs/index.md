@@ -1,17 +1,20 @@
 # Data Proxy
 
-Data Proxy syncs the tables of an external source to PostgreSQL and serves them through PostgREST. This wiki contains the design, the rules and the operation of the system. [Glossary](glossary.md) defines the terms that the pages use.
+Data Proxy copies tables from a source, such as BigQuery, into PostgreSQL and serves them as a REST API. Each caller reads only the rows that its token and the access policy allow. This wiki explains how it works, how to use it and how to run it. The [Glossary](glossary.md) defines the terms.
 
 ![System context](diagrams/context.svg)
 
-## Start here
+## Find your page
 
-Read these four pages in this order:
-
-1. [Architecture](architecture/index.md) answers: what are the parts, and how do they depend on each other?
-2. [Sync](sync.md) answers: what does Data Proxy sync, and how do you configure it?
-3. [Using the API](using.md) answers: how do you query the data?
-4. [Security](security/index.md) answers: who can read what?
+| I want to | Read |
+| --- | --- |
+| Query the data | [Using the API](using.md) |
+| Understand the parts and how they fit | [Architecture](architecture/index.md) |
+| Add or change a synced table | [Sync](sync.md) and the [Console](console/index.md) |
+| Decide who can read what | [Security](security/index.md) |
+| Install, scale or back up the system | [Operations](operations/index.md) |
+| Change the code | [Development](dev/index.md) and [Style](style.md) |
+| Look up a word or a tool | [Glossary](glossary.md) |
 
 ## All pages
 

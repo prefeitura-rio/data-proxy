@@ -1,6 +1,6 @@
 # Changes
 
-These sections describe how the console records changes to the configuration, and how it previews an import.
+This page explains how the console records each change of the configuration, and how it previews an import before it applies it.
 
 ## History of the configuration
 

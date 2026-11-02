@@ -1,17 +1,17 @@
 # Operations
 
-These pages describe how to deploy, configure, scale, monitor and back up Data Proxy.
+These pages are for the people who deploy and run Data Proxy. Start with the Helm chart, and then read the page for your task.
 
-- [Helm Chart](helm.md) — Chart installation, images and versions.
-- [Initialization](initialization.md) — Database storage, initialization and Jobs on demand.
-- [Ingress](ingress.md) — The Istio gateway, the console and the notebooks.
-- [Topology](topology.md) — Pods, replicas and the Kubernetes layout of the chart.
-- [Hardening](hardening.md) — Pod security settings, network policies, console headers and image signing.
-- [Environment Variables](environment.md) — Application defaults and Helm environment conversion.
-- [Proxy variables](proxy.md) — The variables of the roles, of the proxy link and of the OpenResty proxy.
-- [KEDA Scaling](keda.md) — The trigger, the replicas and the queue settings of the sync workers.
-- [Metrics](metrics.md) — Worker metrics, proxy logs, load limits and scraping.
-- [Backups](backups.md) — Encrypted `access_policy` backups and recovery.
+| Task | Read |
+| --- | --- |
+| Install the chart and choose the images | [Helm Chart](helm.md) |
+| Understand the first start of the database | [Initialization](initialization.md) |
+| Expose the API, the console and the notebooks | [Ingress](ingress.md) |
+| See which pods run and how they scale | [Topology](topology.md) and [KEDA Scaling](keda.md) |
+| Harden pods, network and images | [Hardening](hardening.md) |
+| Set an environment variable | [Environment Variables](environment.md) and [Proxy variables](proxy.md) |
+| Watch the system | [Metrics](metrics.md) |
+| Back up and restore the access policy | [Backups](backups.md) |
 
 <!-- nav:start -->
 ---

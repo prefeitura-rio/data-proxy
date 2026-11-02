@@ -1,6 +1,6 @@
 # Database Schema
 
-See [Data model](model.md) for diagrams of the tables.
+This page describes the PostgreSQL schemas, the roles, the application tables and the DuckLake storage. [Data model](model.md) has diagrams of the tables.
 
 CloudNativePG (CNPG) creates and maintains the core roles. Init-db installs extensions, creates the internal `data_proxy` schema, creates configured application schemas, and creates access policy metadata.
 

@@ -1,6 +1,6 @@
 # Application
 
-The console is a SvelteKit app. This page describes the app and the way it signs in people.
+This page explains how the console app signs people in, keeps the session and shows its pages. Read it before you change `console/ui/`.
 
 ## The web app
 

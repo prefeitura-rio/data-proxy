@@ -20,7 +20,7 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | `read_policy` | Read `<schema>.access_policy`. | The select row policy of each table. |
 | `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. | The write row policies of each table. |
 
-A role that edits needs the matching read permission too, because an update reads the row first. The roles in `rbac.toml` already include it.
+A role that edits needs the matching read permission, because an update reads the row first. The roles in `rbac.toml` include it.
 
 A role without a permission gets:
 
@@ -32,19 +32,15 @@ A delete that the row policy hides removes nothing and answers 200 with an empty
 
 Every role sees only the schemas in the `schemas` claim, and a token without the claim sees nothing. No role and no token reaches every schema. The database enforces this, not the console:
 
-- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. A role with `create_config` can write a row only for a schema in its claim. A claim can name a schema that doesn't exist yet, so the token can create it.
+- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
 - The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
-- When a sync run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. `runs`, `tasks`, and `steps` show a user the sync runs and tasks that cover one of its schemas. The counts of tasks in a sync run count only the tasks that the user sees.
+- When a sync run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. The views `runs`, `tasks` and `steps` then show only the sync runs and tasks that cover a schema of the user.
 - `GET /rpc/sync_config` returns the schemas of the claim.
-- Queues serve every schema. Any role with `read_sync` reads them, and no token changes a queue: change a queue in the deployment. A schedule belongs to one schema. A token reads, pauses, resumes and changes the cron of the schedules of the schemas in its claim.
+- Queues serve every schema. Any role with `read_sync` reads them, and no token changes a queue. A schedule belongs to one schema, and a token controls the schedules of the schemas in its claim.
 
-`GET /rpc/permissions` returns the permissions of the role of the token, so the console can show only the controls that work. The pre-request function sets a statement timeout of 30 seconds, and the data API has 15 seconds. `rbac` contains the rules that the data schemas share, and `console` contains what the web app calls: [Database](../database.md#schemas) lists the schemas.
+`GET /rpc/permissions` returns the permissions of the role of the token, so the console can show only the controls that work. The pre-request function sets a statement timeout of 30 seconds, and the data API has 15 seconds. [Database](../database.md#schemas) lists the schemas.
 
-No token can read the DBOS tables or the state tables behind the views.
-
-A token with `start_sync` calls `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token. `console.start_scope(schemas, tables)` shows which schemas a sync run would cover. The function enqueues `run_sync` in the `sync` queue with portable JSON arguments and the name from the token, and the worker takes it from there.
-
-The function refuses some requests. [Request outcomes](#request-outcomes) lists them.
+A token with `start_sync` calls `POST /rpc/start_sync` with the optional arrays `schemas` and `tables`. Empty arrays mean every schema of the token. The function enqueues `run_sync` in the `sync` queue, and a worker takes it from there.
 
 ## Request outcomes
 

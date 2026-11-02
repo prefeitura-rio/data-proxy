@@ -1,12 +1,17 @@
 # Console
 
-The console is the admin web app of the data proxy. It lives in `console/`, which has three folders:
+The console is the admin web app of Data Proxy. People use it to watch sync runs, change the configuration, manage the access policy and query the data. The browser never calls PostgREST. The SvelteKit server keeps the session and calls PostgREST with the token of the user. The database is the API, and it checks every permission.
 
-- `ui/` is the SvelteKit app.
-- `notebooks/` builds the notebook site of the Query tab.
-- `migrations/` contains the SQL of the `console` schema.
+| Tab | Use |
+| --- | --- |
+| Sync | Watch sync runs and tasks, start, cancel or resume a run, and edit a schedule. |
+| Config | Edit the schemas, the tables and the rules of the sync configuration. |
+| Access | Read and change the access policy. |
+| Query | Query the synced data in a notebook in the browser. |
 
-It's a SvelteKit project with server-side rendering, written in TypeScript and managed with pnpm. It has four tabs: Sync, Config, Access and Query. The browser never calls PostgREST. The SvelteKit server stores the session and calls PostgREST with the token of the user.
+The code is in `console/`. `ui/` is the SvelteKit app, `notebooks/` builds the notebook site of the Query tab, and `migrations/` has the SQL of the `console` schema.
+
+## Pages
 
 - [Application](app.md) — The web app and its sign-in.
   - [Console lists, feedback and tokens](feedback.md) — The lists, the feedback, the live data and the tokens.
@@ -18,13 +23,7 @@ It's a SvelteKit project with server-side rendering, written in TypeScript and m
 - [Query tab](query.md) — The query tab and its scope.
 - [Query tab scope](scope.md) — The scope of the token of the query tab.
 
-See [Console layer](../architecture/console.md) for the dependencies and the sequence diagrams.
-
-## Direction
-
-The database is the API. The console reads these views, and it writes through the read/write PostgREST with the same pattern as `access_policy`: a database role per capability and grants.
-
-The sync configuration is data in proper tables, and one endpoint serves it to the engine and the proxy. A SQL function starts a sync run with `dbos.enqueue_workflow`, so the console needs no DBOS client.
+[Console layer](../architecture/console.md) shows how the parts depend on each other.
 
 <!-- nav:start -->
 ---
