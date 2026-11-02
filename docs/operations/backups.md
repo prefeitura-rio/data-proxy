@@ -4,6 +4,8 @@ A sync rebuilds application tables from the source. It doesn't rebuild access gr
 
 ## Operation
 
+![Backup flow](../diagrams/operations/backups.svg)
+
 Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so it backs up a schema that an editor adds in the console from its first night.
 
 For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:

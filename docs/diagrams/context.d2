@@ -1,0 +1,24 @@
+direction: right
+
+apps: "API clients\napps and scripts"
+people: "People\nin a browser"
+idp: "Identity provider\nKeycloak"
+
+dp: "Data Proxy" {
+  api: "API\nproxy and PostgREST"
+  console: "Console\nweb app and notebooks"
+  sync: "Sync service"
+  store: "Data\nPostgreSQL and DuckLake"
+}
+
+source: "Source\nBigQuery"
+
+apps -> idp: "1. get a token"
+apps -> dp.api: "2. query with the token"
+people -> dp.console: "sign in"
+people -> idp: "sign in"
+dp.api -> dp.store: "read the rows\nthat the token allows"
+dp.console -> dp.api: "views and actions"
+dp.console -> dp.sync: "start and control runs"
+dp.sync -> source: "copy tables"
+dp.sync -> dp.store: "write and publish"

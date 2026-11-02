@@ -76,8 +76,10 @@
             exec = "nu scripts/diag.nu check";
             execIfModified = utils.mkInputs (
               [ "scripts/diag.nu" ]
-              ++ utils.mkGlobs "docs/diagrams" [
+              ++ utils.mkGlobs "docs" [
                 "d2"
+                "json"
+                "md"
                 "svg"
               ]
             );

@@ -1,6 +1,8 @@
 # Schema and row authorization
 
-Authorization has two independent conditions.
+Authorization has two independent conditions. The diagram shows the order of the checks.
+
+![Authorization checks](../diagrams/security/authorization.svg)
 
 ## Schema condition
 

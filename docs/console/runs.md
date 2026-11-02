@@ -4,7 +4,10 @@ A user with `control_sync` can cancel a sync run, resume it and run it again, an
 
 The functions `console.cancel_run(run)`, `console.resume_run(run)`, `console.retry_run(run)`, `console.pause_schedule(schedule_name)`, `console.resume_schedule(schedule_name)` and `console.set_schedule(schedule_name, cron)` check the permission and the schemas of the token. They're in the template `create_console_functions`.
 
-Cancel, resume and the schedule actions enqueue a workflow in the queue `control`, and the sync worker runs it with the DBOS API. [Console layer](../architecture/console.md#run-control) shows the sequence. A sync run accepts an action only in the right status:
+Cancel, resume and the schedule actions enqueue a workflow in the queue `control`, and the sync worker runs it with the DBOS API. [Console layer](../architecture/console.md#run-control) shows the sequence. A sync run accepts an action only in the right status. The diagram shows the moves, and the table lists the rules:
+
+![Run statuses](../diagrams/console/run-states.svg)
+
 
 | Action | Function | Needs | Allowed statuses | Result |
 | --- | --- | --- | --- | --- |

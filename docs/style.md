@@ -748,18 +748,31 @@ Applies to: `docs/diagrams/**`, `docs/**/*.svg`.
 
 #### Where a diagram lives
 
-- **DOC-24** Give a diagram one owner page. Other pages link to it and don't embed a copy. [must, review]
+- **DOC-24** Give a diagram one owner page, and embed its SVG there once. Other pages link to the owner. `docs:lint:diag` fails for an SVG that no page embeds or that two pages embed. [must, devenv]
 - **DOC-25** Give every diagram a short name, and write it as the alt text of the image. Don't add a caption line under the image. [must, review]
-- **DOC-26** Draw one dependency diagram of the whole system, on `docs/architecture/index.md`. [must, review]
-- **DOC-27** Draw sequence diagrams for what happens in order, and put the diagrams of a layer in `docs/diagrams/architecture/`. [must, review]
-- **DOC-28** Draw only sequence diagrams on the pages of the serving, sync and console layers. A page about another topic may have a small dependency diagram. Use a table for anything else. [must, review]
+- **DOC-26** Draw one context diagram on `docs/index.md` and one overview diagram of the whole system on `docs/architecture/index.md`. [must, review]
+- **DOC-27** Put a diagram in `docs/diagrams/<section>/`, where the section is the folder of its owner page. [must, review]
+- **DOC-28** Pick the diagram type from the question that the page answers, as the next table shows. Use a table when a diagram adds nothing. [must, review]
+- **DOC-36** Start a page with one or two sentences that say what the page is for. Show the diagram or the steps next, and put reference tables last. [should, review]
+- **DOC-37** Keep a diagram to about 12 boxes. Split a larger one, or draw the detail on the page of the part. [should, review]
+- **DOC-38** Write a box label as a noun phrase and an edge label as a verb phrase. [should, review]
+
+| Question | D2 type | Example |
+| --- | --- | --- |
+| What happens in order, between parties? | `sequence_diagram` | `serving-sequence` |
+| Which path does a request take, and where does it branch? | Flowchart with `diamond` shapes | `authorization` |
+| Which states exist, and how does a thing move between them? | Flowchart with labeled edges | `run-states` |
+| What runs where? | Nested containers with `cylinder` for storage | `topology` |
+| Which parts exist and how do they relate? | Nested containers and edges | `overview`, `context` |
+| What's in each folder or set? | `grid` | `code-map` |
+| Which tables and columns exist? | `sql_table` | `application` |
 
 #### How to draw it
 
 - **DOC-29** Write a diagram in D2 in `docs/diagrams/<name>.d2` or in a folder inside it, such as `docs/diagrams/schemas/`. Don't write a diagram in another language. [must, review]
 - **DOC-30** Let `db.d2` import the other files of its folder. Edit a table in its own file and not in `db.d2`. [must, review]
 - **DOC-31** Render a diagram with `devenv --profile default tasks run docs:build:diag`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
-- **DOC-32** Know that `docs:lint:diag` (profile `docs`) fails when an SVG is out of date, and that CI doesn't run it. [should, devenv]
+- **DOC-32** Know that `docs:lint:diag` (profile `default`) fails when an SVG is out of date or embedded wrongly, and that CI doesn't run it. [should, devenv]
 - **DOC-33** Make every diagram render in a light and a dark theme. [must, review]
 - **DOC-34** Draw a database diagram with `sql_table` shapes, and take the columns from the SQL files. [must, review]
 

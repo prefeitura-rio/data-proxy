@@ -9,7 +9,7 @@ The chart always deploys the same pieces:
 | PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
-![Database tier dependencies](../diagrams/architecture/topology-dependencies.svg)
+![Deployment topology](../diagrams/operations/topology.svg)
 
 PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary.
 

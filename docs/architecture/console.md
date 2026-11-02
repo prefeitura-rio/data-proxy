@@ -15,11 +15,11 @@ The console shows the system to people and changes its configuration. It's a web
 | `ducklake` database | The console reads the file lists, and it stores the sealed storage secrets in `signer.keys`. |
 | SeaweedFS | Stores the Parquet files. The console creates one storage identity for each schema. |
 
-## Console sequence
+## Requests
 
-The diagram shows how the console works for a user. It covers signing in, loading a page, starting a sync run, editing the configuration, and using the query tab.
+The diagram shows how the console loads a page, starts a sync run and edits the configuration. [Application](../console/app.md) shows the sign-in, and [Query tab](../console/query.md) shows the query tab.
 
-![Console sequence](../diagrams/architecture/console-sequence.svg)
+![Console requests](../diagrams/architecture/console-requests.svg)
 
 See [Console](../console/index.md) for the pages of the app and its database views.
 

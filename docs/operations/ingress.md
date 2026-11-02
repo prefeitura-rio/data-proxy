@@ -2,6 +2,8 @@
 
 The chart exposes the console, the notebooks and the API through the Istio gateway.
 
+![Ingress paths](../diagrams/operations/ingress.svg)
+
 ## Console and notebooks
 
 `console.enabled` and `notebooks.enabled` add the web console and the static site of the notebooks. Each one has a Deployment and a Service.

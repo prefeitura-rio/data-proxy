@@ -1,0 +1,23 @@
+direction: down
+
+token: "Request with a token"
+valid: "Valid token?" {shape: diamond}
+refused: "401 from the gateway"
+role: "Switch to the role\nof the role claim" 
+schema: "Is the schema in the\nschemas claim?" {shape: diamond}
+none: "200, no rows"
+all: "Does the claim have * or\nschema:* ?" {shape: diamond}
+every: "Every row of the table"
+policy: "Does an access policy row\nmatch the subject and the unit?\nA grant * and * matches all." {shape: diamond}
+unit: "The rows of those units"
+
+token -> valid
+valid -> refused: "no"
+valid -> role: "yes"
+role -> schema
+schema -> none: "no"
+schema -> all: "yes"
+all -> every: "yes"
+all -> policy: "no"
+policy -> unit: "yes"
+policy -> none: "no"

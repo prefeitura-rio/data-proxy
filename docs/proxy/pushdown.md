@@ -20,6 +20,8 @@ The table view pushes `order` with the limit only when every order column is a w
 
 A request that selects all columns of a wide table still reads all of them. A `count` of a table or a request without `limit` reads every row too.
 
+![Pushdown decision](../diagrams/proxy/pushdown.svg)
+
 ## Aggregates
 
 A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:count()`, runs inside DuckDB. The proxy puts the group and the aggregates in the `aggregate` field of the header. Then it calls the function `<table>_aggregate()` of the table, as `GET /rpc/<table>_aggregate`, with the same headers and no query string. The function applies the RLS and the filter, runs the `GROUP BY` in DuckDB, and returns the result rows as JSON. PostgreSQL then receives one row for each group and not one row for each row of the table.

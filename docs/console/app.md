@@ -4,6 +4,8 @@ The console is a SvelteKit app. This page describes the app and the way it signs
 
 ## The web app
 
+![Console sign-in](../diagrams/console/signin.svg)
+
 The app signs in people with OpenID Connect: the authorization code flow with PKCE and a `state` value. The server keeps the access token and the refresh token in an encrypted cookie. The cookie is `httpOnly`, `SameSite=Lax` and host-only.
 
 The token is too long for one cookie, so the server splits the sealed value into pieces of 3500 characters. The server refreshes the token 60 seconds before it expires, and a failed refresh sends the user back to the sign-in page. Every request that changes data must come from the origin of the console, or the server answers 403.

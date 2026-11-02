@@ -2,6 +2,10 @@
 
 The identity provider issues the tokens. These sections set up its role claim, name the needs of another provider, and check the roles at deploy time.
 
+The diagram shows what happens to a token on its way to the data.
+
+![API client token](../diagrams/security/api-token.svg)
+
 ## Set up the role claim in an identity provider
 
 The token needs one `role` claim with the name of a role of `rbac.toml`.

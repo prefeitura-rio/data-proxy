@@ -2,6 +2,8 @@
 
 Data Proxy syncs the tables of an external source to PostgreSQL and serves them through PostgREST. This wiki contains the design, the rules and the operation of the system. [Glossary](glossary.md) defines the terms that the pages use.
 
+![System context](diagrams/context.svg)
+
 ## Start here
 
 Read these four pages in this order:

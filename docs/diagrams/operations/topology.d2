@@ -1,0 +1,40 @@
+direction: down
+
+gateway: "Istio gateway"
+s3: "Object storage\nSeaweedFS" {shape: cylinder}
+redis: "Redis cache" {shape: cylinder}
+
+release: "Helm release" {
+  proxy: "Proxy\nKEDA: 1 to 6"
+  postgrest: "PostgREST\nKEDA: 1 to 6"
+  pgdog: "PgDog\n2 pods, no scaler"
+  ro: "Service -ro"
+  rw: "Service -rw"
+  sync: "Sync workers\nKEDA: 3 to 15"
+  console: "Console and notebooks"
+
+  cnpg: "CNPG cluster\nKEDA: 2 to 6 instances" {
+    primary: Primary
+    standbys: Standbys
+    secrets: "DuckDB secrets\nshared volume" {shape: cylinder}
+    primary -> standbys: "WAL replication"
+    primary -> secrets: "writes"
+    standbys -> secrets: "reads"
+  }
+
+  proxy -> postgrest
+  postgrest -> pgdog: "queries"
+  postgrest -> rw: "LISTEN connection"
+  pgdog -> ro: "read-only transactions"
+  pgdog -> rw: "other transactions"
+  ro -> cnpg.standbys
+  rw -> cnpg.primary
+  sync -> rw: "DBOS state and catalog"
+  console -> postgrest: "views and actions"
+}
+
+gateway -> release.proxy
+gateway -> release.console
+release.proxy -> redis: "cache"
+release.sync -> s3: "write Parquet"
+release.cnpg -> s3: "pg_duckdb reads Parquet"

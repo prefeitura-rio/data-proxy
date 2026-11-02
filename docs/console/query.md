@@ -8,7 +8,10 @@ A role with `read_files` queries the synced data in a notebook in the browser. T
 
 The notebook runs on its own origin, `notebooks.<domain>`, which is a different site from the console, and the console page embeds it in an `iframe`. The notebook has no token and no cookie of the console. The page opens it with the chosen tables in the address, and the notebook shows one cell for each table ([Notebooks](../notebooks.md)).
 
-The grant that the console server builds for one schema has four steps:
+The grant that the console server builds for one schema has four steps, which the diagram shows:
+
+![Query tab grant](../diagrams/console/query-grant.svg)
+
 
 1. **Authorize.** The server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files` and checks the schemas of the token.
    - It answers 403 for a schema or a table outside the schemas, for a name that doesn't exist, and for a token without the permission.

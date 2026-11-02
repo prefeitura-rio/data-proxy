@@ -2,6 +2,8 @@
 
 The query tab of the console embeds a notebook that runs in the browser. `console/notebooks/` builds the static site of that notebook. The site runs on its own origin, so it shares no cookie with the console.
 
+![Notebook flow](diagrams/notebooks.svg)
+
 ## What the site contains
 
 The site is a static folder. It contains a marimo notebook, DuckDB compiled to WebAssembly, and the files that the notebook loads.

@@ -1,0 +1,19 @@
+shape: sequence_diagram
+
+u: User
+page: "Console page"
+nb: "Notebook\n(own origin, in an iframe)"
+app: "Console server"
+s3: "Object storage"
+
+u -> page: "choose tables"
+page -> nb: "open /?tables=people"
+nb -> page: "ready" {style.stroke-dash: 3}
+page -> app: "ask for a grant"
+app -> page: "signed links, valid 5 minutes" {style.stroke-dash: 3}
+page -> nb: "post the grant\nonly from the console origin"
+nb -> nb: "register the links,\ncreate a view for each table"
+nb -> page: "applied" {style.stroke-dash: 3}
+u -> nb: "run: await query(sql)"
+nb -> s3: "DuckDB-WASM reads Parquet\nwith the signed links"
+s3 -> nb: "rows" {style.stroke-dash: 3}

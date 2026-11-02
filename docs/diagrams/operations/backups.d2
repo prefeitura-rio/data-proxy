@@ -1,0 +1,16 @@
+direction: right
+
+schemas: "console.schemas\nthe list of schemas" {shape: cylinder}
+job: "Backup CronJob\nbackup.schedule" {
+  label.near: outside-top-center
+  each: "For each schema"
+  export: "Export access_policy\nand access_log"
+  prune: "Delete access_log rows\nolder than retentionDays"
+  each -> export -> prune
+}
+bucket: "Backup bucket\nprefix/schema/date/" {shape: cylinder}
+fail: "One schema fails:\nthe job goes on, then fails\nand names the schema"
+
+schemas -> job.each: "read at each run"
+job.export -> bucket: "upload two dumps"
+job.each -> fail: "on a failure" {style.stroke-dash: 3}

@@ -1,0 +1,14 @@
+shape: sequence_diagram
+
+u: Browser
+app: "Console server"
+idp: "Identity provider"
+
+u -> app: "open the console"
+app -> u: "redirect to sign-in" {style.stroke-dash: 3}
+u -> idp: "sign in"
+idp -> u: "redirect with a code" {style.stroke-dash: 3}
+u -> app: "GET /auth/callback"
+app -> idp: "exchange code and PKCE verifier\nfor tokens"
+app -> app: "seal the tokens in a cookie"
+app -> u: "the console page" {style.stroke-dash: 3}

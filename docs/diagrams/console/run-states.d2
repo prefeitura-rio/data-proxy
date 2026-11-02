@@ -1,0 +1,27 @@
+direction: right
+
+start: "Start a run\nstart_sync" {shape: oval}
+enqueued: ENQUEUED
+delayed: DELAYED
+pending: PENDING
+
+ended: "Ended" {
+  success: SUCCESS
+  error: ERROR
+  cancelled: CANCELLED
+  max: "MAX_RECOVERY_\nATTEMPTS_EXCEEDED"
+}
+
+again: "New sync run" {shape: oval}
+
+start -> enqueued
+enqueued -> pending: "a worker takes it"
+pending -> ended.success
+pending -> ended.error
+pending -> ended.max: "the worker is lost\ntoo many times"
+enqueued -> ended.cancelled: "cancel" {style.stroke: "#b45309"}
+pending -> ended.cancelled: "cancel" {style.stroke: "#b45309"}
+delayed -> ended.cancelled: "cancel" {style.stroke: "#b45309"}
+ended.cancelled -> enqueued: "resume" {style.stroke: "#15803d"}
+ended.max -> enqueued: "resume" {style.stroke: "#15803d"}
+ended -> again: "run again" {style.stroke: "#1d4ed8"}

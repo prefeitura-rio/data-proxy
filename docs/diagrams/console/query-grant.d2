@@ -1,0 +1,16 @@
+shape: sequence_diagram
+
+u: Browser
+app: "Console server"
+api: PostgREST
+db: "Catalog database"
+s3: "Object storage"
+
+u -> app: "choose a table"
+app -> api: "1. authorize: table_files"
+api -> app: "allowed, or 403 and 409" {style.stroke-dash: 3}
+app -> db: "2. list the data and delete files\nas console_signer"
+db -> app: "file paths" {style.stroke-dash: 3}
+app -> app: "3. sign a GET link for each path\nvalid for 5 minutes"
+app -> u: "grant with the signed links" {style.stroke-dash: 3}
+u -> s3: "4. read Parquet with a signed link"
