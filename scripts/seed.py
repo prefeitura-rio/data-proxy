@@ -1,4 +1,15 @@
-"""Seed synthetic BigQuery data for the data-proxy sync service."""
+"""Seed synthetic BigQuery data for the data-proxy sync service.
+
+The command creates every end-to-end fixture table, including the mutable snapshot fixture. Rerun it after a change
+of a fixture schema, and then run `cluster sync` to synchronize the local release.
+
+    gcloud auth application-default login
+    seed --project <project>
+    cluster sync
+
+`cluster k6 e2e` starts one sync through a temporary trigger Job. That Job mounts the trigger at /scripts, and the
+sync image doesn't contain it.
+"""
 
 from argparse import ArgumentParser
 from dataclasses import dataclass

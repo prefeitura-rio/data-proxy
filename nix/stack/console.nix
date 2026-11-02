@@ -1,3 +1,10 @@
+# The setup of the console tests, and the processes of the console profile: the tasks `console:setup:*` (the databases,
+# the bucket, configure-db, the DBOS and console migrations, provision, and the seed `sync/tests/seeds/console.py`), the
+# build and the SvelteKit server behind a Caddy gateway that sends `x-forwarded-proto` as Istio does, and the
+# `control-worker`. The worker listens to the queues `control` and `schedules` only, so the tests run cancel, resume
+# and the schedule actions without a sync run. Sign in as `admin` (role `dp_admin`, schema `test`, password `admin`) on
+# `http://console.localhost:13001/console`. The tests also use `web_admin`, `web_viewer`, `web_api`, `web_policy`,
+# `web_other` and `web_root`, all with the password `web-test`.
 {
   lib,
   pkgs,

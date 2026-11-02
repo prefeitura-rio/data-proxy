@@ -94,7 +94,7 @@ Images and the chart have separate versions. Each push to `main` that changes an
 
 A chart release pins the newest tag of each image in `helm/values.yaml`. A released chart doesn't use `latest` for a repository image.
 
-The chart version comes from the Conventional Commits since the previous release. A `feat` raises the minor version, a `fix` raises the patch version, and a `!` raises the major version. Don't change `helm/Chart.yaml` by hand. See [CI pipeline](../development/ci.md) and [Chart releases](../development/releases.md).
+The chart version comes from the Conventional Commits since the previous release. A `feat` raises the minor version, a `fix` raises the patch version, and a `!` raises the major version. Don't change `helm/Chart.yaml` by hand. See [Chart releases](../dev/ci.md#chart-releases).
 
 ---
 

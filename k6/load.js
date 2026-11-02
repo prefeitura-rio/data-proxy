@@ -1,3 +1,33 @@
+/**
+ * The load profile. `cluster k6 smoke` runs one virtual user for 40 seconds. `cluster k6 load` ramps through 25%, 50%,
+ * 75% and 100% of `K6_PEAK_RATE` (25 iterations a second by default), holds the peak, and ramps down. A fallback pair
+ * makes two requests, so the profile converts the request rate into an iteration rate.
+ *
+ *   cluster k6 load --peak-rate 100 --cache-ttl 300 --shares bottleneck=0.01 fallback=0.01
+ *   cluster k6 load --cache-ttl 5 --report-only    a cold-cache run that gates nothing
+ *   cluster k6 load --capacity                     wider thresholds, more headroom, larger shares
+ *
+ * Terms: a selective lookup filters `big_table` on one `id` or `unit_id`. A heavy query reads a route that the suite
+ * marks as heavy, with a random limit of 1000 to 2000 rows. A pinned read uses the header `X-DuckLake-Snapshot`. A
+ * bottleneck case is one of these three.
+ *
+ * Traffic of one iteration, with real Keycloak tokens and no write: 92% data reads of the roles `dp_api` (84% in
+ * capacity mode), 1% fallback pairs and 1% bottleneck cases (5% each in capacity mode), 5% console reads with the
+ * tokens of `console` (70%) and `admin` (30%), and 1% reads of `access_policy` with the token of `policy`. The setup
+ * reads every console route once with each client, seeds the access policy that the reads need, and stops on a
+ * failure. The console reads go to `POSTGREST_URL`, as the web app does.
+ *
+ * Gates: `checks`, the HTTP failure rate, `dropped_iterations == 0`, and the latency of the cache, bounded DuckLake
+ * reads, fallback, and heavy, selective and pinned reads. The trends of the cache and of bounded reads also bound
+ * `p(99)`. `--report-only` sets `K6_GATE_CLIENT_RISK=false`. The gates `console_duration_ms` (p95 under 1 s) and
+ * `policy_duration_ms` (p95 under 500 ms) are first guesses. Measure a run, then set them.
+ *
+ * Capacity: one node can't measure its own capacity above a few hundred requests a second, because the generator takes
+ * CPU from the system under test. Run `k6 run k6/load.js` outside the cluster host, with port-forwards to the gateway,
+ * Keycloak and PostgREST, and set `BASE_URL`, `API_HOST`, `OIDC_TOKEN_URL`, `K6_PROFILE`, `K6_PEAK_RATE` and
+ * `POSTGREST_URL`. A run that drops iterations fails the `dropped_iterations` gate, which marks the measurement as
+ * invalid and not as a capacity limit.
+ */
 /** @import { Response as K6Response } from 'k6/http' */
 import http from "k6/http";
 import { check, sleep } from "k6";

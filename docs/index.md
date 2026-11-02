@@ -29,7 +29,7 @@ Read these four pages in this order:
 - [Security](security/index.md) — JSON Web Token (JWT) claims, permissions, authorization, tokens and the identity provider.
 - [Console](console/index.md) — The admin web app and its database views.
 - [Style](style.md) — The rules for the code and the docs, one section for each area.
-- [Local Development](development/index.md) — Local setup, tests, Nix, migrations and k6 commands.
+- [Development](dev/index.md) — Local setup, devenv, checks, tests and CI.
 - [Operations](operations/index.md) — Helm chart, topology, settings, scaling, metrics and backups.
 
 <!-- nav:start -->

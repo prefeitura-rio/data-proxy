@@ -63,7 +63,7 @@ The load profile derives its rate from `K6_PEAK_RATE`, which defaults to 25 iter
 
 The traffic mix is configurable with `--shares bottleneck=<fraction> fallback=<fraction>`. Normal load defaults to no bottleneck cases and 1% configured-fallback pairs. Add `--capacity` to use the wider capacity thresholds and extra VU headroom. The same single load scenario covers normal and capacity runs.
 
-Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally. The default load run gates fallback, heavy, selective, and pinned reads. [k6 commands](../development/k6/index.md) defines these terms. Use `--report-only` when measuring a cold-cache stress run, for example `cluster k6 load --peak-rate 100 --cache-ttl 5 --report-only`.
+Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally. The default load run gates fallback, heavy, selective, and pinned reads. [load tests](../dev/tests.md#end-to-end-and-load-tests) defines these terms. Use `--report-only` when measuring a cold-cache stress run, for example `cluster k6 load --peak-rate 100 --cache-ttl 5 --report-only`.
 
 ## Capacity diagnosis
 

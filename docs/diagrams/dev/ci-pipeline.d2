@@ -1,0 +1,31 @@
+direction: right
+
+push: "Push, pull request\nor manual start"
+
+checks: "Run at the same time" {
+  changes: "changes\nwhich images and chart changed"
+  repo: "repo\nlint and unit tests"
+  sync: "test-sync"
+  console: "test-console"
+  proxy: "test-proxy"
+  sizes: "profile-sizes"
+}
+
+main: "Only on main" {
+  build: "build-images\nfill the layer cache"
+  push: "push-images\npush and sign"
+  helm: "helm\npublish the chart"
+  build -> push -> helm
+}
+
+push -> checks.changes
+push -> checks.repo
+push -> checks.sync
+push -> checks.console
+push -> checks.proxy
+push -> checks.sizes
+checks.changes -> main.build
+checks.repo -> main.push: "tests pass"
+checks.sync -> main.push
+checks.console -> main.push
+checks.proxy -> main.push

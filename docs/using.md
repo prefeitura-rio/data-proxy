@@ -102,6 +102,28 @@ See [Security](security/index.md) for token and access-policy setup.
 
 ---
 
+## Try it locally
+
+Add this entry to `/etc/hosts`, forward the gateway port and ask Keycloak for a token:
+
+```text
+127.0.0.1 data-proxy.local
+```
+
+```bash
+kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80
+token
+```
+
+`token` prints a table with the token, its type, lifetime, scope, client and realm. In Nushell, `token | get token` gives only the token. Without options, it asks the Keycloak of the local cluster for a `user` token. Use `--issuer` to ask another realm:
+
+```bash
+token --issuer https://sso.example.com/realms/prod --client-id my-client --client-secret "$SECRET"
+token --issuer https://sso.example.com/realms/prod --client-id my-client --username alice --password "$PASSWORD"
+```
+
+The client secret can also come from `KEYCLOAK_CLIENT_SECRET`. `--username` and `--password` switch to the password grant, and `--scope` adds scopes.
+
 <!-- nav:start -->
 ---
 

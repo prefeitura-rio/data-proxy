@@ -128,73 +128,13 @@
       "page": "style.md"
     },
     {
-      "page": "development/index.md",
+      "page": "dev/index.md",
       "children": [
         {
-          "page": "development/setup.md"
+          "page": "dev/tests.md"
         },
         {
-          "page": "development/tests.md",
-          "children": [
-            {
-              "page": "development/test-stack.md"
-            },
-            {
-              "page": "development/sync-tests.md"
-            }
-          ]
-        },
-        {
-          "page": "development/checks.md"
-        },
-        {
-          "page": "development/rocks.md"
-        },
-        {
-          "page": "development/frontend.md"
-        },
-        {
-          "page": "development/stack.md"
-        },
-        {
-          "page": "development/nix.md"
-        },
-        {
-          "page": "development/migrations.md"
-        },
-        {
-          "page": "development/releases.md"
-        },
-        {
-          "page": "development/ci.md",
-          "children": [
-            {
-              "page": "development/ci-images.md"
-            },
-            {
-              "page": "development/ci-security.md"
-            }
-          ]
-        },
-        {
-          "page": "development/seed.md"
-        },
-        {
-          "page": "development/api.md"
-        },
-        {
-          "page": "development/k6/index.md",
-          "children": [
-            {
-              "page": "development/k6/thresholds.md"
-            },
-            {
-              "page": "development/k6/e2e.md"
-            },
-            {
-              "page": "development/k6/scenarios.md"
-            }
-          ]
+          "page": "dev/ci.md"
         }
       ]
     },

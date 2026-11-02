@@ -804,5 +804,5 @@ Migration:
 <!-- nav:start -->
 ---
 
-[Previous: Query tab scope](console/scope.md) | [Next: Local Development](development/index.md) | [Home](index.md)
+[Previous: Query tab scope](console/scope.md) | [Next: Development](dev/index.md) | [Home](index.md)
 <!-- nav:end -->

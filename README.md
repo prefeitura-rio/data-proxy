@@ -17,7 +17,7 @@ The documentation is a wiki of linked Markdown files in `docs/`. Start at [docs/
 - [SQL Templates](docs/sql.md) — how the SQL templates are named, written, and rendered.
 - [Security](docs/security/index.md) — JWT claims, permissions, authorization, tokens, and the identity provider.
 - [Console](docs/console/index.md) — the admin web app and its database views.
-- [Development](docs/development/index.md) — local setup, tests, Nix, migrations, and k6 commands.
+- [Development](docs/dev/index.md) — local setup, devenv, checks, tests and CI.
 - [Operations](docs/operations/index.md) — Helm chart, topology, settings, scaling, metrics, and backups.
 
 ### Browse the wiki

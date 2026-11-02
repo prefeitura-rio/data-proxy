@@ -1,3 +1,21 @@
+/**
+ * The browser tests of the console. The task `console:test:int` runs them against the stack of `nix/stack/`.
+ *
+ * Projects: `auth` signs each test user in once and saves the cookies in `test-results/.auth/`. `parallel` runs every
+ * scenario in parallel. `shared` runs last, on one worker, for the scenarios that change data that every other
+ * scenario reads: the schedule, the token lifespan and the sync document (`tests/features/shared/`).
+ *
+ * Scenarios: the steps `I sign in as` and `I am signed in as` add the saved cookies to the context, so a scenario
+ * needs no round trip to the identity provider. A scenario with the tag `@fresh-login` signs in through the page.
+ * The tag `@new-schema` adds a random suffix to each schema and table name (the step parameter `{name}`), signs in as
+ * `web_root` (the `schemas` claim `*`), and deletes the schemas that the scenario added. The tag `@import-ttl`
+ * restores the cache lifetime of the `test` tables, and `@short-token` restores the token lifespan of the Keycloak
+ * client. The layout sets `data-hydrated` on `<html>`, and a step that types waits for it.
+ *
+ * Run some scenarios with `PLAYWRIGHT_GREP='health check'`, and pass other options with `PLAYWRIGHT_ARGS`. The report
+ * of the last run is `test-results/report.json`. `--repeat-each` doesn't suit `shared`, because it runs the copies on
+ * different workers.
+ */
 import { defineConfig } from '@playwright/test';
 import { defineBddProject } from 'playwright-bdd';
 

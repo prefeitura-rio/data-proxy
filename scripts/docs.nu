@@ -13,8 +13,6 @@ const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
     docs/style.md
-    docs/development/checks.md
-    docs/development/frontend.md
     docs/operations/topology.md
     docs/proxy/pushdown.md
     docs/security/identity.md

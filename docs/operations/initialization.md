@@ -41,7 +41,7 @@ The system objects of `configure-db` are:
 
 PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See [Console](../console/configuration.md#add-and-remove-a-schema).
 
-[Development](../development/migrations.md) explains what belongs to the chart and what belongs to the migrations.
+The header of `scripts/migrate.nu` explains what belongs to the chart and what belongs to the migrations.
 
 ## Run a Job on demand
 

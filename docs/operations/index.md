@@ -16,5 +16,5 @@ These pages describe how to deploy, configure, scale, monitor and back up Data P
 <!-- nav:start -->
 ---
 
-[Previous: E2E scenarios](../development/k6/scenarios.md) | [Next: Helm Chart](helm.md) | [Home](../index.md)
+[Previous: CI and releases](../dev/ci.md) | [Next: Helm Chart](helm.md) | [Home](../index.md)
 <!-- nav:end -->

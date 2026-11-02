@@ -1,3 +1,24 @@
+# The proxy uses Lux. This file declares every Lua library, and lux.lock pins them with source hashes.
+#
+# Layout: the code is in src/proxy, the unit specs are in tests/unit (one file for each module), and the Hurl suite in
+# tests/integration covers the request path against a real nginx, Redis and a mock PostgREST.
+#
+# Install the rocks with `devenv --profile proxy tasks run proxy:install:rocks`. The task installs into the ignored
+# .lux/ tree and fails when lux.lock changes. Change a version with `lx add` or `lx update`, and commit the lock file.
+# Add a test library with `lx add --test`. OpenResty bundles resty.redis, resty.string, resty.lock and cjson, so only
+# lua-resty-http is a runtime rock. Containerfile.proxy runs `lx build --only-deps`, so the image has no test rocks.
+#
+# Types: LuaLS bundles the OpenResty types. The Penlight and LPeg types come from the devenv inputs `penlight-types`
+# and `lpeg-types` (the variables PENLIGHT_TYPES and LPEG_TYPES in .luarc.json). Penlight definitions have no module
+# name, so cast each Penlight `require` to its module class, such as `pl.ClassModule` or `pl.tablex`.
+#
+# C rocks: lpeg and luafilesystem (which Penlight needs) build in one stage of the image, and the stage copies the
+# libraries to /opt/data-proxy/lib.
+#
+# Lint: `proxy:lint:lua` runs luacheck (ngx_lua globals, 120 columns, 10 branches for each function) and LuaLS with
+# every diagnostic group on. Four checks are off: codestyle-check (stylua formats), spell-check, name-style-check and
+# no-unknown. The task runs after `proxy:test:unit`, because two Lux runs that download at the same time can fail.
+
 package = "data-proxy"
 version = "1.0.0"
 lua = "==5.1"

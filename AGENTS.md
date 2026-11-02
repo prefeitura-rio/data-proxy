@@ -13,7 +13,7 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 ```
 
 - The first line is the lint and the tests that need no service. The second line starts services, so run only the components that you changed.
-- Run one task with `devenv --profile <profile> tasks run <task>`. The [checks page](docs/development/checks.md) lists every task and its profile.
+- Run one task with `devenv --profile <profile> tasks run <task>`. The [development page](docs/dev/index.md#run-the-checks) lists the checks.
 
 ## Where the code is
 
