@@ -1,6 +1,12 @@
 // The web server of the notebook site. The console image runs it with `node notebooks/server.ts`.
 // It sends the Content Security Policy from CSP, or the one that csp.ts builds from the origins of the console and
 // the storage. It tells the page the origin of the console in config.js.
+//
+// The policy allows 'unsafe-eval' and 'unsafe-inline' because Pyodide and marimo use them. It limits where the page can
+// send data: only to itself and to the storage host. Node 24 runs this file without a build step, so tsconfig.json has
+// `erasableSyntaxOnly`. The notebook is a static export, so the server writes the cells: for `/?tables=a&tables=b` it
+// decodes the code in `<marimo-code>`, repeats the template cell once for each table, and encodes the code again. A name
+// with a character other than a letter, a digit, `_` or `-` is dropped, so a link can't add code.
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { csp } from './csp.ts';

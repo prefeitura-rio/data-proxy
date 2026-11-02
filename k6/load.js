@@ -19,7 +19,9 @@
  *
  * Gates: `checks`, the HTTP failure rate, `dropped_iterations == 0`, and the latency of the cache, bounded DuckLake
  * reads, fallback, and heavy, selective and pinned reads. The trends of the cache and of bounded reads also bound
- * `p(99)`. `--report-only` sets `K6_GATE_CLIENT_RISK=false`. The gates `console_duration_ms` (p95 under 1 s) and
+ * `p(99)`. Bounds: cache p95 50 ms and p99 100 ms, bounded DuckLake reads p95 300 ms and p99 600 ms. These gate a run. The
+ * client-risk routes only report with `--report-only`: configured fallback p95 6000 ms, and heavy, selective and pinned
+ * reads p95 2000 ms and p99 5000 ms. `--report-only` sets `K6_GATE_CLIENT_RISK=false`. The gates `console_duration_ms` (p95 under 1 s) and
  * `policy_duration_ms` (p95 under 500 ms) are first guesses. Measure a run, then set them.
  *
  * Capacity: one node can't measure its own capacity above a few hundred requests a second, because the generator takes

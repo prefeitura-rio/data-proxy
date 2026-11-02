@@ -26,32 +26,16 @@ The engine still checks the rules that belong to a source, such as the form of a
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy`, and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
-## Remove a table
+## Remove a table or a schema
 
-A trigger on `tables` queues the workflow `cleanup_tables` when a delete happens and none waits. The workflow runs in the sync worker, because dropping a DuckLake table needs DuckDB.
+Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user before it deletes. A sync run for a schema that an editor removes during the run fails.
 
-It reads the configuration. For each schema, it drops the DuckLake tables that the configuration no longer lists. Then it deletes the data files of each dropped table in S3. It also deletes the state and the errors of every table that the configuration no longer lists.
+**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it, because dropping a DuckLake table needs DuckDB. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and the orphan cleanup of the DuckLake maintenance deletes files that a stopped run leaves.
 
-The daily `maintenance` Job drops the views. Every step can run again. A run that stops between the drop and the file deletion leaves files behind. The orphan cleanup of the DuckLake maintenance deletes them later.
+**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob ([Initialization](../operations/initialization.md#run-a-job-on-demand)). The Job makes the database match the configuration, and every sync run does the same at its start, which heals a lost event.
 
-Deleting a row in `tables` therefore destroys the data of the table. The database asks for no confirmation: the console asks the user before it deletes.
-
-## Add and remove a schema
-
-A change to the schemas of the configuration queues a workflow, and a Job makes the database match the configuration.
-
-A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob ([Helm chart](../operations/initialization.md#run-a-job-on-demand)). The Job reads the configuration and makes the database match it. Every sync run does the same at its start, which heals a lost event.
-
-- **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds the schema to `pgrst.db_schemas`, and tells PostgREST to reload. It takes seconds.
-- **Remove:** the Job stops serving the schema first. Then it does these steps:
-  - It purges the data files in S3.
-  - It drops the metadata schema in the catalog database.
-  - It deletes the state, the errors and the scope of the tables.
-  - It drops the schema of the database. This step goes last, because the next sync run finds an unfinished removal through it.
-
-  Every step can run again.
-
-Deleting a row in `schemas` therefore destroys the data of the schema, and `delete_config` is a destructive permission. The database asks for no confirmation: the console asks the user before it deletes. A run for a schema that an editor removes during the sync run fails.
+- **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas`, and tells PostgREST to reload. It takes seconds.
+- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last. The next sync run finds an unfinished removal through that schema. Every step can run again.
 
 ## The configuration endpoint
 

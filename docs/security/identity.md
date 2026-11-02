@@ -74,25 +74,13 @@ The gateway, PostgREST and the proxy need the same three claims from any provide
 | `schemas` | A list of schema names, or one name as text. | A user attribute with several values, or a fixed list on a service client. An empty list reads nothing. The name `*` stands for every schema and every row. Give it only to a debugging account. The element `<schema>:*` names one schema and reads every row of it. |
 | `preferred_username` | The subject of the access policy. | The default claim of most providers. If yours doesn't set it, the access policy subject must be the `sub` value. |
 
-The token must also carry the audience that the gateway expects. Then check it before you deploy:
-
-1. Get a token: `nu scripts/token.nu --issuer https://sso.example.com/realms/prod --client-id <client> --client-secret <secret>`.
-2. Decode the payload and check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match the values above.
-3. Call `/<table>?limit=1` with the token. A token with an unknown role receives 400 or 403, and a token without a role reads nothing.
+The token must also carry the audience that the gateway expects. Get a token with `nu scripts/token.nu --issuer <issuer> --client-id <client> --client-secret <secret>`, and decode its payload. Check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match your values. Then call `/<table>?limit=1`. A token with an unknown role gets 400 or 403, and a token without a role reads nothing.
 
 A claim that names a role that isn't in `rbac.toml` never gains rights. PostgREST can switch only to the roles that the serving login is a member of. `verify-rbac` makes sure that this list is the list of the file.
 
 ## Check the roles at deploy time
 
-Two checks keep `rbac.toml` and the database in step:
-
-- `chart:lint:toml` runs in the checks of the repository. `taplo` checks `rbac.toml` against `rbac.schema.json`: each object has a description and at least one action, and each role has a name.
-- The `configure-db` Job runs `verify-rbac` after it loads the rules. It fails when the database differs from the file:
-  - a role is missing
-  - a request role can log in or is a superuser
-  - the serving login isn't a member of a role, or is a member of a role that the file doesn't list
-
-  A role that left the file therefore can't keep its rights without a failed upgrade.
+Two checks keep `rbac.toml` and the database in step. `chart:lint:toml` checks `rbac.toml` against `rbac.schema.json`: each object has a description and an action, and each role has a name. The `configure-db` Job runs `verify-rbac` after it loads the rules. It fails in three cases. A role is missing. A request role can log in or is a superuser. The serving login belongs to a role that the file doesn't list. A role that left the file can't keep its rights without a failed upgrade.
 
 A permission that the SQL asks for and the file lacks ends as an HTTP 500 at run time. The `roles` scenario of the end-to-end suite checks this.
 

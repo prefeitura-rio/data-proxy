@@ -39,7 +39,7 @@ The system objects of `configure-db` are:
 - It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST.
 - It tells PostgREST to reload only when that list changes. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel.
 
-PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See [Console](../console/configuration.md#add-and-remove-a-schema).
+PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See [Console](../console/configuration.md#remove-a-table-or-a-schema).
 
 The header of `scripts/migrate.nu` explains what belongs to the chart and what belongs to the migrations.
 

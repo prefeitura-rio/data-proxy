@@ -55,19 +55,7 @@ Notes for the cluster:
 - Each PostgreSQL backend starts its own DuckDB and attaches the catalog on its first aggregate, which takes about 160 ms. PgDog keeps a server connection for one hour, so a backend then serves many requests at 10 to 15 ms each.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret.
 
-```yaml
-redis:
-  existingSecret: data-proxy-redis
-  host: redis-writer
-  port: 6379
-```
-
-`host` and `port` are the stable Redis endpoint of the proxy. `host` has no default, and the chart fails to render without it. The Redis Secret has a JSON value under `REDIS` for the sync workers:
-
-```json
-{"read":"redis://reader:6379/1","write":"redis://writer:6379/0"}
-```
-
+Redis has no autoscaler. The proxy needs `redis.host`, and the chart fails to render without it. [Helm Chart](helm.md) lists the Redis values.
 
 <!-- nav:start -->
 ---

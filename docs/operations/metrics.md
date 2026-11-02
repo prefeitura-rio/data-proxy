@@ -48,22 +48,7 @@ Alert when `pgrst_db_pool_waiting` stays above 0, and when the timeouts counter 
 
 ## Load profile limits
 
-The load test gates a run on these bounds. The table gives the source of each bound and says whether it gates a run.
-
-| Source                                     | Bound                         | Gates a run        |
-| ------------------------------------------ | ----------------------------- | ------------------ |
-| Cache                                      | p95 50 ms, p99 100 ms         | yes                |
-| DuckLake bounded reads                     | p95 300 ms, p99 600 ms        | yes                |
-| Configured fallback (`fallback`, `ducklake+<configured-fallback>`) | p95 6000 ms | no, client risk    |
-| DuckLake heavy queries                     | p95 2000 ms, p99 5000 ms      | no, client risk    |
-| DuckLake selective lookups                 | p95 2000 ms, p99 5000 ms      | no, client risk    |
-| DuckLake pinned snapshots                  | p95 2000 ms, p99 5000 ms      | no, client risk    |
-
-The load profile derives its rate from `K6_PEAK_RATE`, which defaults to 25 iterations per second. It ramps through 25%, 50%, 75%, and 100% of that peak, then keeps the peak before ramping down. Use `cluster k6 load --peak-rate <n> --cache-ttl <seconds>` to select the target rate and proxy cache lifetime. The default load run uses the production-shaped 300-second cache time to live (TTL) and gates fallback and heavy-route thresholds. Add `--report-only` for a run that records those routes without gating them.
-
-The traffic mix is configurable with `--shares bottleneck=<fraction> fallback=<fraction>`. Normal load defaults to no bottleneck cases and 1% configured-fallback pairs. Add `--capacity` to use the wider capacity thresholds and extra VU headroom. The same single load scenario covers normal and capacity runs.
-
-Because the arrival-rate executor counts iterations and a fallback pair makes two requests, the profile converts the target request rate into an iteration rate internally. The default load run gates fallback, heavy, selective, and pinned reads. [load tests](../dev/tests.md#end-to-end-and-load-tests) defines these terms. Use `--report-only` when measuring a cold-cache stress run, for example `cluster k6 load --peak-rate 100 --cache-ttl 5 --report-only`.
+The load test gates a run on latency bounds for the cache and for bounded DuckLake reads. It reports the heavy, selective, pinned and fallback routes. The header of `k6/load.js` lists the bounds, the traffic mix and the flags. [Load tests](../dev/tests.md#end-to-end-and-load-tests) shows the commands.
 
 ## Capacity diagnosis
 

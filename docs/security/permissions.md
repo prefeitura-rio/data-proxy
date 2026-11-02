@@ -4,25 +4,25 @@ A token has one `role` claim and a `schemas` claim. The rules live in `helm/file
 
 The `configure-db` job loads the file into the `rbac` schema. The pre-request function copies the claims into session settings and calls `rbac.load()`, which sets the permissions of the role for the request. `rbac.can('<permission>')` answers whether the role has a permission, and `rbac.mine('<schema>')` answers whether a schema is in the `schemas` claim. Both read settings, so they work inside `SECURITY DEFINER` functions too. A name that the file doesn't list raises an error, so a typo in the code fails loudly.
 
-| Permission | What it opens | How the database checks it |
-| --- | --- | --- |
-| `read_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `queues`, `schedules`, `health`, `synced`, and `overview`. | Each view filters on `rbac.can('read_sync')`. |
-| `read_config` | The tables `schemas`, `tables`, and `rls`, and `sync_config()`. | The select row policy of each table. |
-| `create_config` | Insert on the three tables. | The insert row policies. |
-| `edit_config` | Update on the three tables. | The update row policies. |
-| `delete_config` | Delete on the three tables. | The delete row policies. |
-| `import_config` | `import_config()`. The import also inserts, updates, and deletes rows, so the role needs the other configuration permissions too. | A check at the start of the function. |
-| `start_sync` | `start_sync()` and `start_scope()`. | A check at the start of `start_scope()`. |
-| `control_sync` | `cancel_run()`, `resume_run()`, `retry_run()`, `pause_schedule()`, `resume_schedule()` and `set_schedule()`. Running a run again also needs `start_sync`. | A check at the start of each function. |
-| `read_files` | `table_files()`, the Parquet files for the query tab. | A check at the start of the function. |
-| `read_api` | The synced views of the data API. | A check at the start of the function behind each view. |
-| `read_ducklake` | The change feed of the catalog. | A check at the start of the function. |
-| `read_policy` | Read `<schema>.access_policy`. | The select row policy of each table. |
-| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. | The write row policies of each table. |
+| Permission | What it opens |
+| --- | --- |
+| `read_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `queues`, `schedules`, `health`, `synced`, and `overview`. |
+| `read_config` | The tables `schemas`, `tables`, and `rls`, and `sync_config()`. |
+| `create_config` | Insert on the three tables. |
+| `edit_config` | Update on the three tables. |
+| `delete_config` | Delete on the three tables. |
+| `import_config` | `import_config()`. The import also inserts, updates, and deletes rows, so the role needs the other configuration permissions too. |
+| `start_sync` | `start_sync()` and `start_scope()`. |
+| `control_sync` | `cancel_run()`, `resume_run()`, `retry_run()`, `pause_schedule()`, `resume_schedule()` and `set_schedule()`. Running a run again also needs `start_sync`. |
+| `read_files` | `table_files()`, the Parquet files for the query tab. |
+| `read_api` | The synced views of the data API. |
+| `read_ducklake` | The change feed of the catalog. |
+| `read_policy` | Read `<schema>.access_policy`. |
+| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. |
 
 A role that edits needs the matching read permission, because an update reads the row first. The roles in `rbac.toml` include it.
 
-A role without a permission gets:
+The database checks a permission with a row policy or with a check at the start of the function. A role without a permission gets:
 
 - an empty list from a view or a table
 - a 403 from a write that a row policy refuses
