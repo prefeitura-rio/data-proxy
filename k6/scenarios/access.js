@@ -27,7 +27,7 @@ const { expect, expectEach, checks } = scenario("access");
 /**
  * Verifies that a user without a policy gets a 200 with zero rows.
  */
-export function noAccess() {
+function noAccess() {
     const token = fetchToken(OIDC_NO_POLICY_CLIENT_ID);
     let status = 0;
 
@@ -67,7 +67,7 @@ export function noAccess() {
 /**
  * Verifies that the schemas claim limits a data read: no role reads a schema that its token doesn't list.
  */
-export function dataScope() {
+function dataScope() {
     const read = /** @param {string} client @returns {Array<Record<string, unknown>> | null} */ (client) => {
         const response = proxyGet(`/${FULL_TABLE}?select=unit_id&limit=100`, fetchToken(client));
 
@@ -120,7 +120,7 @@ export function authorizedRows(token) {
 /**
  * Verifies Istio rejects requests without a valid JWT.
  */
-export function istioJwt() {
+function istioJwt() {
     const noToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
         headers: { Host: HOST, "Accept-Profile": SCHEMA },
         tags: { name: "istio_no_token" },
@@ -139,7 +139,7 @@ export function istioJwt() {
 /**
  * Verifies that the permissions and the schemas of the token limit the data and the access policy.
  */
-export function dataAccess() {
+function dataAccess() {
     const data = `/${FULL_TABLE}?select=unit_id&limit=1`;
     expect("a role without read_api is refused the data", proxyGet(data, clientToken("policy")).status === 403);
     expect("the anonymous client is refused the data", [401, 403].includes(proxyGet(data, clientToken("anon")).status));

@@ -111,7 +111,7 @@ const CONSOLE_LEVELS = ["console", "admin"];
  * status views describe the synced schema, the admin writes the configuration, queues and
  * schedules are read-only, and a request without the right token is refused.
  */
-export function surface() {
+function surface() {
     CONSOLE_LEVELS.forEach((client) => {
         CONSOLE_VIEWS.forEach((view) =>
             expect(`${client} reads ${view}`, consoleCall("GET", `/${view}?limit=1`, client).status === 200),
@@ -220,7 +220,7 @@ export function surface() {
 /**
  * Verifies the HTTP contract of the console with an admin: rows in, a document out, and errors as statuses.
  */
-export function behaviour() {
+function behaviour() {
     const alpha = "console_alpha";
     const beta = "console_beta";
 

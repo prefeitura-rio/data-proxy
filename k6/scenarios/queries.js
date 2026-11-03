@@ -24,7 +24,7 @@ const { expect, requirePrecondition, checks } = scenario("queries");
 /**
  * Verifies that jsonb columns and json path filters work through the proxy.
  */
-export function jsonb() {
+function jsonb() {
     const token = fetchToken();
     let filterStatus = 0;
 
@@ -54,7 +54,7 @@ export function jsonb() {
  * @param {string} token
  * @param {Kubernetes} k8s
  */
-export function filterPushdown(token, k8s) {
+function filterPushdown(token, k8s) {
     clearProxyCache(k8s);
     const baseline = directPostgrest(`/${FULL_TABLE}?select=id&order=id.asc&limit=3`, token);
     const baselineRows = rowsOf(baseline);
@@ -100,6 +100,7 @@ export function filterPushdown(token, k8s) {
             name: "a count asks for every row, so the limit stays in PostgREST",
             query: `select=id,name&order=id.asc&limit=2`,
             headers: { Prefer: "count=exact" },
+            statuses: [200, 206],
         },
         {
             name: "select star reads every column of the page",
@@ -107,12 +108,12 @@ export function filterPushdown(token, k8s) {
         },
     ];
 
-    cases.forEach(({ name, query, headers }) => {
+    cases.forEach(({ name, query, headers, statuses = [200] }) => {
         const caseHeaders = { ...snapshotHeaders, ...headers };
         const direct = directPostgrest(`/${FULL_TABLE}?${query}`, token, caseHeaders);
         const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, caseHeaders);
-        expect(`${name}: direct request succeeds`, direct.status === 200);
-        expect(`${name}: proxy request succeeds`, proxy.status === 200);
+        expect(`${name}: direct request succeeds`, statuses.includes(direct.status));
+        expect(`${name}: proxy request succeeds`, statuses.includes(proxy.status));
         expect(`${name}: proxy request is not served from cache`, cacheHeader(proxy) === "MISS");
         const directRows = rowsOf(direct);
         const proxyRows = rowsOf(proxy);

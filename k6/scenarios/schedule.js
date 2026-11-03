@@ -34,7 +34,7 @@ function scheduledRuns(name) {
  * cron to every minute, waits for the firing, and puts the cron back at once, so that no second run starts.
  * @param {Kubernetes} k8s
  */
-export function scheduledRun(k8s) {
+function scheduledRun(k8s) {
     const schedule = rowsOf(consoleCall("GET", "/schedules?order=name&limit=1", "admin"))[0];
     requirePrecondition("a schema has a schedule", schedule !== undefined, {});
     requirePrecondition("the schedule is active", schedule.status === "ACTIVE", { status: schedule.status });

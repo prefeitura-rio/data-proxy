@@ -60,7 +60,7 @@ export function postgrestDeploymentRevision(k8s) {
  * @param {string} name
  * @returns {KubernetesKinds[K] | undefined}
  */
-export function findObject(k8s, kind, name) {
+function findObject(k8s, kind, name) {
     return k8s.list(kind, NAMESPACE).find((item) => item.metadata.name === name);
 }
 

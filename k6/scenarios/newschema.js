@@ -41,7 +41,7 @@ const SUBJECT = "test_admin";
  * the schema, a run publishes the table, and the table is served to the subject that has a policy row, and to nobody else.
  * @param {Kubernetes} k8s
  */
-export function newSchema(k8s) {
+function newSchema(k8s) {
     removeSchemaFromConsole(NEW_SCHEMA, NEW_SCHEMA_SOURCE, SUBJECT);
     waitUntil(PROVISION_TIMEOUT_SECONDS, () => appSchemaGone(k8s, NEW_SCHEMA), "leftovers of an earlier run to go");
 

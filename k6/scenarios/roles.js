@@ -84,6 +84,8 @@ const PROBES = {
         consoleCall("GET", `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`, client).status === 200,
     read_sync: (client) => consoleRows("/runs?limit=1", client) > 0,
     start_sync: (client) => consoleCall("POST", "/rpc/start_sync", client, { schemas: ["console_bad"] }).status !== 403,
+    control_sync: (client) =>
+        consoleCall("POST", "/rpc/cancel_run", client, { run: "e2e-no-such-run" }).status !== 403,
     read_config: (client) => consoleRows(`/schemas?name=eq.${SCHEMA}`, client) > 0,
     create_config: (client) =>
         withRow(
@@ -182,7 +184,7 @@ export function roles() {
 /**
  * Verifies the roles that the console refuses: a role without read_sync reads no row of any console view.
  */
-export function consoleAccess() {
+function consoleAccess() {
     for (const view of ["errors", "logs", "overview", "queues", "runs", "schedules", "steps", "synced", "tasks"]) {
         for (const [client, role] of CLIENTS) {
             if (MATRIX.get(role)?.has("read_sync")) continue;
@@ -195,7 +197,7 @@ export function consoleAccess() {
  * Verifies, in the cluster, that the roles of the rules file are in the database, and that no object of the API lacks a rule.
  * @param {Kubernetes} k8s
  */
-export function accessCatalog(k8s) {
+function accessCatalog(k8s) {
     const stored = RBAC_RULES.roles
         .map((role) => `${role.name}=${[...(MATRIX.get(role.name) ?? [])].sort().join(",")}`)
         .sort()
@@ -211,17 +213,17 @@ export function accessCatalog(k8s) {
         [
             "access-relations",
             "SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class AS c INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid WHERE n.nspname = 'console' AND c.relkind IN ('r', 'v')",
-            "errors,health,logs,overview,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
+            "config_history,errors,health,logs,overview,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
         ],
         [
             "access-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'console' AND p.prorettype <> 'trigger'::regtype",
-            "config,import_config,mine_table,permissions,start_scope,start_sync,sync_config,table_files,username",
+            "cancel_run,config,control_run,control_schedule,guard_run,guard_schedule,import_config,import_preview,mine_table,pause_schedule,permissions,resume_run,resume_schedule,retry_run,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
         ],
         [
             "access-rbac-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'rbac'",
-            "can,load,mine,unknown",
+            "all_rows,can,load,mine,unknown",
         ],
         ["access-no-old-schemas", "SELECT to_regnamespace('admin') IS NULL AND to_regnamespace('authz') IS NULL", "t"],
         [
@@ -264,7 +266,7 @@ const REFUSED = [400, 401, 403];
 /**
  * Verifies that a token can't become a database role that isn't a request role, and that a token without a role gets none.
  */
-export function escalation() {
+function escalation() {
     const data = `/${FULL_TABLE}?select=unit_id&limit=1`;
 
     expectEach(
@@ -283,7 +285,7 @@ export function escalation() {
 /**
  * Verifies that a `schemas` claim that is a plain text works like a list, and that an empty list reads nothing.
  */
-export function claimShapes() {
+function claimShapes() {
     const path = `/${FULL_TABLE}?select=unit_id&limit=5`;
     const text = proxyGet(path, clientToken("schemas_text"));
     expect("a schemas claim that is a plain text is served", text.status === 200);
@@ -299,7 +301,7 @@ const UNKNOWN_FUNCTION = "e2e_unknown_permission";
  * Verifies that a function that asks for a permission that the rules don't list ends as an HTTP 500 with the reason.
  * @param {Kubernetes} k8s
  */
-export function unknownPermission(k8s) {
+function unknownPermission(k8s) {
     const reload = "NOTIFY pgrst, 'reload schema'";
 
     try {
@@ -337,7 +339,7 @@ export function unknownPermission(k8s) {
  * that the proxy cached, and that the original rules bring the access back.
  * @param {Kubernetes} k8s
  */
-export function rulesReload(k8s) {
+function rulesReload(k8s) {
     const path = `/${FULL_TABLE}?select=id&limit=3`;
     const token = clientToken("api");
     const withoutReadApi = `sed 's/^permissions = \\["read_api"\\]$/permissions = []/' /scripts/rbac.toml`;

@@ -34,7 +34,7 @@ function valkeyReady(k8s) {
  * Verifies that the proxy serves reads while Valkey is down, warns in its log, and caches again afterwards.
  * @param {Kubernetes} k8s
  */
-export function valkeyOutage(k8s) {
+function valkeyOutage(k8s) {
     const path = `/${FULL_TABLE}?select=id&limit=3`;
     const token = userToken();
     proxyGet(path, token);

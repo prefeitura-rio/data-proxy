@@ -10,7 +10,7 @@ const RUN_TIMEOUT_SECONDS = 600;
 /**
  * Verifies that an operator starts a run through the console and that the run completes.
  */
-export function startSync() {
+function startSync() {
     const runId = startRun([SCHEMA], [FULL_SOURCE]);
     requirePrecondition("an operator starts a run for a schema of its token", runId !== null, {});
     if (runId === null) return;

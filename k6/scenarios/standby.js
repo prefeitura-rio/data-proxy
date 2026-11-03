@@ -27,7 +27,7 @@ const REBUILD_TIMEOUT_SECONDS = 900;
  * Verifies that the loss of a standby doesn't stop the reads, and that the standby comes back.
  * @param {Kubernetes} k8s
  */
-export function standbyLoss(k8s) {
+function standbyLoss(k8s) {
     const primary = clusterObject(k8s).status?.currentPrimary;
 
     const standby = readyInstances(k8s)

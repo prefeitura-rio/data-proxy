@@ -8,7 +8,7 @@ const POOL_METRICS = ["pgrst_db_pool_available", "pgrst_db_pool_waiting", "pgrst
  * Verifies that PostgREST exports its pool metrics on the admin port, and that its pool isn't starved.
  * @param {Kubernetes} k8s
  */
-export function postgrestMetrics(k8s) {
+function postgrestMetrics(k8s) {
     const response = podMetrics(k8s, "postgrest");
     expect("a PostgREST pod answers on its admin port", response?.status === 200);
     const body = String(response?.body ?? "");

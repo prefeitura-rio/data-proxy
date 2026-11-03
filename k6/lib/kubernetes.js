@@ -27,7 +27,7 @@ function deploymentPodSpec(k8s, deploymentName) {
  * @param {Kubernetes} k8s
  * @returns {KubernetesPodSpec}
  */
-export function workerPodSpec(k8s) {
+function workerPodSpec(k8s) {
     return deploymentPodSpec(k8s, PIPELINE);
 }
 
@@ -80,7 +80,7 @@ function scriptPodSpec(podSpec) {
  * @param {object} spec
  * @returns {string}
  */
-export function createJob(k8s, name, spec) {
+function createJob(k8s, name, spec) {
     k8s.create({
         apiVersion: "batch/v1",
         kind: "Job",

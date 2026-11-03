@@ -83,7 +83,7 @@ export function consoleRows(path, clientId) {
  * @param {unknown} value
  * @returns {string}
  */
-export function canonical(value) {
+function canonical(value) {
     const sorted = /** @param {unknown} item @returns {unknown} */ (item) => {
         if (Array.isArray(item)) return item.map(sorted);
 

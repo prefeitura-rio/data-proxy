@@ -14,7 +14,7 @@ import { userToken } from "./auth.js";
  * @param {(response: K6Response) => unknown} extract
  * @returns {MetricRequest}
  */
-export function postgrestMetric(metric, label, path, token, extract) {
+function postgrestMetric(metric, label, path, token, extract) {
     return {
         metric,
         label,
@@ -90,7 +90,7 @@ export function executeMetrics(metrics) {
  * @param {MetricRequest[]} metrics
  * @returns {boolean}
  */
-export function pollOnce(metrics) {
+function pollOnce(metrics) {
     const responses = executeMetrics(metrics);
     let published = true;
 

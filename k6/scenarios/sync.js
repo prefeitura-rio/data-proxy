@@ -67,7 +67,7 @@ export function metrics() {
  * Verifies that an unchanged source does not change published state.
  * @param {Kubernetes} k8s
  */
-export function blockedTable(k8s) {
+function blockedTable(k8s) {
     const failing = `fields->>'table' = '${FAILING_SOURCE}'`;
 
     runSqlJob(
@@ -134,7 +134,7 @@ export function blockedTable(k8s) {
  * then re-enqueue the workflow for a pod that is still alive.
  * @param {Kubernetes} k8s
  */
-export function recovery(k8s) {
+function recovery(k8s) {
     runSqlJob(k8s, "prepare-recovery", "DELETE FROM data_proxy.state", STATE_DATABASE);
     const podsBefore = syncPods(k8s).map((pod) => pod.metadata.uid);
     waitForJob(k8s, triggerSync(k8s, true));

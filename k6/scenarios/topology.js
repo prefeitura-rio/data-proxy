@@ -34,7 +34,7 @@ const SERVING = "serving";
  * Verifies that PostgREST reloaded its schema after the views changed, without a restart, and is available.
  * @param {Kubernetes} k8s
  */
-export function servingReload(k8s) {
+function servingReload(k8s) {
     const deployments = k8s.list("Deployment.apps", NAMESPACE);
 
     const postgrests = deployments.filter(

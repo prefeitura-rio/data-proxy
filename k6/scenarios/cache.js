@@ -135,7 +135,7 @@ export function proxy() {
  * Verifies that a write to the access policy that skips the proxy makes the cached answers stale. The console
  * and `configure-db` change the policy and the rules without the proxy. The revision in the settings tells it.
  */
-export function policyInvalidation() {
+function policyInvalidation() {
     const token = fetchToken();
     const path = `/${FULL_TABLE}?select=id&limit=3`;
     proxyGet(path, token);

@@ -55,7 +55,7 @@ export function publication(token) {
  * Verifies the sync workers run and the schema has its metadata schema in the catalog database.
  * @param {Kubernetes} k8s
  */
-export function catalogSync(k8s) {
+function catalogSync(k8s) {
     const syncPods = podsForComponent(k8s, "sync");
     expect("at least one sync pod is running", syncPods.length > 0);
 
@@ -71,7 +71,7 @@ export function catalogSync(k8s) {
  * @param {Kubernetes} k8s
  * @param {string} token
  */
-export function instanceCatalogs(k8s, token) {
+function instanceCatalogs(k8s, token) {
     const snapshot = snapshotValue(token);
     const instances = readyInstances(k8s);
     expect("the cluster has a primary and a standby, and both are ready", instances.length >= MIN_INSTANCES);
@@ -91,7 +91,7 @@ export function instanceCatalogs(k8s, token) {
 /**
  * Verifies the change feed: only read_ducklake reads it, and it returns only the changes of the schemas and the units of the token.
  */
-export function changeFeed() {
+function changeFeed() {
     const token = clientToken("admin");
     const otherToken = clientToken("admin_other");
     const latest = Number(snapshotValue(token));
@@ -149,7 +149,7 @@ export function changeFeed() {
  * Verifies PostgREST serves data from the catalog of the instance that it reaches.
  * @param {string} token
  */
-export function readerMount(token) {
+function readerMount(token) {
     const response = directPostgrest(`/${FULL_TABLE}?limit=1`, token);
     expect("PostgREST answers 200 from the instance-local DuckLake catalog", response.status === 200);
     expect("PostgREST serves rows from the instance-local DuckLake catalog", rowsOf(response).length > 0);

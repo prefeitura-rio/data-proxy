@@ -23,7 +23,7 @@ const { expect, requirePrecondition } = scenario("snapshots");
 /**
  * @param {Kubernetes} k8s
  */
-export function historical(k8s) {
+function historical(k8s) {
     const token = userToken();
     const path = `/${SNAPSHOT_TABLE}?id=eq.snapshot-row&select=version`;
     const snapshotN = snapshotValue(token);
@@ -51,7 +51,7 @@ export function historical(k8s) {
 /**
  * @param {Kubernetes} k8s
  */
-export function noChangeRun(k8s) {
+function noChangeRun(k8s) {
     const snapshotBefore = snapshotValue(userToken());
     const revisionBefore = postgrestDeploymentRevision(k8s);
     const job = triggerSync(k8s);
@@ -66,7 +66,7 @@ export function noChangeRun(k8s) {
  * Verifies a client can pin a DuckLake snapshot version.
  * @param {string} token
  */
-export function pinnedVersion(token) {
+function pinnedVersion(token) {
     const path = `/${FULL_TABLE}?select=id&order=id&limit=5`;
     const latest = proxyGet(path, token);
     const snapshot = snapshotHeader(latest);

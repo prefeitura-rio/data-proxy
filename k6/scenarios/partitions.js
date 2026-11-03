@@ -98,7 +98,7 @@ export function changes(k8s) {
  * @param {string} token
  * @param {Kubernetes} k8s
  */
-export function fallbackRows(token, k8s) {
+function fallbackRows(token, k8s) {
     clearProxyCache(k8s);
     sleep(1);
     const pinned = { "X-DuckLake-Snapshot": snapshotValue(token) };
@@ -158,7 +158,7 @@ export function fallbackRows(token, k8s) {
  * @param {string} token
  * @param {Kubernetes} k8s
  */
-export function splitSources(token, k8s) {
+function splitSources(token, k8s) {
     clearProxyCache(k8s);
     sleep(1);
     const all = rowsPerPartition(token);
