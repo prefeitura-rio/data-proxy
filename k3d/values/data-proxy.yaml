@@ -125,7 +125,7 @@ cnpg:
   init:
     image: registry.localhost:5001/data-proxy-jobs:local
   mode: shared
-  image: registry.localhost:5001/data-proxy-postgres:17.0.0-local
+  image: registry.localhost:5001/data-proxy-postgres:18.0.0-local
   storage:
     size: 2Gi
   autoscaling:

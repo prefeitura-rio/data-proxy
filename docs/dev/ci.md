@@ -26,7 +26,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 ## Images
 
-`ci changes` matches the changed files against the table `IMAGES` in `scripts/lib.nu`. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `17-` to the hash.
+`ci changes` matches the changed files against the table `IMAGES` in `scripts/lib.nu`. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |

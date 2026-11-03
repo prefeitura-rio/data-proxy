@@ -50,8 +50,8 @@ export const IMAGES = [
         label: PostgreSQL
         name: data-proxy-postgres
         containerfile: Containerfile.pg
-        tag_prefix: '17-'
-        local_tag_prefix: '17.0.0-'
+        tag_prefix: '18-'
+        local_tag_prefix: '18.0.0-'
         change_pattern: '^Containerfile\.pg$'
         values_pattern: '^  image: .*data-proxy-postgres:'
         sha_env: PG_SHA

@@ -40,7 +40,7 @@
         goose
         minijinja
         nushell
-        postgresql_17.out
+        postgresql_18.out
       ];
 
       env = {

@@ -94,6 +94,16 @@ CNPG also refuses to change the image and a PostgreSQL parameter in one release 
 
 Restore the database with the recovery of the whole cluster. Create a new cluster with `bootstrap.recovery` that names the object store as its source. Check the new cluster before you point any workload at it, and keep the old cluster until the check ends.
 
+## Upgrade PostgreSQL to a new major version
+
+The image `data-proxy-postgres` carries PostgreSQL 18. When `cnpg.image` changes from a 17 image to a 18 image, CloudNativePG runs an offline in-place major upgrade. It needs CloudNativePG 1.26 or later.
+
+1. Run a base backup and check that it finished. See [Verify a backup](#verify-a-backup).
+2. Run `helm upgrade` with the new image. The cluster stops while the upgrade job runs.
+3. Check that every instance runs the new version with `SELECT version();`.
+
+A rollback needs a restore from the backup of step 1. The jobs image carries the PostgreSQL 18 client, because `pg_dump` 17 can't dump a version 18 server.
+
 <!-- nav:start -->
 ---
 

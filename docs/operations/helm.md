@@ -90,7 +90,7 @@ These values tune the serving layer. The defaults are in [`helm/values.yaml`](..
 
 ## Versioning
 
-Images and the chart have separate versions. Each push to `main` that changes an image publishes it with the short commit hash as the tag, for example `data-proxy-sync:caa0da9`. The PostgreSQL image adds the prefix `17-`.
+Images and the chart have separate versions. Each push to `main` that changes an image publishes it with the short commit hash as the tag, for example `data-proxy-sync:caa0da9`. The PostgreSQL image adds the prefix `18-`.
 
 A chart release pins the newest tag of each image in `helm/values.yaml`. A released chart doesn't use `latest` for a repository image.
 

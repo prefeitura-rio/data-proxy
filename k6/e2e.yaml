@@ -39,7 +39,7 @@ spec:
       - name: OIDC_NO_POLICY_CLIENT_ID
         value: api_no_policy
       - name: PG_IMAGE
-        value: registry.localhost:5001/data-proxy-postgres:17.0.0-local
+        value: registry.localhost:5001/data-proxy-postgres:18.0.0-local
       - name: CACHE_TTL_SECONDS
         value: "5"
       - name: POLICY_REPLICATION_TIMEOUT_SECONDS

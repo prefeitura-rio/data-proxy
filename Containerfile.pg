@@ -1,16 +1,13 @@
-FROM docker.io/pgduckdb/pgduckdb:17-main@sha256:50ff4ed332fa8d2cdfd07e802e6e15fb1922fe4bb0b5f8bd272e420f6331530b
+FROM docker.io/pgduckdb/pgduckdb:18-main@sha256:2571e91fc307fc2e15b7dec44f25e05dd6c9f62bd78da19825a12dc544c1f84e
 
 USER root
 
-# The image of the chart and of the tests: pg_duckdb with PostGIS. The build installs the DuckDB extensions, so a pod
-# downloads nothing when it starts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl=7.88.1-10+deb12u15 \
-    postgresql-17-postgis-3=3.6.4+dfsg-2.pgdg12+1 \
-    postgresql-17-postgis-3-scripts=3.6.4+dfsg-2.pgdg12+1 && \
+    postgresql-18-postgis-3=3.7.0+dfsg-1.pgdg12+1 \
+    postgresql-18-postgis-3-scripts=3.7.0+dfsg-1.pgdg12+1 && \
   apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Give the postgres user and its group the ids 26, as CloudNativePG expects, and let it own the extension folder.
 RUN groupmod --gid 998 tape && \
   groupmod --gid 26 postgres && \
   usermod --uid 26 --gid 26 postgres && \
@@ -19,7 +16,6 @@ RUN groupmod --gid 998 tape && \
 
 USER postgres
 
-# Start a throwaway server only to install the DuckDB extensions into the extension folder.
 RUN initdb -D /tmp/pgdata --auth=trust && \
   pg_ctl -D /tmp/pgdata -o "-c shared_preload_libraries=pg_duckdb -c duckdb.allow_unsigned_extensions=on -c duckdb.allow_community_extensions=on -c duckdb.extension_directory=/usr/local/lib/pg_duckdb/extensions -c unix_socket_directories=/tmp" start && \
   psql -h /tmp -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_duckdb; SELECT duckdb.install_extension('postgres'); SELECT duckdb.install_extension('ducklake'); SELECT duckdb.install_extension('bigquery', 'community');" && \

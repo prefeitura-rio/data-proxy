@@ -345,7 +345,7 @@ export def "main k6 e2e" [
     let selected = if ($scenarios | is-empty) { 'all' } else { $scenarios }
     log info $'Running the E2E suite: build=($build), scenarios=($selected)'
     k6-run $kubecfg data-proxy-e2e k6/e2e.yaml --set {
-        PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:17.0.0-($image_tag)'
+        PG_IMAGE: $'($IMAGE_REGISTRY)/data-proxy-postgres:18.0.0-($image_tag)'
         E2E_SCENARIOS: $scenarios
     } --with-trigger
 }
