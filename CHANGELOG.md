@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.6.1 - 2026-11-03
+
+### Fixes
+
+- **k6**: keep the security context of a Job that sets its image (edc4abd)
+
+
+- - -
+
 ## helm-v2.6.0 - 2026-10-30
 
 ### Features
