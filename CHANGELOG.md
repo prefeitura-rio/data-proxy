@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.7.2 - 2026-11-03
+
+### Fixes
+
+- **chart**: share the chart ServiceAccount with a renamed cluster (b342e57)
+
+
+- - -
+
 ## helm-v2.7.1 - 2026-11-03
 
 ### Fixes
