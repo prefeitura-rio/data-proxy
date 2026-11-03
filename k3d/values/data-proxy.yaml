@@ -1,5 +1,10 @@
 sync:
   replicas: 2
+  duckdb:
+    memoryLimit: 3GB
+  resources:
+    limits:
+      memory: 12Gi
   image: registry.localhost:5001/data-proxy-sync:local
   imagePullPolicy: Always
   trigger:

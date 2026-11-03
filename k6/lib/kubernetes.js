@@ -98,7 +98,10 @@ export function createJob(k8s, name, spec) {
  */
 function podJobSpec(job) {
     const first = job.podSpec.containers[0];
-    const base = job.image === undefined ? first : { volumeMounts: first.volumeMounts };
+    const base =
+        job.image === undefined
+            ? first
+            : { volumeMounts: first.volumeMounts, securityContext: first.securityContext };
 
     return {
         ...(job.ttlSecondsAfterFinished === undefined ? {} : { ttlSecondsAfterFinished: job.ttlSecondsAfterFinished }),
