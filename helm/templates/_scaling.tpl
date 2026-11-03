@@ -52,7 +52,7 @@
   authenticationRef:
     name: {{ include "data-proxy.fullname" . }}-cluster-autoscaler-auth
   metadata:
-    host: {{ printf "%s-r.%s.svc.cluster.local" (include "data-proxy.fullname" .) .Release.Namespace }}
+    host: {{ printf "%s-r.%s.svc.cluster.local" (include "data-proxy.clusterName" .) .Release.Namespace }}
     port: "5432"
     userName: {{ .Values.cnpg.db.user }}
     dbName: {{ .Values.cnpg.db.name }}

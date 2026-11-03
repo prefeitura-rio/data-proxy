@@ -315,6 +315,14 @@ auth:
   jwtRoleClaim: $.role
 ## CloudNativePG manages one PostgreSQL cluster.
 cnpg:
+  ## Name of the CloudNativePG Cluster. Empty uses the release name. Every Service host of the chart follows it.
+  clusterName: ""
+  ## Create the cluster by importing every database and role of another cluster of this namespace. Set it with a
+  ## new `clusterName` and a new `image`, to move to a new PostgreSQL major version. CloudNativePG copies a snapshot,
+  ## so stop the writers first. The source cluster stays as it is.
+  bootstrap:
+    import:
+      source: ""
   duckdb:
     ## Keep per-backend DuckDB memory bounded because several PostgREST backends can run at once.
     maxMemory: 1GB

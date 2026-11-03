@@ -96,13 +96,15 @@ Restore the database with the recovery of the whole cluster. Create a new cluste
 
 ## Upgrade PostgreSQL to a new major version
 
-The image `data-proxy-postgres` carries PostgreSQL 18. When `cnpg.image` changes from a 17 image to a 18 image, CloudNativePG runs an offline in-place major upgrade. It needs CloudNativePG 1.26 or later.
+Don't change `cnpg.image` to a new major version in place. The image of `pg_duckdb` links `libduckdb.so` by an absolute path, so the CloudNativePG upgrade job can't start the old server. Import the data into a new cluster instead. The old cluster stays until you delete it.
 
 1. Run a base backup and check that it finished. See [Verify a backup](#verify-a-backup).
-2. Run `helm upgrade` with the new image. The cluster stops while the upgrade job runs.
-3. Check that every instance runs the new version with `SELECT version();`.
+2. Scale the sync workers and the recovery Deployment to 0, so nothing writes. CloudNativePG copies one snapshot.
+3. Set `cnpg.clusterName` to a new name, `cnpg.image` to the new image, and `cnpg.bootstrap.import.source` to the name of the old cluster. Run `helm upgrade`.
+4. Check `SELECT version();` and compare the row counts of both clusters. Run `ALTER EXTENSION postgis UPDATE` and `ALTER EXTENSION pg_duckdb UPDATE`.
+5. Scale the workers back up. Delete the old cluster after a week.
 
-A rollback needs a restore from the backup of step 1. The jobs image carries the PostgreSQL 18 client, because `pg_dump` 17 can't dump a version 18 server.
+Before step 3, annotate the old cluster with `helm.sh/resource-policy=keep`. Without it, Helm deletes the old cluster and its volumes when the name changes.
 
 <!-- nav:start -->
 ---

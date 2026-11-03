@@ -1,4 +1,9 @@
 
+{{- /* Return the name of the CloudNativePG Cluster: `cnpg.clusterName`, or the release name when it is empty. */ -}}
+{{- define "data-proxy.clusterName" -}}
+{{- .Values.cnpg.clusterName | default (include "data-proxy.fullname" .) }}
+{{- end }}
+
 {{- /* Return the name of the CNPG Secret of the `ops` login. */ -}}
 {{- define "data-proxy.dbSecretName" -}}
 {{- include "data-proxy.fullname" . }}-cnpg-ops
@@ -22,7 +27,7 @@
 {{- /* Return the `PG*` variables that point `psql` at the primary as the `ops` login. */ -}}
 {{- define "data-proxy.pgEnv" -}}
 - name: PGHOST
-  value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+  value: {{ printf "%s-rw" (include "data-proxy.clusterName" .) | quote }}
 - name: PGPORT
   value: "5432"
 - name: PGDATABASE
@@ -43,21 +48,22 @@ so libpq moves on to the second host, the primary.
 {{- define "data-proxy.postgrestDsn" -}}
 {{- $role := .Values.auth.servingRole -}}
 {{- $db := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
-postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $cluster }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
+{{- $name := include "data-proxy.fullname" . -}}
+{{- $cluster := include "data-proxy.clusterName" . -}}
+postgres://{{ $role }}:$(PGRST_PASSWORD)@{{ $name }}-pgdog:6432,{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- /* Return the connection string of the application database on the primary. The pod sets `PASSWORD`. */ -}}
 {{- define "data-proxy.appPgDsn" -}}
 {{- $user := .Values.cnpg.db.user -}}
 {{- $db   := .Values.cnpg.db.name -}}
-{{- $cluster := include "data-proxy.fullname" . -}}
+{{- $cluster := include "data-proxy.clusterName" . -}}
 postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw:5432/{{ $db }}
 {{- end }}
 
 {{- /* Return the name of the CNPG cluster that stores the DBOS state. */ -}}
 {{- define "data-proxy.dbosClusterName" -}}
-{{- include "data-proxy.fullname" . -}}
+{{- include "data-proxy.clusterName" . -}}
 {{- end }}
 
 {{- /* Return the connection URL of the DBOS system database, with the full name of the primary service. */ -}}

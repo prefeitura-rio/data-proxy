@@ -32,7 +32,7 @@ spec:
           command: [sh, -c, 'until pg_isready --quiet; do sleep 2; done']
           env:
             - name: PGHOST
-              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
+              value: {{ printf "%s-rw" (include "data-proxy.clusterName" .) | quote }}
             - name: PGPORT
               value: "5432"
             - name: PGCONNECT_TIMEOUT
@@ -48,7 +48,7 @@ spec:
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
             - name: DUCKLAKE_CATALOG_URL
-              value: {{ printf "postgresql://%s:$(PASSWORD)@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+              value: {{ printf "postgresql://%s:$(PASSWORD)@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.clusterName" .) | quote }}
             - name: PROXY_ADMIN_URL
               value: {{ printf "http://%s-proxy-admin:8081/reload" (include "data-proxy.fullname" .) | quote }}
             - name: DBOS__VMID

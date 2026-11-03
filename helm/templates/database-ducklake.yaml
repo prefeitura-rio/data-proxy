@@ -1,7 +1,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  name: {{ include "data-proxy.fullname" . }}-ducklake
+  name: {{ include "data-proxy.clusterName" . }}-ducklake
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
@@ -10,5 +10,5 @@ spec:
   name: ducklake
   owner: {{ .Values.cnpg.db.user | quote }}
   cluster:
-    name: {{ include "data-proxy.fullname" . }}
+    name: {{ include "data-proxy.clusterName" . }}
   databaseReclaimPolicy: retain

@@ -121,10 +121,10 @@ containers:
             name: {{ include "data-proxy.dbSecretName" . }}
             key: password
       - name: PG_DATABASE_URL
-        value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.fullname" .) .Values.cnpg.db.name | quote }}
+        value: {{ printf "postgresql://%s@%s-rw:5432/%s" .Values.cnpg.db.user (include "data-proxy.clusterName" .) .Values.cnpg.db.name | quote }}
       {{- include "data-proxy.pgEnv" . | nindent 6 }}
       - name: DUCKLAKE_ADMIN_URL
-        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.clusterName" .) | quote }}
       - name: DUCKDB_PASSWORD
         valueFrom:
           secretKeyRef:
@@ -229,7 +229,7 @@ containers:
             name: {{ include "data-proxy.dbSecretName" $root }}
             key: password
       - name: DUCKLAKE_ADMIN_URL
-        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) | quote }}
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" $root.Values.cnpg.db.user (include "data-proxy.clusterName" $root) | quote }}
       - name: DUCKLAKE_CATALOG_PATH
         value: {{ $root.Values.ducklake.catalogPath | quote }}
       - name: S3_BUCKET

@@ -52,7 +52,7 @@ spec:
   backupOwnerReference: self
   method: plugin
   cluster:
-    name: {{ include "data-proxy.fullname" . }}
+    name: {{ include "data-proxy.clusterName" . }}
   pluginConfiguration:
     name: barman-cloud.cloudnative-pg.io
 {{- end }}

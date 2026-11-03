@@ -57,7 +57,7 @@ spec:
 {{- end }}
 
 {{- $cluster := .Values.cnpg.autoscaling }}
-{{- $clusterScaler := dict "root" $root "name" (printf "%s-cluster-autoscaler" $name) "component" "postgres" "target" (merge (dict "name" $name "kind" "Cluster") $cnpg) "min" (include "data-proxy.cnpgMinInstances" . | int) "max" (include "data-proxy.cnpgMaxInstances" . | int) "block" $cluster "triggers" (include "data-proxy.triggers" (dict "triggers" $cluster.triggers "default" (include "data-proxy.cnpgDefaultTriggers" .))) }}
+{{- $clusterScaler := dict "root" $root "name" (printf "%s-cluster-autoscaler" $name) "component" "postgres" "target" (merge (dict "name" (include "data-proxy.clusterName" .) "kind" "Cluster") $cnpg) "min" (include "data-proxy.cnpgMinInstances" . | int) "max" (include "data-proxy.cnpgMaxInstances" . | int) "block" $cluster "triggers" (include "data-proxy.triggers" (dict "triggers" $cluster.triggers "default" (include "data-proxy.cnpgDefaultTriggers" .))) }}
 {{ include "data-proxy.scaledObject" $clusterScaler }}
 ---
 apiVersion: keda.sh/v1alpha1
