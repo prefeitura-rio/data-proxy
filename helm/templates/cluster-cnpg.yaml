@@ -15,6 +15,9 @@ metadata:
 spec:
   primaryUpdateMethod: {{ $root.Values.cnpg.primaryUpdateMethod }}
   imageName: {{ $root.Values.cnpg.image | quote }}
+  {{- if $root.Values.cnpg.clusterName }}
+  serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
+  {{- end }}
   env:
     - name: HOME
       value: {{ include "data-proxy.postgresHome" $root }}
