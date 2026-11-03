@@ -45,6 +45,16 @@ tests:
           value: data-proxy-pg18
         template: backup-cnpg.yaml
         documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: data-proxy-pg18-backup
+        template: backup-cnpg.yaml
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: data-proxy-backup
+        template: backup-cnpg.yaml
+        documentIndex: 0
       - matchRegex:
           path: data["pgdog.toml"]
           pattern: 'host = "data-proxy-pg18-rw"'

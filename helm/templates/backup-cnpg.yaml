@@ -41,7 +41,7 @@ spec:
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
-  name: {{ $name }}
+  name: {{ include "data-proxy.clusterName" . }}-backup
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" . | nindent 4 }}
