@@ -9,7 +9,44 @@ This page shows what the chart deploys, how the pods connect and how each worklo
 | PostgREST  | One Deployment that connects to PgDog. `postgrest.autoscaling` scales it.                                                        |
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
-![Deployment topology](../diagrams/dist/deployment-topology.svg)
+```mermaid
+%% Deployment topology
+flowchart TD
+  gateway["Istio gateway"]
+  s3[("Object storage<br/>SeaweedFS")]
+  redis[("Redis cache")]
+  subgraph release["Helm release"]
+    proxy["Proxy<br/>KEDA: 1 to 6"]
+    postgrest["PostgREST<br/>KEDA: 1 to 6"]
+    pgdog["PgDog<br/>2 pods, no scaler"]
+    ro["Service -ro"]
+    rw["Service -rw"]
+    sync["Sync workers<br/>KEDA: 3 to 15"]
+    console["Console and notebooks"]
+    subgraph cnpg["CNPG cluster<br/>KEDA: 2 to 6 instances"]
+      primary["Primary"]
+      standbys["Standbys"]
+      secrets[("DuckDB secrets<br/>shared volume")]
+      primary -->|"WAL replication"| standbys
+      primary -->|"writes"| secrets
+      standbys -->|"reads"| secrets
+    end
+    proxy --> postgrest
+    postgrest -->|"queries"| pgdog
+    postgrest -->|"LISTEN connection"| rw
+    pgdog -->|"read-only transactions"| ro
+    pgdog -->|"other transactions"| rw
+    ro --> standbys
+    rw --> primary
+    sync -->|"DBOS state and catalog"| rw
+    console -->|"views and actions"| postgrest
+  end
+  gateway --> proxy
+  gateway --> console
+  proxy -->|"cache"| redis
+  sync -->|"write Parquet"| s3
+  cnpg -->|"pg_duckdb reads Parquet"| s3
+```
 
 PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary.
 

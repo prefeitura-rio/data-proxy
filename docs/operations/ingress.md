@@ -2,7 +2,29 @@
 
 The chart exposes the console, the notebooks and the API through the Istio gateway.
 
-![Ingress paths](../diagrams/dist/ingress-paths.svg)
+```mermaid
+%% Ingress paths
+flowchart LR
+  client["Client"]
+  subgraph gateway["Istio gateway"]
+    vs["VirtualService"]
+  end
+  jwt["JWT check<br/>ingress.auth.enabled"]
+  subgraph api["API host<br/>data-proxy.dados.rio"]
+    proxy["Proxy to PostgREST<br/>/ and the tables"]
+    docs["Swagger UI<br/>/docs"]
+    console["Console<br/>/console"]
+  end
+  subgraph nb["Notebook host<br/>notebooks.data-proxy.dados.rio"]
+    site["Notebook site"]
+  end
+  client --> vs
+  vs -->|"/ and /docs"| jwt
+  jwt --> proxy
+  jwt --> docs
+  vs -->|"/console<br/>signs in with OIDC"| console
+  vs -->|"other host,<br/>other origin"| site
+```
 
 ## Console and notebooks
 

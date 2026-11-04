@@ -666,56 +666,6 @@ def "main style" []: nothing -> nothing {
     }
 }
 
-# Return the ids of the processes that listen on a port. The command lsof exits with 1 when there are none.
-def listeners [port: int]: nothing -> list<int> {
-    let result = lsof -t -i $'tcp:($port)' -sTCP:LISTEN | complete
-
-    if $result.exit_code > 1 {
-        fail $'lsof failed: ($result.stderr)'
-    }
-
-    $result.stdout | lines | into int
-}
-
-# Stop the MkDocs servers that listen on a port, and fail when another program uses the port.
-def free-port [port: int]: nothing -> nothing {
-    for pid in (listeners $port) {
-        let found = ps --long | where pid == $pid
-
-        if ($found | is-empty) {
-            continue
-        }
-
-        if $found.command.0 !~ mkdocs {
-            fail $'Port ($port) is in use by process ($pid), which is not MkDocs. Set DOCS_PORT to use another port.'
-        }
-
-        kill $pid
-    }
-
-    while (listeners $port | is-not-empty) {
-        sleep 100ms
-    }
-}
-
-# Stop an old MkDocs server on the port, then serve the docs and open them in the browser.
-def "main serve" [
-    --opener: string = xdg-open # The program that opens the address, `open` on macOS.
-]: nothing -> nothing {
-    let port = $env.DOCS_PORT? | default 18200 | into int
-
-    free-port $port
-
-    let address = $'127.0.0.1:($port)'
-
-    job spawn {
-        sleep 2sec
-        ^$opener $'http://($address)'
-    }
-
-    mkdocs serve --dev-addr $address
-}
-
 def main []: nothing -> nothing {
     help main
 }

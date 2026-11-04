@@ -12,7 +12,33 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 Three Jobs prepare the database, and each one waits for what it needs.
 
-![Install Jobs sequence](../diagrams/dist/install-jobs-sequence.svg)
+```mermaid
+%% Install Jobs sequence
+sequenceDiagram
+  participant h as Helm install or upgrade
+  participant cfg as configure-db Job
+  participant mig as migrate-db Job
+  participant prov as provision Job
+  participant pg as PostgreSQL primary
+  participant pgr as PostgREST
+  h->>cfg: start
+  cfg->>pg: wait for the writer
+  cfg->>pg: roles, rbac, state tables, functions
+  cfg->>pg: DuckDB secrets and grants
+  h->>mig: start
+  mig->>pg: wait for the state tables
+  mig->>pg: dbos migrate
+  mig->>pg: goose up (console schema)
+  h->>prov: start
+  prov->>pg: wait for the console tables
+  prov->>pg: console functions and triggers
+  prov->>pg: fill an empty configuration
+  prov->>pg: schemas, access policies, grants
+  prov->>pg: set pgrst.db_schemas
+  opt the schema list changed
+    pg->>pgr: NOTIFY after the standbys replay
+  end
+```
 
 | Job | Waits for | Work |
 | --- | --- | --- |

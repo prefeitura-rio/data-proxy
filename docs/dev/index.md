@@ -4,7 +4,13 @@ This section helps you set up the repository, run the checks and find your way i
 
 ## Code map
 
-![Code map](../diagrams/dist/repository-code-map.svg)
+```mermaid
+%% Code map
+flowchart LR
+  proxy["<b>proxy/</b><br/>OpenResty and Lua.<br/>The request path."] ~~~ sync["<b>sync/</b><br/>Python and DBOS.<br/>Source to DuckLake."] ~~~ console["<b>console/</b><br/>SvelteKit app, notebook<br/>site and SQL migrations."]
+  helm["<b>helm/</b><br/>The chart, the job scripts<br/>and the SQL templates."] ~~~ k6["<b>k6/</b><br/>Load and end-to-end tests."] ~~~ nix["<b>nix/ and */devenv.nix</b><br/>Profiles, processes<br/>and tasks."]
+  scripts["<b>scripts/</b><br/>Nushell commands for<br/>developers and CI."] ~~~ k3d["<b>k3d/</b><br/>The local cluster."] ~~~ docs["<b>docs/</b><br/>This wiki."]
+```
 
 ## Set up the local cluster
 
@@ -86,7 +92,7 @@ No sync worker runs, so a sync run that you start stays `ENQUEUED`. A worker for
 
 ## Write the docs
 
-`devenv --profile default tasks run docs:serve:site` renders the diagrams, writes the page footers and the sidebar, and serves the wiki at `http://127.0.0.1:18200`. The page order is in `docs/.nav.json`. Render the diagrams with `docs:build:diag`.
+`devenv --profile default up docs` writes the page footers and the sidebar, then serves the wiki. devenv prints the address. The port is 18200, or the next free port when 18200 is busy. The page order is in `docs/.nav.json`.
 
 ## Database migrations and the local API
 

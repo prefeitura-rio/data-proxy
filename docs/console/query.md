@@ -10,7 +10,23 @@ The notebook runs on its own origin, `notebooks.<domain>`, which is a different 
 
 The grant that the console server builds for one schema has four steps, which the diagram shows:
 
-![Query tab grant](../diagrams/dist/query-tab-grant.svg)
+```mermaid
+%% Query tab grant
+sequenceDiagram
+  participant u as Browser
+  participant app as Console server
+  participant api as PostgREST
+  participant db as Catalog database
+  participant s3 as Object storage
+  u->>app: choose a table
+  app->>api: 1. authorize: table_files
+  api-->>app: allowed, or 403 and 409
+  app->>db: 2. list the data and delete files<br/>as console_signer
+  db-->>app: file paths
+  app->>app: 3. sign a GET link for each path<br/>valid for 5 minutes
+  app-->>u: grant with the signed links
+  u->>s3: 4. read Parquet with a signed link
+```
 
 
 1. **Authorize.** The server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files` and checks the schemas of the token.

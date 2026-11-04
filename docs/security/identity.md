@@ -4,7 +4,24 @@ This page shows how to set up the `role` and `schemas` claims in your identity p
 
 The diagram shows what happens to a token on its way to the data.
 
-![API client token](../diagrams/dist/api-client-token.svg)
+```mermaid
+%% API client token
+sequenceDiagram
+  participant c as API client
+  participant idp as Identity provider
+  participant gw as Istio gateway
+  participant pgrst as PostgREST
+  participant db as PostgreSQL
+  c->>idp: ask for a token
+  idp-->>c: JWT with role, schemas<br/>and preferred_username
+  c->>gw: request with Authorization: Bearer
+  gw->>idp: signing keys (JWKS), cached
+  gw->>gw: check signature, issuer,<br/>audience and expiry
+  gw->>pgrst: request
+  pgrst->>db: switch to the role claim
+  db-->>pgrst: rows allowed by the policy
+  pgrst-->>c: answer
+```
 
 ## Set up the role claim in an identity provider
 

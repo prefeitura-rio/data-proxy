@@ -19,7 +19,38 @@ The console shows the system to people and changes its configuration. It's a web
 
 The diagram shows how the console loads a page, starts a sync run and edits the configuration. [Application](../console/app.md) shows the sign-in, and [Query tab](../console/query.md) shows the query tab.
 
-![Console requests](../diagrams/dist/console-page-requests.svg)
+```mermaid
+%% Console requests
+sequenceDiagram
+  participant u as Browser
+  participant app as Console server
+  participant api as PostgREST
+  participant db as PostgreSQL
+  participant w as Sync worker
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Load a page
+    u->>app: GET /sync
+    app->>api: views, with the user token
+    api->>db: switch role, check rights
+    db-->>api: rows
+    api-->>app: rows
+    app-->>u: page
+  end
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Start a run
+    u->>app: press Start run
+    app->>api: POST /rpc/start_sync
+    api->>db: enqueue run_sync
+    w->>db: take the run
+  end
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Edit the configuration
+    u->>app: save a change
+    app->>api: write a row
+    api->>db: check schemas, run triggers
+    w->>db: take queued workflows
+  end
+```
 
 See [Console](../console/index.md) for the pages of the app and its database views.
 
@@ -27,7 +58,28 @@ See [Console](../console/index.md) for the pages of the app and its database vie
 
 A console user can cancel a sync run. The same path serves resume and the schedule actions. The console never changes a workflow itself. The database function checks the permission, the schemas and the status, and then it queues a workflow in the `control` queue. A sync worker runs that workflow with the DBOS API.
 
-![Run control sequence](../diagrams/dist/run-control-sequence.svg)
+```mermaid
+%% Run control sequence
+sequenceDiagram
+  participant u as Console user
+  participant app as Console server
+  participant api as PostgREST
+  participant db as PostgreSQL
+  participant w as Sync worker (control queue)
+  u->>app: cancel a sync run
+  app->>api: POST /rpc/cancel_run
+  api->>db: check permission, scope and status
+  alt refused
+    db-->>api: 403, 404 or 409
+  else allowed
+    db->>db: enqueue cancel_run in control
+    db-->>api: done
+  end
+  api-->>app: answer
+  app-->>u: page
+  w->>db: take the workflow
+  w->>db: cancel the run and its tasks
+```
 
 See [Control a run and a schedule](../console/runs.md) for the allowed statuses and the error codes.
 

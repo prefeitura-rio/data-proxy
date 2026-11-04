@@ -2,7 +2,29 @@
 
 Data Proxy copies tables from a source, such as BigQuery, into PostgreSQL and serves them as a REST API. Each caller reads only the rows that its token and the access policy allow. This wiki explains how it works, how to use it and how to run it. The [Glossary](glossary.md) defines the terms.
 
-![System context](diagrams/dist/system-context.svg)
+```mermaid
+%% System context
+flowchart LR
+  apps["API clients<br/>apps and scripts"]
+  people["People<br/>in a browser"]
+  idp["Identity provider<br/>Keycloak"]
+  subgraph dp["Data Proxy"]
+    api["API<br/>proxy and PostgREST"]
+    console["Console<br/>web app and notebooks"]
+    sync["Sync service"]
+    store["Data<br/>PostgreSQL and DuckLake"]
+  end
+  source["Source<br/>BigQuery"]
+  apps -->|"1. get a token"| idp
+  apps -->|"2. query with the token"| api
+  people -->|"sign in"| console
+  people -->|"sign in"| idp
+  api -->|"read the rows<br/>that the token allows"| store
+  console -->|"views and actions"| api
+  console -->|"start and control runs"| sync
+  sync -->|"copy tables"| source
+  sync -->|"write and publish"| store
+```
 
 ## Find your page
 

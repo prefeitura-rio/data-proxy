@@ -57,10 +57,9 @@ in
             ]
             ++ utils.mkGlobs "nix" [ "nix" ]
             ++ utils.mkGlobs "docs" [
-              "md"
-              "svg"
-              "d2"
+              "js"
               "json"
+              "md"
             ]
           );
         };

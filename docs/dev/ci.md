@@ -10,7 +10,33 @@ A manual start has two inputs. `force_checks` runs every check and test without 
 
 ## Jobs
 
-![CI jobs](../diagrams/dist/ci-jobs.svg)
+```mermaid
+%% CI jobs
+flowchart LR
+  push["Push, pull request<br/>or manual start"]
+  subgraph checks["Run at the same time"]
+    changes["changes<br/>which images and chart changed"]
+    repo["repo<br/>lint and unit tests"]
+    sync["test-sync"]
+    console["test-console"]
+    proxy["test-proxy"]
+    sizes["profile-sizes"]
+  end
+  subgraph main["Only on main"]
+    build["build-images<br/>fill the layer cache"] --> pushimg["push-images<br/>push and sign"] --> helm["helm<br/>publish the chart"]
+  end
+  push --> changes
+  push --> repo
+  push --> sync
+  push --> console
+  push --> proxy
+  push --> sizes
+  changes --> build
+  repo -->|"tests pass"| pushimg
+  sync --> pushimg
+  console --> pushimg
+  proxy --> pushimg
+```
 
 | Job | Work |
 | --- | --- |

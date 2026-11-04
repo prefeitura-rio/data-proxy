@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ pkgs, ... }:
 {
   profiles.default = {
     extends = [
@@ -8,12 +8,15 @@
       "proxy"
     ];
     module =
-      { config, utils, ... }:
+      {
+        config,
+        data,
+        utils,
+        ...
+      }:
       {
         env = {
           KUBECONFIG = "k3d/.kubeconfig";
-          D2_LAYOUT = "elk";
-          D2_DARK_THEME = "200";
         };
 
         packages = with pkgs; [
@@ -23,7 +26,6 @@
           marksman
           k6
           k3d
-          d2
           (google-cloud-sdk.withExtraComponents (
             with google-cloud-sdk.components; [ gke-gcloud-auth-plugin ]
           ))
@@ -48,42 +50,25 @@
           };
         };
 
-        tasks = {
-          "docs:build:diag" = utils.nuTask {
-            description = "Render the D2 diagrams to SVG.";
-            exec = "nu scripts/diag.nu build";
-            execIfModified = utils.mkInputs [
-              "docs/diagrams/*.d2"
-              "scripts/diag.nu"
+        processes.docs =
+          utils.mkProcess {
+            command = [
+              "mkdocs"
+              "serve"
+              "--dev-addr"
+              "127.0.0.1:${toString (data.port "docs" "main")}"
             ];
+            packages = [ pkgs.mkdocs ];
+          }
+          // {
+            cwd = config.devenv.root;
+            ports.main.allocate = 18200;
+            ready = utils.probes.http { port = data.port "docs" "main"; };
           };
-          "docs:serve:site" = utils.nuTask {
-            description = "Generate the diagrams, the navigation and the role table, then serve the docs.";
-            packages =
-              with pkgs;
-              [
-                lsof
-                mkdocs
-              ]
-              ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.xdg-utils ];
-            after = lib.filter (lib.hasPrefix "docs:build:") (lib.attrNames config.tasks);
-            exec = "nu scripts/docs.nu serve --opener ${
-              if pkgs.stdenv.hostPlatform.isDarwin then "open" else "xdg-open"
-            }";
-          };
-          "docs:lint:diag" = utils.nuTask {
-            description = "Check that the rendered diagrams are current.";
-            exec = "nu scripts/diag.nu check";
-            execIfModified = utils.mkInputs (
-              [ "scripts/diag.nu" ]
-              ++ utils.mkGlobs "docs" [
-                "d2"
-                "json"
-                "md"
-                "svg"
-              ]
-            );
-          };
+
+        tasks = {
+          "docs:build:nav".before = [ (utils.processTask "docs") ];
+          "docs:build:roles".before = [ (utils.processTask "docs") ];
         };
       };
   };

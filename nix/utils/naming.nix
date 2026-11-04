@@ -8,7 +8,6 @@ let
     "setup"
     "fetch"
     "clean"
-    "serve"
     "open"
   ];
 

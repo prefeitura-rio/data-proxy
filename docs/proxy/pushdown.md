@@ -20,7 +20,27 @@ The table view pushes `order` with the limit only when every order column is a w
 
 A request that selects all columns of a wide table still reads all of them.
 
-![Pushdown decision](../diagrams/dist/pushdown-decision.svg)
+```mermaid
+%% Pushdown decision
+flowchart TD
+  request["GET request"] --> read{"Does the proxy read<br/>every parameter?"}
+  read -->|"no"| postgrest["PostgREST answers<br/>the original request"]
+  read -->|"yes"| agg{"Does the select have<br/>aggregates?"}
+  agg -->|"no"| table
+  agg -->|"yes"| supported{"Group, functions and order<br/>are supported?"}
+  supported -->|"no"| postgrest
+  supported -->|"yes"| agg_call["Call table_aggregate<br/>DuckDB groups the rows"]
+  agg_call --> empty{"Answer null, error<br/>or a fallback source?"}
+  empty -->|"yes"| postgrest
+  empty -->|"no"| answer["Send the answer<br/>and cache it"]
+  subgraph table["Read the table view"]
+    where["where: filter the rows"]
+    columns["columns: read fewer columns"]
+    limit["limit and order: stop early<br/>only for a plain read and<br/>simple order columns"]
+  end
+  table --> answer
+  postgrest --> answer
+```
 
 ## Aggregates
 

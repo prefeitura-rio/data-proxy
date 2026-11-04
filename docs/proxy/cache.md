@@ -37,7 +37,36 @@ Without a lock, a slow entry that expires sends every request for it to PostgRES
 
 The proxy calls the first request for a key the leader. The other requests for the same key are followers, and they wait for the leader.
 
-![Cache lock sequence](../diagrams/dist/cache-lock-sequence.svg)
+```mermaid
+%% Cache lock sequence
+sequenceDiagram
+  participant a as Request A
+  participant b as Request B (same key)
+  participant n as Proxy
+  participant r as Redis
+  participant pr as PostgREST
+  a->>n: GET
+  n->>n: build the key
+  n->>r: look up the key
+  r-->>n: miss
+  n->>n: A takes the lock
+  b->>n: GET
+  n->>r: look up the key
+  r-->>n: miss
+  n->>n: B waits (up to 30 s)
+  n->>pr: A asks PostgREST
+  pr-->>n: answer
+  alt 200 and not empty
+    n->>r: store the entry
+    n->>n: A frees the lock
+    n->>r: B reads the entry
+    r-->>n: entry
+  else nothing stored, or B timed out
+    n->>pr: B asks PostgREST itself
+  end
+  n-->>a: answer
+  n-->>b: answer
+```
 
 - A follower waits up to 30 seconds and reads the entry that the leader stored.
 - The lock is `resty.lock`, which OpenResty ships, in the shared dictionary `proxy_locks`. A leader that dies frees the key after 60 seconds.

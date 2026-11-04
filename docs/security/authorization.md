@@ -2,7 +2,20 @@
 
 Authorization has two independent conditions. The diagram shows the order of the checks.
 
-![Authorization checks](../diagrams/dist/authorization-checks.svg)
+```mermaid
+%% Authorization checks
+flowchart TD
+  token["Request with a token"] --> valid{"Valid token?"}
+  valid -->|"no"| refused["401 from the gateway"]
+  valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
+  role --> schema{"Is the schema in the<br/>schemas claim?"}
+  schema -->|"no"| none["200, no rows"]
+  schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
+  all -->|"yes"| every["Every row of the table"]
+  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all."}
+  policy -->|"yes"| unit["The rows of those units"]
+  policy -->|"no"| none
+```
 
 ## Schema condition
 

@@ -2,7 +2,26 @@
 
 The query tab of the console embeds a notebook that runs in the browser. `console/notebooks/` builds the static site of that notebook. The site runs on its own origin, so it shares no cookie with the console.
 
-![Notebook flow](diagrams/dist/notebook-flow.svg)
+```mermaid
+%% Notebook flow
+sequenceDiagram
+  participant u as User
+  participant page as Console page
+  participant nb as Notebook<br/>(own origin, in an iframe)
+  participant app as Console server
+  participant s3 as Object storage
+  u->>page: choose tables
+  page->>nb: open /?tables=people
+  nb-->>page: ready
+  page->>app: ask for a grant
+  app-->>page: signed links, valid 5 minutes
+  page->>nb: post the grant<br/>only from the console origin
+  nb->>nb: register the links,<br/>create a view for each table
+  nb-->>page: applied
+  u->>nb: run: await query(sql)
+  nb->>s3: DuckDB-WASM reads Parquet<br/>with the signed links
+  s3-->>nb: rows
+```
 
 ## What the site contains
 

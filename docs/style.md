@@ -430,7 +430,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 #### Naming
 
 - **NIX-01** Name a task `<component>:<verb>:<target>`. [must, devenv]
-- **NIX-02** Use one of these verbs: `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean`, `serve` or `open`. [must, devenv]
+- **NIX-02** Use one of these verbs: `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean` or `open`. [must, devenv]
 - **NIX-03** Name the target for the object of the verb, in the singular, such as `py`, `image` or `db`. For `test`, the target is the task type: `unit` or `int`. [must, review]
 - **NIX-04** Name a task that groups other tasks with the component `repo`: `repo:lint` and `repo:test:unit`. `devenv tasks run repo` runs both. [must, devenv]
 - **NIX-05** Run a group with a namespace prefix. `devenv tasks run sync:test` runs the sync tests of the active profile. [should, review]
@@ -747,37 +747,36 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 
 ### Diagrams
 
-Applies to: `docs/diagrams/**`.
+Applies to: `docs/**/*.md`.
 
 #### Where a diagram lives
 
-- **DOC-24** Give a diagram one owner page, and embed its SVG there once. Other pages link to the owner. `docs:lint:diag` fails for an SVG that no page embeds or that two pages embed. [must, devenv]
-- **DOC-25** Give every diagram a short name, and write it as the alt text of the image. Don't add a caption line under the image. [must, review]
+- **DOC-24** Give a diagram one owner page, and write it there as a `mermaid` fence. Other pages link to the owner. [must, review]
+- **DOC-25** Give every diagram a short name, and write it as the first line of the fence, in a `%%` comment. Don't add a caption line under it. [must, review]
 - **DOC-26** Draw one context diagram on `docs/index.md` and one overview diagram of the whole system on `docs/architecture/index.md`. [must, review]
-- **DOC-27** Put every D2 file in `docs/diagrams/`. Name it with at most 3 words in kebab case that say what it shows, such as `authorization-checks`. End the name of a table diagram with `-tables`. [must, review]
+- **DOC-27** Name a node with letters, digits and underscores, and don't use a Mermaid keyword such as `call`, `end`, `class` or `style` as a node name. [must, review]
 - **DOC-28** Pick the diagram type from the question that the page answers, as the next table shows. Use a table when a diagram adds nothing. [must, review]
 - **DOC-36** Start a page with one or two sentences that say what the page is for. Show the diagram or the steps next, and put reference tables last. [should, review]
 - **DOC-37** Keep a diagram to about 12 boxes. Split a larger one, or draw the detail on the page of the part. [should, review]
 - **DOC-38** Write a box label as a noun phrase and an edge label as a verb phrase. [should, review]
 
-| Question | D2 type | Example |
+| Question | Mermaid type | Example |
 | --- | --- | --- |
-| What happens in order, between parties? | `sequence_diagram` | `api-read-sequence` |
-| Which path does a request take, and where does it branch? | Flowchart with `diamond` shapes | `authorization-checks` |
-| Which states exist, and how does a thing move between them? | Flowchart with labeled edges | `run-statuses` |
-| What runs where? | Nested containers with `cylinder` for storage | `deployment-topology` |
-| Which parts exist and how do they relate? | Nested containers and edges | `system-components`, `system-context` |
-| What's in each folder or set? | `grid` | `repository-code-map` |
-| Which tables and columns exist? | `sql_table` | `application-tables` |
+| What happens in order, between parties? | `sequenceDiagram` | `api-read-sequence` |
+| Which path does a request take, and where does it branch? | `flowchart` with `{}` decision nodes | `authorization-checks` |
+| Which states exist, and how does a thing move between them? | `flowchart` with labeled edges | `run-statuses` |
+| What runs where? | Nested `subgraph` blocks, and `[( )]` for storage | `deployment-topology` |
+| Which parts exist and how do they relate? | Nested `subgraph` blocks and edges | `system-components`, `system-context` |
+| What's in each folder or set? | `flowchart` with nodes and no edges | `repository-code-map` |
+| Which tables and columns exist? | `erDiagram` | `application-tables` |
 
 #### How to draw it
 
-- **DOC-29** Write a diagram in D2, in `docs/diagrams/<name>.d2`. Don't write a diagram in another language. [must, review]
-- **DOC-30** Let `all-tables.d2` import the other `*-tables.d2` files. Edit a table in its own file and not in `all-tables.d2`. [must, review]
-- **DOC-31** Render a diagram with `devenv --profile default tasks run docs:build:diag`. It writes `docs/diagrams/dist/<name>.svg`. Commit the `.d2` and the `.svg`, and embed the SVG with an image link and an alt text. [must, devenv]
-- **DOC-32** Know that `docs:lint:diag` (profile `default`) fails when an SVG is out of date or embedded wrongly, and that CI doesn't run it. [should, devenv]
-- **DOC-33** Make every diagram render in a light and a dark theme. [must, review]
-- **DOC-34** Draw a database diagram with `sql_table` shapes, and take the columns from the SQL files. [must, review]
+- **DOC-29** Write a diagram in Mermaid, in a `mermaid` fence on its owner page. Don't write a diagram in another language, and don't commit an image of it. [must, review]
+- **DOC-30** Keep `all-tables` on `docs/model.md` as one `erDiagram` that repeats the three table sets. Change a table in its own diagram and in `all-tables`. [must, review]
+- **DOC-31** Preview a diagram with `devenv --profile default up docs`. GitHub and the MkDocs script `docs/javascripts/mermaid.js` render each fence in the browser. [should, review]
+- **DOC-33** Set no color in a diagram unless the color carries a meaning, so that GitHub shows it in the theme of the reader. [must, review]
+- **DOC-34** Draw a database diagram with `erDiagram` entities, and take the columns from the SQL files. [must, review]
 
 ## Git
 

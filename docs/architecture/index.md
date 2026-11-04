@@ -6,7 +6,55 @@ This page shows the parts of Data Proxy and how they depend on each other. Read 
 
 The diagram shows what each component needs. KEDA (Kubernetes Event-driven Autoscaling) scales the proxy, PostgREST, the sync workers and the PostgreSQL standbys.
 
-![System components](../diagrams/dist/system-components.svg)
+```mermaid
+%% System components
+flowchart TD
+  subgraph clients["Clients"]
+    api_client["API client"]
+    browser["Browser"]
+  end
+  idp["Identity provider"]
+  gateway["Istio gateway"]
+  subgraph serving["Serving layer"]
+    proxy["Proxy (OpenResty)"]
+    redis["Redis cache"]
+    postgrest["PostgREST"]
+    pgdog["PgDog"]
+  end
+  subgraph pg["PostgreSQL"]
+    appdb["Application database"]
+    catalog["ducklake database"]
+  end
+  s3["SeaweedFS (S3): Parquet files"]
+  subgraph sync["Sync layer"]
+    workers["Sync workers (DBOS)"] --> duckdb["DuckDB (ducklake extension)"]
+  end
+  source["Source"]
+  subgraph console["Console layer"]
+    app["Console server"]
+    notebooks["Notebook"]
+  end
+  api_client --> gateway
+  browser --> console
+  gateway --> proxy
+  gateway -->|"signing keys (JWKS)"| idp
+  proxy --> redis
+  proxy --> postgrest
+  postgrest -->|"signing keys (JWKS)"| idp
+  postgrest --> pgdog
+  pgdog -->|"reads to standbys, writes to primary"| appdb
+  pg -->|"pg_duckdb reads Parquet"| s3
+  workers -->|"DBOS state"| appdb
+  duckdb -->|"commits snapshots"| catalog
+  duckdb -->|"writes Parquet"| s3
+  workers --> source
+  workers -->|"flush"| redis
+  app --> postgrest
+  app -->|"sign in (OpenID Connect)"| idp
+  app -->|"file lists"| catalog
+  app -->|"storage identities"| s3
+  notebooks -->|"signed links"| s3
+```
 
 ## Layers
 

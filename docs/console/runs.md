@@ -6,7 +6,35 @@ The functions `console.cancel_run(run)`, `console.resume_run(run)`, `console.ret
 
 Cancel, resume and the schedule actions enqueue a workflow in the queue `control`, and the sync worker runs it with the DBOS API. [Console layer](../architecture/console.md#run-control) shows the sequence. A sync run accepts an action only in the right status. The diagram shows the moves, and the table lists the rules:
 
-![Run statuses](../diagrams/dist/run-statuses.svg)
+```mermaid
+%% Run statuses
+flowchart LR
+  start(["Start a run<br/>start_sync"])
+  enqueued["ENQUEUED"]
+  delayed["DELAYED"]
+  pending["PENDING"]
+  subgraph ended["Ended"]
+    success["SUCCESS"]
+    error["ERROR"]
+    cancelled["CANCELLED"]
+    max["MAX_RECOVERY_<br/>ATTEMPTS_EXCEEDED"]
+  end
+  again(["New sync run"])
+  start --> enqueued
+  enqueued -->|"a worker takes it"| pending
+  pending --> success
+  pending --> error
+  pending -->|"the worker is lost<br/>too many times"| max
+  enqueued -->|"cancel"| cancelled
+  pending -->|"cancel"| cancelled
+  delayed -->|"cancel"| cancelled
+  cancelled -->|"resume"| enqueued
+  max -->|"resume"| enqueued
+  ended -->|"run again"| again
+  linkStyle 5,6,7 stroke:#b45309,color:#b45309
+  linkStyle 8,9 stroke:#15803d,color:#15803d
+  linkStyle 10 stroke:#1d4ed8,color:#1d4ed8
+```
 
 
 | Action | Function | Needs | Allowed statuses | Result |

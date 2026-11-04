@@ -12,7 +12,31 @@ SQL has three layers. Each layer has one job.
 | Static function | PL/pgSQL | At each request | Reads the filter and builds the text of the DuckDB query. It doesn't depend on a table. |
 | Dynamic SQL | `format()` | At each request | Runs the text that a static function built, with `%I` and `%L`. |
 
-![How a request becomes SQL](diagrams/dist/request-to-sql.svg)
+```mermaid
+%% How a request becomes SQL
+sequenceDiagram
+  participant w as Sync worker
+  participant t as Jinja templates
+  participant db as PostgreSQL
+  participant api as PostgREST
+  participant d as DuckDB
+  rect rgba(128, 128, 128, 0.15)
+    Note over w,d: Install (each sync run)
+    w->>t: render with identifiers and column lists
+    t-->>w: SQL text
+    w->>db: install the static routing functions
+    w->>db: install one function for each table
+  end
+  rect rgba(128, 128, 128, 0.15)
+    Note over w,d: Read (each request)
+    api->>db: call the function of the table
+    db->>db: check the token and the access policy
+    db->>db: static functions render the filter, the columns and the aggregate
+    db->>d: duckdb.query with the rendered SELECT
+    d-->>db: rows
+    db-->>api: rows and headers
+  end
+```
 
 Put logic in a static function and not in a template. A static function has one name, one test and one place to read.
 

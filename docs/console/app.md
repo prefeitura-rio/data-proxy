@@ -4,7 +4,21 @@ This page explains how the console app signs people in, keeps the session and sh
 
 ## The web app
 
-![Console sign-in](../diagrams/dist/console-sign-in.svg)
+```mermaid
+%% Console sign-in
+sequenceDiagram
+  participant u as Browser
+  participant app as Console server
+  participant idp as Identity provider
+  u->>app: open the console
+  app-->>u: redirect to sign-in
+  u->>idp: sign in
+  idp-->>u: redirect with a code
+  u->>app: GET /auth/callback
+  app->>idp: exchange code and PKCE verifier<br/>for tokens
+  app->>app: seal the tokens in a cookie
+  app-->>u: the console page
+```
 
 The app signs in people with OpenID Connect: the authorization code flow with PKCE and a `state` value. The server keeps the access token and the refresh token in an encrypted cookie. The cookie is `httpOnly`, `SameSite=Lax` and host-only.
 

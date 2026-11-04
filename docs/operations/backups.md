@@ -4,7 +4,19 @@ A sync rebuilds application tables from the source. It doesn't rebuild access gr
 
 ## Operation
 
-![Backup flow](../diagrams/dist/backup-flow.svg)
+```mermaid
+%% Backup flow
+flowchart LR
+  schemas[("console.schemas<br/>the list of schemas")]
+  subgraph job["Backup CronJob backup.schedule"]
+    each["For each schema"] --> export["Export access_policy<br/>and access_log"] --> prune["Delete access_log rows<br/>older than retentionDays"]
+  end
+  bucket[("Backup bucket<br/>prefix/schema/date/")]
+  fail["One schema fails:<br/>the job goes on, then fails<br/>and names the schema"]
+  schemas -->|"read at each run"| each
+  export -->|"upload two dumps"| bucket
+  each -.->|"on a failure"| fail
+```
 
 Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so it backs up a schema that an editor adds in the console from its first night.
 
