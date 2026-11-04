@@ -65,23 +65,23 @@ async def test_each_schema_writes_to_its_own_metadata_schema(tmp_path: Path) -> 
         await catalog.close()
 
 
-async def test_configure_catalog_sets_small_row_groups(
+async def test_configure_catalog_sets_the_row_group_size(
     duckdb: DuckDB, catalog_paths: DuckLakePaths
 ) -> None:
-    """DuckLake writes the rows of a table in row groups, and a table with wide JSON columns needs more than 3 GB for the default of 122880 rows."""
+    """DuckDB reads row groups of 100000 rows or more fastest, and the bytes limit bounds the memory of wide rows."""
     await configure_catalog(duckdb, catalog_paths, encrypted=False)
 
     rows = await duckdb.query(
         "SELECT value FROM dl.options() WHERE option_name = 'parquet_row_group_size'"
     )
 
-    assert rows == [("10000",)]
+    assert rows == [("122880",)]
 
 
 async def test_wide_rows_are_written_in_row_groups_of_limited_size(
     duckdb: DuckDB, catalog_paths: DuckLakePaths, tmp_path: Path
 ) -> None:
-    """A row group is in memory while DuckDB writes it, so 10000 rows of 16 KB each need more than 1 GB. 8000 rows of 10 KB stay under the rows limit and go over the bytes limit."""
+    """A row group is in memory while DuckDB writes it, so 122880 rows of 10 KB each need more than 1 GB. 8000 rows of 10 KB stay under the rows limit and go over the bytes limit."""
     duckdb.connection.execute(limits_sql(tmp_path / "spill"))
     await configure_catalog(duckdb, catalog_paths, encrypted=False)
     duckdb.connection.execute("CREATE TABLE dl.wide (id INTEGER, body VARCHAR)")

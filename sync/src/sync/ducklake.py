@@ -168,8 +168,8 @@ def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
             assert_never(selection)
 
 
-PARQUET_ROW_GROUP_SIZE: Final = 10_000
-"""Rows in one row group. A row group is in memory while DuckDB writes it. The same size is in the macro parquet_options."""
+PARQUET_ROW_GROUP_SIZE: Final = 122_880
+"""Rows in one row group. This is the DuckDB default, and DuckDB reads row groups of 100000 rows or more fastest. PARQUET_ROW_GROUP_BYTES bounds the memory of wide rows."""
 
 PARQUET_ROW_GROUP_BYTES: Final = "32MB"
 """Size of one row group before DuckDB starts the next one. Wide rows reach this size long before they reach the rows limit."""

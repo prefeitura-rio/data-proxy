@@ -212,7 +212,7 @@ class PlanningContext:
 ### Data and sync
 
 - **PY-17** Open one DuckDB connection for each concurrent task, and set its memory, threads and spill folder with the `limits` template. A connection serves one query at a time. [must, review]
-- **PY-18** Write Parquet row groups of at most 10,000 rows and 32 MB (`PARQUET_ROW_GROUP_SIZE` and `PARQUET_ROW_GROUP_BYTES`), so that a dump of wide tables fits in memory. [must, review]
+- **PY-18** Publish DuckLake row groups of at most 122,880 rows and 32 MB (`PARQUET_ROW_GROUP_SIZE` and `PARQUET_ROW_GROUP_BYTES`). Write the dump in row groups of 10,000 rows. Wide tables then fit in memory. [must, review]
 - **PY-19** Reconcile the serving views of every table of a planned schema, also when a run plans no change. [must, review]
 - **PY-20** Parse and compute times with `whenever` (`Instant`, `PlainDateTime`). Import `datetime` only at a boundary that needs it. [should, review]
 
