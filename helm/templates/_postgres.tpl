@@ -94,7 +94,7 @@ postgresql://{{ $user }}:$(PASSWORD)@{{ $cluster }}-rw.{{ .Release.Namespace }}.
 -}}
 {{- $tmpfsVolume := dict
   "name" "duckdb-tmpfs"
-  "emptyDir" (dict "medium" "Memory")
+  "emptyDir" (dict "medium" "Memory" "sizeLimit" "4Gi")
 -}}
 {{- $tmpfsMount := dict
   "name" "duckdb-tmpfs"

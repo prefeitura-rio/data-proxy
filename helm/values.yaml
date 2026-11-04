@@ -317,6 +317,8 @@ auth:
 cnpg:
   duckdb:
     ## Keep per-backend DuckDB memory bounded because several PostgREST backends can run at once.
+    ## One heavy read took about 1.4 GiB of a standby (measured), so six of them fill a 6Gi limit. In the worst case,
+    ## pgdog.poolSize x 1.4 GiB must fit cnpg.resources.limits.memory.
     maxMemory: 1GB
     ## DuckDB threads per PostgreSQL backend. Two threads leave room for concurrent backends.
     threads: 2

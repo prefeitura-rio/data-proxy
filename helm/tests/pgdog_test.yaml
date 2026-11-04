@@ -38,15 +38,30 @@ tests:
           pattern: '(?m)^read_write_split = "include_primary_if_replica_banned"$'
         template: configmap-pgdog.yaml
 
-  - it: leaves the standby lag to the CNPG readiness probe, so PgDog keeps no lag rules
+  - it: bans a standby that is more than 16 MiB behind, the same limit as cnpg.maxReplicaLag
     asserts:
-      - notMatchRegex:
+      - matchRegex:
           path: data["pgdog.toml"]
-          pattern: 'lsn_check'
+          pattern: '(?m)^lsn_check_delay = 0$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^lsn_check_interval = 1000$'
+        template: configmap-pgdog.yaml
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^ban_replica_lag_bytes = 16777216$'
         template: configmap-pgdog.yaml
       - notMatchRegex:
           path: data["pgdog.toml"]
-          pattern: 'ban_replica_lag'
+          pattern: '(?m)^ban_replica_lag = '
+        template: configmap-pgdog.yaml
+
+  - it: queues a read for a full standby pool for 20 s, which is less than the 30 s PostgREST timeout of the proxy
+    asserts:
+      - matchRegex:
+          path: data["pgdog.toml"]
+          pattern: '(?m)^checkout_timeout = 20000$'
         template: configmap-pgdog.yaml
 
   - it: gives up on a dead standby within seconds, and tries a connection twice

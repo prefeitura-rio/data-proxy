@@ -51,6 +51,29 @@ tests:
           pattern: '"image":"ghcr.io/prefeitura-rio/data-proxy-postgres:[^"]*","imagePullPolicy":"IfNotPresent","name":"prepare-duckdb-secrets"'
         template: cluster-cnpg.yaml
 
+  - it: allows no unsigned extension and installs or loads no extension at run time
+    asserts:
+      - notExists:
+          path: spec.postgresql.parameters["duckdb.allow_unsigned_extensions"]
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.autoinstall_known_extensions"]
+          value: "off"
+        template: cluster-cnpg.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.autoload_known_extensions"]
+          value: "off"
+        template: cluster-cnpg.yaml
+
+  - it: limits the memory-backed DuckDB spill folder to 4Gi
+    set:
+      ducklake.secrets.storage.storageClass: k3d-rwx
+    asserts:
+      - matchRegex:
+          path: metadata.annotations["cnpg.io/podPatch"]
+          pattern: '"emptyDir":\{"medium":"Memory","sizeLimit":"4Gi"\}'
+        template: cluster-cnpg.yaml
+
   - it: shares the DuckDB secrets volume even when the values name no schema, because editors add them later
     set:
       ducklake.secrets.storage.storageClass: k3d-rwx
