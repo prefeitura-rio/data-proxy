@@ -243,7 +243,9 @@ class TestExtractTaskLogs:
             connection: object, task: object, report: Callable[..., Awaitable[None]]
         ) -> None:
             await report("Source described", columns=3)
-            await report("Partition written", part=1, of=1, rows=10)
+            await report(
+                "Partition written", partition_number=1, partition_count=1, rows=10
+            )
 
         monkeypatch.setattr(steps, "run_extraction", extract)
 

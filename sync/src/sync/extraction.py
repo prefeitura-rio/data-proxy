@@ -102,8 +102,8 @@ async def run_extraction(duckdb_conn: DuckDB, task: DumpTask, report: Report) ->
         await report(
             "Partition written",
             path=path,
-            part=index,
-            of=total,
+            partition_number=index,
+            partition_count=total,
             rows=sum(rows for _, rows, _, _, _, _ in written),
             bytes=sum(size for _, _, size, _, _, _ in written),
             seconds=round(monotonic() - started, 1),

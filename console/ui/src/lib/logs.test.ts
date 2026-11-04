@@ -145,8 +145,8 @@ describe('lineText', () => {
 		['a table without a schema', { table_name: 'events' }, '2026-10-25T12:00:03Z INFO events a:0'],
 		[
 			'fields',
-			{ message: 'Partition written', fields: { part: 2, of: 12, path: 's3://b/t' } },
-			'2026-10-25T12:00:03Z INFO Partition written: part=2 of=12 path=s3://b/t'
+			{ message: 'Partition written', fields: { partition_number: 2, partition_count: 12, path: 's3://b/t' } },
+			'2026-10-25T12:00:03Z INFO Partition written: partition_number=2 partition_count=12 path=s3://b/t'
 		],
 		['empty fields', { fields: {} }, '2026-10-25T12:00:03Z INFO a:0']
 	])('writes a line with %s', (_name, change, expected) => {

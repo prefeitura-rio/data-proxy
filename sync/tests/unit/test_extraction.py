@@ -160,8 +160,8 @@ class TestExtractionReports:
             ("Partition written", 15),
         ]
         assert reports[0][1] == {"columns": 1}
-        assert [fields["part"] for _, fields in reports[1:]] == [1, 2]
-        assert all(fields["of"] == 2 for _, fields in reports[1:])
+        assert [fields["partition_number"] for _, fields in reports[1:]] == [1, 2]
+        assert all(fields["partition_count"] == 2 for _, fields in reports[1:])
         for _, fields in reports[1:]:
             written = await asyncio.to_thread(Path(str(fields["path"])).stat)
 
