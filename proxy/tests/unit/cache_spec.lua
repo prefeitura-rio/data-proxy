@@ -102,6 +102,12 @@ check("cache.is_cacheable", function(case) return cache.is_cacheable(case.respon
 		expected = false,
 	},
 	{
+		name = "rejects the OpenAPI document at the root",
+		response = response_with({ headers = { ["Content-Type"] = "application/openapi+json" } }),
+		context = context_with({ uri = "/" }),
+		expected = false,
+	},
+	{
 		name = "rejects a range request",
 		response = response_with(),
 		context = context_with({ headers = { Range = "0-1" } }),
@@ -181,6 +187,13 @@ end, {
 		stored = { body = '[{"id":1}]', headers = { ["X-Source"] = "ducklake" } },
 		response = response_with(),
 		expected = { source = "cache", reads = 1, writes = 0, loads = 0 },
+	},
+	{
+		name = "asks PostgREST and stores nothing for the OpenAPI document at the root",
+		context = context_with({ uri = "/" }),
+		response = response_with(),
+		stored_write = true,
+		expected = { source = "postgrest", reads = 0, writes = 0, loads = 1 },
 	},
 	{
 		name = "answers from PostgREST and stores a cacheable answer on a miss",

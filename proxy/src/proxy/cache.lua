@@ -11,16 +11,21 @@ local cache = {}
 
 --- Check if the proxy can answer a request from the cache.
 --- The request must be a GET on a path that is not excluded.
+--- The root path is the OpenAPI document. PostgREST updates it after the sync flushes the cache,
+--- so the proxy never caches it.
 ---
 --- ```lua
 --- may_read({ method = "GET", uri = "/people", disabled_endpoints = { "/private" } })   --> true
+--- may_read({ method = "GET", uri = "/", disabled_endpoints = {} })                     --> false
 --- may_read({ method = "GET", uri = "/private/1", disabled_endpoints = { "/private" } })  --> false
 --- may_read({ method = "POST", uri = "/people", disabled_endpoints = {} })               --> false
 --- ```
 ---@param context RequestContext
 ---@return boolean
 local may_read = function(context)
-	return context.method == "GET" and not utils.matches_path_prefix(context.uri, context.disabled_endpoints)
+	return context.method == "GET"
+		and context.uri ~= "/"
+		and not utils.matches_path_prefix(context.uri, context.disabled_endpoints)
 end
 
 --- Make a CacheResult from a response or a failure.
