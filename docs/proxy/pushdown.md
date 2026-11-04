@@ -12,19 +12,19 @@ PostgREST still applies `select`, `order`, `limit`, `offset`, embeds, and conten
 
 The proxy sends `columns` and `limit` only when it reads every parameter of the query. A parameter that it can't read, such as a filter that its grammar doesn't accept, stops both. A `select` with an alias, a cast, or an embed stops them too. A `select` with aggregates sends `columns` and never `limit`, as the next section shows. The proxy also drops `limit` for a request that needs every row:
 
-- A request with `Prefer: count=...` or a `Range` header.
+- A request with `Prefer: count=...` or a `Range` header. The [counts](#counts) section shows the exception.
 - A request for a single object or another media type of PostgREST.
 - A `HEAD` request.
 
 The table view pushes `order` with the limit only when every order column is a whole number, a date, or a true or false value. DuckDB sorts text by bytes, and PostgreSQL sorts it by the collation, so a limit on a text order could return other rows. Columns of other types reach PostgreSQL as text, and the same rule applies to them.
 
-A request that selects all columns of a wide table still reads all of them. A `count` of a table or a request without `limit` reads every row too.
+A request that selects all columns of a wide table still reads all of them.
 
 ![Pushdown decision](../diagrams/dist/pushdown-decision.svg)
 
 ## Aggregates
 
-A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:count()`, runs inside DuckDB. The proxy puts the group and the aggregates in the `aggregate` field of the header. Then it calls the function `<table>_aggregate()` of the table, as `GET /rpc/<table>_aggregate`, with the same headers and no query string. The function applies the RLS and the filter, runs the `GROUP BY` in DuckDB, and returns the result rows as JSON. PostgreSQL then receives one row for each group and not one row for each row of the table.
+A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:count()`, runs inside DuckDB. The proxy puts the group and the aggregates in the `aggregate` field of the header. Then it calls `GET /rpc/<table>_aggregate` with the same headers and no query string. The function applies the RLS and the filter, runs the `GROUP BY` in DuckDB, and returns the result rows as JSON. PostgreSQL receives one row for each group.
 
 | Part of the select | Supported |
 | --- | --- |
@@ -35,7 +35,7 @@ A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:co
 | `order` | Columns of the group, by the name of the column, with `asc`, `desc`, `nullsfirst` and `nullslast`. |
 | `limit` and `offset` | Yes. They apply to the rows of the groups, after the order. |
 
-The proxy sends the original request to PostgREST, and nothing changes for the client, in these cases:
+The proxy sends the original request to PostgREST in these cases:
 
 - The `order` names an aggregate, an alias or a column outside the group. The group has a decimal, floating point, timestamp or JSON column, so DuckDB would give another type than the table.
 - The select has another function than `sum`, `avg`, `count`, `min` and `max`, a cast, an embed, a star, or two values with the same name. The request has `Prefer: count=...` or a `Range` header, asks for another media type than JSON, is a `HEAD`, or isn't a read.
@@ -45,13 +45,17 @@ DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the r
 
 The function gives at most `postgrest.maxRows` rows, as PostgREST does. If the answer has more rows, the function gives the first rows with the status `206` and `Content-Range: <first>-<last>/*`. A request with a `limit` below the cap gets exactly that many rows and no `206`. The proxy sends the `206` unchanged and doesn't store it.
 
-The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. In staging this form ran about four times faster than an `IN` list of 2,000 literals. The table function and the change feed pass the grants the same way. A table with a fallback source keeps the literal list, because the fallback receives the filter too and can't read the list.
+The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. It ran about four times faster than a list of 2,000 literals. The table function and the change feed do the same. A table with a fallback source keeps the literal list, because the fallback can't read the list.
 
-Without an `order`, DuckDB stops after the rows that the answer needs. For an aggregate, the proxy never sends `order` or `limit` at the top of the filter. The table function would cut the rows before the aggregation.
+Without an `order`, DuckDB stops after the rows that the answer needs. The proxy never sends `order` or `limit` at the top of an aggregate filter, because the table function would cut the rows before the aggregation.
 
 The answer of the function has no `Content-Range` header. It has the same `X-Source` and `X-DuckLake-Snapshot` headers as the table, and the cache stores it under the key of the original request.
 
-The parser reads comparisons and the `and`, `or` and `not` groups, and it decodes the escapes. The grammar is LPeg, in `proxy/src/proxy/parser/patterns.lua`. The proxy checks the document with the `filter_document` schema before it sends it. A document that PostgreSQL can't render fails in the proxy with the field named.
+The parser reads comparisons and the `and`, `or` and `not` groups, and it decodes the escapes. The grammar is LPeg, in `proxy/src/proxy/parser/patterns.lua`.
+
+## Counts
+
+A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_aggregate` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page, and a table with a fallback source go to PostgREST, which counts every row.
 
 <!-- nav:start -->
 ---

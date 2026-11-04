@@ -5,6 +5,7 @@ local constants = require("proxy.constants")
 local helpers = require("tests.unit.helpers")
 local parser = require("proxy.parser.main")
 local request = require("proxy.request")
+local tablex = require("pl.tablex") --[[@as pl.tablex]]
 
 local check = helpers.check(describe, it)
 
@@ -192,6 +193,119 @@ check("request.aggregate_path", function(case) return request.aggregate_path(cas
 		expected = "/rpc/" .. string.rep("a", 53) .. "_aggregate",
 	},
 })
+
+--- Make a read with the given query and headers for the count plan.
+---@param args string
+---@param headers table<string, string>|nil
+---@param overrides table|nil
+---@return table
+local function count_input(args, headers, overrides)
+	local input = { method = "GET", uri = "/people", args = args, headers_in = headers or { Prefer = "count=exact" } }
+	return tablex.update(input, overrides or {})
+end
+
+check(
+	"request.count_plan is nil unless the proxy can count in DuckDB",
+	function(case) return request.count_plan(case.input) ~= nil end,
+	{
+		{ name = "plans a read with a limit", input = count_input("limit=20"), expected = true },
+		{
+			name = "plans a read with a filter, an order and an offset",
+			input = count_input("id=gt.5&order=id&limit=20&offset=40"),
+			expected = true,
+		},
+		{
+			name = "ignores spaces around the preference",
+			input = count_input("limit=20", { Prefer = " count=exact " }),
+			expected = true,
+		},
+		{
+			name = "plans a request for JSON",
+			input = count_input("limit=20", { Prefer = "count=exact", Accept = "application/json" }),
+			expected = true,
+		},
+		{ name = "keeps a read without a limit", input = count_input("id=gt.5"), expected = false },
+		{ name = "keeps a read without a query", input = count_input(""), expected = false },
+		{
+			name = "keeps a read with a limit that the parser does not read",
+			input = count_input("limit=20&limit=30"),
+			expected = false,
+		},
+		{
+			name = "keeps another count mode",
+			input = count_input("limit=20", { Prefer = "count=planned" }),
+			expected = false,
+		},
+		{
+			name = "keeps a count with another preference",
+			input = count_input("limit=20", { Prefer = "count=exact, return=minimal" }),
+			expected = false,
+		},
+		{ name = "keeps a read without a preference", input = count_input("limit=20", {}), expected = false },
+		{
+			name = "keeps a read with a Range header",
+			input = count_input("limit=20", { Prefer = "count=exact", Range = "0-4" }),
+			expected = false,
+		},
+		{ name = "keeps a HEAD", input = count_input("limit=20", nil, { method = "HEAD" }), expected = false },
+		{
+			name = "keeps a request for CSV",
+			input = count_input("limit=20", { Prefer = "count=exact", Accept = "text/csv" }),
+			expected = false,
+		},
+		{
+			name = "keeps a request for one object",
+			input = count_input("limit=20", { Prefer = "count=exact", Accept = "application/vnd.pgrst.object+json" }),
+			expected = false,
+		},
+		{
+			name = "keeps a select with an aggregate",
+			input = count_input("select=a,n:b.sum()&limit=20"),
+			expected = false,
+		},
+		{
+			name = "keeps a path below the table",
+			input = count_input("limit=20", nil, { uri = "/people/1" }),
+			expected = false,
+		},
+	}
+)
+
+describe("request.count_plan", function()
+	local plan = assert(request.count_plan(count_input("id=gt.5&order=id.desc&limit=20&offset=40&select=id,name")))
+
+	it(
+		"sends the count to the aggregate function of the table",
+		function() assert.same("/rpc/people_aggregate", plan.path) end
+	)
+
+	it("counts with the filter of the page and no limit, order or columns", function()
+		local filter = cjson.decode(plan.count_headers["X-DuckLake-Filter"])
+
+		assert.same(parser.parse("id=gt.5", { limit = true }).where, filter.where)
+		assert.same({ items = { { fn = "count", alias = "total" } } }, filter.aggregate)
+		assert.is_nil(filter.limit)
+		assert.is_nil(filter.order)
+		assert.is_nil(filter.columns)
+	end)
+
+	it("reads the page with the limit and the offset, and without the preference", function()
+		local filter = cjson.decode(plan.page_headers["X-DuckLake-Filter"])
+
+		assert.same(60, filter.limit)
+		assert.same({ "id", "name" }, filter.columns)
+		assert.is_nil(plan.page_headers.Prefer)
+		assert.is_nil(plan.count_headers.Prefer)
+	end)
+
+	it("leaves the headers of the original request as they are", function()
+		local context = request.make_context(count_input("limit=20"), { config = { tables = {} }, now = 0 })
+
+		assert.same("count=exact", context.headers.Prefer)
+		assert.same(plan.path, context.count.path)
+		assert.is_nil(context.headers["X-DuckLake-Filter"])
+	end)
+end)
 
 describe("request.make_headers", function()
 	it("does not change the input headers", function()

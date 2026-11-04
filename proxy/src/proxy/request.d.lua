@@ -27,7 +27,14 @@
 ---@field body string Request body. Empty if absent.
 ---@field disabled_endpoints string[] Path prefixes that are never cached.
 ---@field aggregate_path string|nil Path of the function that runs the aggregate of the request in DuckDB.
+---@field count CountPlan|nil How to answer `Prefer: count=exact` with a count in DuckDB. nil: PostgREST counts.
 ---@field started number Time at which the proxy started the request (seconds, with fractions).
+
+--- The two reads that answer `Prefer: count=exact`: a count in DuckDB, and a page of rows without the count.
+---@class CountPlan
+---@field path string Path of the aggregate function of the table.
+---@field count_headers HeaderMap The headers of the count: the filter of the page, with the count as the aggregate.
+---@field page_headers HeaderMap The headers of the page: the filter with the limit, and no `Prefer`.
 
 --- The claims of a JWT that the proxy reads. Other claims are ignored.
 ---@class JwtClaims

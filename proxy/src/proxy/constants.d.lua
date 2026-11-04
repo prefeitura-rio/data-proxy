@@ -17,6 +17,7 @@
 ---@field settings SettingsConstants Limits for the call to the console that gives sync.json.
 ---@field filter FilterConstants Reading the filter parameters of a query.
 ---@field aggregate AggregateConstants Calling the aggregate function of a table.
+---@field count CountConstants Answering a count of rows with a count in DuckDB.
 ---@field config ConfigConstants Reading the config from the environment.
 
 --- Names of HTTP headers.
@@ -42,6 +43,7 @@
 ---@field overloaded_reason string The reason that limiter.run gives if it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
 ---@field ok_status integer The status of a good answer.
+---@field partial_status integer The status of an answer that holds part of the rows.
 ---@field answer_statuses table<integer, boolean> The statuses of an aggregate answer: 200, and 206 for the cap.
 ---@field success_from integer The first status of the success range.
 ---@field success_before integer The first status above the success range.
@@ -125,6 +127,12 @@
 ---@field function_suffix string Added to the table name to make the name of the function.
 ---@field max_function_bytes integer The longest name of a PostgreSQL function.
 ---@field empty_body string The body that tells the proxy to send the original request.
+
+--- Values for answering `Prefer: count=exact` with a count in DuckDB and a page of rows.
+---@class CountConstants
+---@field prefer string The only Prefer value that the proxy answers with a count in DuckDB.
+---@field alias string The name of the count in the answer of the aggregate function.
+---@field item FilterAggregateItem The aggregate that counts the rows.
 
 --- Values for reading the config from the environment.
 ---@class ConfigConstants

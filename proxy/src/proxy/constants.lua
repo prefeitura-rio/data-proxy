@@ -40,6 +40,7 @@ return {
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
 		ok_status = 200,
+		partial_status = 206,
 		--- The statuses of an answer of the aggregate function. 206 is the cap of the function.
 		answer_statuses = { [200] = true, [206] = true },
 		success_from = 200,
@@ -67,6 +68,7 @@ return {
 			request = "Proxy request completed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
 			["aggregate-failed"] = "Proxy aggregate function failed, sent the original request",
+			["count-failed"] = "Proxy count in DuckDB failed, sent the original request",
 			["lock-unavailable"] = "Proxy lock is not available",
 			["lock-failed"] = "Proxy lock failed",
 			["redis-failed"] = "Proxy Redis cache failed",
@@ -134,6 +136,11 @@ return {
 		function_suffix = "_aggregate",
 		max_function_bytes = 63, -- PostgreSQL cuts a longer identifier without an error.
 		empty_body = "null", -- The answer of the function for a request that the table function must serve.
+	},
+	count = {
+		prefer = "count=exact", -- The only Prefer value that the proxy answers with a count in DuckDB.
+		alias = "total",
+		item = { fn = "count", alias = "total" },
 	},
 	config = {
 		env_prefix = "PROXY_",

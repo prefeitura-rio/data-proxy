@@ -97,10 +97,18 @@ function filterPushdown(token, k8s) {
             query: `select=name&order=id.desc&limit=2`,
         },
         {
-            name: "a count asks for every row, so the limit stays in PostgREST",
+            name: "a count runs in DuckDB and the page keeps the limit",
             query: `select=id,name&order=id.asc&limit=2`,
             headers: { Prefer: "count=exact" },
             statuses: [200, 206],
+            sameHeaders: ["Content-Range", "Preference-Applied"],
+        },
+        {
+            name: "a count with an offset gives the range and the total of PostgREST",
+            query: `select=id,name&order=id.asc&limit=2&offset=1`,
+            headers: { Prefer: "count=exact" },
+            statuses: [200, 206],
+            sameHeaders: ["Content-Range", "Preference-Applied"],
         },
         {
             name: "select star reads every column of the page",
@@ -108,13 +116,17 @@ function filterPushdown(token, k8s) {
         },
     ];
 
-    cases.forEach(({ name, query, headers, statuses = [200] }) => {
+    cases.forEach(({ name, query, headers, statuses = [200], sameHeaders = [] }) => {
         const caseHeaders = { ...snapshotHeaders, ...headers };
         const direct = directPostgrest(`/${FULL_TABLE}?${query}`, token, caseHeaders);
         const proxy = proxyGet(`/${FULL_TABLE}?${query}`, token, caseHeaders);
         expect(`${name}: direct request succeeds`, statuses.includes(direct.status));
         expect(`${name}: proxy request succeeds`, statuses.includes(proxy.status));
         expect(`${name}: proxy request is not served from cache`, cacheHeader(proxy) === "MISS");
+        sameHeaders.forEach((header) => {
+            expect(`${name}: proxy ${header} matches direct`, proxy.headers[header] === direct.headers[header]);
+        });
+        if (sameHeaders.length > 0) expect(`${name}: proxy status matches direct`, proxy.status === direct.status);
         const directRows = rowsOf(direct);
         const proxyRows = rowsOf(proxy);
         const rowsMatch = stable(proxyRows) === stable(directRows);

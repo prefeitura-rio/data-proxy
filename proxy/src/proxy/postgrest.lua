@@ -1,5 +1,6 @@
 -- Send requests to PostgREST. A read that fails is sent again, with a backoff between the attempts.
 
+local cjson = require("cjson.safe")
 local constants = require("proxy.constants")
 local http = require("resty.http")
 local log = require("proxy.log")
@@ -102,6 +103,106 @@ local function ask_aggregate(context, sender)
 	return nil
 end
 
+--- Tell whether a value is a number of rows: a whole number that is not negative.
+---@param value any
+---@return boolean
+local function is_count(value) return type(value) == "number" and value >= 0 and value == math.floor(value) end
+
+--- Read the number of rows from the answer of the count function.
+---@param response Response|nil
+---@return integer|nil total nil if the function did not count, for example for a table with a fallback source.
+---@return string|nil snapshot The DuckLake snapshot that the count read.
+local function read_total(response)
+	if not response or response.status ~= constants.http.ok_status then return nil end
+
+	local rows = cjson.decode(response.body)
+	local total = type(rows) == "table" and type(rows[1]) == "table" and rows[1][constants.count.alias] or nil
+	local snapshot = response.headers["X-DuckLake-Snapshot"]
+	if snapshot and is_count(total) then return total, snapshot end
+	return nil
+end
+
+--- Count the rows of a read in DuckDB, with the aggregate function of the table.
+--- The proxy sends the original request if the function does not count or fails, so the count never makes a
+--- request fail that PostgREST would answer.
+---@param context RequestContext
+---@param sender Sender
+---@return integer|nil total
+---@return string|nil snapshot The DuckLake snapshot that the count read.
+local function ask_count(context, sender)
+	if context.count == nil then return nil end
+
+	local count = tablex.copy(context)
+	count.uri, count.args, count.headers = context.count.path, "", context.count.count_headers
+
+	local response = sender(count, context.postgrest)
+	local total, snapshot = read_total(response)
+	if total then return total, snapshot end
+
+	log.write(ngx.INFO, "count-failed", context, { status = response and response.status })
+	return nil
+end
+
+--- Add the total to the page that PostgREST did not count: the end of the Content-Range, the status, and the
+--- preference that the proxy applied. The status is 206 unless the page holds every row, as PostgREST does.
+---@param page Response The answer of PostgREST to the page.
+---@param total integer The number of rows in DuckDB.
+---@return Response|nil answer nil if the page is empty or does not match the total.
+local function add_total(page, total)
+	local range = page.headers["Content-Range"] or ""
+	local first, last = range:match("^(%d+)%-(%d+)/%*$")
+	first, last = tonumber(first), tonumber(last)
+	if first == nil or last == nil or last >= total then return nil end
+
+	local headers = tablex.copy(page.headers)
+	headers["Content-Range"] = ("%d-%d/%d"):format(first, last, total)
+	headers["Preference-Applied"] = constants.count.prefer
+	local complete = first == 0 and last == total - 1
+	return {
+		status = complete and constants.http.ok_status or constants.http.partial_status,
+		body = page.body,
+		headers = headers,
+	}
+end
+
+--- Send a request to PostgREST, and send a read again while the answer is retryable.
+---@param context RequestContext
+---@param sender Sender
+---@param sleeper Sleeper
+---@return Response|nil response nil if all attempts fail.
+---@return string|nil error The reason for the last failure.
+local function send_with_retries(context, sender, sleeper)
+	local response, response_error = sender(context, context.postgrest)
+	for attempt = 1, constants.postgrest.retries do
+		if not postgrest.should_retry(context, response) then break end
+		log.write(ngx.WARN, "postgrest-retried", context, { status = response and response.status })
+		sleeper(constants.postgrest.backoff_ms * constants.postgrest.backoff_factor ^ (attempt - 1))
+		response, response_error = sender(context, context.postgrest)
+	end
+
+	return response, response_error
+end
+
+--- Answer a read with `Prefer: count=exact`: count in DuckDB, then read the page at the snapshot of the count.
+--- A page that is not a 200 goes to the client as it is. The proxy sends the original request if the page is empty.
+---@param context RequestContext
+---@param sender Sender
+---@param sleeper Sleeper
+---@return Response|nil response nil if the proxy must send the original request.
+---@return string|nil error The reason for the last failure of the page.
+local function answer_count(context, sender, sleeper)
+	local total, snapshot = ask_count(context, sender)
+	if total == nil then return nil end
+
+	local page = tablex.copy(context)
+	page.headers = tablex.copy(context.count.page_headers)
+	page.headers["X-DuckLake-Snapshot"] = snapshot
+
+	local response, response_error = send_with_retries(page, sender, sleeper)
+	if response == nil or response.status ~= constants.http.ok_status then return response, response_error end
+	return add_total(response, total)
+end
+
 --- Send the request to PostgREST, and send a read again while the answer is retryable.
 --- PostgREST fails for a moment if PgDog loses a standby. Each retry waits twice as long as the one before.
 ---@param context RequestContext
@@ -116,15 +217,10 @@ function postgrest.query(context, sender, sleeper)
 	local aggregate = ask_aggregate(context, sender)
 	if aggregate then return aggregate end
 
-	local response, response_error = sender(context, context.postgrest)
-	for attempt = 1, constants.postgrest.retries do
-		if not postgrest.should_retry(context, response) then break end
-		log.write(ngx.WARN, "postgrest-retried", context, { status = response and response.status })
-		sleeper(constants.postgrest.backoff_ms * constants.postgrest.backoff_factor ^ (attempt - 1))
-		response, response_error = sender(context, context.postgrest)
-	end
+	local counted, counted_error = answer_count(context, sender, sleeper)
+	if counted or counted_error then return counted, counted_error end
 
-	return response, response_error
+	return send_with_retries(context, sender, sleeper)
 end
 
 return postgrest

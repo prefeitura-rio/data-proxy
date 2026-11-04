@@ -143,6 +143,160 @@ describe("postgrest.query with an aggregate", function()
 	end)
 end)
 
+describe("postgrest.query with a count", function()
+	local counted = {
+		method = "GET",
+		uri = "/people",
+		args = "limit=20&offset=40",
+		started = 0,
+		postgrest = "http://postgrest",
+		headers = { Prefer = "count=exact" },
+		count = {
+			path = "/rpc/people_aggregate",
+			count_headers = { ["X-DuckLake-Filter"] = "count" },
+			page_headers = { ["X-DuckLake-Filter"] = "page" },
+		},
+	}
+
+	local total = { status = 200, body = '[{"total":1281450}]', headers = { ["X-DuckLake-Snapshot"] = "239" } }
+	local function page(range, status)
+		return {
+			status = status or 200,
+			body = "[1]",
+			headers = { ["Content-Range"] = range, ["X-Source"] = "ducklake", ["X-DuckLake-Snapshot"] = "239" },
+		}
+	end
+
+	--- Make a sender that gives the answers in order, and records the uri and the headers of each call.
+	local function recording(answers)
+		local seen = {}
+		local function sender(context)
+			seen[#seen + 1] = { uri = context.uri, args = context.args, headers = context.headers }
+			local answer = answers[#seen]
+			if answer == false then return nil, "failed" end
+			return answer
+		end
+		return sender, seen
+	end
+
+	local function no_sleep() end
+
+	it("counts first, then reads the page at the snapshot of the count", function()
+		local sender, seen = recording({ total, page("40-59/*") })
+
+		postgrest.query(counted, sender, no_sleep)
+
+		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same({ "", "limit=20&offset=40" }, { seen[1].args, seen[2].args })
+		assert.same({ ["X-DuckLake-Filter"] = "count" }, seen[1].headers)
+		assert.same({ ["X-DuckLake-Filter"] = "page", ["X-DuckLake-Snapshot"] = "239" }, seen[2].headers)
+		assert.same("count=exact", counted.headers.Prefer)
+	end)
+
+	it("gives 206 and the range with the total for a page inside the rows", function()
+		local sender = recording({ total, page("40-59/*") })
+
+		local response = assert(postgrest.query(counted, sender, no_sleep))
+
+		assert.same(206, response.status)
+		assert.same("40-59/1281450", response.headers["Content-Range"])
+		assert.same("count=exact", response.headers["Preference-Applied"])
+		assert.same("ducklake", response.headers["X-Source"])
+		assert.same("[1]", response.body)
+	end)
+
+	it("gives 200 for a page that holds every row", function()
+		local sender = recording({
+			{ status = 200, body = '[{"total":3}]', headers = { ["X-DuckLake-Snapshot"] = "239" } },
+			page("0-2/*"),
+		})
+
+		local response = assert(postgrest.query(counted, sender, no_sleep))
+
+		assert.same(200, response.status)
+		assert.same("0-2/3", response.headers["Content-Range"])
+	end)
+
+	it("gives 206 for a first page that does not hold every row", function()
+		local sender = recording({
+			{ status = 200, body = '[{"total":30}]', headers = { ["X-DuckLake-Snapshot"] = "239" } },
+			page("0-19/*"),
+		})
+
+		local response = assert(postgrest.query(counted, sender, no_sleep))
+
+		assert.same(206, response.status)
+		assert.same("0-19/30", response.headers["Content-Range"])
+	end)
+
+	local original = { status = 200, body = "[2]", headers = {} }
+	local fallbacks = {
+		{ name = "the function answers null", answers = { { status = 200, body = "null", headers = {} }, original } },
+		{ name = "the function fails", answers = { { status = 500, body = "{}", headers = {} }, original } },
+		{ name = "the call fails", answers = { false, original } },
+		{
+			name = "the answer has no snapshot",
+			answers = { { status = 200, body = '[{"total":5}]', headers = {} }, original },
+		},
+		{
+			name = "the total is not a whole number",
+			answers = {
+				{ status = 200, body = '[{"total":1.5}]', headers = { ["X-DuckLake-Snapshot"] = "1" } },
+				original,
+			},
+		},
+		{ name = "the page is empty", answers = { total, page("*/*"), original } },
+		{ name = "the page is beyond the total", answers = { total, page("1281450-1281459/*"), original } },
+	}
+	for _, case in ipairs(fallbacks) do
+		it("sends the original request when " .. case.name, function()
+			local sender, seen = recording(case.answers)
+
+			local response = assert(postgrest.query(counted, sender, no_sleep))
+
+			assert.same(original, response)
+			assert.same("/people", seen[#seen].uri)
+			assert.same({ Prefer = "count=exact" }, seen[#seen].headers)
+		end)
+	end
+
+	it("gives a page that is not a 200 as it is", function()
+		local failed = { status = 400, body = "{}", headers = {} }
+		local sender, seen = recording({ total, failed })
+
+		local response = assert(postgrest.query(counted, sender, no_sleep))
+
+		assert.same(failed, response)
+		assert.same(2, #seen)
+	end)
+
+	it("sends the page again after a 503", function()
+		local sender, seen = recording({ total, { status = 503, body = "", headers = {} }, page("40-59/*") })
+
+		local response = assert(postgrest.query(counted, sender, no_sleep))
+
+		assert.same(206, response.status)
+		assert.same(3, #seen)
+	end)
+
+	it("gives the failure of the page when every attempt fails", function()
+		local sender = recording({ total, false, false, false })
+
+		local response, response_error = postgrest.query(counted, sender, no_sleep)
+
+		assert.is_nil(response)
+		assert.same("failed", response_error)
+	end)
+
+	it("does not count a request without a count plan", function()
+		local sender, seen = recording({ original })
+
+		postgrest.query({ method = "GET", uri = "/people", args = "", started = 0, postgrest = "x" }, sender, no_sleep)
+
+		assert.same(1, #seen)
+	end)
+end)
+
 describe("postgrest.query", function()
 	it("sends one request to the PostgREST address of the context", function()
 		local sender, sleeper, calls = fakes({ { status = 200 } })
