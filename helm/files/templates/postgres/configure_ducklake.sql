@@ -13,6 +13,8 @@
 }
 #}
 -- noqa: disable=LT05
+-- With extension auto-load off, the secret types of these extensions do not exist until the extensions load.
+SELECT duckdb.raw_query('LOAD httpfs; LOAD postgres_scanner; LOAD ducklake');
 SELECT duckdb.raw_query(
     format(
         'CREATE OR REPLACE PERSISTENT SECRET s3 (TYPE S3, KEY_ID %L, SECRET %L, ENDPOINT %L, URL_STYLE ''path'', USE_SSL %s, REGION ''us-east-1'')',
