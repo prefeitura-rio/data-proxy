@@ -1,6 +1,7 @@
 """Tests for the routing templates and the function of a table."""
 
 import json
+import re
 from typing import Final
 
 import psycopg
@@ -561,6 +562,32 @@ class TestTableFunction:
             ("bigquery", RLS_WHERE, f"NOT ({TWO_DAYS})"),
             ("ducklake", RLS_WHERE, "7"),
         ]
+
+    async def test_view_function_passes_the_grants_as_a_list_without_a_fallback(
+        self, table_function: Postgres
+    ) -> None:
+        """DuckDB alone reads the predicate of a table without a fallback, so it gets the list form."""
+        await install_table_function(table_function, has_rls=True, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_unit(table_function, "u")
+        await insert_access_policy(table_function, "u", "unit", "u2")
+
+        rows, _ = await call_table_function(table_function)
+
+        assert len(rows) == 1
+        source, where_value, snapshot = rows[0]
+        where = str(where_value)
+        assert (source, snapshot) == ("ducklake", "7")
+        assert (
+            re.fullmatch(
+                r"WHERE \(CAST\(unit_id AS VARCHAR\) IN \(SELECT unnest\(\['u[12]','u[12]'\]\)\)\)",
+                where,
+            )
+            is not None
+        )
+        assert {"'u1'", "'u2'"} <= set(
+            where.split("[")[1].split("]", maxsplit=1)[0].split(",")
+        )
 
     async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
         self, table_function: Postgres

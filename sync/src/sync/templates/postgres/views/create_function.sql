@@ -52,7 +52,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings) }}
+{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings, fallbacks | length == 0) }}
   IF v_where IS NULL THEN
     RETURN;
   END IF;

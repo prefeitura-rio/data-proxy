@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Final
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,6 +17,7 @@ from sync.models import (
 )
 from sync.settings import settings
 from sync.templates import render_template
+from sync.types import TemplateValue
 from sync.views import stages
 
 
@@ -253,32 +255,76 @@ class TestAggregateFunction:
             assert mapping["function"].as_string(None) == f'"{table_name}_aggregate"'  # type: ignore[union-attr]
             assert mapping["dl_function"].as_string(None) == f'"{table_name}_dl_fn"'  # type: ignore[union-attr]
 
-    def test_passes_the_grants_to_duckdb_as_a_list_and_not_as_literals(self) -> None:
-        """A list of 2,000 literals in an IN costs DuckDB about 150 ms, and the same list in a subquery about 40 ms."""
-        table = FullTable(
-            name="p.d.people",
-            resolved_source="bigquery",
-            rls=[UnitMapping(column="unit_id", unit_type="unit")],
-        )
+    @pytest.mark.parametrize(
+        ("table", "template", "mapping_function", "as_list"),
+        [
+            pytest.param(
+                FullTable(
+                    name="p.d.people",
+                    resolved_source="bigquery",
+                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                ),
+                "postgres/views/create_function",
+                utils.table_function_mapping,
+                True,
+                id="table-without-fallback",
+            ),
+            pytest.param(
+                PartitionedTable(
+                    name="p.d.people",
+                    resolved_source="bigquery",
+                    fallback=True,
+                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                ),
+                "postgres/views/create_function",
+                utils.table_function_mapping,
+                False,
+                id="table-with-fallback",
+            ),
+            pytest.param(
+                FullTable(
+                    name="p.d.people",
+                    resolved_source="bigquery",
+                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                ),
+                "postgres/views/create_aggregate_function",
+                utils.aggregate_function_mapping,
+                True,
+                id="aggregate",
+            ),
+            pytest.param(
+                FullTable(
+                    name="p.d.people",
+                    resolved_source="bigquery",
+                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                ),
+                "postgres/create_table_changes_function",
+                utils.table_changes_function_mapping,
+                True,
+                id="change-feed",
+            ),
+        ],
+    )
+    def test_passes_the_grants_to_duckdb_as_a_list_when_only_duckdb_reads_them(
+        self,
+        table: FullTable | PartitionedTable,
+        template: str,
+        mapping_function: Callable[..., dict[str, TemplateValue] | None],
+        as_list: bool,
+    ) -> None:
+        """A list of 2,000 literals in an IN costs DuckDB about 150 ms, and the same list in a subquery about 40 ms. A fallback source cannot read the list, so its table keeps the literals."""
         columns = [("unit_id", "VARCHAR"), ("qty", "BIGINT")]
-        aggregate = utils.aggregate_function_mapping("app", table, columns, "sub")
-        assert aggregate is not None
+        mapping = mapping_function("app", table, columns, "sub")
+        assert mapping is not None
 
-        aggregate_sql = render_template(
-            "postgres/views/create_aggregate_function", aggregate
-        )
-        table_sql = render_template(
-            "postgres/views/create_function",
-            utils.table_function_mapping("app", table, columns, "sub"),
-        )
+        sql = render_template(template, mapping)
 
-        assert (
-            re.search(
-                r"CAST\(.+ AS VARCHAR\) IN \(SELECT unnest\(\[%s\]\)\)", aggregate_sql
-            )
+        has_list = (
+            re.search(r"CAST\(.+ AS VARCHAR\) IN \(SELECT unnest\(\[%s\]\)\)", sql)
             is not None
         )
-        assert re.search(r"unnest\(", table_sql) is None
+        assert has_list is as_list
+        assert (re.search(r"%I IN \(%s\)", sql) is not None) is not as_list
 
     @pytest.mark.parametrize(
         ("table_name", "rendered"),

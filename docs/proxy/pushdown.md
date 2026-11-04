@@ -45,7 +45,7 @@ DuckDB runs the filter and the `GROUP BY`. PostgreSQL then orders and cuts the r
 
 The function gives at most `postgrest.maxRows` rows, as PostgREST does. If the answer has more rows, the function gives the first rows with the status `206` and `Content-Range: <first>-<last>/*`. A request with a `limit` below the cap gets exactly that many rows and no `206`. The proxy sends the `206` unchanged and doesn't store it.
 
-The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. In staging this form ran about four times faster than an `IN` list of 2,000 literals.
+The function passes the grants of the subject to DuckDB as one list for each column, `IN (SELECT unnest([...]))`. In staging this form ran about four times faster than an `IN` list of 2,000 literals. The table function and the change feed pass the grants the same way. A table with a fallback source keeps the literal list, because the fallback receives the filter too and can't read the list.
 
 Without an `order`, DuckDB stops after the rows that the answer needs. For an aggregate, the proxy never sends `order` or `limit` at the top of the filter. The table function would cut the rows before the aggregation.
 

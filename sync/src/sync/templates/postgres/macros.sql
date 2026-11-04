@@ -67,7 +67,7 @@ The caller returns an empty result for NULL.
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
     "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
-    "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it only for a predicate that DuckDB alone reads, because a fallback source cannot push it down."
+    "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it for every read that only DuckDB runs: the aggregate function, the change feed, and a table function without a fallback source. A fallback source also receives the predicate and cannot push the list down, so a table with a fallback keeps the literal list."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
