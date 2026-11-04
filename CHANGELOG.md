@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.9.1 - 2026-11-04
+
+### Fixes
+
+- **chart**: load the DuckDB extensions before the secrets (d6c4e24)
+
+
+- - -
+
 ## helm-v2.9.0 - 2026-11-04
 
 ### Features
