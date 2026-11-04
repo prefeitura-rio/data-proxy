@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.9.0 - 2026-11-04
+
+### Features
+
+- **proxy**: count exact rows in DuckDB (7cb5d69)
+
+### Fixes
+
+- **chart**: harden extensions and tune PgDog (0d11696)
+- **sync**: publish row groups of 122880 rows (f724487)
+
+
+- - -
+
 ## helm-v2.8.0 - 2026-11-04
 
 ### Features
