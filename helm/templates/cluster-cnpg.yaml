@@ -3,7 +3,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: {{ include "data-proxy.clusterName" $root }}
+  name: {{ include "data-proxy.fullname" $root }}
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "data-proxy.labels" $root | nindent 4 }}
@@ -15,9 +15,6 @@ metadata:
 spec:
   primaryUpdateMethod: {{ $root.Values.cnpg.primaryUpdateMethod }}
   imageName: {{ $root.Values.cnpg.image | quote }}
-  {{- if $root.Values.cnpg.clusterName }}
-  serviceAccountName: {{ include "data-proxy.serviceAccountName" $root }}
-  {{- end }}
   env:
     - name: HOME
       value: {{ include "data-proxy.postgresHome" $root }}
@@ -33,30 +30,9 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
-      {{- with $root.Values.cnpg.bootstrap.import.source }}
-      import:
-        type: monolith
-        databases: ["*"]
-        roles: ["*"]
-        source:
-          externalCluster: {{ . | quote }}
-      {{- else }}
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS postgis;
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
-      {{- end }}
-  {{- with $root.Values.cnpg.bootstrap.import.source }}
-  externalClusters:
-    - name: {{ . | quote }}
-      connectionParameters:
-        host: {{ printf "%s-rw" . | quote }}
-        user: {{ $root.Values.cnpg.db.user | quote }}
-        dbname: postgres
-        sslmode: require
-      password:
-        name: {{ include "data-proxy.dbSecretName" $root }}
-        key: password
-  {{- end }}
   probes:
     readiness:
       type: streaming

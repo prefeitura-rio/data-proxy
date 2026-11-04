@@ -175,7 +175,7 @@ spec:
               env:
                 {{- include "data-proxy.pgEnv" $root | nindent 16 }}
                 - name: PG_DATABASE_URL
-                  value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user (include "data-proxy.clusterName" $root) $root.Values.cnpg.db.name | quote }}
+                  value: {{ printf "postgresql://%s@%s-rw:5432/%s" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) $root.Values.cnpg.db.name | quote }}
                 - name: BACKUP_PREFIX
                   value: {{ $root.Values.jobs.backup.prefix | quote }}
                 - name: S3_BUCKET

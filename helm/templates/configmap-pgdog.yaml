@@ -39,10 +39,10 @@ data:
 
     [[databases]]
     name = {{ .Values.cnpg.db.name | quote }}
-    host = {{ printf "%s-rw" (include "data-proxy.clusterName" .) | quote }}
+    host = {{ printf "%s-rw" $name | quote }}
     role = "primary"
 
     [[databases]]
     name = {{ .Values.cnpg.db.name | quote }}
-    host = {{ printf "%s-ro" (include "data-proxy.clusterName" .) | quote }}
+    host = {{ printf "%s-ro" $name | quote }}
     role = "replica"

@@ -61,7 +61,7 @@ spec:
                   name: {{ include "data-proxy.signerSecretName" . }}
                   key: password
             - name: CATALOG_URL
-              value: {{ printf "postgresql://%s:$(SIGNER_PASSWORD)@%s-rw:5432/ducklake" .Values.auth.signerRole (include "data-proxy.clusterName" .) | quote }}
+              value: {{ printf "postgresql://%s:$(SIGNER_PASSWORD)@%s-rw:5432/ducklake" .Values.auth.signerRole (include "data-proxy.fullname" .) | quote }}
             - name: S3_ENDPOINT
               value: {{ required "console.storage.endpoint is required when the notebooks are enabled" $storage.endpoint | quote }}
             - name: S3_REGION

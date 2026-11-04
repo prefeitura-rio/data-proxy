@@ -52,7 +52,7 @@ spec:
           command: ["/usr/local/bin/nu", "/scripts/wait-for-postgres.nu"]
           env:
             - name: PGHOST
-              value: {{ printf "%s-rw" (include "data-proxy.clusterName" .) | quote }}
+              value: {{ printf "%s-rw" (include "data-proxy.fullname" .) | quote }}
             - name: PGPORT
               value: "5432"
             - name: PGCONNECT_TIMEOUT

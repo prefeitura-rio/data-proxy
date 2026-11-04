@@ -96,15 +96,9 @@ Restore the database with the recovery of the whole cluster. Create a new cluste
 
 ## Upgrade PostgreSQL to a new major version
 
-Don't change `cnpg.image` to a new major version in place. The image of `pg_duckdb` links `libduckdb.so` by an absolute path, so the CloudNativePG upgrade job can't start the old server. Import the data into a new cluster instead. The old cluster stays until you delete it.
+Don't change `cnpg.image` to a new major version in place. The image of `pg_duckdb` links `libduckdb.so` by an absolute path, so the CloudNativePG upgrade job can't start the old server. The job fails in seconds, and Helm rolls the release back.
 
-1. Run a base backup and check that it finished. See [Verify a backup](#verify-a-backup).
-2. Scale the sync workers and the recovery Deployment to 0, so nothing writes. CloudNativePG copies one snapshot.
-3. Set `cnpg.clusterName` to a new name, `cnpg.image` to the new image, and `cnpg.bootstrap.import.source` to the name of the old cluster. Run `helm upgrade`.
-4. Check `SELECT version();` and compare the row counts of both clusters. Run `ALTER EXTENSION postgis UPDATE` and `ALTER EXTENSION pg_duckdb UPDATE`.
-5. Scale the workers back up. Delete the old cluster after a week.
-
-Before step 3, annotate the old cluster with `helm.sh/resource-policy=keep`. Without it, Helm deletes the old cluster and its volumes when the name changes.
+Create a new cluster that imports the old one instead, with `bootstrap.initdb.import` of the type `monolith`. See the [CloudNativePG import guide](https://cloudnative-pg.io/documentation/current/database_import/). Stop the writers first, because the import copies one snapshot. Run a base backup before you start, and check the row counts of both clusters before you delete the old one.
 
 <!-- nav:start -->
 ---
