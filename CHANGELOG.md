@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.8.0 - 2026-11-04
+
+### Features
+
+- **sync**: pass the grants to DuckDB as a list in the table function (a6a6200)
+
+
+- - -
+
 ## helm-v2.7.2 - 2026-11-03
 
 ### Fixes
