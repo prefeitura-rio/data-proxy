@@ -409,7 +409,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - **NIX-05** Run a group with a namespace prefix. `devenv tasks run sync:test` runs the sync tests of the active profile. [should, review]
 - **NIX-06** Choose the component from three kinds. A deployable is `sync`, `proxy`, `console`, `chart` or `tf`. A part of the test stack is `pg`, `pgrest`, `kc`, `s3` or `nb`. A repository tool is `nu`, `ci`, `ctr`, `docs`, `nix` or `repo`. [must, devenv]
 - **NIX-07** Abbreviate a name that's long. Use the same short form in every layer: the task, the process, the profile and the test image. A file name keeps the full word. [must, review]
-- **NIX-08** Use these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, Terraform `tf`, provision `prov` and configure `conf`. [must, review]
+- **NIX-08** Use these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, provision `prov` and configure `conf`. Terraform is `tf`. [must, review]
 - **NIX-09** Add a word to this list before you use a new short form. [must, review]
 - **NIX-10** Keep the full words in environment variables and in the names of registry images, because the tests and the chart read them. [must, review]
 - **NIX-11** Name a profile `<component>` for the whole stack of a component and `<component>-unit` for the part that needs no service. [must, review]
