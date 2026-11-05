@@ -384,10 +384,11 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 
 // apiRequest is what the fake API saw of one request.
 type apiRequest struct {
-	method        string
-	uri           string
-	acceptProfile string
-	authorization string
+	method         string
+	uri            string
+	acceptProfile  string
+	contentProfile string
+	authorization  string
 }
 
 // fakeAPI is a fake identity provider and a fake PostgREST API. The identity provider answers with tokenStatus
@@ -420,10 +421,11 @@ func newFakeAPI(t *testing.T, tokenStatus, status int, body string) fakeAPI {
 
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, apiRequest{
-			method:        r.Method,
-			uri:           r.URL.RequestURI(),
-			acceptProfile: r.Header.Get("Accept-Profile"),
-			authorization: r.Header.Get("Authorization"),
+			method:         r.Method,
+			uri:            r.URL.RequestURI(),
+			acceptProfile:  r.Header.Get("Accept-Profile"),
+			contentProfile: r.Header.Get("Content-Profile"),
+			authorization:  r.Header.Get("Authorization"),
 		})
 
 		w.Header().Set("Content-Type", "application/json")

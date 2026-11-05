@@ -49,7 +49,62 @@
             '';
             execIfModified = sources;
           };
+          "tf:test:int" = utils.serviceSuite {
+            description = "Run the acceptance tests of the Terraform provider against the console stack.";
+            profile = "terraform-acc";
+            inputs = [
+              "devenv.nix"
+              "devenv.lock"
+              "devenv.yaml"
+              "nix/utils/*.nix"
+              "nix/data.nix"
+              "nix/profiles/*.nix"
+              "nix/stack/console.nix"
+              "nix/stack/keycloak.nix"
+              "nix/stack/postgres.nix"
+              "nix/stack/postgrest.nix"
+              "nix/stack/seaweedfs.nix"
+              "console/devenv.nix"
+              "console/migrations/*.sql"
+              "k3d/values/keycloak.yaml"
+              "Containerfile.kc"
+              "Containerfile.pg"
+            ]
+            ++ utils.mkGlobs "helm/files" [
+              "sql"
+              "nu"
+              "toml"
+              "json"
+              "conf"
+            ]
+            ++ sources;
+          };
         };
+      };
+  };
+
+  # Starts the console stack and runs the acceptance tests of the provider with `devenv --profile terraform-acc test`.
+  # The provider calls PostgREST directly with the test client `admin`, whose role is dp_admin.
+  profiles.terraform-acc = {
+    extends = [
+      "console"
+      "terraform"
+    ];
+    module =
+      { lib, data, ... }:
+      {
+        env = {
+          TF_ACC = "1";
+          DATAPROXY_ENDPOINT = data.urls.pgrest;
+          DATAPROXY_TOKEN_URL = "${data.urls.issuer}/protocol/openid-connect/token";
+          DATAPROXY_CLIENT_ID = "admin";
+          DATAPROXY_CLIENT_SECRET = "test-secret";
+        };
+
+        enterTest = lib.mkForce ''
+          cd terraform
+          go test -count=1 -run '^TestAcc[A-Z]' ./...
+        '';
       };
   };
 }

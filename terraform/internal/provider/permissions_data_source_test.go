@@ -5,16 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
@@ -318,19 +315,11 @@ func TestCheckReadConfig(t *testing.T) {
 }
 
 // TestAccPermissionsDataSource reads the permissions of the admin client of the local stack, whose role is
-// dp_admin. It runs only with TF_ACC, and the DATAPROXY_* variables point the provider at the stack.
+// dp_admin.
 func TestAccPermissionsDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret} {
-				if os.Getenv(name) == "" {
-					t.Fatalf("set %s for the acceptance tests", name)
-				}
-			}
-		},
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			TypeName: providerserver.NewProtocol6WithError(New("test")()),
-		},
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: `data "dataproxy_permissions" "this" {}`,
